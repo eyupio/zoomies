@@ -31,7 +31,7 @@
   // The server says which of the two this is rather than the browser inferring
   // it from two absent numbers -- "no CPU limit" alone cannot tell "the host
   // decides" from "nobody set one", and those used to be the same thing.
-  const automatic = $derived((pool.sizing ?? (hasSize ? 'fixed' : 'automatic')) === 'automatic');
+  const automatic = $derived((pool.sizing ?? (hasSize ? 'fixed' : 'automatic')) !== 'fixed');
 
   /* Only the timings this pool actually overrides. The rest follow the fleet,
      and a row per setting saying "the fleet's" would bury the two that do not. */
@@ -62,6 +62,18 @@
     <dt>Labels</dt>
     <dd><PoolLabels labels={pool.labels ?? []} max={12} wrap /></dd>
   </div>
+  {#if automatic}
+    <div class="pair">
+      <dt>Elastic CPU</dt>
+      <dd class="tabular">
+        {pool.cpu_burst?.mode === 'automatic'
+          ? `Automatic${(pool.cpu_burst.max_cpus ?? 0) > 0 ? `, up to ${formatNumber(pool.cpu_burst.max_cpus)} CPU` : ', up to the host ceiling'}`
+          : pool.cpu_burst?.mode === 'observe'
+            ? 'Observe only'
+            : 'Off'}
+      </dd>
+    </div>
+  {/if}
 
   <div class="pair">
     <dt>GitHub target</dt>

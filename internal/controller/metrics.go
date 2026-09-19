@@ -47,6 +47,8 @@ type metrics struct {
 	providerOperationSeconds                                                                     *prometheus.HistogramVec
 	imagePrewarms                                                                                *prometheus.CounterVec
 	imagePrewarmDuration                                                                         *prometheus.HistogramVec
+	elasticCPUDecisions                                                                          *prometheus.CounterVec
+	elasticCPUFactor                                                                             *prometheus.HistogramVec
 }
 
 // UnmatchedPool is the `pool` label for work no pool here claims.
@@ -194,6 +196,15 @@ func newMetrics(c *Controller) *metrics {
 			Help:    "Time an agent spent satisfying background image preparation, including local metadata cache hits.",
 			Buckets: []float64{.001, .01, .1, .5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 900},
 		}, []string{"pool", "backend", "outcome"}),
+		elasticCPUDecisions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_elastic_cpu_decisions_total",
+			Help: "Elastic CPU decisions by pool, policy mode and outcome. Observe mode records the same plan without changing quotas.",
+		}, []string{"pool", "mode", "outcome"}),
+		elasticCPUFactor: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "zoomies_elastic_cpu_target_factor",
+			Help:    "Planned CPU target divided by the runner's guaranteed CPU, by pool and policy mode.",
+			Buckets: []float64{1, 1.25, 1.5, 2, 3, 4, 6, 8},
+		}, []string{"pool", "mode"}),
 	}
 	m.buildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
 
@@ -202,6 +213,7 @@ func newMetrics(c *Controller) *metrics {
 		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.reconcileErrors, m.cleanups, m.pollsShed, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,
 		m.imagePrewarms, m.imagePrewarmDuration,
+		m.elasticCPUDecisions, m.elasticCPUFactor,
 		m.startupWait, m.dindReady, m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
 		m.schedulingLatency, m.cleanupDuration,
 		&fleetCollector{c: c},

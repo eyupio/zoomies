@@ -2979,6 +2979,20 @@ export interface components {
              */
             pids_limit?: number;
         };
+        /** @description Whether an automatically-sized Docker or Podman pool only observes, or may use, CPU left over after every live runner's guaranteed host share and one imminent start have been protected. Memory never changes while a job runs. Existing pools default to off; new pools default to observe. */
+        CPUBurstPolicy: {
+            /**
+             * @description `off` makes no decisions; `observe` publishes the decision and metrics without changing quotas; `automatic` applies the target to capable agents. Host pressure throttling always takes precedence.
+             * @default off
+             * @enum {string}
+             */
+            mode: "off" | "observe" | "automatic";
+            /**
+             * Format: double
+             * @description Maximum CPU for one logical runner. Zero uses the host's allocatable CPU as the ceiling. For Docker-in-Docker this covers the runner and sidecar together.
+             */
+            max_cpus?: number;
+        };
         /**
          * @description What one pool overrides of the fleet's own runner timings. Every field is optional and every one is nullable, and the three states are distinct: absent leaves whatever the pool already had, `null` clears the override and hands the setting back to the fleet, and a duration sets it. A pool that overrides nothing follows the fleet and keeps following it when the fleet's figure changes, which is why these are not copied onto the pool when it is created.
          *     Zero is a real answer in each, not "unset": a pool on a slow air-gapped registry means "never fail a runner for taking too long to register" by setting `provision_timeout` to `0`.
@@ -3209,11 +3223,12 @@ export interface components {
             ephemeral?: boolean;
             docker_mode?: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
+            cpu_burst?: components["schemas"]["CPUBurstPolicy"];
             /**
-             * @description How this pool decides what one runner gets. `automatic` is one slot's share of whichever host it lands on, which is what a pool with no `cpus` and no `memory_mb` means; `fixed` is the figures in `resources`, the same on every host. Derived from `resources` rather than stored beside it, so the two cannot disagree -- but rendered, because "no CPU limit" alone cannot tell "the host decides" from "nobody set one".
+             * @description How this pool decides what one runner gets. `automatic` is one slot's share of whichever host it lands on, which is what a pool with no `cpus` and no `memory_mb` means; `elastic` keeps that share as its guarantee and may borrow unused CPU; `fixed` is the figures in `resources`, the same on every host.
              * @enum {string}
              */
-            sizing?: "automatic" | "fixed";
+            sizing?: "automatic" | "elastic" | "fixed";
             runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
             host_selector?: {
@@ -3295,6 +3310,13 @@ export interface components {
             /** @default none */
             docker_mode: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
+            /**
+             * @default {
+             *       "mode": "observe",
+             *       "max_cpus": 0
+             *     }
+             */
+            cpu_burst: components["schemas"]["CPUBurstPolicy"];
             runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
             host_selector?: {
@@ -3331,6 +3353,7 @@ export interface components {
             ephemeral?: boolean;
             docker_mode?: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
+            cpu_burst?: components["schemas"]["CPUBurstPolicy"];
             runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
             host_selector?: {
@@ -3341,6 +3364,23 @@ export interface components {
             };
             run_as_root?: boolean;
             enabled?: boolean;
+        };
+        /** @description The live elastic-boost or host-pressure CPU state for a runner with an enforced CPU quota. */
+        CPUResourceState: {
+            /** @enum {string} */
+            state?: "observing" | "guaranteed" | "zoomies" | "maximum_zoomies" | "throttled";
+            /** @description A short dog-themed operator label; clients should branch on state. */
+            label?: string;
+            /** @enum {string} */
+            reason?: "observe_only" | "base_allocation" | "spare_cpu_lent" | "host_pressure";
+            /** Format: double */
+            guaranteed_cpus?: number;
+            /** Format: double */
+            current_cpus?: number;
+            /** Format: double */
+            ceiling_cpus?: number;
+            /** Format: double */
+            factor?: number;
         };
         Runner: {
             id?: string;
@@ -3386,6 +3426,7 @@ export interface components {
              * @enum {string}
              */
             allocation_source?: "pool" | "host" | "";
+            cpu_resource?: components["schemas"]["CPUResourceState"];
             /** Format: date-time */
             created_at?: string;
             /**
@@ -4756,6 +4797,8 @@ export interface components {
             /** @description The agent's configured value */
             capacity?: number;
             version?: string;
+            /** @description Additive runtime capabilities understood by this agent. */
+            features?: string[];
             backends?: components["schemas"]["BackendInfo"][];
             runners?: components["schemas"]["RunnerReport"][];
         };
@@ -4766,6 +4809,28 @@ export interface components {
             controller_version?: string;
             /** @description Send a full runner report next time. Set after the controller restarts. */
             resync_requested?: boolean;
+            throttle?: components["schemas"]["ThrottleDirective"];
+            /** @description Complete boosted-runner set; omission restores a previous boost to its guarantee. */
+            elastic_cpu?: components["schemas"]["ElasticCPUDirective"][];
+        };
+        ThrottleDirective: {
+            level?: number;
+            /**
+             * Format: double
+             * @description Below one reduces every limited runner on this host; pressure always overrides elastic CPU.
+             */
+            cpu_factor?: number;
+        };
+        ElasticCPUDirective: {
+            runner_id: string;
+            /** Format: double */
+            cpu_factor: number;
+            /** Format: double */
+            base_cpus: number;
+            /** Format: double */
+            target_cpus: number;
+            /** @enum {string} */
+            reason?: "squirrel_spotted";
         };
         RunnerReport: {
             /** @description Positive confirmation that backend removal completed, including its work directory; process exit alone is insufficient. */
@@ -4811,6 +4876,11 @@ export interface components {
             memory_bytes?: number;
             /** Format: int64 */
             memory_limit?: number;
+            /**
+             * Format: double
+             * @description One is the guaranteed creation quota; above one is elastic CPU and below one is host-pressure throttling.
+             */
+            cpu_allocation_factor?: number;
         };
         /** @enum {string} */
         AgentTaskKind: "create_runner" | "stop_runner" | "remove_runner" | "stream_logs" | "cancel_logs" | "prewarm_image";

@@ -733,6 +733,9 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	if c.cfg().Scheduler.HostThrottling {
 		c.settleThrottle(ctx, h, now)
 	}
+	// Decide before applyReports replaces the previous per-runner sample: the
+	// delta in cgroup throttling is one of the demand signals.
+	elasticCPU := c.elasticCPUTargets(ctx, h, req, now)
 
 	if len(req.Runners) > 0 {
 		if err := c.applyReports(ctx, hostID, req.Runners); err != nil {
@@ -763,6 +766,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		ResyncRequested:    c.markHostSeen(hostID, false),
 		UnknownRunners:     c.unknownRunners(ctx, hostID, req.Runners),
 		Throttle:           throttleDirective(h),
+		ElasticCPU:         elasticCPU,
 	}, nil
 }
 

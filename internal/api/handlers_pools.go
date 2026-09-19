@@ -111,30 +111,31 @@ func (s *Server) handleGetPool(w http.ResponseWriter, r *http.Request) {
 // min_runners to 0, which on a pool with warm runners is a fleet-wide change
 // nobody asked for.
 type poolInput struct {
-	Name                   *string            `json:"name"`
-	InstallationID         *string            `json:"installation_id"`
-	Labels                 *[]string          `json:"labels"`
-	RunnerGroup            *string            `json:"runner_group"`
-	Backend                *string            `json:"backend"`
-	Platform               *store.Platform    `json:"platform"`
-	Image                  *string            `json:"image"`
-	PullPolicy             *string            `json:"pull_policy"`
-	RunnerVersion          *string            `json:"runner_version"`
-	MinRunners             *int               `json:"min_runners"`
-	MaxRunners             *int               `json:"max_runners"`
-	RepositoryScaleUpLimit *int               `json:"repository_scale_up_limit"`
-	CostPerRunnerHour      *float64           `json:"cost_per_runner_hour"`
-	Priority               *int               `json:"priority"`
-	IdleTimeout            *string            `json:"idle_timeout"`
-	Ephemeral              *bool              `json:"ephemeral"`
-	DockerMode             *string            `json:"docker_mode"`
-	Resources              *store.Resources   `json:"resources"`
-	RunnerSettings         *runnerSettingsIn  `json:"runner_settings"`
-	Cache                  *store.CacheConfig `json:"cache"`
-	HostSelector           *map[string]string `json:"host_selector"`
-	Env                    *map[string]string `json:"env"`
-	RunAsRoot              *bool              `json:"run_as_root"`
-	Enabled                *bool              `json:"enabled"`
+	Name                   *string               `json:"name"`
+	InstallationID         *string               `json:"installation_id"`
+	Labels                 *[]string             `json:"labels"`
+	RunnerGroup            *string               `json:"runner_group"`
+	Backend                *string               `json:"backend"`
+	Platform               *store.Platform       `json:"platform"`
+	Image                  *string               `json:"image"`
+	PullPolicy             *string               `json:"pull_policy"`
+	RunnerVersion          *string               `json:"runner_version"`
+	MinRunners             *int                  `json:"min_runners"`
+	MaxRunners             *int                  `json:"max_runners"`
+	RepositoryScaleUpLimit *int                  `json:"repository_scale_up_limit"`
+	CostPerRunnerHour      *float64              `json:"cost_per_runner_hour"`
+	Priority               *int                  `json:"priority"`
+	IdleTimeout            *string               `json:"idle_timeout"`
+	Ephemeral              *bool                 `json:"ephemeral"`
+	DockerMode             *string               `json:"docker_mode"`
+	Resources              *store.Resources      `json:"resources"`
+	CPUBurst               *store.CPUBurstPolicy `json:"cpu_burst"`
+	RunnerSettings         *runnerSettingsIn     `json:"runner_settings"`
+	Cache                  *store.CacheConfig    `json:"cache"`
+	HostSelector           *map[string]string    `json:"host_selector"`
+	Env                    *map[string]string    `json:"env"`
+	RunAsRoot              *bool                 `json:"run_as_root"`
+	Enabled                *bool                 `json:"enabled"`
 }
 
 // optionalDuration is one duration field of a PATCH body, with the three
@@ -258,6 +259,16 @@ func (s *Server) defaultPool() *store.Pool {
 		// see automaticSizing -- and it is the one that keeps fitting when a
 		// bigger machine joins the fleet.
 		Resources: store.Resources{},
+		CPUBurst:  store.CPUBurstPolicy{Mode: store.CPUBurstOff},
+	}
+}
+
+// defaultNewPoolBurst enables the safe, metrics-only stage only when a new
+// pool actually kept automatic sizing. A create request that supplies fixed
+// resources must remain valid without also knowing to turn elasticity off.
+func defaultNewPoolBurst(in *poolInput, p *store.Pool) {
+	if in.CPUBurst == nil && p.Automatic() && (p.Backend == store.BackendDocker || p.Backend == store.BackendPodman) {
+		p.CPUBurst.Mode = store.CPUBurstObserve
 	}
 }
 
@@ -366,6 +377,10 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	}
 	if in.Resources != nil {
 		p.Resources = *in.Resources
+	}
+	if in.CPUBurst != nil {
+		p.CPUBurst = *in.CPUBurst
+		p.CPUBurst.Mode = store.CPUBurstMode(strings.ToLower(strings.TrimSpace(string(p.CPUBurst.Mode))))
 	}
 	if in.RunnerSettings != nil {
 		in.RunnerSettings.apply(&p.RunnerSettings, add)
@@ -642,6 +657,20 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	if p.Resources.PidsLimit < 0 {
 		add("resources.pids_limit", "a process limit cannot be negative; use 0 for no limit")
 	}
+	if !p.CPUBurst.Mode.Valid() {
+		add("cpu_burst.mode", "use off, observe or automatic")
+	}
+	if p.CPUBurst.MaxCPUs < 0 {
+		add("cpu_burst.max_cpus", "a burst ceiling cannot be negative; use 0 to let the host set the ceiling")
+	} else if p.CPUBurst.MaxCPUs > 0 && p.CPUBurst.MaxCPUs < store.MinRunnerCPUs {
+		add("cpu_burst.max_cpus", "a burst ceiling below a quarter of a core cannot run the runner itself")
+	}
+	if p.CPUBurst.Observes() && !p.Automatic() {
+		add("cpu_burst.mode", "CPU elasticity currently requires automatic sizing, because the host share is its guaranteed base; clear the fixed CPU and memory size or turn elasticity off")
+	}
+	if p.CPUBurst.Observes() && p.Backend != store.BackendDocker && p.Backend != store.BackendPodman {
+		add("cpu_burst.mode", "CPU elasticity needs the Docker or Podman backend, which can measure and move a live cgroup quota")
+	}
 	// The runner image refuses a Docker wait outside 1..3600 seconds with a
 	// configuration exit, so a pool that overrides it past the hour starts no
 	// runner at all. The fleet's own figure is a startup error for the same
@@ -749,6 +778,7 @@ func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 	}
 	p := s.defaultPool()
 	errs := in.apply(p)
+	defaultNewPoolBurst(&in, p)
 	// Organisation installations get the dedicated group provisioned by the
 	// connection probe. An omitted group means "use the Zoomies isolation
 	// boundary", while an explicit empty string still means GitHub Default.
@@ -840,6 +870,7 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 	}
 	p := s.defaultPool()
 	errs := in.apply(p)
+	defaultNewPoolBurst(&in, p)
 	errs = append(errs, s.validatePool(r.Context(), p, r.URL.Query().Get("id"))...)
 
 	fit, err := s.ctrl.HostFit(r.Context(), p)

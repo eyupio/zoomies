@@ -22,7 +22,11 @@ import {
   Cloud,
   Info,
   Minus,
+  Dog,
+  PawPrint,
   Play,
+  Rabbit,
+  Squirrel,
   TriangleAlert,
 } from '@lucide/svelte';
 import type { LucideIcon } from '@lucide/svelte';
@@ -149,6 +153,40 @@ export function runnerRowStatus(runner: Pick<Runner, 'state'>): StatusMeta {
 /** Every runner state with its label, for filter menus. */
 export function runnerStatuses(): StatusMeta[] {
   return Object.values(RUNNER);
+}
+
+/** Elastic CPU has its own dog-park vocabulary, backed by stable API states. */
+export function cpuResourceStatus(state: string | undefined, label?: string): StatusMeta {
+  switch (state) {
+    case 'maximum_zoomies':
+      return meta(state, label ?? 'Squirrel spotted — maximum zoomies', 'busy', 'filled', Squirrel);
+    case 'zoomies':
+      return meta(state, label ?? 'Rabbit spotted — extra zoomies', 'busy', 'filled', Rabbit);
+    case 'throttled':
+      return meta(
+        state,
+        label ?? 'Leash tightened — host under pressure',
+        'draining',
+        'slash',
+        Dog,
+      );
+    case 'observing':
+      return meta(
+        state,
+        label ?? 'Nose to the wind — watching spare CPU',
+        'pending',
+        'dashed',
+        PawPrint,
+      );
+    default:
+      return meta(
+        'guaranteed',
+        label ?? 'Steady paws — guaranteed pace',
+        'idle',
+        'hollow',
+        PawPrint,
+      );
+  }
 }
 
 /* -- jobs ----------------------------------------------------------------- */

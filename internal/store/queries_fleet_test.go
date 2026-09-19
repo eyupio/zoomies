@@ -168,6 +168,7 @@ func TestUpdatePoolBrandsTheNameAndNormalisesLabels(t *testing.T) {
 	cost := 0.25
 	pool.CostPerRunnerHour = &cost
 	pool.RepositoryScaleUpLimit = 2
+	pool.CPUBurst = CPUBurstPolicy{Mode: CPUBurstAutomatic, MaxCPUs: 6}
 	if err := s.UpdatePool(ctx, pool); err != nil {
 		t.Fatalf("UpdatePool: %v", err)
 	}
@@ -184,6 +185,9 @@ func TestUpdatePoolBrandsTheNameAndNormalisesLabels(t *testing.T) {
 	}
 	if got.CostPerRunnerHour == nil || *got.CostPerRunnerHour != 0.25 {
 		t.Fatalf("cost_per_runner_hour = %v, want 0.25", got.CostPerRunnerHour)
+	}
+	if got.CPUBurst.Mode != CPUBurstAutomatic || got.CPUBurst.MaxCPUs != 6 {
+		t.Fatalf("cpu burst policy = %+v, want automatic with a 6 CPU ceiling", got.CPUBurst)
 	}
 	// A pull policy the caller left empty is filled in rather than stored blank,
 	// because an unset policy at pull time is a runner that never starts.
