@@ -686,7 +686,9 @@ test('the matrix has quick ranges, and remembers the one chosen', async ({ page 
  * a band with a stub of squares at the left, a field of white, and the key
  * pushed against the right edge. The grid takes the width it can use and the
  * figures take the rest, so there is no gap between them to explain -- and on
- * a phone, where there is no beside, the whole thing stacks instead.
+ * a phone that holds too, which is the half of it that was once missing: a
+ * week of hours squeezed into ten-pixel squares filled half the screen and
+ * left the other half white, whatever the phone was.
  */
 test('the matrix spends the width on squares and figures, with the key beneath', async ({
   page,
@@ -707,12 +709,46 @@ test('the matrix spends the width on squares and figures, with the key beneath',
 
   const viewport = page.viewportSize();
   if ((viewport?.width ?? 0) < 900) {
-    // A phone puts the aside under the grid, and the page still never widens.
-    const stacked = await Promise.all([grid.boundingBox(), aside.boundingBox()]);
-    expect(stacked[1]!.y, 'the figures are under the grid').toBeGreaterThanOrEqual(stacked[0]!.y);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-      true,
-    );
+    /*
+      A phone is too narrow for both, so one of the two gives way -- and which
+      one is the grid's to decide. A week of hours would use every pixel of the
+      band, so it takes it and the figures go underneath; a month is five week
+      columns however large the square, so it stops short and the figures stay
+      beside it rather than leaving the band's own width white. Either way the
+      page never widens: what does not fit scrolls inside the frame.
+    */
+    for (const [range, spends] of [
+      ['The last 7 days, by the hour', true],
+      ['The last 30 days', false],
+    ] as const) {
+      await matrix
+        .getByRole('group', { name: 'Range' })
+        .getByRole('button', { name: range })
+        .click();
+      await expect(grid).toBeVisible();
+      const [bandBox, gridBox, asideBox] = await Promise.all([
+        band.boundingBox(),
+        grid.boundingBox(),
+        aside.boundingBox(),
+      ]);
+      if (spends) {
+        expect(gridBox!.width, `${range}: the squares take the band`).toBeGreaterThan(
+          bandBox!.width - 16,
+        );
+        expect(asideBox!.y, `${range}: the figures are under them`).toBeGreaterThan(gridBox!.y);
+      } else {
+        expect(asideBox!.x, `${range}: the figures are beside the squares`).toBeGreaterThan(
+          gridBox!.x + gridBox!.width - 1,
+        );
+        expect(
+          gridBox!.width + asideBox!.width,
+          `${range}: and the two of them are the band`,
+        ).toBeGreaterThan(bandBox!.width - 32);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+    }
     return;
   }
 
