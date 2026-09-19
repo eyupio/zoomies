@@ -4846,12 +4846,22 @@ export interface components {
             pool_name?: string;
             image?: string;
             pull_policy?: components["schemas"]["PullPolicy"];
+            /**
+             * Format: date-time
+             * @description Do not create a new workload at or after this provisioning deadline; existing workloads are still adopted.
+             */
+            start_before?: string;
             /** @description The runner's registration credentials. Never logged, never shown. */
             credentials?: {
                 /** Format: password */
                 jit_config?: string;
                 /** Format: password */
                 registration_token?: string;
+                /**
+                 * Format: date-time
+                 * @description GitHub token expiry when known.
+                 */
+                expires_at?: string;
                 /** @description The organisation or repository URL the runner registers against. */
                 url?: string;
                 runner_group?: string;

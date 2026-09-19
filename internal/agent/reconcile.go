@@ -247,6 +247,9 @@ func exitFault(code int) store.FaultKind {
 		// operator reading "out of memory" against a kill that was not one
 		// still has the sentence that says so.
 		return store.FaultOutOfMemory
+	case 7:
+		// actions/runner refuses jobs when its version is no longer supported.
+		return store.FaultConfig
 	case 64:
 		// EX_USAGE: started with no credentials, so it could not register.
 		return store.FaultRegistration
@@ -262,12 +265,14 @@ func exitFault(code int) store.FaultKind {
 
 // entrypointExitHint says what a runner image's entrypoint meant by an exit
 // code of its own. The codes are sysexits.h values the entrypoint reserves --
-// actions/runner itself exits 0 to 5 -- and each one is a runner that never
+// separate from actions/runner exit codes -- and each one is a runner that never
 // took a job, so the container's log is short and says exactly what was
 // wrong. A bare "exited with code 69" sent operators to GitHub's job log
 // instead, where there is nothing, because the runner never registered.
 func entrypointExitHint(code int) string {
 	switch code {
+	case 7:
+		return "GitHub rejected the runner version as outdated; update the pool's runner image or process runner version, and check its pull policy before retrying"
 	case 64:
 		return "the image was started with no credentials, so the entrypoint could not register a runner; read the container's log"
 	case 69:

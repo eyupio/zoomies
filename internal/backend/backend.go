@@ -136,8 +136,10 @@ type Info struct {
 // ephemeral runner and cannot be replayed. RegistrationToken is the fallback
 // used by non-ephemeral pools, which must run config.sh.
 type Credentials struct {
-	JITConfig         string `json:"jit_config,omitempty"`
-	RegistrationToken string `json:"registration_token,omitempty"`
+	// ExpiresAt is GitHub's token expiry, when supplied. Zero means unknown.
+	ExpiresAt         time.Time `json:"expires_at,omitzero"`
+	JITConfig         string    `json:"jit_config,omitempty"`
+	RegistrationToken string    `json:"registration_token,omitempty"`
 	// URL is the org or repo URL the runner registers against.
 	URL string `json:"url,omitempty"`
 	// RunnerGroup and Labels are only needed for the registration-token path;
@@ -148,6 +150,9 @@ type Credentials struct {
 
 // Spec is everything a backend needs to create one runner.
 type Spec struct {
+	// StartBefore bounds queue wait using the controller's provision timeout.
+	// An existing workload is adopted even after this deadline.
+	StartBefore time.Time `json:"start_before,omitzero"`
 	// Name is the runner name as GitHub will know it. It doubles as the
 	// container name, so it must be unique on the host.
 	Name string `json:"name"`

@@ -262,3 +262,52 @@ func TestBlockedStatsDoNotBlockLifecycleReconciliation(t *testing.T) {
 		}
 	})
 }
+
+func TestExpiredCreateDoesNotStartWorkload(t *testing.T) {
+	for _, which := range []string{"provision", "token"} {
+		t.Run(which, func(t *testing.T) {
+			a, tr, be, _ := newAgent(t, 2)
+			task := createTask("expired", "runner")
+			if which == "provision" {
+				task.Spec.StartBefore = a.now()
+			} else {
+				task.Spec.Credentials.ExpiresAt = a.now()
+			}
+			released := false
+			a.handleCreate(context.Background(), task, func() { released = true })
+			result := <-tr.results
+			if result.OK || !strings.Contains(result.Error, "expired") || !released {
+				t.Fatalf("expired create: %+v, released %v", result, released)
+			}
+			if created, _, removed := be.counts(); created != 0 || removed != 0 {
+				t.Fatal("expired task changed workloads")
+			}
+		})
+	}
+}
+
+func TestExpiredRedeliveryAdoptsExistingWorkload(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 2)
+	task := createTask("first", "runner")
+	a.handleCreate(context.Background(), task, func() {})
+	first := <-tr.results
+	if !first.OK {
+		t.Fatalf("first create: %+v", first)
+	}
+	task.Spec.StartBefore = a.now().Add(-time.Minute)
+	task.Spec.Credentials.ExpiresAt = a.now().Add(-time.Minute)
+	a.handleCreate(context.Background(), task, func() {})
+	again := <-tr.results
+	if !again.OK || again.Handle != first.Handle {
+		t.Fatalf("expired redelivery: %+v", again)
+	}
+	if created, _, removed := be.counts(); created != 1 || removed != 0 {
+		t.Fatal("redelivery replaced existing workload")
+	}
+}
+
+func TestOutdatedRunnerExplainsRequiredUpdate(t *testing.T) {
+	if exitFault(7) != store.FaultConfig || !strings.Contains(entrypointExitHint(7), "outdated") {
+		t.Fatal("outdated runner lacks actionable classification")
+	}
+}

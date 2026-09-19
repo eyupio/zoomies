@@ -81,3 +81,28 @@ func TestProvisioningOrderingIsStable(t *testing.T) {
 		t.Fatalf("ordering: %+v", got)
 	}
 }
+
+func TestExecutionOrderPreservesFairAllocation(t *testing.T) {
+	a, b := testPool("a", "a"), testPool("b", "b")
+	a.MinRunners, b.MinRunners = 2, 2
+	snap := Snapshot{Now: now, Pools: []*store.Pool{a, b}, Hosts: []*store.Host{testHost("host", 10, 0)}, Policy: testPolicy(), LastProvisioned: map[string]time.Time{a.ID: now}}
+	snap.Policy.MaxCreatesPerTick = 4
+	plan := Decide(snap)
+	want := []string{b.ID, a.ID, b.ID, a.ID}
+	if len(plan.Actions) != len(want) {
+		t.Fatalf("actions: %+v", plan.Actions)
+	}
+	for i, a := range plan.Actions {
+		if a.PoolID != want[i] {
+			t.Fatalf("action %d: %s, want %s", i, a.PoolID, want[i])
+		}
+	}
+	if plan.Pools[0].PoolID != a.ID {
+		t.Fatal("display order changed")
+	}
+	a.Priority = 10
+	plan = Decide(snap)
+	if plan.Actions[0].PoolID != a.ID || plan.Actions[1].PoolID != a.ID {
+		t.Fatal("execution lost priority tiers")
+	}
+}

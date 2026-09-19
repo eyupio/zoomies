@@ -1365,6 +1365,15 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	start := a.now()
 	var created backend.CreateResult
 	for retry := 0; ; retry++ {
+		// Check only after adoption: an expired task is not permission to disturb
+		// a workload that already consumed its one-use registration.
+		if (!spec.StartBefore.IsZero() && !a.now().Before(spec.StartBefore)) ||
+			(!spec.Credentials.ExpiresAt.IsZero() && !a.now().Before(spec.Credentials.ExpiresAt)) {
+			release()
+			a.reportFailure(ctx, task, "the runner's provisioning deadline or registration credential expired while waiting to start; nothing was created and queued demand will be retried with fresh credentials", store.FaultRegistration)
+			return
+		}
+
 		if timed, ok := b.(backend.TimedCreator); ok {
 			created, err = timed.CreateWithResult(cctx, spec)
 		} else {

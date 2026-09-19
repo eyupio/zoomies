@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 func TestRegistrationAdmissionIsBoundedAndInstallationScoped(t *testing.T) {
@@ -113,4 +114,65 @@ func TestRegistrationDeferredDemandResumesOnLaterPass(t *testing.T) {
 	if len(h.c.credentialMints) != 0 {
 		t.Fatal("completed lifecycle retained admission")
 	}
+}
+
+func TestRegistrationAdmissionPreservesPoolFairness(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	a, b := h.pool(inst, "a"), h.pool(inst, "b")
+	h.host("host")
+	for _, p := range []*store.Pool{a, b} {
+		p.MinRunners = 2
+		if err := h.st.UpdatePool(h.ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.gh.SetDelay("", "generate-jitconfig", 500*time.Millisecond)
+	for pass := 0; pass < 2; pass++ {
+		if err := h.c.Reconcile(h.ctx); err != nil {
+			t.Fatal(err)
+		}
+		h.c.lifecycleCalls.Wait()
+	}
+	counts := map[string]int{}
+	for _, r := range h.runners() {
+		counts[r.PoolID]++
+	}
+	if counts[a.ID] != 1 || counts[b.ID] != 1 {
+		t.Fatalf("admission starved a pool: %v", counts)
+	}
+}
+
+func TestCreateTaskCarriesProvisionDeadlineAndTokenExpiry(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.Ephemeral = false
+	pool.MinRunners = 1
+	timeout := store.Duration(17 * time.Minute)
+	pool.RunnerSettings.ProvisionTimeout = &timeout
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	h.c.lifecycleCalls.Wait()
+	tasks := h.tasksFor(host.ID)
+	for _, task := range tasks {
+		if task.Spec == nil || task.Spec.Credentials.RegistrationToken == "" {
+			continue
+		}
+		runners := h.runners()
+		if len(runners) != 1 {
+			t.Fatalf("runners: %d", len(runners))
+		}
+		if !task.Spec.StartBefore.Truncate(time.Millisecond).Equal(runners[0].CreatedAt.Add(time.Duration(timeout))) {
+			t.Fatalf("deadline %s, created %s, timeout %s", task.Spec.StartBefore, runners[0].CreatedAt, timeout)
+		}
+		if task.Spec.Credentials.ExpiresAt.IsZero() {
+			t.Fatal("GitHub token expiry was discarded")
+		}
+		return
+	}
+	t.Fatal("no credential-bearing create task")
 }
