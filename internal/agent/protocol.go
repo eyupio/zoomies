@@ -247,7 +247,12 @@ type Task struct {
 type TaskResult struct {
 	StartupWait       *time.Duration `json:"startup_wait,omitempty"`
 	DinDReadyDuration *time.Duration `json:"dind_ready_duration,omitempty"`
-	TaskID            string         `json:"task_id"`
+	// PrewarmCached distinguishes preparation reused on the host from work sent
+	// to the runtime. The pointer keeps results from older agents identifiable
+	// rather than silently calling every one a refresh.
+	PrewarmCached   *bool          `json:"prewarm_cached,omitempty"`
+	PrewarmDuration *time.Duration `json:"prewarm_duration,omitempty"`
+	TaskID          string         `json:"task_id"`
 	// Kind is the kind of the task this answers. The controller uses it to
 	// tell a lifecycle task that failed -- which leaves the runner unusable --
 	// from a log relay that could not be opened, which leaves it exactly as it

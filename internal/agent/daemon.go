@@ -1268,10 +1268,15 @@ func (a *Agent) handlePrewarm(ctx context.Context, task Task, release func()) {
 	}
 	warmCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	digest, err := a.prewarm(warmCtx, b, p, task)
+	warm, err := a.prewarm(warmCtx, b, p, task)
 	a.runtimeResult(err)
 	release()
-	res := TaskResult{TaskID: task.ID, Kind: task.Kind, OK: err == nil, Digest: digest, CompletedAt: a.now()}
+	cached := warm.cached
+	duration := warm.duration
+	res := TaskResult{
+		TaskID: task.ID, Kind: task.Kind, OK: err == nil, Digest: warm.digest,
+		PrewarmCached: &cached, PrewarmDuration: &duration, CompletedAt: a.now(),
+	}
 	if err != nil {
 		res.Error = err.Error()
 	}

@@ -959,6 +959,23 @@ func (c *Controller) stampIssued(ctx context.Context, tasks []agent.Task) {
 func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.TaskResult) error {
 	task, known := c.queues.get(hostID).complete(res.TaskID)
 	if known && task.Kind == agent.TaskPrewarmImage {
+		outcome := "failed"
+		if res.OK {
+			switch {
+			case res.PrewarmCached == nil:
+				outcome = "unknown"
+			case *res.PrewarmCached:
+				outcome = "cache_hit"
+			default:
+				outcome = "prepared"
+			}
+		}
+		pool := c.poolLabel(task.PoolID)
+		backendKind := string(task.Backend)
+		c.metrics.imagePrewarms.WithLabelValues(pool, backendKind, outcome).Inc()
+		if res.PrewarmDuration != nil && *res.PrewarmDuration >= 0 {
+			c.metrics.imagePrewarmDuration.WithLabelValues(pool, backendKind, outcome).Observe(res.PrewarmDuration.Seconds())
+		}
 		state := "succeeded"
 		if !res.OK {
 			state = "failed"

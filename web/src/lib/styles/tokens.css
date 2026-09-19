@@ -303,6 +303,12 @@
      phone, and on a desktop it is the side that does not add a scrollbar. */
   --z-window-width: min(100vw, 100%);
 
+  /* Mobile Chrome can place Android's gesture bar over the layout while
+     reporting a zero safe-area inset. Keep a small floor so controls pinned
+     to the bottom edge remain readable there; notched devices still supply
+     their larger native inset. */
+  --z-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--z-space-3));
+
   /* The chip the monochrome mark sits on. The brand sanctions the white
      knockout over dark surfaces, so one asset serves both themes when it is
      drawn on a near-black chip. */

@@ -325,10 +325,10 @@
          width, leaving half the bar off the screen. */
       width: var(--z-window-width);
       height: auto;
-      /* The home-indicator gap on an iPhone: index.html asks for
-         viewport-fit=cover, so the inset has to be honoured somewhere. */
-      padding: var(--z-space-1) var(--z-space-1)
-        calc(var(--z-space-1) + env(safe-area-inset-bottom, 0px));
+      /* Keep the labels above iOS home indicators and Android gesture bars.
+         Some Android browsers report a zero environment inset, so the shared
+         token includes a small floor. */
+      padding: var(--z-space-1) var(--z-space-1) calc(var(--z-space-1) + var(--z-safe-bottom));
       border-right: 0;
       border-top: var(--z-border-width) solid var(--z-border);
     }

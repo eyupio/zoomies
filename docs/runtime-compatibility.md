@@ -42,8 +42,12 @@ bounded pool/backend label scheme. Structured `startup admitted` and
 `Docker sidecar readiness completed` logs also show these stages; readiness logs
 include success/failure. No runner ID is added as a metric label.
 
-Background preparation logs distinguish `cache_hit` and `refresh`, with refresh
-duration, resolved digest and success. The bounded 128-entry cache keys include
+Background preparation logs distinguish `cache_hit` and `refresh`, with
+duration, resolved digest and success. The Prometheus counter
+`zoomies_image_prewarms_total` and histogram
+`zoomies_image_prewarm_duration_seconds` carry the same bounded outcome signal
+back through the controller for cache-efficiency and latency comparisons. The
+bounded 128-entry cache keys include
 backend, native platform, requested image reference, pull policy and DinD dependency.
 Digest-pinned references retain their immutable identity. Tag entries expire after
 45–60 seconds; failure never populates the cache. Foreground `always` pulls retain

@@ -103,6 +103,66 @@ func gatherValue(t *testing.T, c *Controller, name string, labels map[string]str
 	return 0, false
 }
 
+func gatherHistogram(t *testing.T, c *Controller, name string, labels map[string]string) (uint64, float64, bool) {
+	t.Helper()
+	families, err := c.Registry().Gather()
+	if err != nil {
+		t.Fatalf("gathering metrics: %v", err)
+	}
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+	metric:
+		for _, metric := range family.GetMetric() {
+			for key, want := range labels {
+				found := false
+				for _, label := range metric.GetLabel() {
+					if label.GetName() == key && label.GetValue() == want {
+						found = true
+					}
+				}
+				if !found {
+					continue metric
+				}
+			}
+			if metric.Histogram != nil {
+				return metric.GetHistogram().GetSampleCount(), metric.GetHistogram().GetSampleSum(), true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+func TestImagePrewarmReportsCacheEfficiencyAndDuration(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	if n, err := h.c.PrewarmPool(h.ctx, pool); err != nil || n != 1 {
+		t.Fatalf("PrewarmPool = %d, %v; want one host", n, err)
+	}
+	batch, err := h.c.PollTasks(h.ctx, host.ID, time.Millisecond)
+	if err != nil || len(batch.Tasks) != 1 {
+		t.Fatalf("PollTasks = %+v, %v; want the prewarm task", batch, err)
+	}
+	cached := true
+	duration := 7 * time.Millisecond
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: batch.Tasks[0].ID, Kind: agent.TaskPrewarmImage, OK: true,
+		PrewarmCached: &cached, PrewarmDuration: &duration,
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+
+	labels := map[string]string{"pool": pool.Name, "backend": string(pool.Backend), "outcome": "cache_hit"}
+	if got, ok := gatherValue(t, h.c, "zoomies_image_prewarms_total", labels); !ok || got != 1 {
+		t.Errorf("cache-hit prewarms = %v (present=%v), want 1", got, ok)
+	}
+	count, sum, ok := gatherHistogram(t, h.c, "zoomies_image_prewarm_duration_seconds", labels)
+	if !ok || count != 1 || sum < duration.Seconds() || sum > duration.Seconds()+0.001 {
+		t.Errorf("prewarm duration = count %d, sum %v (present=%v), want one %v observation", count, sum, ok, duration.Seconds())
+	}
+}
+
 // The backlog's depth and its age are different questions, and only the second
 // one distinguishes a fleet that is working from a fleet that has stopped: ten
 // jobs queued for four seconds and one job queued for forty minutes are the
