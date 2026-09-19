@@ -126,6 +126,13 @@ interface StoredPrefs {
    */
   activityRange?: ActivityRangeKey;
   /**
+   * Which of the Overview feed's categories this browser shows, where a choice
+   * has been made. Only the choices are stored, never the defaults: a category
+   * added by a later release then arrives with the default its author gave it
+   * rather than switched off by a preference written before it existed.
+   */
+  feed?: Record<string, boolean>;
+  /**
    * The phone layout a grid takes when the operator has not chosen one for it
    * itself. One setting for the whole app: an operator who prefers to scan rows
    * prefers it on every page, and the per-grid choice is for the page that is
@@ -185,6 +192,7 @@ class Prefs {
   #otherRunners = $state(false);
   #activityRange = $state<ActivityRangeKey>('1d');
   #gridView = $state<GridView>(DEFAULT_GRID_VIEW);
+  #feed = $state<Record<string, boolean>>({});
   #accountSync = false;
   #accountSave: ReturnType<typeof setTimeout> | null = null;
 
@@ -211,6 +219,7 @@ class Prefs {
     this.#gridView = (GRID_VIEWS as readonly string[]).includes(stored.gridView ?? '')
       ? (stored.gridView as GridView)
       : DEFAULT_GRID_VIEW;
+    this.#feed = stored.feed ?? {};
     this.#applyNav();
   }
 
@@ -263,6 +272,21 @@ class Prefs {
 
   set gridView(value: GridView) {
     this.#gridView = value;
+    this.#persist();
+  }
+
+  /**
+   * What this browser has decided about one of the Overview feed's categories,
+   * or undefined where it has decided nothing. The default belongs to the
+   * category rather than here, so a release that changes its mind about one
+   * reaches every browser that has not overruled it.
+   */
+  feedChoice(category: string): boolean | undefined {
+    return this.#feed[category];
+  }
+
+  setFeedChoice(category: string, on: boolean): void {
+    this.#feed = { ...this.#feed, [category]: on };
     this.#persist();
   }
 
@@ -441,6 +465,7 @@ class Prefs {
         otherRunners: this.#otherRunners,
         activityRange: this.#activityRange,
         gridView: this.#gridView,
+        feed: this.#feed,
       } satisfies StoredPrefs),
     );
     this.#scheduleAccountSave();

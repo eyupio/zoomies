@@ -10,6 +10,7 @@
   import { onUnauthorized } from '$lib/api/client';
   import { installShortcuts, focusSearch } from '$lib/keys';
   import { router } from '$lib/router';
+  import { feed } from '$lib/state/feed.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
   import { refresh } from '$lib/state/refresh.svelte';
   import { session } from '$lib/state/session.svelte';
@@ -47,6 +48,7 @@
     onUnauthorized(() => {
       session.clear();
       fleet.stop();
+      feed.stop();
     });
     router.start();
     void session.boot();
@@ -77,8 +79,13 @@
   });
 
   // Connect the live stream exactly once, and only for somebody signed in.
+  // The feed listens to the same stream and is started with it, so a tab left
+  // on the Runners page all morning still has the morning's events in it when
+  // the Overview is opened.
   $effect(() => {
-    if (authenticated) fleet.start();
+    if (!authenticated) return;
+    fleet.start();
+    feed.start();
   });
 
   // An administrator has reset this password; say so once rather than letting

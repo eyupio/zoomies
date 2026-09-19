@@ -18,6 +18,7 @@
 -->
 <script lang="ts">
   import {
+    Activity,
     BookOpen,
     CircleUser,
     Keyboard,
@@ -129,6 +130,12 @@
       label: 'Appearance',
       icon: Palette,
       onSelect: () => router.navigate('/settings/appearance'),
+    },
+    {
+      id: 'events',
+      label: 'Events',
+      icon: Activity,
+      onSelect: () => router.navigate('/settings/events'),
     },
     {
       id: 'shortcuts',

@@ -201,7 +201,7 @@ test('a scaling decision delivered twice appears once', async ({ page }) => {
   // looks like -- and, because the feed is keyed by the decision's id, the
   // second copy takes the whole panel down rather than merely misleading.
   await goto(page, '/', 'Overview');
-  const feed = page.getByRole('region', { name: 'Recent scaling', exact: true });
+  const feed = page.getByRole('region', { name: 'Recent events', exact: true });
   await expect(feed).toBeVisible();
 
   const decision = {

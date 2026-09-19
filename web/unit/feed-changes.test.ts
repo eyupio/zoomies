@@ -1,0 +1,162 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import type { Host, Job, Machine, Problem, Provider } from '../src/lib/api/types.ts';
+import {
+  hostChanges,
+  hostSignal,
+  installationChange,
+  jobTrouble,
+  machineChange,
+  newProblems,
+  providerChanges,
+  providerSignal,
+} from '../src/lib/feed/changes.ts';
+
+function host(fields: Partial<Host> = {}): Host {
+  return { id: 'hst_1', name: 'builder-1', healthy: true, ...fields } as Host;
+}
+
+test('a host that has only moved its CPU reading is not news', () => {
+  // The case the whole module exists for: every host publishes a frame on
+  // every heartbeat, and a feed that reported them would be a feed nobody
+  // reads -- and then one an operator switches off, losing the lines that
+  // mattered.
+  const before = hostSignal(host({ cpu_percent: 4 } as Partial<Host>));
+  const after = hostSignal(host({ cpu_percent: 91 } as Partial<Host>));
+  assert.deepEqual(hostChanges(after, before), []);
+});
+
+test('a host is reported when it stops answering and again when it comes back', () => {
+  const healthy = hostSignal(host());
+  const silent = hostSignal(host({ healthy: false }));
+  assert.deepEqual(hostChanges(silent, healthy), ['unreachable']);
+  assert.deepEqual(hostChanges(healthy, silent), ['recovered']);
+});
+
+test('every rung of the throttle ladder is its own line, and calm is one line', () => {
+  // A host climbing the ladder is a host under worsening pressure, which is
+  // the thing an operator watches for; coming off it happens once.
+  const none = hostSignal(host());
+  const first = hostSignal(host({ throttle: { level: 1 } } as Partial<Host>));
+  const second = hostSignal(host({ throttle: { level: 2 } } as Partial<Host>));
+  assert.deepEqual(hostChanges(first, none), ['throttled']);
+  assert.deepEqual(hostChanges(second, first), ['throttled']);
+  assert.deepEqual(hostChanges(first, second), [], 'stepping back down is not news on its own');
+  assert.deepEqual(hostChanges(none, first), ['calm']);
+});
+
+test('a host nobody here has seen before has joined the fleet', () => {
+  assert.deepEqual(hostChanges(hostSignal(host()), undefined), ['joined']);
+});
+
+test('two things going wrong on one host are two lines, worst first', () => {
+  const before = hostSignal(host());
+  const after = hostSignal(host({ healthy: false, cordoned: true }));
+  assert.deepEqual(hostChanges(after, before), ['unreachable', 'cordoned']);
+});
+
+function machine(state: string): Machine {
+  return { id: 'mach_1', state, name: 'zoomies-mach-1' } as unknown as Machine;
+}
+
+test('a machine is reported when it starts costing money, earns it, or goes wrong', () => {
+  assert.equal(machineChange(machine('creating'), undefined), 'creating');
+  assert.equal(machineChange(machine('ready'), 'enrolling'), 'ready');
+  assert.equal(machineChange(machine('failed'), 'bootstrapping'), 'failed');
+  assert.equal(machineChange(machine('quarantined'), 'ready'), 'quarantined');
+});
+
+test('the steps on the way up are progress rather than news', () => {
+  // The machine's own page has them, with their timings. A feed that carried
+  // five lines per machine would bury everything else on a fleet renting any
+  // number of them.
+  assert.equal(machineChange(machine('starting'), 'creating'), null);
+  assert.equal(machineChange(machine('bootstrapping'), 'starting'), null);
+  assert.equal(machineChange(machine('enrolling'), 'bootstrapping'), null);
+});
+
+test('a machine republished in the state it is already in says nothing', () => {
+  assert.equal(machineChange(machine('ready'), 'ready'), null);
+});
+
+function job(fields: Partial<Job>): Job {
+  return { id: 'job_1', state: 'completed', ...fields } as Job;
+}
+
+test('only a finished job that went wrong is worth a line', () => {
+  assert.equal(jobTrouble(job({ conclusion: 'failure' })), 'failed');
+  assert.equal(jobTrouble(job({ conclusion: 'timed_out' })), 'failed');
+  assert.equal(jobTrouble(job({ conclusion: 'success' })), null);
+  assert.equal(jobTrouble(job({ state: 'in_progress' })), null);
+});
+
+test('a cancelled job is somebody pushing again, not a failure', () => {
+  assert.equal(jobTrouble(job({ conclusion: 'cancelled' })), null);
+});
+
+test('a job whose runner stopped under it is the fleet’s failure, and says so', () => {
+  // GitHub records it as an ordinary failure. The distinction is the one an
+  // operator on this page is paid to make, so it survives into the feed.
+  assert.equal(
+    jobTrouble(job({ conclusion: 'failure', runner_fault: 'runner_lost' } as Partial<Job>)),
+    'runner_lost',
+  );
+});
+
+function provider(fields: Partial<Provider> = {}): Provider {
+  return { id: 'prv_1', name: 'proxmox-lab', enabled: true, paused: false, ...fields } as Provider;
+}
+
+test('a provider is reported when somebody stops it and when it stops answering', () => {
+  const running = providerSignal(provider());
+  const paused = providerSignal(provider({ paused: true }));
+  const failing = providerSignal(provider({ last_check_error: 'certificate expired' }));
+  assert.deepEqual(providerChanges(paused, running), ['paused']);
+  assert.deepEqual(providerChanges(running, paused), ['resumed']);
+  assert.deepEqual(providerChanges(failing, running), ['unreachable']);
+  assert.deepEqual(providerChanges(running, failing), ['reachable']);
+});
+
+test('a provider seen for the first time is not an incident', () => {
+  // Somebody has just added it, which the audit log records. Reporting it as
+  // a change would mean every reconnect announced the whole fleet.
+  assert.deepEqual(providerChanges(providerSignal(provider()), undefined), []);
+});
+
+test('an installation already failing when the tab opened is still worth saying once', () => {
+  assert.equal(installationChange({ id: 'ins_1', healthy: false }, undefined), 'failing');
+  assert.equal(installationChange({ id: 'ins_1', healthy: true }, undefined), null);
+  assert.equal(installationChange({ id: 'ins_1', healthy: true }, false), 'working');
+  assert.equal(installationChange({ id: 'ins_1', healthy: true }, true), null);
+});
+
+function problem(code: string, title: string): Problem {
+  return { code, title, severity: 'warning' } as Problem;
+}
+
+test('a problem is reported once, however many times it is republished', () => {
+  const seen = new Set<string>();
+  const first = [problem('host.unhealthy', '1 host is not answering')];
+  assert.equal(newProblems(first, seen).length, 1);
+  assert.equal(newProblems(first, seen).length, 0);
+});
+
+test('a problem whose prose has changed is the same problem', () => {
+  // "5 webhook deliveries were rejected" becoming "6 webhook deliveries were
+  // rejected" is one fault, and re-reporting it every minute is the nagging
+  // this identity exists to stop.
+  const seen = new Set<string>();
+  newProblems([problem('webhook.rejected', '5 deliveries were rejected')], seen);
+  assert.equal(
+    newProblems([problem('webhook.rejected', '6 deliveries were rejected')], seen).length,
+    0,
+  );
+});
+
+test('a problem that cleared and came back is news again', () => {
+  const seen = new Set<string>();
+  const fault = [problem('host.unhealthy', '1 host is not answering')];
+  newProblems(fault, seen);
+  newProblems([], seen);
+  assert.equal(newProblems(fault, seen).length, 1);
+});

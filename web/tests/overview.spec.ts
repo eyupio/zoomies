@@ -288,13 +288,18 @@ test('per-pool utilisation shows both pools and marks the one at its ceiling', a
   }
 });
 
-test('the scaling feed quotes the scheduler verbatim', async ({ page }) => {
-  const feed = page.getByRole('region', { name: 'Recent scaling' });
+test('the events feed quotes the scheduler verbatim', async ({ page }) => {
+  const feed = page.getByRole('region', { name: 'Recent events' });
   await expect(feed).toBeVisible();
   // Paraphrasing the one sentence that explains why a runner exists is how a
   // dashboard stops being trustworthy, so the reason string is matched as the
   // scheduler writes it.
-  const response = await page.request.get('/api/v1/scaling-events?limit=10');
+  //
+  // The newest three rather than the panel's whole length: the feed carries
+  // every kind of news now, so a decision and a runner that failed compete for
+  // the same dozen lines, and the seeded decisions older than an hour are
+  // legitimately below the fold.
+  const response = await page.request.get('/api/v1/scaling-events?limit=3');
   expect(response.ok()).toBe(true);
   const events = (await response.json()).items as Array<{ reason?: string }>;
   expect(events.length).toBeGreaterThan(0);
@@ -305,7 +310,32 @@ test('the scaling feed quotes the scheduler verbatim', async ({ page }) => {
   await expect(feed.getByRole('listitem').first()).toBeVisible();
 });
 
-test('the scaling feed sits beside the pools and the running jobs, never under them', async ({
+test('the events feed carries the fleet’s other news, not only the scheduler’s', async ({
+  page,
+}) => {
+  // The panel used to be the scheduler's decisions and nothing else, so a job
+  // whose runner stopped under it was something an operator found by going and
+  // looking. It is in the feed now, beside the decisions.
+  //
+  // Asserted with the decisions switched off, because a fleet that is scaling
+  // writes a line every few minutes and the newest dozen lines are the panel's
+  // whole length: what is being tested is that the other kinds are there at
+  // all, not where an hour-old failure sits in a list that keeps moving. That
+  // the switch works is the Events page's own test.
+  await goto(page, '/settings/events', 'Events');
+  await page.getByRole('switch', { name: 'Scaling decisions' }).click();
+  await goto(page, '/', 'Overview');
+
+  const feed = page.getByRole('region', { name: 'Recent events', exact: true });
+  await expect(feed.getByRole('listitem').first()).toBeVisible();
+  await expect(feed).not.toContainText('scaled zoomies-demo-');
+  // The fleet owning up to its own failure, in the feed as well as in the
+  // outcomes panel: the runner died under the job, so the failure is not the
+  // workflow's.
+  await expect(feed).toContainText(/A job.s runner stopped under it/);
+});
+
+test('the events feed sits beside the pools and the running jobs, never under them', async ({
   page,
 }) => {
   // A fleet with one pool and ten decisions used to show the pools, then a
@@ -318,7 +348,7 @@ test('the scaling feed sits beside the pools and the running jobs, never under t
 
   const pools = page.getByRole('region', { name: 'Pools', exact: true });
   const jobs = page.getByRole('region', { name: 'Active jobs', exact: true });
-  const feed = page.getByRole('region', { name: 'Recent scaling', exact: true });
+  const feed = page.getByRole('region', { name: 'Recent events', exact: true });
   // Both lists load after the page does; measure them full, not as skeletons.
   await expect(jobs.getByRole('listitem').first()).toBeVisible();
   await expect(feed.getByRole('listitem').first()).toBeVisible();

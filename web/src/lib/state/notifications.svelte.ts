@@ -20,8 +20,13 @@
  * what `GET /api/v1/problems`, `zoomies status` or an alerting rule sees.
  */
 import type { Problem, Severity } from '../api/types';
+import { problemKey } from '../problems/identity';
 import { fleet } from './fleet.svelte';
 import { storage } from './prefs.svelte';
+
+// One definition of "the same fault", shared with the Overview's feed, which
+// reports a problem the first time it is raised.
+export { problemKey };
 
 const DISMISSED_KEY = 'zoomies.problems.dismissed';
 
@@ -34,26 +39,6 @@ export const SEVERITY_NOUN: Record<Severity, string> = {
   warning: 'warning',
   info: 'note',
 };
-
-/**
- * The identity of a problem across refreshes.
- *
- * Deliberately built from what the problem is *about* rather than from its
- * prose: "5 webhook deliveries were rejected" becoming "6 webhook deliveries
- * were rejected" is the same fault, and re-asking about it every minute is the
- * nagging this feature exists to stop.
- */
-export function problemKey(problem: Problem): string {
-  return [
-    problem.code,
-    problem.target_kind ?? '',
-    problem.target_id ?? '',
-    problem.setting ?? '',
-    // Two dangerous settings on one pool share a code and a target, so the
-    // title is the only thing that separates them.
-    problem.target_kind === 'pool' ? (problem.title ?? '') : '',
-  ].join('|');
-}
 
 function severity(problem: Problem): Severity {
   return problem.severity ?? 'info';

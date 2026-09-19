@@ -48,7 +48,7 @@ test('the Overview is readable without scrolling sideways', async ({ page }) => 
   // document past the edge on its own.
 
   await goto(page, '/', 'Overview');
-  await expect(page.getByRole('region', { name: 'Recent scaling' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Recent events' })).toBeVisible();
 
   // The tiles stack rather than shrinking into unreadable columns.
   const tiles = page.getByRole('link', { name: /^(Queued jobs|Running jobs|Live runners)/ });
@@ -576,6 +576,7 @@ test('every section fits a 360px phone, not just the one these tests emulate', a
   for (const [path, heading] of [
     ['/settings/account', 'Account'],
     ['/settings/appearance', 'Appearance'],
+    ['/settings/events', 'Events'],
     ['/settings/users', 'Users'],
     ['/settings/tokens', 'API tokens'],
     ['/settings/configuration', 'Configuration'],
