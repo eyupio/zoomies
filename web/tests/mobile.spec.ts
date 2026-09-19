@@ -589,6 +589,49 @@ test('every section fits a 360px phone, not just the one these tests emulate', a
 });
 
 /*
+ * A settings row is a sentence with a switch beside it, and on a phone the
+ * switch goes under the sentence. It went a screenful under it: the text
+ * column carries `flex: 1 1 20rem` so that it keeps a readable width next to
+ * the control, and where the row becomes a column that basis stops being a
+ * width and becomes a height -- 320px of empty box under every description.
+ * Ten categories of that is ten screens of scrolling for ten switches.
+ */
+test('a settings switch sits under the sentence it belongs to, not a screen below it', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+
+  for (const [path, heading] of [
+    ['/settings/events', 'Events'],
+    ['/settings/appearance', 'Appearance'],
+  ] as const) {
+    await goto(page, path, heading);
+    const rows = page.locator('.setting');
+    const count = await rows.count();
+    expect(count, `the ${heading} page has settings rows`).toBeGreaterThan(0);
+
+    for (let i = 0; i < count; i++) {
+      // Measured against the text block's own last line rather than against
+      // the control, because the empty space is *inside* the text block: the
+      // box keeps its 20rem and the sentence sits at the top of it.
+      const slack = await rows
+        .nth(i)
+        .locator('.text')
+        .evaluate((text) => {
+          const last = text.lastElementChild ?? text;
+          return Math.round(
+            text.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom,
+          );
+        });
+      expect(
+        slack,
+        `${heading} row ${i} holds ${slack}px of nothing under its description`,
+      ).toBeLessThanOrEqual(8);
+    }
+  }
+});
+
+/*
  * Names Zoomies did not choose: a host enrolled as
  * `ip-10-0-31-44.eu-west-1.compute.internal`, a workflow job called whatever
  * its author called it. Both are wider than a phone with nowhere to break, and
