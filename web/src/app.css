@@ -61,6 +61,16 @@ table[data-managed-table='true'] .managed-table-heading {
 .managed-table-resizer:focus-visible::after {
   opacity: 1;
 }
+/* The last column's handle sits inside the table rather than straddling its
+   right edge: an overhang past the last column is content the frame scrolls to
+   reach, which is a sideways scroll for a control nobody can see. */
+table[data-managed-table='true'] thead th:last-child .managed-table-resizer {
+  right: 0;
+}
+table[data-managed-table='true'] thead th:last-child .managed-table-resizer::after {
+  left: auto;
+  right: 0;
+}
 @media (max-width: 768px) {
   table[data-managed-table='true'] {
     width: 100% !important;

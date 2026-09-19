@@ -60,17 +60,37 @@ export function tableLayout(node: HTMLTableElement, initial: TableLayoutOptions)
     return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, content + 20));
   }
 
-  function setTableWidth(): void {
+  function widthOf(columnID: string): number {
+    return widths[columnID] ?? defaults[columnID] ?? MIN_WIDTH;
+  }
+
+  /**
+   * How the columns are measured out: each one's own width, or its share of
+   * the frame.
+   *
+   * Defaults that add up to more than the frame divide it in the proportions
+   * they asked for, which is what keeps the table inside the box it is drawn
+   * in at every width -- under a fixed layout a column width is taken
+   * literally, so widths summing past the frame make the table wider than the
+   * frame however wide the table itself is told to be. Once the operator
+   * resizes a column that explicit measure wins and the frame scrolls
+   * instead, because silently shrinking every other column would make the
+   * resize handle lie.
+   */
+  function measures(): { share: boolean; total: number } {
+    const total = prefs
+      .columnOrder(options.id, options.columns)
+      .reduce((sum, id) => sum + widthOf(id), 0);
+    const custom = options.columns.some((id) => widths[id] !== undefined);
+    return { share: !custom && !!frame && total >= frame.clientWidth, total };
+  }
+
+  function setTableWidth(share: boolean, total: number): void {
     if (matchMedia('(max-width: 768px)').matches) {
       node.style.removeProperty('width');
       return;
     }
-    const total = prefs
-      .columnOrder(options.id, options.columns)
-      .reduce((sum, id) => sum + (widths[id] ?? defaults[id] ?? MIN_WIDTH), 0);
-    const custom = options.columns.some((id) => widths[id] !== undefined);
-    node.style.width =
-      !custom && frame && total >= frame.clientWidth ? '100%' : `${Math.ceil(total)}px`;
+    node.style.width = share ? '100%' : `${Math.ceil(total)}px`;
   }
 
   function apply(): void {
@@ -98,19 +118,20 @@ export function tableLayout(node: HTMLTableElement, initial: TableLayoutOptions)
       Array.from(colgroup!.children).map((col) => [(col as HTMLElement).dataset.tableColumn, col]),
     );
     const desiredCols: HTMLTableColElement[] = [];
+    const { share, total } = measures();
     for (const id of order) {
       let col = existing.get(id) as HTMLTableColElement | undefined;
       if (!col) {
         col = document.createElement('col');
         col.dataset.tableColumn = id;
       }
-      col.style.width = `${widths[id] ?? defaults[id] ?? MIN_WIDTH}px`;
+      col.style.width = share ? `${((widthOf(id) / total) * 100).toFixed(4)}%` : `${widthOf(id)}px`;
       desiredCols.push(col);
     }
     if (desiredCols.some((col, index) => colgroup!.children[index] !== col)) {
       for (const col of desiredCols) colgroup!.appendChild(col);
     }
-    setTableWidth();
+    setTableWidth(share, total);
     applying = false;
   }
 
@@ -222,7 +243,10 @@ export function tableLayout(node: HTMLTableElement, initial: TableLayoutOptions)
     }
   }
 
-  const onViewport = (): void => setTableWidth();
+  // The whole layout, not only the table's width: whether the columns take
+  // their own measures or divide the frame is a question a resize can change
+  // the answer to.
+  const onViewport = (): void => apply();
   tagSourceCells();
   addControls();
   apply();

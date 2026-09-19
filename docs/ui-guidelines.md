@@ -910,7 +910,13 @@ Every PR that touches the UI should be able to answer yes to all of these:
 The Playwright suite's shared fixture is a fleet with nothing wrong with it,
 and deliberately so: the demo keeps its two starting runners young
 (`freshenDemoRunners`) because an instance left open on somebody's desk must
-not report a fault in a fleet that has no agent to have one. The cost is that
+not report a fault in a fleet that has no agent to have one. Those two also
+need a queue behind them. The fixture is a snapshot and the reconcile loop
+reads it as a fleet, so a pool holding more runners than its demand justifies
+has the ones that have not finished starting drained on the very first pass —
+which is why `seedBacklog` writes a queued job for every runner in the pool
+that is neither busy nor draining, and the fixture survives the loop that
+reads it. The cost is that
 every page which explains a fault has nothing to render there — the problems
 drawer, both stuck-runner shapes, a pool nothing can place, a job GitHub is
 holding — so all of them went untested.

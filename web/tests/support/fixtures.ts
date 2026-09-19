@@ -128,13 +128,13 @@ export const FIXTURE = {
   /** The host the ready machine became. */
   machineHost: 'demo-builder-2',
   /** Every job the seed writes; nothing adds more, since no webhook arrives. */
-  totalJobs: 52,
+  totalJobs: 55,
   /**
    * Every job this fleet has a hand in: everything except the three jobs the
    * seed runs on a hosted-runner vendor -- one finished, one running and one
    * still queued -- which this fleet had no hand in.
    */
-  managedJobs: 49,
+  managedJobs: 52,
   /**
    * What the Jobs page shows before it is asked anything: the jobs running on
    * this fleet's own runners, one on each busy runner the seed leaves behind.
@@ -142,11 +142,12 @@ export const FIXTURE = {
    */
   runningJobs: 3,
   /**
-   * Jobs in acme/api: the seed cycles three repositories over fifty jobs. The
+   * Jobs in acme/api: the seed cycles three repositories over fifty jobs and
+   * again over the backlog that explains its starting runners. The
    * hosted-runner job the default view hides belongs to acme/widgets, so this
    * count is the same in either view.
    */
-  apiJobs: 17,
+  apiJobs: 18,
 } as const;
 
 /**
@@ -314,6 +315,22 @@ export async function columnIndex(gridLocator: Locator, header: string): Promise
   const index = headers.findIndex((text) => text.toLowerCase().startsWith(header.toLowerCase()));
   expect(index, `the grid has a "${header}" column`).toBeGreaterThanOrEqual(0);
   return index;
+}
+
+/**
+ * The control that turns a column's sort round.
+ *
+ * A heading carries three buttons since the grids became rearrangeable -- the
+ * grip that repositions the column, the sort, and the handle that resizes it --
+ * and only one of them is named after the column itself. Reaching for "the
+ * button in the heading" resolves to all three on a desktop and to one on a
+ * phone, where the other two are hidden, which is a test that passes or fails
+ * by viewport.
+ */
+export function sortButton(gridLocator: Locator, header: string): Locator {
+  return gridLocator
+    .getByRole('columnheader', { name: header })
+    .getByRole('button', { name: header, exact: true });
 }
 
 /**

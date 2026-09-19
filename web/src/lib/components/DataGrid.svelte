@@ -1313,6 +1313,20 @@
     background: var(--z-border-strong);
     opacity: 0;
   }
+  /*
+    The last column's handle sits inside the table rather than straddling its
+    right edge. The columns divide the frame exactly, so a handle hanging four
+    pixels past the last one is four pixels of content the frame has to scroll
+    to reach -- a sideways scroll on every grid in the product, for a control
+    nobody can see until they hover it.
+  */
+  thead th:last-child .resizer {
+    right: 0;
+  }
+  thead th:last-child .resizer::after {
+    left: auto;
+    right: 0;
+  }
   thead th:hover .resizer::after,
   .resizer:focus-visible::after {
     opacity: 1;

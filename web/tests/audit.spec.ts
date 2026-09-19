@@ -11,7 +11,7 @@
  * The whole page was untested until this file.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { browserOverride, dataRows, goto, grid } from './support/fixtures';
+import { browserOverride, dataRows, goto, grid, sortButton } from './support/fixtures';
 
 test.use(browserOverride);
 
@@ -67,7 +67,7 @@ test('the newest change is at the top, and the order can be turned round', async
   // Newest first is the default: the question this page answers is usually
   // "what just happened?".
   const header = log(page).getByRole('columnheader', { name: 'When' });
-  const when = header.getByRole('button');
+  const when = sortButton(log(page), 'When');
   await expect(header).toHaveAttribute('aria-sort', 'descending');
 
   await when.click();
