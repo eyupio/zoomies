@@ -3872,7 +3872,13 @@ components:
       type: object
       properties:
         window: { type: string, description: The window these counts cover, echoed back., examples: ["1h"] }
-        queued_jobs: { type: integer }
+        queued_jobs:
+          type: integer
+          description: >-
+            Jobs waiting for a runner right now, whatever the window says. Work an
+            operator removed from the queue is not waiting and is not counted, so a
+            fleet whose queue has been emptied reports zero; paused work is still
+            waiting and is still counted.
         running_jobs: { type: integer }
         completed: { type: integer, description: Within the requested window. The sum of the four below. }
         succeeded: { type: integer, description: GitHub reported success and the fleet had no fault in it. }
@@ -3919,7 +3925,7 @@ components:
             carried in one payload because the same numbers arrive over the
             event stream, which is one frame for every viewer.
           properties:
-            queued_jobs: { type: integer }
+            queued_jobs: { type: integer, description: "As above, and on the same terms about removed work." }
             running_jobs: { type: integer }
             completed: { type: integer }
             succeeded: { type: integer }
@@ -4587,7 +4593,7 @@ components:
             draining: { type: integer }
             failed: { type: integer }
             live: { type: integer }
-        queued_jobs: { type: integer }
+        queued_jobs: { type: integer, description: "Jobs this pool has claimed and not yet started, less any an operator removed from the queue." }
         utilisation: { type: number, format: double }
         warnings:
           type: array

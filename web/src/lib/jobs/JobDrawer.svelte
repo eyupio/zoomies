@@ -17,6 +17,7 @@
     HOSTED,
     jobFailed,
     jobStatus,
+    queueStatus,
     RUNNER_LOST,
     stuckUnmatched,
     UNMATCHED,
@@ -49,6 +50,10 @@
   let { open = $bindable(false), job, onclose }: Props = $props();
 
   const status = $derived(job ? jobStatus(job.state, job.conclusion) : undefined);
+  // What an operator has done to this job's demand, where they have done
+  // anything. The panel below explains it in a sentence; this is so that the
+  // drawer's first line already says it, as the grid row behind it does.
+  const queue = $derived(job ? queueStatus(job) : undefined);
   const unmatched = $derived(job ? stuckUnmatched(job) : false);
   const failed = $derived(job ? jobFailed(job) : false);
   const running = $derived(job?.state === 'in_progress');
@@ -136,6 +141,7 @@
     <div class="stack">
       <div class="badges">
         {#if status}<Badge {status} />{/if}
+        {#if queue}<Badge status={queue} title={queue.hint} />{/if}
         {#if job.runner_fault}<Badge status={RUNNER_LOST} />{/if}
         {#if unmatched}<Badge status={UNMATCHED} />{:else if job.hosted && !job.matched}<Badge
             status={HOSTED}

@@ -2610,6 +2610,7 @@ export interface components {
              * @example 1h
              */
             window?: string;
+            /** @description Jobs waiting for a runner right now, whatever the window says. Work an operator removed from the queue is not waiting and is not counted, so a fleet whose queue has been emptied reports zero; paused work is still waiting and is still counted. */
             queued_jobs?: number;
             running_jobs?: number;
             /** @description Within the requested window. The sum of the four below. */
@@ -2652,6 +2653,7 @@ export interface components {
             p95_registration_ms?: number;
             /** @description The same job figures narrowed to the jobs this fleet has a hand in: one an enabled pool claimed, one that ran on a runner started here, or one still queued that no pool claims. GitHub reports every job in an installed repository, so on an organisation that also uses hosted runners the figures above are mostly somebody else's. Both are carried in one payload because the same numbers arrive over the event stream, which is one frame for every viewer. */
             fleet?: {
+                /** @description As above, and on the same terms about removed work. */
                 queued_jobs?: number;
                 running_jobs?: number;
                 completed?: number;
@@ -3274,6 +3276,7 @@ export interface components {
                 failed?: number;
                 live?: number;
             };
+            /** @description Jobs this pool has claimed and not yet started, less any an operator removed from the queue. */
             queued_jobs?: number;
             /** Format: double */
             utilisation?: number;

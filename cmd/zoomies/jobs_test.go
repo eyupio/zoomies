@@ -199,3 +199,74 @@ func TestJobsRerunAsksGitHubAndSaysWhatElseGoesWithIt(t *testing.T) {
 		t.Errorf("the output does not say whose failure it was:\n%s", out)
 	}
 }
+
+// A job an operator removed from the queue is still `queued` to GitHub,
+// because Zoomies cannot unqueue one. The CLI used to print it as ordinary
+// waiting work, so `zoomies jobs list --state queued` disagreed with the queue
+// depth `zoomies status` prints from the same fleet.
+func TestJobsSayWhatAnOperatorDidToTheQueue(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{
+		"/api/v1/jobs": `{"items":[
+			{"id":"job_1","repo":"acme/widgets","workflow":"CI","job_name":"build",
+			 "state":"queued","matched":true,"pool_name":"linux","provisioning":"deleted",
+			 "queued_at":"2025-01-01T00:00:00Z"},
+			{"id":"job_2","repo":"acme/widgets","workflow":"CI","job_name":"lint",
+			 "state":"queued","matched":true,"pool_name":"linux","provisioning":"paused",
+			 "queued_at":"2025-01-01T00:00:00Z"},
+			{"id":"job_3","repo":"acme/widgets","workflow":"CI","job_name":"vet",
+			 "state":"queued","matched":true,"pool_name":"linux",
+			 "queued_at":"2025-01-01T00:00:00Z"}],"total":3}`,
+	})
+
+	out, _ := runCLI(t, "jobs", "list", "--state", "queued", "--url", srv.URL)
+	for _, want := range []string{"removed from queue", "paused"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("a listing must say %q beside the job it applies to:\n%s", want, out)
+		}
+	}
+	// The untouched job is not annotated: the ordinary case stays quiet, the
+	// way an unmatched job's "(no pool)" note does.
+	line := ""
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "vet") {
+			line = l
+		}
+	}
+	if line == "" || strings.Contains(line, "(") {
+		t.Errorf("a job nobody has touched carries no note:\n%s", out)
+	}
+}
+
+// `jobs get` says the ordinary case out loud, because a blank row reads as
+// "nothing is known" rather than "nothing was done".
+func TestJobsGetNamesTheQueueStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		job  string
+		want string
+	}{
+		{"removed", `"state":"queued","provisioning":"deleted"`, "removed from the queue"},
+		{"paused", `"state":"queued","provisioning":"paused"`, "paused"},
+		{"expedited", `"state":"queued","provision_now":true`, "expedited"},
+		{"ready", `"state":"queued"`, "ready"},
+		// Once something has run it, what was done to its demand is history.
+		{"finished", `"state":"completed","provisioning":"deleted"`, "queue status  -"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := jsonRoutes(t, map[string]string{
+				"/api/v1/jobs/job_1": `{"id":"job_1","repo":"acme/widgets","job_name":"build",` +
+					tc.job + `,"queued_at":"2025-01-01T00:00:00Z"}`,
+				"/api/v1/jobs/job_1/events":      `{"items":[],"total":0}`,
+				"/api/v1/jobs/job_1/explanation": `{"summary":"."}`,
+			})
+			out, _ := runCLI(t, "jobs", "get", "job_1", "--url", srv.URL)
+			if !strings.Contains(squash(out), squash(tc.want)) {
+				t.Errorf("jobs get must say %q:\n%s", tc.want, out)
+			}
+		})
+	}
+}
+
+// squash collapses runs of spaces so a table's column padding does not decide
+// whether an assertion about its text passes.
+func squash(s string) string { return strings.Join(strings.Fields(s), " ") }

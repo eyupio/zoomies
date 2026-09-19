@@ -1109,6 +1109,18 @@ func (r *Runner) IdleFor(now time.Time) time.Duration {
 	return now.Sub(*r.LastIdleAt)
 }
 
+// The provisioning states an operator can put a queued job into. The empty
+// string is the fourth and the default: ready, provisioning demand as usual.
+const (
+	// ProvisioningPaused holds a job's demand without taking the job out of
+	// the queue. It is still waiting, and resuming it is one click.
+	ProvisioningPaused = "paused"
+	// ProvisioningDeleted is the operator saying this work should not be run
+	// here at all. It is restorable, which is why the row survives, but until
+	// it is restored the job is no longer part of what the fleet is waiting on.
+	ProvisioningDeleted = "deleted"
+)
+
 // Job is a GitHub Actions workflow job as Zoomies observed it.
 type Job struct {
 	// Provisioning is operator-owned and never overwritten by GitHub deliveries.
@@ -1338,6 +1350,16 @@ func (j *Job) FailedStep() *JobStep {
 	}
 	return nil
 }
+
+// RemovedFromQueue reports whether an operator took this job out of the queue.
+//
+// Zoomies cannot unqueue a job at GitHub, so the row stays `queued` for as
+// long as GitHub keeps offering it -- which is why every figure that answers
+// "how much work is waiting?" has to exclude these by hand. An operator who
+// empties the queue and then reads a queue depth of forty on the Overview has
+// been told the removal did nothing. A paused job is not removed: it is on
+// hold, still waiting, and the Queue page lists it by default.
+func (j *Job) RemovedFromQueue() bool { return j.Provisioning == ProvisioningDeleted }
 
 // QueueWait returns how long the job waited before a runner picked it up.
 func (j *Job) QueueWait() time.Duration {

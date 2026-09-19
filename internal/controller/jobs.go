@@ -573,7 +573,11 @@ const staleQueuedAfter = 24 * time.Hour
 // this marks it completed with the conclusion GitHub uses for the same thing,
 // "stale", and the timeline says why.
 func (c *Controller) expireStaleQueuedJobs(ctx context.Context, now time.Time) {
-	queued, err := c.st.ListQueuedJobs(ctx)
+	// Asked for by age rather than filtered here, because this is the one
+	// sweep that wants the jobs an operator removed from the queue as well:
+	// the removal stopped them counting as demand, and this is what stops them
+	// sitting in the Queue's removed view for ever.
+	queued, err := c.st.ListStaleQueuedJobs(ctx, now.Add(-staleQueuedAfter))
 	if err != nil {
 		c.log.Warn("could not list queued jobs to retire stale ones", "error", err)
 		return
@@ -581,9 +585,6 @@ func (c *Controller) expireStaleQueuedJobs(ctx context.Context, now time.Time) {
 	retired := 0
 	for _, j := range queued {
 		age := now.Sub(j.QueuedAt)
-		if age < staleQueuedAfter {
-			continue
-		}
 		done := now
 		saved, change, err := c.st.ApplyJob(ctx, &store.Job{
 			GitHubJobID: j.GitHubJobID, State: store.JobCompleted, Conclusion: "stale", CompletedAt: &done,

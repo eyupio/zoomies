@@ -49,10 +49,10 @@ func (s *Store) ControlProvisioning(ctx context.Context, ids []string, action st
 	state, urgent := "", false
 	switch action {
 	case "pause":
-		state = "paused"
+		state = ProvisioningPaused
 	case "resume":
 	case "delete":
-		state = "deleted"
+		state = ProvisioningDeleted
 	case "run_now":
 		urgent = true
 	default:
