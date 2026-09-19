@@ -151,5 +151,18 @@
       flex-direction: column;
       gap: var(--z-space-3);
     }
+    /*
+      The basis above is a width for the row layout. Down here the main axis
+      is vertical, so the same declaration asks for 20rem of *height*, and the
+      switch ends up a screenful below the sentence it belongs to. In a column
+      the text is as tall as the text.
+    */
+    .text {
+      flex: initial;
+    }
+    /* Nothing to sit on a line with, so nothing to nudge against. */
+    .setting > :global(:last-child) {
+      margin-top: 0;
+    }
   }
 </style>
