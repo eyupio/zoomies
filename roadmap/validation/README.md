@@ -32,7 +32,11 @@ Files:
 | [proxmox-qualification.md](proxmox-qualification.md) | What ZF-214b's live qualification needs, the procedure it must follow, and the fact that none of it has been run. Written before the runs so the procedure cannot become a description of whatever happened to work. |
 | [drills.md](drills.md) | Historical drill log. New CI runs append locally, publish the results in the job summary, and upload `drill-evidence-<commit>` artifacts retained for 90 days. CI does not push results to `main`; download evidence before expiry for longer retention. |
 
-Gate F, when it is attempted, gets a file of its own here, with the counts the
-roadmap asks for and the exclusions listed beside them.
+Gate F was withdrawn by ROADMAP.md version 3.0 on 19 September 2026, so no
+file for it will be added; its definitions of scheduling latency, of a
+Zoomies-caused failure and of a denominator stay in
+[support-and-measurement.md](../support-and-measurement.md) and in
+`docs/metrics.md`. Evidence from a real fleet — a Windows host, a Proxmox
+cluster — is still recorded here when it arrives, and is never waited for.
 
 See [Scorecard hardening](scorecard-hardening.md) for the September 2026 security changes and remaining repository settings.

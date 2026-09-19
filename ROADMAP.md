@@ -1,18 +1,18 @@
 # Zoomies follow-on roadmap
 
-Version 2.40 · 15 September 2026 · derived from the owner's
-[follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md)
-after reconciling it against `main` at `6d12a72`, then updated for the
-closed N02 incident, the deferred host-stewardship slice, the four
-packages an instance operated on somebody else's behalf needs from this
-repository, and the publication of `v1.0.0`, which was ZF-218's precondition.
+Version 3.0 · 19 September 2026 · derived from the owner's
+[follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md),
+reconciled against `main` at `6d12a72` on 6 September and again at `9a80b31`
+on 19 September, when the owner set a new primary target, withdrew the
+real-use qualification programme that version 2 was built around, and the
+fifty-six pull requests merged since version 2.40 were read back into it.
 
 This is the sole active roadmap and delivery-order source of truth for the
-next programme: make Zoomies a dependable, secure and easy-to-operate
-self-hosted GitHub Actions runner platform, and prove it in real use while
-improving performance, host operations and platform coverage. The ordered
-delivery plan in section 10 supersedes all earlier assignment ordering;
-completed work and operational qualification remain distinct.
+next programme: make Zoomies the controller a team can be given, with the
+team's own machines as its runner hosts — dependable, bounded at every edge,
+operable without a shell on either side — while the self-hosted product it
+already is keeps getting better. The ordered delivery plan in section 10
+supersedes all earlier ordering.
 
 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) is a finished code-review
 record, and [roadmap/source/](roadmap/source/) contains historical inputs.
@@ -22,124 +22,229 @@ status/evidence record: it records delivery of packages defined here but does
 not define a competing plan. New or changed delivery work belongs in this
 file first.
 
-## 1. Where it starts
+## 1. Where it stands
 
-The improvement plan is complete. Waves 1 to 4d are merged; the only retained
-open item is the brand decision (D16). N02, the dev-instance symptom in which
-runners stayed in `registering`, is fixed and no longer gates this programme.
-The baseline was tested here and in CI on the same commit,
-and the result is recorded in
-[roadmap/validation/baseline-6d12a72.md](roadmap/validation/baseline-6d12a72.md):
-16 Go packages green under race detection, the UI lint, type check and build
-green, CI run 169 green. The project is three days old. A passing suite is a
-starting point, not operating history, and the programme is built around that
-distinction: *implemented* and *validated* are different statuses in the
-[work-package record](roadmap/progress.md).
+Zoomies is stable in real use. Three full releases shipped in a week —
+`v1.0.0` on 13 September, `V1.1.0` on 15 September and `v1.2.0` on 18
+September, which is what `:latest` resolves to now — and since 18 September
+this repository's own CI, CodeQL, fuzzing, Scorecard and release set-up jobs
+run on a Zoomies fleet (`zoomies-linux-x64`) through the build under test,
+with only the arm64 and Windows legs left on GitHub's runners; a test in
+`internal/docs` keeps it that way. The owner has been running it across
+repositories since at least 9 September
+([rc1-triage.md](roadmap/rc1-triage.md)). The seven-day observation window,
+the two hundred attempts and the second operator that version 2 built its
+release gate around never happened and are no longer wanted: the product is
+proving itself by carrying work, every day, on the thing it is for.
 
-## 2. How to use this document
+Since version 2.40 (15 September), fifty-six pull requests (#293 to #350)
+landed. Roughly in the order they matter to this document:
 
-Each work package keeps the ID the source roadmap gave it, so historic material
-can be read side by side without becoming an alternative instruction. Each has
-a **classification** from the reconciliation:
+* **Backups grew into a subsystem.** Scheduled copies (`backup.interval`,
+  `backup.keep`), S3-compatible offsite destinations with a hand-rolled
+  SigV4 client and sealed credentials (migration `0036`), a staged restore
+  applied by restarting the controller, a Backups settings page, eighteen
+  `/backups*` routes under three new actions, and a configuration export and
+  import with a dry run (#297, #304, #306, #308, #312). ZF-203's text had cut
+  every one of those; the package is closed as delivered, and larger.
+* **Every runner has a size, and a pool can lend it more.** A pool that sets
+  no limits now means one slot's share of whichever host it lands on,
+  enforced as a real cgroup limit; a fixed size is the alternative; per-pool
+  overrides of the fleet's timings (migration `0037`); a docker-in-docker
+  pair is one slot again; and elastic CPU bursting lends unpromised host CPU
+  to a busy runner and takes it back under pressure (migration `0039`, #350).
+  The wizard asks how much of a pool the operator wants to decide.
+* **Runner start-up under load is bounded.** Everything ZF-221 listed as
+  prepared is merged, and more: a FIFO start queue with a cooldown,
+  Docker readiness before a runner registers, per-installation registration
+  admission (`scheduler.registration_concurrency`), queued starts that expire
+  at the provision deadline, owned-container conflict recovery, a runner's
+  resource sample with its age on the API, and deferred registration cleanup
+  recovered by housekeeping (#343, #344, #345, #347, #348).
+* **Failures say whose they are.** `fault_kind` on jobs and runners
+  (migrations `0034`, `0035`) tells a fleet fault from a workflow's own
+  failure, the Overview counts them apart, and a job can be rerun from the
+  drawer (#295). A cancelled workflow run now cancels its runners promptly,
+  including the ones still provisioning (#348).
+* **Private hosts recover by themselves.** A Tailcat host re-announces itself
+  on every dial, so it survives a controller restart without anyone
+  restarting it, and a host that lost its private address is told to mint a
+  new command rather than failing to dial (#327, #329).
+* **The installer meets the machine as it is.** It offers to install Docker
+  or Podman when it finds neither, delegates cgroup controllers to a rootless
+  daemon at set-up, pins `agent.work_dir` so a joined host survives dropping
+  root, and takes a host's capacity from the machine it measured (#311, #322,
+  #323, #324, #326).
+* **The UI has a settings rail, grouped navigation, per-account table
+  layouts (migration `0040`), a fleet-chosen queue warning threshold and a
+  redrawn usage report**, and the event bus numbers events where they are
+  published and leaves a reconnecting subscriber room after its replay.
+* **Security**: the OIDC state cache is capped, a password hash nothing could
+  have produced is refused rather than allowed to panic, and runner
+  containers no longer set `no-new-privileges`, so the image's passwordless
+  `sudo` works while the dropped capabilities remain the boundary.
+* **Releases**: assets upload one at a time, and the `dev` channel is
+  published in a way a slow upload cannot defeat.
 
-* **existing, needs validation**: the capability is there; the work is proving
-  it under the failure the package names, and the deliverable is mostly tests
-  and evidence;
-* **extension**: the seam exists; the work builds on it;
-* **new**: nothing to extend.
+Two things the reconciliation found that need the owner's hand, both in
+section 11: `V1.1.0` (capital V) is published as a full release with no
+assets, because the release workflow's tag guard matches `v*` case-sensitively
+and so built nothing for it; and `deploy/marketplace/release.env` still pins
+`v1.0.0`, so a marketplace deployment runs a controller without the pressure
+holds, the throttle ladder, the start-up fixes or elastic CPU until it is
+repinned and `make marketplace-lock` is rerun.
 
-Each names what to **implement**, what **acceptance** means, its
-**dependencies**, its **size** (S under a day of one session, M a few days, L
-a week or more, XL a phase in itself), and the **session** that should do it
-per [roadmap/agent-models.md](roadmap/agent-models.md).
+## 2. The primary target
 
-The decisions in section 3 are the ones only the owner can take. Each has a
+The programme's primary target is **an instance operated on a team's behalf,
+where the team connects its own runner hosts.** Two parties share one
+controller. The **platform** runs the process: the machine it binds on, its
+TLS, its database and encryption key, its timers, upgrades, backups and
+recovery. The **fleet** is the team the instance serves: their GitHub App
+installation, their pools, the hosts they join through the outbound agent —
+directly over HTTPS, or through a private connection when a machine cannot
+reach the public address — and their own users and API tokens. The controller
+runs with `agent.embedded: false`; every runner is on a machine the fleet
+owns. One instance serves one fleet.
+
+Everything the design already insists on is what makes this shape work.
+Agents connect outbound only, so a host behind the fleet's NAT needs no
+inbound rule. A job is attributed to one installation and a runner is minted
+in that installation alone. An agent is confined to the agent API and to its
+own host's rows; a report about another host's runner is refused. Version
+skew excludes a host rather than refusing it, and the host is handed the
+command that fixes it. Backups leave the machine on a schedule. What the
+shape lacks is the line between the two parties. Today the fleet's `admin`
+is the top rung: it reads the platform's bind address, TLS file paths and
+database path on `GET /settings`; changes `server.bind`, `server.tls.*`,
+`server.trusted_proxies`, `security.disable_auth`, `oidc.*` and every timer
+through `PATCH /settings`, because migration `0031` made almost every key an
+instance setting the database holds; takes a support bundle with the
+process's paths, OS and heap in it; lifts the recovery fence; and sees
+`bind.public_no_tls`, `crypto.*` and `controller.lease_lost` in a problems
+drawer whose fix sends it to a log it cannot read. Nothing bounds what one
+fleet's agents can do to the process. The usage figures the two parties
+would reconcile are recomputed from rows the prune loop deletes, on a
+retention the fleet can shorten. And the first administrator is still created
+by reading a setup token out of the controller's log, or from an answer file
+that carries a password.
+
+The packages that close those gaps already existed under decision 27,
+written for a platform team operating an instance for a product team, which
+is this shape with this trust boundary: **ZF-207** (two audiences), **ZF-208**
+(limits at the edges), **ZF-209** (a usage ledger), **ZF-210** (unattended
+bootstrap; export and purge). They move to the front, and each is re-read in
+section 8 against what the code does now, which in ZF-207's case is further
+from the package than when it was written. Around them: the remaining half
+of **ZF-221**, because a host the platform cannot log into has to explain
+its own runtime failures; the private-host packages **ZF-401 to ZF-404**,
+because the fleet's hosts are the untrusted edge and the join is the
+onboarding; **ZF-222**, because the fleet's developers have no account;
+**ZF-213**, because the fleet's pools are the one thing that should move
+between instances as a file.
+
+Three rules bind the target, and they are delivery rules 3, 15 and 16. One
+instance per fleet and one trust domain per instance: nothing here
+separates two fleets inside one process or one SQLite file, and nothing
+will, because the pure scheduler, the single writer and "every `*.updated`
+is the `GET` shape" all assume one fleet. The platform's hand on a fleet's
+host is the agent and nothing else. And none of this is documented: the
+public story stays the self-hosted, bring-your-own-infrastructure one, every
+package ships as a self-hosted feature with a self-hosted reason — a
+platform team operating an instance for a product team is real, and is the
+reason given — and this file is the only place the target is named.
+
+## 3. How to use this document
+
+Each work package keeps the ID the source roadmap gave it, so historic
+material can be read side by side without becoming an alternative
+instruction. Each active package names its **classification** (*existing,
+needs validation*; *extension*; *new*), what to **implement**, what
+**acceptance** means, its **dependencies**, its **size** (S under a day of one
+session, M a few days, L a week or more, XL a phase in itself), and the
+**session** that should do it per
+[roadmap/agent-models.md](roadmap/agent-models.md).
+
+Section 6 lists what is delivered, with a line each; the
+[work-package record](roadmap/progress.md) carries the evidence. Section 7
+lists what version 3.0 withdrew and what, if anything, each withdrawal
+costs. Section 8 is the active work, in full. Section 9 is what is kept for
+the day somebody asks. Section 10 orders it.
+
+The decisions in section 4 are the ones only the owner can take. Each has a
 recommendation, and the packages below are written as if the recommendation
 were accepted; a different answer changes the package it names and nothing
 else.
 
-## 3. Decisions for the owner
+## 4. Decisions for the owner
 
-Each is written as if the recommendation were accepted; the packages below
-assume it. A different answer changes the package that names the decision and
-nothing else. Records for the first two are in
-[roadmap/decisions/](roadmap/decisions/); the rest get a record when
-ratified.
+Numbered as they always were, because the numbers are the index that the
+[decision records](roadmap/decisions/) and the progress record cite. A
+decision that has been taken or overtaken says so in a line and keeps its
+number.
 
 ### Programme
 
 1. **Where this record lives.** `ROADMAP.md` and `roadmap/` at the root,
-   outside the published site, as [decision 0001](roadmap/decisions/0001-planning-documents-live-beside-the-code.md)
-   says. The source roadmap's `docs/` paths would publish gate evidence on
-   zoomies.sh. *Recommend: accept.*
+   outside the published site, as
+   [decision 0001](roadmap/decisions/0001-planning-documents-live-beside-the-code.md)
+   says. *Accepted; unchanged.*
 2. **Which model drives which stage.** Tiered by what the stage risks, per
    [decision 0002](roadmap/decisions/0002-choose-the-model-by-what-the-stage-risks.md)
-   and [roadmap/agent-models.md](roadmap/agent-models.md); one model with
-   effort as the only lever is the fallback. The review's document critic
-   notes that the price table in that page will go stale and that vendor
-   pricing is not otherwise a repository fact; keep the page, and strip the
-   prices if that bothers you. *Recommend: tiered.*
-3. **The reference configuration.** Ubuntu 24.04 LTS amd64, `native` under
-   systemd, Docker Engine with rootless-or-not recorded as observed rather
-   than prescribed, both the embedded and the remote-agent topologies, one
-   organisation and one repository target, a real-delivery run and a
-   poller-only run. Everything else is qualified only to the degree a test
-   proves, per [roadmap/support-and-measurement.md](roadmap/support-and-measurement.md).
-   *Recommend: accept.*
-4. **Two assignments, not one.** Assignment A is Phase 0, Phase 1, the
-   harness's honesty and drill slices (ZF-301a and 301b) and the hygiene
-   package (ZF-003). Assignment B is Phase 2 and Phase 3, issued after A's
-   evidence and the owner actions Gate F needs. Sixteen packages in one
-   instruction contradicts the small-pull-request rule and cannot finish
-   without owner input anyway. *Recommend: two.*
-5. **Keep this plan scoped to self-hosted development.** Section 9 records
-   the next technical capabilities and their acceptance gates. Preserve existing
-   package IDs and working implementations; assess a new backend or provider
-   only when its own design and evidence justify it.
-6. **Gate F as measured.** The p95 scheduling target is relative to the
-   reconcile interval (interval plus two seconds), the 200 attempts include
-   three bursts beyond fleet capacity, the denominator excludes the demo
-   installation, `waiting` jobs and jobs GitHub dispatched elsewhere, and a
-   Zoomies-caused failure is defined by the row. The numbers as proposed
-   either fail by construction or pass by noise. *Recommend: adopt.*
+   and [roadmap/agent-models.md](roadmap/agent-models.md). *Unchanged.*
+3. **The reference configuration.** *Withdrawn on 19 September 2026.* The
+   controller's reference configuration is the operated instance itself, and
+   the agent-side table in
+   [roadmap/support-and-measurement.md](roadmap/support-and-measurement.md),
+   which says per host OS and backend what has actually run, stays as
+   documentation. Nobody records a reference host's versions any more.
+4. **Two assignments, not one.** *Superseded* by section 10 since version
+   2.34; both assignments' packages are delivered. Kept for the history.
+5. **Keep this plan scoped to self-hosted development.** *Replaced by
+   decision 30.*
+6. **Gate F as measured.** The definitions are built into the product —
+   `Job.EligibleAt`, `create_task_issued_at`, `fault_kind` on jobs and
+   runners, a `cleaned_up_at` that needs both the host's and GitHub's
+   confirmation — and stay in
+   [roadmap/support-and-measurement.md](roadmap/support-and-measurement.md)
+   and `docs/metrics.md` as the definitions of scheduling latency, of a
+   Zoomies-caused failure and of a denominator. *The gate itself is
+   withdrawn* (section 7); the definitions are what ZF-223 would report per
+   installation.
 7. **The schema rule.** Never edit or rename a shipped migration; the next
-   file takes the next unused prefix alone; prefer adding a column;
-   a data-preserving rebuild in a new file is acceptable when SQLite forces
-   it, with the reason in the file header as migration 0009 does. Packages
-   land their own migrations rather than pooling them into one: ZF-101 is
-   ready and takes the next free prefix. *Recommend: accept.*
-8. **What `:latest` means.** Your own PR #71 this morning made `:latest`
-   track `main` again, reversing the decision recorded in the improvement
-   plan. During an observation window an untagged pool then runs unreleased
-   runner images, which breaks the exact-build requirement of the readiness
-   record. Options: keep `:latest` on `main` and have the installer write the
-   concrete tag it installed; or restore `:latest` to the newest release
-   before the window. *Recommend: pin `vX.Y.Z` on the reference configuration
-   either way, and restore `:latest` to the newest release before the
-   observation window. This is your call, and it is recorded either way.*
-9. **A tagged pre-release at the end of Assignment A** (for example
-   `v0.2.0-beta.1`), as the artefact ZF-204's upgrade drill runs from;
-   `v0.1-alpha` marked as a prerelease; immutable releases enabled in the
-   repository settings, because that release's assets were rebuilt and
-   re-uploaded two days after tagging. *Recommend: yes.*
-10. **The Enterprise Server claim.** The README and FAQ say Zoomies works
-    with GitHub Enterprise Server; the configuration supports it and no test,
-    fake or run has ever targeted one. Options: obtain an instance and keep
-    "yes"; or say "designed for, not yet verified against one". *Recommend:
-    the second, now; the first when a beta user needs it.*
-11. **Real-runtime evidence in CI.** A `workflow_dispatch` plus nightly
-    `e2e.yml` reading credentials from a protected environment, never on a
-    pull request from a fork, disabled until the secrets exist; and a
-    fake-GitHub-plus-real-Docker drill tier on every pull request. You
-    designate the disposable organisation, App, repository and the tunnel
-    for the webhook run. *Recommend: both.*
-12. **Owner actions now.** Deploy `main` on a fresh Ubuntu 24.04 LTS host
-    with `install.sh --deployment native`, record the reference versions and
-    begin the controlled reference deployment; recruit the second operator,
-    who can run against the drill tier's injected failure before credentials
-    exist. *Recommend: now.*
+   file takes the next unused prefix alone (`0041` as this is written); prefer
+   adding a column; a data-preserving rebuild in a new file is acceptable
+   when SQLite forces it, with the reason in the file header. *Accepted;
+   unchanged.* ZF-207 needs such a rebuild, because `users.role` and
+   `api_tokens.role` carry a `CHECK` naming the three roles.
+8. **What `:latest` means.** *Taken by events.* The release workflow moves
+   `:latest` only on a full release — `v1.2.0` moved it on 18 September — and
+   the join command pins the controller's own version, so an untagged pool
+   follows the newest full release and a joining host is told which build
+   to install. Nothing is left to decide.
+9. **A tagged pre-release; prereleases marked; immutable releases.**
+   *Discharged.* The upgrade job runs from the latest published release on
+   every pull request; `v0.1-alpha`, `v0.2-beta` and the three release
+   candidates are marked prereleases on GitHub. Whether immutable releases
+   are enabled is one repository setting to check (section 11).
+10. **The Enterprise Server claim.** *Taken.* README and FAQ say designed
+    for it and not yet verified against one. Verification waits for a fleet
+    that has one, and is not roadmap work.
+11. **Real-runtime evidence in CI.** *Half taken.* The fake-GitHub drill tier
+    runs every drill on every pull request, on amd64 and on arm64, and the
+    whole CI runs on a Zoomies fleet. The credentialed nightly `e2e.yml` is
+    withdrawn (section 7).
+12. **Owner actions now.** *Discharged in substance.* The owner deployed
+    `main`, used it, released from it and moved CI onto it; the written
+    version record and the second operator's session are withdrawn.
 
 ### Per package
+
+Decisions 13 to 22 were taken as recommended and shipped; the migrations
+and the progress log are their record, and
+[roadmap/decisions/README.md](roadmap/decisions/README.md) says why they
+have no file of their own yet. They are kept here verbatim because this
+list is the only account of what was decided.
 
 13. **ZF-101, the authoritative installation for a job.** The installation
     found by the job's repository (repository target before organisation
@@ -147,173 +252,176 @@ ratified.
     deliberately lets be another installation's; jobs no installation covers
     are recorded and marked ineligible with a reason, never rejected; the
     migration backfills every unfinished row, waiting as well as queued and
-    in-progress; the rate-limit hold is per installation only; `installation_id` is exposed read-only on the job.
-    *Recommend: as stated.*
+    in-progress; the rate-limit hold is per installation only;
+    `installation_id` is exposed read-only on the job. *Taken.*
 14. **ZF-102, how far to go.** No durable task queue (stamp the issue time
     on the row); adopt live workloads on agent start; a state-directory lock
     plus a controller lease with `--takeover`; a duplicated-agent fence that
     detects and warns rather than refuses; no resurrection of a terminal row
     when a lost host returns; the existing rate-bounded retry accepted as
-    "bounded". *Recommend: as stated.*
+    "bounded". *Taken.*
 15. **ZF-103, the reservation model.** Split in two: 103a is the reporting
-    half — agents report their host's CPUs, memory and disk, and the host row
-    carries them beside the operator's reserve — and 103b is the admission
-    half, where the scheduler fits a reservation and the blocked reason says
-    why. Both precede Gate F; the operator-visibility work that finishes the
-    package need not. A pool that sets no limits reserves its host's
-    allocatable share per slot, so a host carrying only such pools admits
-    exactly what it admitted before the upgrade; a DinD pool is charged
-    twice its limits; the host reserve is per host with a small documented
-    floor; an agent that predates the fields is placed by slots with a
-    visible badge; the `process` backend's non-enforcement is documented and
-    warned about, not fixed here; disk is a gate, not an evictor.
-    *Recommend: as stated.*
+    half and 103b the admission half. A pool that sets no limits reserves
+    its host's allocatable share per slot, so a host carrying only such
+    pools admits exactly what it admitted before the upgrade; a DinD pool is
+    charged twice its limits; the host reserve is per host with a small
+    documented floor; an agent that predates the fields is placed by slots
+    with a visible badge; the `process` backend's non-enforcement is
+    documented and warned about, not fixed here; disk is a gate, not an
+    evictor. *Taken*, then refined by the sizing work of 16 and 17
+    September: a defaulted pool's share is now enforced as a cgroup limit
+    and a docker-in-docker pair on such a pool splits one slot rather than
+    doubling it.
 16. **ZF-104.** Streams re-check their credential on each heartbeat and end;
     a join token may not replace a host that is still heartbeating unless it
     is cordoned; the log viewer opens only `http(s)` links; forwarded-proto
     is believed only from a trusted proxy; per-identity stream caps wait for
-    ZF-105 and evidence; the join route gets the login limiter.
-    *Recommend: as stated.*
+    ZF-105 and evidence; the join route gets the login limiter. *Taken*, with
+    one deviation recorded in the progress log: the join route got a counter
+    of its own at the same setting, so an attacker hammering `/agent/join`
+    cannot lock administrators out of the page they would use to stop it.
 17. **ZF-105.** Failed cleanup lives on the runner row, not a new
     operations table; no maximum job duration (a drain timeout instead);
     the cache prune is guarded at runtime; Zoomies never deletes images and
     says so; disk-low handling lands with ZF-103; the ownership of
     `zoomies-*` registrations across two instances sharing one organisation
-    is documented now and designed in ZF-101. *Recommend: as stated.*
+    is documented now and designed in ZF-101. *Taken.*
 18. **ZF-201.** Verify reports the installation's repository selection and
     first names rather than taking a repository as input; a test-only fake
     GitHub program under `test/` rather than a hidden subcommand in the
     shipped binary; the real-job proof is the end-to-end test asserting the
     page shapes, not a browser-driven real job; Add-a-host shows a resume
-    notice, never the token. *Recommend: as stated.*
+    notice, never the token. *Taken.*
 19. **ZF-202.** One JSON bundle from one admin route under a new
     `diagnostics.read` action; never workflow log bodies; the per-job
     explanation is its own endpoint rather than a field on every event
     frame; the stale-poller signals are fleet-wide; seeded failures come
-    from an opt-in fixture, not the demo seed. *Recommend: as stated.*
+    from an opt-in fixture, not the demo seed. *Taken.* ZF-207 moves the
+    full bundle behind the platform role and gives the fleet one without
+    the process in it.
 20. **ZF-203.** Backup is a local command that opens the file, not an API
     route; the key is excluded unless asked for, with its fingerprint always
     in the manifest; restore invalidates sessions and unused join tokens by
     default, with flags for API and agent tokens; the store refuses a
     database newer than the binary; the fence lifts through one audited
-    admin route. *Recommend: as stated.*
+    admin route. *Taken, then overtaken on 16 September*: backups have an
+    API, a page, a schedule and offsite destinations now, and the command is
+    one client of the shared `internal/backup` package. The key rule, the
+    refusals and the fence are unchanged.
 21. **ZF-204.** Protocol must match and an agent may lag one minor release;
     an agent found incompatible at heartbeat is flagged and excluded from
     placement like a cordon, never sent into a restart loop; the store takes
     a `VACUUM INTO` copy before pending migrations, using ZF-203's primitive;
     build-provenance attestations rather than signing keys; a GitHub-hosted
     path for the release and site workflows selectable by dispatch input;
-    Dependabot weekly and grouped, actions pinned to commits.
-    *Recommend: as stated.*
+    Dependabot weekly and grouped, actions pinned to commits. *Taken*, with
+    the correction the progress log records: "one minor release" is not a
+    rule the code can enforce, so what is enforced is the protocol, and lag
+    beyond that is shown.
 22. **ZF-205.** Audit rows stay unpruned, with a size-awareness problem;
     the load fixture is a test-only generator, never a knob on the demo
     seed; the p95 figures are recorded evidence, not a pull-request gate;
     the poller-pause gauge is fleet-wide; no stream caps until the drills
-    show growth. *Recommend: as stated.*
+    show growth. *Taken*, except that the pause gauge carries the
+    installation, because ZF-101 had already made the hold per installation.
 
 ### Noted, not yet due
 
 23. **Licence and contributor terms.** Keep the AGPL-3.0 licence visible
     and document contributor expectations. No licence change is part of this
-    programme.
-24. **Whether Phase 4's bootstrap may make the controller dial a machine**,
-    reversing "the controller never dials an agent", stated in five places
-    and underpinning the NAT-friendly design; and whether an operations
-    table is introduced for it. Both are recorded before ZF-402 starts, not
-    now. *Recommend: decide then, with the destination policy as the
-    compensating control.*
-
-25. **Host stewardship and bounded housekeeping.** Add a deferred Phase 4
-    slice, **ZF-404b**, after the original maintenance and ownership controls.
-    An imported or shared host remains non-invasive by default: no automatic
-    OS package upgrades, firewall changes, reboots or broad Docker pruning.
-    A deliberately opted-in, dedicated runner host may receive health and
-    update reporting, planned maintenance windows, agent upgrades and
-    retention/quota-driven cleanup of Zoomies-owned workspaces, runners,
-    images and caches only. Every cleanup previews its scope, leaves
-    non-Zoomies artefacts alone, is observable and is recoverable where
-    practical. This profile does not establish isolation for mutually untrusted workloads; *Recommend: adopt before
-    Phase 4 design begins.*
-26. **Windows runners, and which kind.** Add **ZF-206**, and decide the shape
-    before any of it is written, because the two shapes differ by about five
-    times the work and by the product's central promise. *Process on a Windows
-    host* runs `actions-runner-win-x64` directly on the machine: it is the
-    smaller path, it reuses the backend that already exists, and it cannot
-    give a job a container, so the ephemeral guarantee weakens from "the
-    container is destroyed" to "a fresh work directory and a single-use
-    registration on a machine whose state persists" — the same honest
-    weakening the `process` backend already carries on Linux, and it must be
-    said in the same words. *Windows containers* keeps the guarantee whole and
-    needs a second runner image catalogue on Windows base images, a second
-    build matrix, Docker Engine over a named pipe, and images measured in
-    gigabytes. Neither may start before Gate F: the support matrix's rule is
-    that a row moves right only when a test runs on the thing, and adding a
-    platform while the project is trying to prove the one it has would widen
-    Gate F rather than pass it. *Recommend: process first, containers only if
-    a user asks for the isolation; and neither before Gate F.* **Taken on
-    12 September 2026** as process on a Windows host, per
-    [decision 0003](roadmap/decisions/0003-windows-runners-are-processes-on-a-host.md),
-    on the owner's instruction to implement it ahead of Gate F and flag it as
-    a beta-testing item; the support matrix row says what has and has not
-    run.
-27. **Separate platform administration from fleet operation.** ZF-207 to
-    ZF-210 support platform teams operating an instance for a product team:
-    scoped administration, bounded resource use, durable usage reporting and
-    repeatable lifecycle automation. One instance remains one trust domain.
-    These packages are part of Phase 2 and progress alongside qualification.
+    programme. *Unchanged.*
+24. **Whether the controller may dial a machine.** Refined. The controller
+    now does dial one kind of machine — a private *provider*'s API, through
+    `zoomies gateway` (ZF-214b) — and that is an infrastructure API, not an
+    agent; "the controller never dials an agent" holds everywhere it is
+    stated. For the primary target it hardens into delivery rule 16: the
+    platform never dials a fleet's host, so an SSH bootstrap is not optional
+    but out, and ZF-402 is withdrawn with it. *Recommend: accept.*
+25. **Host stewardship and bounded housekeeping.** The non-invasive default
+    is the promise a fleet relies on when it runs the platform's enrolment
+    command on its own machine, and the code keeps it with one exception the
+    reconciliation found: `agent.docker_build_cache_mb` (default 5120) has
+    every Docker-backed agent ask the daemon to prune *unused* builder cache
+    above that size every five minutes, daemon-wide, not only layers Zoomies
+    built. It is bounded and it touches nothing in use, and on a shared
+    daemon it is still somebody else's cache. *Recommend: keep the default,
+    name it on the security and private-hosts pages as the one thing the
+    agent does to a shared daemon, and make `0` the shared-daemon advice*
+    (ZF-404). ZF-404b, the opt-in dedicated-host maintenance slice, is
+    deferred indefinitely: the hosts are the fleet's machines, and a
+    platform upgrading or rebooting them is a liability, not a feature.
+26. **Windows runners, and which kind.** *Taken on 12 September 2026* as
+    processes on a Windows host, per
+    [decision 0003](roadmap/decisions/0003-windows-runners-are-processes-on-a-host.md).
+    Built, vetted and unit-tested; the first job on a Windows host anyone
+    kept will be a fleet's, and the support-matrix row moves when it
+    happens rather than gating anything.
+27. **Separate platform administration from fleet operation.** *Now the
+    primary target;* see decision 30. One instance remains one trust domain.
 28. **A container per job on Proxmox, from the runner image we already
-    publish.** Proxmox VE 9.1 can create an LXC container from an OCI image:
-    one API call pulls a reference into a container template, and `entrypoint`
-    and `env` on the create call carry the OCI contract, so
-    `ghcr.io/eyupio/zoomies-runner` could be a container per job with no VM
-    and no Docker daemon under it. It would arrive as a *backend* beside
-    Docker, Podman and process — not as a second provider — because renting a
-    machine and placing a runner are separate contracts and this is the
-    second. Three things make it a decision rather than a work package. It
-    *weakens* isolation: today a job on a rented machine sits behind a
-    hardware boundary, and an LXC per job shares the hypervisor's kernel, so
-    it needs the honest warning the process backend already carries, in the
-    same words. It gives jobs no Docker at first: the sidecar pattern has no
-    equivalent when two containers cannot share a network namespace, and
-    privileged nesting costs `Sys.Modify` on `/`. And there is no API to
-    stream a container's stdout, which is what `Backend.Logs` feeds. Proxmox
-    still calls application containers a technology preview and lists maturing
-    them as future work. *Recommend: a one-day spike first — does the runner
-    image boot as an application container, register with a JIT config, run
-    one job as the runner account and stop — and assess the package only if
-    it passes and ZF-214c has run. Not before either.*
+    publish.** Deferred. Not before a fleet with Proxmox asks for it, and not
+    before the one-day spike the recommendation describes.
+29. **Whether any fleet fact may be read without an account.** ZF-222's
+    name-free, banded status projection, off by default. On the primary
+    target the audience with no account is the fleet's own developers, whose
+    jobs queue on hosts their team owns, and the projection is built on the
+    fleet half of ZF-207's problem split, so it cannot carry a platform
+    finding. *Recommend: adopt now, off by default, sequenced after ZF-207.*
 
-29. **Whether any fleet fact may be read without an account.** ZF-222
-    proposes one: a name-free, banded status projection for the developers
-    whose jobs queue, who have no account here and no way to tell a fleet at
-    capacity from a pool that matches nothing. Today the answer is no for
-    everything except `/api/v1/meta`, and `metrics.public` is the only setting
-    that changes it. The decision is not the page, which is small; it is
-    whether "one instance is one administrative trust domain" — delivery rule
-    3 — is also one readership. *Recommend: adopt, off by default, in the
-    banded, name-free shape ZF-222 describes, and not before ZF-207 has split
-    the problems list — a public projection built on today's undivided list
-    leaks the platform's findings the first time a validator warning quotes a
-    bind address.*
+### Taken on 19 September 2026, and the two it opens
 
-## 4. Delivery rules
+30. **The primary target.** An instance operated on a team's behalf, where
+    the team connects its own runner hosts; section 2 defines it. *Taken by
+    the owner.* It is not documented on the site, in the README or in the UI,
+    and no page names a plan, a tier or a hosted service; delivery rule 15.
+31. **What a fleet may change on an operated instance.** ZF-207 splits the
+    settings registry a fourth way. A key is *platform-scoped* when it
+    changes what the process binds, trusts, stores, logs or dials from its
+    own machine, or how much of that machine it spends: `server.*`,
+    `security.*`, `log.*`, `backup.*`, `retention.*`, `updates.*`,
+    `metrics.public`, `capacity_demand.*`, the `limits.*` ZF-208 adds, and
+    the embedded agent's `agent.embedded`, `agent.backend`, `agent.work_dir`
+    and `agent.docker_host`. A key is *fleet-scoped* when it changes how the
+    fleet's own runners are placed, timed and sized: `scheduler.*`,
+    `runners.*`, `images.*`, `github.*`, `oidc.*`, `ui.*` and the rest of
+    `agent.*`. `database.*` and the encryption key stay bootstrap-only, as
+    now. On a single-team instance nothing changes, because the account that
+    installed it becomes the platform. *Recommend: adopt this split; a key
+    the owner would move changes one table in `internal/config/settings.go`
+    and nothing else.*
+32. **The fleet's secrets under the platform's key.** An installation's
+    private key and webhook secret are sealed with the instance's encryption
+    key, which the platform holds; every backup carries them sealed, and a
+    backup the fleet downloads is unusable without a key only the platform
+    has. That is how every self-hosted instance already works and it is the
+    right model — the process has to read the key to mint credentials — but
+    it means a fleet cannot leave with its App on its own. *Recommend:
+    accept the model, and give ZF-210b's per-installation export a
+    passphrase re-seal, using the argon2id-and-AES-GCM pattern
+    `backup_remotes.passphrase_enc` already uses, so offboarding never needs
+    the instance key.*
+
+## 5. Delivery rules
 
 The source roadmap's rules, corrected where the repository already answers
-them. `CLAUDE.md` is the agent guidance file (there is no `AGENTS.md`) and
-it is tested: its layout block and `README.md`'s must name every top-level
-directory. Read it, `docs/architecture.md` and `docs/upgrading.md` before
-anything structural.
+them, with three added for the primary target. `CLAUDE.md` is the agent
+guidance file (there is no `AGENTS.md`) and it is tested: its layout block
+and `README.md`'s must name every top-level directory. Read it,
+`docs/architecture.md` and `docs/upgrading.md` before anything structural.
 
 1. Preserve the single binary, SQLite, the pure scheduler and the
    controller-and-agent shape. No Kubernetes, no broker, no database
    service, no microservices.
 2. Host provisioning and runner execution are different things. The
-   backend interface is the per-host execution contract and was written to
-   admit a VM-per-job backend; a host provisioner would be a separate
-   controller-side contract. The architecture page's sentence that conflates
-   them is corrected in ZF-003.
-3. One instance is one administrative trust domain. Two installations of
-   that team still need correct target scoping, which is ZF-101.
+   backend interface is the per-host execution contract; the provider
+   contract (`internal/provider`) is the controller-side one for renting a
+   machine, and it may import the store's domain types and nothing else.
+3. One instance is one administrative trust domain, and one instance serves
+   one fleet. Two installations of that fleet still need correct target
+   scoping, which is ZF-101. Nothing separates two fleets inside one process
+   or one database, and no package may try: the pure scheduler, the single
+   writer and the event stream's "every `*.updated` is the `GET` shape" all
+   assume one fleet, and a second would have to be a second instance.
 4. The UI, the CLI and any bundle are clients of the same REST API; nothing
    is reachable from one that is not reachable from the others. Build UI
    workflows on validated application operations; never duplicate
@@ -334,23 +442,22 @@ anything structural.
    (`internal/store/migrations_test.go`), which says so when it fails. One
    that touches `jobs` must also be added to
    `TestTheJobsRebuildKeepsEveryRowAndItsIndexes`
-   (`internal/store/store_test.go`): that test recreates `jobs` at the column
-   list 0008 left behind, unwinds the ledger row and the effects of every
-   later migration that touched it, then reopens the database to migrate the
-   fixture forward. The names it unwinds move with each new migration, and
-   every one since the rebuild that touched that table has had to amend it.
-   Forgotten, it fails on a `SELECT` under "the completed row did not survive
-   the rebuild", which blames the rebuild rather than the omission.
+   (`internal/store/store_test.go`), which unwinds every later migration
+   that touched that table; forgotten, it fails on a `SELECT` under "the
+   completed row did not survive the rebuild", which blames the rebuild
+   rather than the omission.
 8. Small commits, small pull requests, one behaviour each, an imperative
-   sentence in plain prose as the message, British spelling in prose, a test
-   that reads as a sentence about the behaviour, and `make lint` and
-   `make test` green before a push. Behavioural tests for concrete new
-   failure modes, never tests that repeat implementation details.
+   sentence in plain prose as the message — no `feat:` prefix, which one
+   commit on 19 September carried and which the next reader should not copy
+   — British spelling in prose, a test that reads as a sentence about the
+   behaviour, and `make lint` and `make test` green before a push.
+   Behavioural tests for concrete new failure modes, never tests that
+   repeat implementation details.
 9. New capabilities start disabled until their acceptance criteria are met.
    A disabled feature starts nothing, creates nothing and needs no
    credential on an existing installation.
 10. Every dependency carries a one-line reason in `docs/dependencies.md`.
-    A library for SSH or a VM runtime is reasonable and gets its row and a
+    A library for a VM runtime is reasonable and gets its row and a
     security note; a plugin framework for one integration is not.
 11. Logs and bundles are sensitive. Platform-managed credentials are
     redacted by key name (`auth.Redact`); arbitrary secrets in workflow
@@ -363,1960 +470,963 @@ anything structural.
 14. A behavioural test is kept only once it has been run against the code
     with the rule it asserts removed and seen to fail; an assertion that
     cannot be made to fail is deleted rather than shipped, and the pull
-    request says which assertions were checked this way. It is what catches
-    what a green suite hides — a check written as `err.Error() == ""`, which
-    no error can satisfy; the two lines that put a host's resource figures on
-    the wire, deletable with everything else still green; a lifecycle drill
-    that passed with the registration deletion it existed to prove commented
-    out.
+    request says which assertions were checked this way.
+15. **The primary target is not documented.** Nothing under `docs/`, in
+    `README.md`, `SUPPORT.md` or the UI describes an instance operated on a
+    team's behalf, names a plan or a tier, or distinguishes a platform
+    operator from a fleet owner in words a visitor would read as an offer.
+    `SUPPORT.md`'s "no paid tier" sentence stays true as written. Every
+    package below ships as a self-hosted feature with a self-hosted reason
+    — a platform team running an instance for a product team, which is real
+    — and is off or invisible on an instance that has only one team: a
+    fleet admin on an instance with no separate platform identity sees
+    exactly what it sees today, because the account that installed it is
+    the platform.
+16. **The platform's hand on a fleet's host is the agent, and nothing
+    else.** No SSH, no controller-initiated dial to a host, no OS package,
+    firewall or reboot, and no pruning beyond what the join command and the
+    security page say the agent owns: its service, its work directory, the
+    containers carrying its labels, its per-pool cache directory and the
+    bounded builder-cache target of decision 25.
+17. **Real-use confirmation is not a gate.** A package is complete when its
+    code is merged with tests that were seen to fail, CI is green and its
+    acceptance holds in a fixture or a drill. Evidence from a real fleet is
+    welcome and recorded when it arrives, and it never blocks a release or
+    a package. The two drill tiers stay, because they are regression
+    coverage, not confirmation.
 
 ### The work-package record
 
 [roadmap/progress.md](roadmap/progress.md) has one row per package with its
 classification, status, dependencies, the session that did it and the
 evidence. Statuses are `not_started`, `in_progress`, `implemented`, `done`,
-`validated`, `blocked` and `superseded`, each defined in the record itself.
-The ladder that decides what is left to do runs `implemented` — merged, CI
-green, tests present — then `done`, every pull request the package names
-merged and its acceptance holding, then `validated`, which needs evidence in
-[roadmap/validation/](roadmap/validation/) that a real run met the criteria
-and which most of Phase 1 cannot reach until the reference deployment exists.
-`superseded` links to the thing that meets the same criteria and its evidence. Keep it current in the pull
-request that changes it. Small design decisions go in
+`validated`, `blocked`, `superseded` and, from version 3.0, `withdrawn`,
+each defined in the record itself. `done` — every pull request the package
+names merged and its acceptance holding — is the terminal status; `validated`
+is kept for the rows that already carry evidence in
+[roadmap/validation/](roadmap/validation/) and is no longer a rung any
+package has to reach (rule 17). `withdrawn` is for work version 3.0 stopped
+authorising, with the reason and what it costs; `superseded` links to the
+thing that meets the same criteria. Keep it current in the pull request
+that changes it. Small design decisions go in
 [roadmap/decisions/](roadmap/decisions/), gate evidence in
-[roadmap/validation/](roadmap/validation/). `IMPLEMENTATION_PLAN.md` is not
-touched; its two open items are carried in the progress record.
-
-## 5. Phase 0: the baseline
-
-Two packages from the source roadmap, merged, plus one pulled forward. Phase
-0's output is this document, the records it links to, and three small
-changes that are already in the same pull request: the stuck-runner
-tie-break that made a controller test fail without race detection, the
-compatibility paragraph that contradicted the code, and the metrics page's
-description of the scheduling-latency series as the proxy it is.
-
-### ZF-001 and ZF-002: the baseline and the measurement contract
-
-**Classification: mixed; merged into one package.** Almost every fact ZF-001
-asks for was discoverable, and is now recorded in
-[roadmap/validation/baseline-6d12a72.md](roadmap/validation/baseline-6d12a72.md).
-Most of the lifecycle timestamps ZF-002 asks for exist and are tested, and
-fleet-caused failure is already distinguished from a failing workflow
-(`Job.RunnerFault`, the `runner_lost` event, `store.FailedConclusions`,
-and `stale` for a job GitHub stopped reporting). The support matrix, the
-measurement contract, the severity scale and the Gate F targets as adopted
-are in [roadmap/support-and-measurement.md](roadmap/support-and-measurement.md).
-
-What the reconciliation found that the source roadmap did not expect:
-
-* `docs/upgrading.md` says an older agent ignores an unknown task kind. The
-  agent reports it as a failed task, and the controller fails the runner for a
-  lifecycle kind. The compatibility claim is corrected in this pull request;
-  the policy is ZF-204's.
-* There is no numeric schema version. The store keeps a filename-keyed ledger,
-  and nothing surfaces it: a support bundle or a bug report has to open the
-  database with `sqlite3` to say which migrations it carries.
-* The Overview's success arithmetic counts an unknown outcome as a success.
-
-**Do, in this pull request and one small code pull request:**
-
-1. This pull request: the baseline record, the support matrix and
-   measurement contract, the progress record, the decision records, and the
-   `docs/upgrading.md` correction.
-2. Code, size S: `store.AppliedMigrations` surfaced on `GET /readyz` as
-   `schema` — how many migrations have applied and the name of the latest,
-   which is the only schema version there is — with the `/readyz` row in
-   `docs/api-surface.md` saying so; the `waiting` and `approved` timeline
-   kinds; `Stats` split into succeeded,
-   failed, cancelled and unknown, rendered on the Overview with the
-   definitions in the contract. No migration.
-
-**Cut from the source package:** "controller/agent versions" (one binary;
-record the commit, the protocol version and the pinned runner release);
-qualifying arm64, macOS, Podman or `process` (recorded as built or unit-tested,
-not qualified); any new metrics framework (five stage histograms and the
-runner timeline exist); the missing timestamp columns, which land with the
-packages that define their semantics (ZF-101, ZF-102, ZF-105).
-
-**Accept when:** every Phase 1 to 3 package has a classification and a size in
-the progress record (done below); the next ready package is named (ZF-101);
-the code slice is merged with tests.
-
-**Needs from the owner:** a fresh Ubuntu 24.04 LTS amd64 host with `main`
-deployed by `install.sh --deployment native`, so the exact OS and runtime
-versions can be recorded. Size M. Session: Claude Fable 5.1 at `high` (this
-session); Claude Sonnet 5 at `high` for the code slice. Decisions: 1, 2, 3,
-6, 7, 12.
-
-### ZF-003: supply-chain hygiene and three corrections
-
-**Classification: new; small; no behaviour change.** Pulled forward from
-ZF-204 because none of it depends on anything and all of it is cheaper the
-earlier it lands. Every third-party action in the four workflows is pinned
-to a major tag, which a moved tag can redirect with `contents: write` and
-`packages: write` in hand; there is no dependency-update configuration and
-no vulnerability scanning of Go modules, npm packages or images.
-
-**Do, in one or two pull requests:**
-
-1. Every `uses:` pinned to a full commit with its version in a comment; a
-   Dependabot configuration for actions, Go modules, npm under `web/` and
-   the images under `deploy/`, weekly and grouped per ecosystem;
-   `govulncheck ./...` as a CI step and on a weekly schedule.
-2. Three corrections that are misleading today regardless of the roadmap:
-   the architecture page's "not a cloud provisioner" sentence, which
-   justifies itself with the execution-backend interface; the
-   capacity-demand receiver page, which lets an event-id-idempotent receiver
-   add the same capacity once per cooldown because the sender mints a new
-   event id on every re-delivery of one unmet shortfall, fixed by stating
-   the target reading and adding an additive `schema_version: 1` field to
-   the payload with the existing tests extended; and the security page's
-   claim that repository and workflow names appear in metric labels, which
-   the code stopped doing.
-
-**Accept when:** CI and the release workflow run on pinned actions; the
-first Dependabot pull requests arrive; the three pages say what the code
-does.
-
-Depends on nothing. Size S. Session: Claude Sonnet 5 at `high`. Decisions: 9, 21.
-
-### ZF-004: six corrections from reading the instance as a service
-
-**Classification: new; small; behaviour changes, all of them narrowings.**
-Found by reading every package with one question — what breaks when the
-person operating this controller and the people whose fleet it runs are not
-the same — and kept here because none of the six depends on that question:
-each is wrong for a single team too.
-
-**Done, in one pull request:**
-
-1. **A real identifier could pass as demo data.** `IsDemoID` was a prefix
-   test for `demo` on the random part of an identifier, and the random part
-   is base32 over `a-z2-7`, so about one real row in a million began with
-   those four letters. Such an installation was skipped by the credential
-   prober, the poller and the registration reap; such a host was never
-   reclaimed when it went quiet. A fixture is now recognised by its shape as
-   well as its prefix (`store.LooksGenerated`), the one fixture whose
-   readable name was exactly thirteen letters is renamed, and a test seeds
-   every fixture and holds each to the rule.
-2. **Installation targets matched by case.** GitHub logins are
-   case-insensitive and a delivery carries the canonical case, so an
-   installation saved as `Acme` matched nothing: every delivery was recorded
-   as "no installation covers" and the fleet scaled for nobody. Targets are
-   folded on write and compared folded, including rows written before this,
-   and two installations on one target resolve to the older one on every
-   call rather than to whichever row SQLite reached first.
-3. **The scheduler asked a rate-limited installation to register runners.**
-   The poller and the reap already stood down from an installation inside
-   its GitHub hold; `mintCredentials` did not, so every pass spent another
-   call against a quota that was gone, left a failed row whose only message
-   was the refusal, and the pool then backed off from its own failures on
-   top of the hold GitHub asked for. The hold now travels in the scheduler's
-   snapshot, a held pool creates nothing and says why, and a held pool with
-   jobs waiting raises `pool.github_rate_limited`. Draining and removing ask
-   GitHub for nothing and still happen.
-4. **The usage report was silently short.** It accepts a 366-day range and
-   is computed from rows the prune loop deletes on two clocks — jobs at
-   thirty days, runners at seven — so a 30-day runner-hours figure was
-   short by three weeks with nothing on the page saying so. The response now
-   carries `history_from` for each side, and the page says where the figure
-   is complete from.
-5. **`retention.audit` pruned scaling events, not audit.** Audit rows are
-   never pruned, deliberately, so the key promised a deletion that never
-   happened and hid one that did. It is `retention.scaling_events` now; the
-   old key is still read, and raises `retention.audit_renamed` once.
-6. **The public webhook did its expensive work before verifying.** Up to
-   five megabytes were read, parsed and checked against every installation's
-   secret before the per-address limiter applied, which bounded only the
-   record. A delivery with no signature header is refused before its body is
-   read; the record and the limiter are unchanged.
-
-**Accept when:** each has a test that fails with the change removed. It does.
-
-Depends on nothing. Size S. Session: Claude Fable 5.1 at `high`, one
-session. Decisions: 27.
-
-## 6. Phase 1: correctness and security under failure
-
-The foundation the beta stands on. The reconciliation moved two of these
-packages a long way from where the source roadmap placed them: ZF-101 is new
-work with a schema change rather than verification, and ZF-102 contains the
-one defect that decides whether a rolling upgrade is real. ZF-103 is split so
-that its reporting half lands first and its admission half — the scheduler
-fit and the blocked reason — still precedes Gate F. ZF-104 is mostly citing tests
-that exist, with two real gaps. ZF-105 opens with a one-line correctness fix
-that ships alone.
-
-### ZF-101: one eligibility policy for GitHub targets
-
-**Classification: new.** The source roadmap says "verify that job-to-pool
-eligibility requires the correct installation … before label matching". There
-is nothing to verify. A job row has no installation identity: the webhook
-parser reads `installation.id` and drops it, the poller discards the
-installation it polled, and every consumer, webhook ingest, poller ingest, the
-scheduler's assignment and the capacity-demand signal, calls
-`scheduler.BestPool(pools, labels)`, which filters on enabled and labels only.
-Two installations with the same pool labels cross-allocate deterministically
-(the tie-break is the pool name), and a runner is then minted in the wrong
-GitHub target. Poll freshness is the latest accepted delivery across *all*
-installations, and the rate-limit hold is one atomic that pauses polling for
-everyone. No test anywhere sets up two installations.
-
-What is already right: pools carry `InstallationID`; registration
-(`mintCredentials`) is scoped to the pool's installation and runner group;
-webhook verification selects the installation by repository target; a
-repository-scoped cache under an organisation installation raises a tested
-warning; the per-repository throttle is documented as not being isolation.
-
-**Do, in three pull requests:**
-
-1. Migration `0012` adds `jobs.installation_id` (with a backfill over every
-   unfinished row — waiting, queued and in-progress — by matching the
-   repository to an installation, repository target before organisation
-   target, and leaving a repository no installation covers empty) and
-   `webhook_deliveries.installation_id`.
-   Add `scheduler.Eligible(pool, job) (bool, reason)`: enabled, then
-   installation match, then labels. Replace all four `BestPool` callers. Extend
-   the `Plan` with per-job ineligibility reasons so the problems drawer can say
-   "labels match pool X, which belongs to installation Y". Expose
-   `installation_id` read-only on the job view and regenerate both clients.
-   Tests: two installations, identical labels, on the webhook, poller and
-   scheduler paths, asserting the job's pool and that no create task targets
-   the other installation.
-2. Per-installation freshness and backoff: `LastAcceptedDeliveryAt` takes an
-   installation; the pause becomes a map keyed by installation; the poll loop
-   continues past a rate-limited installation instead of returning.
-   Tests: two fakes, one rate-limited, the other still polled; one fresh, the
-   other still polled.
-3. Visibility: a `pool.runner_group_unresolved` warning where the runner
-   group falls back to default with only a log line today (the fallback path
-   has no test at all); a section in `docs/hosts-and-pools.md` that says pools
-   belong to one installation and that GitHub makes the final dispatch
-   decision within an organisation. The repository-cache containment check
-   the source roadmap asks for already exists and is tested; it is not
-   repeated here.
-
-Two things the verifier found that shape the first pull request: the job
-merge makes `Matched` sticky, so re-evaluating eligibility needs an explicit
-merge rule and the backfill must reset the match for rows it re-attributes;
-and one fake GitHub can back two installations with different targets for
-the webhook-path tests, so a second fake is needed only for the poller and
-rate-limit cases.
-
-**Cut from the source package:** a "trust policy" abstraction (the pure
-function is the policy); a jobs-by-installation UI filter until someone asks;
-the GitHub Enterprise Server plus github.com collision on `github_job_id`
-(document one GitHub host per controller); rejecting repository caches on
-organisation runners outright, which would break existing pools.
-
-**Accept when:** the two-installation tests pass on every path; the
-acceptance's "two repositories in one organisation" is limited to accounting
-and cache-key correctness, because within one organisation installation
-GitHub may hand repository B's job to a runner created for repository A and
-Zoomies cannot stop it; ineligible work carries a reason on the Jobs page.
-
-Depends on ZF-002. Size M. Session: Claude Fable 5.1 at `xhigh` for the first
-pull request, Claude Opus 5 at `high` for the other two. Decisions: 7, 13.
-
-### ZF-102: reconciliation that converges
-
-**Classification: mixed; far smaller than the source text implies.** The
-mechanics exist and are tested: the store-enforced state machine with legal
-self-transitions; an idempotent per-host task queue with leases and three
-attempts; agent-side claim dedupe; adopt-before-create on a redelivered create
-(the workload is found by its runner-id label); host-ownership checks on task
-results and runner reports; a five-minute host-lost reclaim; a provision
-timeout that covers both `provisioning` and `registering`; an exponential
-start-failure backoff with a visible problem code. "Registration timeout"
-exists as `scheduler.provision_timeout`; do not add a second one.
-
-What is missing, in order of consequence:
-
-* **A restart of the agent, or of the controller on a single-VM install,
-  kills that host's jobs.** Adoption happens only when a task arrives; the
-  reconciler reaps every untracked managed workload two minutes after the
-  first successful poll, running or not. The agent's unit is
-  `Restart=always`, so an agent restart is an everyday event. Worse, the
-  default deployment runs the agent inside the controller, and a controller
-  restart builds a fresh embedded agent with an empty tracked set whose
-  first poll succeeds at once, so every running job on that host is removed
-  two minutes after the controller comes back. The upgrading page says a
-  controller restart does not touch a running job; the reconciliation found
-  the opposite by reading the code paths, no test exercises the case, and
-  the drill tier's first drill is to demonstrate it. The page is hedged in
-  this pull request. This is the one
-  genuine defect in the package and the one that decides whether rolling
-  upgrades are real. The former N02 `registering` symptom is fixed; the
-  create-to-register boundary remains covered by this package's restart and
-  drill scenarios, not by a separate release gate.
-* No lock or lease refuses a second controller on the same database or state
-  directory. SQLite's busy timeout serialises writes; it does not stop a
-  second scheduler minting credentials and reclaiming hosts.
-* The agent log upload checks an unguessable stream id, not the host.
-* A controller restart loses the in-memory create task and its JIT
-  configuration; the provisioning row waits out the five-minute timeout and
-  is replaced with a freshly minted credential. Bounded, and by an explicit
-  design decision (the queue is in memory so there is no second source of
-  truth), but each restart costs every in-flight create five minutes.
-* No fence for a duplicated agent credential (a cloned VM or a copied state
-  directory): two agents share one host id and split its tasks.
-* No test constructs a fresh controller over the same store with a task in
-  flight, restarts an agent over live workloads, or delivers a late report
-  after a host was declared lost; the cross-host refusal on task results has
-  no test either. Two more shapes for the restart table: a create result
-  lost during a controller outage is never retried by the agent and no task
-  is redelivered, so the row waits out the provision timeout and its live
-  container is later removed with its job; and the five-minute host-lost
-  reclaim is shorter than the twenty-minute create lease, so a create in
-  flight on a host that goes quiet is failed before its lease expires and,
-  when the host returns, its registering report is refused silently while
-  the workload registers with GitHub on a failed row.
-
-**Do, in four pull requests:**
-
-1. The invariants, written down (S): a "Reconciliation invariants" section
-   beside the state diagram in `docs/architecture.md` listing each rule with
-   its constant and owning package (at-least-once delivery; the lease
-   lengths; three attempts; the two-minute orphan grace; host-lost at five
-   minutes against a ninety-second heartbeat timeout; the provision timeout;
-   the ten-minute failed retention; self-transitions legal; capacity derived
-   from rows; an agent asserts no state for a live runner), and a test that
-   pins the two relationships between them that nothing pins today.
-2. Two one-line invariants (S): the log relay takes the authenticated host id
-   (shared with ZF-104); a non-blocking lock on the state directory before the
-   store opens, plus a controller lease row with a `--takeover` flag so a
-   restored copy on a shared filesystem or a second host is also refused,
-   with a problem-code row.
-3. Adoption on agent start (M): before the loops start, list every backend
-   and adopt each workload carrying a runner id; include them in the first
-   heartbeat; an additive heartbeat response field names the runners the
-   controller does not know, and only those are reaped. This is the one change
-   that touches deletion semantics, so it gets its own review.
-4. Late reports and restart boundaries (M): a report from the owning host for
-   a runner failed as lost, with a running phase, updates the message, links
-   the job's events and removes the workload once no in-progress job is
-   linked, without resurrecting a terminal row; `task_issued_at` stamped on
-   the runner row at enqueue and on redelivery (the ZF-002 contract's
-   timestamp, without a durable queue); a session id in heartbeats, results
-   and reports with a `hosts.duplicate_agent` problem when two sessions
-   alternate, detect only; one table-driven test that, for each boundary
-   (create enqueued, acknowledged, registering, busy, draining with a stop in
-   flight, remove in flight), builds a fresh controller over the same store,
-   replays the agent's late result, and asserts one live row per runner name.
-
-**Cut from the source package:** a durable task queue (stamp the issue time
-on the row and document that a create lost to a restart is failed by the
-provision timeout and replaced; revisit if ZF-302's drills show it matters);
-an enforcing session fence (detect and warn; re-join already rotates the
-token); a count-bounded retry with a paused pool (the rate-bounded backoff
-that says so is self-healing when the image is fixed); real-process kill
-tests (ZF-302).
-
-**Accept when:** the restart-boundary table passes; an agent restart keeps
-its live runners; a second controller is refused with a message naming the
-holder; a late report after host loss is recorded accurately without
-resurrecting the row; the invariants page matches the constants.
-
-Depends on ZF-002. Size M. Session: Claude Fable 5.1 at `xhigh` for the
-invariants and the adoption change, Claude Opus 5 at `high` for the rest.
-Decisions: 12, 14.
-
-### ZF-103: resource reservation on top of the slot model
-
-**Classification: extension.** The slot model is complete and tested, and it
-already has the shape the source roadmap asks a reservation contract to have:
-a create writes a `provisioning` runner row before a credential is minted, a
-non-terminal row holds a slot, the in-tick host set decrements per placement
-so two pools cannot share the last slot, release happens exactly once when the
-store's state machine reaches `removed` or `failed`, and a restart rebuilds
-everything from rows. Unhealthy and cordoned hosts are already refused, and
-the blocked reason already counts slots, backend, selector, health and
-policy. Pool `resources` are enforced as cgroup limits on Docker and Podman,
-including the DinD sidecar, which carries the same limits and so doubles the
-enforced footprint.
-
-What is missing, now that the reporting half has landed: the scheduler never
-reads `pool.Resources` — `internal/scheduler` has no CPU, memory or disk logic
-at all, and the host set still seeds its free count from `Host.Free()`, which
-is capacity minus active runners; the host row has no allocatable column; the
-`process` backend enforces none of a pool's limits and nothing says so; and the
-per-host reserve the row now carries can be set only from the store, because
-`SetHostReserve` has no caller outside tests and neither `PATCH /hosts` nor the
-host view mentions it.
-
-**Do, in three pull requests. All three have landed -- the figures reach the
-host view and the Hosts page, the scheduler places by them, and an operator can
-now set the reserve and see what the fleet has promised away. The [work-package record](roadmap/progress.md) names the pull requests
-that carried each:**
-
-1. Agents report host resources: CPUs, memory and free disk on the work
-   directory, from the Docker or Podman `/info` where there is one and from the
-   OS otherwise, as optional fields on join and heartbeat (protocol version
-   stays 1). Its migration adds the observed columns and a per-host reserve
-   to `hosts`; heartbeats write the observed values and never the reserve,
-   mirroring how capacity is the operator's today.
-2. **Done.** The scheduler fits a reservation: a pure `Reservation(pool, host)` that is
-   the pool's resources, doubled for DinD, or the fallback profile for a pool
-   that sets none; the host set tracks free CPU and memory seeded from
-   allocatable minus live runners' reservations; `eligible()` also requires
-   the fit and free disk; the blocked reason gains "short of CPU", "short of
-   memory", "low on disk". `HostFit`, the capacity-demand signal and the
-   prewarm path ask the same predicate, so there is still one placement rule.
-   Tests: two pools cannot oversubscribe memory in one tick; a 32 GB host
-   admits eight 4 GB runners and refuses the ninth; DinD counts the sidecar;
-   unknown resources fall back to slots; reservations rebuild from rows.
-3. **Done.** Operators can see it: the host view carries the reserve, the allocatable
-   and the reserved beside the observed figures it already carries;
-   `PATCH /hosts` accepts the reserve beside capacity; the Hosts page already
-   states a host's vCPUs, its memory and its free-of-total disk and marks a
-   disk nearly gone, so what is left there is the reserved against the
-   allocatable, as CPU and memory bars because a bar answers "how full is this
-   host" faster than two numbers do, and a "resources unknown, upgrade the
-   agent" badge with an info-severity problem code; the pool page says what an
-   unlimited pool is assumed to reserve; a `pool.resources_unenforced` warning
-   for a `process` pool that sets limits; gauges, docs and problem-code rows.
-
-Three things the verifier added for the scheduler pull request. The first is
-closed with that pull request: the reservation is rebuilt only from rows in a
-live state, which is the same filter the slot count uses. The second is still
-open: the agent already samples each container's enforced memory limit and the
-controller drops it, an observed-versus-reserved signal that is already on the
-wire. The third — that the heartbeat writes the
-host row only when something changed, and free disk moves every beat — was
-closed in the first pull request: `diskFreeMoved` is the tolerance rule, a
-fractional band with a floor, a first reading always taken, and a silent agent
-never overwriting what was known.
-
-**Chosen while building the second, and not in the plan:** a field a pool
-leaves unset is charged one slot's worth of the host rather than nothing, which
-is what makes decision 15's "admits exactly what it admitted before" true when
-an unlimited pool shares a host with a limited one; free disk is charged only
-for the runners a pass adds, because it is a measurement that already contains
-what the runners already there have written; and decision 15's "small
-documented floor" under the reserve is 512 MB of memory and 2 GB of disk, with
-no CPU floor, because CPU is the one resource that is contended rather than
-exhausted.
-
-**Cut from the source package:** CPU topology (reserve in logical CPUs and say
-so); a separate reservations table (the runner row is the reservation, and a
-second table would be a second source of truth against the store's one-writer
-invariant); overcommit knobs (a hard fit check has no overcommit); disk
-eviction (ZF-105 owns retention).
-
-**Accept when:** the tests above pass; every existing installation admits
-exactly what it admitted before the upgrade on hosts that carry only unlimited
-pools; an agent that predates the fields is placed by slots with the badge
-showing.
-
-Depends on ZF-102 (fencing first, so a superseded agent cannot report
-resources for a host it no longer owns). Size L. Session: Claude Fable 5.1 at
-`xhigh` for the reservation decision and the scheduler pull request, Claude
-Opus 5 at `high` for the rest. Decisions: 15.
-
-### ZF-104: the access and secret boundary, verified
-
-**Classification: mixed; about seventy percent is citing tests that exist.**
-The authorisation layer is the best-tested part of the codebase: the policy
-table is walked per role and per route, including the event stream, runner
-logs, downloads and metrics; CSRF and origin checks, proxy trust, body
-limits, login rate limiting, secret-free responses, audit and log redaction
-and the process backend's environment allowlist are implemented and mostly
-tested. Trust profiles are already explicit in `docs/security.md` and in the
-pool wizard's risk badges. The `/jobs` and `/audit` routers, which the source
-roadmap's focus question singled out, apply their guard with `r.Use`.
-
-Five things are not proved, and two of them are bugs:
-
-* The agent log relay accepts a chunk for any stream id regardless of which
-  host authenticated. A second enrolled host that learns a stream id can
-  inject bytes into another host's runner log.
-* A live event or log stream never re-checks its credential. Logging out,
-  revoking a token, disabling a user or the session expiring leaves an open
-  stream open indefinitely.
-* No negative route walk exists for scoped API tokens or agent tokens, and the
-  cross-host check on task results has no test.
-* Secret absence is proved for seven admin reads on the success path only, not
-  for error bodies, audit rows written on failure, the controller log, fleet
-  resources, an event frame or metrics.
-* The `process` backend's child environment has no test at all (the Docker
-  runner environment and the socket bind are tested), nothing greps a
-  marshalled task for controller secrets, and no UI test feeds hostile
-  strings or terminal escapes to the pages and the log viewer.
-
-**Do, in five narrow pull requests:**
-
-1. Tests only, first (S): scoped-token and agent-token route walks covering
-   all five agent routes (the current walk omits tasks and logs); a
-   cross-host result test; secret absence on failure paths with a captured
-   log; the process backend's child environment against a poisoned parent
-   environment; a marshalled create task grepped for the fake installation's
-   secrets; a 413 for a body over the limit; disabling a user ends its
-   sessions at the API, not only in the service; a cross-origin login post.
-2. Bind the log relay to the host (S): the relay takes the authenticated host
-   id and answers not-found for another host's stream, the same as a closed
-   one, so nothing is enumerable.
-3. Streams end on revocation (M): on every heartbeat tick the stream
-   re-resolves its identity and ends with an `end` frame when the credential
-   is gone or the action no longer allowed, and at the session or token expiry.
-   The browser client retries a failed reconnect forever and never runs its
-   401 hook on the event source, so the same pull request gives it a session
-   probe or a bounded retry; otherwise a signed-out tab loops.
-4. Hostile input (M): a Playwright spec that seeds names carrying markup and
-   relays log chunks carrying hyperlink, title and clear-screen escapes,
-   asserting nothing was injected, the title is unchanged and no dialog opened;
-   an explicit link handler in the log viewer that activates only `http(s)`
-   URLs with `noopener`.
-5. Uniform proxy trust (S): `X-Forwarded-Proto` believed only from a trusted
-   proxy, as `X-Forwarded-For` already is; and a "what is tested" paragraph in
-   `docs/security.md` naming the tests the readiness record will cite.
-
-One small decision the verifier surfaced: the join route has no rate limit,
-so a join-token guess is bounded only by the token's entropy. Reuse the
-login limiter on it, which is one call.
-
-**Cut from the source package:** WebSocket routes (there are none); a
-diagnostics export (there is none; ZF-202 introduces one); task-queue bounds
-(dedupe and a per-poll cap exist; the per-host pending cap is ZF-105's);
-building a matrix (it exists as the policy table, the `x-zoomies-role` field
-in the OpenAPI document and the role column on the API page, cross-checked by
-four tests).
-
-**Accept when:** the six identity classes have positive and negative tests;
-cross-host reports, results and log chunks are refused; a revoked credential
-ends its streams within one heartbeat; synthetic secrets are absent from
-error bodies, audit rows and the log; the hostile-input spec passes.
-
-Depends on ZF-101 and ZF-102 for the paths it walks. Size M. Session: Claude
-Fable 5.1 at `high` for the matrix review and the stream-revocation design,
-Claude Opus 5 at `high` for the rest, with Claude Opus 5 as the stated
-fallback if the hostile-input session meets a safeguard refusal. Decisions: 16.
-
-### ZF-105: cleanup that is visible and bounded
-
-**Classification: mixed.** The local-cleanup half exists and is tested: the
-agent deletes finished workloads after `agent.finished_retention` once the
-controller has heard the exit; the orphan sweep sees only containers carrying
-the managed and role labels, and only after a successful poll and a two-minute
-grace; registration deletion is retried by a ten-minute reap under a
-name-prefix ownership rule; provision, idle, lifetime and stop timeouts are
-separate settings; database history is pruned hourly; task deliveries are
-leased, requeued and dropped; the agent's poll loop backs off with jitter.
-There is no maximum job duration by explicit design, delegated to the
-workflow's own `timeout-minutes`, and this roadmap keeps it that way.
-
-What is missing is the visibility half and the outage half, plus one
-correctness defect the reconciliation found: when a backend's listing call
-fails, the reconciler skips that backend and then declares every tracked
-runner on it gone after a minute, so a transient Docker API timeout marks
-busy jobs lost and, once the daemon answers again, reaps the live containers
-as orphans two minutes later. Also: a failed remove result on an
-already-removed row is silently dropped; failed registration deletes are
-log-only with nothing on the row and no problem code; the rate-limit reset
-GitHub sends is parsed into a string and discarded while the poller pauses
-for a fixed fifteen minutes globally; nothing measures free disk or
-recognises a full one; a DinD sidecar whose runner container is gone is
-invisible to both listing and removal; the pool-scoped cache prune assumes
-the cache is idle, which is false for a pool with more than one runner.
-
-**Do, in six pull requests, each with its own test:**
-
-1. The listing-failure defect (S, ships alone, no dependency): a backend
-   whose listing failed is excluded from the missing-workload pass.
-2. Failed cleanup persisted and visible (M, the heart of the package):
-   migration columns on the runner row for the cleanup error, its time,
-   attempts and the registration's deletion time; the result handler records
-   a failed stop or remove on a terminal row instead of dropping it;
-   registration deletion records its failure and the reap clears it; one
-   `runners.cleanup_failed` problem; the fields on the runner view and in the
-   OpenAPI document. `Runner.CleanedUpAt`, the measurement contract's end of
-   the cleanup interval, lands here.
-3. Orphaned sidecars (S): listing also queries the sidecar role and returns
-   a sidecar whose runner is gone as an orphan.
-4. Cache prune guard (S): skip eviction while another workload of the same
-   pool is running.
-5. A drain timeout (S): `scheduler.drain_timeout`, with a scheduler rule
-   that fails a runner draining longer than it, so a draining row whose stop
-   was lost to a controller restart no longer holds its slot indefinitely.
-6. GitHub backoff honoured (M): a typed rate-limited error carrying the
-   reset time; the poller pauses until it, per installation (shared with
-   ZF-101); the reap applies the same; the start-failure backoff gains jitter
-   passed through the snapshot so the scheduler stays pure.
-
-Three more findings from the verifier for the second pull request: a work
-directory leaks when its container goes away out of band, because removal
-learns the directory from the container's label and nothing walks the
-work-directory root; a GitHub failure during cleanup is a log line and a
-counter, never a problem, so the row is the right place to record it; and
-the controller's channel for slowing an agent's polling exists in the
-protocol and is never set.
-
-**Cut from the source package:** image retention (Zoomies never deletes an
-image; say so and point at `docker image prune`); a maximum job duration;
-provider backoff (no provider exists); disk-low handling, which lands with
-ZF-103's host resource reporting so the protocol and the hosts table change
-once.
-
-**Accept when:** table-driven scenarios (cancel before start, cancel during
-run, timed-out registration, daemon restart, listing failure) end with the
-runner row, the queued tasks, the fake GitHub's registrations and the fake
-backend's workloads consistent and nothing unexplained; a failed deletion is
-on the Runners page and in the drawer and clears when it succeeds; a
-troubleshooting section says what Zoomies cleans up and what it leaves.
-
-Depends on ZF-102 for the cleanup-failure record's place in the state
-machine, except the first pull request. Size M. Session: Claude Opus 5 at
-`xhigh`. Decisions: 17.
-
-## 7. Phase 2: operable and usable
-
-Assignment B. Each of these builds on Phase 1's invariants and on the drill
-tier from ZF-301b, which is why they come after. ZF-201 is mostly done;
-ZF-203 is entirely new; the rest extend substrate that exists.
-
-### ZF-201: the first successful job through the UI
-
-**Classification: existing, needs validation, with two narrow extensions.**
-The journey the source roadmap describes exists and had its own review pass:
-bootstrap in four steps, the GitHub App manifest flow that resumes after a
-wandering browser and keeps only public identifiers in the browser (the
-private key never reaches it), the one-page Add-a-host that waits for the
-machine to arrive, the five-step pool wizard with a server verdict from
-`POST /pools/validate`, and an Overview checklist that ticks itself off and
-offers the `runs-on` line to copy. Six of the seven recovery cases the roadmap
-lists exist with tests. The seventh is narrower than the source text says: for a
-repository-targeted installation the probe already lists that repository's
-runners and fails if it cannot; the unchecked case is an organisation
-installation granted "selected repositories" that exclude the one the
-operator pushes to.
-
-The other real gap is in what Playwright can reach. The suite drives the real
-binary, but its fake GitHub is an in-process test server, so the exchange,
-verify and any runner or job are never driven from a browser, and the only
-fail-then-recover test is a wrong password.
-
-The verifier also found three small defects on the journey itself: the
-bootstrap page says "step 1 of 4" and "three steps left" while the Overview
-checklist renders five steps on a controller with no host, which is the
-state after every controller-only install; the CLI's tested "expired or
-already used" remedy never fires for a real spent token, because the API
-answers 422 and the transport maps only 401 to the sentinel the CLI keys on;
-and the expired-token message is asserted nowhere at the API. All three ride
-with the first pull request.
-
-**Do, in three pull requests:**
-
-1. Tests and small fixes: the three defects above; handler tests for verify
-   that assert the message names the missing permission; join refusals
-   (garbage, reused and expired tokens) asserted at the API and in
-   `hosts.spec`; a Playwright test that opens the verify dialog against the
-   seeded demo installation, whose probe succeeds deterministically without
-   any fake; `/hosts/new` and `/pools/new` added to the accessibility audit
-   (the phone audit already visits the pool wizard); a phone-width pass over
-   bootstrap and login; the end-to-end test asserts the duration and stats
-   shapes the Overview reads (it already asserts the runner id).
-2. Verify answers "which repositories can this installation see": repository
-   selection, count and the first names from the installation's repository
-   list, rendered in the verify dialog. One spec change, both clients
-   regenerated, one docs row.
-3. **Done.** A standalone fake GitHub for Playwright: a test-only Go program under
-   `test/` serving the existing fake on a loopback port, started by the
-   Playwright harness and pointed at through the per-installation API base
-   URL the connect dialog already accepts. One spec: connect with a wrong key, verify fails, fix
-   the key, verify passes. ZF-202 and ZF-301 reuse it. A resume notice on
-   Add-a-host naming an outstanding token (prefix and age, never the plaintext)
-   can ride along.
-
-**Cut from the source package:** a browser-driven real job (it needs the same
-credentials as the Go end-to-end test and belongs in ZF-301); any new
-persistence layer; any rewrite of the wizards.
-
-**Accept when:** the fail-then-recover spec passes in CI without secrets; the
-verify dialog shows repository access; the accessibility and mobile audits
-cover every journey page.
-
-Depends on ZF-101 for the ineligible-installation message it will show. Size
-M. Session: Claude Opus 5 at `high`; Claude Sonnet 5 at `high` for the
-tests-only pull request. Decisions: 18.
-
-### ZF-202: diagnostics an operator can act on
-
-**Classification: mixed; two packages wearing one id.** The explanatory
-substrate exists and is tested: a problems aggregator with fourteen runtime
-codes plus every configuration finding, the two-shape `runners.not_progressing`
-problem, a per-job event timeline in the database, a runner timeline rebuilt
-from its stamps, the host-fit check the pool wizard uses, `zoomies status`
-and `zoomies config print` with secrets blanked, health and readiness
-endpoints, and a request id on every response.
-
-What is missing: any support bundle or diagnostics route; a server-side
-answer to "why is this job still queued" (the job drawer recomputes a reason
-from pool counts in the browser, and the CLI knows only "unmatched"); the
-runner's registration stage and its host's last contact on the runner page;
-graceful partial failure (one failing store query blanks the whole problems
-drawer and returns a 500); any signal that the poller is paused or stale;
-and one secret the config blanking misses (the capacity-demand signing
-secret). The reconciliation also found that a test on the code this package
-extends fails without race detection because two runners created in one
-pass share a millisecond and the selection had no tie-break; that is fixed in
-this pull request as a Phase 0 defect.
-
-**Do, in two halves:**
-
-*The small fixes that make what exists trustworthy (S each):* **done** —
-partial failure tolerance in the problems aggregator with a
-`controller.problems_partial` entry naming what could not be gathered; the
-missing secret blanked with a reflective test that every secret-shaped config
-field is; and a last-poll stamp and pause state in `/meta` with `poller.paused`
-and `poller.stale` problems — **not** both attributed to the whole poller as
-this said, because ZF-101 has since made the rate-limit hold per installation,
-so `poller.paused` names the installation it is holding;
-container-started and registered
-stamps on the runner view, the stage labels rendered on the runner timeline,
-and "host last seen" on the runner facts — which also corrected a mislabel,
-since the panel called `started_at` "Registered" and that is what
-`registered_at` is; and one sentence for a `waiting` job, which was the one
-kind with nothing said about it because every panel explaining a wait keys on
-`queued`. **All of the small half is done**, and so is the opt-in fixture the
-acceptance names: `ZOOMIES_SEED_STUCK` breaks three things in the demo fleet on
-request and a `diagnostics` Playwright project runs against it. Building it
-found the defect none of the earlier pull requests could have: a held job is
-unmatched by construction, so the default Jobs view hid every one of them.
-
-*The two new things (M and L):* **the explanation is done** — `GET
-/jobs/{id}/explanation` returns one answer computed from the last plan, the
-pool, the runner and the host, and separates `waiting` from `blocked` because
-the two need different advice; and the drawer and the CLI render it
-instead of reasoning for themselves, so the explanation is complete.
-**And the bundle is done**, which finishes the package: `GET
-/diagnostics/bundle` under a new `diagnostics.read` action, assembled section
-by section so a failing section lands in an `errors` array rather than failing
-the whole, capped by row count per section and by bytes overall, and
-secret-free because every section is a rendering the API already serves --
-the configuration in it is `/settings`' own key-by-key one, where a secret is
-absent rather than blanked. It carries no workflow log body: runner ids and
-the existing download route instead. `zoomies diagnostics` writes it to a
-file and says what went in. **The action is admin, not viewer, and the
-reasoning is worth keeping**: the weakest role that covers a bundle is the
-strongest role inside it, because the bundle contains the settings section
-and `settings.read` is admin -- a document assembled from admin-only material
-does not become viewer material by being assembled.
-
-**Cut from the source package:** request-id propagation into the agent
-protocol; a delivery-id migration until a support case asks; any new
-reasoning layer beyond the scheduler's own reason strings; log bodies in the
-bundle (there is no log redaction and the roadmap's own rule says arbitrary
-secrets cannot be recognised).
-
-**Accept when:** an opt-in test fixture (not the demo seed, which
-deliberately re-stamps its runners so a demo never reports them stuck)
-carries one runner per stuck shape, one blocked pool and one `waiting` job,
-and a Playwright spec follows the problems drawer to the runner page and
-reads the stage and the fix; the bundle is admin-only, capped,
-and passes the secret-absence test; an operator can diagnose a stuck
-registration from the runner page alone.
-
-Depends on ZF-102 for the reconciliation semantics the explanation names.
-Size L. Session: Claude Opus 5 at `high`; the explanation endpoint's design
-is a Claude Fable 5.1 slice. Decisions: 19.
-
-### ZF-203: backup and restore that exist
-
-**Classification: new.** Prose only today: the backup page tells the
-operator to run the `sqlite3` command-line backup, which the controller's
-container image does not ship, and to copy the encryption key beside it.
-Two accidental building blocks are the right shape: an agent whose token the
-restored database no longer holds exits with a re-join instruction, and the
-embedded agent re-joins itself when the database is replaced. Two startup
-behaviours work against a safe restore: the store silently accepts a database
-whose ledger names migrations the binary does not embed, and a missing key
-file is silently replaced by a freshly generated one, so a restore without
-its key fails later inside the first GitHub call rather than at startup.
-
-The driver question is settled: the bundled SQLite supports `VACUUM INTO`
-through `database/sql`, producing a single non-WAL file that passes an
-integrity check, so no new dependency is needed.
-
-**Do, in four pull requests:**
-
-1. Store primitives and guards (S): **done** — `Backup` by `VACUUM INTO` under
-   the write mutex, refusing an existing destination and tightening the copy to
-   owner only; `IntegrityCheck`; a read-only open that skips migration, taken
-   by the installer's `finished` check and the uninstall's deregistration sweep
-   as the verifier's constraint required; a refusal to start on a ledger with
-   unknown names, which also corrected `docs/upgrading.md`, since it said an
-   older binary against a newer database "will run"; a refusal to generate a
-   key over a database that holds sealed secrets; and `crypto.key_mismatch`
-   when the key cannot open one, which is the *wrong* key rather than a missing
-   one — that case cannot be caught at startup, because a key is proven only by
-   opening something.
-2. `zoomies backup` (M): **done** — the copy, its integrity result, and a
-   manifest with build identity, the migration ledger, the key's fingerprint
-   and path, the secrets the restore will need, and the redacted
-   configuration; `--keep` retention, which only ever removes a directory this
-   command made; the key excluded unless `--include-key` is passed, and the
-   summary says which of the two backups was taken **every** time rather than
-   only when something is wrong. One backup is one timestamped directory
-   rather than a pair of files, which is what makes retention deletable and
-   restore a single argument. The backup page's `sqlite3` instructions are
-   replaced, resolving the inconsistency the verifier found: the key is kept
-   once, wherever secrets are kept, and the manifest's fingerprint is what
-   says the two belong together.
-3. `zoomies restore` (M): **done** — refuses a corrupt copy, a newer ledger and
-   a wrong key fingerprint, all three *before anything is moved*, which is the
-   property that matters: each is otherwise found after the controller is
-   running on the restored data; never overwrites the only working database
-   without `--replace`, and then moves it aside with its `-wal` and `-shm`
-   rather than copying it, since leaving those beside the restored file would
-   replay one database's log into another; deletes every session and unused
-   join token while keeping the redeemed ones, which are history; flags to
-   revoke API tokens and to reset agent tokens; sets the fence; writes an audit
-   row. The fence is a row in the database's own `settings` table rather than a
-   line in `zoomies.yaml`, because it belongs to the data: a restored database
-   is fenced wherever it is put, and a copy carried to a second machine arrives
-   fenced too.
-4. The fence (M): **done** — a `recovery.fenced` setting the controller reads
-   at start; reconcile still snapshots and decides so the UI shows what it
-   would do, but applies nothing, reaps nothing and does not sweep the poller;
-   a `recovery.fenced` problem whose fix names the checks to make; readiness
-   answers 503 with the reason while liveness does not, so the container
-   runtime does not restart a fenced controller; one audited admin route
-   (`recovery.write`, admin) lifts it. Automatic lifting waits for ZF-102's
-   definition of a reconciled fleet. **The mechanical drill the acceptance
-   names is written** and passes: back up a running fleet, stop it, restore
-   into a clean state directory, and assert the integrity, the fence, the
-   data and the lift.
-
-Five constraints the verifier found for the design: once the store refuses
-a newer ledger, the restore command cannot take its pre-restore copy of a
-newer live database through the store, so that copy is a raw file copy of
-all three files; the installer's finish and uninstall paths open the store
-read-write and migrate as a side effect, so they take the read-only option
-too; the container's health check is the liveness route, not readiness, so a
-fenced controller is not restarted by its runtime; the `settings` table and
-the settings API share a name and not data, so the fence surfaces through
-problems and readiness; and the backup page tells operators to copy the key
-beside the database while the security page and the installer tell them
-not to, an inconsistency the rewrite resolves in favour of the fingerprint.
-
-**Cut from the source package:** scheduled backups (a timer and one doc line
-suffice); a backup UI page; a separate encrypted key-escrow route; the
-page-copy backup API; "reconciled" as a computed condition.
-
-**Accept when:** the mechanical drill is a CI test (backup, stop, restore into
-a clean state directory, integrity and fence asserted) — **done**, in
-`test/drill`, where the binary is the one an operator has and the restore is a
-command run against a database on disk — and the GitHub half
-(sign in, re-join a controlled agent, run a job after lifting the fence) is
-recorded once in `roadmap/validation/` with the achieved time and the copy's
-age. Cross-machine fencing is an operator procedure, stop the original first,
-and the page says so.
-
-Depends on ZF-102 only for automatic unfencing. Size L. Session: Claude
-Fable 5.1 at `high` for the fence and guard semantics, Claude Opus 5 at
-`high` for the commands. Decisions: 20.
-
-### ZF-204: releases, upgrades and compatibility
-
-**Classification: mixed.** A real skeleton exists: the protocol version is
-refused at join; the agent's version is stored on the host and shown on the
-Hosts page; version and commit are stamped into `/meta`, the build-info metric
-and the User-Agent; the installer refuses an unverified download; the release
-workflow publishes draft releases with checksums and multi-architecture
-images; the installer upgrades in place preserving config, key, database and
-unit identity; the migration ledger's naming rules are tested.
-
-What the acceptance list names is largely missing, and one finding changes
-the compatibility story: the protocol check runs at join only and is untested,
-so an agent that joined before a protocol bump keeps polling and receiving
-tasks; an older agent does not ignore an unknown task kind, it reports the
-task failed, and the controller treats any kind it does not recognise as a
-lifecycle task and marks the runner failed. `docs/upgrading.md` says the
-opposite, and is corrected in this pull request. Also: nothing backs up
-before a migration; an older binary silently runs against a newer schema;
-every third-party action is tag-pinned with no dependency updates or
-vulnerability scanning; every workflow, release and site included, depends on
-one runner vendor with no GitHub-hosted path; the releases -- `v0.1-alpha` when this was
-written, and `v0.2-beta` since -- are mutable, not marked as prereleases, and had its assets rebuilt and
-re-uploaded two days after tagging; and there is no upgrade test of any kind.
-
-**Do, in six small pull requests, most of them S:**
-
-1. Compatibility enforced and stated: **done** — the same protocol check at
-   heartbeat, answered by flagging the host incompatible and excluding it from
-   placement like a cordon (never a refusal that restarts every agent at
-   once); the controller's lifecycle-task predicate is an explicit allowlist,
-   so an unknown kind leaves the runner alone; the policy is written in
-   `docs/upgrading.md`. **The verifier's finding about the agent's cordon flag
-   is fixed with it**: it was log-only, and an agent now refuses a *create*
-   while cordoned or incompatible and does everything else as normal —
-   refusing every kind would strand the runners a cordoned host still has to
-   drain. **A correction to this plan**: "an agent may lag by one minor
-   release" is not what the code can enforce, because nothing compares release
-   numbers; what it enforces is that the protocol matches, and lag beyond that
-   is a fact the Hosts page shows rather than a rule. The badge for it is
-   pull request 2.
-2. Skew visible: **done** — a derived `host.version_behind` problem and a badge
-   on the host card, with its row on the problem-codes page. **The verifier's
-   finding that the two sides disagreed is fixed by making both use one
-   comparison**: the agent compared its version *with the commit* against the
-   controller's while the host row stores the bare version, so two builds of
-   one tag warned in the agent's log and matched on the Hosts page. Releases
-   are compared now, not commits -- a rebuild of one tag is the same release --
-   and `version.CompareBuilds` is the single answer both use. It refuses to
-   order what it cannot parse rather than guessing, because a wrong order
-   sends an operator to upgrade the wrong side; a host *ahead* of its
-   controller gets its own sentence for exactly that reason.
-3. Schema safety: **done. The first half landed early, in ZF-203** — the store
-   already refuses to open a database whose ledger names a migration the
-   binary does not embed, because a safe restore needed it first; **no
-   emergency override was added, and none should be**, since the refusal
-   names the release to run and an override is a way to corrupt a database
-   under pressure. The rest is now tested: a failing migration stops startup,
-   leaves the ledger clean and applies on the re-run; and a database at an
-   older release migrates to head. **A correction: there are two releases
-   now**, not one — `v0.1-alpha` shipped `0001_init.sql` alone and `v0.2-beta`
-   shipped through `0010`, so the fixture covers both, which are the two points
-   somebody's database is actually sitting at.
-4. Backup before migrate: **done** — when the store is file-backed and
-   migrations are pending, `VACUUM INTO` a sibling copy first, keeping the last
-   two, using ZF-203's primitive and file naming. **The naming is shared rather
-   than merely matched**: the two constants moved into `internal/store`, which
-   owns the layout, so a copy taken automatically is restorable by exactly the
-   command that restores one taken by hand. **The copies live in their own
-   `pre-migration/` directory** rather than beside the operator's: retention
-   here deletes, and a rule that kept "the last two" in a directory somebody
-   points `zoomies backup --dir` at would eventually take one of theirs.
-   Nothing is copied on a first start or a restart with nothing pending.
-5. Supply chain: **done. Three of its seven parts had already landed** —
-   every action is pinned to a commit with its version in a comment, the
-   Dependabot configuration covers actions, Go modules, npm and images weekly
-   and grouped, and `govulncheck` runs in CI and on a weekly schedule; the
-   plan's reconciliation predates them. **What was missing is now in**:
-   build-provenance attestations for the binaries and the controller image's
-   digest; OCI labels on both images, including the version, revision and
-   creation date the runner images carried none of; a guard that refuses to
-   rebuild a published tag; prerelease marking for a tag with a hyphen; and a
-   GitHub-hosted path selectable by dispatch on the release and site
-   workflows. **Two of the verifier's findings went with it**: the release
-   workflow granted `contents: write` to every job and now grants each what it
-   needs, and it had no dispatch trigger, so the runner-selection input now
-   arrives with the tag it needs. **The pinning rule was a claim, not a
-   check** -- CLAUDE.md said CI enforced it and nothing did; `internal/docs`
-   tests it now, along with the permissions rule and the release workflow's
-   own guards.
-6. One upgrade job in CI: install the latest published release into a
-   temporary prefix with the process backend, start it, stop it, start the
-   freshly built binary on the same state, and assert the version changed,
-   the config bytes did not, and the host row survived. Plus an "upgrading an
-   agent host" runbook and a `zoomies hosts drain` composition of cordon and
-   per-runner drain.
-
-Six details from the verifier for the pull requests above: the runner and
-runner-docker images were built with no version, commit or date build
-arguments at all, so build identity was worse for them than for the
-controller image -- **fixed in pull request 5**, which also gave the
-controller image the OCI labels it had none of; the agent's cordon flag from the heartbeat was log-only
-and did not gate anything, which the incompatible-host design reuses and had
-to make real first -- **fixed in pull request 1**, by refusing creates alone
-rather than gating the poll loop, since a cordoned host still has runners to
-drain and an agent that stopped polling would strand every one of them; the release workflow had no dispatch trigger, so
-the runner-selection input needed a dispatch path that takes a tag --
-**both done in pull request 5**; the agent
-compares the short version with commit while the host row stores the bare
-version, so a skew badge and the agent's own warning disagree for two
-builds of one tag; `contents: write` was granted to both release jobs when
-only one needed it -- **fixed in pull request 5**, and now tested; and nothing tests the agent's re-adoption of a workload
-after its own restart, on which "a binary swap is non-disruptive" rests.
-
-**Cut from the source package:** capability negotiation and multiple
-protocol versions; down-migrations; an SBOM pipeline; signature verification
-inside `install.sh`; a matrix of upgrade jobs. "Separate trusted release jobs
-from experimental Zoomies runners" has nothing to separate today: CI moved to
-Zoomies runners and back within two hours on 5 September, and the live
-concern is the single vendor.
-
-**Accept when:** the incompatible-agent, interrupted-upgrade, bad-artifact
-and old-binary cases have tests; the upgrade job is green; the policy page
-matches the code; `v0.1-alpha` is marked a prerelease and the first real
-drill, `v0.1-alpha` to the next tag, is recorded in `roadmap/validation/`.
-
-Depends on ZF-203 for the backup primitive. Size L across small pull
-requests. Session: Claude Opus 5 at `high`; Claude Sonnet 5 at `high` for
-the pinning, Dependabot and labels work. Decisions: 8, 9, 21.
-
-### ZF-205: telemetry and bounded history
-
-**Classification: mixed; split in three.** The substrate exists: a
-Prometheus registry whose labels are pool name, backend and installation only,
-with a test that keeps repository and workflow names out of them; hourly
-retention pruning of jobs, runners, samples, webhook deliveries and scaling
-events (audit rows are never pruned, by a documented choice); a drop-not-block
-log relay; an SSE ring with epoch-and-sequence ids and a `resync` frame the UI
-answers by refetching; pagination clamped to 500 on the three long lists with
-indexes shipped in migrations 0001 and 0009.
-
-What is missing: a queue-age gauge, a reconcile-error counter, a cleanup
-outcome counter, any exposure of the poller's pause; tests for three of the
-five prune queries and the prune loop; any load fixture at all (the demo seed
-is fixed at three hosts and fifty jobs and refuses to run on a real fleet); a
-client-side dedupe of the scaling feed after a replay; and the stats window,
-time zone and freshness rendered from data rather than hard-coded prose.
-
-**Do, in three pull requests:**
-
-1. Metrics and prune tests (S, ready now): the four missing series, a
-   registry-wide test that every family's label names stay in the allowed set,
-   the rows in `docs/metrics.md`, tests for the prune queries and loop. The
-   poller-pause gauge is fleet-wide and named so, because the pause is global
-   until ZF-101 makes it per installation.
-2. UI honesty (S, ready now): window, time zone and freshness from the
-   payload; the scaling feed dedupes on event id after a resync. The
-   Overview's subtitle already names the scope it counts and follows the
-   header's "Other runners" switch, so the window replaces the hard-coded
-   half of that sentence and leaves the scope half standing. Both scopes
-   shipped after the reconciliation and are not this package's to revisit:
-   the stats payload carries `fleet` beside the unscoped figures rather than
-   answering a query parameter, because one frame serves every viewer, and
-   migration `0018` records both on every sample. Every new series and the
-   load fixture keep both.
-3. The measurement (L): a test-only generator that writes ten simulated
-   hosts and ten thousand historical jobs through the store's single writer,
-   never a knob on the demo seed; a harness that runs the paginated reads and
-   the primary navigation against it while a live job runs; the result
-   recorded in `roadmap/validation/`. Indexes and query changes only where the
-   measurement shows the need, in a migration with the next unused prefix.
-   Two code paths already load whole windows into memory (queue waits,
-   startup samples) and the usage query cannot use the completed index, so
-   expect at least one.
-
-Four things the verifier added: `docs/security.md` still says repository
-and workflow names appear in metric labels, which the code stopped doing,
-so the sentence is corrected rather than extended; an hourly prune that
-deletes more than 256 runner rows publishes one frame per row into a bus
-whose per-subscriber ring is 256 deep, cutting off every subscriber and
-making every open tab refetch six endpoints, which is exactly the reconnect
-storm the measurement must include and a batched frame would bound; offset
-pagination is untested at every layer, so the measurement needs a
-regression net first; and the audit list filters on an action column with
-no leading index, the likeliest scan the measurement will find. The
-counters the contract names (observed, eligible, created for, ran here, ran
-elsewhere, ran on another provider, Zoomies fault, cleanup pending, cleanup
-converged) are this package's to name and bound.
-
-**Cut from the source package:** durable operation ids (nothing in this
-package is long-running; the contract belongs to Phase 4); pruning audit rows
-(a deliberate never-prune choice that only an explicit decision reverses).
-
-**Accept when:** the series and tests are merged; the measurement is recorded
-with its setup; the roadmap's p95 figures are recorded evidence and not a
-pull-request gate.
-
-Depends on ZF-002 for the contract and on ZF-101 and ZF-102 for the
-scheduling-latency series to consume the real timestamps rather than the
-proxy. Size M overall. Session: Claude Sonnet 5 at `high` for the first two,
-Claude Opus 5 at `xhigh` for the measurement. Decisions: 22.
-
-### ZF-206: Windows runners
-
-**Classification: new, and not authorised before Gate F.** The matching
-vocabulary is already there and nothing behind it is: `naming.OSWindows` is a
-legal operating system, `windows` is in `store.ImplicitLabels`, and
-`docs/hosts-and-pools.md` even uses `os=windows` as a pool example — while no
-Windows binary is built anywhere, no runner image has a Windows base, and the
-`process` backend refuses the platform outright. A pool declaring it today
-matches nothing and says nothing useful about why, which is the first thing
-this package has to stop.
-
-Decision 26 chooses the shape. Everything below is the *process on a Windows
-host* path, because that is the recommendation; the container path is named at
-the end and is a different package if it is ever wanted.
-
-What is missing, and it is more than it looks:
-
-* **The agent does not build for Windows.** `make dist` and CI's build matrix
-  cross-compile linux and darwin on two architectures each, and `install.sh`
-  refuses anything else — it is POSIX shell, so the enrolment path a Windows
-  host would use does not exist either.
-* **The release asset is a `.zip`.** `runnerAsset` knows `.tar.gz` names and
-  `extractTarGz` is the only unpacker; GitHub publishes
-  `actions-runner-win-x64-<version>.zip`. Its refusal message is also simply
-  wrong today — it says "actions/runner ships for Linux and macOS", and
-  `win-x64` and `win-arm64` have shipped for years.
-* **No digests.** `runner_digests.go` is generated from a five-entry platform
-  list with no Windows rows, and the tamper check refuses anything it cannot
-  match — correctly, so this is a generator change and not a bypass.
-* **Process control is a stub.** `process_windows.go` has a no-op
-  `detachRunner` and a `signalRunner` that can only kill: there is no process
-  group to kill a job's children with, and no interrupt to drain with. A job
-  that spawns `msbuild` leaves it behind when the runner dies, which on a
-  machine whose state persists is exactly the leak the container backend does
-  not have.
-* **A locked file cannot be deleted.** Cleanup on Windows meets open handles
-  where POSIX meets none, so removing a work directory is a retry-with-backoff
-  problem rather than one `RemoveAll`, and ZF-105's convergence target has to
-  survive that.
-* **Host resources report nothing.** `diskSpace` is `syscall.Statfs` behind a
-  `linux || darwin` tag, and Windows falls to `disk_other.go`, which honestly
-  answers "cannot measure". ZF-103a's design already handles that — the host
-  keeps what was known and the badge says resources are unknown — so this is
-  the one gap that is already survivable, and it stays survivable until
-  somebody writes `GetDiskFreeSpaceEx`.
-
-**Do, in four pull requests:**
-
-1. **Done.** Tell the truth about what is not supported. `runnerAsset`'s
-   message named a platform actions/runner does not have; it now names the one
-   Zoomies does not ship for. A pool whose `host_selector` declares
-   `os=windows` is refused at create and at the wizard's review step, with a
-   reason that says adding a host would not help — the failure it replaces was
-   a pool that matched nothing and read as a fleet short of capacity. The
-   `os=windows` example is out of `docs/hosts-and-pools.md`. No behaviour was
-   added, and the product stops implying a platform it has not got. It was
-   worth doing whether or not the rest of this package is ever authorised, and
-   the rest still waits on decision 26 and on Gate F.
-2. Build and enrol. `windows/amd64` in `make dist` and the CI build matrix, a
-   PowerShell counterpart to `zoomies agent join` that writes the service
-   through the Windows service manager as the installer does through systemd,
-   and the compatibility rows in `docs/upgrading.md`. Tests: the join token
-   path is the same code, so what is new is the template and the argument
-   quoting, and both are unit-testable without a Windows host.
-3. Run a runner. The `.zip` asset name, a zip unpacker with the same
-   path-traversal refusal `extractTarGz` has, the generator's platform list,
-   and a job object so that killing a runner kills what it started. Drain
-   stays a kill on Windows and the docs say so.
-4. Cleanup that converges. Retry the work-directory removal against open
-   handles, with the same `runners.cleanup_failed` record when it does not,
-   so ZF-105's five-minute convergence target means the same thing on both
-   platforms.
-
-**Deliberately not in this package:** Windows containers, and therefore the
-ephemeral guarantee. A Windows `process` pool gives a job a fresh work
-directory and a single-use registration on a machine that keeps its state, and
-every page that says "one job per runner, then the container is gone" has to
-say so where that is not what happens — the same treatment
-`docs/security.md` already gives the `process` backend on Linux. Also not
-here: Windows on arm64, a second image catalogue, and any change to what
-`:latest` means.
-
-**Accept when:** a Windows host joins a fleet from a fresh machine using only
-the documented commands; a queued job with a Windows pool's label runs on it
-and the runner and its children are gone afterwards; a pool declaring
-`os=windows` on a fleet with no Windows host is refused with a reason naming
-what to add; the support matrix carries a Windows row that says shape and
-runtime separately, like every other row; and no page claims the ephemeral
-guarantee for it.
-
-Depends on Gate F being attempted first — this widens the platform surface and
-the project is trying to prove the one it has. Also on ZF-105 for the cleanup
-record and ZF-103a for the unknown-resources badge, both of which are done.
-Size L. Session: Claude Opus 5 at `xhigh` for the third pull request, which is
-the one where a wrong answer leaves processes on somebody's machine; `high`
-for the rest. Decisions: 26.
-
-### ZF-207 to ZF-210: repeatable instance operations
-
-These packages make a self-hosted instance easier to administer for a team.
-They separate process administration from fleet operation, bound resource use,
-retain explainable usage and make installation and recovery repeatable. They
-retain one database and one administrative trust domain per instance.
+[roadmap/validation/](roadmap/validation/).
+
+## 6. Delivered
+
+One line per package, with what shipped and the pull requests that carried
+it; the [work-package record](roadmap/progress.md) holds the evidence and
+the log holds the reasoning. Every package here is `done` unless the line
+says otherwise, and where version 2 left a real-use clause open it is named
+in section 7 rather than here.
+
+### Phase 0, the baseline
+
+* **ZF-001 and ZF-002**: the reconciliation, the support matrix and the
+  measurement contract, with the code slice that puts the migration ledger
+  on `/readyz` (`schema.applied`, `schema.latest`), the `waiting` and
+  `approved` timeline kinds and the four-way completed split. Extended on 16
+  September by `fault_kind` on jobs and runners (migrations `0034`, `0035`,
+  #295), which made the contract's fleet-fault-versus-workflow-fault line a
+  counted column.
+* **ZF-003**: every action commit-pinned and tested for it, Dependabot
+  weekly and grouped, `govulncheck` on every change and weekly; CodeQL,
+  Scorecard, fuzzing and package cleanup workflows followed
+  ([scorecard-hardening.md](roadmap/validation/scorecard-hardening.md)).
+* **ZF-004**: six narrowings from reading the instance as a service — a
+  demo id recognised by shape, installation targets folded, a held
+  installation spending no more quota, `history_from` on the usage report,
+  `retention.scaling_events`, and an unsigned webhook refused before its
+  body is read. The first package written from the primary target's
+  question.
+
+### Phase 1, correctness and security under failure
+
+* **ZF-101**: a job belongs to one installation (migration `0012`),
+  `scheduler.Eligible` before labels on every path, per-installation poll
+  freshness and rate-limit holds, `pool.runner_group_unresolved` (#99, #100,
+  #101).
+* **ZF-102**: invariants written and pinned, the state-directory lock and
+  controller lease with `--takeover` (`0013`), adoption on agent start,
+  `task_issued_at` and `host.duplicate_agent` (`0014`), the seven-boundary
+  restart table (#82, #103, #104, #105). Since: GitHub calls no longer run
+  under `reconcileMu`, and the log relay no longer queues tasks for a host
+  that never comes back (#299).
+* **ZF-103**: hosts report CPUs, memory and disk (`0017`), the scheduler
+  places by them and says "short of memory", operators set a reserve and
+  see what is promised away (#115, #118). Since: every runner has a size
+  (`runners.default_cpus`, `runners.default_memory_mb`; #305), per-pool
+  timing overrides (`0037`, #311), a stranding edit answers 409 (#302), a
+  docker-in-docker pair is one slot (#314), the runner's own resource
+  sample reaches the API (`0038`, #344), and elastic CPU bursting (`0039`,
+  #350).
+* **ZF-104**: every identity class walked positive and negative, the log
+  relay bound to its host, streams that end on revocation, hostile input
+  through the pages and the log viewer, forwarded-proto believed only from
+  a trusted proxy (#90, #116, #118, #119, #120). Since: the OIDC state cache
+  is capped (#317) and an impossible password hash fails closed (#309).
+* **ZF-105**: failed cleanup on the runner row and in the drawer (`0015`,
+  `0022`, `0024`), orphaned sidecars, the cache prune guard, a drain
+  timeout, GitHub's backoff honoured per installation, the poll-shedding
+  channel finally set (#76, #108, #110, #111, #113, #120). Since: a busy
+  registration is deferred cleanup rather than a lost permission (#342),
+  housekeeping recovers deferred registration cleanup (#344), and a
+  cancelled run stops its provisioning runners (#348).
+
+### Phase 2, operable and usable
+
+* **ZF-201**: the journey's three defects, verify's repository selection, a
+  standalone fake GitHub for Playwright and the connect-fail-then-recover
+  spec. Since: the pool wizard's automatic and advanced paths (#311) and the
+  installer's Docker-or-Podman offer (#322).
+* **ZF-202**: partial-failure tolerance in the drawer, the poller made
+  visible, the runner's stages, `GET /jobs/{id}/explanation` rendered by the
+  drawer and the CLI, the `ZOOMIES_SEED_STUCK` fixture and its Playwright
+  project, and the admin-only, capped, secret-free support bundle. Since:
+  fault categories and a rerun button (#295).
+* **ZF-203**: the store primitives and startup guards, `zoomies backup`,
+  `zoomies restore` with every refusal before anything moves, the fence, and
+  the mechanical drill in CI. Since, and beyond the package as written: the
+  shared `internal/backup` package, scheduled copies, a staged restore
+  applied by restart, eighteen `/backups*` routes under `backups.read`,
+  `backups.write` and `backups.restore`, the Backups page, S3-compatible
+  offsite destinations sealed under the instance key (`0036`), and a
+  configuration export and import with a dry run (#297, #304, #306, #308,
+  #312).
+* **ZF-204**: protocol checked on every heartbeat with an incompatible host
+  excluded like a cordon, skew visible through one comparison, schema
+  safety tested from both old releases, backup-before-migrate, provenance
+  attestations, OCI labels, the published-tag guard, a GitHub-hosted
+  dispatch path, and `make test-upgrade` from the latest published release
+  on every pull request. Since: assets upload one at a time and the `dev`
+  channel survives a slow upload (#315, #316).
+* **ZF-205**: the four series, the registry-wide label rule, prune tests,
+  UI honesty about the window, the ten-thousand-job load fixture and its
+  record ([load-7d9441b.md](roadmap/validation/load-7d9441b.md)), the audit
+  index it found. Since: a fleet-chosen queue warning threshold (#330), the
+  usage report on the shared trend plot (#300), and the event bus fixes of
+  #309.
+* **ZF-206** (`implemented`): the Windows agent builds, installs as a
+  service through `sc.exe`, unpacks the `.zip` runner behind the same
+  traversal refusal, kills a job's tree through a job object and retries a
+  locked work directory. Nothing has joined a Windows host or run a job on
+  one; section 9 says what happens when a fleet does.
+
+### The September packages
+
+* **ZF-218** (`implemented`): `deploy/marketplace/` — the pinned release
+  contract and image lock, the cloud-config renderer, the answer template,
+  the first-boot script, five certificate arrangements, the operator and
+  partner guide and `SUPPORT.md`. The pin is stale (section 11).
+* **ZF-220**: usage sampled through heartbeats (`0028`), a headroom score,
+  pending-start accounting, pressure holds with hysteresis, the throttle
+  ladder (`0029`), host history for the utilisation chart (`0032`), the
+  host card's explanations and five gauges. Since: reserves that scale with
+  the machine, a busy daemon retried and then avoided (#338), and
+  `agent.bootstrap_cpu_grace` (#343).
+* **ZF-221** (`in_progress`; section 8): every bullet version 2.40 listed as
+  prepared, plus registration admission, the FIFO start queue, queued-start
+  deadlines, conflict recovery, deferred cleanup recovery and prewarm
+  telemetry (#343, #344, #345, #347). What remains is the durable
+  runtime-incident record.
+* **ZF-214a**: the provider contract, its fake, the conformance suite, the
+  `providers` and `machines` schema (`0030`), the machine loop on its own
+  clock, the pure machine-demand calculation and the scale-from-zero signal.
+  **ZF-214b** (`implemented`): the Proxmox provider end to end, its preflight
+  and discovery, ownership marks, the REST and CLI surface, the Providers and
+  Machines pages, `zoomies gateway` for a private provider (`0033`), the
+  runbook and the qualification harness. The harness has not run against a
+  cluster, and section 7 says why that no longer gates anything.
+* **ZF-301a and ZF-301b**: the real-GitHub harness made honest (it can no
+  longer skip green), and the drill tier — the built binary as controller
+  and as a remote agent joined by token, a real workload on the machine —
+  green on every pull request on amd64 and arm64.
+* **ZF-302**, five of six: the controller and agent killed mid-job, a dead
+  Docker socket named, a rate-limited installation standing down and coming
+  back, a failing JIT endpoint leaving nothing behind, and the
+  restore-and-rollback drill. Each found something worth the row it wrote
+  (change record, versions 2.28 to 2.32).
+* **Tailcat private hosts** (the delivered half of ZF-401 to ZF-404): a
+  private connection built into the agent and the controller, the Add-a-host
+  choice, the observed connection badge, `hosts join-token create
+  --connection tailcat`, two real-relay tests in the ordinary suite, and the
+  two recovery fixes of 18 September (#327, #329).
+
+## 7. Withdrawn
+
+Version 3.0 stops authorising the following. Each entry says what it was
+for and what withdrawing it costs, so that the decision is one somebody can
+disagree with later rather than a silent omission. The code, harnesses and
+records they produced stay where they are.
+
+* **Gate F**, the trusted-workload beta gate: the seven-day window, the two
+  hundred attempts with three over-capacity bursts, the twenty failures and
+  twenty cancellations, the readiness verdict. *Cost*: no written beta
+  verdict. *What survives*: every definition it forced into the product
+  (decision 6), the restore drill on every pull request, and the fact that
+  the product carries this repository's CI.
+* **ZF-303**, the readiness record and the second operator. *Cost*: the
+  second operator's set-up-and-diagnose session, which was real usability
+  feedback; the first fleet onboarding onto an operated instance is that
+  session now. *What survives*: the evidence helper's substance becomes
+  ZF-223, a report per installation that the platform owes a fleet.
+* **ZF-301c**, the credentialed real-GitHub scenarios and the nightly
+  `e2e.yml` with a protected environment and a tunnel, with the `e2e.yml`
+  half of decision 11. *Cost*: a run link per adversarial scenario
+  (cancellation, an intended failure, a DinD build, a service container)
+  against real GitHub. *What survives*: the harness under `test/e2e` and
+  `make test-e2e` for a developer with an App; the drill tier covers the
+  same fault shapes against the fake; CI on the fleet exercises real
+  delivery, real Docker and DinD on every pull request.
+* **ZF-302's two remaining halves**, the small-filesystem drill and the
+  daemon-stopped-then-restored drill, which needed the reference host.
+  *Cost*: a recorded answer to what the fleet does when a host's disk fills
+  or its daemon restarts. *What survives*: the product surfaces both through
+  `host.*` problems and the disk gate; the drill tier now runs on a
+  Docker-backed runner, so whoever wants the second drill can write it
+  without a reference host.
+* **ZF-219**, the pristine-VPS verification and the friendly-provider
+  pilot. *Cost*: no independent operator has followed `docs/marketplace.md`
+  end to end, and it says so. *What survives*: the rendering tests in
+  `internal/docs` and the evidence template
+  ([marketplace-deployment.md](roadmap/validation/marketplace-deployment.md))
+  with every row `not run`, which is honest.
+* **ZF-211's measurement half**, the reproducible cold-and-warm workload
+  with p50 and p95 per stage. *Cost*: no quotable queue-to-start figure with
+  its setup. *What survives*: the histograms and stored timestamps that
+  would produce one, and the documentation half of the package, which is
+  ZF-005 now.
+* **The live-qualification clauses** of ZF-220 (a live fleet before release
+  inclusion), ZF-221 (bursts of 1, 4, 8 and 16 on a reference Docker host;
+  the runner-and-sidecar budget evaluation), ZF-214b (twenty cycles on a
+  disposable cluster before the provider is called qualified) and ZF-206
+  (a job on a Windows host before the package closes). *Cost*: the support
+  matrix keeps saying "built, not run" for Windows and Proxmox, and
+  `docs/proxmox.md` has to stop saying "qualified" (ZF-005). *What survives*:
+  the harnesses, which a fleet with a cluster or a Windows host can run, and
+  whose rows are welcome.
+* **ZF-203's GitHub half** (sign in, re-join an agent, run a job after
+  lifting the fence, recorded once), **ZF-204's** "first real drill recorded
+  in `roadmap/validation/`", **ZF-201's** real-credential run of the Go
+  end-to-end tier, and **ZF-001's** reference-host version record. *Cost*:
+  none that a CI drill or the upgrade job does not already cover.
+* **Decisions 3, 4, 9, 10 and 12** as owner actions, and **decision 11's**
+  nightly half, each marked in section 4.
+* **ZF-402**, resumable operation ids, cancellation of an in-flight
+  enrolment and the optional SSH bootstrap. *Cost*: none for the primary
+  target. The enrolment already fails closed — a tunnel that will not start
+  mints no token, an unused token can be revoked, and a re-join on a host
+  that already joined needs `--yes` — and the platform never dials a fleet's
+  host (rule 16), so an SSH bootstrap contradicts the target rather than
+  serving it.
+* **ZF-404b**, dedicated-host maintenance windows, controller-driven agent
+  upgrades and retention-driven cleanup of a host. Deferred indefinitely
+  (decision 25) rather than withdrawn: it stays in section 9 with its
+  reason.
+
+## 8. Active packages
+
+In the order section 10 sequences them. Each was re-read against `main` at
+`9a80b31`; where the code has moved since the package was written, the
+package says so and describes the work from where the code is now.
+
+### ZF-005: corrections from reading the documentation against the fleet
+
+**Classification: new; small; documentation only, plus one pin.** Three
+pages say less or more than is true, and the fleet-hosted CI made the first
+one wrong on 18 September.
+
+**Do, in one pull request:**
+
+1. `docs/index.md` says "Windows runners are not supported" eleven lines
+   above the paragraph that says the Windows agent is built and tested;
+   [roadmap/support-and-measurement.md](roadmap/support-and-measurement.md)'s
+   Docker row says "nothing in this repository has ever started a
+   container" and `docs/index.md` repeats it, while every CI job but two
+   runs inside a container the Docker backend started on a Zoomies fleet.
+   Say what runs where: no *test* in the repository starts a container, and
+   the repository's own CI does, on every pull request, with a link to the
+   selector test that keeps it so. Move the Docker row right accordingly,
+   and leave the Windows and Proxmox rows where they are.
+2. `docs/proxmox.md` says the Ubuntu, guest-agent and Docker combination "is
+   what has been tested end to end" and "what has been qualified", and that
+   the record it links to is the one "Zoomies' own release qualification"
+   produced, while that record says nothing has run. Say what is true: the
+   combination is the one the harness is written for, the harness has not
+   been run against a cluster, and a fleet that runs it is asked to send its
+   rows.
+3. `deploy/marketplace/release.env` repinned to the current full release
+   and `make marketplace-lock` rerun, with the reason in the commit: a
+   marketplace deployment otherwise runs a controller without the pressure
+   holds, the throttle ladder, the start-up fixes or elastic CPU.
+
+**Accept when:** the three pages agree with `roadmap/progress.md` and with
+each other; `mkdocs build --strict` and the `internal/docs` tests pass; the
+lock test `TestEveryPublishedRunnerVariantIsLocked` passes on the new pin.
+
+Depends on nothing. Size S. Session: Claude Sonnet 5 at `high`. Decisions:
+none.
 
 ### ZF-207: two audiences for one instance
 
-**Classification: extension; medium.** The RBAC table has three roles and
-one policy, and `admin` covers both "manages the fleet's accounts and
-installations" and "reads the process's bind address, TLS file paths,
-trusted proxies, database path and encryption-key location, changes its
-timers, unfences it after a restore and takes its support bundle". The
-problems list mixes `bind.public_no_tls`, `proxy.trust_everyone`,
-`crypto.*` and `controller.lease_lost` into what every viewer sees, and
-several fleet problems name an example runner, repository or host from
-wherever the fleet is worst. The copy says "this controller" forty-one times
-and sends people to "the controller log" they cannot read.
+**Classification: extension; M, and the gate the primary target waits on.**
+Not started, and further from done than when it was written, because the
+instance-settings work moved the boundary the wrong way for this shape.
+What the code does today: `store.Role` has three values and `users.role` and
+`api_tokens.role` each carry a `CHECK` naming them (`0001_init.sql`); the
+three-role vocabulary is repeated in the CLI's `--role`, the OIDC group
+mapping, `web/src/lib/roles.ts`, `types.ts` and every `x-zoomies-role` in the
+OpenAPI document. `settings.read`, `settings.write`, `diagnostics.read`,
+`recovery.write` and the three `backups.*` actions all sit at `admin`, as do
+`/settings/export` and `/settings/import`. Migration `0031` and
+`internal/config/settings.go` split keys into *bootstrap* (the database path
+and the encryption key), *local* (a standalone agent's own keys) and
+*instance* — everything else, `server.bind`, `server.tls.*`,
+`server.trusted_proxies`, `security.disable_auth`, `security.rate_limit_logins`
+and `oidc.*` included — and any admin writes an instance key through
+`PATCH /settings`; the validator refuses only a change that would stop the
+next start. `GET /settings` returns `config_path`, `database_path` and the
+subscriber count; the bundle carries the paths, the OS, the CPU count and
+the heap. `Controller.Problems()` builds one list, every validator warning
+and error first, and `problems.updated` reaches every subscriber; the only
+per-identity redaction on the stream is the pool `env` blanking in
+`sse.go`, which is the pattern to copy. "This controller" appears on
+fifty-three lines under `web/src` and "the controller log" in nine places,
+`ErrorState` among them. The audit list withholds `before` and `after` by
+role and never the `ip`. The About panel already hides the database path
+below `admin`, and the Settings pages a role cannot use are shown locked
+with a reason, on purpose.
 
-**Do:**
+**Do, in five pull requests:**
 
-1. A `platform` action family in `actionRoles` — `platform.settings.read`,
-   `platform.settings.write`, `platform.diagnostics.read`,
-   `platform.recovery.write`, `platform.problems.read` — with a fourth role,
-   `platform`, above `admin` and holding only those. The bootstrap account is
-   `platform`; an admin created by one is not. `GET /settings`, `PATCH
-   /settings`, `/diagnostics/bundle` and `/recovery/unfence` move behind it;
-   the RBAC walk test and `docs/security.md`'s table say so.
-2. `Problems()` split into the platform's (every validator finding, the
-   lease, loop panics, the update check, the capacity-demand receiver, and
-   any problem whose detail names a bind address or a URL the process
-   serves) and the fleet's; `/problems` and `problems.updated` carry the
-   fleet's to everyone and the platform's only to a `platform` identity.
-3. The copy: "this controller" becomes "Zoomies" or the fleet; `ErrorState`
-   stops naming a log the reader may not have; the About panel keeps its
-   version and drops the database path for anyone below `platform`; the
-   Settings tabs a role cannot use are absent rather than disabled.
-4. Audit: `audit.read` stays viewer for the fleet's actions, and the source
-   address is shown only to `admin` and above — an IP is the one column
-   that is about a person rather than about the fleet.
+1. **The role.** A fourth role, `platform`, above `admin`, in `store.Role`
+   and its rank, in a migration that rebuilds the two `CHECK` constraints
+   (a data-preserving rebuild under decision 7, reason in the header), in
+   the CLI's `--role`, in an `oidc.platform_groups` mapping, in the two
+   TypeScript vocabularies and in the OpenAPI document. The migration
+   promotes the oldest enabled `admin` to `platform`, because on every
+   existing single-team instance the person who installed it is the
+   platform and the alternative — an instance in which nobody can change a
+   timer — is a lock-out. Every bootstrap path creates `platform`: the
+   setup-token page (whoever can read the log is the platform), the answer
+   file and ZF-210a's environment variables. An admin created by one is
+   not. `ErrLastAdmin` gains a sibling: the last enabled `platform` cannot
+   be demoted or deleted.
+2. **The actions.** `platform.settings.read`, `platform.settings.write`,
+   `platform.diagnostics.read`, `platform.recovery.write` and
+   `platform.backups.read`, `.write`, `.restore`, with `GET`/`PATCH
+   /settings` for platform-scoped keys, `/settings/export`,
+   `/settings/import`, `/diagnostics/bundle`, `/recovery/unfence` and every
+   `/backups*` route behind them. Backups move whole: a backup is the
+   process's database sealed under the process's key, and a fleet that
+   wants its data has ZF-210b. The walk tests gain the fourth fixture, and
+   `TestEveryActionHasARole` keeps holding.
+3. **The settings scope.** A fourth `config.Scope`, `ScopePlatform`, on the
+   keys decision 31 lists. `Stored()` stays true for them, so the export,
+   the import and the file seed keep working; `editable()` requires
+   `platform`; a fleet identity's `GET /settings` omits platform-scoped
+   keys, `config_path`, `database_path` and the subscriber count entirely,
+   and the Configuration page renders what it is given. On a single-team
+   instance the platform account sees what admin sees today.
+4. **The problems split.** `Audience` (`platform` or `fleet`) on
+   `controller.Problem`, set where each is made: every validator finding,
+   the lease, loop panics, the update check, the capacity-demand receiver,
+   the `backup.*` problems and the private-connection listener are the
+   platform's; the fleet's are the rest. `GET /problems` filters by identity
+   and `problems.updated` is rendered twice and chosen per subscriber, the
+   way pool `env` values already are. ZF-222 builds on the fleet half.
+   The full bundle is `platform.diagnostics.read`; `admin` gets a fleet
+   bundle from the same handler with the instance section reduced to the
+   version and the build, because "send me a bundle" is the platform's
+   first support question and the fleet has to be able to answer it.
+5. **Tokens, copy and audit.** An `owner_role` column on `api_tokens`, in
+   the same migration as the role: a token minted by a `platform` identity
+   is invisible to and irrevocable by anyone below `platform`, which is
+   where the platform's metrics scraper token lives. "This controller"
+   becomes Zoomies or the fleet; the nine "controller log" sentences become
+   one `supportHint()` on each side that says to quote the request ID to
+   whoever operates the instance; a test in `internal/docs` fails on either
+   phrase in `web/src` outside an allowlist. The audit `ip` is blanked below
+   `admin`, in the same place the documents are. The locked-with-a-reason
+   Settings pages stay as they are: the package once asked for absence, the
+   code chose a reason, and the reason is better.
 
-**Accept when:** a viewer, an operator and an admin fixture each see no
-bind address, file path, key location or an unauthorised installation's example in any
-page or event frame, with a Playwright test per role; the platform role is
-the only one that can change a timer or lift the fence; the OpenAPI
-document, both clients and `docs/api-surface.md` say the same.
+**Accept when:** a viewer, an operator and an admin fixture each see no bind
+address, file path, key location, process figure or another installation's
+example in any page, response or event frame, with a Playwright test per
+role; only `platform` can change a platform-scoped key, lift the fence, take
+the full bundle, run a restore or list a platform token; an instance
+upgraded from today has exactly one `platform` identity afterwards and it is
+the account that bootstrapped it; the OpenAPI document, both clients,
+`docs/security.md`'s role table and `docs/api-surface.md` say the same
+thing; `zoomies users` and the Users page can create the fourth role and
+say what it is for, in self-hosted words.
 
-Depends on ZF-202 (the problems drawer it splits). Size M. Session: Claude
-Opus 5 at `high`. Decisions: 27.
+Depends on ZF-202 (done). Size M, larger than written: the scope split and
+the schema rebuild are the work. Session: Claude Fable 5.1 at `high` for the
+scope split and the migration, Claude Opus 5 at `high` for the rest.
+Decisions: 27, 30, 31.
 
 ### ZF-208: limits at the public and agent edges
 
-**Classification: extension; small.** Only the join route is rate-limited
-among the agent routes. A host token can heartbeat at any frequency with a
-megabyte of runner reports, each costing a read and possibly a write on the
-single writer; one host can open thousands of parallel task polls, each
-holding a goroutine for twenty-five seconds, and the fleet-wide poll shed
-then slows every host's task delivery to fifteen seconds. Nothing bounds
-the number of hosts, pools, join tokens or SSE subscribers, and the
-per-tick create budget is allocated by pool priority, which any operator
-sets, so one pool at priority 1000 starves the rest on every tick.
+**Classification: extension; S to M, the second gate.** Not started. Since
+it was written, one edge limit landed — the OIDC pending-state cache is
+capped at 1024 with a 429 (#317) — and within-tier fairness landed with
+#345, so the create-budget item is the tier boundary alone. What the code
+does today: only `/agent/join` is rate-limited among the agent routes;
+heartbeat, results and report carry the one-megabyte body cap and nothing
+else, and a report is a bare array with no count cap; `PollTasks` counts
+polls in flight fleet-wide and sheds only polls that found nothing, from
+256 held to fifteen seconds at 512, so one host's polls slow every host's;
+the log relay is exempt from the body limit by design; no `limits.*` key
+exists and nothing bounds hosts, pools, join tokens or event subscribers;
+the webhook body is five megabytes. And a fleet admin can point `oidc.issuer`,
+`capacity_demand.destination_url`, `github.api_base_url`,
+`agent.runner_download_url`, a backup remote's endpoint or a provider's
+endpoint at the process machine's metadata service or its LAN, because the
+only address check is loopback on providers.
 
-**Do:**
+**Do, in one pull request per item:**
 
-1. A per-host token bucket on heartbeat, report and results, sized from
+1. A per-host token bucket on heartbeat, report and results, reusing
+   `auth.RateLimiter` keyed by host id and sized from
    `agent.heartbeat_interval` so a well-behaved agent never meets it; one
    in-flight task poll per host, a second answered at once with an empty
-   set; a cap on reports per request.
+   batch; a cap on runners per report; a per-stream byte budget on the log
+   relay that drops rather than blocks, as the relay already does.
 2. Fleet-wide ceilings as configuration — `limits.hosts`, `limits.pools`,
-   `limits.runners`, `limits.join_tokens`, `limits.event_subscribers` --
-   each zero by default meaning unlimited, each refused at the handler with
-   a message naming the ceiling, and each a warning in the validator when
-   set on a loopback bind, where it protects nothing.
+   `limits.runners`, `limits.join_tokens`, `limits.event_subscribers` —
+   platform-scoped under decision 31, each zero by default meaning
+   unlimited, each refused at the handler with a message naming the
+   ceiling, each a warning in the validator when set on a loopback bind,
+   where it protects nothing.
 3. The create budget shared fairly across pools of *different* priority
    before priority decides within a tier: a highest-priority pool may take
    the whole tick only when no lower tier has demand it has waited a full
    interval for. The scaling reason says when a pool was deferred by this.
 4. The webhook body cap lowered from five megabytes to one; a
    `workflow_job` is tens of kilobytes.
+5. An outbound address guard: one `config.CheckOutboundURL` refusing
+   loopback, link-local and private-range destinations for the six settings
+   above unless a platform-scoped `security.allow_private_egress` is set,
+   called from the validator for the four keys and from the backup-remote
+   and provider validators; a finding `egress.private_target` (error) with
+   its row in `docs/problem-codes.md` and a paragraph in `docs/security.md`.
+   On a single-team instance whose OIDC issuer is on the LAN, the operator
+   sets the one key and the finding names it.
 
-**Accept when:** a load-tier drill with one hostile agent and one hostile
-pool leaves every other host's task latency and every other pool's
-time-to-runner within the ZF-002 targets; each limit has a test that
-reaches it.
+**Accept when:** each limit has a test that reaches it; in the drill tier,
+one agent hammering heartbeats and polls leaves another host's task delivery
+within one poll interval, asserted rather than recorded; a private-range
+issuer is refused by name and admitted by the setting.
 
-Depends on ZF-301b (the drill tier). Size S. Session: Claude Sonnet 5 at
-`high`. Decisions: 27.
+Items 1, 3, 4 and 5 depend on nothing; item 2's scope depends on ZF-207.
+Size S to M. Session: Claude Sonnet 5 at `high`; Claude Opus 5 at `high` for
+the address guard, where a wrong list is a hole. Decisions: 27, 30, 31.
 
 ### ZF-209: a metering ledger the usage report can stand on
 
-**Classification: extension; medium.** The usage report is computed at read
-time from `jobs` and `runners` rows, and ZF-004's fourth correction made it
-say where those rows begin rather than pretend otherwise. That is honest and
-not enough: a figure an operator charges a team for, or reconciles against
-an invoice from their own provider, has to survive the prune loop, be
-additive across adjacent reports, and be recomputable from a record that was
-written once and never edited. A single fleet needs this for capacity planning and internal cost allocation.
+**Classification: extension; M.** Not started. The seam is as it was: the
+usage report is computed at read time from `jobs`, `runners` and
+`usage_capacity_samples`, ZF-004 made it say where those rows begin, and
+the prune loop rolls nothing up before it deletes. Since it was written the
+report has been redrawn (#300) and `history_from` is on the JSON response
+but not on `/usage.csv`. On the primary target these are the figures the
+two parties reconcile, and today they are truncated at `retention.runners`
+(seven days) by a key the fleet can shorten.
 
 **Do:**
 
-1. A `runner_sessions` table written once, at the moment a runner's cleanup
-   is confirmed: runner, pool, host, installation, the job it ran if any,
-   started, registered, finished, and the pool's cost rate at the time. Never
-   updated; its own `retention.runner_sessions` window, a year by default.
+1. A `runner_sessions` table written once, when a runner's cleanup is
+   confirmed — `cleaned_up_at` in its `0022` sense, host removal and
+   GitHub's absence both seen — with runner, pool, host, installation, the
+   job it ran if any, started, registered, finished, and the pool's cost
+   rate at the time. Never updated; its own `retention.runner_sessions`,
+   a year by default, platform-scoped with the other retention keys.
 2. A `usage_daily` roll-up per pool, host and installation, produced by the
    prune loop *before* it deletes the rows it is computed from, so the
    report is complete for every day the roll-up covers however short the
-   row retention is. Integer seconds and integer minor currency units keep sums exact.
-3. `/usage` reads the roll-up for days it covers and the rows for the rest,
-   and `history_from` becomes the roll-up's start rather than the rows'.
-   `/usage.csv` gains the same. `docs/metrics.md`'s "what happened last
-   month is your scraper's problem" sentence is corrected to say what is
-   kept.
+   row retention is. Integer seconds and integer minor currency units keep
+   sums exact.
+3. `/usage` reads the roll-up for the days it covers and the rows for the
+   rest, `history_from` becomes the roll-up's start rather than the rows',
+   and `/usage.csv` gains the same field. `docs/metrics.md`'s "what happened
+   last month is your scraper's problem" sentence says what is kept now.
 
 **Accept when:** a 90-day report taken with seven-day runner retention
 matches, to the second, one taken with retention off; a runner session is
-written exactly once across a controller restart mid-cleanup (the ZF-302
-restart drill); the roll-up is reproducible from the sessions table alone.
+written exactly once across a controller restart mid-cleanup (the
+controller-restart drill); the roll-up is reproducible from the sessions
+table alone.
 
-Depends on ZF-105 (cleanup confirmation is its write point) and ZF-205.
-Size M. Session: Claude Opus 5 at `high`. Decisions: 27.
+Depends on ZF-105 and ZF-205 (done) and on ZF-207 for the scope of the
+retention keys. Size M. Session: Claude Opus 5 at `high`. Decisions: 27, 30.
 
 ### ZF-210: unattended provisioning and lifecycle
 
-**Classification: extension; small.** `zoomies init` is a conversation, and
-the first administrator is created by reading a setup token out of the
-controller's log and pasting it into a browser. That is right for a person
-and wrong for a compose file, a Terraform module or anything else that
-creates instances without a person watching, and every one of those has to
-scrape a log to finish. Backup exists; export and delete of one
-installation's whole history do not, and `DeleteInstallation` leaves jobs,
-deliveries, scaling events and capacity samples behind by design.
+Split as version 2.34 split it, without changing the ID: **210a** is
+bootstrap and readiness, **210b** is export and purge. The parent is
+complete only when both meet acceptance.
+
+#### ZF-210a: bootstrap and readiness
+
+**Classification: extension; S.** In progress, because its fourth item
+landed before the package existed: `zoomies init --answers FILE` implies
+`--non-interactive`, `--print-answers` writes the template, the file
+refuses rather than guesses at anything missing, and `mode: controller`,
+`github.skip` and `pool.skip` already describe a controller-only instance;
+the marketplace bootstrap depends on it. Two things it does not do: a
+containerised deployment skips the administrator by design and ends in the
+browser, and the first administrator the file creates writes no audit row.
+`bootstrap_required` is on `/api/v1/meta` and not on `/readyz`, so a
+provisioner waits on two endpoints. Every page that describes an unattended
+install still tells the reader to read the setup token out of the log.
 
 **Do:**
 
-1. `ZOOMIES_BOOTSTRAP_ADMIN` and `ZOOMIES_BOOTSTRAP_PASSWORD_FILE` (or
-   `_TOKEN_FILE` for an API token instead of a password) create the first
-   platform administrator at start when the users table is empty, audited as
-   `auth.bootstrap` with actor `system`, and are ignored — with a warning
-   naming them — once any user exists. The setup-token flow stays for
-   people.
-2. `/readyz` says whether bootstrap is still required, so a provisioner can
-   wait on one endpoint.
-3. `zoomies export --installation ID` writes everything about one
-   installation — its pools, runners, jobs, deliveries, scaling events,
+1. `ZOOMIES_BOOTSTRAP_ADMIN` with `ZOOMIES_BOOTSTRAP_PASSWORD_FILE` or
+   `ZOOMIES_BOOTSTRAP_TOKEN_FILE`, read once at controller start beside
+   `printSetupToken`: when the users table is empty they create the first
+   identity as `platform` (ZF-207), audited as `auth.bootstrap` with actor
+   `system`, and once any user exists they are ignored with a warning
+   finding that names them. The token variant mints a platform API token
+   instead of a password, so a provisioner can drive the instance's API
+   with no browser at all. The setup-token flow stays for a person, and
+   the answer file's `admin` keys now audit the row they create.
+2. `bootstrap_required` on `/readyz` beside `fenced`, so one endpoint
+   answers "can I use this yet".
+3. A committed controller-only answers template (`agent.embedded: false`,
+   `github.skip`, `pool.skip`, TLS from files, the external URL) beside the
+   marketplace one, tested the way `internal/docs` tests that one; the
+   `agent.*` settings section hidden when the instance reports
+   `agent.none`; `docker-compose.yml`, `docs/configuration.md`,
+   `docs/marketplace.md` and `docs/security.md` describe the environment
+   variables as the unattended path and stop telling every reader to scrape
+   the log. The self-hosted reason is on the page already: a compose file
+   or a Terraform module has nobody watching.
+
+**Accept when:** a compose file brings up a controller, a platform
+identity and one joined agent with no human step and no log scraping, as a
+fixture test; the setup-token page still works for a person; the audit log
+shows who bootstrapped and how, on every path.
+
+Depends on ZF-207 for the role. Size S. Session: Claude Sonnet 5 at `high`.
+Decisions: 27, 30.
+
+#### ZF-210b: export and purge of one installation
+
+**Classification: extension; M.** Not started. `DELETE /installations/{id}`
+removes the installation, its pools and their runners, and leaves jobs,
+deliveries, scaling events and capacity samples behind by design; the
+configuration export moves settings, not history; the whole-database backup
+is sealed under a key the fleet does not hold (decision 32).
+
+**Do:**
+
+1. `zoomies export --installation ID` writes everything about one
+   installation — its pools, runners, jobs, deliveries, scaling events, the
    sessions from ZF-209 and the audit rows that name any of them — as one
-   archive, and `DELETE /installations/{id}?purge=true` removes the same set
-   rather than only the rows a foreign key reaches. Both are audited;
-   neither touches another installation's rows, and a test proves that with
-   two installations side by side.
-4. `zoomies init --answers FILE` runs the whole installer from a file with
-   no prompt, refusing rather than guessing at anything the file leaves out.
+   archive, and with `--passphrase-file` re-seals that installation's
+   private key and webhook secret under the passphrase, using the
+   argon2id-and-AES-GCM pattern `backup_remotes.passphrase_enc` already
+   uses, so a fleet can take its App to another instance without the
+   instance key.
+2. `DELETE /installations/{id}?purge=true` removes the same set rather than
+   only the rows a foreign key reaches. Both are audited; neither touches
+   another installation's rows, and a test with two installations side by
+   side proves it byte for byte.
 
-**Accept when:** a compose file brings up a controller, an admin and one
-joined agent with no human step and no log scraping; export then purge of
-one installation leaves the other's rows and figures byte-identical.
+**Accept when:** export then purge of one installation leaves the other's
+rows and figures byte-identical; an exported archive restores onto a fresh
+instance under the passphrase and the installation verifies against
+GitHub.
 
-ZF-210a (bootstrap, readiness and answer-file installation) depends on ZF-203
-and ZF-207's role contract. ZF-210b (export/purge) additionally depends on
-ZF-209's sessions. The parent remains incomplete until both are accepted. Size M. Session: Claude Sonnet 5 at `high`. Decisions: 27.
+Depends on ZF-209 for the sessions in the archive and on ZF-207 (the export
+is a fleet action; the purge is admin with confirmation). Size M. Session:
+Claude Opus 5 at `high`. Decisions: 27, 32.
 
-## 8. Phase 3: real use, drills and Gate F
+### ZF-221: runner resilience and efficient startup, the remainder
 
-The harness, the drills and the readiness record. Gate F's targets, as
-adopted with the definitions the review corrected, are in
-[roadmap/support-and-measurement.md](roadmap/support-and-measurement.md);
-the record that says whether they were met goes in
-[roadmap/validation/](roadmap/validation/), with "pending" and the exact
-action beside anything only the owner can supply. The release remains a
-trusted-workload beta; isolation between mutually untrusted workloads is not claimed.
-
-### ZF-301, ZF-302 and ZF-303: the harness, the drills and the beta
-
-**Classification: mixed; ZF-301 split in three, most of ZF-302 folded into
-its middle slice.** What exists is one real-GitHub test that runs a trivial
-workflow in polling mode with the embedded agent and a plain Docker pool,
-skips with exit code zero on any missing prerequisite, is wired into no
-workflow, checks for orphaned registrations against Zoomies' own API rather
-than GitHub's, has no cleanup on failure despite its README, never asserts
-the dispatch marker, and has waits that exceed its own Makefile timeout. The
-fake GitHub is rich but never delivers a webhook; the controller tests sign
-and post payloads themselves. Fake-level tests already exist for every fault
-class ZF-302 names except disk pressure. No test anywhere has ever started a
-real container.
+**Classification: extension; S to M.** Everything version 2.40 listed as
+prepared is merged, and so is most of what it listed as remaining: the
+registration budget is `scheduler.registration_concurrency`; a runner's
+resource sample carries `sampled_at` and the host card says "measured … ago"
+with a `usage_fresh` flag and a gauge, so cached readings are no longer
+presented as current; ambiguous create and start responses are reconciled
+against labels and ownership before anything is retried
+(`container_conflict.go`); and the runner-and-sidecar share was re-cut
+(#336). Two things remain, one of them only if asked for. On the primary
+target the second matters more than anywhere: the platform supports a host
+it cannot reach, and has only what the agent reports.
 
 **Do:**
 
-*ZF-301a, honesty (S to M, ready now, first):* every prerequisite checked
-before anything is created; a required mode in which a missing prerequisite
-is `blocked` rather than a skip; one JSON result per scenario with a category
-of passed, failed, not run or blocked, a reason, the commit, the run link and
-any residual cleanup; a `test-e2e-required` target that fails unless every
-scenario passed; a ledger written outside the temp directory before anything
-is created, with a cleanup on failure that force-deletes the pool, waits for
-its runners, deletes the installation and closes the ledger, and a start-up
-sweep that cleans stale run ids and reports what it found; the
-orphan-registration check against GitHub itself and the container check
-against the host; per-run labels so parallel runs cannot collide; the
-timeout corrected; the README corrected.
-
-*ZF-301b, the drill tier (L, ready now, the highest-value item):* a package
-behind a `drill` build tag that starts the fake GitHub in process, runs the
-built binary as a controller against it, runs a second binary as a remote
-agent joined by a join token, creates a pool on the `process` backend pinned
-to a staged stub runner, drives jobs through the fake, and asserts that a real
-workload appears on the host and disappears and the fake's registrations are
-empty after removal. It is the first time the product runs as an operator gets
-it — the built binary on both ends of a join, with work landing on a real
-machine — the only place ZF-302's drills can run repeatably without
-credentials, and the fixture ZF-201's fail-then-recover spec and the second
-operator's injected failure can use. It qualifies the `process` backend and
-not Docker: a tier that needed a daemon could not run on every pull request,
-which is the one thing this tier is for, so the default backend's own runtime
-qualification stays outstanding and needs a host that has one.
-On every pull request for the one lifecycle scenario; nightly for the
-drills: kill the controller mid-job and restart; kill the agent mid-job and
-restart; a dead Docker socket then a restored one; a rate limit then its
-reset; a failing JIT endpoint; a work directory on a small filesystem. Each
-drill writes its row (expected, actual, recovery time, cleanup outcome,
-human action needed) from a template into `roadmap/validation/`.
-
-*ZF-301c, the real scenarios (L, blocked on the owner):* one workflow per
-scenario in the disposable repository: cancellation, an intended failure, a
-long job, a Docker build and a service container on a DinD pool, a remote
-agent, and a webhook-delivery run distinct from polling through a tunnel the
-harness starts. A `.github/workflows/e2e.yml` on dispatch and nightly,
-reading credentials from a protected environment, never on a pull request
-from a fork, retaining the results and a redacted controller log as
-artefacts, disabled until the secrets exist.
-
-*ZF-302, the record (S):* the drill template, the disk-pressure finding,
-and the restore-and-rollback drill Gate F's sixth bullet asks for, which
-nothing else in this phase records: backup taken, controller stopped,
-restore into a clean state directory, fence lifted, one job; and an upgrade
-followed by a restore of the pre-upgrade copy, which is what "rollback"
-means here because migrations are one way. Nothing is built into the
-product for fault injection.
-
-*ZF-303, the readiness record (owner-gated):* the record template, an
-evidence helper that pages jobs and runners over the window, classifies
-outcomes with the contract's denominators, computes exact percentiles for
-each interval (labelled as proxies until the platform timestamps land),
-exports daily because the runner retention default equals the observation
-window, counts lost jobs from the timeline and cross-scope refusals from the
-audit log, and emits the readiness tables in Markdown; the seven days, the 200
-attempts with their bursts, the reference deployment of `main`, and the
-second operator are the owner's, and the record says "pending" with the exact
-action until they happen.
-
-**Accept when:** ZF-301a's categories are the only way a run reports; the
-drill tier is green on a pull request; ZF-301c's scenarios each have a run
-link; the readiness record's numbers come from exact timestamps with their
-denominators, not from bucketed histograms.
-
-Depends on ZF-002 (301a and 301b); on ZF-101, ZF-102 and ZF-105 for the
-platform-recorded timings (otherwise proxies); on the owner for 301c and
-ZF-303. Size L. Session: Claude Fable 5.1 at `high` for the drill designs
-and the reading of their results, Claude Opus 5 at `high` for the harness
-code. Decisions: 11, 12.
-
-## 9. Next technical capabilities
-
-The [competitive review](roadmap/competitive-review-2026-09.md) informs this
-order. A documented competitor capability is a reason to evaluate a gap, not
-proof that Zoomies lacks it or an instruction to clone it. Reconcile each
-package against current code before implementation. All new packages below
-start as planned work; this roadmap update implements no runtime behaviour.
-
-### ZF-211: qualification and reproducible performance
-
-**Classification: extension; M.** Reconcile README, website, support matrix
-and package record against the same release. Distinguish a compiled Windows
-agent, a live Windows job, automated Docker tests and owner-run qualification.
-Do not replace completed work or manufacture a historical observation window.
-
-**Accept when:** every support claim names a platform, backend and evidence;
-a reproducible workload reports cold and warm queue-to-start, image pull,
-registration, execution and cleanup, with p50/p95, concurrency, versions,
-hardware and sample counts. Run cancellation, host loss and restore cases.
-Reuse ZF-002 and ZF-301/302; ZF-303 remains the readiness decision.
-
-**Dependencies:** ZF-002 and existing harness. Documentation reconciliation
-can start now; measurements wait only for their actual resources.
-
-### ZF-212: cache performance and bounded retention
-
-**Classification: extension, then design-led new work; M/L.** Inventory
-existing caches and prewarming before adding a service. First publish tested
-dependency and BuildKit cache recipes. Then assess S3-compatible storage with
-an explicit compatibility matrix, key scoping, quotas, retention and UI status.
-Do not promise transparent replacement of every GitHub cache action.
-
-**Accept when:** two representative builds publish cold/warm timings and
-storage costs; trust boundaries prevent untrusted jobs poisoning protected
-caches; active caches survive pruning; credentials are scoped and redacted;
-cache misses or storage failure leave builds usable. Existing defaults remain.
-
-**Dependencies:** ZF-105, ZF-205; new storage design requires its own review.
-
-### ZF-401 to ZF-404b: complete existing-host operations
-
-**Classification: extension/new; L in narrow slices.** Prefer the existing
-outbound join and Tailcat flow. Add preflight, resumable operation IDs, clear
-partial failures, cancellation, verification and revocation. Explicit SSH
-bootstrap is optional and follows a destination-policy and trust-verification
-decision; it must not become a prerequisite for private hosts.
-
-**Accept when:** a private host joins, reconnects after controller/agent restart
-and can be drained and revoked from the UI. An interrupted operation resumes
-without duplicate agents or retained bootstrap secrets. Imported hosts remain
-non-invasive. Dedicated-host maintenance is opt-in, scoped to owned resources,
-previewed and audited; no broad prune, automatic OS upgrade or unrequested reboot.
-
-**Dependencies:** core qualification for release of expanded host operations;
-ZF-207/208/210a for administration and onboarding boundaries. Tailcat regression
-coverage and documentation can proceed before that release gate.
-
-### ZF-213: pool configuration as code and portable migration
-
-**Classification: extension; M.** Add a versioned, secret-free pool manifest
-with export, validation and a reviewed diff before apply. Preserve labels,
-the UI/API contract and existing migration PR behaviour; never silently
-overwrite drift or broaden repository access.
-
-**Accept when:** export/import round-trips platform, labels and limits; repeat
-apply is idempotent; conflicting edits produce a readable diff; absent fields
-have documented semantics; dry-run creates no resources. Cover reusable
-workflows and matrix labels by explicit mapping or a stated refusal.
-
-**Dependencies:** ZF-201 and existing migration/API contracts.
-
-### ZF-214: shared provider lifecycle, Proxmox first
-
-**Classification: extension with new provider boundary; L, delivered in slices.**
-**Owner decision, 13 September 2026: Proxmox VE is the first target.**
-Use the existing capacity-demand contract as the entry point. Keep infrastructure
-provisioning outside the pure scheduler and separate from runner execution
-backends. A provisioned VM initially hosts the existing Zoomies agent and
-supported runner backend; this does not establish VM-per-job isolation.
-
-**214a — contract and fake provider (M).** Define a small, versioned contract:
-describe capabilities, validate configuration, create, inspect, list and delete;
-start/stop are optional capabilities. Define structured failure categories,
-operation IDs, bounded deadlines for every call, and an explicit compatibility
-policy. Use shared schemas for validation and guided UI forms, with advanced
-provider settings available. Keep provider credentials outside runner guests
-and bootstrap with scoped, short-lived enrollment credentials.
-
-One durable reconciler owns desired capacity, in-flight reservations, retries,
-backoff, operation recovery and ownership-aware cleanup. Providers implement
-infrastructure operations, not another scheduler. Preserve signed event
-verification, replay protection and schema checks. Reject stale observations;
-translate runner slots to machines explicitly and account for pending creates
-and overlapping pools without counting shared capacity twice. Prove demand
-from zero eligible hosts, extending the publisher if its current eligibility
-rules cannot emit that signal. Imported hosts never acquire deletion authority.
-
-**214b — complete Proxmox integration (M/L).** Connect using scoped API
-credentials and verified TLS; guide selection of allowed nodes, storage,
-network bridge and a prepared Linux VM template. Validate prerequisites before
-provisioning. Clone/bootstrap a VM, track asynchronous operations durably,
-enroll the Zoomies agent, run a real job, drain, and delete only resources whose
-recorded ownership has been verified. Persist resource identity before retrying
-ambiguous outcomes. A timeout is not evidence that creation failed.
-
-Reuse the existing host UI and expose provision/enroll/ready/drain/delete
-progress, actionable failure reasons, limits and pending cleanup. Allow only
-explicitly configured resource ranges and capacity/concurrency limits; report
-infrastructure costs as estimates where applicable. Provide an operator runbook
-for credentials, template preparation, recovery and orphan review. The initial
-template/OS/backend combination is qualified explicitly, not advertised as
-support for every Proxmox configuration.
-
-**214c — validate reuse with a second provider (M; after 214b).** Choose the
-second target from demonstrated demand and repeatable test access. Confirm it
-uses the same contract, reconciler, bootstrap, UI and acceptance suite without
-controller-specific branches. A broad catalogue or public plugin marketplace
-is not required. ZF-215 may start after 214b acceptance; it need not wait for
-214c.
-
-**Optional compatibility experiment (S; at most two engineering days).**
-Evaluate one pinned GARM provider's infrastructure operations and whether its
-bootstrap can be replaced with Zoomies enrollment. Record adopt/defer, licence
-and attribution obligations, dependency cost and a working proof if feasible.
-Do not assume binary compatibility: GARM bootstrap uses its own registration,
-callback and metadata lifecycle. Stop the experiment if adapting it costs more
-than implementing our small contract. It must not gate Proxmox delivery.
-Use [GARM's provider interface](https://github.com/cloudbase/garm/blob/main/doc/external_provider.md)
-and [bootstrap helpers](https://github.com/cloudbase/garm-provider-common/blob/main/README.md)
-as design references; verify the selected release before code reuse.
-
-**Accept when:** a reusable fake-provider suite covers duplicate/out-of-order
-events, concurrent demand, delayed creation, quota exhaustion, controller
-restart at every operation boundary, failed bootstrap and deletion retries.
-Desired targets converge without duplicate hosts; unknown outcomes are
-reconciled before another create. A kill switch blocks new provisioning while
-allowing drain, recovery and cleanup. Only owned, idle, drained resources can
-be removed; ambiguous ownership is quarantined for review.
-
-Proxmox release qualification requires at least 20 create/enroll/run/drain/delete
-cycles in designated disposable resources, including scale from zero, a
-multi-pool burst, restart, bootstrap failure and deletion retry. Reconcile the
-final VM and associated storage inventory: no unexplained owned resources may
-remain. Record exact versions, template, limits, timings and cleanup evidence.
-Fixture success is not live qualification.
-
-**Dependencies and ordering:** 214a design and fixtures can follow ZF-210a
-contract work while cache and portability slices continue. Enabling 214b
-mutations requires ZF-207/208 boundaries, ZF-210a enrollment/readiness,
-ZF-404 ownership/drain controls and accepted recovery evidence. Prepare the
-Proxmox test runbook while access is pending; missing live resources block
-qualification, not contract work. The parent is complete only when 214a–c meet
-their acceptance; record first-provider qualification separately.
-
-### ZF-215: capacity fallback and scheduled readiness
-
-**Classification: extension; M.** Reconcile existing idle/prewarm features.
-Add bounded schedules and explicit fallback among compatible pools or provider
-choices. Fallback never changes installation, OS, architecture, trust policy
-or cost ceiling without an operator-approved mapping.
-
-**Accept when:** scarce capacity follows the declared policy with a visible
-reason; no duplicate jobs or retry storm; schedule timezone and idle cost
-are explicit; cold/warm measurements show the benefit.
-
-**Dependencies:** ZF-208 and qualified ZF-214b for provider fallback; existing pools can
-be assessed independently.
-
-### ZF-216: staged platform, GPU and VM coverage
-
-**Classification: validation first, new backends separately; L/XL.** Qualify
-the already implemented ZF-206 Windows process backend before expanding it.
-Next qualify Linux arm64 and a documented GPU path. Evaluate macOS on owned
-Apple hardware and one disposable-VM backend as separate designs with real
-test hardware, licensing prerequisites and a clear isolation model.
-
-**Accept when:** every promoted support row has a real job and cleanup/recovery
-evidence. Process runners explicitly retain host state; container disposal
-is not described as VM isolation. GPU admission prevents oversubscription.
-VM work proves reset, network/storage isolation and bounded resource use.
-No support claim is inferred merely from cross-compilation.
-
-**Dependencies:** ZF-211; new backends also need ownership and lifecycle gates.
-macOS and VM expansion do not block improvements to existing Linux fleets.
-
-### ZF-217: GitHub scale-set integration assessment
-
-**Classification: time-boxed design; S.** Compare native scale-set APIs with
-the existing webhook/poller path for reliability, permissions, GitHub Enterprise
-Server compatibility and operator complexity. Preserve current workflows.
-
-**Accept when:** a decision record uses a small disposable prototype and
-states adopt/defer, measured benefit, compatibility and migration cost. This
-authorises evaluation, not a second scheduler or a wholesale rewrite.
-
-**Dependencies:** ZF-211 baseline; no new runtime dependency before decision.
-
-### ZF-218: VPS marketplace one-click deployment foundation
-
-**Classification: new; L, implementation first.** **Owner decision, 13
-September 2026:** Zoomies `v1.0.0` is being released today and becomes the
-first stable baseline for this work once published. Build the complete
-provider-neutral deployment package before undertaking its end-to-end test
-campaign. This is preparation for one friendly VPS-provider pilot, not an
-official marketplace submission or a multi-provider programme.
-
-**218a — stable release and image-reference contract (S).** Record the
-controller, agent and runner image references used by the deployment package
-from the `v1.0.0` release, including immutable digests where the registry
-provides them. The generated deployment configuration must keep controller and
-agent on the same release unless an operator deliberately overrides it. `latest`
-may remain a convenience channel for ordinary self-installs, but it is never
-the unqualified reference in a marketplace artefact.
-
-**218b — provider-neutral package (M).** Add `deploy/marketplace/` containing
-a generic Cloud-Init/bootstrap artefact, a non-interactive answer file and a
-small, documented set of provider inputs: hostname, public HTTPS URL, DNS
-assumption, image reference, administrator bootstrap and persistent-data
-location. It must install a pinned Zoomies release, persist only the minimum
-configuration needed for upgrades, start the controller safely and make its
-health endpoint locally observable. It must not embed GitHub App private keys,
-registration tokens or a provider credential in image metadata, cloud-init
-user-data examples or logs.
-
-**218c — provider-neutral HTTPS and secure first-run journey (M).** Deliver a
-documented reverse-proxy/TLS path that does not require Cloudflare and works
-with a provider's DNS and certificate offering or an operator-owned proxy.
-The first-run journey must take the administrator from the deployed controller
-to a secure GitHub App connection, external URL and webhook delivery without
-asking them to place long-lived secrets in a marketplace form. Retain the
-existing Cloudflare path as an optional deployment choice.
-
-**218d — operator and partner hand-off (S).** Add a marketplace-facing
-deployment guide, a 10-minute first-workflow guide, sizing profiles, data and
-backup/restore guidance, upgrade and clean-uninstall instructions, a
-`SUPPORT.md` escalation boundary and early-pilot wording. Make the public
-positioning explicit: Zoomies is open source, self-hosted and
-bring-your-own-infrastructure; the one-click install deploys the controller,
-then the customer connects and owns their runner capacity.
-
-**Implementation acceptance:** the four artefacts above are reviewable,
-provider-neutral and use the published `v1.0.0` image contract; no secret is
-required before the secure bootstrap flow; and no documentation claims an
-untested provider integration. Functional and pristine-VPS testing deliberately
-follows this completed implementation in ZF-219 rather than being represented
-as already proven by this package.
-
-**Dependencies:** the `v1.0.0` release and its published images. This work may
-proceed alongside ZF-211 and does not wait for Proxmox lifecycle work. It does
-not change the controlled hosted-control-plane/BYO-compute direction.
-
-### ZF-219: one-click verification and friendly-provider pilot readiness
-
-**Classification: validation after ZF-218; M.** Start only when ZF-218a–d are
-implemented. Test the exact, released deployment artefact on a pristine Ubuntu
-24.04 LTS VPS using the pinned images and a real HTTPS/DNS configuration. Add
-the smallest sustainable automated checks after the implementation exists:
-Cloud-Init/answer-file syntax and rendering, secret-redaction assertions,
-health/readiness, restart and upgrade/rollback checks. Then run the human
-first-workflow journey through GitHub connection, webhook delivery, host join,
-one workflow and backup/restore evidence.
-
-**Accept when:** the documented path reaches a secure, healthy controller and
-a completed workflow without manual file edits or leaked credentials; the
-exact release tag/digests, VPS size, timings, DNS/TLS route and recovery
-results are recorded; and an independent operator can follow the guide.
-Complete one friendly VPS-provider pilot review only after that evidence. Do
-not submit to an official marketplace, advertise broad provider support or
-begin a second provider before the pilot produces a supportable result.
-
-**Dependencies:** complete ZF-218 implementation, disposable VPS/DNS/GitHub
-resources and an authorised pilot provider. This is validation evidence, not a
-new runner engine or a hosted Zoomies service.
-
-### ZF-220: resource-aware host allocation for the stable release
-
-**Classification: extension; bounded release slice. Owner direction, 13
-September 2026:** make allocation across a pool's compatible hosts account for
-machine size, CPU and memory usage, and existing reservations. Prioritise this
-small reliability change for the immediate `v1.0.0` review, ahead of the
-one-click deployment package. It does not authorise publishing or replacing a
-release tag.
-
-Extend the pure scheduler's existing eligibility and reservation rules with a
-deterministic CPU/memory headroom score. Sample whole-host Linux usage through
-normal agent heartbeats, account for starts not yet represented by the sample,
-and retain reservation-based behaviour when usage is stale or unavailable.
-Under CPU pressure start one runner at a time; sustained pressure holds new
-starts and recovers with hysteresis. Available memory must cover the next
-runner and the host reserve. Existing jobs, operator cordons, capacity and
-installation/platform boundaries stay authoritative.
-
-Show actual usage separately from commitments, explain admission holds, and
-export bounded per-host monitoring gauges. Keep the single binary, SQLite,
-outbound agents and existing scheduler; no prediction engine, new dependency,
-live job migration or automatic runtime restart.
-
-**Acceptance:** different host sizes and loads produce sensible placements;
-cross-pool and pending-start reservations cannot spend the same budget twice;
-stale/unknown readings preserve existing reservation limits; a short spike does
-not hold the host; recovery never clears a manual cordon; API, UI and metrics
-agree on measured usage. CPU and memory pressure mitigation does not prove or
-repair the underlying Docker/containerd stall. Runtime-operation health,
-durable incident records and richer diagnostics remain separate follow-up
-work, rather than an implied part of this release slice.
-
-**Dependencies:** existing ZF-103 reservations and ZF-202 diagnostics. Record
-implementation checks separately from live fleet qualification. The release
-owner decides inclusion after review; ZF-218 continues against the published
-stable baseline.
-
-### ZF-221: runner resilience and efficient startup
-
-**Classification: correctness fixes and bounded extensions. Owner approved
-14 September 2026.** Build on PR #276's per-agent start serialisation. Keep
-ZF-211 as the measurement programme and ZF-212 as the cache programme.
-
-**Implementation prepared, awaiting CI and live qualification:**
-
-- Keep Docker request contexts alive through response-body consumption and
-  preserve explicit graceful-stop budgets. Distinguish timeouts from missing
-  sockets in diagnostics.
-- Refuse create-by-name after an uncertain existing-runner lookup. Leave the
-  task unacknowledged for existing bounded redelivery; do not turn an unknown
-  inventory into an immediate failed-runner report.
-- Require Docker readiness before the stock Docker-capable runner registers,
-  with a validated overall deadline and individually bounded probes.
-- Queue starts FIFO, ahead of background prewarming. Runtime failures impose
-  a five-second exponential cooldown capped at one minute; successful startup
-  clears it. Existing jobs and lifecycle cleanup remain independent.
-- Sample resource usage separately from lifecycle reconciliation with bounded
-  concurrency and deadlines.
-- Prewarm the configured DinD image and coalesce equivalent successful
-  background preparations across pools for one minute.
-
-**Further correctness work implemented (September 2026):** per-installation
-credential admission, scheduler allocation order preserved through execution,
-credential expiry and provision-deadline checks before new agent starts,
-outdated-runner diagnostics, owned-container conflict recovery, busy-registration
-cleanup deferral and independent host/GitHub cleanup confirmation. Startup
-queue and Docker readiness metrics and resource sample timestamps are available.
-Regression tests use fake runtimes and GitHub; live burst qualification remains
-outstanding. Deadline checks remain compatible with older tasks that omit them;
-older agents must be upgraded to enforce them.
-
-**Remaining implementation, not implied complete by this slice:**
-
-1. Extend the implemented admission and queue-deadline controls with separately
-   configurable active-create and registration budgets if measurements justify
-   them. Preserve cancellation, ownership and restart recovery; never extend
-   credentials past validity.
-2. Durable runtime incidents and visible recovery status, including operation,
-   duration, retry history and host pressure. Surface resource sample age in
-   API/UI rather than presenting cached readings as current.
-3. Safely reconcile ambiguous create/start responses against labels and
-   ownership before retrying. Existing failed-create cleanup remains in place;
-   no blanket retries of mutating Docker calls are authorised by this design.
-4. Evaluate separate runner/sidecar budgets using actual workloads before
-   changing allocation defaults. Continue ZF-212 dependency/BuildKit recipes
-   and ZF-215 scheduled warm capacity under their existing boundaries.
-
-**Acceptance and qualification:** run bursts of 1, 4, 8 and 16 requests on a
-reference host with cold and warm images. Record startup success, p50/p95
-queue-to-ready latency, image pull and registration time, host CPU/memory,
-Docker request latency and remaining runner/sidecar containers after cleanup.
-Inject delayed response bodies, a stalled Docker probe, inventory failure,
-cancellation and an agent restart. Record host size, versions and sample
-counts. Automated fixtures are not live Docker evidence.
-
-Automated Go tests can run in the authoring environment. Live measurements still
-require a reference Docker host. No performance gain, benchmark result or runtime
-recovery on the affected host is claimed.
-
-**Dependencies:** PR #276, ZF-102/105 lifecycle invariants, ZF-211 measurement
-and ZF-220 admission. Fix critical correctness defects before optional cache
-or platform expansion. Keep the above status current in this root roadmap.
+1. **Durable runtime incidents and visible recovery.** The agent's runtime
+   cooldown — consecutive failures, the kind of the last one, the retry
+   time — lives in the agent's memory and surfaces as a log line. Report it
+   in the heartbeat; keep it on the host row beside `usage` and `throttle`
+   as one JSON column (next free prefix); render it on the host view and the
+   host card ("runtime recovering: third failure, retrying in 40 s") and as
+   `host.runtime_recovering` in the drawer with the fix the agent itself
+   would give; count it. A start that fails because an image will not pull
+   names the registry host and the pool, as `host.image_pull_failed`, from
+   the prewarm and start results the agent already sends; a fleet host
+   whose egress blocks `ghcr.io` otherwise shows only runners that never
+   register.
+2. **A configurable active-create budget**, only if the operated instance's
+   own figures show the one-at-a-time foreground start is what a host is
+   waiting on. Not authorised on speculation.
+
+**Accept when:** a runtime failure on a host is visible on the host card
+and in the drawer within one heartbeat with its retry time, survives a
+controller restart, and clears on the next success; an image that cannot
+pull names the registry and the pool within one start attempt; nothing new
+is presented as current without its age.
+
+Depends on ZF-220 (done). Size S to M. Session: Claude Opus 5 at `high`.
+Decisions: none.
+
+### ZF-401 to ZF-404: the fleet's own hosts
+
+The private-host flow is delivered (section 6) and the acceptance version 2
+wrote for it — a private host joins, reconnects after a controller or agent
+restart, and can be drained and revoked from the UI — is met by merged,
+tested code: the two real-relay tests, cordon and remove on the host card,
+join-token revocation, and a host deletion that revokes the agent's
+credential because the token hash lives on the host row. What is left is
+small, and it is re-scoped for a fleet whose hosts join a controller it does
+not run.
+
+#### ZF-401: onboarding a private host, what is left
+
+**Classification: extension; S.** The relay region is resolved once, when
+the listener first starts, and sealed into the identity; if that relay is
+unreachable later the listener cannot start, and the only sign is a log
+line. Custom relays are not exposed, and the docs say the hosted relays are
+rate-limited and keep metadata.
+
+**Do:** a `tailcat.unavailable` warning raised by a gather section in
+`Problems()` from the listener's state, with the platform audience under
+ZF-207; re-run the relay expansion when the node fails to start, with the
+sealed region as first choice; and a sentence on the private-hosts page
+that a controller with a public agent endpoint needs a private connection
+only for hosts that cannot reach it — which is the self-hosted truth, and
+on the primary target the normal case.
+
+**Accept when:** a controller started with an unreachable sealed relay
+raises the problem within a minute and recovers without a restart once a
+relay answers, in a test against the local relay the suite already runs.
+
+Depends on ZF-207 for the audience. Size S. Session: Claude Sonnet 5 at
+`high`.
+
+#### ZF-403: revocation, what is left
+
+**Classification: extension; S, demand-gated.** Closed as implemented;
+one follow-on. Every private host of an instance holds the same tunnel
+address as a persistent capability, and deleting a host revokes its Zoomies
+credential but not that address, so an off-boarded machine can still reach
+the listener and then fail to authenticate. Rotating the identity
+invalidates every private host at once, which is why it is not automatic.
+
+**Do, when a fleet asks:** one audited platform action that rotates the
+identity, re-mints a join command for every private host and lists them,
+with the page saying what it will cost.
+
+Depends on ZF-207 (a platform action). Size S. Decisions: none.
+
+#### ZF-404: what the agent owns on a host, written down
+
+**Classification: extension; S; documentation and one default.** The
+code is non-invasive already — nothing in the tree upgrades a package,
+touches a firewall, reboots, or prunes containers, images or volumes — and
+the reconciliation found the one exception decision 25 names, the
+daemon-wide builder-cache prune. The promise is not written anywhere a
+fleet would read before running the enrolment command.
+
+**Do:** a "what the agent owns" section on `docs/security.md` and the
+private-hosts page — its service and user, `agent.work_dir`, the containers
+carrying its labels, its per-pool cache directory, and the builder-cache
+target with the shared-daemon advice of decision 25 — linked from the
+Add-a-host page's command step; and the agent's own tests pinned to it
+where they can be, so that a future prune that widens fails a test that
+names the promise.
+
+**Accept when:** the pages say it, the Add-a-host page links it, and
+`internal/docs` keeps the section present.
+
+Depends on decision 25. Size S. Session: Claude Sonnet 5 at `high`.
 
 ### ZF-222: a status view for the audience that cannot sign in
 
-**Classification: extension; medium. Owner decision pending (decision 29).**
-Every fleet fact needs `viewer`. The developer whose job has been queued for
-twenty minutes has no account here and no page to read, and GitHub tells them
-only that it is queued: it cannot distinguish "no host has a free slot" from
-"no pool's labels match this job", from "the App lost a permission", from "the
-webhook secret stopped verifying, so nothing was ingested". This controller
-knows which — `Problems()` computes it after every reconcile pass and
-`/api/v1/stats` carries the queue wait — and none of it reaches the person
-waiting.
+**Classification: extension; M. Decision 29, recommended adopted.** Every
+fleet fact needs `viewer`. The developer whose job has queued for twenty
+minutes has no account and GitHub tells them only "queued"; the controller
+knows whether it is capacity, labels, a lost permission or a webhook secret
+that stopped verifying, and none of it reaches them. On the primary target
+that developer is on the fleet's team, and the projection is built on the
+fleet half of ZF-207's split, so it cannot carry a platform finding.
 
-Most of the material is already public or already derived. `/api/v1/meta`
-answers unauthenticated and already carries `version`, `commit` and
-`version_channel`. `controller.Problem` already carries `Severity` and `Since`,
-which is a computed component status with a start time rather than one a person
-sets by hand and forgets to clear. What is missing is a projection, and a tier
-below `viewer` allowed to read it.
-
-Two things this is not. It is not a report of whether Zoomies is up: a page
-served by the process it describes disappears with it, which is why a hosted
-status page is hosted somewhere else, and `/healthz` watched from outside this
-machine is the answer to that question. And it is not an incident tracker with
-components an operator sets by hand — a hand-set state drifts from the
-scheduler's within a day, and the whole reason this is cheap is that the fleet
-already knows.
-
-The cost is disclosure. `metrics.public` is a warning today because job and
-repository names are visible in the label set; a page on the same listener
-carrying pool names, host names and an exact queue depth is the same leak with
-better typography. So the projection is name-free and banded rather than
-trimmed: proving a body contains no names is a test, and keeping a view's prose
-from naming things is a promise renewed every time somebody edits it.
+The cost is disclosure, so the projection is name-free and banded rather
+than trimmed: proving a body contains no names is a test, and keeping a
+view's prose from naming things is a promise renewed every time somebody
+edits it.
 
 **Do:**
 
-1. `GET /api/v1/status`, a projection rather than a view — the one place in the
-   API that is deliberately not a resource's `GET` shape. `state` (`healthy`,
-   `degraded` or `blocked`, from the highest severity among the fleet's
-   problems), `since`, `version`, and counts as bands (`none`, `few`, `many`,
-   `backed_up`) rather than integers, with the median and p95 queue wait
-   rounded to the minute. Its `reasons` carry `code`, `severity` and `since`
-   and nothing else: no `title`, `detail`, `fix`, `setting`, `target_kind` or
-   `target_id`, each of which names a host, a pool, a repository or a bind
-   address. A public sentence per code lives beside the operator's in
-   `docs/problem-codes.md`, tested in both directions by `internal/docs` the
-   way that page already is.
+1. `GET /api/v1/status`, a projection rather than a view — the one place in
+   the API that is deliberately not a resource's `GET` shape. `state`
+   (`healthy`, `degraded` or `blocked`, from the highest severity among the
+   fleet's problems), `since`, `version`, and counts as bands (`none`,
+   `few`, `many`, `backed_up`) rather than integers, with the median and
+   p95 queue wait rounded to the minute. Its `reasons` carry `code`,
+   `severity` and `since` and nothing else. A public sentence per code lives
+   beside the operator's in `docs/problem-codes.md`, tested in both
+   directions by `internal/docs` the way that page already is.
 2. `status.mode: off | authenticated | public`, off by default, with
-   `ZOOMIES_STATUS_MODE`. `public` raises a `status.public` warning naming what
-   becomes readable without an account, and an error when the bind is not
-   loopback and TLS is off — the severity-from-circumstances shape
-   `security.disable_auth` already has. `off` means all three routes answer
-   404.
-3. `/status` as its own Vite entry (`web/status.html`), not a route in the app.
-   An anonymous visitor should not be handed the router, the event client, the
-   command palette and the auth state, and the 200 KB shell budget is for the
-   application; the page gets its own, much smaller budget in
-   `web/vite.config.ts`. It polls `/api/v1/status` every thirty seconds and
-   never opens `/api/v1/events`, because every frame on that bus is a resource
-   view by design and carries names.
-4. The three states map onto the existing `danger`, `pending` and `idle` tokens
-   rather than introducing a fourth status vocabulary for operators to learn;
-   `docs/ui-guidelines.md` records the mapping, because the rule being bent is
-   that page's.
+   `ZOOMIES_STATUS_MODE`, platform-scoped. `public` raises a `status.public`
+   warning naming what becomes readable without an account, and an error
+   when the bind is not loopback and TLS is off. `off` means all three
+   routes answer 404.
+3. `/status` as its own Vite entry (`web/status.html`) with its own, much
+   smaller budget in `web/vite.config.ts`, polling `/api/v1/status` every
+   thirty seconds and never opening `/api/v1/events`, because every frame
+   on that bus is a resource view and carries names.
+4. The three states map onto the existing `danger`, `pending` and `idle`
+   tokens; `docs/ui-guidelines.md` records the mapping.
 5. `GET /status.svg`, the fleet's state as a self-contained badge on the
-   `docs/badge.svg` pattern, for a team's wiki or a repository README. It is
-   served by the controller, so a badge that fails to load is also information;
-   `docs/ui.md` says so rather than leaving somebody to read absence as health.
-6. The paperwork an endpoint change carries here: `api/openapi.yaml` and
-   `go run internal/api/gen_openapi.go`, `make openapi`, rows in
-   `docs/api-surface.md` and `docs/configuration.md`, a dangerous-toggle
-   section in `docs/security.md`, and the page in `docs/ui.md`.
+   `docs/badge.svg` pattern, for a team's wiki or a repository README.
+6. The paperwork an endpoint change carries: `api/openapi.yaml` and both
+   generated clients, rows in `docs/api-surface.md` and
+   `docs/configuration.md`, a dangerous-toggle section in `docs/security.md`,
+   and the page in `docs/ui.md`.
 
-**Accept when:** a fixture fleet whose every pool, host, repository and runner
-is named something distinctive produces a `/api/v1/status` body and a rendered
-`/status` page containing none of those names, asserted by a test that searches
-each response for every fixture name — that test is the boundary, and the rest
-of this package is a page. Each of the four reasons a job waits produces a
-distinguishable public state from a fixture. Every problem code has a public
-sentence, and no code has only one of the two. `status.mode: public` on a
-public bind without TLS refuses to start and names which of the two settings to
-change. The default leaves all three routes 404 while the OpenAPI document
-still describes them. The app shell's gzipped size is unchanged and the status
-entry is inside its own budget. Playwright covers the page signed out, on a
-phone, and through the accessibility pass.
+**Accept when:** a fixture fleet whose every pool, host, repository and
+runner is named something distinctive produces a `/api/v1/status` body and a
+rendered `/status` page containing none of those names, asserted by a test
+that searches each response for every fixture name; each of the four
+reasons a job waits produces a distinguishable public state; every problem
+code has a public sentence; `status.mode: public` on a public bind without
+TLS refuses to start and names which setting to change; the default leaves
+all three routes 404; the app shell's gzipped size is unchanged; Playwright
+covers the page signed out, on a phone and through the accessibility pass.
 
-Depends on ZF-207, whose platform/fleet problem split this extends with a third
-tier below `viewer`, and on ZF-202 for the problems it projects. Size M.
-Session: Claude Opus 5 at `high` — the disclosure boundary is the work and the
-page is the easy half. Decisions: 29.
+Depends on ZF-207 and ZF-202. Size M. Session: Claude Opus 5 at `high` —
+the disclosure boundary is the work and the page is the easy half.
+Decisions: 29, 31.
+
+### ZF-213: pool configuration as code
+
+**Classification: extension; M.** In progress, because half of it landed
+under another name: `GET /settings/export` and `POST /settings/import`
+(#297) round-trip every non-default instance setting as a versioned,
+secret-free document, plan each key as `change`, `unchanged`, `unset` or
+`refused` with the current and incoming values, apply as one change or none,
+dry-run, and skip; repeat apply is idempotent by construction. That is every
+property the package asked for, for the wrong object: the document carries
+no pools, and on the primary target the instance settings are the platform's
+while the pools are the one thing the fleet owns and would want as a file —
+to move between a self-hosted instance and an operated one, or between two
+of theirs. The reusable-workflow and matrix clause is already met by the
+migration planner's stated refusal and per-job overrides.
+
+**Do:** a `pools` export and import pair modelled exactly on
+`handlers_settings_transfer.go` — a version field, secret-free by
+construction since pools hold no secrets, installations referenced by
+target rather than by `ins_` id so a document moves between instances, a
+plan by pool name with `create`, `change`, `unchanged` and `refused`,
+`dry_run`, `skip`, one change or none — reusing `validatePoolInput` per pool
+and `HostCouldRun` for the stranding check, with the CLI verbs, the page's
+dialog and the rows in `docs/backup-and-restore.md` beside the settings
+half.
+
+**Accept when:** export then import onto a fresh instance with the same
+installation target reproduces every pool's platform, labels, limits and
+runner settings; repeat apply changes nothing; a conflicting edit produces a
+readable plan; absent fields have the semantics the settings import
+already documents; dry-run creates no resources.
+
+Depends on ZF-201 and the settings transfer (done). Size M. Session:
+Claude Opus 5 at `high`. Decisions: none.
+
+### ZF-215: capacity fallback and scheduled readiness
+
+**Classification: extension; M; demand-gated.** Nothing of its own exists;
+what it was told to reconcile — `min_runners`, `idle_timeout`, priority,
+the per-pool timing overrides of `0037`, prewarm and its telemetry, elastic
+CPU — is all on `main`. `bestPool` picks one pool per job and a job whose
+pool is full waits there; no pool has a schedule. On the primary target both
+halves are cost levers on machines the fleet pays for: a schedule keeps
+`min_runners` warm only in the fleet's working hours, and fallback lets a
+heterogeneous fleet absorb a full pool.
+
+**Do, when a fleet asks:** a time-bounded `min_runners` with an explicit
+timezone; an opt-in per-pool `fallback_to` list consulted only when the
+claimed pool reports held or failing, never crossing installation, OS,
+architecture or trust policy, with the reason string saying so; idle cost
+shown beside the schedule. Provider fallback stays gated on a qualified
+provider.
+
+**Accept when:** scarce capacity follows the declared policy with a visible
+reason; no duplicate jobs or retry storm in the drill tier; schedule timezone
+and idle cost are explicit.
+
+Depends on ZF-208. Size M. Session: Claude Opus 5 at `high`.
+
+### ZF-212: cache recipes
+
+**Classification: documentation; S; demand-gated.** The caches exist and
+are instrumented — the per-pool cache directory with its scope and size
+limit, the builder-cache target, image prewarm with its two series — and
+nothing publishes a recipe for using them from a workflow. The S3-compatible
+cache storage half is a trust question before it is a feature on the
+primary target, because it would route a fleet's cache traffic to storage
+the platform configures, and it is not authorised.
+
+**Do, when a fleet asks:** recipes for Go, npm, Maven and pip against
+`/opt/zoomies-cache` and for BuildKit `--cache-to`/`--cache-from
+type=local`, on the configuration page beside "The pool cache".
+
+Depends on nothing. Size S. Session: Claude Sonnet 5 at `high`.
+
+### ZF-223: a report per installation
+
+**Classification: new; M; after ZF-209.** What ZF-303's evidence helper
+would have computed once for a readiness record is what a platform owes a
+fleet every month: per installation over a window, the counts the contract
+names — observed, eligible, created for, ran here, ran elsewhere, platform
+fault, cleanup pending and converged — and exact p50 and p95 of eligible to
+first create task, create to registered, and cleanup convergence, from the
+stored timestamps rather than bucketed histograms. Every timestamp and
+fault kind it needs is in the product; ZF-209's roll-up is what keeps the
+counts past retention.
+
+**Do:** `GET /installations/{id}/report?window=` and a section on the
+Usage page, with the definitions linked to `docs/metrics.md`; `/usage.csv`
+gains the counts.
+
+**Accept when:** the figures for a fixture fleet match a hand computation
+from its rows; a window older than the row retention still answers from
+the roll-up; nothing in the body names a repository the identity may not
+read.
+
+Depends on ZF-209. Size M. Session: Claude Opus 5 at `high`. Decisions: 6.
+
+## 9. Kept for the day somebody asks
+
+Nothing here is authorised by planning alone. Each starts when a fleet
+asks for it or the evidence arrives, and each keeps its ID and its
+acceptance from the version that wrote it.
+
+* **ZF-206, Windows**: the remaining evidence is a fleet's. When one joins
+  a Windows host, the support-matrix row moves and the first job's row is
+  recorded; Windows on arm64 has digests and no build, and stays that way
+  until asked.
+* **ZF-214c**, a second provider: chosen from demonstrated demand and
+  repeatable test access, proven against `RunContractTests` and the same
+  reconciler, bootstrap and pages with no controller-specific branch. The
+  optional GARM experiment (two days at most) stays optional and non-gating.
+* **ZF-216**: the validation halves are withdrawn (section 7). What
+  survives as product work, demand-gated: GPU admission that prevents
+  oversubscription when a fleet's GPU host is shared by pools, and a
+  disposable-VM backend as its own design with a clear isolation model.
+  Neither before a fleet with the hardware.
+* **ZF-217**, the scale-set assessment: a time-boxed decision record with a
+  disposable prototype, never a second scheduler. Not before a measured
+  reason.
+* **ZF-404b**: deferred indefinitely under decision 25.
+* **ZF-218**: complete but for the repin, which ZF-005 carries; a second
+  provider or an official marketplace submission is not planned.
+* **Decision 28's spike**: a container per job on Proxmox from the published
+  runner image, one day, only after a fleet with Proxmox exists.
 
 ## 10. Ordered delivery plan
 
-This sequence supersedes earlier Assignment A/B scheduling, which described
-a baseline from 6 September. Consult [progress.md](roadmap/progress.md) before
-starting: Phase 1 and substantial Phase 2 work have already landed. An old
-description of a missing feature is not evidence it remains missing.
+Consult [progress.md](roadmap/progress.md) before starting; an old
+description of a missing feature is not evidence it remains missing, and
+every package in section 8 was re-read on 19 September against the code.
 
 | Order | Work | Exit criterion |
 | --- | --- | --- |
-| 0a | ZF-221 runner resilience: correctness fixes, then controller admission and recovery visibility | CI plus live failure and burst qualification; cached metrics expose freshness before being treated as current |
-| 0 | ZF-220 resource-aware host allocation and pressure admission | Reviewed implementation and automated checks; live fleet qualification reported separately before release inclusion |
-| 1 | ZF-218a–d one-click deployment foundation, against the published `v1.0.0` release | Complete provider-neutral artefact and partner hand-off; **implementation complete, not qualified** — the artefact is in `deploy/marketplace/` and no deployment has been run |
-| 2 | ZF-219 post-implementation verification and friendly-provider pilot readiness — **now the next unblocked work** | Pristine-VPS and first-workflow evidence, recorded in [marketplace-deployment.md](roadmap/validation/marketplace-deployment.md); one pilot can be invited, not yet broadly listed |
-| 3 | ZF-211 documentation reconciliation and evidence inventory | One current support story; historical gaps clearly dated |
-| 4 | ZF-208 resource limits; ZF-207 administration boundaries | Host/pool pressure and API/UI access boundaries verified |
-| 4a | ZF-222 status view for the queued, if decision 29 is adopted | A name-free projection proven by the fixture-name test; a default install still serves nothing new |
-| 5 | ZF-210a unattended bootstrap and readiness; then ZF-214a contract and fake-provider slice | Fresh instance and agent without prompts or log scraping; provider recovery contract proven in fixtures |
-| 6 | ZF-209 durable usage; then ZF-210b export and purge | Usage survives retention; export/purge respects installation boundaries |
-| 7 | ZF-212 cache recipes; existing-host/Tailcat reliability and ZF-401/403 UX | Faster representative builds and recoverable private-host onboarding |
-| 8 | ZF-213 configuration portability; ZF-404/404b ownership and maintenance | Repeatable fleet configuration and safe host operations |
-| 9 | ZF-214b Proxmox integration; then ZF-214c second-provider validation and ZF-215 fallback/readiness | Proxmox lifecycle qualified; reuse and fallback assessed without delaying the first provider |
-| 10 | ZF-216 platform/VM expansion; ZF-217 scale-set decision | Evidence per new platform and an explicit integration decision |
+| 0 | ZF-005 documentation corrections and the marketplace repin | The three pages agree with the record; `release.env` pins the current full release |
+| 1 | ZF-207 two audiences: the role and its migration, the actions, the settings scope, the problems split, tokens, copy and audit | The per-role Playwright assertions hold; a single-team instance is unchanged; an upgraded instance has one platform identity |
+| 2 | ZF-208 edge limits and the outbound address guard | Every limit has a test that reaches it; the hostile-agent drill holds |
+| 3 | ZF-210a environment bootstrap, readiness, the controller-only template | A compose file brings up a controller, a platform identity and a joined agent with no human step |
+| 4 | ZF-209 the usage ledger | The 90-day equality test; one session per runner across a restart |
+| 5 | ZF-221 durable runtime incidents and the image-pull signal | A runtime failure is on the card and in the drawer within one heartbeat and survives a restart |
+| 6 | ZF-401 the relay problem code; ZF-404 what the agent owns, written down | The listener's failure is a problem, not a log line; the promise is on the pages the join links |
+| 7 | ZF-222 the status view, if decision 29 is adopted | The fixture-name test; a default install still serves nothing new |
+| 8 | ZF-213 pools as a file | Export, plan, dry-run and apply for pools, modelled on the settings pair |
+| 9 | ZF-210b export with re-seal, and purge | Two installations side by side; an export restores elsewhere under its passphrase |
+| 10 | ZF-223 a report per installation | Matches a hand computation; answers past retention from the roll-up |
+| — | ZF-215, ZF-212, ZF-403's rotation, and section 9 | When a fleet asks |
 
-**Keep two work streams moving:** operational qualification (ZF-301/302/303
-and ZF-211) runs alongside the next ready product slice. An unavailable
-reference host blocks that evidence, not unrelated documentation or already
-authorised core hardening. Critical correctness and security defects interrupt
-either stream. Use roughly two core-operation slices for each performance or
-platform-expansion slice until steps 2–4 are accepted, then rebalance using
-measured operator pain. This is a capacity guideline, not a promise of dates.
+**Keep one stream moving.** The primary target's packages are a chain —
+ZF-207 first, because ZF-208's ceilings, ZF-209's retention keys, ZF-210a's
+role, ZF-222's audience and ZF-401's problem all hang off it — and the
+self-hosted product keeps improving through them, because every one of them
+is a self-hosted feature. Critical correctness and security defects
+interrupt the chain. Real-use evidence from any fleet is recorded when it
+arrives and never waited for.
 
-**Split ZF-210 without changing its ID:** 210a is bootstrap, answer-file
-installation and readiness; it depends on ZF-203 and the ZF-207 role design,
-not on the usage ledger. 210b is installation export/purge and depends on
-ZF-209. The parent is complete only when both meet acceptance. Bootstrap must
-use the authoritative platform role and preserve interactive self-hosted setup.
-
-**Gate F:** retain the Linux reference and actual readiness requirements.
-The owner's RC1 live qualification is recorded in the support matrix; it
-does not invent the historical seven-day dataset. Do not revive superseded
-owner prerequisites as universal blockers, or label an unmeasured target as
-passed. Windows implementation remains a beta-testing item until live
-qualification. Expanded host provisioning and new isolation backends keep
-their own release gates.
-
-## 11. Evidence and owner inputs
+## 11. Owner inputs
 
 | Input | Needed for | Current treatment |
 | --- | --- | --- |
-| Exact reference versions and existing run links | ZF-211 support reconciliation | Reuse existing evidence; request only missing facts |
-| Disposable GitHub resources, runtime and credentials | Remaining real scenarios | Run only where authorised and available; otherwise record blocked |
-| Second operator session | Setup and diagnosis usability | Schedule when an operator is available; do not invent feedback |
-| Disposable Proxmox VE test scope, template, API credentials and resource limits | ZF-214b live qualification | Proxmox selected; designate allowed resources before live provisioning |
-| Windows, arm64, GPU or Apple hardware | ZF-216 | Qualify only the platforms actually exercised |
-| Review of provider, SSH and VM designs | Expanded execution/network boundaries | Record the decision before adding the relevant runtime capability |
+| `V1.1.0`, a full release with no assets because the tag's capital letter defeated the workflow's `v*` guard | Whoever reads the releases page | Delete the release and its tag, or leave it; either way, make the guard refuse a capital tag loudly rather than build nothing (a one-line change, with ZF-005) |
+| Whether immutable releases are enabled in the repository settings | Decision 9's last residue | Check once; not roadmap work |
+| Decisions 29, 31 and 32 | ZF-222; the settings scope in ZF-207; the re-seal in ZF-210b | Written as if the recommendations were accepted; a different answer changes the package it names |
+| A fleet with a Windows host, a Proxmox cluster or a GPU | The section 9 rows | Recorded when it happens; never waited for |
+| The primary target's first fleet | The usability feedback ZF-303's second operator was for | Their onboarding is the session; record what they asked, not what was assumed |
 
 ## 12. Instruction for the next implementation session
 
 Read `CLAUDE.md`, `docs/architecture.md`, `docs/upgrading.md`, this
-roadmap and `roadmap/progress.md`. Start at the first unfinished,
-unblocked slice in section 10. Inspect current code before interpreting
-historical classifications. Preserve completed work and package IDs.
+roadmap and `roadmap/progress.md`. Start at the first unfinished slice in
+section 10. Inspect current code before interpreting anything in this
+document, and preserve completed work and package IDs.
 
-Deliver one reviewable behaviour per PR, with acceptance evidence, applicable
-API/client/documentation updates and a progress-row update. Preserve the single
-binary, SQLite and pure scheduler. No provider or VM framework is introduced
-by planning alone. No live infrastructure is changed without task authority.
+Deliver one reviewable behaviour per pull request, with acceptance evidence,
+the API, client and documentation updates rule 6 names, and a progress-row
+update in the same pull request. Preserve the single binary, SQLite and the
+pure scheduler. No live infrastructure is changed without task authority.
 
-Use the repository's applicable checks for behaviour changes. Documentation-only
-changes need link, cross-reference, status and scope checks. Do not invent live
-runs, elapsed observation, benchmark results or user feedback. Keep implemented,
-validated and blocked distinct, and report the exact remaining dependency.
+Every package in section 8 ships as a self-hosted feature with a self-hosted
+reason, and nothing you write on the site, in the README or in the UI
+describes an instance operated on a team's behalf, a plan or a tier (rule
+15). Keep implemented, done and withdrawn distinct, and report the exact
+remaining dependency. Do not invent live runs, elapsed observation, benchmark
+results or user feedback; do not wait for them either.
 
 ## 13. Change record
+
+* **19 September 2026 — Version 3.0:** the roadmap re-read against `main`
+  at `9a80b31` and re-pointed. **The primary target** is now an instance
+  operated on a team's behalf where the team connects its own runner hosts
+  (section 2, decision 30), which is the shape decision 27's packages were
+  written for; ZF-207 to ZF-210 move to the front and each is rewritten from
+  where the code is now — ZF-207 grew, because migration `0031` made the
+  process's own keys writable by any admin and the role `CHECK` in
+  `0001_init.sql` needs a rebuild; ZF-208 gained an outbound address guard;
+  ZF-210a is half done, because the answer file landed with the marketplace
+  work; ZF-210b gained a passphrase re-seal (decision 32). **Withdrawn**
+  (section 7, rule 17): Gate F, ZF-303, ZF-301c, ZF-219, ZF-211's
+  measurement half, ZF-302's two reference-host drills, ZF-402, and every
+  live-qualification clause, because the product proves itself by carrying
+  this repository's CI on a Zoomies fleet since 18 September and three full
+  releases in a week. **Read back into the record**: fifty-six pull requests
+  since version 2.40 — backups as a subsystem with offsite destinations and
+  a staged restore (ZF-203, closed as delivered and larger than written),
+  runner sizing, per-pool timings and elastic CPU (ZF-103, ZF-220), the
+  start-up resilience work (ZF-221, mostly done), fault categories and rerun
+  (ZF-202), prompt cancellation (ZF-105), the Tailcat recovery fixes
+  (ZF-401), and the settings export and import that turned out to be half of
+  ZF-213. **Added**: ZF-005, three documentation corrections and the
+  marketplace repin; ZF-223, the report per installation that replaces
+  ZF-303's helper; delivery rules 15 to 17; decisions 30 to 32; the
+  `withdrawn` status. **Found for the owner**: `V1.1.0` is a full release
+  with no assets. Nothing in this entry implements runtime behaviour, and
+  nothing under `docs/` changes with it.
 
 * **15 September 2026 — Version 2.40:** add ZF-222, a name-free fleet status
   projection for the audience that has no account and no way to tell a fleet at
