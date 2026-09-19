@@ -50,6 +50,9 @@ func TestCancelJobWorkflowCallsGitHubAndRecordsRequest(t *testing.T) {
 	if after.State != store.JobQueued {
 		t.Fatalf("state = %q, want queued until GitHub confirms cancellation", after.State)
 	}
+	if after.Provisioning != "paused" {
+		t.Fatalf("provisioning = %q, want paused immediately after GitHub accepts run cancellation", after.Provisioning)
+	}
 }
 
 func TestCancelJobWorkflowCanBeDisabledAndIsOperatorOnly(t *testing.T) {

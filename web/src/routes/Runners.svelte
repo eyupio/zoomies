@@ -43,6 +43,7 @@
   import Select from '$lib/components/Select.svelte';
   import Switch from '$lib/components/Switch.svelte';
   import RunnerConfirm from '$lib/runners/RunnerConfirm.svelte';
+  import CPUResourceStatus from '$lib/runners/CPUResourceStatus.svelte';
   import StateCell from '$lib/components/StateCell.svelte';
   import RunnerStateFilter from '$lib/runners/RunnerStateFilter.svelte';
 
@@ -288,6 +289,14 @@
         cell: nameCell,
       },
       {
+        id: 'cpu_resource',
+        header: 'Zoomies',
+        priority: 'wide',
+        width: '15rem',
+        value: (row) => row.cpu_resource?.label ?? '',
+        cell: cpuResourceCell,
+      },
+      {
         // Pool and host names are hyphenated, and without a width they wrap
         // one segment per line and triple the row height.
         id: 'pool',
@@ -373,6 +382,14 @@
 {#snippet stateCell(runner: Runner)}
   <!-- The cached runner first: an SSE update lands here before the grid's next fetch. -->
   <StateCell status={runnerStatus(fleet.runner(runner.id)?.state ?? runner.state)} />
+{/snippet}
+
+{#snippet cpuResourceCell(runner: Runner)}
+  {#if runner.cpu_resource}
+    <CPUResourceStatus resource={runner.cpu_resource} compact />
+  {:else}
+    <span class="quiet">--</span>
+  {/if}
 {/snippet}
 
 {#snippet nameCell(runner: Runner)}

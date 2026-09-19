@@ -220,6 +220,9 @@ type Agent struct {
 	// of its allocated CPU each runner here is to be left. A nil directive,
 	// or a zero factor from one, is 1: an older controller never throttles.
 	cpuFactor float64
+	// elasticCPU is replaced as a set on every heartbeat. A runner omitted by
+	// the controller therefore returns to its guaranteed creation allocation.
+	elasticCPU map[string]float64
 
 	// polled records that at least one task poll has completed since start.
 	// The reconciler will not delete anything until it has, so a controller
@@ -294,6 +297,12 @@ type tracked struct {
 }
 
 func (t *tracked) report() RunnerReport {
+	stats := t.stats
+	factor := 1.0
+	if t.appliedCPUFactor != nil && *t.appliedCPUFactor > 0 {
+		factor = *t.appliedCPUFactor
+	}
+	stats.CPUAllocationFactor = factor
 	return RunnerReport{
 		RunnerID:    t.runnerID,
 		HostRemoved: t.hostRemoved,
@@ -302,7 +311,7 @@ func (t *tracked) report() RunnerReport {
 		Phase:       t.phase,
 		ExitCode:    t.exitCode,
 		Message:     t.message,
-		Stats:       t.stats,
+		Stats:       stats,
 		ObservedAt:  t.observedAt,
 	}
 }
@@ -729,6 +738,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	resp, err := a.tr.Heartbeat(hctx, HeartbeatRequest{
 		Usage:           a.hostUsage(infos, cpus, memoryMB),
 		ProtocolVersion: ProtocolVersion,
+		Features:        []string{FeatureElasticCPU},
 		Capacity:        a.opts.Capacity,
 		Version:         version.Version,
 		CPUs:            cpus,
@@ -796,7 +806,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	// controller has just disowned is not the one whose quota is moved, and
 	// under the heartbeat's own deadline: an update the daemon sits on must
 	// not hold the beat open past the interval.
-	a.applyThrottleDirective(hctx, resp.Throttle)
+	a.applyResourceDirectives(hctx, resp.Throttle, resp.ElasticCPU)
 
 	if resp.ResyncRequested {
 		// The controller restarted and lost its cache, so re-probe rather than

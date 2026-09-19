@@ -65,6 +65,8 @@
      * and changes their mind back.
      */
     sizing: 'automatic' | 'fixed';
+    cpu_burst_mode: 'off' | 'observe' | 'automatic';
+    cpu_burst_max: string;
     cpus: string;
     memory_mb: string;
     disk_gb: string;
@@ -123,6 +125,8 @@
       // fetches it -- so that an operator who switches to a fixed size opens
       // on the fleet's own answer rather than on an empty box.
       sizing: 'automatic',
+      cpu_burst_mode: 'observe',
+      cpu_burst_max: '',
       cpus: '',
       memory_mb: '',
       disk_gb: '',
@@ -174,6 +178,8 @@
       // browser inferring it from two absent numbers, because "no CPU limit"
       // alone cannot tell "the host decides" from "nobody set one".
       sizing: pool.sizing === 'fixed' ? 'fixed' : 'automatic',
+      cpu_burst_mode: pool.cpu_burst?.mode ?? 'off',
+      cpu_burst_max: fromNumber(pool.cpu_burst?.max_cpus),
       cpus: fromNumber(resources.cpus),
       memory_mb: fromNumber(resources.memory_mb),
       disk_gb: fromNumber(resources.disk_gb),
@@ -205,6 +211,7 @@
   export function poolIsTuned(draft: PoolDraft): boolean {
     return (
       draft.sizing === 'fixed' ||
+      draft.cpu_burst_mode === 'automatic' ||
       draft.restrict_hosts ||
       Object.keys(draft.host_selector).length > 0 ||
       draft.backend !== 'docker' ||
@@ -255,6 +262,7 @@
   export function toPoolBody(draft: PoolDraft, options: { complete?: boolean } = {}): PoolCreate {
     const resources: Resources = {};
     const fixed = draft.sizing === 'fixed';
+    const elasticBackend = draft.backend === 'docker' || draft.backend === 'podman';
     const cpus = toNumber(draft.cpus);
     const memory = toInteger(draft.memory_mb);
     const disk = toInteger(draft.disk_gb);
@@ -282,6 +290,10 @@
       idle_timeout: draft.idle_timeout.trim() || '5m',
       ephemeral: draft.ephemeral,
       docker_mode: draft.docker_mode,
+      cpu_burst: {
+        mode: fixed || !elasticBackend ? 'off' : draft.cpu_burst_mode,
+        max_cpus: fixed || !elasticBackend ? 0 : (toNumber(draft.cpu_burst_max) ?? 0),
+      },
       run_as_root: draft.run_as_root,
       enabled: draft.enabled,
       cache: {
@@ -384,6 +396,16 @@
         errors['resources.memory_mb'] =
           'A fixed size needs a memory limit. Move the slider to choose one.';
       else if (memory < 512) errors['resources.memory_mb'] = 'A runner needs at least 512 MB.';
+    }
+    if (
+      draft.sizing === 'automatic' &&
+      (draft.backend === 'docker' || draft.backend === 'podman') &&
+      draft.cpu_burst_max.trim() !== ''
+    ) {
+      const ceiling = toNumber(draft.cpu_burst_max);
+      if (ceiling === undefined || ceiling < 0.25)
+        errors['cpu_burst.max_cpus'] =
+          'Use at least a quarter of a core, or leave it empty to use the host ceiling.';
     }
     if (draft.disk_gb.trim() !== '') {
       const disk = toInteger(draft.disk_gb);

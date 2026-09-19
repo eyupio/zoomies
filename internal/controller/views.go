@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/scheduler"
@@ -462,10 +464,11 @@ type RunnerView struct {
 	// ("host"). Absent on a runner created with no limit at all. They are on
 	// the view so that an OOM kill on a defaulted limit points an operator at
 	// the host's capacity rather than at a pool field nobody set.
-	AllocatedCPUs     float64   `json:"allocated_cpus,omitempty"`
-	AllocatedMemoryMB int64     `json:"allocated_memory_mb,omitempty"`
-	AllocationSource  string    `json:"allocation_source,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
+	AllocatedCPUs     float64          `json:"allocated_cpus,omitempty"`
+	AllocatedMemoryMB int64            `json:"allocated_memory_mb,omitempty"`
+	AllocationSource  string           `json:"allocation_source,omitempty"`
+	CPUResource       *CPUResourceView `json:"cpu_resource,omitempty"`
+	CreatedAt         time.Time        `json:"created_at"`
 	// ContainerStartedAt and RegisteredAt are the two halves of coming up, and
 	// they are on the view because the gap between them is the whole diagnosis
 	// of a runner stuck in `registering`: a container that never started is a
@@ -492,10 +495,22 @@ type RunnerView struct {
 	CleanedUpAt *time.Time `json:"cleaned_up_at,omitempty"`
 }
 
+// CPUResourceView keeps the playful fleet voice beside exact numbers and a
+// stable state. Operators can scan the label; clients and alerts use State.
+type CPUResourceView struct {
+	State          string  `json:"state"`
+	Label          string  `json:"label"`
+	Reason         string  `json:"reason"`
+	GuaranteedCPUs float64 `json:"guaranteed_cpus"`
+	CurrentCPUs    float64 `json:"current_cpus"`
+	CeilingCPUs    float64 `json:"ceiling_cpus"`
+	Factor         float64 `json:"factor"`
+}
+
 // RunnerRenderer names pools and hosts without a query per runner.
 type RunnerRenderer struct {
-	pools map[string]string
-	hosts map[string]string
+	pools map[string]*store.Pool
+	hosts map[string]*store.Host
 	jobs  map[string]*store.Job
 }
 
@@ -509,9 +524,12 @@ func (c *Controller) RunnerRenderer(ctx context.Context, runners []*store.Runner
 	if err != nil {
 		return nil, fmt.Errorf("listing hosts: %w", err)
 	}
-	v := &RunnerRenderer{pools: poolNames(pools), hosts: map[string]string{}, jobs: map[string]*store.Job{}}
+	v := &RunnerRenderer{pools: map[string]*store.Pool{}, hosts: map[string]*store.Host{}, jobs: map[string]*store.Job{}}
+	for _, p := range pools {
+		v.pools[p.ID] = p
+	}
 	for _, h := range hosts {
-		v.hosts[h.ID] = h.Name
+		v.hosts[h.ID] = h
 	}
 	// Only the runners that are actually executing something need a job, which
 	// on an idle fleet is none of them.
@@ -536,13 +554,22 @@ func (c *Controller) RunnerRenderer(ctx context.Context, runners []*store.Runner
 
 // View renders one runner.
 func (v *RunnerRenderer) View(r *store.Runner) RunnerView {
+	pool := v.pools[r.PoolID]
+	host := v.hosts[r.HostID]
+	poolName, hostName := "", ""
+	if pool != nil {
+		poolName = pool.Name
+	}
+	if host != nil {
+		hostName = host.Name
+	}
 	out := RunnerView{
 		ID:                    r.ID,
 		Name:                  r.Name,
 		PoolID:                r.PoolID,
-		PoolName:              v.pools[r.PoolID],
+		PoolName:              poolName,
 		HostID:                r.HostID,
-		HostName:              v.hosts[r.HostID],
+		HostName:              hostName,
 		State:                 r.State,
 		GitHubRunnerID:        r.GitHubRunnerID,
 		ContainerID:           r.ContainerID,
@@ -562,6 +589,7 @@ func (v *RunnerRenderer) View(r *store.Runner) RunnerView {
 		AllocatedCPUs:         r.AllocatedCPUs,
 		AllocatedMemoryMB:     r.AllocatedMemoryMB,
 		AllocationSource:      r.AllocationSource,
+		CPUResource:           cpuResourceView(r, pool, host),
 		CreatedAt:             r.CreatedAt,
 		CreateTaskIssuedAt:    r.CreateTaskIssuedAt,
 		HostRemovedAt:         r.HostRemovedAt,
@@ -578,22 +606,77 @@ func (v *RunnerRenderer) View(r *store.Runner) RunnerView {
 		CleanedUpAt:           r.CleanedUpAt,
 	}
 	if j := v.jobs[r.CurrentJobID]; j != nil {
-		job := NewJobView(j, v.pools[j.PoolID])
+		jobPool := ""
+		if p := v.pools[j.PoolID]; p != nil {
+			jobPool = p.Name
+		}
+		job := NewJobView(j, jobPool)
 		out.CurrentJob = &job
 	}
 	return out
+}
+
+func cpuResourceView(r *store.Runner, p *store.Pool, h *store.Host) *CPUResourceView {
+	if r == nil || p == nil || r.AllocatedCPUs <= 0 {
+		return nil
+	}
+	guaranteed := r.AllocatedCPUs
+	if p.DockerMode == store.DockerDinD && r.AllocationSource == store.AllocationFromPool {
+		// A fixed DinD allocation is per container and the host ledger charges
+		// both halves. An automatic allocation is already the logical runner's
+		// whole slot and is split between them, so only the former doubles.
+		guaranteed *= 2
+	}
+	factor := 1.0
+	var sample backend.Stats
+	if len(r.ResourceSample) > 0 && json.Unmarshal(r.ResourceSample, &sample) == nil && sample.CPUAllocationFactor > 0 {
+		factor = sample.CPUAllocationFactor
+	}
+	// Host-pressure throttling applies to any limited container, even when its
+	// pool does not use elastic boosts. Keep that state visible on the runner;
+	// hide only an ordinary factor of one for a pool with elasticity off.
+	if !p.CPUBurst.Observes() && factor >= .99 {
+		return nil
+	}
+	ceiling := p.CPUBurst.MaxCPUs
+	if ceiling <= 0 && h != nil {
+		ceiling = h.Allocatable().CPUs
+	}
+	if !p.CPUBurst.Observes() {
+		ceiling = guaranteed
+	}
+	// A policy edited below an already-running runner's guarantee cannot
+	// reduce that guarantee. Keep the displayed ceiling truthful while the
+	// next runner creation adopts the new policy.
+	ceiling = max(ceiling, guaranteed)
+	state, label, reason := "guaranteed", "Steady paws — guaranteed pace", "base_allocation"
+	switch {
+	case factor < .99:
+		state, label, reason = "throttled", "Leash tightened — host under pressure", "host_pressure"
+	case factor >= 1.75:
+		state, label, reason = "maximum_zoomies", "Squirrel spotted — maximum zoomies", "spare_cpu_lent"
+	case factor > 1.01:
+		state, label, reason = "zoomies", "Rabbit spotted — extra zoomies", "spare_cpu_lent"
+	case p.CPUBurst.Mode == store.CPUBurstObserve:
+		state, label, reason = "observing", "Nose to the wind — watching spare CPU", "observe_only"
+	}
+	return &CPUResourceView{
+		State: state, Label: label, Reason: reason, GuaranteedCPUs: guaranteed,
+		CurrentCPUs: math.Round(guaranteed*factor*100) / 100,
+		CeilingCPUs: ceiling, Factor: factor,
+	}
 }
 
 // runnerView renders a single runner for the event stream: three point reads
 // rather than two list queries, because a reconcile pass publishes one event
 // per runner it touched and the fleet may be large.
 func (c *Controller) runnerView(ctx context.Context, r *store.Runner) RunnerView {
-	v := &RunnerRenderer{pools: map[string]string{}, hosts: map[string]string{}, jobs: map[string]*store.Job{}}
+	v := &RunnerRenderer{pools: map[string]*store.Pool{}, hosts: map[string]*store.Host{}, jobs: map[string]*store.Job{}}
 	if p, err := c.st.GetPool(ctx, r.PoolID); err == nil {
-		v.pools[p.ID] = p.Name
+		v.pools[p.ID] = p
 	}
 	if h, err := c.st.GetHost(ctx, r.HostID); err == nil {
-		v.hosts[h.ID] = h.Name
+		v.hosts[h.ID] = h
 	}
 	if r.CurrentJobID != "" {
 		if j, err := c.st.GetJob(ctx, r.CurrentJobID); err == nil {
@@ -648,12 +731,13 @@ type PoolView struct {
 	// RepositoryScaleUpLimit and CostPerRunnerHour are accepted on the way in,
 	// so they are rendered on the way out: a field the API takes but never
 	// shows again is a field an operator cannot check, edit or explain.
-	RepositoryScaleUpLimit int              `json:"repository_scale_up_limit"`
-	CostPerRunnerHour      *float64         `json:"cost_per_runner_hour"`
-	IdleTimeout            store.Duration   `json:"idle_timeout"`
-	Ephemeral              bool             `json:"ephemeral"`
-	DockerMode             store.DockerMode `json:"docker_mode"`
-	Resources              store.Resources  `json:"resources"`
+	RepositoryScaleUpLimit int                  `json:"repository_scale_up_limit"`
+	CostPerRunnerHour      *float64             `json:"cost_per_runner_hour"`
+	IdleTimeout            store.Duration       `json:"idle_timeout"`
+	Ephemeral              bool                 `json:"ephemeral"`
+	DockerMode             store.DockerMode     `json:"docker_mode"`
+	Resources              store.Resources      `json:"resources"`
+	CPUBurst               store.CPUBurstPolicy `json:"cpu_burst"`
 	// Sizing is how this pool decides what one runner gets: "automatic", one
 	// slot's share of whichever host it lands on, or "fixed", the figures in
 	// Resources. It is derived from Resources rather than stored beside it,
@@ -775,6 +859,7 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		Ephemeral:              p.Ephemeral,
 		DockerMode:             p.DockerMode,
 		Resources:              p.Resources,
+		CPUBurst:               p.CPUBurst,
 		Sizing:                 PoolSizing(p),
 		RunnerSettings:         p.RunnerSettings,
 		Cache:                  p.Cache,
@@ -832,18 +917,24 @@ func (p PoolView) WithoutEnvValues() PoolView {
 // reports on its own.
 // The two ways a pool decides how much machine one of its runners gets.
 const (
-	// SizingAutomatic is one slot's share of whichever host the runner lands
+	// SizingAutomatic is one slot's guaranteed share of whichever host the runner lands
 	// on: charged by scheduler.Reserve and applied as a real cgroup limit by
 	// scheduler.Allocation, so the books and the cgroups say the same thing.
 	// It is what a pool means by naming no size, and it keeps fitting when a
 	// bigger machine joins the fleet -- which a figure typed once does not.
 	SizingAutomatic = "automatic"
+	// SizingElastic is the same guaranteed host share, with unused CPU lent
+	// to busy runners while fresh host measurements say it is safe.
+	SizingElastic = "elastic"
 	// SizingFixed is the figures on the pool, the same on every host.
 	SizingFixed = "fixed"
 )
 
 // PoolSizing says which of the two a pool is doing.
 func PoolSizing(p *store.Pool) string {
+	if p.Automatic() && p.CPUBurst.Enforces() {
+		return SizingElastic
+	}
 	if p.Automatic() {
 		return SizingAutomatic
 	}

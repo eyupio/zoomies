@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 
 	"github.com/eyupio/zoomies/internal/backend"
@@ -20,13 +21,28 @@ import (
 // arrived -- a downgraded controller -- which is restored, because a throttle
 // nobody will ever lift is a job slowed for ever.
 func (a *Agent) applyThrottleDirective(ctx context.Context, d *ThrottleDirective) {
+	a.applyResourceDirectives(ctx, d, nil)
+}
+
+// applyResourceDirectives atomically replaces the host-pressure and elastic
+// decisions from one heartbeat, then reconciles each live workload once. The
+// pressure factor wins when it is below one; elasticity is never allowed to
+// fight the protection that keeps an overloaded host alive.
+func (a *Agent) applyResourceDirectives(ctx context.Context, d *ThrottleDirective, elastic []ElasticCPUDirective) {
 	factor := 1.0
 	if d != nil && d.CPUFactor > 0 {
 		factor = d.CPUFactor
 	}
+	next := make(map[string]float64, len(elastic))
+	for _, directive := range elastic {
+		if directive.RunnerID != "" && directive.CPUFactor > 1 {
+			next[directive.RunnerID] = directive.CPUFactor
+		}
+	}
 	a.mu.Lock()
-	changed := a.cpuFactor != factor
+	changed := a.cpuFactor != factor || !maps.Equal(a.elasticCPU, next)
 	a.cpuFactor = factor
+	a.elasticCPU = next
 	a.mu.Unlock()
 	if d == nil && !changed {
 		return
@@ -63,14 +79,20 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 		factor   float64
 	}
 	a.mu.Lock()
-	factor := a.cpuFactor
+	hostFactor := a.cpuFactor
 	now := a.now()
 	var todo []candidate
 	for _, r := range a.runners {
+		factor := 1.0
+		if elastic := a.elasticCPU[r.runnerID]; elastic > 1 {
+			factor = elastic
+		}
+		if hostFactor < 1 {
+			factor = hostFactor
+		}
 		// Container-running is not GitHub-ready. Keep its existing quota
 		// during a bounded grace rather than further starving registration.
-		factor := factor
-		if !r.createdAt.IsZero() && a.opts.BootstrapCPUGrace > 0 && now.Sub(r.createdAt) < a.opts.BootstrapCPUGrace {
+		if factor < 1 && !r.createdAt.IsZero() && a.opts.BootstrapCPUGrace > 0 && now.Sub(r.createdAt) < a.opts.BootstrapCPUGrace {
 			factor = 1
 		}
 		if r.terminal || r.hostRemoved || !r.phase.Live() || r.resources.CPUs <= 0 {
@@ -98,10 +120,10 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 		res := r.resources
 		// A restore sends the base exactly as the container was created with,
 		// so a pool's own figure is never rounded up over its own limit; a
-		// throttled figure is rounded to hundredths, the daemon's granularity
-		// for --cpus, so the quota the backend compares against is one it
-		// could have written.
-		if factor < 1 {
+		// changed figure is rounded to hundredths, the daemon's granularity for
+		// --cpus, so the quota the backend compares against is one it could
+		// have written.
+		if factor != 1 {
 			res.CPUs = math.Round(res.CPUs*factor*100) / 100
 		}
 		f := factor
@@ -116,13 +138,23 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 
 	if announce {
 		switch {
-		case len(todo) == 0 && factor < 1:
+		case len(todo) == 0 && hostFactor < 1:
 			a.log.Info("the controller throttled this host; no runner needs a quota update yet (new runners keep their allocation during startup grace)",
-				"cpu_factor", factor)
-		case factor < 1:
-			a.log.Info(fmt.Sprintf("throttling %d runners to %d%% of their CPU allocation", len(todo), int(math.Round(factor*100))))
+				"cpu_factor", hostFactor)
+		case hostFactor < 1:
+			a.log.Info(fmt.Sprintf("throttling %d runners to %d%% of their CPU allocation", len(todo), int(math.Round(hostFactor*100))))
 		case len(todo) > 0:
-			a.log.Info(fmt.Sprintf("restoring %d runners to their full CPU allocation", len(todo)))
+			boosted := 0
+			for _, c := range todo {
+				if c.factor > 1 {
+					boosted++
+				}
+			}
+			if boosted > 0 {
+				a.log.Info(fmt.Sprintf("adjusting elastic CPU for %d runners", boosted))
+			} else {
+				a.log.Info(fmt.Sprintf("restoring %d runners to their full CPU allocation", len(todo)))
+			}
 		}
 	}
 

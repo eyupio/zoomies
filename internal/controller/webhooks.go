@@ -424,6 +424,28 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 		c.observeJobCompletion(saved)
 	}
 
+	// workflow_job only proves that this one job was cancelled. Ask GitHub for
+	// the run-level truth before touching siblings: fail-fast and matrix jobs
+	// can be cancelled while the workflow as a whole continues. Once GitHub
+	// confirms the run was cancelled, close every queued local item and stop
+	// every runner still executing one of its jobs.
+	if saved.State == store.JobCompleted && saved.Conclusion == "cancelled" &&
+		saved.GitHubRunID > 0 && saved.InstallationID != "" {
+		client, clientErr := c.ClientFor(ctx, saved.InstallationID)
+		if clientErr != nil {
+			c.log.Warn("could not verify whether a cancelled job belongs to a cancelled workflow run",
+				"job", saved.ID, "run", saved.GitHubRunID, "error", clientErr)
+		} else if run, runErr := client.GetWorkflowRun(ctx, saved.Repo, saved.GitHubRunID); runErr != nil {
+			c.log.Warn("could not read the workflow run behind a cancelled job",
+				"job", saved.ID, "run", saved.GitHubRunID, "error", runErr)
+		} else if run.Cancelled() {
+			if cancelErr := c.cancelWorkflowRunLocally(ctx, saved.Repo, saved.GitHubRunID, true); cancelErr != nil {
+				c.log.Warn("could not converge every local job in a cancelled workflow run",
+					"repo", saved.Repo, "run", saved.GitHubRunID, "error", cancelErr)
+			}
+		}
+	}
+
 	if !saved.Matched && saved.State == store.JobQueued && !hostedJob(saved.Labels) {
 		// Not a warning: next to another runner provider this is every one of
 		// its jobs. The problems drawer says so once the job has waited long

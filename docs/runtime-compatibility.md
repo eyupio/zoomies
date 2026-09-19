@@ -31,9 +31,16 @@ details page shows the timestamp and cumulative CPU quota counters when supporte
 
 `cpu_throttling` contains periods, throttled periods and throttled nanoseconds.
 Compare **deltas for the same workload**; counters reset when the container is
-recreated. Absence means unsupported or unmeasured. These counters describe the
-runner container, not its DinD sidecar or the whole host. OOM outcomes continue
+recreated. Absence means unsupported or unmeasured. A newly created DinD runner
+reports the runner and sidecar as one logical sample, because the nested daemon
+does the build's work; older containers without the mode label report the runner
+container only. These are never whole-host measurements. OOM outcomes continue
 through existing lifecycle faults and sidecar failure messages.
+
+Live elastic CPU needs Docker or Podman's resource-update endpoint and an agent
+advertising `elastic-cpu`. Unsupported and older agents remain at their creation
+quota. Host-pressure reductions take precedence over boosts, and neither path
+moves memory on a live workload.
 
 The Prometheus histograms `zoomies_runner_startup_queue_seconds` and
 `zoomies_runner_dind_ready_seconds` separate admission delay from sidecar creation

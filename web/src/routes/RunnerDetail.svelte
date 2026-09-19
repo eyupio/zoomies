@@ -36,6 +36,7 @@
   import Panel from '$lib/components/Panel.svelte';
   import RunnerResources from '$lib/runners/RunnerResources.svelte';
   import RunnerTimeline from '$lib/runners/RunnerTimeline.svelte';
+  import CPUResourceStatus from '$lib/runners/CPUResourceStatus.svelte';
 
   const id = $derived(router.params.id ?? '');
   const canOperate = $derived(session.can('operator'));
@@ -309,6 +310,9 @@
       </Panel>
 
       <Panel title="Resource usage" description="As the host's agent last reported it.">
+        {#if runner.cpu_resource}
+          <CPUResourceStatus resource={runner.cpu_resource} />
+        {/if}
         {#if runner.resource_sample?.sampled_at}
           <p class="text-sm text-muted-foreground">
             Last successful sample: {new Date(runner.resource_sample.sampled_at).toLocaleString()}.
