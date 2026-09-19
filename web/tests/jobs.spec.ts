@@ -73,9 +73,9 @@ test('the grid lists jobs with their queue wait and duration', async ({ page }) 
   const rows = dataRows(jobs(page));
   await expect(rows.first()).toBeVisible();
 
-  // The seed writes fifty jobs and nothing adds more: no webhook ever arrives.
-  // One of them ran on a hosted-runner vendor, and the default view leaves it
-  // out.
+  // The seed writes a fixed set of jobs and nothing adds more: no webhook ever
+  // arrives. Three of them ran on a hosted-runner vendor, and the default view
+  // leaves those out.
   await everyStatus(page);
   await expect(jobs(page).getByRole('columnheader', { name: 'Queue wait' })).toBeVisible();
   await expect(jobs(page).getByRole('columnheader', { name: 'Duration' })).toBeVisible();

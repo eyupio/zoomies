@@ -855,6 +855,85 @@ func (c *Controller) seedRunners(ctx context.Context, now time.Time, pools []*st
 	return out, nil
 }
 
+// seedBacklog tops a pool's queue up until every runner in it that is not
+// already working is explained by a job waiting for one.
+//
+// The fixture is a snapshot; the reconcile loop reads it as a fleet. A pool
+// holding more runners than its queue justifies has the ones that have not
+// finished starting drained on the very first pass -- "queued demand
+// disappeared before this runner finished starting" -- so the two states the
+// demo exists to show would be gone a second after it was seeded, the
+// screenshots would lose them, and the diagnostics fixture that ages them into
+// stuck runners would have nothing to age. Freshening them cannot help: they
+// are drained before the first refresh, and a fixture that fought the loop
+// every tick would be a fleet nobody could read.
+//
+// One queued job per runner that is neither busy nor draining is what makes
+// the snapshot add up. It is the demand the scheduler would have created those
+// runners for, and it is what the provisioning runner's own message already
+// claims.
+func (c *Controller) seedBacklog(ctx context.Context, now time.Time, pool *store.Pool, runners []*store.Runner, first int) (int, error) {
+	waiting := 0
+	for _, r := range runners {
+		if r.PoolID != pool.ID || !r.State.Live() {
+			continue
+		}
+		if r.State != store.RunnerBusy && r.State != store.RunnerDraining {
+			waiting++
+		}
+	}
+	_, queued, err := c.st.ListJobs(ctx, store.JobFilter{
+		PoolIDs: []string{pool.ID},
+		States:  []store.JobState{store.JobQueued},
+	}, store.Page{Limit: 1})
+	if err != nil {
+		return 0, fmt.Errorf("counting the queue pool %s already has: %w", pool.Name, err)
+	}
+	written := 0
+	for i := queued; i < waiting; i++ {
+		n := first + written
+		repo := demoRepos[n%len(demoRepos)]
+		run := int64(41000 + n)
+		j := &store.Job{
+			ID:             fmt.Sprintf("job_demo%03d", n),
+			GitHubJobID:    int64(80000 + n),
+			GitHubRunID:    run,
+			Repo:           repo,
+			Workflow:       "CI",
+			JobName:        demoBacklogJobNames[n%len(demoBacklogJobNames)],
+			Labels:         pool.Labels,
+			InstallationID: pool.InstallationID,
+			PoolID:         pool.ID,
+			Matched:        true,
+			State:          store.JobQueued,
+			// Older than the scale-up delay, or the pool would not have acted
+			// on them and the runners they explain would be surplus again.
+			QueuedAt:   now.Add(-time.Duration(40+written*17) * time.Second),
+			HTMLURL:    fmt.Sprintf("https://github.com/%s/actions/runs/%d", repo, run),
+			HeadBranch: "main",
+			HeadSHA:    fmt.Sprintf("%040x", 0xC0FFEE+n*7919),
+			RunAttempt: 1,
+		}
+		saved, change, err := c.st.ApplyJob(ctx, j)
+		if err != nil {
+			return written, fmt.Errorf("seeding the backlog job %s: %w", j.ID, err)
+		}
+		if err := c.seedJobTimeline(ctx, saved, change); err != nil {
+			return written, err
+		}
+		written++
+	}
+	return written, nil
+}
+
+// demoBacklogJobNames keeps the backlog reading like a morning's work rather
+// than one job name repeated.
+var demoBacklogJobNames = []string{"build", "test", "lint"}
+
+// seedBacklogFirstJob is where the backlog's identifiers start, past every job
+// the fixture writes by hand.
+const seedBacklogFirstJob = 52
+
 // seedJobs writes fifty jobs with queue waits and outcomes that look like a
 // real morning: mostly quick and successful, a long tail that makes the p95
 // worth showing, and a couple nothing claims.
@@ -1029,6 +1108,17 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 	}
 	if err := c.seedJobTimeline(ctx, saved, change); err != nil {
 		return err
+	}
+
+	// And the queue that explains the runners this fleet has not finished
+	// starting: without it the reconcile loop drains them on its first pass.
+	next := seedBacklogFirstJob
+	for _, pool := range pools {
+		written, err := c.seedBacklog(ctx, now, pool, runners, next)
+		if err != nil {
+			return err
+		}
+		next += written
 	}
 
 	// Link the busy runners to the jobs they are running, so the Runners page

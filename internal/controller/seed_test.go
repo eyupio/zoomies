@@ -8,6 +8,47 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
+// The fixture has to survive the loop that reads it.
+//
+// A pool holding more runners than its queue justifies has the ones that have
+// not finished starting drained on the very first pass -- "queued demand
+// disappeared before this runner finished starting" -- so a demo seeded with a
+// runner in provisioning and one in registering showed neither a second later.
+// That is both states missing from the grid and from the screenshots, and it
+// leaves the diagnostics fixture, which ages exactly those two into stuck
+// runners, with nothing to age.
+func TestSeedDemoKeepsItsStartingRunnersThroughAReconcilePass(t *testing.T) {
+	h := newHarness(t)
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+
+	starting := map[string]store.RunnerState{}
+	for _, r := range h.runners() {
+		if r.State == store.RunnerProvisioning || r.State == store.RunnerRegistering {
+			starting[r.ID] = r.State
+		}
+	}
+	if len(starting) != 2 {
+		t.Fatalf("the fixture starts %d runners, want the two states the UI has to show", len(starting))
+	}
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	for _, r := range h.runners() {
+		want, ok := starting[r.ID]
+		if !ok {
+			continue
+		}
+		if r.State != want {
+			t.Fatalf("runner %s was %s before the pass and is %s after it (%q); the fixture does not add up to the scheduler",
+				r.ID, want, r.State, r.Message)
+		}
+	}
+}
+
 // The Playwright suite and a demo instance both need a fleet with something in
 // it. This is that fixture, and it has to be the same fixture every time.
 func TestSeedDemoBuildsAFleet(t *testing.T) {
@@ -54,8 +95,10 @@ func TestSeedDemoBuildsAFleet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
-	if total != 52 {
-		t.Fatalf("seeded %d jobs, want 52", total)
+	// Fifty of a morning's history, the two on a vendor's runners, and the
+	// backlog that explains the runners this fleet has not finished starting.
+	if total != 55 {
+		t.Fatalf("seeded %d jobs, want 55", total)
 	}
 	var completed, queued, running, unmatched, elsewhere int
 	for _, j := range jobs {
