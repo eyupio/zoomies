@@ -11,23 +11,17 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// applyThrottleDirective takes the controller's throttle from a heartbeat and
-// moves every runner on this host to it.
+// applyResourceDirectives atomically replaces the host-pressure and elastic
+// decisions from one heartbeat, then reconciles each live workload once. The
+// pressure factor wins when it is below one; elasticity is never allowed to
+// fight the protection that keeps an overloaded host alive.
 //
-// A nil directive is an older controller, and it is left alone rather than
+// A nil throttle is an older controller, and it is left alone rather than
 // read as "restore everything": that controller never throttled anything, and
 // reconciling every adopted runner against it would be a request per runner
 // for nothing. The one exception is a factor that was standing when the nil
 // arrived -- a downgraded controller -- which is restored, because a throttle
 // nobody will ever lift is a job slowed for ever.
-func (a *Agent) applyThrottleDirective(ctx context.Context, d *ThrottleDirective) {
-	a.applyResourceDirectives(ctx, d, nil)
-}
-
-// applyResourceDirectives atomically replaces the host-pressure and elastic
-// decisions from one heartbeat, then reconciles each live workload once. The
-// pressure factor wins when it is below one; elasticity is never allowed to
-// fight the protection that keeps an overloaded host alive.
 func (a *Agent) applyResourceDirectives(ctx context.Context, d *ThrottleDirective, elastic []ElasticCPUDirective) {
 	factor := 1.0
 	if d != nil && d.CPUFactor > 0 {
