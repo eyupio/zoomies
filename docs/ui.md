@@ -47,9 +47,11 @@ long runners take to start and to register. Then each pool's busy runners
 against its live ones with the floor and ceiling marked, what is running this
 moment, and a feed of what has happened to the fleet lately: the scheduler's
 decisions in its own words — *scaled zoomies-demo-linux-x64 4 → 5: 1 job
-queued* — beside how each job ended and the step it stopped at, a runner that
-failed, a host that went quiet, a machine a provider is renting and a pool
-somebody changed. Which of those it carries is yours to choose, one switch per
+queued* — beside how each job ended and the step it stopped at, a runner
+that failed and a runner that came up ready for work, a runner lent spare CPU
+— *Squirrel spotted — maximum zoomies* — or slowed because its host is under
+pressure, a host that went quiet, a machine a provider is renting and a pool
+somebody changed. What went right is in it as much as what went wrong. Which of those it carries is yours to choose, one switch per
 kind on **Settings → Events**, and the panel counts what it is showing rather
 than quietly leaving the rest out. When
 something needs a person it is one line and a *Review* button, never a list

@@ -5,7 +5,12 @@
   miss?" should not have to ask it of nine pages -- and because this page used
   to answer it with two reverse-chronological lists, the scheduler's decisions
   on the right and how the last jobs ended across the bottom, each with its own
-  idea of what belonged on it. Every line is the same four
+  idea of what belonged on it.
+
+  It carries what went right as well as what went wrong: a runner that came up
+  ready, a job that passed, a host taking work again, a runner lent spare CPU.
+  A panel that only ever reported failures would teach an operator that silence
+  is the good state, which is the same thing as teaching them not to read it. Every line is the same four
   things -- a mark in one of the six status tones, what happened, what it
   happened to, and when -- and under it, where there is one, the controller's
   own sentence: the scheduler's reason for a decision, the throttle's
@@ -145,7 +150,7 @@
       title={everything ? 'Nothing has happened yet' : 'Nothing in the kinds you are watching'}
       description={everything
         ? hasFleet
-          ? 'A line is written here every time a job finishes, the scheduler decides something, a runner fails, or a host, machine or pool changes underneath them.'
+          ? 'A line is written here every time a job finishes, a runner comes up or goes away, the scheduler decides something, or a host, machine or pool changes underneath them.'
           : 'Once there is a pool and a host, this is where the fleet says what it has been doing.'
         : `${pluralise(hidden, 'kind')} of event ${hidden === 1 ? 'is' : 'are'} switched off for this browser. Choose above turns them back on.`}
     />

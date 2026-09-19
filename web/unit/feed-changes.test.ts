@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Host, Job, Machine, Problem, Provider } from '../src/lib/api/types.ts';
 import {
+  cpuChange,
   hostChanges,
   hostSignal,
   installationChange,
@@ -11,6 +12,7 @@ import {
   newProblems,
   providerChanges,
   providerSignal,
+  runnerMilestone,
 } from '../src/lib/feed/changes.ts';
 
 function host(fields: Partial<Host> = {}): Host {
@@ -44,6 +46,58 @@ test('every rung of the throttle ladder is its own line, and calm is one line', 
   assert.deepEqual(hostChanges(second, first), ['throttled']);
   assert.deepEqual(hostChanges(first, second), [], 'stepping back down is not news on its own');
   assert.deepEqual(hostChanges(none, first), ['calm']);
+});
+
+test('a host holding new runners under pressure says so once, and says when it stops', () => {
+  // Not the same thing as a throttle: a throttle takes slots away for minutes,
+  // a hold is this moment's pressure refusing the next start. Both answer
+  // "why is nothing starting here".
+  const easy = hostSignal(host());
+  const pressed = hostSignal(host({ admission_reason: 'load average 19.2 on 8 CPUs' }));
+  assert.deepEqual(hostChanges(pressed, easy), ['holding']);
+  assert.deepEqual(hostChanges(easy, pressed), ['admitting']);
+  // The reason's wording moves with the load; only the transition is news.
+  const worse = hostSignal(host({ admission_reason: 'load average 24.7 on 8 CPUs' }));
+  assert.deepEqual(hostChanges(worse, pressed), []);
+});
+
+test('a runner reaching idle for the first time is the success worth reporting', () => {
+  // The half of the fleet that goes right. A panel that only ever reported
+  // failures would teach an operator that silence is the good state, which is
+  // the same thing as teaching them not to read it.
+  assert.equal(runnerMilestone('idle', 'registering'), 'ready');
+  assert.equal(runnerMilestone('idle', undefined), 'ready');
+  assert.equal(runnerMilestone('removed', 'draining'), 'retired');
+});
+
+test('a runner coming back from a job is not ready news again', () => {
+  // The job's own line already said that, and a persistent runner would
+  // otherwise write one of these after every job it takes.
+  assert.equal(runnerMilestone('idle', 'busy'), null);
+});
+
+test('the states on the way up are not milestones', () => {
+  // Six states per ephemeral runner, one runner per job: a feed that carried
+  // them all would be a log.
+  assert.equal(runnerMilestone('registering', 'provisioning'), null);
+  assert.equal(runnerMilestone('busy', 'idle'), null);
+  assert.equal(runnerMilestone('draining', 'busy'), null);
+  assert.equal(runnerMilestone('idle', 'idle'), null);
+});
+
+test('a runner is reported when its elastic CPU state changes, not when the factor moves', () => {
+  // The five states are what the runner's own page shows; the factor behind
+  // them moves with every heartbeat.
+  assert.equal(cpuChange('zoomies', 'guaranteed'), 'zoomies');
+  assert.equal(cpuChange('maximum_zoomies', 'zoomies'), 'maximum_zoomies');
+  assert.equal(cpuChange('throttled', 'maximum_zoomies'), 'throttled');
+  assert.equal(cpuChange('zoomies', 'zoomies'), null);
+});
+
+test('a runner already lent CPU when this tab opened is not news', () => {
+  // The state it is already in is not something that just happened, and a
+  // reconnect delivers one frame per runner.
+  assert.equal(cpuChange('maximum_zoomies', undefined), null);
 });
 
 test('a host nobody here has seen before has joined the fleet', () => {

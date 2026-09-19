@@ -7,18 +7,34 @@
   from the live stream -- say so, because a category that is on and empty
   otherwise looks exactly like one that is broken.
 
+  What goes right is a category as much as what goes wrong, and both are on by
+  default: the ones that are off to begin with are off because something else
+  in the product already carries them, not because they are good news.
+
   It is this browser's choice, like the theme and the dismissed problems: what
   belongs on one operator's dashboard is not a fleet setting, and nothing here
   changes what the API, `zoomies status` or an alerting rule reports.
 -->
 <script lang="ts">
   import { feed } from '$lib/state/feed.svelte';
-  import type { FeedCategoryID } from '$lib/feed/categories';
+  import { FEED_GROUPS, type FeedCategoryID } from '$lib/feed/categories';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Switch from '$lib/components/Switch.svelte';
 
   const categories = $derived(feed.categories);
   const on = $derived(categories.filter((row) => row.on).length);
+  /*
+    Under headings rather than in one list of twelve, and the headings are only
+    a way to read them: nothing branches on a group, and a category is what it
+    reports, not where it is printed.
+  */
+  const groups = $derived(
+    FEED_GROUPS.map((label) => ({
+      label,
+      rows: categories.filter((row) => row.category.group === label),
+    })).filter((group) => group.rows.length > 0),
+  );
+  const uid = $props.id();
 </script>
 
 <PageHeader
@@ -26,31 +42,37 @@
   subtitle="Which of the fleet's events the Overview's feed shows. Kept in this browser, and never anything the controller reports elsewhere."
 />
 
-<div class="settings">
-  {#each categories as row (row.category.id)}
-    <div class="setting">
-      <div class="text">
-        <p class="label">
-          <row.category.icon size={14} aria-hidden="true" />
-          {row.category.label}
-        </p>
-        <p class="description">
-          {row.category.description}
-          {#if !row.category.history}
-            <span class="live">Shown from the moment it happens; this one has no past to load.</span
-            >
-          {/if}
-        </p>
-      </div>
-      <Switch
-        label={row.category.label}
-        hideLabel
-        checked={row.on}
-        onchange={(want) => feed.setShown(row.category.id as FeedCategoryID, want)}
-      />
+{#each groups as group, i (group.label)}
+  <section class="group" aria-labelledby="feed-group-{uid}-{i}">
+    <h2 id="feed-group-{uid}-{i}">{group.label}</h2>
+    <div class="settings">
+      {#each group.rows as row (row.category.id)}
+        <div class="setting">
+          <div class="text">
+            <p class="label">
+              <row.category.icon size={14} aria-hidden="true" />
+              {row.category.label}
+            </p>
+            <p class="description">
+              {row.category.description}
+              {#if !row.category.history}
+                <span class="live"
+                  >Shown from the moment it happens; this one has no past to load.</span
+                >
+              {/if}
+            </p>
+          </div>
+          <Switch
+            label={row.category.label}
+            hideLabel
+            checked={row.on}
+            onchange={(want) => feed.setShown(row.category.id as FeedCategoryID, want)}
+          />
+        </div>
+      {/each}
     </div>
-  {/each}
-</div>
+  </section>
+{/each}
 
 <p class="note">
   {on} of {categories.length} kinds are on. The feed keeps the last few hundred entries this tab has seen
@@ -60,6 +82,19 @@
 </p>
 
 <style>
+  .group {
+    margin-bottom: var(--z-space-5);
+  }
+  .group h2 {
+    margin: 0 0 var(--z-space-2);
+    padding: 0 var(--z-space-1);
+    font-size: var(--z-text-2xs);
+    line-height: var(--z-leading-2xs);
+    font-weight: var(--z-weight-medium);
+    letter-spacing: var(--z-tracking-wide);
+    text-transform: uppercase;
+    color: var(--z-text-subtle);
+  }
   .settings {
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
