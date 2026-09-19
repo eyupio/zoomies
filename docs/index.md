@@ -233,13 +233,16 @@ promising a platform it has never run on.
 
 | | Where it runs |
 | --- | --- |
-| **The controller and the agents** | Linux on x86-64 and arm64. macOS builds every release and is fine for running a controller while you develop against it. |
+| **The controller and the agents** | Linux on x86-64 and arm64; the agent also on Windows x86-64, where a runner is a process rather than a container. macOS builds every release and is fine for running a controller while you develop against it. |
 | **The runners** | Ubuntu 24.04, Ubuntu 22.04, Debian 12, Fedora 42 and Rocky Linux 9, from `ghcr.io/eyupio/zoomies-runner`. Every image is built for x86-64 and arm64 except Ubuntu 22.04, which is x86-64 only. [The catalogue](naming.md#the-runner-image) is generated from one table in the code, and a test holds this page to it, so neither can drift from what is published. |
 | **The backends** | `docker` — the default — `podman`, including rootless, and `process`, which runs the runner straight on the host without a container. |
 
 A pool names the machine its runners need, and the scheduler will not place it
 anywhere else; when no host matches, the Overview says which machine to add.
-Windows runners are not supported, and there is no macOS runner image.
+A Windows host runs the agent on the `process` backend — no container, a fresh
+work directory per job on a machine that keeps its state
+([the details](hosts-and-pools.md#worked-shapes)) — and there is no macOS
+runner image.
 
 ## What is qualified
 
@@ -250,9 +253,13 @@ before you put anything precious on this. Today, in short: the controller, the
 agents, a join, and a queued job becoming a real workload on a real machine are
 exercised on every pull request, on the `process` backend against a fake GitHub,
 on amd64 and on arm64; the Docker backend is unit-tested against a fake Engine
-API and no test here has yet started a real container; and the Windows agent is
-built, vetted and unit-tested on a hosted Windows runner, and has not yet run a
-job on a Windows host anyone kept.
+API, and while no *test* here starts a container, this repository's own CI does
+— every job but the arm64 and Windows legs runs on a Zoomies fleet, inside a
+container the Docker backend started, through the build under test, and
+[a test](https://github.com/eyupio/zoomies/blob/main/internal/docs/workflows_test.go)
+fails if a job leaves the fleet; and the Windows agent is built, vetted and
+unit-tested on a hosted Windows runner, and has not yet run a job on a Windows
+host anyone kept.
 
 That is not a reason to keep it off your own machines. It is the reason the
 defaults are the careful ones, and the reason every claim on this page names
