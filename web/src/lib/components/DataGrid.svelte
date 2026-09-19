@@ -1303,6 +1303,17 @@
     cursor: col-resize;
     touch-action: none;
   }
+  /*
+    The handle straddles the boundary it drags, which puts half of the last
+    column's outside the table. Absolutely positioned or not, it still counts
+    towards the table's scrollWidth, so every grid reported itself four pixels
+    wider than the frame it had just been divided to fit -- a sideways scroll
+    on a table whose columns add up exactly. The last one is pulled back level
+    with the edge instead; there is no boundary out there to straddle.
+  */
+  thead th:last-child .resizer {
+    right: 0;
+  }
   .resizer::after {
     content: '';
     position: absolute;
@@ -1312,20 +1323,6 @@
     width: var(--z-border-width);
     background: var(--z-border-strong);
     opacity: 0;
-  }
-  /*
-    The last column's handle sits inside the table rather than straddling its
-    right edge. The columns divide the frame exactly, so a handle hanging four
-    pixels past the last one is four pixels of content the frame has to scroll
-    to reach -- a sideways scroll on every grid in the product, for a control
-    nobody can see until they hover it.
-  */
-  thead th:last-child .resizer {
-    right: 0;
-  }
-  thead th:last-child .resizer::after {
-    left: auto;
-    right: 0;
   }
   thead th:hover .resizer::after,
   .resizer:focus-visible::after {

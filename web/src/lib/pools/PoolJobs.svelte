@@ -5,7 +5,7 @@
 <script lang="ts">
   import { ExternalLink, ListChecks } from '@lucide/svelte';
   import type { Job } from '$lib/api/types';
-  import { jobStatus } from '$lib/status';
+  import { jobStatus, queueStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Duration from '$lib/components/Duration.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -44,15 +44,20 @@
     <ul class="list">
       {#each jobs as job (job.id)}
         {@const status = jobStatus(job.state, job.conclusion)}
+        {@const queue = queueStatus(job)}
         <li class="row">
           <Badge {status} size="sm" />
+          <!-- A job this pool would have run, that an operator took out of the
+               queue, is still `queued` to GitHub. Saying so here keeps the
+               pool's list of work agreeing with its queue count above it. -->
+          {#if queue}<Badge status={queue} size="sm" title={queue.hint} />{/if}
           <span class="what">
             <span class="repo">{job.repo ?? 'unknown repository'}</span>
             <span class="job">{job.job_name ?? job.workflow ?? 'a job'}</span>
           </span>
           <span class="timing">
             {#if job.state === 'queued'}
-              waited <Duration from={job.queued_at} live />
+              {queue ? 'queued' : 'waited'} <Duration from={job.queued_at} live />
             {:else}
               <Duration ms={job.duration_ms ?? null} />
             {/if}

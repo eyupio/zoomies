@@ -112,6 +112,33 @@ test("the metric tiles are this fleet's work, and the switch widens them", async
     .toBe(ours);
 });
 
+/**
+ * The queued tile leads to the Queue, not to the Jobs page, and that is
+ * deliberate.
+ *
+ * It counts this fleet's queued work less whatever an operator has removed
+ * from the queue, which is exactly the Queue's default view. The Jobs page is
+ * history: it has no provisioning filter, so a job removed from the queue sits
+ * in it looking like any other queued one, and the tile and the list behind it
+ * would disagree the moment somebody cleared a queue. With other runners on
+ * the tile is counting queues this fleet does not own, which the Queue has
+ * nothing to say about, so that view goes to the Jobs page as the others do.
+ */
+test('the queued tile leads to the queue it just counted', async ({ page }) => {
+  const queued = page.getByRole('link', { name: /^Queued jobs/ });
+  await expect(queued).toHaveAttribute('href', '/queue');
+
+  const header = page.locator('header').filter({ has: page.getByRole('heading', { level: 1 }) });
+  const toggle = header.getByRole('switch', { name: 'Other runners' });
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect(queued).toHaveAttribute('href', '/jobs?state=queued&all=true');
+
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await expect(queued).toHaveAttribute('href', '/queue');
+});
+
 test('each trend tile carries a described sparkline', async ({ page }) => {
   // The wait tile is deliberately excluded: its series is built from live
   // `stats` frames rather than from GET /samples, so on a freshly started

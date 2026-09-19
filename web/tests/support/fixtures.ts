@@ -318,22 +318,6 @@ export async function columnIndex(gridLocator: Locator, header: string): Promise
 }
 
 /**
- * The control that turns a column's sort round.
- *
- * A heading carries three buttons since the grids became rearrangeable -- the
- * grip that repositions the column, the sort, and the handle that resizes it --
- * and only one of them is named after the column itself. Reaching for "the
- * button in the heading" resolves to all three on a desktop and to one on a
- * phone, where the other two are hidden, which is a test that passes or fails
- * by viewport.
- */
-export function sortButton(gridLocator: Locator, header: string): Locator {
-  return gridLocator
-    .getByRole('columnheader', { name: header })
-    .getByRole('button', { name: header, exact: true });
-}
-
-/**
  * One cell of one row, named by its column header rather than its position.
  *
  * The table carries `role="grid"`, so its cells are `gridcell`s.

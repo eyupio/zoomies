@@ -45,7 +45,7 @@ memory, so they are always current and never drift.
 | Metric | Type | Labels | What it is |
 | --- | --- | --- | --- |
 | `zoomies_runners` | gauge | `pool`, `state` | Runners by pool and state. The main shape-of-the-fleet series. |
-| `zoomies_jobs_queued` | gauge | `pool` | Jobs waiting for a runner, under the pool that claimed them. This is the backlog worth alerting on. |
+| `zoomies_jobs_queued` | gauge | `pool` | Jobs waiting for a runner, under the pool that claimed them. This is the backlog worth alerting on. Work an operator removed from the queue is not waiting for anything and is not counted, nor is a job whose workflow run has been cancelled — from the moment GitHub accepts the cancellation rather than when it reports the job over. Paused work is still waiting and is still counted. |
 | `zoomies_hosts` | gauge | `state` | Agent hosts, by `healthy`, `unhealthy` or `cordoned`. |
 | `zoomies_host_capacity` | gauge | — | Configured runner slots across healthy, uncordoned hosts: what their operators set. |
 | `zoomies_host_effective_capacity` | gauge | — | The same slots as the hosts' throttles leave them. Equal to the previous while no host is throttled; the gap between the two is the throttle. |
@@ -60,7 +60,7 @@ memory, so they are always current and never drift.
 | `zoomies_host_allocatable_memory_bytes` | gauge | — | The same for memory. |
 | `zoomies_host_reserved_cpus` | gauge | — | What the live runners have promised away, as of the last scheduling pass. |
 | `zoomies_host_reserved_memory_bytes` | gauge | — | The same for memory. Divide by the allocatable pair for "how full are the machines", which is a different question from how full the slots are. |
-| `zoomies_job_queue_age_seconds` | gauge | `pool` | How long the oldest job still waiting has been waiting. Zero when the pool has nothing queued. |
+| `zoomies_job_queue_age_seconds` | gauge | `pool` | How long the oldest job still waiting has been waiting. Zero when the pool has nothing queued, and counted over the same jobs as the depth — an item removed from the queue would otherwise climb here for ever. |
 | `zoomies_github_paused` | gauge | `installation` | 1 while that installation is inside its GitHub rate-limit backoff and every background sweep is standing down from it. |
 | `zoomies_provider_machines` | gauge | `provider`, `state` | Machines a provider is renting, by state. Every state is reported including the zeroes, so a provider that has stopped buying is visible rather than absent. |
 | `zoomies_provider_machines_quarantined` | gauge | — | Machines whose ownership could not be proved. Nothing will move one until a person does, so this is a queue of work rather than a shape — alert on any sustained non-zero value. |

@@ -2610,7 +2610,9 @@ export interface components {
              * @example 1h
              */
             window?: string;
+            /** @description Jobs waiting for a runner right now, whatever the window says. Work an operator removed from the queue is not waiting and is not counted, so a fleet whose queue has been emptied reports zero; paused work is still waiting and is still counted. Nor is a job whose workflow run has been cancelled, from the moment GitHub accepts the cancellation rather than when its completion delivery arrives. */
             queued_jobs?: number;
+            /** @description Jobs a runner is working on right now. A job whose workflow run has been cancelled stops counting the moment GitHub accepts the cancellation -- its runner has already been taken away -- rather than when GitHub's completion delivery finally arrives. */
             running_jobs?: number;
             /** @description Within the requested window. The sum of the four below. */
             completed?: number;
@@ -2652,7 +2654,9 @@ export interface components {
             p95_registration_ms?: number;
             /** @description The same job figures narrowed to the jobs this fleet has a hand in: one an enabled pool claimed, one that ran on a runner started here, or one still queued that no pool claims. GitHub reports every job in an installed repository, so on an organisation that also uses hosted runners the figures above are mostly somebody else's. Both are carried in one payload because the same numbers arrive over the event stream, which is one frame for every viewer. */
             fleet?: {
+                /** @description As above, and on the same terms about removed work. */
                 queued_jobs?: number;
+                /** @description As above, and on the same terms about cancelled work. */
                 running_jobs?: number;
                 completed?: number;
                 succeeded?: number;
@@ -3274,6 +3278,7 @@ export interface components {
                 failed?: number;
                 live?: number;
             };
+            /** @description Jobs this pool has claimed and not yet started, less any an operator removed from the queue. */
             queued_jobs?: number;
             /** Format: double */
             utilisation?: number;
@@ -3919,6 +3924,11 @@ export interface components {
             provisioning?: "" | "paused" | "deleted";
             /** @description Expedite demand within pool priority and bypass scale-up delay. */
             provision_now?: boolean;
+            /**
+             * Format: date-time
+             * @description When an operator's cancellation of this job's workflow run was accepted by GitHub, absent when none was. GitHub's completion delivery still settles the conclusion and can be minutes behind, so until it arrives the job reads `queued` or `in_progress` while being neither: the queued half raises no demand and the running half has had its runner taken away. Once the job completes this is history and the conclusion says what happened.
+             */
+            cancel_requested_at?: string;
             id?: string;
             /** Format: int64 */
             github_job_id?: number;
@@ -6664,6 +6674,8 @@ export interface operations {
                 faulted?: boolean;
                 /** @description The other half: jobs GitHub failed with nothing wrong on this side. Sending this and `faulted` together is a 400, because they ask for opposite halves of one list. */
                 workflow_failed?: boolean;
+                /** @description Narrow by whether a cancellation has been asked of GitHub and not yet confirmed. Leaving it off is every job, which is what a history wants; `cancelling=false` is what a list of work still in hand wants, because a cancelled job is neither waiting for a runner nor running on one. The Jobs page sends it with its Running and Queued views for that reason. */
+                cancelling?: boolean;
                 /** @description Narrow a fleet failure to particular categories; repeatable. A category this build does not know is a 400 rather than a filter that quietly matches everything, which would read as a fleet in better shape than it is. */
                 fault?: components["schemas"]["FaultKind"][];
                 limit?: components["parameters"]["Limit"];

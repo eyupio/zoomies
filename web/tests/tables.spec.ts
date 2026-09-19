@@ -28,7 +28,6 @@ import {
   grid,
   SECTIONS,
   sectionHeading,
-  sortButton,
   waitForRows,
 } from './support/fixtures';
 
@@ -195,7 +194,10 @@ test('every column is still there when the rows become cards', async ({ page }) 
   // And the two things a heading row does that a card cannot are kept: the
   // sort, and the tick that takes every row on the page.
   await expect(runners.getByRole('checkbox', { name: /^Select every/ })).toBeVisible();
-  await sortButton(runners, 'Age').click();
+  await runners
+    .getByRole('columnheader', { name: 'Age' })
+    .getByRole('button', { name: 'Age', exact: true })
+    .click();
   await expect(page).toHaveURL(/sort=created_at/);
 });
 

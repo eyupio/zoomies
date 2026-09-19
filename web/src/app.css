@@ -47,6 +47,15 @@ table[data-managed-table='true'] .managed-table-heading {
   cursor: col-resize;
   touch-action: none;
 }
+/*
+  The handle straddles the boundary it drags, so half of the last column's
+  falls outside the table -- and counts towards its scrollWidth, which made
+  every managed table report itself four pixels wider than its frame. There is
+  no boundary out there to straddle, so that one sits level with the edge.
+*/
+tr > *:last-child .managed-table-resizer {
+  right: 0;
+}
 .managed-table-resizer::after {
   content: '';
   position: absolute;
@@ -60,16 +69,6 @@ table[data-managed-table='true'] .managed-table-heading {
 .managed-table-heading:hover .managed-table-resizer::after,
 .managed-table-resizer:focus-visible::after {
   opacity: 1;
-}
-/* The last column's handle sits inside the table rather than straddling its
-   right edge: an overhang past the last column is content the frame scrolls to
-   reach, which is a sideways scroll for a control nobody can see. */
-table[data-managed-table='true'] thead th:last-child .managed-table-resizer {
-  right: 0;
-}
-table[data-managed-table='true'] thead th:last-child .managed-table-resizer::after {
-  left: auto;
-  right: 0;
 }
 @media (max-width: 768px) {
   table[data-managed-table='true'] {

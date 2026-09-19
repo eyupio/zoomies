@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"slices"
 	"strings"
@@ -394,5 +395,95 @@ func TestTheFaultFiltersAreOppositeHalvesAndRefuseAnUnknownCategory(t *testing.T
 	resp.mustStatus(t, 400, "a category this build does not know")
 	if !strings.Contains(string(resp.body), "out_of_memory") {
 		t.Fatalf("the refusal does not name the categories to use instead: %s", resp.body)
+	}
+}
+
+// The window this covers is GitHub's: it accepts a cancellation at once, and
+// reports the jobs over in its own time. Until this, the fleet spent that
+// window reporting cancelled work as waiting or running -- a queue depth
+// nobody could clear, and a Running tile counting a job whose runner had
+// already been taken away.
+func TestCancellingAWorkflowRunClearsItsJobsFromTheFleetsFigures(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.GitHub.AllowWorkflowCancellation = true })
+	h.gh.SetPermissions(map[string]string{"actions": "write"})
+	inst := h.installation()
+	pool := h.pool(inst, "linux")
+	queued := h.job(pool, store.JobQueued)
+	running := h.job(pool, store.JobInProgress)
+	_, operator := h.user("operator", store.RoleOperator)
+
+	figures := func() (int, int) {
+		t.Helper()
+		resp := h.do(request{method: "GET", path: "/api/v1/stats", cookie: operator})
+		resp.mustStatus(t, http.StatusOK, "stats")
+		var out struct {
+			Fleet struct {
+				QueuedJobs  int `json:"queued_jobs"`
+				RunningJobs int `json:"running_jobs"`
+			} `json:"fleet"`
+		}
+		if err := json.Unmarshal(resp.body, &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.Fleet.QueuedJobs, out.Fleet.RunningJobs
+	}
+	listed := func(query string) int {
+		t.Helper()
+		resp := h.do(request{method: "GET", path: "/api/v1/jobs?" + query, cookie: operator})
+		resp.mustStatus(t, http.StatusOK, query)
+		var page struct {
+			Total int `json:"total"`
+		}
+		if err := json.Unmarshal(resp.body, &page); err != nil {
+			t.Fatal(err)
+		}
+		return page.Total
+	}
+
+	if q, r := figures(); q != 1 || r != 1 {
+		t.Fatalf("before cancelling: queued=%d running=%d, want 1 and 1", q, r)
+	}
+
+	// Both jobs belong to the same run, so cancelling either takes both.
+	h.do(request{method: http.MethodPost, path: "/api/v1/jobs/" + queued.ID + "/cancel",
+		body: map[string]any{"force": false}, cookie: operator}).
+		mustStatus(t, http.StatusAccepted, "cancel")
+
+	if q, r := figures(); q != 0 || r != 0 {
+		t.Fatalf("after cancelling: queued=%d running=%d, want 0 and 0", q, r)
+	}
+	// GitHub is still the one that says how they ended, so the rows have not
+	// moved on -- which is exactly why the figures needed a second signal.
+	for _, id := range []string{queued.ID, running.ID} {
+		after, err := h.st.GetJob(h.ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.State == store.JobCompleted {
+			t.Fatalf("job %s was concluded locally; GitHub owns the conclusion", id)
+		}
+		if !after.Cancelling() {
+			t.Fatalf("job %s does not report itself as cancelling: %+v", id, after)
+		}
+	}
+
+	// The lists agree with the figures, and the history still holds both.
+	if n := listed("state=queued&cancelling=false"); n != 0 {
+		t.Errorf("queued list = %d, want 0", n)
+	}
+	if n := listed("state=in_progress&cancelling=false"); n != 0 {
+		t.Errorf("running list = %d, want 0", n)
+	}
+	if n := listed("cancelling=true"); n != 2 {
+		t.Errorf("cancelling list = %d, want both jobs", n)
+	}
+	if n := listed("state=queued&state=in_progress"); n != 2 {
+		t.Errorf("history = %d, want both jobs still listed", n)
+	}
+
+	// And the drawer says so rather than naming a runner the fleet took away.
+	why := h.do(request{method: "GET", path: "/api/v1/jobs/" + running.ID + "/explanation", cookie: operator})
+	if !strings.Contains(string(why.body), "workflow run was cancelled") {
+		t.Errorf("explanation: %s", why.body)
 	}
 }

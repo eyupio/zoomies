@@ -170,6 +170,22 @@
   function jobsHref(state: string): string {
     return `/jobs?state=${state}` + (others ? '&all=true' : '');
   }
+
+  /**
+   * Where the queued tile goes.
+   *
+   * The Queue, whose default view is this fleet's queued work minus whatever an
+   * operator removed from it -- exactly the set the tile counts, so the number
+   * and the list behind it cannot disagree. The Jobs page cannot be that list:
+   * it is history, it has no provisioning filter, and a job removed from the
+   * queue sits in it looking like any other queued job.
+   *
+   * With other runners switched on the tile is counting queues this fleet does
+   * not own, which the Queue page has nothing to say about; that is the Jobs
+   * page's `all` view, and the question has changed from "what is waiting on
+   * me?" to "what is waiting anywhere?".
+   */
+  const queuedHref = $derived(others ? jobsHref('queued') : '/queue');
   // Undefined rather than zero when the controller has nothing to say: a
   // median of "0ms" is a claim, and "--" is the truth.
   /**
@@ -218,7 +234,7 @@
   <MetricTile
     label="Queued jobs"
     value={formatNumber(queued)}
-    href={jobsHref('queued')}
+    href={queuedHref}
     tone="pending"
     goodWhen="down"
     delta={delta(queuedSeries, queued)}

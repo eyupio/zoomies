@@ -150,7 +150,11 @@ of grid filters, while selecting a pool scopes the headline runner metrics.
 
 Provisioning demand has its own view, with ready, expedited, paused and removed
 counts alongside filtering and bulk controls. Job queue depth can remain high
-when provisioning demand is held; these are separate measures.
+when provisioning demand is paused; these are separate measures. Removing an
+item is the exception: an operator who takes work out of the queue has said it
+is not for this fleet, so it stops counting as queued everywhere — the
+Overview's queue depth and pool bars, `zoomies_jobs_queued` and the queue age
+with it. Restoring it from the Removed view puts it back.
 
 ![The Queue page: provisioning demand composition, status filters and bulk controls](screenshots/queue-dark.webp#only-dark){ .zoomies-shot }
 ![The Queue page: provisioning demand composition, status filters and bulk controls](screenshots/queue-light.webp#only-light){ .zoomies-shot }
@@ -170,6 +174,26 @@ live in the URL alongside it, so a view can be pasted into a chat. A queued job
 that no enabled pool claims is one filter away — *Unmatched only* — and the
 problems drawer links straight to it: on an organisation that also rents
 runners elsewhere, most such jobs are somebody else's rather than a fault.
+
+*Queued* and *Running* mean work this fleet actually has in hand. Both leave
+out a job whose workflow run has been cancelled, and *Queued* also leaves out
+anything an operator removed from the queue — the same sets the Overview's two
+tiles count, and a chip above the grid says so where a filter is in force.
+
+None of those jobs is hidden: they are in the history under *All*, badged
+**Cancelling**, **Removed** or **Paused**. GitHub goes on calling all three
+`queued` or `in_progress`, because Zoomies can neither unqueue a job nor
+conclude one, and a row that showed only GitHub's word for it left the
+operator's own decision invisible — and the fleet reporting work nobody was
+going to do. `?provisioning=deleted` and `?cancelling=true` narrow to each on
+its own, and the [Queue](#queue) is where removed work is restored.
+
+A cancellation is the sharpest case, because the gap is GitHub's rather than
+this fleet's. GitHub accepts the request at once; its completion delivery,
+which settles the conclusion, can be minutes behind. Zoomies stops the work
+immediately — queued demand paused, runners taken back — and records that it
+did, so the tiles and the lists agree from that moment rather than from
+whenever GitHub gets round to it.
 
 ![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
 ![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
@@ -421,7 +445,7 @@ that already exists.
 | --- | --- |
 | Pause | Stop counting the selected items towards new runner demand. |
 | Resume | Restore normal demand and clear Run now priority. Also restores deleted items. |
-| Delete from queue | Suppress demand persistently. Use the Deleted view to find and restore it. |
+| Delete from queue | Suppress demand persistently, and stop the item counting as queued work anywhere. Use the Removed view to find and restore it. |
 | Run now | Resume and expedite demand within the pool's priority tier, bypassing the scale-up delay. |
 
 All four are buttons on the row itself, one press each, as well as on the bulk
