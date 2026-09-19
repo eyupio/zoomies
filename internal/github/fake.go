@@ -255,6 +255,18 @@ func (f *FakeGitHub) addRunnerLocked(name string, labels []string, ephemeral boo
 	return r
 }
 
+// SetRunnerBusy marks a registered runner busy or idle, the same field
+// GitHub's own runner list carries. Tests use it to reproduce the race where
+// GitHub still considers a runner busy after its completion webhook already
+// fired: deleting it is refused the way GitHub refuses it for real.
+func (f *FakeGitHub) SetRunnerBusy(name string, busy bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if i := slices.IndexFunc(f.runners, func(r *Runner) bool { return r.Name == name }); i >= 0 {
+		f.runners[i].Busy = busy
+	}
+}
+
 // Runners returns a snapshot of the registered runners.
 func (f *FakeGitHub) Runners() []Runner {
 	f.mu.Lock()
@@ -721,6 +733,14 @@ func (f *FakeGitHub) deleteRunner(w http.ResponseWriter, r *http.Request) {
 	i := slices.IndexFunc(f.runners, func(x *Runner) bool { return x.ID == id })
 	if i < 0 {
 		writeError(w, http.StatusNotFound, "Not Found")
+		return
+	}
+	if f.runners[i].Busy {
+		// The refusal real GitHub sends for this, reproduced verbatim: it is
+		// the plain message field, with no per-field errors array, which is
+		// why classify() reads it straight off er.Message.
+		writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf(
+			"Bad request - Runner %s is currently running a job and cannot be deleted.", f.runners[i].Name))
 		return
 	}
 	f.runners = slices.Delete(f.runners, i, i+1)

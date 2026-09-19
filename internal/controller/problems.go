@@ -1713,11 +1713,21 @@ func (c *Controller) cleanupProblems(ctx context.Context, out *[]Problem) error 
 	}
 	example := stuck[0]
 	// A registration left on GitHub and a container left on a host need
-	// different things done about them, so the fix says which this is.
+	// different things done about them, so the fix says which this is -- and
+	// a registration GitHub still calls busy needs neither, at least at
+	// first: GitHub refuses to delete a runner it believes is running a job
+	// with no override, so there is nothing Zoomies can do but recheck.
 	fix := fmt.Sprintf("look at %s on the Runners page. If the container is still on %s, remove it there; "+
 		"Zoomies retries, and the row clears itself when it succeeds.",
 		example.Name, c.hostName(ctx, example.HostID))
-	if strings.Contains(example.CleanupError, "registration") {
+	switch {
+	case strings.Contains(example.CleanupError, "still reports") && strings.Contains(example.CleanupError, "running a job"):
+		fix = fmt.Sprintf("nothing to do yet for %s: GitHub's own bookkeeping can lag a few seconds behind the "+
+			"webhook that told Zoomies the job was done, and this clears on its own once GitHub agrees the "+
+			"runner is idle -- Zoomies rechecks every ten minutes. If it stays this way, GitHub will not let "+
+			"Zoomies delete a runner it still calls busy -- cancel the workflow run on GitHub, or remove the "+
+			"runner on the target's runner settings page.", example.Name)
+	case strings.Contains(example.CleanupError, "registration"):
 		fix = fmt.Sprintf("check the target's runner settings page for %s. Zoomies retries the deletion every "+
 			"ten minutes and the row clears itself when it succeeds; a registration that stays is usually a "+
 			"permission the App has lost.", example.Name)

@@ -102,6 +102,18 @@ var ErrForbidden = errors.New("github: forbidden")
 // a 422 is always "Validation Failed".
 var ErrInvalid = errors.New("github: refused as invalid")
 
+// ErrRunnerBusy is DeleteRunner refused because GitHub still considers the
+// runner to be running a job. It wraps ErrInvalid -- the same 422 GitHub uses
+// for every other "refused as invalid" case -- so a caller that only checks
+// for ErrInvalid still catches it, and one that wants to tell this apart from
+// a genuinely bad request (a stale ID, a name GitHub never had) can.
+//
+// This is usually not the operator's problem: GitHub's own bookkeeping can lag
+// a few seconds behind the workflow_job "completed" webhook that told Zoomies
+// the runner was free, and the delete loses that race. Deleting again once
+// GitHub reports the runner idle succeeds without anyone doing anything.
+var ErrRunnerBusy = errors.New("github: runner is still running a job")
+
 // JITRequest asks GitHub for a just-in-time runner configuration.
 type JITRequest struct {
 	// Name must be unique within the target. GitHub rejects reuse.
