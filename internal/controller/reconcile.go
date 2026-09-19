@@ -736,6 +736,9 @@ func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, po
 	if err != nil {
 		return
 	}
+	if c.githubHeld(inst.ID, c.Now()) {
+		return
+	}
 	client, err := c.clients.get(ctx, inst)
 	if err != nil {
 		c.log.Warn("could not delete a GitHub runner registration", "runner", r.ID, "error", err)
@@ -746,11 +749,18 @@ func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, po
 		remote, err := client.ListRunners(ctx)
 		c.observeGitHub(inst.ID, err)
 		if err != nil {
+			if errors.Is(err, github.ErrRateLimited) {
+				c.holdRateLimited(inst.ID, err, c.Now(), "finding a runner registration")
+			}
 			c.log.Warn("could not list GitHub runners to find a registration to delete", "runner", r.ID, "name", r.Name, "error", err)
 			return
 		}
 		for _, gr := range remote {
 			if gr.Name == r.Name {
+				if gr.Busy {
+					c.deferBusyRegistration(ctx, r)
+					return
+				}
 				id = gr.ID
 				break
 			}
@@ -764,18 +774,15 @@ func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, po
 	}
 	err = client.DeleteRunner(ctx, id)
 	c.observeGitHub(inst.ID, err)
+	if errors.Is(err, github.ErrRunnerBusy) {
+		c.deferBusyRegistration(ctx, r)
+		return
+	}
+	if errors.Is(err, github.ErrRateLimited) {
+		c.holdRateLimited(inst.ID, err, c.Now(), "deleting a runner registration")
+	}
 	if err != nil {
 		reason := fmt.Sprintf("the GitHub runner registration could not be deleted: %v", err)
-		if errors.Is(err, github.ErrRunnerBusy) {
-			// Not a stuck job or a lost permission: GitHub's own bookkeeping
-			// can lag a few seconds behind the webhook that told Zoomies this
-			// runner was free, and the delete lost that race. Said plainly so
-			// runners.cleanup_failed does not send an operator chasing a
-			// permission that is not the problem; GitHub refuses this delete
-			// unconditionally while it still calls the runner busy, so the
-			// reap loop can only wait and recheck, the same as it does.
-			reason = fmt.Sprintf("GitHub still reports %s as running a job, though Zoomies has already finished with it", r.Name)
-		}
 		// Recorded on the row, not only logged. A registration Zoomies could
 		// not delete is a ghost on somebody's organisation, and a log line and
 		// a counter are not something an operator finds before the runner list
@@ -876,14 +883,41 @@ func (c *Controller) reap(ctx context.Context) {
 			c.log.Warn("could not list GitHub runners while reaping", "installation", inst.ID, "error", err)
 			continue
 		}
+		// A successful, fully paginated listing is also positive evidence
+		// for registrations GitHub removed itself while cleanup was pending.
+		presentNames := make(map[string]bool, len(remote))
+		presentIDs := make(map[int64]bool, len(remote))
+		for _, gr := range remote {
+			presentNames[gr.Name] = true
+			presentIDs[gr.ID] = true
+		}
+		pending, perr := c.st.RunnersPendingRegistrationCleanup(ctx, inst.ID)
+		if perr != nil {
+			c.log.Warn("could not load pending registration cleanup", "installation", inst.ID, "error", perr)
+			continue
+		}
+		for _, row := range pending {
+			if !presentNames[row.Name] && (row.GitHubRunnerID == 0 || !presentIDs[row.GitHubRunnerID]) {
+				c.confirmCleanup(ctx, row.ID, false)
+			}
+		}
 		for _, gr := range remote {
 			if !store.IsRunnerName(gr.Name) {
 				continue
 			}
+			row, rerr := c.st.GetRunnerByName(ctx, gr.Name)
+			if rerr == nil {
+				pool, err := c.st.GetPool(ctx, row.PoolID)
+				if err != nil || pool.InstallationID != inst.ID || (row.GitHubRunnerID != 0 && row.GitHubRunnerID != gr.ID) {
+					continue
+				}
+			}
 			if gr.Busy {
+				if rerr == nil && row.State.Terminal() {
+					c.deferBusyRegistration(ctx, row)
+				}
 				continue
 			}
-			row, rerr := c.st.GetRunnerByName(ctx, gr.Name)
 			switch {
 			case rerr == nil && row.State.Terminal():
 				// We know this one is dead.
@@ -903,6 +937,12 @@ func (c *Controller) reap(ctx context.Context) {
 				c.holdRateLimited(inst.ID, err, now, "deleting an orphaned registration")
 				break
 			}
+			if errors.Is(err, github.ErrRunnerBusy) {
+				if row != nil {
+					c.deferBusyRegistration(ctx, row)
+				}
+				continue
+			}
 			if err != nil {
 				// Recorded on the row when there is one, the same as the
 				// first attempt: without this the panel freezes on whatever
@@ -910,9 +950,6 @@ func (c *Controller) reap(ctx context.Context) {
 				// quietly retrying (or not) behind it.
 				if row != nil {
 					reason := fmt.Sprintf("the GitHub runner registration could not be deleted: %v", err)
-					if errors.Is(err, github.ErrRunnerBusy) {
-						reason = fmt.Sprintf("GitHub still reports %s as running a job, though Zoomies has already finished with it", gr.Name)
-					}
 					if rerr := c.st.RecordRegistrationCleanupFailure(ctx, row.ID, reason); rerr != nil {
 						c.log.Warn("could not record a failed registration delete", "runner", row.ID, "error", rerr)
 					}
@@ -930,4 +967,15 @@ func (c *Controller) reap(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// GitHub's busy flag is authoritative for deletion even when our row is terminal.
+// Do not cancel a workflow or count waiting as another failed delete.
+func (c *Controller) deferBusyRegistration(ctx context.Context, r *store.Runner) {
+	reason := fmt.Sprintf("GitHub still reports %s as running a job; cleanup is deferred until GitHub reports it idle or absent", r.Name)
+	if err := c.st.DeferRegistrationCleanup(ctx, r.ID, reason); err != nil {
+		c.log.Warn("could not record deferred registration cleanup", "runner", r.ID, "error", err)
+		return
+	}
+	c.publishRunnerByID(ctx, r.ID)
 }

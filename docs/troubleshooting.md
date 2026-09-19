@@ -411,3 +411,23 @@ Unknown ownership, an active parent, or repeated conflicts stop recovery with a
 **Container name conflict** finding. The daemon has answered: socket repair is
 not the appropriate advice. Check for duplicate agents connected to the same
 runtime. Recovery never reruns registration inside an existing runner container.
+
+### GitHub says a runner is still running a job during cleanup
+
+A busy registration is a deferred cleanup, not evidence that the GitHub App has
+lost permission. Zoomies leaves busy registrations alone and rechecks them every
+ten minutes. When an idle listing races with a newly busy response to deletion,
+cleanup is deferred in the same way. Waiting observations do not increment the
+failed-delete count or reset the age of an existing warning.
+
+Housekeeping also compares terminal rows with the complete, successful GitHub
+listing. If GitHub has already removed a registration, Zoomies clears that side
+of the cleanup record, including warnings left by earlier releases. A failed or
+incomplete listing cannot prove absence. GitHub confirmation never clears a
+separate host/container cleanup failure.
+
+If GitHub still reports a runner busy after hours, inspect the workflow run's
+actual status. Allow real work to finish; Zoomies does not cancel workflows or
+force-delete busy registrations to clear a warning. A persistently stale GitHub
+busy flag needs investigation on GitHub. Existing warnings containing the older
+“currently running a job” message now get this advice too.

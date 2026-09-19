@@ -1613,3 +1613,35 @@ func (s *Store) SetRunnerResourceSample(ctx context.Context, id string, cpu floa
 	_, err := s.exec(ctx, `UPDATE runners SET cpu_percent=?, memory_bytes=?, resource_sample=? WHERE id=?`, cpu, mem, runnerSampleJSON(sample), id)
 	return err
 }
+
+// DeferRegistrationCleanup refreshes a busy registration's explanation without
+// counting an observation as a failed deletion or resetting its original age.
+// Host cleanup evidence remains independent.
+func (s *Store) DeferRegistrationCleanup(ctx context.Context, id, reason string) error {
+	_, err := s.exec(ctx, `UPDATE runners SET registration_cleanup_error=?,
+  cleanup_error=CASE WHEN host_cleanup_error='' THEN '' ELSE host_cleanup_error || '; ' END || ?,
+  cleanup_failed_at=COALESCE(cleanup_failed_at, ?), cleaned_up_at=NULL, registration_deleted_at=NULL
+  WHERE id=?`, reason, reason, s.Now().UnixMilli(), id)
+	return err
+}
+
+// RunnersPendingRegistrationCleanup includes removed rows, which ordinary pool
+// listings omit. A complete GitHub snapshot can confirm their registrations gone.
+func (s *Store) RunnersPendingRegistrationCleanup(ctx context.Context, installationID string) ([]*Runner, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT `+runnerCols+` FROM runners
+  WHERE state IN ('removed', 'failed') AND registration_deleted_at IS NULL
+  AND pool_id IN (SELECT id FROM pools WHERE installation_id=?)`, installationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Runner
+	for rows.Next() {
+		r, err := scanRunner(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
