@@ -207,7 +207,8 @@ type Controller struct {
 	// because GitHub's quota is per installation: one organisation spending
 	// its hour must not stop the fleet polling another's, which is the whole
 	// point of the fallback poller on a controller serving several.
-	githubMu sync.Mutex
+	githubMu        sync.Mutex
+	credentialMints map[string]int
 	// githubPaused is the rate-limit backoff for each installation: the moment
 	// its API may be used again. An installation absent from the map is not
 	// held. Every sweep that spends quota on its own schedule shares it -- the

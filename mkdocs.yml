@@ -154,6 +154,8 @@ nav:
       - One-click deployment: marketplace.md
       - Security: security.md
       - Troubleshooting: troubleshooting.md
+      - Runner startup stability: runner-startup-stability.md
+      - Runtime compatibility: runtime-compatibility.md
       - Upgrading: upgrading.md
       - Backup and restore: backup-and-restore.md
       - API: api-surface.md

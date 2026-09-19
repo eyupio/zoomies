@@ -774,13 +774,18 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 
 	b.pruneCacheFor(ctx, spec)
 
+	var dindReadyDuration *time.Duration
 	var dindID string
 	switch spec.DockerMode {
 	case store.DockerDinD:
 		if _, err := b.ensureImage(ctx, b.dind); err != nil {
 			return CreateResult{}, err
 		}
+		dindStarted := time.Now()
 		dindID, err = b.startDinD(ctx, spec, opts)
+		dindElapsed := time.Since(dindStarted)
+		dindReadyDuration = &dindElapsed
+		b.log.Info("Docker sidecar readiness completed", "duration", dindElapsed, "ok", err == nil)
 		if err != nil {
 			return CreateResult{}, err
 		}
@@ -820,7 +825,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	b.log.Info("runner container started",
 		"runner", spec.Name, "pool", spec.PoolName, "image", spec.Image,
 		"container", shortID(id), "docker_mode", string(spec.DockerMode))
-	return CreateResult{Handle: Handle(id), Digest: digest, ImagePullDuration: pullDuration, CreateDuration: time.Since(createStarted)}, nil
+	return CreateResult{DinDReadyDuration: dindReadyDuration, Handle: Handle(id), Digest: digest, ImagePullDuration: pullDuration, CreateDuration: time.Since(createStarted)}, nil
 }
 
 // prepareImage applies the task's pool policy, then resolves the image before
@@ -906,6 +911,9 @@ func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts container
 		} else if state := insp.State; state != nil {
 			if state.OOMKilled || state.Dead || state.Status == "exited" {
 				return "", fmt.Errorf("backend: docker-in-docker sidecar for %s exited before its daemon was ready (exit %d, OOM killed: %t); check its logs and the pool's memory allocation", spec.Name, state.ExitCode, state.OOMKilled)
+			}
+			if state.Running && state.Health == nil {
+				lastErr = errors.New("runtime did not report sidecar health; the runtime must honour container healthchecks and the custom DinD image must provide the docker CLI")
 			}
 			if state.Running && state.Health != nil && state.Health.Status == "healthy" {
 				b.log.Warn("docker-in-docker daemon ready: this runner has a privileged container", "runner", spec.Name, "pool", spec.PoolName, "container", shortID(id))

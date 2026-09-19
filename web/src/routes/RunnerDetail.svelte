@@ -309,6 +309,22 @@
       </Panel>
 
       <Panel title="Resource usage" description="As the host's agent last reported it.">
+        {#if runner.resource_sample?.sampled_at}
+          <p class="text-sm text-muted-foreground">
+            Last successful sample: {new Date(runner.resource_sample.sampled_at).toLocaleString()}.
+            Values may be retained if sampling fails.
+          </p>
+        {:else}
+          <p class="text-sm text-muted-foreground">Sample freshness is unknown.</p>
+        {/if}
+        {#if runner.resource_sample?.cpu_throttling}
+          <p class="text-sm text-muted-foreground">
+            CPU quota throttled {runner.resource_sample.cpu_throttling.throttled_periods ?? 0} of {runner
+              .resource_sample.cpu_throttling.periods ?? 0} periods, totalling {(
+              (runner.resource_sample.cpu_throttling.throttled_nanoseconds ?? 0) / 1e9
+            ).toFixed(2)} seconds since this workload started.
+          </p>
+        {/if}
         <RunnerResources
           cpuPercent={runner.cpu_percent}
           memoryBytes={runner.memory_bytes}

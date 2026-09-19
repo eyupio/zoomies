@@ -531,3 +531,22 @@ func (s *Store) DeleteSetting(ctx context.Context, key string) error {
 	_, err := s.exec(ctx, `DELETE FROM settings WHERE key = ?`, key)
 	return err
 }
+
+// RevokeUnusedJoinToken serialises revocation with redemption. A token already
+// used is retained as enrolment evidence and must never be replaced.
+func (s *Store) RevokeUnusedJoinToken(ctx context.Context, id string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		t, err := scanJoin(tx.QueryRowContext(ctx, `SELECT `+joinCols+` FROM join_tokens WHERE id=?`, id))
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if t.UsedAt != nil {
+			return ErrJoinTokenUsed
+		}
+		_, err = tx.ExecContext(ctx, `DELETE FROM join_tokens WHERE id=?`, id)
+		return err
+	})
+}

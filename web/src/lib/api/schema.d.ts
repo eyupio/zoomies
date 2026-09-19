@@ -3366,6 +3366,7 @@ export interface components {
             /** @description What to do about this runner's failure. Empty on a runner that did not fail. A runner that failed before ever taking a job is the case this exists for: nothing else in the system says why a pool's containers will not start, because the jobs it was meant for are still queued and none of them is marked failed. */
             fault_fix?: string;
             jobs_handled?: number;
+            resource_sample?: components["schemas"]["WorkloadStats"];
             /** Format: double */
             cpu_percent?: number;
             /** Format: int64 */
@@ -4790,6 +4791,20 @@ export interface components {
             observed_at: string;
         };
         WorkloadStats: {
+            /**
+             * Format: date-time
+             * @description Time of the last successful sample. Absence means freshness is unknown. Retained samples keep their original timestamp.
+             */
+            sampled_at?: string;
+            /** @description Cumulative cgroup CPU quota counters. Absent when unsupported; resets on workload recreation. */
+            cpu_throttling?: {
+                /** Format: int64 */
+                periods?: number;
+                /** Format: int64 */
+                throttled_periods?: number;
+                /** Format: int64 */
+                throttled_nanoseconds?: number;
+            };
             /** Format: double */
             cpu_percent?: number;
             /** Format: int64 */
@@ -4872,6 +4887,16 @@ export interface components {
             ok: boolean;
             error?: string;
             handle?: string;
+            /**
+             * Format: int64
+             * @description Nanoseconds waiting for host startup admission.
+             */
+            startup_wait?: number;
+            /**
+             * Format: int64
+             * @description Nanoseconds creating and awaiting a healthy sidecar after its image is available.
+             */
+            dind_ready_duration?: number;
             /**
              * Format: int64
              * @description Nanoseconds. Absent when the backend cannot tell pulling from creation.

@@ -357,6 +357,16 @@ var registry = buildRegistry([]Setting{
 		RestartReason: "the agent's heartbeat timer is set when it starts",
 	},
 	{
+		Key: "agent.prewarm_jitter", Label: "Background image preparation stagger", Env: "ZOOMIES_AGENT_PREWARM_JITTER", Kind: KindDuration, Scope: ScopeInstance,
+		RestartReason: "the agent reads its background preparation stagger when it starts",
+		Summary:       "Random delay before background image preparation (default 30s, range 0s–5m). Foreground starts can pass during this delay. Zero disables staggering.",
+	},
+	{
+		Key: "agent.prewarm_timeout", Label: "Background image preparation timeout", Env: "ZOOMIES_AGENT_PREWARM_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
+		RestartReason: "the agent reads its background preparation budget when it starts",
+		Summary:       "Bound background image preparation separately from runner starts (default 5m, range 1s–15m). Restart agents after changing this setting.",
+	},
+	{
 		Key: "agent.bootstrap_cpu_grace", Label: "Startup CPU grace", Env: "ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE", Kind: KindDuration, Scope: ScopeInstance,
 		Summary:       "Keep a new runner at its normal CPU allocation before applying host-pressure throttling. Default 2m; 0 applies throttling immediately; maximum 10m. CPU and memory limits remain enforced.",
 		RestartReason: "the agent reads its startup grace when it starts",
@@ -477,6 +487,10 @@ var registry = buildRegistry([]Setting{
 	{
 		Key: "scheduler.max_creates_per_tick", Label: "Runners created per pass", Env: "ZOOMIES_MAX_CREATES_PER_TICK", Kind: KindInt, Scope: ScopeInstance, Live: true,
 		Summary: "How many runners may be created in one pass, so a thundering herd of queued jobs cannot exhaust a host in one go.",
+	},
+	{
+		Key: "scheduler.registration_concurrency", Label: "Concurrent registrations per installation", Env: "ZOOMIES_REGISTRATION_CONCURRENCY", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "Maximum concurrent runner credential requests per GitHub installation (1–16). Excess demand stays with the scheduler; rate-limit holds pause new admissions.",
 	},
 	{
 		Key: "scheduler.default_runner_limits", Label: "Default runner limits", Env: "ZOOMIES_DEFAULT_RUNNER_LIMITS", Kind: KindBool, Scope: ScopeInstance, Live: true,

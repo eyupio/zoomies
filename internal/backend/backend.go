@@ -33,6 +33,7 @@ type Handle string
 // needed to create and start the workload. ImagePullDuration is nil when a
 // backend cannot observe an image pull (notably the process backend).
 type CreateResult struct {
+	DinDReadyDuration *time.Duration `json:"dind_ready_duration,omitempty"`
 	Handle            Handle         `json:"handle"`
 	Digest            string         `json:"digest,omitempty"`
 	ImagePullDuration *time.Duration `json:"image_pull_duration,omitempty"`
@@ -79,7 +80,16 @@ type Status struct {
 
 // Stats is a best-effort resource sample. Backends that cannot measure a field
 // leave it zero.
+type CPUThrottling struct {
+	Periods              uint64 `json:"periods"`
+	ThrottledPeriods     uint64 `json:"throttled_periods"`
+	ThrottledNanoseconds uint64 `json:"throttled_nanoseconds"`
+}
+
 type Stats struct {
+	SampledAt     *time.Time     `json:"sampled_at,omitempty"`
+	CPUThrottling *CPUThrottling `json:"cpu_throttling,omitempty"`
+
 	CPUPercent  float64 `json:"cpu_percent"`
 	MemoryBytes int64   `json:"memory_bytes"`
 	MemoryLimit int64   `json:"memory_limit,omitempty"`

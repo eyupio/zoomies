@@ -32,6 +32,7 @@ type metrics struct {
 	runnerStartFailures                                                                          *prometheus.CounterVec
 	queueWait                                                                                    prometheus.Histogram
 	jobDuration                                                                                  prometheus.Histogram
+	startupWait, dindReady                                                                       *prometheus.HistogramVec
 	queuedToCreate, createToContainer, containerToRegistered, registeredToReady, queuedToStarted *prometheus.HistogramVec
 	scalingEvents                                                                                *prometheus.CounterVec
 	webhookDeliveries                                                                            *prometheus.CounterVec
@@ -115,6 +116,8 @@ func newMetrics(c *Controller) *metrics {
 		queuedToCreate:        startupHistogram("zoomies_runner_queued_to_create_seconds", "Time from a queued job to runner creation."),
 		schedulingLatency:     startupHistogram("zoomies_runner_eligible_to_create_task_seconds", "Time from observed job eligibility to its runner's first create task delivery. Excludes prewarmed runners and unobserved timestamps."),
 		cleanupDuration:       startupHistogram("zoomies_runner_cleanup_duration_seconds", "Time from runner finish to confirmed host and GitHub removal, including retention. Excludes missing confirmations."),
+		startupWait:           startupHistogram("zoomies_runner_startup_queue_seconds", "Time waiting for the host startup admission slot."),
+		dindReady:             startupHistogram("zoomies_runner_dind_ready_seconds", "Time creating and awaiting a healthy Docker sidecar, excluding its image pull."),
 		createToContainer:     startupHistogram("zoomies_runner_create_to_container_started_seconds", "Time from runner creation to its container starting."),
 		containerToRegistered: startupHistogram("zoomies_runner_container_started_to_registered_seconds", "Time from container start to GitHub registration."),
 		registeredToReady:     startupHistogram("zoomies_runner_registered_to_ready_seconds", "Time from registration to the runner becoming idle or busy."),
@@ -187,7 +190,7 @@ func newMetrics(c *Controller) *metrics {
 		m.jobsTotal, m.jobsRunnerLost, m.jobFailures, m.runnerStartFailures, m.queueWait, m.jobDuration, m.scalingEvents,
 		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.reconcileErrors, m.cleanups, m.pollsShed, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,
-		m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
+		m.startupWait, m.dindReady, m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
 		m.schedulingLatency, m.cleanupDuration,
 		&fleetCollector{c: c},
 		collectors.NewGoCollector(),

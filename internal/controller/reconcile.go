@@ -205,6 +205,9 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 			switch a.Kind {
 			case scheduler.ActionCreate:
 				if err := c.createRunner(ctx, pool, hosts[a.HostID], a); err != nil {
+					if errors.Is(err, errRegistrationDeferred) {
+						continue
+					}
 					c.log.Error("could not create a runner",
 						"pool", pool.Name, "host", a.HostID, "reason", a.Reason, "error", err)
 					continue
@@ -299,6 +302,15 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 			pool.Name, pool.InstallationID, err)
 	}
 
+	if !c.admitCredentialMint(inst.ID) {
+		return errRegistrationDeferred
+	}
+	detached := false
+	defer func() {
+		if !detached {
+			c.releaseCredentialMint(inst.ID)
+		}
+	}()
 	resources, source := scheduler.Allocation(pool, host, c.cfg().Scheduler.DefaultRunnerLimits)
 	name := github.RunnerName(pool)
 	r := &store.Runner{
@@ -335,7 +347,9 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 	// answer. The row already exists and carries RunnerProvisioning, so the
 	// next snapshot counts it towards the pool's current size either way.
 	c.lifecycleCalls.Add(1)
+	detached = true
 	go func() {
+		defer c.releaseCredentialMint(inst.ID)
 		defer c.lifecycleCalls.Done()
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lifecycleCallTimeout)
 		defer cancel()
@@ -356,7 +370,9 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 		msg := fmt.Sprintf("GitHub would not register %s: %v", name, err)
 		if failed, ferr := c.st.FailRunner(ctx, r.ID, msg, store.FaultRegistration); ferr == nil {
 			c.publishRunner(ctx, events.KindRunnerUpdated, failed)
-			c.noteRunnerStartFailure(ctx, r, failed)
+			if !errors.Is(err, github.ErrRateLimited) {
+				c.noteRunnerStartFailure(ctx, r, failed)
+			}
 		} else {
 			c.log.Error("could not mark a runner failed after its registration failed",
 				"runner", r.ID, "error", ferr)
@@ -411,7 +427,15 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 // cannot be replayed, and expires quickly, which is what makes it safe to hand
 // to a container through its environment. Non-ephemeral pools have to run
 // config.sh, so they get a registration token instead.
-func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installation, pool *store.Pool, name string) (backend.Credentials, int64, error) {
+func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installation, pool *store.Pool, name string) (creds backend.Credentials, id int64, err error) {
+	if c.githubHeld(inst.ID, c.Now()) {
+		return backend.Credentials{}, 0, errRegistrationHeld
+	}
+	defer func() {
+		if errors.Is(err, github.ErrRateLimited) && err != errRegistrationHeld {
+			c.holdRateLimited(inst.ID, err, c.Now(), "registering a runner")
+		}
+	}()
 	client, err := c.clients.get(ctx, inst)
 	if err != nil {
 		return backend.Credentials{}, 0, err
@@ -420,6 +444,9 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 	if pool.Ephemeral {
 		group, unresolved, publicBlocked := c.clients.runnerGroupID(ctx, inst, client, pool.RunnerGroup)
 		c.noteRunnerGroup(pool, pool.RunnerGroup, unresolved, publicBlocked)
+		if c.githubHeld(inst.ID, c.Now()) {
+			return backend.Credentials{}, 0, errRegistrationHeld
+		}
 		jit, err := client.CreateJITConfig(ctx, github.JITRequest{
 			Name:          name,
 			Labels:        pool.Labels,

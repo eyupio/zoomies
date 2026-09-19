@@ -299,6 +299,16 @@ func (c *Config) Validate() Findings {
 	var fs Findings
 	add := func(f Finding) { fs = append(fs, f) }
 
+	if c.Scheduler.RegistrationConcurrency < 1 || c.Scheduler.RegistrationConcurrency > 16 {
+		add(Finding{Code: "scheduler.registration_concurrency", Severity: SeverityError, Setting: "scheduler.registration_concurrency", Title: "registration concurrency is outside its supported range", Detail: "Unbounded credential requests amplify GitHub outages and rate limits.", Fix: "set scheduler.registration_concurrency between 1 and 16; the default is 1."})
+	}
+
+	if c.Agent.PrewarmTimeout < time.Second || c.Agent.PrewarmTimeout > 15*time.Minute {
+		add(Finding{Code: "agent.prewarm_timeout", Severity: SeverityError, Setting: "agent.prewarm_timeout", Title: "background preparation timeout is outside its supported range", Detail: "Background image preparation needs a bounded budget independent of foreground creates.", Fix: "set agent.prewarm_timeout between 1s and 15m; the default is 5m."})
+	}
+	if c.Agent.PrewarmJitter < 0 || c.Agent.PrewarmJitter > 5*time.Minute {
+		add(Finding{Code: "agent.prewarm_jitter", Severity: SeverityError, Setting: "agent.prewarm_jitter", Title: "background preparation stagger is outside its supported range", Detail: "Background refresh delays must remain bounded.", Fix: "set agent.prewarm_jitter between 0s and 5m; the default is 30s."})
+	}
 	// --- Listener ---------------------------------------------------------
 	if c.Server.Bind == "" {
 		add(Finding{

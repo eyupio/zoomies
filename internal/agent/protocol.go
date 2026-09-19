@@ -213,8 +213,9 @@ const (
 // controller may redeliver one after a restart, and applying it twice must
 // leave the host in the same place.
 type Task struct {
-	ID   string   `json:"id"`
-	Kind TaskKind `json:"kind"`
+	startupWait *time.Duration
+	ID          string   `json:"id"`
+	Kind        TaskKind `json:"kind"`
 	// RunnerID is the runner this task concerns.
 	RunnerID string `json:"runner_id,omitempty"`
 	// Spec is set for TaskCreateRunner and carries the credentials the runner
@@ -244,7 +245,9 @@ type Task struct {
 
 // TaskResult reports the outcome of a task back to the controller.
 type TaskResult struct {
-	TaskID string `json:"task_id"`
+	StartupWait       *time.Duration `json:"startup_wait,omitempty"`
+	DinDReadyDuration *time.Duration `json:"dind_ready_duration,omitempty"`
+	TaskID            string         `json:"task_id"`
 	// Kind is the kind of the task this answers. The controller uses it to
 	// tell a lifecycle task that failed -- which leaves the runner unusable --
 	// from a log relay that could not be opened, which leaves it exactly as it

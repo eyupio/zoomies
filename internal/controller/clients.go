@@ -177,6 +177,9 @@ func (cc *clientCache) runnerGroupID(ctx context.Context, inst *store.Installati
 	// misconfigured, and it is what lets the warning clear by itself the
 	// moment an operator creates the group GitHub was missing.
 	groups, err := client.ListRunnerGroups(ctx)
+	if errors.Is(err, github.ErrRateLimited) {
+		cc.c.holdRateLimited(inst.ID, err, cc.c.Now(), "resolving runner groups")
+	}
 	if err != nil {
 		// A pool naming a group Zoomies cannot list still deserves a runner;
 		// GitHub will place it in Default and the operator sees the warning.

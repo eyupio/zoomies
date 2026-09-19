@@ -517,7 +517,10 @@ type Agent struct {
 	// row, this is disk on the host: a busy host keeps one finished
 	// container per job for this long.
 	FinishedRetention time.Duration `yaml:"finished_retention"`
-	// BootstrapCPUGrace keeps normal quotas during registration before host-pressure reductions.
+	// PrewarmTimeout bounds background work separately from foreground starts.
+	PrewarmTimeout time.Duration `yaml:"prewarm_timeout"`
+	PrewarmJitter  time.Duration `yaml:"prewarm_jitter"`
+	// BootstrapCPUGrace preserves normal quotas before host-pressure reductions.
 	BootstrapCPUGrace time.Duration `yaml:"bootstrap_cpu_grace"`
 	// DockerBuildCacheMB is the target for unused Docker builder cache. Zero
 	// disables automatic cache pruning on shared or externally managed daemons.
@@ -550,6 +553,8 @@ type Scheduler struct {
 	// MaxCreatesPerTick caps how many runners may be created in one pass, so a
 	// thundering herd of queued jobs cannot exhaust a host in one go.
 	MaxCreatesPerTick int `yaml:"max_creates_per_tick"`
+	// RegistrationConcurrency bounds outstanding credential requests per installation.
+	RegistrationConcurrency int `yaml:"registration_concurrency"`
 	// DefaultRunnerLimits gives a runner whose pool sets no CPU or memory
 	// limit one slot's share of its host's machine as a real cgroup limit --
 	// the same share the scheduler already charges it. Off, such a runner is
@@ -747,6 +752,8 @@ func Default() *Config {
 			// default benefit; operators who debug from container logs can opt in.
 			FinishedRetention:  0,
 			BootstrapCPUGrace:  2 * time.Minute,
+			PrewarmTimeout:     5 * time.Minute,
+			PrewarmJitter:      30 * time.Second,
 			DockerBuildCacheMB: 5120,
 		},
 		Scheduler: Scheduler{
@@ -763,11 +770,12 @@ func Default() *Config {
 			// The genuinely broken create does not wait for this: the agent
 			// reports the failure and the row fails on the report. This is the
 			// backstop for the create that is never reported at all.
-			ProvisionTimeout:    20 * time.Minute,
-			DrainTimeout:        15 * time.Minute,
-			MaxCreatesPerTick:   10,
-			DefaultRunnerLimits: true,
-			HostThrottling:      true,
+			ProvisionTimeout:        20 * time.Minute,
+			DrainTimeout:            15 * time.Minute,
+			MaxCreatesPerTick:       10,
+			DefaultRunnerLimits:     true,
+			RegistrationConcurrency: 1,
+			HostThrottling:          true,
 		},
 		Log:     Log{Level: "info", Format: "json"},
 		Metrics: Metrics{Enabled: true, Path: "/metrics"},
