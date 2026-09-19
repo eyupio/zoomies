@@ -274,6 +274,7 @@ The categories, and what each one means you should change:
 | `image` | The runner image could not be pulled or would not start. | Check the pool's image tag, and that the host can reach the registry. |
 | `registration` | GitHub would not register the runner, so it had nothing to attach to. | Check the App is still installed on the repository and still holds its runner permissions. |
 | `backend` | The container backend refused the work or did not answer. This is "cannot start the runner container". | Check the daemon on the host, and the socket the agent names on the host's page. |
+| `container_conflict` | A container name remains occupied after bounded recovery or ownership could not be verified. | Check its managed, runner, pool and role labels, its parent workload and duplicate agents sharing the daemon. Active or unrelated containers are retained; do not remove them blindly. |
 | `backend_busy` | The daemon is there and did not answer in time — the host is carrying more work than it can keep up with, not a backend that is broken. | Lower the host's capacity or the pool's maximum runners, or give the pool CPU and memory limits so the daemon keeps a share of the machine. The host's throttle steps it down on its own while the pressure lasts. |
 | `config` | The runner refused a setting it was given. | Read the runner's log for the setting it named. Every runner in that pool will do the same until it is changed. |
 | `runner_exited` | The runner stopped and nothing could narrow it further. | Read the runner's last output on its page. |
@@ -396,3 +397,17 @@ a host worth looking at.
 
 A runner's **Cleaned up** time is when nothing of it was left, on the host or
 on GitHub. A finished runner without one still has something outstanding.
+
+### Container names already in use
+
+Docker can finish a create after the agent has timed out. A later attempt may
+therefore see HTTP 409 even if its initial cleanup found nothing. Zoomies inspects
+the conflicting container and retries creation up to twice. It removes only a
+container whose managed, runner, pool, role and name labels match the request.
+A runner must be inactive; a DinD sidecar must have no parent runner. Removal uses
+the inspected container ID, never a name that another container could acquire.
+
+Unknown ownership, an active parent, or repeated conflicts stop recovery with a
+**Container name conflict** finding. The daemon has answered: socket repair is
+not the appropriate advice. Check for duplicate agents connected to the same
+runtime. Recovery never reruns registration inside an existing runner container.

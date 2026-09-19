@@ -5310,7 +5310,7 @@ components:
         something that is not broken.
 
         Empty means the fleet has nothing to confess.
-      enum: [host_lost, out_of_memory, out_of_disk, removed, image, registration, backend, backend_busy, config, runner_exited]
+      enum: [host_lost, out_of_memory, out_of_disk, removed, image, registration, backend, backend_busy, container_conflict, config, runner_exited]
 
     JobEventKind:
       type: string

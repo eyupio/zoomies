@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -30,10 +31,17 @@ func TestCancelledContainerStartStillRemovesContainerAndScratch(t *testing.T) {
 			w.WriteHeader(500)
 		},
 		"GET " + v + "/containers/{id}/json": func(w http.ResponseWriter, r *http.Request) {
-			writeJSON(w, 200, ContainerInspect{Config: &ContainerConfig{Labels: map[string]string{LabelName: spec.Name, LabelWorkDir: spec.WorkDir}}})
+			if !created.Load() || r.PathValue("id") != containerName(spec.Name) {
+				w.WriteHeader(404)
+				return
+			}
+			labels := spec.Labels(time.Now())
+			labels[LabelRole] = roleRunner
+			labels[LabelWorkDir] = spec.WorkDir
+			writeJSON(w, 200, ContainerInspect{ID: "c1", State: &ContainerState{Status: "created"}, Config: &ContainerConfig{Labels: labels}})
 		},
 		"DELETE " + v + "/containers/{id}": func(w http.ResponseWriter, r *http.Request) {
-			if created.Load() && r.PathValue("id") == containerName(spec.Name) {
+			if created.Load() && r.PathValue("id") == "c1" {
 				removed.Store(true)
 			}
 			w.WriteHeader(204)

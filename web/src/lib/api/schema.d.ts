@@ -3948,7 +3948,7 @@ export interface components {
          *     Empty means the fleet has nothing to confess.
          * @enum {string}
          */
-        FaultKind: "host_lost" | "out_of_memory" | "out_of_disk" | "removed" | "image" | "registration" | "backend" | "backend_busy" | "config" | "runner_exited";
+        FaultKind: "host_lost" | "out_of_memory" | "out_of_disk" | "removed" | "image" | "registration" | "backend" | "backend_busy" | "container_conflict" | "config" | "runner_exited";
         /**
          * @description What happened. `runner_lost` is the one entry GitHub cannot produce: the runner stopped under the job, and GitHub will report an ordinary failure. `waiting` and `approved` bracket a deployment review: the time between them is GitHub's, and the queue wait starts at `approved`. `runner_returned` withdraws a `runner_lost`: the host was silent long enough to be given up on, came back with the runner still executing this job, and the job is being left to finish. `runner_start_failed` is the failure that touches no job: a runner this pool started died before it could take one, so the job is still queued and the next runner may run it -- said here because a pool that cannot start a container otherwise looks exactly like a pool that is merely busy.
          * @enum {string}

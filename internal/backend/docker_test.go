@@ -575,9 +575,9 @@ func TestDockerCreate(t *testing.T) {
 	if created.Labels[LabelRunnerID] != "run_123" {
 		t.Fatalf("labels = %v", created.Labels)
 	}
-	// Idempotence: an existing container of the same name is removed first.
-	if f.request(http.MethodDelete, v+"/containers/zoomies-linux-x64-7f3a") == nil {
-		t.Fatal("create must replace an existing container of the same name")
+	// Names are inspected before any deletion; absence is already clean.
+	if f.request(http.MethodGet, v+"/containers/zoomies-linux-x64-7f3a/json") == nil {
+		t.Fatal("create must inspect ownership before replacing a container")
 	}
 }
 

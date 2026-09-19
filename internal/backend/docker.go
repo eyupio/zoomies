@@ -728,10 +728,10 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	}
 
 	name := containerName(spec.Name)
-	if err := b.removeByName(ctx, name); err != nil {
+	if err := b.removeOwnedForCreate(ctx, spec, false); err != nil {
 		return CreateResult{}, err
 	}
-	if err := b.removeByName(ctx, dindName(name)); err != nil {
+	if err := b.removeOwnedForCreate(ctx, spec, true); err != nil {
 		return CreateResult{}, err
 	}
 
@@ -765,8 +765,8 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	// names because the daemon may have created a container without returning
 	// its ID. Cleanup gets its own bounded context, not the expired create's.
 	defer func() {
-		if createErr != nil {
-			if err := b.cleanupFailedCreate(ctx, name, workDir, owned); err != nil {
+		if createErr != nil && !errors.Is(createErr, ErrContainerConflict) {
+			if err := b.cleanupFailedCreate(ctx, spec, workDir, owned); err != nil {
 				createErr = errors.Join(createErr, err)
 			}
 		}
@@ -814,7 +814,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	}
 
 	cfg := buildRunnerConfig(spec, b.fl, opts)
-	id, err := b.api.ContainerCreate(ctx, name, cfg)
+	id, err := b.createWithConflictRecovery(ctx, spec, cfg, false)
 	if err != nil {
 		return CreateResult{}, daemonErr(fmt.Errorf("backend: creating container %s: %w", name, err))
 	}
@@ -889,7 +889,7 @@ func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts container
 		limit = time.Duration(seconds) * time.Second
 	}
 	cfg := buildDinDConfig(spec, b.fl, opts)
-	id, err := b.api.ContainerCreate(ctx, dindName(containerName(spec.Name)), cfg)
+	id, err := b.createWithConflictRecovery(ctx, spec, cfg, true)
 	if err != nil {
 		return "", fmt.Errorf("backend: creating the docker-in-docker sidecar for %s: %w", spec.Name, err)
 	}
@@ -928,14 +928,14 @@ func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts container
 	}
 }
 
-func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, name, workDir string, owned bool) error {
+func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, spec Spec, workDir string, owned bool) error {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 	defer cancel()
-	if err := b.Remove(cleanupCtx, Handle(name)); err != nil {
+	if err := b.removeOwnedForCreate(cleanupCtx, spec, false); err != nil {
 		return fmt.Errorf("cleaning failed runner creation: %w", err)
 	}
 	// There may be a sidecar even when the runner never reached creation.
-	if err := b.removeByName(cleanupCtx, dindName(name)); err != nil {
+	if err := b.removeOwnedForCreate(cleanupCtx, spec, true); err != nil {
 		return err
 	}
 	if owned && workDir != "" {

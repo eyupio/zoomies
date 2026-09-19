@@ -61,6 +61,11 @@ const FAULTS: Record<FaultKind, FaultMeta> = {
     label: 'Container backend',
     detail: 'The container backend on the host refused the work or did not answer.',
   },
+  container_conflict: {
+    label: 'Container name conflict',
+    detail:
+      'A container already occupies this name and could not be safely reclaimed. Check its ownership and whether another agent uses the same daemon.',
+  },
   backend_busy: {
     label: 'Backend overloaded',
     detail:
