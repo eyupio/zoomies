@@ -24,15 +24,18 @@
   under it. The entries that do not fit are a scroll away, inside the panel.
   A phone stacks everything, in reading order.
 
-  How the last jobs ended comes last, across the width of the page: it is the
-  recent past rather than the present, and it is where "is CI broken?" gets
-  answered -- and where a runner that died under a job is called the fleet's
-  failure rather than the workflow's.
+  How the last jobs ended used to be a panel of its own across the bottom.
+  It is in the feed now: a job ending is news like anything else, and two
+  reverse-chronological lists on one page -- each with its own idea of what
+  belonged on it -- was one list too many. The distinction that panel existed
+  to make survives with it, because it is the one this page is for: a runner
+  that died under a job is the fleet's failure and is named as such, not the
+  workflow's.
 
   Nothing on this page polls. The fleet cache subscribes to `stats`, `scaling`,
   `problems.updated`, `runner.*`, `pool.*` and `host.*`; the panels below add
-  `job.updated` for the matrix, the running jobs and the recent outcomes, and
-  the feed adds whichever kinds its categories are switched on for. A
+  `job.updated` for the matrix and the running jobs, and the feed adds
+  whichever kinds its categories are switched on for. A
   reconnect ends in one reconciling fetch. Refreshing by hand asks for that
   same fetch, and the matrix's with it: it is never how the numbers keep up,
   only how an operator settles the question of whether they have.
@@ -52,7 +55,6 @@
   import FleetMetrics from '$lib/overview/FleetMetrics.svelte';
   import PoolUtilisation from '$lib/overview/PoolUtilisation.svelte';
   import ProblemsSummary from '$lib/overview/ProblemsSummary.svelte';
-  import RecentOutcomes from '$lib/overview/RecentOutcomes.svelte';
   import EventsFeed from '$lib/overview/EventsFeed.svelte';
 
   // Raised by the checklist while it is on screen, so the problems summary
@@ -139,7 +141,6 @@
         page="overview"
         onmanage={() => navigate('/hosts')}
       />{/if}
-    <RecentOutcomes />
   </div>
 {/if}
 

@@ -24,7 +24,7 @@ import type {
   Problem,
   Provider,
 } from '../api/types';
-import { jobFailed } from '../outcomes';
+import { outcomeOf } from '../outcomes';
 import { problemKey } from '../problems/identity';
 
 /* -- hosts ---------------------------------------------------------------- */
@@ -113,18 +113,31 @@ export function machineChange(
 /* -- jobs ------------------------------------------------------------------ */
 
 /**
- * Whether a finished job went wrong, and on whose account.
+ * What a finished job is worth saying, and on whose account.
  *
- * Only failures: a feed carrying every job a busy fleet finishes is a log
- * viewer, and the recent outcomes panel underneath already shows those. A
- * cancellation is somebody pushing again, so it is not one either.
+ * Every finished job is news of some kind -- this is the one category where a
+ * frame that changes nothing does not exist, because a job is reported over
+ * exactly once. What differs is which category it lands in: the failures are
+ * what an operator acts on and stay on by default, and the rest are the panel
+ * this feed replaced, which on a fleet finishing a job a minute is the noisiest
+ * thing here and is a switch of its own for that reason.
+ *
+ * `runner_lost` is kept apart from `failed` although GitHub records both as a
+ * failure: the runner stopped under the job, so that one is the fleet's own,
+ * and telling the two apart is what the Overview is for.
  */
-export type JobTrouble = 'runner_lost' | 'failed';
+export type JobNews = 'runner_lost' | 'failed' | 'succeeded' | 'cancelled' | 'unknown';
 
-export function jobTrouble(job: Job): JobTrouble | null {
+export function jobNews(job: Job): JobNews | null {
   if (job.state !== 'completed') return null;
   if (job.runner_fault) return 'runner_lost';
-  return jobFailed(job) ? 'failed' : null;
+  const outcome = outcomeOf(job);
+  return outcome === 'failed' ? 'failed' : outcome;
+}
+
+/** Whether this is one of the two an operator is meant to act on. */
+export function jobFailure(news: JobNews): boolean {
+  return news === 'failed' || news === 'runner_lost';
 }
 
 /* -- providers and installations ------------------------------------------- */

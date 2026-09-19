@@ -19,6 +19,7 @@
  */
 import {
   Boxes,
+  CircleCheck,
   Play,
   Plug,
   ScrollText,
@@ -30,7 +31,16 @@ import {
 import type { LucideIcon } from '@lucide/svelte';
 
 export type FeedCategoryID =
-  'scaling' | 'runners' | 'jobs' | 'hosts' | 'machines' | 'pools' | 'github' | 'problems' | 'audit';
+  | 'scaling'
+  | 'runners'
+  | 'jobs'
+  | 'outcomes'
+  | 'hosts'
+  | 'machines'
+  | 'pools'
+  | 'github'
+  | 'problems'
+  | 'audit';
 
 export interface FeedCategory {
   id: FeedCategoryID;
@@ -78,8 +88,17 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
     id: 'jobs',
     label: 'Job failures',
     description:
-      'A job this fleet had a hand in that failed, and the step it stopped at. A job whose runner died under it is named as the fleet’s failure rather than the workflow’s.',
+      'A job that failed, and the step it stopped at. A job whose runner died under it is named as the fleet’s failure rather than the workflow’s, which is the distinction this page exists to make.',
     icon: Play,
+    on: true,
+    history: true,
+  },
+  {
+    id: 'outcomes',
+    label: 'Jobs that finished',
+    description:
+      'Every other job GitHub reports over, with how it ended, where it came from and how long it took. The busiest category on a fleet that finishes a job a minute — switch it off and the failures above stay.',
+    icon: CircleCheck,
     on: true,
     history: true,
   },

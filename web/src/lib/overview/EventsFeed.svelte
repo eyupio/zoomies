@@ -1,8 +1,11 @@
 <!--
   What has happened to this fleet lately, newest first.
 
-  One list for nine kinds of news, because an operator asking "what did I
-  miss?" should not have to ask it of nine pages. Every line is the same four
+  One list for every kind of news, because an operator asking "what did I
+  miss?" should not have to ask it of nine pages -- and because this page used
+  to answer it with two reverse-chronological lists, the scheduler's decisions
+  on the right and how the last jobs ended across the bottom, each with its own
+  idea of what belonged on it. Every line is the same four
   things -- a mark in one of the six status tones, what happened, what it
   happened to, and when -- and under it, where there is one, the controller's
   own sentence: the scheduler's reason for a decision, the throttle's
@@ -17,10 +20,12 @@
 -->
 <script lang="ts">
   import { History, SlidersHorizontal } from '@lucide/svelte';
-  import { pluralise } from '$lib/format';
+  import { faultLabel } from '$lib/faults';
+  import { formatNumber, pluralise } from '$lib/format';
   import { feed } from '$lib/state/feed.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toneTokens } from '$lib/status';
+  import Badge from '$lib/components/Badge.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
@@ -35,16 +40,48 @@
 
   /**
    * How much of the recent past fits on a dashboard before it is a log viewer.
-   * The panel scrolls inside its column on a desktop, so this is about the
-   * phone, where everything below it is a scroll further away.
+   * The panel scrolls inside its column on a desktop, so this is really about
+   * the phone, where everything below it is a scroll further away -- and it is
+   * a little longer than it was because the outcomes panel that used to sit
+   * across the bottom of the page is now these lines too.
    */
-  const SHOWN = 12;
+  const SHOWN = 15;
 
   const entries = $derived(feed.entries.slice(0, SHOWN));
   const categories = $derived(feed.categories);
   const hidden = $derived(feed.hidden);
   const everything = $derived(hidden === 0);
   const hasFleet = $derived(fleet.pools.length > 0 || fleet.hosts.length > 0);
+
+  /*
+    The hour's failures, and how many of them this deployment caused.
+
+    It came from the outcomes panel this feed replaced, and it is kept because
+    nothing else answers it: GitHub records a workflow that failed and a runner
+    that died under one as the same thing, so "eleven failed" is a question an
+    operator then has to go and answer, and "eleven failed, nine ours" is the
+    answer -- and it sends a different person to a different page. It is shown
+    only while the failures are a kind this browser is watching, since it is
+    the count of the lines underneath it.
+  */
+  const failedThisHour = $derived(fleet.stats?.failed ?? 0);
+  const oursThisHour = $derived(fleet.stats?.fleet_failed ?? 0);
+  const showBadge = $derived(!loading && failedThisHour > 0 && feed.shows('jobs'));
+
+  /**
+   * The categories behind those, commonest first. Three at most: the badge is
+   * one line, and a fleet with four kinds of failure at once has a bigger
+   * problem than a legend can state.
+   */
+  const faultsThisHour = $derived.by(() => {
+    const faults = fleet.stats?.faults ?? {};
+    return Object.entries(faults)
+      .filter(([, n]) => (n ?? 0) > 0)
+      .sort(([, a], [, b]) => (b ?? 0) - (a ?? 0))
+      .slice(0, 3)
+      .map(([kind, n]) => `${formatNumber(n ?? 0)} ${faultLabel(kind).toLowerCase()}`)
+      .join(', ');
+  });
 </script>
 
 <!-- `scroll`: on a desktop the Overview cuts this panel to the height of the
@@ -60,6 +97,28 @@
   scroll
 >
   {#snippet actions()}
+    {#if showBadge}
+      <!--
+        A link straight to the half somebody here can fix. GitHub records both
+        as "failure", so this is the only place the difference is visible
+        without opening a job.
+      -->
+      <a
+        class="failed-badge"
+        href={oursThisHour > 0 ? '/jobs?faulted=true' : '/jobs?failed=true'}
+        title={faultsThisHour
+          ? `This fleet's own failures this hour: ${faultsThisHour}.`
+          : "Every failure this hour is the workflows' own; nothing here broke."}
+      >
+        <Badge
+          tone="danger"
+          label={oursThisHour > 0
+            ? `${formatNumber(failedThisHour)} failed, ${formatNumber(oursThisHour)} ours`
+            : `${formatNumber(failedThisHour)} failed, none ours`}
+          dot={false}
+        />
+      </a>
+    {/if}
     <a class="choose" href="/settings/events">
       <SlidersHorizontal size={13} aria-hidden="true" />
       Choose
@@ -86,7 +145,7 @@
       title={everything ? 'Nothing has happened yet' : 'Nothing in the kinds you are watching'}
       description={everything
         ? hasFleet
-          ? 'A line is written here every time the scheduler decides something, a runner or a job fails, or a host, machine or pool changes underneath them.'
+          ? 'A line is written here every time a job finishes, the scheduler decides something, a runner fails, or a host, machine or pool changes underneath them.'
           : 'Once there is a pool and a host, this is where the fleet says what it has been doing.'
         : `${pluralise(hidden, 'kind')} of event ${hidden === 1 ? 'is' : 'are'} switched off for this browser. Choose above turns them back on.`}
     />
@@ -121,6 +180,12 @@
 </Panel>
 
 <style>
+  .failed-badge {
+    text-decoration: none;
+  }
+  .failed-badge:hover {
+    text-decoration: underline;
+  }
   .choose {
     display: inline-flex;
     align-items: center;

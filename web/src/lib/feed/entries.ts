@@ -40,7 +40,8 @@ import type {
   ScalingEvent,
   WebhookDelivery,
 } from '../api/types';
-import { shortId } from '../format';
+import { faultLabel } from '../faults';
+import { formatDuration, shortId } from '../format';
 import {
   deliveryStatus,
   hostStatus,
@@ -49,11 +50,18 @@ import {
   managedJob,
   runnerStatus,
   severityStatus,
+  ELSEWHERE,
   RUNNER_LOST,
   type StatusTone,
 } from '../status';
 import type { FeedCategoryID } from './categories';
-import type { HostChange, InstallationChange, JobTrouble, ProviderChange } from './changes';
+import {
+  jobFailure,
+  type HostChange,
+  type InstallationChange,
+  type JobNews,
+  type ProviderChange,
+} from './changes';
 
 export interface FeedEntry {
   /**
@@ -74,6 +82,12 @@ export interface FeedEntry {
   detail?: string;
   /** What it happened to, and the page that has the whole of it. */
   target?: { label: string; href?: string };
+  /**
+   * True for a job no runner of this fleet ran. The panel keeps these and
+   * shows them only when the Overview is asked for every runner GitHub
+   * reports on, which is the same switch its other job panels read.
+   */
+  elsewhere?: boolean;
 }
 
 /** Now, in the shape every timestamp in the API has. */
@@ -141,30 +155,80 @@ export function runnerFailureEntry(runner: Runner): FeedEntry | null {
 
 /* -- jobs ------------------------------------------------------------------ */
 
-/** A failed job, and whose failure it was. */
-export function jobEntry(job: Job, trouble: JobTrouble): FeedEntry | null {
-  if (!job.id || !managedJob(job)) return null;
-  const lost = trouble === 'runner_lost';
-  const status = lost ? RUNNER_LOST : jobStatus('completed', job.conclusion);
-  const step = job.failed_step?.name;
-  const where = [job.repo, job.head_branch].filter(Boolean).join(' · ');
+/**
+ * One finished job, in the shape the recent-outcomes panel used to give it:
+ * what it was, how it ended, the step it stopped at or the fault behind it,
+ * the repository and branch, and how long it took. That panel is gone, and
+ * this is where its rows went -- a job ending is news like anything else, and
+ * two reverse-chronological lists on one page, each with its own idea of what
+ * belongs on it, is one list too many.
+ *
+ * The failures land in their own category, so an operator on a busy fleet can
+ * switch off the hundred jobs that succeeded without switching off the two
+ * that did not.
+ */
+export function jobEntry(job: Job, news: JobNews, at = now()): FeedEntry | null {
+  if (!job.id) return null;
+  const failure = jobFailure(news);
+  const status = news === 'runner_lost' ? RUNNER_LOST : jobStatus('completed', job.conclusion);
   return {
     id: `job:${job.id}`,
-    category: 'jobs',
-    at: job.completed_at ?? job.started_at ?? '',
-    tone: 'danger',
+    category: failure ? 'jobs' : 'outcomes',
+    at: job.completed_at ?? job.started_at ?? at,
+    tone: failure ? 'danger' : status.tone,
     icon: status.icon,
-    title: lost ? 'A job’s runner stopped under it' : 'A job failed',
-    detail: lost
-      ? job.fault_fix || RUNNER_LOST.hint
-      : step
-        ? `Failed at “${step}”. ${where}`
-        : where,
+    title: jobTitle(job, news),
+    detail: jobDetail(job, news),
+    // Kept rather than dropped, and hidden unless the page is asked for
+    // everything: GitHub reports every job in the repositories an installation
+    // covers, and on an organisation that also uses hosted runners most of
+    // them are somebody else's.
+    elsewhere: !managedJob(job),
     target: {
       label: `${job.workflow ?? 'Unknown workflow'} / ${job.job_name ?? 'unnamed job'}`,
       href: `/jobs?q=${encodeURIComponent(job.job_name ?? '')}&repo=${encodeURIComponent(job.repo ?? '')}`,
     },
   };
+}
+
+function jobTitle(job: Job, news: JobNews): string {
+  if (news === 'runner_lost') return 'A job’s runner stopped under it';
+  if (news === 'failed') return 'A job failed';
+  switch ((job.conclusion ?? '').toLowerCase()) {
+    case 'success':
+      return 'A job succeeded';
+    case 'cancelled':
+      return 'A job was cancelled';
+    case 'skipped':
+      return 'A job was skipped';
+    default:
+      return 'A job finished';
+  }
+}
+
+/**
+ * The one line under it, in the order the outcomes panel read: why it ended
+ * that way, where it came from, and how long it took.
+ *
+ * The fault's category rather than "the runner stopped under it" for the
+ * fleet's own failures, because the sentence above already says that and the
+ * word that differs between two lines is the one worth the space.
+ */
+function jobDetail(job: Job, news: JobNews): string | undefined {
+  const why =
+    news === 'runner_lost'
+      ? faultLabel(job.fault_kind).toLowerCase() || 'the runner stopped under it'
+      : news === 'failed' && job.failed_step
+        ? `at ${job.failed_step.name ?? `step ${job.failed_step.number ?? '?'}`}`
+        : '';
+  const parts = [
+    !managedJob(job) ? ELSEWHERE.label.toLowerCase() : '',
+    why,
+    job.repo ?? '',
+    job.head_branch ?? '',
+    formatDuration(job.duration_ms),
+  ].filter((part) => part && part !== '--');
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
 /* -- hosts ----------------------------------------------------------------- */

@@ -313,15 +313,15 @@ test('the events feed quotes the scheduler verbatim', async ({ page }) => {
 test('the events feed carries the fleet鈥檚 other news, not only the scheduler鈥檚', async ({
   page,
 }) => {
-  // The panel used to be the scheduler's decisions and nothing else, so a job
-  // whose runner stopped under it was something an operator found by going and
-  // looking. It is in the feed now, beside the decisions.
+  // The panel used to be the scheduler's decisions and nothing else, with how
+  // the last jobs ended in a second list across the bottom of the page. Both
+  // are this one list now: a job ending is news like anything else.
   //
   // Asserted with the decisions switched off, because a fleet that is scaling
-  // writes a line every few minutes and the newest dozen lines are the panel's
-  // whole length: what is being tested is that the other kinds are there at
-  // all, not where an hour-old failure sits in a list that keeps moving. That
-  // the switch works is the Events page's own test.
+  // writes a line every few minutes and the newest fifteen lines are the
+  // panel's whole length: what is being tested is that the other kinds are
+  // there at all, not where an hour-old job sits in a list that keeps moving.
+  // That the switch works is the Events page's own test.
   await goto(page, '/settings/events', 'Events');
   await page.getByRole('switch', { name: 'Scaling decisions' }).click();
   await goto(page, '/', 'Overview');
@@ -329,9 +329,18 @@ test('the events feed carries the fleet鈥檚 other news, not only the scheduler鈥
   const feed = page.getByRole('region', { name: 'Recent events', exact: true });
   await expect(feed.getByRole('listitem').first()).toBeVisible();
   await expect(feed).not.toContainText('scaled zoomies-demo-');
-  // The fleet owning up to its own failure, in the feed as well as in the
-  // outcomes panel: the runner died under the job, so the failure is not the
-  // workflow's.
+
+  // The recent past is where "is CI broken?" gets answered, and it has to be
+  // answered without a click: how the job ended, where it went wrong, and
+  // whether the fleet or the workflow is to blame.
+  await expect(feed, 'the jobs that went well are here too').toContainText('A job succeeded');
+  await expect(feed).toContainText('A job failed');
+  await expect(feed.getByText(/^at .+ 路 /).first(), 'a step failure names its step').toBeVisible();
+  // And the line the outcomes panel carried: where it came from, and how long
+  // it took.
+  await expect(feed.getByText(/ 路 acme\/api 路 release\/2\.4 路 \d/).first()).toBeVisible();
+  // The fleet owning up to its own failure: the runner died under the job, so
+  // the failure is not the workflow's, and GitHub records both the same way.
   await expect(feed).toContainText(/A job.s runner stopped under it/);
 });
 
@@ -403,29 +412,6 @@ test('refreshing the Overview leaves it saying exactly what it said', async ({ p
 });
 
 /*
- * The recent past is where "is CI broken?" gets answered, and the panel has to
- * do it without a click: the outcome, where it went wrong, and whether the
- * fleet or the workflow is to blame.
- */
-test('recent outcomes name the failures and blame the right party', async ({ page }) => {
-  const outcomes = page.getByRole('region', { name: 'Recent outcomes' });
-  await expect(outcomes).toBeVisible();
-  const rows = outcomes.getByRole('listitem');
-  await expect(rows.first()).toBeVisible();
-
-  // A step failure says the step; a lost runner says so, and is badged.
-  await expect(outcomes.getByText(/^at /).first()).toBeVisible();
-  await expect(outcomes).toContainText('Success');
-  await expect(outcomes.getByRole('link', { name: 'Every failed job' })).toHaveAttribute(
-    'href',
-    '/jobs?failed=true',
-  );
-
-  // Running jobs stay in their own panel beside it.
-  await expect(page.getByRole('region', { name: 'Active jobs' })).toBeVisible();
-});
-
-/*
  * Whose jobs these are.
  *
  * GitHub reports every job in the repositories an installation covers, so an
@@ -436,14 +422,17 @@ test('recent outcomes name the failures and blame the right party', async ({ pag
  */
 test("the job panels are this fleet's work, and say so when they are not", async ({ page }) => {
   const active = page.getByRole('region', { name: 'Active jobs', exact: true });
-  const outcomes = page.getByRole('region', { name: 'Recent outcomes', exact: true });
+  const feed = page.getByRole('region', { name: 'Recent events', exact: true });
   await expect(active.getByRole('listitem').first()).toBeVisible();
 
   // By default both panels are the fleet's own work: the fixture's two vendor
   // jobs, one running and one finished, are not on the page at all.
   await expect(active).toContainText('What this fleet is running at this moment.');
   await expect(active).not.toContainText('blacksmith');
-  await expect(outcomes).not.toContainText('blacksmith');
+  await expect(
+    feed,
+    'the feed carries the finished ones, and holds to the same rule',
+  ).not.toContainText('blacksmith');
   await expect(active.getByText('Elsewhere')).toHaveCount(0);
 
   // One switch, shared: flipping it on either panel widens both.
@@ -455,7 +444,6 @@ test("the job panels are this fleet's work, and say so when they are not", async
   // And it is marked, because the row above it is this fleet's and looks the
   // same otherwise.
   await expect(vendor.getByText('Elsewhere')).toBeVisible();
-  await expect(outcomes.getByRole('switch', { name: 'Other runners' })).toBeChecked();
 
   // The choice is the operator's, and it survives a reload.
   await page.reload();

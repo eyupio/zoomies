@@ -254,6 +254,10 @@ test('the About page carries the primary mark and says what Zoomies is', async (
  */
 test('the Events page decides what the Overview’s feed carries', async ({ page }) => {
   await goto(page, '/settings/events', 'Events');
+  // Counted rather than written down, so the assertion below is about the
+  // switch rather than about how many kinds this release happens to ship.
+  const kinds = await page.getByRole('switch').count();
+  const on = await page.getByRole('switch', { checked: true }).count();
   const scaling = page.getByRole('switch', { name: 'Scaling decisions' });
   await expect(scaling, 'the scheduler’s decisions are on by default').toHaveAttribute(
     'aria-checked',
@@ -268,7 +272,7 @@ test('the Events page decides what the Overview’s feed carries', async ({ page
   await expect(feed, 'the decisions are gone').not.toContainText('scaled zoomies-demo-');
   // Counted out loud rather than omitted silently: a panel that quietly left
   // things out would be worse than one that shows too much.
-  await expect(feed).toContainText(/6 of \d+ kinds/);
+  await expect(feed).toContainText(`${on - 1} of ${kinds} kinds`);
   // What was not switched off is still there -- and it is not a scaling
   // decision, which is the whole point of the feed being a feed.
   await expect(feed).toContainText(/A job/);
@@ -281,5 +285,5 @@ test('the Events page decides what the Overview’s feed carries', async ({ page
 
   await goto(page, '/', 'Overview');
   await expect(feed).toContainText(/scaled zoomies-demo-/);
-  await expect(feed).toContainText(/7 of \d+ kinds/);
+  await expect(feed).toContainText(`${on} of ${kinds} kinds`);
 });

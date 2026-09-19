@@ -45,13 +45,13 @@ Under it, four numbers with an hour of shape behind them — queued jobs,
 running jobs, live runners, and the median queue wait with its p95 — then how
 long runners take to start and to register. Then each pool's busy runners
 against its live ones with the floor and ceiling marked, what is running this
-moment, how the last jobs ended, and a feed of what has happened to the fleet
-lately: the scheduler's decisions in its own words — *scaled
-zoomies-demo-linux-x64 4 → 5: 1 job queued* — beside a runner that failed, a
-job whose runner stopped under it, a host that went quiet, a machine a
-provider is renting and a pool somebody changed. Which of those it carries is
-yours to choose, one switch per kind on **Settings → Events**, and the panel
-says how many you have switched off rather than quietly leaving them out. When
+moment, and a feed of what has happened to the fleet lately: the scheduler's
+decisions in its own words — *scaled zoomies-demo-linux-x64 4 → 5: 1 job
+queued* — beside how each job ended and the step it stopped at, a runner that
+failed, a host that went quiet, a machine a provider is renting and a pool
+somebody changed. Which of those it carries is yours to choose, one switch per
+kind on **Settings → Events**, and the panel counts what it is showing rather
+than quietly leaving the rest out. When
 something needs a person it is one line and a *Review* button, never a list
 that pushes the fleet below the fold. The
 *Other runners* switch says whether these numbers count only the jobs this

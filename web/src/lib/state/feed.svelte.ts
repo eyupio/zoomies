@@ -30,7 +30,7 @@
  */
 import { listAudit, listJobs } from '../api/client';
 import { events } from '../api/sse';
-import type { Host, MachineState, Pool, Provider } from '../api/types';
+import type { Host, Job, MachineState, Pool, Provider } from '../api/types';
 import { toMillis } from '../format';
 import {
   FEED_CATEGORIES,
@@ -42,7 +42,7 @@ import {
   hostChanges,
   hostSignal,
   installationChange,
-  jobTrouble,
+  jobNews,
   machineChange,
   newProblems,
   providerChanges,
@@ -95,8 +95,10 @@ class Feed {
   #problems = new Set<string>();
   /** Names kept for the one frame that cannot carry them: a delete. */
   #names = new Map<string, string>();
-  /** Categories whose past has already been fetched, so it is fetched once. */
-  #seeded = new Set<FeedCategoryID>();
+  /** What has already been fetched, so a past is fetched once per mode. */
+  #seeded = new Set<string>();
+  /** The one request behind both job categories, per mode. */
+  #jobFetches = new Map<string, Promise<Job[]>>();
 
   /* -- reads -------------------------------------------------------------- */
 
@@ -105,7 +107,13 @@ class Feed {
    * browser has left on.
    */
   get entries(): readonly FeedEntry[] {
-    const wanted = this.#captured.filter((entry) => this.shows(entry.category));
+    // A job no runner of this fleet ran is kept and hidden rather than
+    // dropped, because the switch that asks for it is on the page beside this
+    // panel and flipping it should not need a round trip.
+    const others = prefs.otherRunners;
+    const wanted = this.#captured.filter(
+      (entry) => this.shows(entry.category) && (others || !entry.elsewhere),
+    );
     if (this.shows('scaling')) {
       wanted.push(...fleet.scalingEvents.map((event, index) => scalingEntry(event, index)));
     }
@@ -185,9 +193,9 @@ class Feed {
         if (entry) this.#push(entry);
       }),
       events.subscribe('job.updated', (job) => {
-        const trouble = jobTrouble(job);
-        if (!trouble) return;
-        const entry = jobEntry(job, trouble);
+        const news = jobNews(job);
+        if (!news) return;
+        const entry = jobEntry(job, news);
         if (entry) this.#push(entry);
       }),
       events.subscribe('problems.updated', (payload) => {
@@ -212,6 +220,14 @@ class Feed {
         if (!fleet.loaded) return;
         void fleet.shape;
         this.#prime();
+      });
+      // The Overview's own switch widens what counts as this fleet's work, and
+      // the past already fetched answered the narrower question. Asking again
+      // is one request, once, and it is what makes the switch mean the same
+      // thing in this panel as in the ones beside it.
+      $effect(() => {
+        if (!prefs.otherRunners) return;
+        for (const id of ['jobs', 'outcomes'] as const) if (this.shows(id)) void this.#seed(id);
       });
     });
 
@@ -292,40 +308,64 @@ class Feed {
   }
 
   /**
-   * Fetch a category's past, once per tab. A failure is silent on purpose:
-   * the feed is a panel on a dashboard, and a category that could not be
-   * backfilled still fills from the stream.
+   * Fetch a category's past, once per tab and once per mode.
+   *
+   * A failure is silent on purpose: the feed is a panel on a dashboard, and a
+   * category that could not be backfilled still fills from the stream.
    */
   async #seed(id: FeedCategoryID): Promise<void> {
-    if (this.#seeded.has(id)) return;
-    this.#seeded.add(id);
+    if (id !== 'jobs' && id !== 'outcomes' && id !== 'audit') return;
+    // The jobs the fetch asks for depend on the Overview's own switch, so the
+    // mode is part of what "already seeded" means: asking for every runner's
+    // jobs after opening on this fleet's own is a second, different past.
+    const key = id === 'audit' ? id : `${id}:${prefs.otherRunners ? 'all' : 'ours'}`;
+    if (this.#seeded.has(key)) return;
+    this.#seeded.add(key);
     try {
-      if (id === 'jobs') {
-        const page = await listJobs({
-          state: ['completed'],
-          managed: true,
-          limit: SEED_LIMIT,
-          sort: 'completed_at',
-          order: 'desc',
-        });
-        for (const job of page.items ?? []) {
-          const trouble = jobTrouble(job);
-          if (!trouble) continue;
-          const entry = jobEntry(job, trouble);
-          if (entry) this.#push(entry);
-        }
-      } else if (id === 'audit') {
+      if (id === 'audit') {
         const page = await listAudit({ limit: SEED_LIMIT });
         for (const event of page.items ?? []) {
           const entry = auditEntry(event);
           if (entry) this.#push(entry);
         }
+        return;
+      }
+      // Both job categories come out of one request: they are the same
+      // fetch filtered two ways, and a tab that shows both should not ask
+      // for it twice.
+      for (const job of await this.#completedJobs(prefs.otherRunners)) {
+        const news = jobNews(job);
+        if (!news) continue;
+        const entry = jobEntry(job, news);
+        if (entry) this.#push(entry);
       }
     } catch {
       // Left unseeded rather than surfaced: see above. Another tab, or this
       // one after a reload, will try again.
-      this.#seeded.delete(id);
+      this.#seeded.delete(key);
     }
+  }
+
+  /** The recently finished jobs, fetched once per mode and shared. */
+  #completedJobs(all: boolean): Promise<Job[]> {
+    const key = all ? 'all' : 'ours';
+    let pending = this.#jobFetches.get(key);
+    if (!pending) {
+      pending = listJobs({
+        state: ['completed'],
+        managed: all ? undefined : true,
+        limit: SEED_LIMIT,
+        sort: 'completed_at',
+        order: 'desc',
+      })
+        .then((page) => page.items ?? [])
+        .catch((cause: unknown) => {
+          this.#jobFetches.delete(key);
+          throw cause;
+        });
+      this.#jobFetches.set(key, pending);
+    }
+    return pending;
   }
 
   /**

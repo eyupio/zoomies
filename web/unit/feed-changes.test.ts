@@ -5,7 +5,8 @@ import {
   hostChanges,
   hostSignal,
   installationChange,
-  jobTrouble,
+  jobFailure,
+  jobNews,
   machineChange,
   newProblems,
   providerChanges,
@@ -83,22 +84,37 @@ function job(fields: Partial<Job>): Job {
   return { id: 'job_1', state: 'completed', ...fields } as Job;
 }
 
-test('only a finished job that went wrong is worth a line', () => {
-  assert.equal(jobTrouble(job({ conclusion: 'failure' })), 'failed');
-  assert.equal(jobTrouble(job({ conclusion: 'timed_out' })), 'failed');
-  assert.equal(jobTrouble(job({ conclusion: 'success' })), null);
-  assert.equal(jobTrouble(job({ state: 'in_progress' })), null);
+test('a finished job lands in the category its ending belongs to', () => {
+  // The failures are what an operator acts on, so they are their own
+  // category and stay on; everything else is the panel this feed replaced,
+  // which on a busy fleet is the noisiest thing here.
+  assert.equal(jobNews(job({ conclusion: 'failure' })), 'failed');
+  assert.equal(jobNews(job({ conclusion: 'timed_out' })), 'failed');
+  assert.equal(jobNews(job({ conclusion: 'success' })), 'succeeded');
+  assert.equal(jobNews(job({ conclusion: 'cancelled' })), 'cancelled');
+  assert.equal(jobFailure('failed'), true);
+  assert.equal(jobFailure('runner_lost'), true);
+  assert.equal(jobFailure('succeeded'), false);
 });
 
-test('a cancelled job is somebody pushing again, not a failure', () => {
-  assert.equal(jobTrouble(job({ conclusion: 'cancelled' })), null);
+test('a job that has not finished is not news yet', () => {
+  // It is on the Overview twice already -- in the running list and in the
+  // matrix -- and a feed that repeated every step of it would say nothing.
+  assert.equal(jobNews(job({ state: 'in_progress' })), null);
+  assert.equal(jobNews(job({ state: 'queued' })), null);
 });
 
 test('a job whose runner stopped under it is the fleet’s failure, and says so', () => {
   // GitHub records it as an ordinary failure. The distinction is the one an
-  // operator on this page is paid to make, so it survives into the feed.
+  // operator on this page is paid to make, so it survives into the feed --
+  // and it survives a conclusion that says the job succeeded, which is what a
+  // runner dying between the last step and the report looks like.
   assert.equal(
-    jobTrouble(job({ conclusion: 'failure', runner_fault: 'runner_lost' } as Partial<Job>)),
+    jobNews(job({ conclusion: 'failure', runner_fault: 'runner_lost' } as Partial<Job>)),
+    'runner_lost',
+  );
+  assert.equal(
+    jobNews(job({ conclusion: 'success', runner_fault: 'runner_lost' } as Partial<Job>)),
     'runner_lost',
   );
 });
