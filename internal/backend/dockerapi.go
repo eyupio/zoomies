@@ -387,9 +387,22 @@ type ContainerCreateRequest struct {
 	AttachStdout bool              `json:"AttachStdout"`
 	AttachStderr bool              `json:"AttachStderr"`
 	StopSignal   string            `json:"StopSignal,omitempty"`
+	Healthcheck  *HealthConfig     `json:"Healthcheck,omitempty"`
 
 	HostConfig       *HostConfig       `json:"HostConfig,omitempty"`
 	NetworkingConfig *NetworkingConfig `json:"NetworkingConfig,omitempty"`
+}
+
+// HealthConfig uses Docker's nanosecond durations, including on the wire.
+type HealthConfig struct {
+	Test     []string      `json:"Test"`
+	Interval time.Duration `json:"Interval"`
+	Timeout  time.Duration `json:"Timeout"`
+	Retries  int           `json:"Retries"`
+}
+
+type ContainerHealth struct {
+	Status string `json:"Status"`
 }
 
 // HostConfig carries the isolation and resource settings.
@@ -449,17 +462,18 @@ type ContainerConfig struct {
 // strings because Docker sends "0001-01-01T00:00:00Z" for "never", and Podman
 // has been known to send an empty string.
 type ContainerState struct {
-	Status     string `json:"Status"`
-	Running    bool   `json:"Running"`
-	Paused     bool   `json:"Paused"`
-	Restarting bool   `json:"Restarting"`
-	OOMKilled  bool   `json:"OOMKilled"`
-	Dead       bool   `json:"Dead"`
-	Pid        int    `json:"Pid"`
-	ExitCode   int    `json:"ExitCode"`
-	Error      string `json:"Error"`
-	StartedAt  string `json:"StartedAt"`
-	FinishedAt string `json:"FinishedAt"`
+	Health     *ContainerHealth `json:"Health,omitempty"`
+	Status     string           `json:"Status"`
+	Running    bool             `json:"Running"`
+	Paused     bool             `json:"Paused"`
+	Restarting bool             `json:"Restarting"`
+	OOMKilled  bool             `json:"OOMKilled"`
+	Dead       bool             `json:"Dead"`
+	Pid        int              `json:"Pid"`
+	ExitCode   int              `json:"ExitCode"`
+	Error      string           `json:"Error"`
+	StartedAt  string           `json:"StartedAt"`
+	FinishedAt string           `json:"FinishedAt"`
 }
 
 // ContainerInspect is GET /containers/{id}/json.

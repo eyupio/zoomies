@@ -1658,6 +1658,7 @@ func (c *Controller) StartEmbeddedAgent(ctx context.Context, cfg *config.Config)
 		Transport:          tr,
 		HeartbeatInterval:  cfg.Agent.HeartbeatInterval,
 		FinishedRetention:  cfg.Agent.FinishedRetention,
+		BootstrapCPUGrace:  cfg.Agent.BootstrapCPUGrace,
 		DockerBuildCacheMB: cfg.Agent.DockerBuildCacheMB,
 		Logger:             c.log,
 		Clock:              c.clock,

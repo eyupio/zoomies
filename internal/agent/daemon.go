@@ -122,6 +122,8 @@ type Options struct {
 	// after it has been reported. The controller's retention.runners is a
 	// different window -- it keeps the row, not the container.
 	FinishedRetention time.Duration
+	// BootstrapCPUGrace delays pressure throttling, not resource limits. Zero disables it.
+	BootstrapCPUGrace time.Duration
 	// DockerBuildCacheMB targets unused host Docker builder cache; 0 disables it.
 	DockerBuildCacheMB int
 	Logger             *slog.Logger
@@ -339,6 +341,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if interval < minHeartbeatInterval {
 		return nil, fmt.Errorf("agent: heartbeat interval %s is too short to be useful; set agent.heartbeat_interval to at least %s", interval, minHeartbeatInterval)
+	}
+	if opts.BootstrapCPUGrace < 0 || opts.BootstrapCPUGrace > 10*time.Minute {
+		return nil, fmt.Errorf("agent: agent.bootstrap_cpu_grace must be between 0s and 10m")
 	}
 	if opts.FinishedRetention < 0 {
 		return nil, fmt.Errorf("agent: finished retention %s is negative; set agent.finished_retention to how long a finished runner's output should stay readable on the host, or to 0s to remove it as soon as the controller has been told", opts.FinishedRetention)
@@ -1361,6 +1366,12 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		return
 	}
 	now := a.now()
+	resources := spec.Resources
+	if (kind == store.BackendDocker || kind == store.BackendPodman) && spec.DockerMode == store.DockerDinD && spec.ResourcesSource == store.AllocationFromHost {
+		// Match the per-container labels used after adoption. Keeping the
+		// whole slot here doubled both quotas when a throttle was restored.
+		resources, _ = resources.SplitWithDaemon()
+	}
 	handle = created.Handle
 	a.mu.Lock()
 	a.runners[task.RunnerID] = &tracked{
@@ -1373,7 +1384,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		state:      store.RunnerRegistering,
 		phase:      backend.PhaseStarting,
 		observedAt: now,
-		resources:  spec.Resources,
+		resources:  resources,
 		// The container was created with its full allocation, which is a
 		// factor of 1 applied; recording it saves the next beat a request.
 		appliedCPUFactor: new(float64(1)),
@@ -1384,10 +1395,8 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 
 	a.log.Info("runner created", "runner", task.RunnerID, "name", spec.Name, "backend", kind, "handle", handle, "took", now.Sub(start))
 	if throttled {
-		// A runner created while the host is throttled starts at its full
-		// allocation, which on an overwhelmed host is one more full-speed job
-		// until the next beat. Throttle it now, under the create's context,
-		// which shutdown does not cancel either.
+		// Existing runners still receive the pressure directive. The new
+		// runner keeps its normal allocation for the bounded bootstrap grace.
 		a.applyThrottle(cctx, false)
 	}
 	release()

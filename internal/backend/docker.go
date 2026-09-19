@@ -103,9 +103,8 @@ const DefaultDinDImage = "docker:27-dind"
 // namespace the two containers share. It is never published to the host.
 const dindPort = 2375
 
-// dindStartTimeout bounds how long we wait for the sidecar container to come up
-// before giving up on the pair.
-const dindStartTimeout = 30 * time.Second
+// Match the runner image's default Docker readiness budget.
+const dindStartTimeout = 120 * time.Second
 
 // defaultStopTimeout bounds a graceful stop when the caller does not say.
 const defaultStopTimeout = 60 * time.Second
@@ -533,7 +532,11 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 	stampResourceLabels(labels, spec, daemonRes)
 
 	cfg := ContainerCreateRequest{
-		Image:    o.DinDImage,
+		Image: o.DinDImage,
+		Healthcheck: &HealthConfig{
+			Test:     []string{"CMD", "docker", "--host=tcp://127.0.0.1:2375", "info"},
+			Interval: 5 * time.Second, Timeout: 5 * time.Second, Retries: 3,
+		},
 		Hostname: sanitizeHostname(dindName(spec.Name)),
 		Labels:   labels,
 		Tty:      false,
@@ -868,15 +871,18 @@ func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy s
 	return createRef, digest, pull, duration, nil
 }
 
-// startDinD creates and starts the sidecar, waiting until the daemon reports it
-// as running.
-//
-// It waits on the container, not on dockerd inside it: a host that refuses
-// privileged containers fails here, where the error can name the pool, instead
-// of much later as a connection refused inside somebody's job. Waiting for the
-// nested daemon to finish booting is the runner image's job, since only it
-// knows when its first docker command runs.
+// startDinD keeps the host's serial startup slot until dockerd answers. A
+// running container only proves its entrypoint started; releasing the slot
+// then let subsequent pulls compete with a quota-limited daemon still booting.
 func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts containerOptions) (string, error) {
+	limit := dindStartTimeout
+	if raw, ok := spec.Env["ZOOMIES_DOCKER_WAIT"]; ok {
+		seconds, err := strconv.Atoi(raw)
+		if err != nil || seconds < 1 || seconds > 3600 || len(raw) > 4 || strings.Trim(raw, "0123456789") != "" {
+			return "", fmt.Errorf("backend: ZOOMIES_DOCKER_WAIT must be a whole number of seconds from 1 to 3600")
+		}
+		limit = time.Duration(seconds) * time.Second
+	}
 	cfg := buildDinDConfig(spec, b.fl, opts)
 	id, err := b.api.ContainerCreate(ctx, dindName(containerName(spec.Name)), cfg)
 	if err != nil {
@@ -885,17 +891,33 @@ func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts container
 	if err := b.api.ContainerStart(ctx, id); err != nil {
 		return "", fmt.Errorf("backend: starting the docker-in-docker sidecar for %s: %w", spec.Name, err)
 	}
-
-	running := func() bool {
-		insp, err := b.api.ContainerInspect(ctx, id)
-		return err == nil && insp.State != nil && insp.State.Running
+	readyCtx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	var lastErr error
+	for {
+		insp, err := b.api.ContainerInspect(readyCtx, id)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return "", err
+			}
+			lastErr = err
+		} else if state := insp.State; state != nil {
+			if state.OOMKilled || state.Dead || state.Status == "exited" {
+				return "", fmt.Errorf("backend: docker-in-docker sidecar for %s exited before its daemon was ready (exit %d, OOM killed: %t); check its logs and the pool's memory allocation", spec.Name, state.ExitCode, state.OOMKilled)
+			}
+			if state.Running && state.Health != nil && state.Health.Status == "healthy" {
+				b.log.Warn("docker-in-docker daemon ready: this runner has a privileged container", "runner", spec.Name, "pool", spec.PoolName, "container", shortID(id))
+				return id, nil
+			}
+		}
+		select {
+		case <-readyCtx.Done():
+			return "", fmt.Errorf("backend: docker-in-docker daemon for %s did not become ready within %s; check sidecar logs and host pressure, or raise runners.docker_wait: %w", spec.Name, limit, errors.Join(readyCtx.Err(), lastErr))
+		case <-ticker.C:
+		}
 	}
-	if !waitFor(ctx, running, dindStartTimeout, 200*time.Millisecond) {
-		return "", fmt.Errorf("backend: the docker-in-docker sidecar for %s was not running after %s; this host may not allow privileged containers, in which case the pool needs docker_mode none or the podman backend", spec.Name, dindStartTimeout)
-	}
-	b.log.Warn("docker-in-docker sidecar started: this runner has a privileged container",
-		"runner", spec.Name, "pool", spec.PoolName, "container", shortID(id))
-	return id, nil
 }
 
 func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, name, workDir string, owned bool) error {

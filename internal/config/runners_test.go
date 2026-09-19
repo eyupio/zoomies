@@ -10,8 +10,8 @@ import (
 // runner at all. The validator has to say so before the fleet finds out.
 func TestDockerWaitIsBoundedByWhatTheImageAccepts(t *testing.T) {
 	c := Default()
-	if c.Runners.DockerWait != 2*time.Minute {
-		t.Fatalf("default docker wait = %s, want the image's own two minutes", c.Runners.DockerWait)
+	if c.Runners.DockerWait != 3*time.Minute {
+		t.Fatalf("default docker wait = %s, want three minutes for loaded hosts", c.Runners.DockerWait)
 	}
 	for _, value := range []time.Duration{-time.Second, time.Hour + time.Second, 48 * time.Hour} {
 		c.Runners.DockerWait = value
@@ -135,5 +135,30 @@ func TestTheDefaultRunnerSizeIsSettableFromTheEnvironment(t *testing.T) {
 	cpus, memoryMB := c.Runners.DefaultRunnerSize()
 	if cpus != 1.5 || memoryMB != 3072 {
 		t.Fatalf("size from the environment = %v CPU, %d MB, want 1.5 and 3072", cpus, memoryMB)
+	}
+}
+
+func TestBootstrapGraceDefaultsCanBeOverriddenAndAreBounded(t *testing.T) {
+	c := Default()
+	c.Agent.Embedded = true
+	if c.Agent.BootstrapCPUGrace != 2*time.Minute {
+		t.Fatalf("grace = %s", c.Agent.BootstrapCPUGrace)
+	}
+	t.Setenv("ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE", "0s")
+	if err := c.applyEnv(); err != nil {
+		t.Fatal(err)
+	}
+	if c.Agent.BootstrapCPUGrace != 0 || !hasCode(c.Validate(), "agent.bootstrap_cpu_grace_short") {
+		t.Fatal("disabled grace not loaded or explained")
+	}
+	for _, d := range []time.Duration{-time.Second, 11 * time.Minute} {
+		c.Agent.BootstrapCPUGrace = d
+		if !hasCode(c.Validate(), "agent.bootstrap_cpu_grace") {
+			t.Fatalf("accepted %s", d)
+		}
+	}
+	c.Agent.BootstrapCPUGrace = 2 * time.Minute
+	if hasCode(c.Validate(), "agent.bootstrap_cpu_grace_short") {
+		t.Fatal("recommended grace warned")
 	}
 }

@@ -3,6 +3,7 @@ package controller
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
@@ -188,5 +189,33 @@ func TestAFleetCanSayDockerInDockerIsExpected(t *testing.T) {
 	persistent := store.Pool{Name: "builders", DockerMode: store.DockerDinD}
 	if got := dangers(persistent, quiet); len(got) != 1 {
 		t.Errorf("persistent runners warn %v, want the sentence that is not about Docker kept", got)
+	}
+}
+
+func TestAutomaticPoolWarningsIncludeFleetStartupRecommendations(t *testing.T) {
+	cfg := config.Default()
+	cfg.Agent.Embedded = true
+	cfg.Scheduler.DefaultRunnerLimits = false
+	cfg.Scheduler.HostThrottling = false
+	cfg.Agent.BootstrapCPUGrace = 0
+	cfg.Runners.DockerWait = time.Minute
+	cfg.Scheduler.ProvisionTimeout = time.Minute
+	p := &store.Pool{Backend: store.BackendDocker, DockerMode: store.DockerDinD}
+	wanted := map[string]bool{"scheduler.default_runner_limits": false, "scheduler.host_throttling": false, "agent.bootstrap_cpu_grace": false, "runners.docker_wait": false, "scheduler.provision_timeout": false}
+	for _, w := range PoolWarnings(p, nil, cfg) {
+		if _, ok := wanted[w.Setting]; ok {
+			wanted[w.Setting] = true
+		}
+	}
+	for key, found := range wanted {
+		if !found {
+			t.Errorf("automatic pool did not explain %s", key)
+		}
+	}
+	p.Resources = store.Resources{CPUs: 2, MemoryMB: 4096}
+	for _, w := range PoolWarnings(p, nil, cfg) {
+		if w.Code == "scheduler.default_runner_limits_off" {
+			t.Fatal("fixed pool received auto sizing remedy")
+		}
 	}
 }

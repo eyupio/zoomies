@@ -140,6 +140,7 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 		Transport:          transport,
 		HeartbeatInterval:  cfg.Agent.HeartbeatInterval,
 		FinishedRetention:  cfg.Agent.FinishedRetention,
+		BootstrapCPUGrace:  cfg.Agent.BootstrapCPUGrace,
 		DockerBuildCacheMB: cfg.Agent.DockerBuildCacheMB,
 		Logger:             log,
 	})

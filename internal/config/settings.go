@@ -357,6 +357,11 @@ var registry = buildRegistry([]Setting{
 		RestartReason: "the agent's heartbeat timer is set when it starts",
 	},
 	{
+		Key: "agent.bootstrap_cpu_grace", Label: "Startup CPU grace", Env: "ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE", Kind: KindDuration, Scope: ScopeInstance,
+		Summary:       "Keep a new runner at its normal CPU allocation before applying host-pressure throttling. Default 2m; 0 applies throttling immediately; maximum 10m. CPU and memory limits remain enforced.",
+		RestartReason: "the agent reads its startup grace when it starts",
+	},
+	{
 		Key: "agent.finished_retention", Label: "Keep finished containers for", Env: "ZOOMIES_AGENT_FINISHED_RETENTION", Kind: KindDuration, Scope: ScopeInstance,
 		Summary:       "How long a finished runner's container stays on the host before the agent deletes it. It is the window for reading a finished runner's log, and it is host disk: 0 deletes on the next pass.",
 		RestartReason: "the agent is told its retention when it starts",
@@ -430,7 +435,7 @@ var registry = buildRegistry([]Setting{
 	{
 		Key: "runners.docker_wait", Label: "Docker daemon wait", Env: "ZOOMIES_DOCKER_WAIT", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Floor:   time.Second,
-		Summary: "How long a runner on a pool that provides Docker waits for that daemon before refusing to take a job. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool.",
+		Summary: "How long DinD provisioning waits for a healthy daemon, and a Docker runner waits before registering. Default 3m. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool.",
 	},
 	{
 		Key: "runners.default_cpus", Label: "Default CPUs per runner", Env: "ZOOMIES_RUNNER_DEFAULT_CPUS", Kind: KindFloat, Scope: ScopeInstance, Live: true,

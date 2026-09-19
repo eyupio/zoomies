@@ -60,11 +60,19 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 		updater  backend.ResourceUpdater
 		res      store.Resources
 		warned   bool
+		factor   float64
 	}
 	a.mu.Lock()
 	factor := a.cpuFactor
+	now := a.now()
 	var todo []candidate
 	for _, r := range a.runners {
+		// Container-running is not GitHub-ready. Keep its existing quota
+		// during a bounded grace rather than further starving registration.
+		factor := factor
+		if !r.createdAt.IsZero() && a.opts.BootstrapCPUGrace > 0 && now.Sub(r.createdAt) < a.opts.BootstrapCPUGrace {
+			factor = 1
+		}
 		if r.terminal || r.hostRemoved || !r.phase.Live() || r.resources.CPUs <= 0 {
 			// A runner with no CPU limit has no quota to scale; it is the
 			// controller's business to say so through its host problems.
@@ -73,11 +81,10 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 		if r.appliedCPUFactor != nil && *r.appliedCPUFactor == factor {
 			continue
 		}
-		// Somebody else is already asking the daemon for this factor. Waiting
-		// for them is right rather than merely cheap: a second call cannot
-		// improve on the first, and if it fails the first one's result is the
-		// one that gets recorded anyway.
-		if r.pendingCPUFactor != nil && *r.pendingCPUFactor == factor {
+		// Serialise updates even if the grace expires while one is in
+		// flight: an older response must not overwrite a newer quota.
+		// The next heartbeat reconciles the standing factor.
+		if r.pendingCPUFactor != nil {
 			continue
 		}
 		b, err := a.opts.Backends.Get(r.kind)
@@ -101,6 +108,7 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 		r.pendingCPUFactor = &f
 		todo = append(todo, candidate{
 			runnerID: r.runnerID, handle: r.handle, updater: u, res: res,
+			factor: factor,
 			warned: r.failedCPUFactor != nil && *r.failedCPUFactor == factor,
 		})
 	}
@@ -109,7 +117,7 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 	if announce {
 		switch {
 		case len(todo) == 0 && factor < 1:
-			a.log.Info("the controller throttled this host, but no runner here has a CPU limit to reduce; running jobs continue at full speed, and only the host's smaller effective capacity applies",
+			a.log.Info("the controller throttled this host; no runner needs a quota update yet (new runners keep their allocation during startup grace)",
 				"cpu_factor", factor)
 		case factor < 1:
 			a.log.Info(fmt.Sprintf("throttling %d runners to %d%% of their CPU allocation", len(todo), int(math.Round(factor*100))))
@@ -119,6 +127,7 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 	}
 
 	for _, c := range todo {
+		factor := c.factor
 		err := c.updater.UpdateResources(ctx, c.handle, c.res)
 		a.mu.Lock()
 		r, ok := a.runners[c.runnerID]

@@ -455,6 +455,7 @@
   import StepMode from './StepMode.svelte';
   import StepRunners from './StepRunners.svelte';
   import StepReview from './StepReview.svelte';
+  import PoolStartupStability from './PoolStartupStability.svelte';
 
   interface Props {
     /** The pool being edited. Leave it out to create a new one. */
@@ -544,6 +545,7 @@
 
   let verdict = $state<Result<'validatePool'> | null>(null);
   let validating = $state(false);
+  let stabilityRevision = $state(0);
   let validateError = $state<unknown>(null);
 
   const reviewStep = $derived(steps.length - 1);
@@ -812,6 +814,7 @@
     // backend, how big a runner is -- so the answer belongs beside the setting
     // that changes it, while there is still a reason to change it.
     if (current < hostsStep) return;
+    void stabilityRevision;
     const payload = body;
     const controller = new AbortController();
     validating = true;
@@ -982,6 +985,13 @@
           {validating}
           error={validateError}
           ongoto={goTo}
+        />
+      {/if}
+
+      {#if draft.sizing === 'automatic' && (draft.backend === 'docker' || draft.backend === 'podman')}
+        <PoolStartupStability
+          warnings={verdict?.warnings ?? []}
+          onfixed={() => stabilityRevision++}
         />
       {/if}
 

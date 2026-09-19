@@ -363,3 +363,53 @@ func TestTwoCallersThrottlingOneRunnerAskTheDaemonOnce(t *testing.T) {
 		t.Fatalf("updates = %+v, want the restore to land: the runner is still claimed by a call that finished", got)
 	}
 }
+
+func TestStartupGraceKeepsNormalLimitsThenAppliesStandingThrottle(t *testing.T) {
+	a, tr, be, clock := newAgent(t, 4)
+	a.opts.BootstrapCPUGrace = 2 * time.Minute
+	createdRunner(a, "new", "wl-new", store.Resources{CPUs: 1, MemoryMB: 2048})
+	createdRunner(a, "old", "wl-old", store.Resources{CPUs: 1, MemoryMB: 2048})
+	a.runners["old"].createdAt = clock.Now().Add(-time.Hour)
+	directive := &ThrottleDirective{Level: 2, CPUFactor: 0.5}
+	if got := beat(t, a, tr, be, directive); len(got) != 1 || got[0].handle != "wl-old" {
+		t.Fatalf("startup throttled or old job left alone: %+v", got)
+	}
+	clock.advance(2 * time.Minute)
+	got := beat(t, a, tr, be, directive)
+	if len(got) != 1 || got[0].handle != "wl-new" || got[0].res.CPUs != 0.5 || got[0].res.MemoryMB != 2048 {
+		t.Fatalf("grace did not expire under unchanged directive: %+v", got)
+	}
+}
+
+func TestDinDCreationAndAdoptionUseTheSamePerContainerThrottleBudget(t *testing.T) {
+	for _, source := range []string{store.AllocationFromHost, store.AllocationFromPool, ""} {
+		t.Run(source, func(t *testing.T) {
+			a, tr, be, _ := newAgent(t, 4)
+			task := createTask("task", "runner")
+			task.Spec.DockerMode = store.DockerDinD
+			task.Spec.ResourcesSource = source
+			task.Spec.Resources = store.Resources{CPUs: 4, MemoryMB: 8192}
+			a.handleCreate(context.Background(), task, func() {})
+			want := 4.0
+			if source == store.AllocationFromHost {
+				want = 2
+			}
+			if got := beat(t, a, tr, be, &ThrottleDirective{CPUFactor: 0.5}); len(got) != 1 || got[0].res.CPUs != want/2 {
+				t.Fatalf("throttle: %+v, base %v", got, want)
+			}
+			if got := beat(t, a, tr, be, &ThrottleDirective{CPUFactor: 1}); len(got) != 1 || got[0].res.CPUs != want {
+				t.Fatalf("restoration exceeded container budget: %+v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestAdoptionDoesNotRestartTheBootstrapGrace(t *testing.T) {
+	a, tr, be, clock := newAgent(t, 4)
+	a.opts.BootstrapCPUGrace = 2 * time.Minute
+	be.setWorkloads(backend.Workload{Handle: "old", RunnerID: "old", Status: backend.Status{Phase: backend.PhaseRunning, StartedAt: clock.Now().Add(-time.Hour)}, Resources: store.Resources{CPUs: 1}})
+	a.adoptExisting(context.Background())
+	if got := beat(t, a, tr, be, &ThrottleDirective{CPUFactor: 0.5}); len(got) != 1 || got[0].res.CPUs != 0.5 {
+		t.Fatalf("old adopted runner gained startup grace: %+v", got)
+	}
+}
