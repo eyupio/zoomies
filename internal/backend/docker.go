@@ -200,6 +200,10 @@ type DockerBackend struct {
 	dind    string
 	auth    string
 	log     *slog.Logger
+	// nameRelease is how long a create waits for the daemon to release a name
+	// whose container has gone. A field rather than the constant so a test can
+	// exercise the wait without spending it.
+	nameRelease time.Duration
 }
 
 var _ Backend = (*DockerBackend)(nil)
@@ -250,6 +254,8 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 		dind:    dind,
 		auth:    opts.RegistryAuth,
 		log:     log.With("backend", string(fl.kind)),
+
+		nameRelease: nameReleaseBudget,
 	}, nil
 }
 

@@ -274,7 +274,7 @@ The categories, and what each one means you should change:
 | `image` | The runner image could not be pulled or would not start. | Check the pool's image tag, and that the host can reach the registry. |
 | `registration` | GitHub would not register the runner, so it had nothing to attach to. | Check the App is still installed on the repository and still holds its runner permissions. |
 | `backend` | The container backend refused the work or did not answer. This is "cannot start the runner container". | Check the daemon on the host, and the socket the agent names on the host's page. |
-| `container_conflict` | A container name remains occupied after bounded recovery or ownership could not be verified. | Check its managed, runner, pool and role labels, its parent workload and duplicate agents sharing the daemon. Active or unrelated containers are retained; do not remove them blindly. |
+| `container_conflict` | A container name was still occupied once recovery had removed what it safely could and waited out the daemon's release, or ownership could not be verified. | Read the message: it says whether the name is one the daemon has not finished releasing, or one held by a container Zoomies would not touch. Then check the container's managed, runner, pool and role labels, its parent workload and duplicate agents sharing the daemon. Active or unrelated containers are retained; do not remove them blindly. |
 | `backend_busy` | The daemon is there and did not answer in time — the host is carrying more work than it can keep up with, not a backend that is broken. | Lower the host's capacity or the pool's maximum runners, or give the pool CPU and memory limits so the daemon keeps a share of the machine. The host's throttle steps it down on its own while the pressure lasts. |
 | `config` | The runner refused a setting it was given. | Read the runner's log for the setting it named. Every runner in that pool will do the same until it is changed. |
 | `runner_exited` | The runner stopped and nothing could narrow it further. | Read the runner's last output on its page. |
@@ -402,15 +402,28 @@ on GitHub. A finished runner without one still has something outstanding.
 
 Docker can finish a create after the agent has timed out. A later attempt may
 therefore see HTTP 409 even if its initial cleanup found nothing. Zoomies inspects
-the conflicting container and retries creation up to twice. It removes only a
-container whose managed, runner, pool, role and name labels match the request.
-A runner must be inactive; a DinD sidecar must have no parent runner. Removal uses
-the inspected container ID, never a name that another container could acquire.
+the conflicting container and removes only one whose managed, runner, pool, role
+and name labels match the request. A runner must be inactive; a DinD sidecar must
+have no parent runner. Removal uses the inspected container ID, never a name that
+another container could acquire — and when an inspect by name finds nothing while
+the daemon still refuses the name, the container the 409 itself names is inspected
+instead, because that ID is the only handle left to check ownership against.
 
-Unknown ownership, an active parent, or repeated conflicts stop recovery with a
-**Container name conflict** finding. The daemon has answered: socket repair is
-not the appropriate advice. Check for duplicate agents connected to the same
-runtime. Recovery never reruns registration inside an existing runner container.
+Removing a container does not free its name at once. The daemon releases the name
+only when the container's last layer has gone, which for a privileged DinD sidecar
+on a busy host is seconds rather than milliseconds, so creation is retried with
+backoff for up to twenty seconds rather than failed while the name is on its way
+free. A name taken again by a container this host owns is not waited on: three
+such removals stop recovery, because something else is creating containers with
+this runner's name.
+
+Unknown ownership, an active parent, a name that never came free, or a name taken
+again stop recovery with a **Container name conflict** finding, and the message
+says which of those it was. The daemon has answered: socket repair is not the
+appropriate advice. Check for duplicate agents connected to the same runtime —
+unless the message says the name was still being released, which is a host too
+busy to unlink a container rather than a second agent. Recovery never reruns
+registration inside an existing runner container.
 
 ### GitHub says a runner is still running a job during cleanup
 
