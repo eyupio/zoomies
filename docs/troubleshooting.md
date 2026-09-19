@@ -431,3 +431,30 @@ actual status. Allow real work to finish; Zoomies does not cancel workflows or
 force-delete busy registrations to clear a warning. A persistently stale GitHub
 busy flag needs investigation on GitHub. Existing warnings containing the older
 “currently running a job” message now get this advice too.
+
+### Starts delayed behind other runners
+
+Runner starts keep the scheduler's priority and round-robin allocation order
+through registration admission. The default `scheduler.registration_concurrency`
+of one bounds concurrent credential requests per installation; increasing it
+is not required to give another pool its turn.
+
+A queued create carries the fleet's `scheduler.provision_timeout`, or the pool's
+provision timeout override, as an absolute start deadline. An agent refuses to
+start a new workload after that deadline or a known GitHub token expiry, including
+before a backend-busy retry. It reports a registration failure so normal cleanup,
+start backoff and reconciliation can replace the attempt with fresh credentials.
+An existing workload is still adopted on redelivery, even after the deadline;
+expiry never authorises removing a runner that may be working. A zero provision
+timeout disables that queue deadline, but does not extend GitHub token validity.
+These checks require an updated agent and synchronised controller/host clocks.
+They bound waiting before creation, not the registration time of an already
+started workload; the existing provision timeout still supervises registration.
+
+### Runner exits with code 7
+
+GitHub's runner uses exit code 7 when its version is outdated. Zoomies reports
+this as a configuration failure with update guidance, and uses the existing
+start-failure backoff to avoid a rapid replacement loop. Update the pool's runner
+image or process runner version and check its pull policy. Zoomies does not
+silently replace an explicitly pinned image or version.

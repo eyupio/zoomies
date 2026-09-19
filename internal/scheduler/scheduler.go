@@ -313,17 +313,23 @@ func Decide(s Snapshot) Plan {
 		plan.Pools = append(plan.Pools, pp)
 	}
 	t.allocate(pools, plan.Pools, s.Runners, demand)
-	// Pool plans remain in name order, and their actions are flattened in that
-	// same stable order even though capacity was granted round by round.
+	// Finish cleanup before starting replacements, then preserve the exact
+	// allocation order when registration admission admits only part of a plan.
 	for _, pp := range plan.Pools {
-		plan.Actions = append(plan.Actions, pp.Actions...)
+		for _, action := range pp.Actions {
+			if action.Kind != ActionCreate {
+				plan.Actions = append(plan.Actions, action)
+			}
+		}
 	}
+	plan.Actions = append(plan.Actions, t.creates...)
 	return plan
 }
 
 // tick is the mutable state of a single Decide call: capacity handed out so
 // far, and the create budget left for the pools that have not been served yet.
 type tick struct {
+	creates            []Action
 	now                time.Time
 	policy             Policy
 	hosts              *hostSet
@@ -747,7 +753,9 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 		reason += fmt.Sprintf(" (%s deferred by the repository limit for %s)",
 			plural(plan.QuotaDeferredJobs, "job"), strings.Join(plan.QuotaDeferredRepositories, ", "))
 	}
-	plan.Actions = append(plan.Actions, Action{Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: hosts[0], Reason: reason})
+	action := Action{Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: hosts[0], Reason: reason}
+	plan.Actions = append(plan.Actions, action)
+	t.creates = append(t.creates, action)
 	t.budget--
 	plan.Reason = scaled(p.Name, plan.Current, plan.Current+creates(plan.Actions), reason)
 	return true

@@ -2110,12 +2110,22 @@ ZF-211 as the measurement programme and ZF-212 as the cache programme.
 - Prewarm the configured DinD image and coalesce equivalent successful
   background preparations across pools for one minute.
 
+**Further correctness work implemented (September 2026):** per-installation
+credential admission, scheduler allocation order preserved through execution,
+credential expiry and provision-deadline checks before new agent starts,
+outdated-runner diagnostics, owned-container conflict recovery, busy-registration
+cleanup deferral and independent host/GitHub cleanup confirmation. Startup
+queue and Docker readiness metrics and resource sample timestamps are available.
+Regression tests use fake runtimes and GitHub; live burst qualification remains
+outstanding. Deadline checks remain compatible with older tasks that omit them;
+older agents must be upgraded to enforce them.
+
 **Remaining implementation, not implied complete by this slice:**
 
-1. Controller-side bounded admission and fair sharing across pools, before
-   credentials and task leases are issued. Separate queue wait, active create,
-   Docker readiness and GitHub registration budgets. Preserve cancellation,
-   ownership and restart recovery; do not extend credentials past validity.
+1. Extend the implemented admission and queue-deadline controls with separately
+   configurable active-create and registration budgets if measurements justify
+   them. Preserve cancellation, ownership and restart recovery; never extend
+   credentials past validity.
 2. Durable runtime incidents and visible recovery status, including operation,
    duration, retry history and host pressure. Surface resource sample age in
    API/UI rather than presenting cached readings as current.
@@ -2134,10 +2144,9 @@ Inject delayed response bodies, a stalled Docker probe, inventory failure,
 cancellation and an agent restart. Record host size, versions and sample
 counts. Automated fixtures are not live Docker evidence.
 
-No runtime or shell executor is available in the authoring session; tests are
-added for CI and live measurements remain blocked on an executable reference
-environment. No performance gain, benchmark result or runtime recovery on the
-affected host is claimed.
+Automated Go tests can run in the authoring environment. Live measurements still
+require a reference Docker host. No performance gain, benchmark result or runtime
+recovery on the affected host is claimed.
 
 **Dependencies:** PR #276, ZF-102/105 lifecycle invariants, ZF-211 measurement
 and ZF-220 admission. Fix critical correctness defects before optional cache

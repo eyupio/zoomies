@@ -6199,12 +6199,14 @@ components:
         pool_name: { type: string }
         image: { type: string }
         pull_policy: { $ref: "#/components/schemas/PullPolicy" }
+        start_before: { type: string, format: date-time, description: Do not create a new workload at or after this provisioning deadline; existing workloads are still adopted. }
         credentials:
           type: object
           description: The runner's registration credentials. Never logged, never shown.
           properties:
             jit_config: { type: string, format: password }
             registration_token: { type: string, format: password }
+            expires_at: { type: string, format: date-time, description: GitHub token expiry when known. }
             url: { type: string, description: The organisation or repository URL the runner registers against. }
             runner_group: { type: string }
             labels: { type: array, items: { type: string } }

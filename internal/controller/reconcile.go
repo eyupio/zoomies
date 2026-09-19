@@ -192,44 +192,53 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 		hosts[h.ID] = h
 	}
 
-	for _, pp := range plan.Pools {
-		pool := pools[pp.PoolID]
+	type changes struct{ created, drained int }
+	counts := make(map[string]*changes, len(plan.Pools))
+	for _, a := range plan.Actions {
+		if ctx.Err() != nil {
+			return
+		}
+		pool := pools[a.PoolID]
 		if pool == nil {
 			continue
 		}
-		created, drained := 0, 0
-		for _, a := range pp.Actions {
-			if ctx.Err() != nil {
-				return
+		n := counts[a.PoolID]
+		if n == nil {
+			n = &changes{}
+			counts[a.PoolID] = n
+		}
+		switch a.Kind {
+		case scheduler.ActionCreate:
+			if err := c.createRunner(ctx, pool, hosts[a.HostID], a); err != nil {
+				if !errors.Is(err, errRegistrationDeferred) {
+					c.log.Error("could not create a runner", "pool", pool.Name, "host", a.HostID, "reason", a.Reason, "error", err)
+				}
+				continue
 			}
-			switch a.Kind {
-			case scheduler.ActionCreate:
-				if err := c.createRunner(ctx, pool, hosts[a.HostID], a); err != nil {
-					if errors.Is(err, errRegistrationDeferred) {
-						continue
-					}
-					c.log.Error("could not create a runner",
-						"pool", pool.Name, "host", a.HostID, "reason", a.Reason, "error", err)
-					continue
-				}
-				created++
-			case scheduler.ActionDrain:
-				if err := c.drainRunnerID(ctx, a.RunnerID, a.Reason, pool); err != nil {
-					c.logRunnerAction("drain", a, err)
-					continue
-				}
-				drained++
-			case scheduler.ActionRemove:
-				if err := c.removeRunnerID(ctx, a.RunnerID, a.Reason, pool); err != nil {
-					c.logRunnerAction("remove", a, err)
-				}
-			case scheduler.ActionFail:
-				if err := c.failRunnerID(ctx, a.RunnerID, a.Reason, store.FaultRunnerExited); err != nil {
-					c.logRunnerAction("fail", a, err)
-				}
+			n.created++
+		case scheduler.ActionDrain:
+			if err := c.drainRunnerID(ctx, a.RunnerID, a.Reason, pool); err != nil {
+				c.logRunnerAction("drain", a, err)
+				continue
+			}
+			n.drained++
+		case scheduler.ActionRemove:
+			if err := c.removeRunnerID(ctx, a.RunnerID, a.Reason, pool); err != nil {
+				c.logRunnerAction("remove", a, err)
+			}
+		case scheduler.ActionFail:
+			if err := c.failRunnerID(ctx, a.RunnerID, a.Reason, store.FaultRunnerExited); err != nil {
+				c.logRunnerAction("fail", a, err)
 			}
 		}
-		c.recordScaling(ctx, pp, created, drained)
+	}
+	for _, pp := range plan.Pools {
+		if pools[pp.PoolID] == nil {
+			continue
+		}
+		if n := counts[pp.PoolID]; n != nil {
+			c.recordScaling(ctx, pp, n.created, n.drained)
+		}
 		c.noteBlocked(pp)
 		if err := c.st.RecordUsageCapacity(ctx, pp.PoolID, c.Now(), pp.BlockedAtCapacity); err != nil {
 			c.log.Error("could not record usage capacity", "pool", pp.PoolID, "error", err)
@@ -414,6 +423,9 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 		Network:       c.cfg().Agent.Network,
 		RunnerVersion: r.RunnerVersion,
 	}
+	if timeout := c.policy().For(pool).ProvisionTimeout; timeout > 0 {
+		spec.StartBefore = r.CreatedAt.Add(timeout)
+	}
 	c.enqueueLifecycle(ctx, a.HostID, agent.Task{
 		Kind:     agent.TaskCreateRunner,
 		RunnerID: r.ID,
@@ -467,6 +479,7 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 	}
 	return backend.Credentials{
 		RegistrationToken: tok.Token,
+		ExpiresAt:         tok.ExpiresAt,
 		URL:               client.WebURL(),
 		RunnerGroup:       pool.RunnerGroup,
 		Labels:            pool.Labels,
