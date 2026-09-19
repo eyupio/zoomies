@@ -13,6 +13,7 @@ import (
 // the time an error has been reworded twice on its way to the controller the
 // only evidence left is prose.
 var (
+	ErrContainerConflict = errors.New("backend: container name conflict could not be safely recovered")
 	// ErrImageUnavailable is a runner image that could not be made ready: a tag
 	// that is not there, a registry that refused the credential, a digest that
 	// does not resolve. It is kept apart from ErrDaemon because the fix is in a
@@ -69,6 +70,8 @@ func Fault(err error) store.FaultKind {
 		return ""
 	case strings.Contains(strings.ToLower(err.Error()), noSpace):
 		return store.FaultOutOfDisk
+	case errors.Is(err, ErrContainerConflict):
+		return store.FaultContainerConflict
 	case errors.Is(err, ErrImageUnavailable):
 		return store.FaultImage
 	case errors.Is(err, ErrDaemonBusy):

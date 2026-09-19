@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -428,6 +429,7 @@ func (c *Controller) jobView(ctx context.Context, j *store.Job) JobView {
 // referenced: a runner grid that shows two opaque IDs per row is a grid nobody
 // can read.
 type RunnerView struct {
+	ResourceSample json.RawMessage   `json:"resource_sample,omitempty"`
 	ID             string            `json:"id"`
 	Name           string            `json:"name"`
 	PoolID         string            `json:"pool_id"`
@@ -554,6 +556,7 @@ func (v *RunnerRenderer) View(r *store.Runner) RunnerView {
 		FaultKind:             r.FaultKind,
 		FaultFix:              r.FaultKind.Fix(),
 		JobsHandled:           r.JobsHandled,
+		ResourceSample:        r.ResourceSample,
 		CPUPercent:            r.CPUPercent,
 		MemoryBytes:           r.MemoryBytes,
 		AllocatedCPUs:         r.AllocatedCPUs,

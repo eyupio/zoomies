@@ -208,6 +208,8 @@ agent:
   labels: {}                    # ZOOMIES_AGENT_LABELS   -- "gpu=true,zone=eu"
   network: ""                   # ZOOMIES_AGENT_NETWORK
   heartbeat_interval: 30s       # ZOOMIES_HEARTBEAT_INTERVAL -- a host is unhealthy after 90s of silence and its runners lost after 5m; above 45s is warned about
+  prewarm_timeout: 5m          # ZOOMIES_AGENT_PREWARM_TIMEOUT -- background pulls only; 1s–15m
+  prewarm_jitter: 30s          # ZOOMIES_AGENT_PREWARM_JITTER -- random delay before background pulls; 0s–5m
   bootstrap_cpu_grace: 2m       # ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE -- 0 applies pressure throttling immediately; maximum 10m
   finished_retention: 0s        # ZOOMIES_AGENT_FINISHED_RETENTION -- 0 removes a finished workload after its report is acknowledged
   docker_build_cache_mb: 5120   # ZOOMIES_DOCKER_BUILD_CACHE_MB -- target for unused builder cache; 0 prunes nothing
@@ -238,6 +240,7 @@ scheduler:
   max_runner_lifetime: 6h       # ZOOMIES_MAX_RUNNER_LIFETIME
   provision_timeout: 20m        # ZOOMIES_PROVISION_TIMEOUT -- must outlast a cold image pull and the Docker wait above
   drain_timeout: 15m            # ZOOMIES_DRAIN_TIMEOUT
+  registration_concurrency: 1 # ZOOMIES_REGISTRATION_CONCURRENCY -- per installation; 1–16
   max_creates_per_tick: 10      # ZOOMIES_MAX_CREATES_PER_TICK
   default_runner_limits: true   # ZOOMIES_DEFAULT_RUNNER_LIMITS -- a pool with no cpus or memory_mb gets one slot's share of its host; off is warned about
   host_throttling: true         # ZOOMIES_HOST_THROTTLING -- step an overwhelmed host down and lift it after calm; off is warned about
@@ -357,6 +360,8 @@ settings page reports rather than refusing the edit.
 | `agent.docker_build_cache_mb` | `ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB` | next restart | Docker build cache target — The target size for unused Docker builder cache. 0 leaves a shared or externally managed daemon alone. |
 | `agent.docker_host` | `ZOOMIES_DOCKER_HOST` | next restart | Docker socket — The Docker or Podman socket. Empty finds one, preferring a rootless socket over the root one. |
 | `agent.embedded` | `ZOOMIES_AGENT_EMBEDDED` | next restart | Run an agent in this controller — Run an agent inside this controller, so a single machine needs one process. Off makes a controller that schedules runners onto other hosts and starts none itself. |
+| `agent.prewarm_timeout` | `ZOOMIES_AGENT_PREWARM_TIMEOUT` | next restart | Background image preparation budget; default 5m, range 1s–15m. Foreground create budgets are independent. |
+| `agent.prewarm_jitter` | `ZOOMIES_AGENT_PREWARM_JITTER` | next restart | Random delay before background preparation; default 30s, range 0s–5m. Foreground work can pass during the delay. |
 | `agent.bootstrap_cpu_grace` | `ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE` | next restart | Startup CPU grace — Keep new runners at their normal CPU quota for 2m before applying host-pressure throttling. Range 0s–10m; 0s disables the grace. Memory and CPU limits remain enforced. |
 | `agent.finished_retention` | `ZOOMIES_AGENT_FINISHED_RETENTION` | next restart | Keep finished containers for — How long a finished runner's container stays on the host before the agent deletes it. It is the window for reading a finished runner's log, and it is host disk: 0 deletes on the next pass. |
 | `agent.heartbeat_interval` | `ZOOMIES_HEARTBEAT_INTERVAL` | next restart | Heartbeat interval — How often an agent reports in. A host that goes quiet for 90 seconds is counted lost, so this has to be comfortably under that. |
@@ -545,6 +550,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 | `scheduler.drain_timeout` | `ZOOMIES_DRAIN_TIMEOUT` | at once | Drain timeout — Fail a runner that has been draining this long with no job left on it. A runner still finishing a job is never touched by it. |
 | `scheduler.host_throttling` | `ZOOMIES_HOST_THROTTLING` | at once | Throttle hosts under pressure — Let the controller throttle a host its measurements say is overwhelmed, and step it back up after a stretch of calm. |
 | `scheduler.interval` | `ZOOMIES_SCHEDULER_INTERVAL` | at once | Scheduler interval — How often the scheduler runs a pass even with nothing to react to. |
+| `scheduler.registration_concurrency` | `ZOOMIES_REGISTRATION_CONCURRENCY` | at once | Bound concurrent credential requests per installation; default 1, range 1–16. Excess demand waits for a later scheduling pass. Existing calls finish when lowered. |
 | `scheduler.max_creates_per_tick` | `ZOOMIES_MAX_CREATES_PER_TICK` | at once | Runners created per pass — How many runners may be created in one pass, so a thundering herd of queued jobs cannot exhaust a host in one go. |
 | `scheduler.max_runner_lifetime` | `ZOOMIES_MAX_RUNNER_LIFETIME` | at once | Maximum runner lifetime — Drain a runner that has lived this long, next time it is not busy. It bounds how long a runner's credentials live; it never ends a job. |
 | `scheduler.provision_timeout` | `ZOOMIES_PROVISION_TIMEOUT` | at once | Provision timeout — Fail a runner that never finishes registering, so a bad image does not hold a host slot for ever. |
@@ -1665,3 +1671,29 @@ problems drawer, so a warning cannot be missed just because nobody was reading
 the logs the day it appeared. An operator can dismiss one they have read; that
 is a per-browser preference and changes nothing the API or `zoomies status`
 reports.
+
+### `scheduler.registration_concurrency`
+
+The default of **1** serialises credential minting within each installation.
+Other installations and cleanup keep progressing. Rate-limit responses establish
+an installation hold until GitHub's reset or retry deadline. Excess demand stays
+with the scheduler without creating a provisioning row or waiter goroutine.
+Raise this to at most **16** only when measured registration throughput needs it;
+an outage may then leave that many requests already in flight. Lowering it takes
+effect as existing requests finish. Admission resumes on a scheduling pass after
+the hold expires. Registration quota exhaustion does not increase pool failure backoff.
+
+### `agent.prewarm_timeout`
+
+Background image preparation has a **5m** budget, configurable from **1s to 15m**.
+This bounds how long background work can occupy the host startup slot. Foreground
+creates keep their independent budget and have priority over pending background
+work. An already-running pull is not pre-empted. Restart standalone agents with
+their own setting; changing controller configuration only configures its embedded agent.
+
+### `agent.prewarm_jitter`
+
+Before background image preparation, each agent waits a random duration from zero
+to **30s**, without holding a lifecycle or startup slot. Set **0s** to disable or
+up to **5m** to spread a large fleet further. This applies to manual prewarming too.
+It does not change GitHub/provider retry deadlines or foreground image pull policies.

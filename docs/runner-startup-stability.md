@@ -55,3 +55,19 @@ Reviewed source snapshots:
 These sources do not establish that removing CPU limits is a universal fix.
 Rollout still needs representative concurrent jobs, cold pulls and registration
 timings on the affected hosts.
+
+## Registration and background work
+
+Credential minting now has a per-installation admission bound, controlled by
+`scheduler.registration_concurrency` (default 1). API rate limits establish the
+existing shared installation hold, without adding pool startup-failure backoff.
+Excess demand remains with the scheduler rather than accumulating waiter goroutines.
+Bootstrap retries revoke the unused previous credential before issuing another;
+revocation and redemption are serialised in the store, and a failed revocation
+aborts replacement.
+
+Agent runtime recovery adds up to 25% positive jitter to its 5-second exponential
+cooldown (maximum 75 seconds). Background prewarming has an independent budget and
+stagger, configured by `agent.prewarm_timeout` and `agent.prewarm_jitter`. Neither
+changes foreground pull policy. See [runtime compatibility and diagnostics](runtime-compatibility.md)
+for the capability matrix, measurement fields and real-host validation procedure.

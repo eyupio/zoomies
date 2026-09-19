@@ -510,11 +510,7 @@ type LogQuery struct {
 
 // StatsSample is one resource reading, already reduced from the daemon's
 // cumulative counters.
-type StatsSample struct {
-	CPUPercent  float64
-	MemoryBytes int64
-	MemoryLimit int64
-}
+type StatsSample = Stats
 
 // ---------------------------------------------------------------------------
 // Calls
@@ -903,6 +899,11 @@ type statsJSON struct {
 		} `json:"cpu_usage"`
 		SystemCPUUsage uint64 `json:"system_cpu_usage"`
 		OnlineCPUs     uint32 `json:"online_cpus"`
+		ThrottlingData *struct {
+			Periods          uint64 `json:"periods"`
+			ThrottledPeriods uint64 `json:"throttled_periods"`
+			ThrottledTime    uint64 `json:"throttled_time"`
+		} `json:"throttling_data"`
 	} `json:"cpu_stats"`
 	PreCPUStats struct {
 		CPUUsage struct {
@@ -919,6 +920,9 @@ type statsJSON struct {
 
 func (s statsJSON) sample() StatsSample {
 	out := StatsSample{MemoryLimit: int64(s.MemoryStats.Limit)}
+	if t := s.CPUStats.ThrottlingData; t != nil {
+		out.CPUThrottling = &CPUThrottling{Periods: t.Periods, ThrottledPeriods: t.ThrottledPeriods, ThrottledNanoseconds: t.ThrottledTime}
+	}
 
 	cpuDelta := float64(s.CPUStats.CPUUsage.TotalUsage) - float64(s.PreCPUStats.CPUUsage.TotalUsage)
 	sysDelta := float64(s.CPUStats.SystemCPUUsage) - float64(s.PreCPUStats.SystemCPUUsage)

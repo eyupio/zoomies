@@ -58,6 +58,8 @@ func (a *Agent) sampleStats(ctx context.Context) {
 						"runner", r.runnerID, "error", err)
 					continue
 				}
+				sampledAt := a.now()
+				stats.SampledAt = &sampledAt
 				a.mu.Lock()
 				if current := a.runners[r.runnerID]; current != nil &&
 					current.handle == r.handle && !current.terminal && !current.hostRemoved {

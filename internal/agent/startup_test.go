@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/store"
@@ -201,4 +202,32 @@ func TestQueuedCreateHonoursRemovalAndCordonBeforeStarting(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestStaggeredPrewarmDoesNotHoldForegroundAndCancels(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, tr, b := startupAgent(t)
+		a.opts.PrewarmJitter = time.Minute
+		a.opts.RandomFloat64 = func() float64 { return 1 }
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		a.dispatch(ctx, Task{ID: "background", Kind: TaskPrewarmImage, PoolID: "pool", PullPolicy: store.PullIfNotPresent, Image: "background", Backend: store.BackendDocker})
+		synctest.Wait()
+		startupBlocked(t, b)
+		a.dispatch(ctx, createTask("foreground", "runner"))
+		synctest.Wait()
+		startupEntered(t, b, "runner")
+		b.finish <- nil
+		synctest.Wait()
+		if res := <-tr.results; !res.OK {
+			t.Fatalf("foreground: %+v", res)
+		}
+		cancel()
+		synctest.Wait()
+		a.tasks.Wait()
+		startupBlocked(t, b)
+		if res := <-tr.results; res.OK {
+			t.Fatal("cancelled prewarm reported success")
+		}
+	})
 }

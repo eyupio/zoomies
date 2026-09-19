@@ -310,6 +310,10 @@ that is not a template are *answers*, not failures.
 | `proxmox.vmid_range` | error | No VMID range is configured, or its bounds are the wrong way round. The range is both a budget and a blast radius: a VM outside it is by construction not ours. | Give a block nothing else allocates from. |
 | `proxmox.vmid_range_reserved` | warning | Guests already exist inside the configured range. They are not touched, but the range is meant to be Zoomies' alone. | Move the range, or move those guests. |
 
+| `scheduler.registration_concurrency` | error | Credential request concurrency is outside 1–16. | Use 1 by default; increase only with measured need. |
+| `agent.prewarm_timeout` | error | Background preparation budget is outside 1s–15m. | Use 5m by default and restart agents. |
+| `agent.prewarm_jitter` | error | Background preparation stagger is outside 0s–5m. | Use 30s by default, or 0s to disable, and restart agents. |
+
 ## Keeping this list honest
 
 Every code above is checked against the source by a test

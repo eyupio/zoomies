@@ -104,7 +104,7 @@ will not fire when the numbers stop arriving altogether.
 | --- | --- | --- | --- |
 | `zoomies_jobs_total` | counter | `pool`, `conclusion` | Jobs seen to completion. The denominator for every other job rate. `conclusion` is GitHub's, or `unknown` when it sent none. |
 | `zoomies_jobs_runner_lost_total` | counter | `pool` | Jobs whose runner died before GitHub reported the job over. These are the fleet's failures rather than the workflow's, and any sustained rate is worth waking up for. |
-| `zoomies_job_failures_total` | counter | `pool`, `domain`, `fault` | Job failures split by whose they are. `domain` is `fleet` or `workflow`; `fault` is the category — `out_of_memory`, `host_lost`, `image`, `registration`, `backend`, `backend_busy`, `config`, `out_of_disk`, `removed`, `runner_exited` — and is empty for a workflow's own failure. The fleet domain is the same set of jobs as `zoomies_jobs_runner_lost_total`, which is kept so an alert written against it does not disappear on upgrade. |
+| `zoomies_job_failures_total` | counter | `pool`, `domain`, `fault` | Job failures split by whose they are. `domain` is `fleet` or `workflow`; `fault` is the category — `out_of_memory`, `host_lost`, `image`, `registration`, `backend`, `backend_busy`, `container_conflict`, `config`, `out_of_disk`, `removed`, `runner_exited` — and is empty for a workflow's own failure. The fleet domain is the same set of jobs as `zoomies_jobs_runner_lost_total`, which is kept so an alert written against it does not disappear on upgrade. |
 | `zoomies_runner_start_failures_total` | counter | `pool`, `fault` | Runners that failed before they could ever take a job, by category. These reach no job at all — the job they were meant for stays queued and waits for the next one — so a pool climbing here while its queue never moves is a fleet failing with nothing in the failed-jobs count to show for it. |
 | `zoomies_scaling_events_total` | counter | `pool`, `direction` | Scheduler decisions that changed a pool's size, `up` or `down`. Flapping shows up here first. |
 | `zoomies_webhook_deliveries_total` | counter | `status` | Inbound deliveries by `accepted`, `rejected` or `error`. A rising `rejected` count is a signing-secret mismatch or somebody probing. |
@@ -138,6 +138,8 @@ before it say which stage owns a regression.
 | --- | --- |
 | `zoomies_runner_queued_to_create_seconds` | Job queued → runner row created. A proxy for scheduler latency: it starts at GitHub's own queued time, so it includes webhook delivery and any configured scale-up delay, and the runner is attributed to the oldest queued job in the pool rather than the job it will run. |
 | `zoomies_runner_create_to_container_started_seconds` | Runner created → container started. Where image pulls show up. |
+| `zoomies_runner_startup_queue_seconds` | Host startup admission wait for successful creates. |
+| `zoomies_runner_dind_ready_seconds` | Sidecar creation and health readiness after its image is available, for successful creates. |
 | `zoomies_runner_container_started_to_registered_seconds` | Container started → registered with GitHub. |
 | `zoomies_runner_registered_to_ready_seconds` | Registered → idle or busy. |
 | `zoomies_runner_queued_to_job_started_seconds` | The whole path. Put this one on the dashboard. |

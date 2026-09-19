@@ -4684,6 +4684,7 @@ components:
             nothing else in the system says why a pool's containers will not start, because
             the jobs it was meant for are still queued and none of them is marked failed.
         jobs_handled: { type: integer }
+        resource_sample: { $ref: "#/components/schemas/WorkloadStats" }
         cpu_percent: { type: number, format: double }
         memory_bytes: { type: integer, format: int64 }
         allocated_cpus:
@@ -5309,7 +5310,7 @@ components:
         something that is not broken.
 
         Empty means the fleet has nothing to confess.
-      enum: [host_lost, out_of_memory, out_of_disk, removed, image, registration, backend, backend_busy, config, runner_exited]
+      enum: [host_lost, out_of_memory, out_of_disk, removed, image, registration, backend, backend_busy, container_conflict, config, runner_exited]
 
     JobEventKind:
       type: string
@@ -6154,6 +6155,14 @@ components:
     WorkloadStats:
       type: object
       properties:
+        sampled_at: { type: string, format: date-time, description: Time of the last successful sample. Absence means freshness is unknown. Retained samples keep their original timestamp. }
+        cpu_throttling:
+          type: object
+          description: Cumulative cgroup CPU quota counters. Absent when unsupported; resets on workload recreation.
+          properties:
+            periods: { type: integer, format: int64 }
+            throttled_periods: { type: integer, format: int64 }
+            throttled_nanoseconds: { type: integer, format: int64 }
         cpu_percent: { type: number, format: double }
         memory_bytes: { type: integer, format: int64 }
         memory_limit: { type: integer, format: int64 }
@@ -6227,6 +6236,8 @@ components:
         ok: { type: boolean }
         error: { type: string }
         handle: { type: string }
+        startup_wait: { type: integer, format: int64, description: Nanoseconds waiting for host startup admission. }
+        dind_ready_duration: { type: integer, format: int64, description: Nanoseconds creating and awaiting a healthy sidecar after its image is available. }
         image_pull_duration: { type: integer, format: int64, description: Nanoseconds. Absent when the backend cannot tell pulling from creation. }
         create_duration: { type: integer, format: int64, description: Nanoseconds. }
         container_started_at: { type: string, format: date-time }

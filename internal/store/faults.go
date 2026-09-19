@@ -41,6 +41,8 @@ const (
 	// answering: a Docker socket that is not there, a daemon that never became
 	// ready. This is the "cannot start the runner container" case.
 	FaultBackend FaultKind = "backend"
+	// FaultContainerConflict needs ownership inspection, not socket repair.
+	FaultContainerConflict FaultKind = "container_conflict"
 	// FaultBackendBusy is the daemon that is there and did not answer in time.
 	// It is kept apart from FaultBackend because it is the one backend failure
 	// where nothing is wrong with the backend: the host is carrying more work
@@ -76,7 +78,7 @@ const (
 // ever taking one.
 var allFaultKinds = []FaultKind{
 	FaultHostLost, FaultOutOfMemory, FaultOutOfDisk, FaultRemoved,
-	FaultImage, FaultRegistration, FaultBackend, FaultBackendBusy, FaultConfig, FaultRunnerExited,
+	FaultImage, FaultRegistration, FaultBackend, FaultBackendBusy, FaultContainerConflict, FaultConfig, FaultRunnerExited,
 }
 
 // FaultKinds returns the closed set. The docs test and the UI's label table
@@ -126,6 +128,8 @@ func (k FaultKind) Fix() string {
 		return "check the pool's image tag and that the host can reach the registry it is on."
 	case FaultRegistration:
 		return "check that the GitHub App is still installed on the repository and still holds its runner permissions."
+	case FaultContainerConflict:
+		return "automatic name-conflict recovery could not safely replace this container. Inspect its Zoomies ownership labels and parent runner, and check for duplicate agents sharing the daemon. Do not remove an active runner or a container owned by another workload."
 	case FaultBackend:
 		return "check the container backend on the host: the socket the agent names on the host's page, and whether the daemon is running."
 	case FaultBackendBusy:

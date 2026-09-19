@@ -264,7 +264,7 @@ func TestReconcileCarriesSeparatelySampledStatsForRunningWorkloads(t *testing.T)
 	if len(reports) != 1 {
 		t.Fatalf("reports = %+v, want one", reports)
 	}
-	if reports[0].Stats.CPUPercent != 12.5 || reports[0].Phase != backend.PhaseRunning {
+	if reports[0].Stats.CPUPercent != 12.5 || reports[0].Stats.SampledAt == nil || reports[0].Phase != backend.PhaseRunning {
 		t.Fatalf("report did not carry the sample: %+v", reports[0])
 	}
 	// Whether a live runner is idle or busy is GitHub's answer, not the host's.

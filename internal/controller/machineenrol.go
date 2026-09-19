@@ -170,9 +170,8 @@ func (c *Controller) machineJoinToken(ctx context.Context, env *machineEnv, row 
 		// one it replaces is revoked here rather than left to expire: two live
 		// credentials for one machine is one more than the design allows
 		// itself, even where both are scoped to the same single name.
-		if err := c.st.DeleteJoinToken(ctx, m.JoinTokenID); err != nil && !errors.Is(err, store.ErrNotFound) {
-			c.log.Warn("could not revoke a machine's unused join token",
-				"machine", m.ID, "token", m.JoinTokenID, "error", err)
+		if err := c.st.RevokeUnusedJoinToken(ctx, m.JoinTokenID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return "", fmt.Errorf("revoking machine %s's previous join token: %w", m.ID, err)
 		}
 	}
 	ttl := env.cfg.Provider.EnrolTimeout + machineTokenGrace
@@ -190,6 +189,12 @@ func (c *Controller) machineJoinToken(ctx context.Context, env *machineEnv, row 
 		return "", fmt.Errorf("minting machine %s's join token: %w", m.ID, err)
 	}
 	if err := c.st.SetMachineJoinToken(ctx, m.ID, tok.ID); err != nil {
+		// Do not leave an untracked credential valid after a failed link.
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if revokeErr := c.st.DeleteJoinToken(cleanupCtx, tok.ID); revokeErr != nil {
+			return "", errors.Join(err, revokeErr)
+		}
 		return "", fmt.Errorf("recording machine %s's join token: %w", m.ID, err)
 	}
 	m.JoinTokenID = tok.ID

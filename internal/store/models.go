@@ -1042,6 +1042,8 @@ type Runner struct {
 	FinishedAt  *time.Time `json:"finished_at,omitempty"`
 	Message     string     `json:"message,omitempty"`
 	JobsHandled int        `json:"jobs_handled"`
+	// ResourceSample carries sample freshness and optional runtime diagnostics.
+	ResourceSample json.RawMessage `json:"resource_sample,omitempty"`
 	// CPUPercent and MemoryBytes are best-effort samples from the agent.
 	CPUPercent  float64 `json:"cpu_percent,omitempty"`
 	MemoryBytes int64   `json:"memory_bytes,omitempty"`

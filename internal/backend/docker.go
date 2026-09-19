@@ -728,10 +728,10 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	}
 
 	name := containerName(spec.Name)
-	if err := b.removeByName(ctx, name); err != nil {
+	if err := b.removeOwnedForCreate(ctx, spec, false); err != nil {
 		return CreateResult{}, err
 	}
-	if err := b.removeByName(ctx, dindName(name)); err != nil {
+	if err := b.removeOwnedForCreate(ctx, spec, true); err != nil {
 		return CreateResult{}, err
 	}
 
@@ -765,8 +765,8 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	// names because the daemon may have created a container without returning
 	// its ID. Cleanup gets its own bounded context, not the expired create's.
 	defer func() {
-		if createErr != nil {
-			if err := b.cleanupFailedCreate(ctx, name, workDir, owned); err != nil {
+		if createErr != nil && !errors.Is(createErr, ErrContainerConflict) {
+			if err := b.cleanupFailedCreate(ctx, spec, workDir, owned); err != nil {
 				createErr = errors.Join(createErr, err)
 			}
 		}
@@ -774,13 +774,18 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 
 	b.pruneCacheFor(ctx, spec)
 
+	var dindReadyDuration *time.Duration
 	var dindID string
 	switch spec.DockerMode {
 	case store.DockerDinD:
 		if _, err := b.ensureImage(ctx, b.dind); err != nil {
 			return CreateResult{}, err
 		}
+		dindStarted := time.Now()
 		dindID, err = b.startDinD(ctx, spec, opts)
+		dindElapsed := time.Since(dindStarted)
+		dindReadyDuration = &dindElapsed
+		b.log.Info("Docker sidecar readiness completed", "duration", dindElapsed, "ok", err == nil)
 		if err != nil {
 			return CreateResult{}, err
 		}
@@ -809,7 +814,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	}
 
 	cfg := buildRunnerConfig(spec, b.fl, opts)
-	id, err := b.api.ContainerCreate(ctx, name, cfg)
+	id, err := b.createWithConflictRecovery(ctx, spec, cfg, false)
 	if err != nil {
 		return CreateResult{}, daemonErr(fmt.Errorf("backend: creating container %s: %w", name, err))
 	}
@@ -820,7 +825,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	b.log.Info("runner container started",
 		"runner", spec.Name, "pool", spec.PoolName, "image", spec.Image,
 		"container", shortID(id), "docker_mode", string(spec.DockerMode))
-	return CreateResult{Handle: Handle(id), Digest: digest, ImagePullDuration: pullDuration, CreateDuration: time.Since(createStarted)}, nil
+	return CreateResult{DinDReadyDuration: dindReadyDuration, Handle: Handle(id), Digest: digest, ImagePullDuration: pullDuration, CreateDuration: time.Since(createStarted)}, nil
 }
 
 // prepareImage applies the task's pool policy, then resolves the image before
@@ -884,7 +889,7 @@ func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts container
 		limit = time.Duration(seconds) * time.Second
 	}
 	cfg := buildDinDConfig(spec, b.fl, opts)
-	id, err := b.api.ContainerCreate(ctx, dindName(containerName(spec.Name)), cfg)
+	id, err := b.createWithConflictRecovery(ctx, spec, cfg, true)
 	if err != nil {
 		return "", fmt.Errorf("backend: creating the docker-in-docker sidecar for %s: %w", spec.Name, err)
 	}
@@ -907,6 +912,9 @@ func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts container
 			if state.OOMKilled || state.Dead || state.Status == "exited" {
 				return "", fmt.Errorf("backend: docker-in-docker sidecar for %s exited before its daemon was ready (exit %d, OOM killed: %t); check its logs and the pool's memory allocation", spec.Name, state.ExitCode, state.OOMKilled)
 			}
+			if state.Running && state.Health == nil {
+				lastErr = errors.New("runtime did not report sidecar health; the runtime must honour container healthchecks and the custom DinD image must provide the docker CLI")
+			}
 			if state.Running && state.Health != nil && state.Health.Status == "healthy" {
 				b.log.Warn("docker-in-docker daemon ready: this runner has a privileged container", "runner", spec.Name, "pool", spec.PoolName, "container", shortID(id))
 				return id, nil
@@ -920,14 +928,14 @@ func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts container
 	}
 }
 
-func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, name, workDir string, owned bool) error {
+func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, spec Spec, workDir string, owned bool) error {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 	defer cancel()
-	if err := b.Remove(cleanupCtx, Handle(name)); err != nil {
+	if err := b.removeOwnedForCreate(cleanupCtx, spec, false); err != nil {
 		return fmt.Errorf("cleaning failed runner creation: %w", err)
 	}
 	// There may be a sidecar even when the runner never reached creation.
-	if err := b.removeByName(cleanupCtx, dindName(name)); err != nil {
+	if err := b.removeOwnedForCreate(cleanupCtx, spec, true); err != nil {
 		return err
 	}
 	if owned && workDir != "" {

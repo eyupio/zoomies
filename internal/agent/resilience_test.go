@@ -156,7 +156,7 @@ func TestRuntimeCooldownIsBoundedAndClearsOnSuccess(t *testing.T) {
 	for range 10 {
 		a.runtimeResult(backend.ErrUnavailable)
 		wait := a.runtimeRetryAt.Sub(clock.Now())
-		if wait < 5*time.Second || wait > time.Minute {
+		if wait < 5*time.Second || wait > 75*time.Second {
 			t.Fatalf("runtime cooldown outside bounds: %s", wait)
 		}
 	}
@@ -230,11 +230,12 @@ func (b *blockedStatsBackend) Stats(ctx context.Context, _ backend.Handle) (back
 
 func TestBlockedStatsDoNotBlockLifecycleReconciliation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		a, _, be, _ := newAgent(t, 2)
+		a, _, be, clock := newAgent(t, 2)
 		b := &blockedStatsBackend{fakeBackend: be, entered: make(chan struct{}, 2)}
 		a.opts.Backends = backend.NewRegistry(b)
 		a.polled.Store(true)
-		track(a, "runner-1", "wl-1", true).stats = backend.Stats{CPUPercent: 12.5}
+		sampled := clock.Now().Add(-time.Minute)
+		track(a, "runner-1", "wl-1", true).stats = backend.Stats{CPUPercent: 12.5, SampledAt: &sampled}
 		be.setWorkloads(running("wl-1", "runner-1"))
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -256,7 +257,7 @@ func TestBlockedStatsDoNotBlockLifecycleReconciliation(t *testing.T) {
 		cancel()
 		synctest.Wait()
 		<-done
-		if got := a.Runners(); len(got) != 1 || got[0].Stats.CPUPercent != 12.5 {
+		if got := a.Runners(); len(got) != 1 || got[0].Stats.CPUPercent != 12.5 || got[0].Stats.SampledAt == nil || !got[0].Stats.SampledAt.Equal(sampled) {
 			t.Fatalf("failed sampling replaced the last good reading: %+v", got)
 		}
 	})

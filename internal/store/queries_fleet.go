@@ -801,10 +801,11 @@ const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, contain
 	image_pull_ms, container_started_at, registered_at, task_issued_at,
 	cleanup_error, cleanup_failed_at, cleanup_attempts, registration_deleted_at, cleaned_up_at,
 	draining_since, create_task_issued_at, host_removed_at, cleanup_estimated_at,
-	allocated_cpus, allocated_memory_mb, allocation_source, fault_kind`
+	allocated_cpus, allocated_memory_mb, allocation_source, fault_kind, resource_sample`
 
 func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var r Runner
+	var resourceSample string
 	var ephemeral int
 	var created int64
 	var started, idle, finished, pullMS, containerStarted, registered, taskIssued sql.NullInt64
@@ -816,10 +817,11 @@ func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 		&r.CPUPercent, &r.MemoryBytes, &pullMS, &containerStarted, &registered, &taskIssued,
 		&r.CleanupError, &cleanupFailed, &r.CleanupAttempts, &registrationDeleted, &cleanedUp,
 		&drainingSince, &createIssued, &hostRemoved, &cleanupEstimated,
-		&r.AllocatedCPUs, &r.AllocatedMemoryMB, &r.AllocationSource, &r.FaultKind)
+		&r.AllocatedCPUs, &r.AllocatedMemoryMB, &r.AllocationSource, &r.FaultKind, &resourceSample)
 	if err != nil {
 		return nil, err
 	}
+	r.ResourceSample = []byte(resourceSample)
 	r.Ephemeral = ephemeral == 1
 	r.CreatedAt = at(created)
 	r.StartedAt, r.LastIdleAt, r.FinishedAt = atp(started), atp(idle), atp(finished)
@@ -846,7 +848,7 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
@@ -855,7 +857,7 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 		r.CleanupError, msp(r.CleanupFailedAt), r.CleanupAttempts,
 		msp(r.RegistrationDeletedAt), msp(r.CleanedUpAt), msp(r.DrainingSince),
 		msp(r.CreateTaskIssuedAt), msp(r.HostRemovedAt), msp(r.CleanupEstimatedAt),
-		r.AllocatedCPUs, r.AllocatedMemoryMB, r.AllocationSource, r.FaultKind)
+		r.AllocatedCPUs, r.AllocatedMemoryMB, r.AllocationSource, r.FaultKind, runnerSampleJSON(r.ResourceSample))
 	return wrapWrite(err)
 }
 
@@ -1596,4 +1598,50 @@ func (s *Store) SetHostConnection(ctx context.Context, id, connection string) er
 		return wrapWrite(err)
 	}
 	return affected(res, "host", id)
+}
+
+func runnerSampleJSON(sample []byte) string {
+	if len(sample) == 0 {
+		return "{}"
+	}
+	return string(sample)
+}
+
+// SetRunnerResourceSample stores the original sample timestamp, including when
+// an agent reports its retained last sample after a collection failure.
+func (s *Store) SetRunnerResourceSample(ctx context.Context, id string, cpu float64, mem int64, sample []byte) error {
+	_, err := s.exec(ctx, `UPDATE runners SET cpu_percent=?, memory_bytes=?, resource_sample=? WHERE id=?`, cpu, mem, runnerSampleJSON(sample), id)
+	return err
+}
+
+// DeferRegistrationCleanup refreshes a busy registration's explanation without
+// counting an observation as a failed deletion or resetting its original age.
+// Host cleanup evidence remains independent.
+func (s *Store) DeferRegistrationCleanup(ctx context.Context, id, reason string) error {
+	_, err := s.exec(ctx, `UPDATE runners SET registration_cleanup_error=?,
+  cleanup_error=CASE WHEN host_cleanup_error='' THEN '' ELSE host_cleanup_error || '; ' END || ?,
+  cleanup_failed_at=COALESCE(cleanup_failed_at, ?), cleaned_up_at=NULL, registration_deleted_at=NULL
+  WHERE id=?`, reason, reason, s.Now().UnixMilli(), id)
+	return err
+}
+
+// RunnersPendingRegistrationCleanup includes removed rows, which ordinary pool
+// listings omit. A complete GitHub snapshot can confirm their registrations gone.
+func (s *Store) RunnersPendingRegistrationCleanup(ctx context.Context, installationID string) ([]*Runner, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT `+runnerCols+` FROM runners
+  WHERE state IN ('removed', 'failed') AND registration_deleted_at IS NULL
+  AND pool_id IN (SELECT id FROM pools WHERE installation_id=?)`, installationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Runner
+	for rows.Next() {
+		r, err := scanRunner(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

@@ -122,13 +122,18 @@ type Options struct {
 	// after it has been reported. The controller's retention.runners is a
 	// different window -- it keeps the row, not the container.
 	FinishedRetention time.Duration
-	// BootstrapCPUGrace delays pressure throttling, not resource limits. Zero disables it.
+	// PrewarmTimeout bounds background work separately from foreground starts.
+	PrewarmTimeout time.Duration
+	PrewarmJitter  time.Duration
+	// BootstrapCPUGrace preserves normal quotas before host-pressure reductions.
 	BootstrapCPUGrace time.Duration
 	// DockerBuildCacheMB targets unused host Docker builder cache; 0 disables it.
 	DockerBuildCacheMB int
 	Logger             *slog.Logger
 	// Clock is injectable so tests do not have to sleep.
 	Clock func() time.Time
+	// RandomFloat64 supplies jitter draws; nil uses the concurrency-safe system source.
+	RandomFloat64 func() float64
 	// Machine overrides what this agent reports about the host it runs on.
 	// It exists for tests; leaving it nil makes the agent detect for itself.
 	Machine *machine.Facts
@@ -1091,10 +1096,11 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 // start runs a task whose runner's claim is already held, and gives the claim
 // up -- or hands it to whatever is waiting behind it -- when the task is done.
 func (a *Agent) start(ctx context.Context, task Task) {
+	queuedAt := a.now()
 	claimed := task.RunnerID != ""
 	var admission *startupTicket
-	if task.Kind == TaskCreateRunner || task.Kind == TaskPrewarmImage {
-		admission = a.startup.enqueue(task.Kind == TaskCreateRunner)
+	if task.Kind == TaskCreateRunner {
+		admission = a.startup.enqueue(true)
 	}
 	a.tasks.Add(1)
 	go func() {
@@ -1108,6 +1114,16 @@ func (a *Agent) start(ctx context.Context, task Task) {
 			})
 		}
 		defer release()
+		if task.Kind == TaskPrewarmImage {
+			// Stagger background pulls without occupying startup admission or a
+			// lifecycle slot; foreground work may pass during this delay.
+			delay := time.Duration(a.randomFraction() * float64(a.opts.PrewarmJitter))
+			if !sleepCtx(ctx, delay) {
+				a.reportFailure(ctx, task, "agent shut down before background preparation", store.FaultBackend)
+				return
+			}
+			admission = a.startup.enqueue(false)
+		}
 		// Wait before taking a lifecycle slot, so queued starts cannot crowd
 		// out stops and removals. The backend's create timeout begins only
 		// after admission, and shutdown still cancels work waiting here.
@@ -1117,6 +1133,9 @@ func (a *Agent) start(ctx context.Context, task Task) {
 			defer a.startup.done(admission)
 			select {
 			case <-admission.ready:
+				wait := a.now().Sub(queuedAt)
+				task.startupWait = &wait
+				a.log.Info("startup admitted", "kind", task.Kind, "queue_wait", wait)
 			case <-ctx.Done():
 				release()
 				a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver", store.FaultRunnerExited)
@@ -1243,7 +1262,11 @@ func (a *Agent) handlePrewarm(ctx context.Context, task Task, release func()) {
 		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend does not support image prewarming", task.Backend), store.FaultBackend)
 		return
 	}
-	warmCtx, cancel := context.WithTimeout(ctx, CreateTimeout)
+	budget := a.opts.PrewarmTimeout
+	if budget <= 0 {
+		budget = 5 * time.Minute
+	}
+	warmCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	digest, err := a.prewarm(warmCtx, b, p, task)
 	a.runtimeResult(err)
@@ -1407,6 +1430,8 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		OK:                 true,
 		Handle:             handle,
 		ImagePullDuration:  created.ImagePullDuration,
+		StartupWait:        task.startupWait,
+		DinDReadyDuration:  created.DinDReadyDuration,
 		CreateDuration:     created.CreateDuration,
 		ContainerStartedAt: &now,
 		Digest:             created.Digest,

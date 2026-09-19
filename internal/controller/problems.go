@@ -1721,24 +1721,24 @@ func (c *Controller) cleanupProblems(ctx context.Context, out *[]Problem) error 
 		"Zoomies retries, and the row clears itself when it succeeds.",
 		example.Name, c.hostName(ctx, example.HostID))
 	switch {
-	case strings.Contains(example.CleanupError, "still reports") && strings.Contains(example.CleanupError, "running a job"):
-		fix = fmt.Sprintf("nothing to do yet for %s: GitHub's own bookkeeping can lag a few seconds behind the "+
-			"webhook that told Zoomies the job was done, and this clears on its own once GitHub agrees the "+
-			"runner is idle -- Zoomies rechecks every ten minutes. If it stays this way, GitHub will not let "+
-			"Zoomies delete a runner it still calls busy -- cancel the workflow run on GitHub, or remove the "+
-			"runner on the target's runner settings page.", example.Name)
+	case strings.Contains(example.CleanupError, "running a job"):
+		fix = fmt.Sprintf("GitHub still reports %s busy. Zoomies rechecks every ten minutes and removes the registration once it is idle, or clears this warning if GitHub has already removed it. Allow a running workflow to finish; Zoomies will not cancel it to force cleanup. If this persists, verify the workflow's status on GitHub and investigate a stale busy registration; this is not evidence of a missing App permission.", example.Name)
 	case strings.Contains(example.CleanupError, "registration"):
 		fix = fmt.Sprintf("check the target's runner settings page for %s. Zoomies retries the deletion every "+
 			"ten minutes and the row clears itself when it succeeds; a registration that stays is usually a "+
 			"permission the App has lost.", example.Name)
 	}
+	progress := "while waiting for cleanup"
+	if example.CleanupAttempts > 0 {
+		progress = "after " + plural(example.CleanupAttempts, "attempt")
+	}
 	*out = append(*out, Problem{
 		Code:     "runners.cleanup_failed",
 		Severity: config.SeverityWarning,
 		Title:    fmt.Sprintf("%s could not be cleaned up", plural(len(stuck), "runner")),
-		Detail: fmt.Sprintf("%s, after %s: %s. Something is left behind — a container on its host, or a "+
-			"registration on GitHub — and it will not go away on its own.",
-			example.Name, plural(example.CleanupAttempts, "attempt"), example.CleanupError),
+		Detail: fmt.Sprintf("%s, %s: %s. Something is left behind — a container on its host, or a "+
+			"registration on GitHub. Housekeeping will recheck and retry safe cleanup automatically.",
+			example.Name, progress, example.CleanupError),
 		Fix:        fix,
 		TargetKind: "runner", TargetID: example.ID, Since: example.CleanupFailedAt,
 	})

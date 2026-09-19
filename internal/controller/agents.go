@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -993,6 +994,12 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 	if kind == agent.TaskCreateRunner && res.OK && res.ContainerStartedAt != nil {
 		_ = c.st.SetRunnerStartup(ctx, r.ID, res.ImagePullDuration, res.ContainerStartedAt)
 		if p, err := c.st.GetPool(ctx, r.PoolID); err == nil {
+			if res.StartupWait != nil && *res.StartupWait >= 0 {
+				c.metrics.startupWait.WithLabelValues(p.Name, string(p.Backend)).Observe(res.StartupWait.Seconds())
+			}
+			if res.DinDReadyDuration != nil && *res.DinDReadyDuration >= 0 {
+				c.metrics.dindReady.WithLabelValues(p.Name, string(p.Backend)).Observe(res.DinDReadyDuration.Seconds())
+			}
 			observeDuration(c.metrics.createToContainer, p.Name, string(p.Backend), r.CreatedAt, *res.ContainerStartedAt)
 		}
 	}
@@ -1149,8 +1156,9 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 		if rep.GitHubRunnerID != 0 && r.GitHubRunnerID == 0 {
 			_ = c.st.SetRunnerGitHubID(ctx, r.ID, rep.GitHubRunnerID)
 		}
-		if rep.Stats.CPUPercent != 0 || rep.Stats.MemoryBytes != 0 {
-			_ = c.st.SetRunnerResourceUsage(ctx, r.ID, rep.Stats.CPUPercent, rep.Stats.MemoryBytes)
+		if rep.Stats.SampledAt != nil || rep.Stats.CPUPercent != 0 || rep.Stats.MemoryBytes != 0 {
+			sample, _ := json.Marshal(rep.Stats)
+			_ = c.st.SetRunnerResourceSample(ctx, r.ID, rep.Stats.CPUPercent, rep.Stats.MemoryBytes, sample)
 		}
 
 		state := rep.State
@@ -1659,6 +1667,8 @@ func (c *Controller) StartEmbeddedAgent(ctx context.Context, cfg *config.Config)
 		HeartbeatInterval:  cfg.Agent.HeartbeatInterval,
 		FinishedRetention:  cfg.Agent.FinishedRetention,
 		BootstrapCPUGrace:  cfg.Agent.BootstrapCPUGrace,
+		PrewarmJitter:      cfg.Agent.PrewarmJitter,
+		PrewarmTimeout:     cfg.Agent.PrewarmTimeout,
 		DockerBuildCacheMB: cfg.Agent.DockerBuildCacheMB,
 		Logger:             c.log,
 		Clock:              c.clock,

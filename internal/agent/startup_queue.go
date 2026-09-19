@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"math/rand/v2"
 	"net"
 	"sync"
 	"time"
@@ -93,6 +94,7 @@ func (a *Agent) runtimeResult(err error) {
 	a.warmed = nil
 	a.runtimeFailures = min(a.runtimeFailures+1, 5)
 	delay := min(5*time.Second*time.Duration(1<<(a.runtimeFailures-1)), time.Minute)
+	delay = recoveryDelay(delay, a.randomFraction())
 	a.runtimeRetryAt = a.now().Add(delay)
 	a.log.Warn("container runtime failed; holding new starts before one recovery attempt",
 		"error", err, "retry_in", delay, "consecutive_failures", a.runtimeFailures)
@@ -103,4 +105,17 @@ func (a *Agent) waitForRuntime(ctx context.Context) bool {
 	wait := a.runtimeRetryAt.Sub(a.now())
 	a.mu.Unlock()
 	return sleepCtx(ctx, wait)
+}
+
+// recoveryDelay takes an injected draw for deterministic bounds/distribution tests.
+// Jitter adds up to 25 percent and never shortens the cooldown floor.
+func recoveryDelay(base time.Duration, draw float64) time.Duration {
+	return base + time.Duration(float64(base)*0.25*max(0, min(1, draw)))
+}
+
+func (a *Agent) randomFraction() float64 {
+	if a.opts.RandomFloat64 != nil {
+		return max(0, min(1, a.opts.RandomFloat64()))
+	}
+	return rand.Float64()
 }
