@@ -15,6 +15,7 @@
  * link, a bookmark and a place the browser's back button returns to.
  */
 import {
+  Activity,
   CircleUser,
   DatabaseBackup,
   Info,
@@ -57,6 +58,13 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         label: 'Appearance',
         description: 'Theme, navigation and how tables read on a phone. Kept in this browser.',
         icon: Palette,
+        admin: false,
+      },
+      {
+        id: 'events',
+        label: 'Events',
+        description: 'Which of the fleet’s events the Overview’s feed shows. Kept in this browser.',
+        icon: Activity,
         admin: false,
       },
     ],

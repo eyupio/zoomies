@@ -45,17 +45,22 @@ Under it, four numbers with an hour of shape behind them — queued jobs,
 running jobs, live runners, and the median queue wait with its p95 — then how
 long runners take to start and to register. Then each pool's busy runners
 against its live ones with the floor and ceiling marked, what is running this
-moment, how the last jobs ended, and the scheduler's decisions in its own
-words: *scaled zoomies-demo-linux-x64 4 → 5: 1 job queued*. When something
-needs a person it is one line and a *Review* button, never a list that pushes
-the fleet below the fold. The
+moment, and a feed of what has happened to the fleet lately: the scheduler's
+decisions in its own words — *scaled zoomies-demo-linux-x64 4 → 5: 1 job
+queued* — beside how each job ended and the step it stopped at, a runner that
+failed, a host that went quiet, a machine a provider is renting and a pool
+somebody changed. Which of those it carries is yours to choose, one switch per
+kind on **Settings → Events**, and the panel counts what it is showing rather
+than quietly leaving the rest out. When
+something needs a person it is one line and a *Review* button, never a list
+that pushes the fleet below the fold. The
 *Other runners* switch says whether these numbers count only the jobs this
 fleet ran or every job GitHub reported on an installed repository — the
 default is this fleet's own work, because that is the question an operator is
 usually asking.
 
-![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
-![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-light.webp#only-light){ .zoomies-shot }
+![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
+![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-light.webp#only-light){ .zoomies-shot }
 
 ![The activity matrix with a day selected: the day's figures, its outcomes hour by hour, and links to its jobs](screenshots/activity-dark.webp#only-dark){ .zoomies-shot }
 ![The activity matrix with a day selected: the day's figures, its outcomes hour by hour, and links to its jobs](screenshots/activity-light.webp#only-light){ .zoomies-shot }
@@ -369,9 +374,10 @@ so nothing here can leak one.
 ## Settings
 
 A section of pages rather than a page of tabs, with its own rail beside them:
-your account and appearance; the accounts that can sign in and their roles,
-and the API tokens; the configuration this controller is actually running
-with, its backups, and what it is. Each page has an address of its own, so a
+your account, appearance and which events the Overview's feed shows; the
+accounts that can sign in and their roles, and the API tokens; the
+configuration this controller is actually running with, its backups, and what
+it is. Each page has an address of its own, so a
 settings page is a link. Zoomies refuses any change that would leave no
 enabled administrator, and the pages that need that role are listed for
 everybody, marked rather than hidden.
@@ -417,8 +423,8 @@ page with it. If you would rather read a row downwards, the **Cards / Rows**
 toggle above each grid gives every value a line of its own, with nothing cut
 off; **Settings → Appearance** sets which of the two every grid starts in.
 
-![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-phone-dark.webp#only-dark){ .zoomies-shot .zoomies-phone }
-![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-phone-light.webp#only-light){ .zoomies-shot .zoomies-phone }
+![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-phone-dark.webp#only-dark){ .zoomies-shot .zoomies-phone }
+![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-phone-light.webp#only-light){ .zoomies-shot .zoomies-phone }
 
 The design system behind all of this — tokens, status colours, components and
 the accessibility checklist — is in [UI guidelines](ui-guidelines.md).

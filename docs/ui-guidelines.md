@@ -471,18 +471,39 @@ The one page that has to earn the second monitor.
   wait. Each carries a sparkline of the last hour.
 * **Per-pool utilisation bars** — busy / live, with the pool's min and max marked
   so an operator can see a pool pinned at its ceiling.
-* **Recent scaling activity** — a reverse-chronological list of decisions in the
-  scheduler's own words: *"scaled `linux-x64` 2 → 4: 3 jobs queued > 30s"*.
+* **Recent events** — a reverse-chronological list of what has happened to the
+  fleet, whatever kind of thing it was: the scheduler's decisions in its own
+  words (*"scaled `linux-x64` 2 → 4: 3 jobs queued > 30s"*), how each job
+  ended, a runner that failed, a host that went quiet or was throttled, a
+  machine a provider is renting, a pool somebody changed, the GitHub
+  connection, problems as they are raised, and the audit trail. Every line is
+  the same four things — a mark in one of the six status tones, what happened,
+  what it happened to, and when — with the controller's own sentence under it
+  where there is one, printed verbatim. A job's line names the step it stopped
+  at, how long it took and where it came from, and a job whose runner stopped
+  under it says so: that failure is the fleet's, not the workflow's, and this
+  page is where the two are told apart. The hour's failures and how many of
+  them were the fleet's own are a badge in the panel's header, because nothing
+  else answers that — GitHub records both as *failure*.
+
+  **Which kinds it carries is the operator's choice**, one switch per category
+  on *Settings → Events*, kept in the browser like the theme. Two rules make
+  that safe: the panel says how many kinds are switched off rather than
+  quietly omitting them, and a category never reports a frame that carries no
+  news, so nothing floods the panel with heartbeats. A category with no
+  history to load — a host, a machine, a pool — says so on the settings page,
+  because one that is on and empty otherwise looks exactly like one that is
+  broken.
+
   On a desktop the pools and the running jobs share the left-hand column and
   this feed takes the right, cut to their height and scrolling inside itself.
   It is the one panel whose length says nothing about the fleet, so it never
   decides the height of the page: a fleet with one pool does not get a screen
   of blank space under it because the scheduler has been busy.
-* **Active jobs**, under the pools, and **Recent outcomes**, across the bottom
-  of the page — what is running this moment, and how the last jobs ended,
-  newest first. An outcome names the step a job failed at, and a job whose
-  runner stopped under it is badged *Runner lost*: that failure is the fleet's,
-  not the workflow's, and the page is where the two are told apart.
+* **Active jobs**, under the pools — what is running this moment, newest
+  first. How the last jobs ended was a second panel across the bottom of the
+  page and is now part of the feed: two reverse-chronological lists on one
+  page, each with its own idea of what belonged on it, was one list too many.
 * **Problems summary** — one line saying how many things need a person, worst
   severity first, with a *Review* button that opens the problems drawer.
   **When everything is fine it is a single quiet line, not an empty box and not

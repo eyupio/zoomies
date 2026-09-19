@@ -53,10 +53,12 @@ const PAGES = [
   { path: '/installations', heading: 'Installations' },
   { path: '/migrate', heading: 'Migrate repositories' },
   { path: '/audit', heading: 'Audit' },
-  // Two of the settings pages: the one with a table and a row menu, and the
-  // one with the most controls on it.
+  // Three of the settings pages: the one with a table and a row menu, the one
+  // with the most controls on it, and the one that is nothing but switches --
+  // each of which has to name itself without the label beside it.
   { path: '/settings/users', heading: 'Users' },
   { path: '/settings/configuration', heading: 'Configuration' },
+  { path: '/settings/events', heading: 'Events' },
 ] as const;
 
 /** The pages whose main content is a grid of rows to wait for. */
@@ -71,7 +73,7 @@ const GRID_PAGES = new Set(['/pools', '/runners', '/jobs', '/queue', '/audit']);
 async function settle(page: Page, path: string): Promise<void> {
   await expect(page.getByRole('main')).toBeVisible();
   if (path === '/') {
-    await expect(page.getByRole('region', { name: 'Recent scaling' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Recent events' })).toBeVisible();
     return;
   }
   if (GRID_PAGES.has(path)) {
@@ -400,7 +402,7 @@ test('the page holds together at 200% zoom without scrolling sideways', async ({
   // zoom setting, which is the same arithmetic and is scriptable.
   await page.setViewportSize({ width: 640, height: 480 });
   await goto(page, '/', 'Overview');
-  await expect(page.getByRole('region', { name: 'Recent scaling' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Recent events' })).toBeVisible();
 
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
