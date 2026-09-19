@@ -19,6 +19,7 @@
   import Dialog from '$lib/components/Dialog.svelte';
   import Field from '$lib/components/Field.svelte';
   import Textarea from '$lib/components/Textarea.svelte';
+  import { tableLayout } from '$lib/actions/tableLayout';
 
   interface Props {
     open?: boolean;
@@ -220,7 +221,13 @@
       {/if}
       <div class="scroll">
         <!-- svelte-ignore a11y_no_redundant_roles -->
-        <table role="table">
+        <table
+          role="table"
+          use:tableLayout={{
+            id: 'settings-import',
+            columns: ['include', 'setting', 'current', 'incoming', 'outcome'],
+          }}
+        >
           <caption class="sr-only">What the import would change</caption>
           <!-- svelte-ignore a11y_no_redundant_roles -->
           <thead role="rowgroup">

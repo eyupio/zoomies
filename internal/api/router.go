@@ -113,6 +113,8 @@ func (s *Server) apiRoutes() chi.Router {
 		// change its own password; there is no separate role for that.
 		r.Post("/auth/logout", s.handleLogout)
 		r.Get("/auth/session", s.handleSession)
+		r.Get("/auth/preferences", s.handleGetPreferences)
+		r.Put("/auth/preferences", s.handlePutPreferences)
 		r.Post("/auth/password", s.handleChangePassword)
 
 		// Overview.

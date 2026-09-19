@@ -677,6 +677,9 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/api/v1/auth/oidc/callback", public: true},
 
 		{method: "GET", path: "/api/v1/auth/session", role: store.RoleViewer},
+		{method: "GET", path: "/api/v1/auth/preferences", role: store.RoleViewer},
+		{method: "PUT", path: "/api/v1/auth/preferences", role: store.RoleViewer,
+			body: map[string]any{"table_layouts": map[string]any{}}},
 		{method: "POST", path: "/api/v1/auth/logout", role: store.RoleViewer},
 		{method: "POST", path: "/api/v1/auth/password", role: store.RoleViewer,
 			body: map[string]any{"old_password": "x", "new_password": testPassword}},

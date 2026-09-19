@@ -37,6 +37,7 @@
   import RadioGroup from '$lib/components/RadioGroup.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
+  import { tableLayout } from '$lib/actions/tableLayout';
 
   let users = $state<User[]>([]);
   let loading = $state(true);
@@ -354,7 +355,13 @@
       nothing saying which value belongs to which record.
     -->
       <!-- svelte-ignore a11y_no_redundant_roles -->
-      <table role="table">
+      <table
+        role="table"
+        use:tableLayout={{
+          id: 'accounts',
+          columns: ['account', 'role', 'state', 'last-signed-in', 'actions'],
+        }}
+      >
         <caption class="sr-only">Accounts</caption>
         <!-- svelte-ignore a11y_no_redundant_roles -->
         <thead role="rowgroup">

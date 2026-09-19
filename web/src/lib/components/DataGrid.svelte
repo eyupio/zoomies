@@ -105,7 +105,7 @@
 -->
 <script lang="ts" generics="T extends Record<string, unknown>">
   import { untrack } from 'svelte';
-  import { Columns3 } from '@lucide/svelte';
+  import { Columns3, GripVertical, RotateCcw } from '@lucide/svelte';
   import {
     columnVisibilityFeature,
     createTable,
@@ -339,8 +339,19 @@
     ),
   );
 
+  const orderedColumns = $derived.by(() => {
+    const byColumnId = new Map(columns.map((column) => [column.id, column]));
+    return prefs
+      .columnOrder(
+        gridId,
+        columns.map((column) => column.id),
+      )
+      .map((id) => byColumnId.get(id))
+      .filter((column): column is GridColumn<T> => Boolean(column));
+  });
+
   const definitions = $derived(
-    columns.map(
+    orderedColumns.map(
       (column) =>
         ({
           id: column.id,
@@ -367,9 +378,9 @@
   });
 
   /* -- how wide the columns are ---------------------------------------------
-   * The table never scrolls sideways, so the frame's width is the whole budget
-   * and the columns divide it. A declared width is a share of that budget
-   * rather than a measure, except where a column says it is `fixed`, and the
+   * Defaults divide the frame when they need to fit, and otherwise use only
+   * the useful width they declare. An operator's explicit widths are measures,
+   * so the grid frame scrolls rather than silently undoing their resize. The
    * arithmetic is done here rather than in CSS because a percentage inside a
    * `calc()` does not resolve for a column of a fixed-layout table -- Chrome
    * quietly falls back to dividing the width equally, which throws away every
@@ -470,7 +481,7 @@
   */
   const phoneRows = $derived(viewport.phone && view === 'rows');
 
-  const byId = $derived(new Map(columns.map((c) => [c.id, c])));
+  const byId = $derived(new Map(orderedColumns.map((c) => [c.id, c])));
   const visibleColumns = $derived(
     table
       .getVisibleLeafColumns()
@@ -479,6 +490,23 @@
       .filter((c) => !(narrowDesktop && c.priority === 'wide')),
   );
   const modelRows = $derived(table.getRowModel().rows);
+
+  // Kept locally while a pointer moves, then persisted once on release. A
+  // drag should repaint at pointer speed without writing storage at pointer
+  // speed, and an account-backed preference should become one request rather
+  // than hundreds when those preferences are synchronised.
+  let layoutWidths = $state<Record<string, number>>(
+    untrack(() =>
+      Object.fromEntries(
+        columns.flatMap((column) => {
+          const width = prefs.columnWidth(gridId, column.id);
+          return width === undefined ? [] : [[column.id, width]];
+        }),
+      ),
+    ),
+  );
+
+  const hasCustomWidths = $derived(Object.keys(layoutWidths).length > 0);
 
   /**
    * Every visible column's width, in the proportions the declared widths ask
@@ -498,7 +526,9 @@
     // longer there.
     if (cards || frameWidth <= 0) return none;
 
-    const wanted = visibleColumns.map((column) => share(column.width, remPx));
+    const wanted = visibleColumns.map(
+      (column) => layoutWidths[column.id] ?? share(column.width, remPx),
+    );
     // The tick is a control like any other, so it is measured rather than shared.
     const pick = selectable ? PICK_SHARE_REM * remPx : 0;
     /*
@@ -507,7 +537,7 @@
       automatic layout, or the longest repository name on the page would decide
       how wide the table is and the ellipsis could never fire.
     */
-    if (phoneRows) {
+    if (phoneRows || hasCustomWidths) {
       return {
         pick: selectable ? `${pick}px` : undefined,
         columns: wanted.map((value) => `${value}px`),
@@ -541,11 +571,104 @@
    * exactly the frame, which is the point of dividing the width.
    */
   const tableWidth = $derived.by(() => {
-    if (!phoneRows) return undefined;
+    if (cards || frameWidth <= 0) return undefined;
     const pick = selectable ? PICK_SHARE_REM * remPx : 0;
-    const total = visibleColumns.reduce((sum, column) => sum + share(column.width, remPx), pick);
+    const total = visibleColumns.reduce(
+      (sum, column) => sum + (layoutWidths[column.id] ?? share(column.width, remPx)),
+      pick,
+    );
+    // Defaults still fit the window when their useful measures add up to more
+    // than it has. Once the operator resizes a column, that explicit measure
+    // wins and the grid's own frame scrolls if necessary; silently shrinking
+    // every other column would make the resize handle lie.
+    if (!phoneRows && !hasCustomWidths && total >= frameWidth) return undefined;
     return total > 0 ? `${total.toFixed(2)}px` : undefined;
   });
+
+  const MIN_COLUMN_PX = 56;
+  const MAX_COLUMN_PX = 640;
+
+  function setLayoutWidth(column: GridColumn<T>, width: number, persist = false): void {
+    const next = Math.max(MIN_COLUMN_PX, Math.min(MAX_COLUMN_PX, Math.round(width)));
+    layoutWidths = { ...layoutWidths, [column.id]: next };
+    if (persist) prefs.setColumnWidth(gridId, column.id, next);
+  }
+
+  function beginResize(event: PointerEvent, column: GridColumn<T>): void {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const heading = (event.currentTarget as HTMLElement).closest('th');
+    const startWidth = heading?.getBoundingClientRect().width ?? share(column.width, remPx);
+    const startX = event.clientX;
+    const onMove = (move: PointerEvent): void => {
+      setLayoutWidth(column, startWidth + move.clientX - startX);
+    };
+    const onUp = (): void => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      const width = layoutWidths[column.id];
+      if (width !== undefined) prefs.setColumnWidth(gridId, column.id, width);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp, { once: true });
+  }
+
+  function resizeByKey(event: KeyboardEvent, column: GridColumn<T>): void {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    event.stopPropagation();
+    const current =
+      (event.currentTarget as HTMLElement).closest('th')?.getBoundingClientRect().width ??
+      layoutWidths[column.id] ??
+      share(column.width, remPx);
+    setLayoutWidth(column, current + (event.key === 'ArrowRight' ? 8 : -8), true);
+  }
+
+  function resetColumnWidth(column: GridColumn<T>): void {
+    const { [column.id]: _removed, ...rest } = layoutWidths;
+    layoutWidths = rest;
+    prefs.clearColumnWidth(gridId, column.id);
+  }
+
+  let draggedColumn = $state('');
+  let dropColumn = $state('');
+
+  function moveColumn(id: string, target: string): void {
+    if (id === target) return;
+    const order = prefs.columnOrder(
+      gridId,
+      columns.map((column) => column.id),
+    );
+    const from = order.indexOf(id);
+    const to = order.indexOf(target);
+    if (from < 0 || to < 0) return;
+    order.splice(from, 1);
+    order.splice(to, 0, id);
+    prefs.setColumnOrder(gridId, order);
+  }
+
+  function moveColumnBy(column: GridColumn<T>, by: -1 | 1): void {
+    const order = prefs.columnOrder(
+      gridId,
+      columns.map((item) => item.id),
+    );
+    const index = order.indexOf(column.id);
+    const target = order[index + by];
+    if (target) moveColumn(column.id, target);
+  }
+
+  function moveByKey(event: KeyboardEvent, column: GridColumn<T>): void {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    event.stopPropagation();
+    moveColumnBy(column, event.key === 'ArrowLeft' ? -1 : 1);
+  }
+
+  function resetLayout(): void {
+    layoutWidths = {};
+    prefs.resetColumnLayout(gridId);
+  }
 
   function toggleColumn(id: string, visible: boolean): void {
     visibility = { ...visibility, [id]: visible };
@@ -682,11 +805,11 @@
     };
   });
 
-  const hideable = $derived(columns.filter((c) => c.hideable !== false));
+  const hideable = $derived(orderedColumns.filter((c) => c.hideable !== false));
   const isEmpty = $derived(settled && !error && modelRows.length === 0);
 </script>
 
-<div class="grid {className}" class:rows={phoneRows}>
+<div class="grid {className}" class:rows={phoneRows} class:custom={hasCustomWidths}>
   <div class="toolbar">
     {#if selectable && selected.length > 0}
       <div class="bulk" role="group" aria-label="Actions for the selected {noun}">
@@ -737,7 +860,7 @@
         Columns
       </Button>
       {#if chooserOpen}
-        <div class="chooser" id="{gridId}-columns" role="group" aria-label="Columns to show">
+        <div class="chooser" id="{gridId}-columns" role="group" aria-label="Column layout">
           {#each hideable as column (column.id)}
             <!--
               A column the window is too narrow for is still listed, and still
@@ -746,15 +869,34 @@
               nothing they can see. A tick that does nothing and does not say so
               is the kind of control that gets reported as broken.
             -->
-            <Checkbox
-              label={column.header}
-              description={narrowDesktop && column.priority === 'wide'
-                ? 'Shown when the window is wider'
-                : undefined}
-              checked={visibility[column.id] !== false}
-              onchange={(on) => toggleColumn(column.id, on)}
-            />
+            <div class="chooser-row">
+              <Checkbox
+                label={column.header}
+                description={narrowDesktop && column.priority === 'wide'
+                  ? 'Shown when the window is wider'
+                  : undefined}
+                checked={visibility[column.id] !== false}
+                onchange={(on) => toggleColumn(column.id, on)}
+              />
+              <span class="chooser-move">
+                <button
+                  type="button"
+                  title="Move {column.header} left"
+                  aria-label="Move {column.header} left"
+                  onclick={() => moveColumnBy(column, -1)}>←</button
+                >
+                <button
+                  type="button"
+                  title="Move {column.header} right"
+                  aria-label="Move {column.header} right"
+                  onclick={() => moveColumnBy(column, 1)}>→</button
+                >
+              </span>
+            </div>
           {/each}
+          <Button size="sm" variant="ghost" icon={RotateCcw} onclick={resetLayout}
+            >Reset layout</Button
+          >
         </div>
       {/if}
     </div>
@@ -772,7 +914,7 @@
       role="grid"
       aria-label={label}
       aria-rowcount={total}
-      style:min-width={tableWidth}
+      style:width={tableWidth}
       onkeydown={onBodyKeydown}
     >
       <!--
@@ -803,22 +945,67 @@
               style:width={columnWidths.columns[index]}
               class:end={column.align === 'end'}
               class:sortable={column.sortable}
+              class:drop-target={dropColumn === column.id && draggedColumn !== column.id}
               aria-sort={sort === column.id
                 ? order === 'asc'
                   ? 'ascending'
                   : 'descending'
                 : undefined}
+              ondragover={(event) => {
+                if (!draggedColumn) return;
+                event.preventDefault();
+                dropColumn = column.id;
+              }}
+              ondragleave={() => {
+                if (dropColumn === column.id) dropColumn = '';
+              }}
+              ondrop={(event) => {
+                event.preventDefault();
+                moveColumn(draggedColumn, column.id);
+                draggedColumn = '';
+                dropColumn = '';
+              }}
             >
-              {#if column.sortable}
-                <button type="button" class="sort" onclick={() => toggleSort(column)}>
-                  <span>{column.header}</span>
-                  <span class="arrow" aria-hidden="true">
-                    {#if sort === column.id}{order === 'asc' ? '↑' : '↓'}{/if}
-                  </span>
+              <div class="heading">
+                <button
+                  type="button"
+                  class="move"
+                  draggable="true"
+                  title="Drag to reposition {column.header}; use left and right arrow keys for keyboard control"
+                  aria-label="Reposition {column.header} column"
+                  onkeydown={(event) => moveByKey(event, column)}
+                  ondragstart={(event) => {
+                    draggedColumn = column.id;
+                    event.dataTransfer?.setData('text/plain', column.id);
+                    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+                  }}
+                  ondragend={() => {
+                    draggedColumn = '';
+                    dropColumn = '';
+                  }}
+                >
+                  <GripVertical size={12} aria-hidden="true" />
                 </button>
-              {:else}
-                {column.header}
-              {/if}
+                {#if column.sortable}
+                  <button type="button" class="sort" onclick={() => toggleSort(column)}>
+                    <span>{column.header}</span>
+                    <span class="arrow" aria-hidden="true">
+                      {#if sort === column.id}{order === 'asc' ? '↑' : '↓'}{/if}
+                    </span>
+                  </button>
+                {:else}
+                  <span class="heading-label">{column.header}</span>
+                {/if}
+              </div>
+              <button
+                type="button"
+                class="resizer"
+                aria-label="Resize {column.header} column"
+                title="Drag to resize; double-click to restore the default width"
+                onpointerdown={(event) => beginResize(event, column)}
+                onkeydown={(event) => resizeByKey(event, column)}
+                ondblclick={() => resetColumnWidth(column)}
+              ></button>
             </th>
           {/each}
         </tr>
@@ -980,12 +1167,44 @@
     display: flex;
     flex-direction: column;
     gap: var(--z-space-2);
-    min-width: 190px;
+    min-width: 260px;
     padding: var(--z-space-3);
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface-raised);
     box-shadow: var(--z-shadow-md);
+  }
+  .chooser-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-3);
+  }
+  .chooser-row :global(label) {
+    min-width: 0;
+  }
+  .chooser-move {
+    display: inline-flex;
+    flex: none;
+    gap: var(--z-space-1);
+  }
+  .chooser-move button,
+  .move,
+  .resizer {
+    border: 0;
+    background: transparent;
+    color: var(--z-text-muted);
+  }
+  .chooser-move button {
+    width: var(--z-space-8);
+    height: var(--z-space-8);
+    border-radius: var(--z-radius-sm);
+    cursor: pointer;
+  }
+  .chooser-move button:hover,
+  .move:hover {
+    background: var(--z-surface-hover);
+    color: var(--z-text);
   }
   .scroll {
     /*
@@ -1007,6 +1226,9 @@
       strange amount of damage for a one-pixel span nobody can see.
     */
     position: relative;
+  }
+  .grid.custom .scroll {
+    overflow-x: auto;
   }
   table {
     width: 100%;
@@ -1040,9 +1262,63 @@
     text-transform: uppercase;
     letter-spacing: var(--z-tracking-wide);
     white-space: nowrap;
-    /* A heading is as narrow as its column now, so it truncates like a cell. */
+    /* The resize handle sits across the column edge, so the cell stays open
+       and the heading inside it owns truncation. */
+    overflow: visible;
+  }
+  .heading {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+  .heading-label {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .move {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: var(--z-space-5);
+    height: var(--z-space-6);
+    margin-left: calc(-1 * var(--z-space-2));
+    margin-right: var(--z-space-1);
+    padding: 0;
+    border-radius: var(--z-radius-sm);
+    cursor: grab;
+  }
+  .move:active {
+    cursor: grabbing;
+  }
+  .resizer {
+    position: absolute;
+    top: 0;
+    right: calc(-1 * var(--z-space-1));
+    z-index: 1;
+    width: var(--z-space-3);
+    height: 100%;
+    padding: 0;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .resizer::after {
+    content: '';
+    position: absolute;
+    top: 25%;
+    bottom: 25%;
+    left: 50%;
+    width: var(--z-border-width);
+    background: var(--z-border-strong);
+    opacity: 0;
+  }
+  thead th:hover .resizer::after,
+  .resizer:focus-visible::after {
+    opacity: 1;
+  }
+  thead th.drop-target {
+    box-shadow: inset var(--z-focus-width) 0 var(--z-focus-colour);
   }
   /* The sort button is the heading, so it has to truncate as the heading does. */
   .sort > span:first-child {
@@ -1071,6 +1347,7 @@
     text-transform: inherit;
     letter-spacing: inherit;
     cursor: pointer;
+    min-width: 0;
   }
   .sort:hover {
     color: var(--z-text);
@@ -1190,6 +1467,10 @@
       border: 0;
       overflow: hidden;
       clip-path: inset(50%);
+    }
+    .grid:not(.rows) thead th .move,
+    .grid:not(.rows) thead th .resizer {
+      display: none;
     }
     .grid:not(.rows) thead th.pick,
     .grid:not(.rows) thead th.sortable {

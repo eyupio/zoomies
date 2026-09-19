@@ -6,6 +6,70 @@
  */
 
 @import './lib/styles/tokens.css';
+
+/* Shared controls added to the handful of specialised tables that are not
+   DataGrids. Component-scoped styles cannot reach action-created elements. */
+.managed-table-frame {
+  overflow-x: auto;
+}
+table[data-managed-table='true'] {
+  max-width: none;
+}
+table[data-managed-table='true'] .managed-table-heading {
+  position: relative;
+  overflow: visible;
+}
+.managed-table-move,
+.managed-table-resizer {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--z-text-muted);
+}
+.managed-table-move {
+  width: var(--z-space-5);
+  margin-left: calc(-1 * var(--z-space-2));
+  margin-right: var(--z-space-1);
+  border-radius: var(--z-radius-sm);
+  cursor: grab;
+  letter-spacing: -0.18rem;
+}
+.managed-table-move:hover {
+  background: var(--z-surface-hover);
+  color: var(--z-text);
+}
+.managed-table-resizer {
+  position: absolute;
+  top: 0;
+  right: calc(-1 * var(--z-space-1));
+  width: var(--z-space-3);
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+.managed-table-resizer::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  left: 50%;
+  width: var(--z-border-width);
+  background: var(--z-border-strong);
+  opacity: 0;
+}
+.managed-table-heading:hover .managed-table-resizer::after,
+.managed-table-resizer:focus-visible::after {
+  opacity: 1;
+}
+@media (max-width: 768px) {
+  table[data-managed-table='true'] {
+    width: 100% !important;
+  }
+  .managed-table-move,
+  .managed-table-resizer {
+    display: none;
+  }
+}
 @import 'tailwindcss';
 
 /* Four Latin faces, declared by hand. See the file for why. */

@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -264,6 +265,91 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, newIdentityResponse(id, must))
+}
+
+const maxPreferenceBytes = 64 << 10
+
+type tableLayoutPreference struct {
+	Widths map[string]float64 `json:"widths,omitempty"`
+	Order  []string           `json:"order,omitempty"`
+}
+
+type userPreferences struct {
+	TableLayouts map[string]tableLayoutPreference `json:"table_layouts,omitempty"`
+}
+
+// handleGetPreferences returns choices belonging to this account rather than
+// to the fleet. API tokens and auth-disabled sessions have no account to carry
+// them, so those clients continue to use the browser fallback.
+func (s *Server) handleGetPreferences(w http.ResponseWriter, r *http.Request) {
+	id := Identity(r.Context())
+	if id.Kind != auth.KindUser || id.ID == "" {
+		writeJSON(w, http.StatusOK, userPreferences{})
+		return
+	}
+	raw, err := s.ctrl.Store().UserPreferences(r.Context(), id.ID)
+	if err != nil {
+		s.internal(w, r, "reading account preferences", err)
+		return
+	}
+	var preferences userPreferences
+	if err := json.Unmarshal(raw, &preferences); err != nil {
+		s.internal(w, r, "reading account preferences", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preferences)
+}
+
+// handlePutPreferences replaces the small, private table-layout document. A
+// whole replacement makes two open tabs converge on the latest deliberate
+// layout and avoids a patch language for data that is never collaboratively
+// edited.
+func (s *Server) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
+	id := Identity(r.Context())
+	if id.Kind != auth.KindUser || id.ID == "" {
+		forbidden(w, "only a signed-in account can save preferences")
+		return
+	}
+	var preferences userPreferences
+	if !decode(w, r, &preferences) {
+		return
+	}
+	if len(preferences.TableLayouts) > 100 {
+		unprocessable(w, "too many table layouts", nil)
+		return
+	}
+	for tableID, layout := range preferences.TableLayouts {
+		if len(tableID) == 0 || len(tableID) > 100 || len(layout.Widths) > 100 || len(layout.Order) > 100 {
+			unprocessable(w, "a table layout is too large", nil)
+			return
+		}
+		for columnID, width := range layout.Widths {
+			if len(columnID) == 0 || len(columnID) > 100 || width < 40 || width > 1000 {
+				unprocessable(w, "a table column width is outside the supported range", nil)
+				return
+			}
+		}
+		for _, columnID := range layout.Order {
+			if len(columnID) == 0 || len(columnID) > 100 {
+				unprocessable(w, "a table column id is invalid", nil)
+				return
+			}
+		}
+	}
+	raw, err := json.Marshal(preferences)
+	if err != nil {
+		s.internal(w, r, "encoding account preferences", err)
+		return
+	}
+	if len(raw) > maxPreferenceBytes {
+		unprocessable(w, "table preferences are too large", nil)
+		return
+	}
+	if err := s.ctrl.Store().SetUserPreferences(r.Context(), id.ID, raw); err != nil {
+		s.internal(w, r, "saving account preferences", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preferences)
 }
 
 type changePasswordRequest struct {

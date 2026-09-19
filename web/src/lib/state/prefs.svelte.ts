@@ -8,7 +8,11 @@
  * private window is a dashboard someone cannot demo.
  */
 
+import { getOwnPreferences, replaceOwnPreferences } from '../api/client';
+import type { TableLayoutPreference } from '../api/types';
+
 const PREFS_KEY = 'zoomies.prefs';
+const PREFS_ACCOUNT_KEY = 'zoomies.prefs.account';
 /** Read by the inline script in index.html before first paint. */
 const NAV_KEY = 'zoomies.nav.collapsed';
 
@@ -63,6 +67,13 @@ export interface GridPrefs {
   /** Column ids the operator has hidden. Stored as the exception, so new columns appear. */
   hidden?: string[];
   pageSize?: number;
+  /** Column widths in CSS pixels, keyed by the stable column id. */
+  widths?: Record<string, number>;
+  /**
+   * Column ids in the operator's preferred order. New columns are appended,
+   * so a saved layout does not make a later release's column disappear.
+   */
+  order?: string[];
   /**
    * How this grid lays a row out on a phone, when the operator has said. Absent
    * means the default below, so changing that default moves every grid nobody
@@ -174,6 +185,8 @@ class Prefs {
   #otherRunners = $state(false);
   #activityRange = $state<ActivityRangeKey>('1d');
   #gridView = $state<GridView>(DEFAULT_GRID_VIEW);
+  #accountSync = false;
+  #accountSave: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     const stored = load();
@@ -263,6 +276,62 @@ class Prefs {
     this.#persist();
   }
 
+  /**
+   * Bring account-scoped table layouts into this browser after sign-in. The
+   * first account seen migrates the older browser-only layouts; switching to a
+   * different account never copies the previous person's layout into it.
+   */
+  async syncAccount(userID: string): Promise<void> {
+    try {
+      const remote = await getOwnPreferences();
+      const layouts = remote.table_layouts ?? {};
+      const previous = storage.get(PREFS_ACCOUNT_KEY);
+      if (Object.keys(layouts).length > 0) {
+        // The server document is a replacement, not an overlay. Clearing the
+        // local layout fields first means a reset made on another browser is a
+        // reset here too, and no layout leaks between two accounts sharing one
+        // browser. Browser-only choices such as visibility and page size stay.
+        const grids: Record<string, GridPrefs> = Object.fromEntries(
+          Object.entries(this.#grids).map(([gridID, grid]) => {
+            const { widths: _widths, order: _order, ...rest } = grid;
+            return [gridID, rest];
+          }),
+        );
+        for (const [gridID, layout] of Object.entries(layouts)) {
+          grids[gridID] = {
+            ...grids[gridID],
+            widths: layout.widths ? { ...layout.widths } : undefined,
+            order: layout.order ? [...layout.order] : undefined,
+          };
+        }
+        this.#grids = grids;
+      } else if (previous) {
+        this.#grids = Object.fromEntries(
+          Object.entries(this.#grids).map(([gridID, grid]) => {
+            const { widths: _widths, order: _order, ...rest } = grid;
+            return [gridID, rest];
+          }),
+        );
+      }
+      storage.set(PREFS_ACCOUNT_KEY, userID);
+      this.#accountSync = true;
+      this.#persist();
+      // An existing installation has browser layouts but no server document;
+      // the first successful sync upgrades them without waiting for a drag.
+      if (Object.keys(layouts).length === 0 && !previous) this.#scheduleAccountSave(0);
+    } catch {
+      // Browser preferences remain fully functional while the controller is
+      // offline or while an older controller has no account endpoint.
+      this.#accountSync = false;
+    }
+  }
+
+  disconnectAccount(): void {
+    this.#accountSync = false;
+    if (this.#accountSave !== null) clearTimeout(this.#accountSave);
+    this.#accountSave = null;
+  }
+
   /** Column ids this grid is hiding. */
   hiddenColumns(gridId: string): string[] {
     return this.#grids[gridId]?.hidden ?? [];
@@ -288,6 +357,60 @@ class Prefs {
 
   setPageSize(gridId: string, pageSize: number): void {
     this.#grids = { ...this.#grids, [gridId]: { ...this.#grids[gridId], pageSize } };
+    this.#persist();
+  }
+
+  /** A column's saved width, when the operator has resized it. */
+  columnWidth(gridId: string, columnId: string): number | undefined {
+    const value = this.#grids[gridId]?.widths?.[columnId];
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+  }
+
+  setColumnWidth(gridId: string, columnId: string, width: number): void {
+    if (!Number.isFinite(width) || width <= 0) return;
+    const current = this.#grids[gridId] ?? {};
+    this.#grids = {
+      ...this.#grids,
+      [gridId]: {
+        ...current,
+        widths: { ...current.widths, [columnId]: Math.round(width) },
+      },
+    };
+    this.#persist();
+  }
+
+  clearColumnWidth(gridId: string, columnId: string): void {
+    const current = this.#grids[gridId];
+    if (!current?.widths?.[columnId]) return;
+    const widths = { ...current.widths };
+    delete widths[columnId];
+    this.#grids = { ...this.#grids, [gridId]: { ...current, widths } };
+    this.#persist();
+  }
+
+  /**
+   * Known columns in the saved order, followed by anything this build added.
+   * Unknown ids are discarded rather than reserving invisible gaps forever.
+   */
+  columnOrder(gridId: string, columnIds: readonly string[]): string[] {
+    const known = new Set(columnIds);
+    const saved = (this.#grids[gridId]?.order ?? []).filter(
+      (id, index, all) => known.has(id) && all.indexOf(id) === index,
+    );
+    return [...saved, ...columnIds.filter((id) => !saved.includes(id))];
+  }
+
+  setColumnOrder(gridId: string, order: readonly string[]): void {
+    const current = this.#grids[gridId] ?? {};
+    this.#grids = { ...this.#grids, [gridId]: { ...current, order: [...order] } };
+    this.#persist();
+  }
+
+  resetColumnLayout(gridId: string): void {
+    const current = this.#grids[gridId];
+    if (!current) return;
+    const { widths: _widths, order: _order, ...rest } = current;
+    this.#grids = { ...this.#grids, [gridId]: rest };
     this.#persist();
   }
 
@@ -320,6 +443,27 @@ class Prefs {
         gridView: this.#gridView,
       } satisfies StoredPrefs),
     );
+    this.#scheduleAccountSave();
+  }
+
+  #scheduleAccountSave(wait = 350): void {
+    if (!this.#accountSync) return;
+    if (this.#accountSave !== null) clearTimeout(this.#accountSave);
+    this.#accountSave = setTimeout(() => {
+      this.#accountSave = null;
+      const tableLayouts: Record<string, TableLayoutPreference> = {};
+      for (const [gridID, grid] of Object.entries(this.#grids)) {
+        if (!grid.widths && !grid.order) continue;
+        tableLayouts[gridID] = {
+          ...(grid.widths ? { widths: grid.widths } : {}),
+          ...(grid.order ? { order: grid.order } : {}),
+        };
+      }
+      void replaceOwnPreferences({ table_layouts: tableLayouts }).catch(() => {
+        // The local copy is authoritative until the next successful sign-in;
+        // a layout gesture should never turn into an error toast.
+      });
+    }, wait);
   }
 }
 

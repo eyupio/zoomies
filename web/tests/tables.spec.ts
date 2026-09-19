@@ -1,5 +1,5 @@
 /**
- * Every table fits the window it is shown in.
+ * Every default table fits the window it is shown in.
  *
  * A table that scrolls sideways hides the column somebody is looking for behind
  * a gesture they have no reason to try, and takes the row's name off the left
@@ -11,11 +11,14 @@
  * to support: the reference desktop, the two documented breakpoints and either
  * side of them, and the two phone widths the mobile project uses.
  *
- * One layout is exempt, and says so where it is measured: a phone whose grids
+ * Two layouts are exempt, and say so where they are measured: a phone whose grids
  * are left in the row layout they start in scrolls its table inside the grid's
  * own frame, because ten columns do not divide 360 pixels. That is the trade
  * the layout exists to make and the reason Cards is one press away; what is
- * never exempt is the page, which is measured here in both layouts.
+ * never exempt is the page, which is measured here in both layouts. The other
+ * is a desktop layout the operator deliberately widened: that table scrolls in
+ * its frame rather than silently shrinking some other column behind the
+ * resize handle.
  */
 import { expect, test, type Page } from '@playwright/test';
 import {
@@ -193,6 +196,37 @@ test('every column is still there when the rows become cards', async ({ page }) 
   await expect(runners.getByRole('checkbox', { name: /^Select every/ })).toBeVisible();
   await runners.getByRole('columnheader', { name: 'Age' }).getByRole('button').click();
   await expect(page).toHaveURL(/sort=created_at/);
+});
+
+test('column width and order survive reload', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await goto(page, '/runners', 'Runners');
+  const runners = grid(page, 'Runners');
+  await waitForRows(runners);
+
+  const name = runners.getByRole('columnheader', { name: /Name/ });
+  const before = await name.evaluate((heading) => heading.getBoundingClientRect().width);
+  await name.getByRole('button', { name: 'Reposition Name column' }).press('ArrowLeft');
+  await name.getByRole('button', { name: 'Resize Name column' }).press('ArrowRight');
+
+  const headings = async () =>
+    runners
+      .getByRole('columnheader')
+      .evaluateAll((items) => items.map((item) => item.textContent?.replace(/⋮/g, '').trim()));
+  await expect.poll(headings).toEqual(expect.arrayContaining(['Name', 'State']));
+  expect((await headings()).indexOf('Name')).toBeLessThan((await headings()).indexOf('State'));
+  await expect
+    .poll(() => name.evaluate((heading) => heading.getBoundingClientRect().width))
+    .toBeGreaterThan(before);
+
+  await page.reload();
+  await waitForRows(grid(page, 'Runners'));
+  const restored = await headings();
+  expect(restored.indexOf('Name')).toBeLessThan(restored.indexOf('State'));
+  const restoredWidth = await grid(page, 'Runners')
+    .getByRole('columnheader', { name: /Name/ })
+    .evaluate((heading) => heading.getBoundingClientRect().width);
+  expect(restoredWidth).toBeGreaterThan(before);
 });
 
 /*

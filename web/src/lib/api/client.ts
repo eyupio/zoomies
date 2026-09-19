@@ -125,7 +125,7 @@ export interface RequestOptions {
   allow401?: boolean;
 }
 
-type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 async function request<T>(method: Method, path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
@@ -216,6 +216,7 @@ function defaultMessage(status: number): string {
 export const api = {
   get: <T>(path: string, options?: RequestOptions) => request<T>('GET', path, options),
   post: <T>(path: string, options?: RequestOptions) => request<T>('POST', path, options),
+  put: <T>(path: string, options?: RequestOptions) => request<T>('PUT', path, options),
   patch: <T>(path: string, options?: RequestOptions) => request<T>('PATCH', path, options),
   del: <T>(path: string, options?: RequestOptions) => request<T>('DELETE', path, options),
 };
@@ -229,6 +230,12 @@ export const getMeta = (signal?: AbortSignal) =>
 
 export const getSession = (signal?: AbortSignal) =>
   api.get<Result<'getSession'>>('/auth/session', { signal, allow401: true });
+
+export const getOwnPreferences = (signal?: AbortSignal) =>
+  api.get<Result<'getOwnPreferences'>>('/auth/preferences', { signal });
+
+export const replaceOwnPreferences = (body: Body<'replaceOwnPreferences'>) =>
+  api.put<Result<'replaceOwnPreferences'>>('/auth/preferences', { body });
 
 export const login = (body: Body<'login'>) =>
   api.post<Result<'login'>>('/auth/login', { body, allow401: true });
