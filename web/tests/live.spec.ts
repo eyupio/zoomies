@@ -231,3 +231,112 @@ test('a scaling decision delivered twice appears once', async ({ page }) => {
   await expect(row).toHaveCount(1, { timeout: 10_000 });
   await expectNoReload(page);
 });
+
+test('a runner lent spare CPU says so in the feed, in the dog park’s own words', async ({
+  page,
+}) => {
+  // The demo fleet has no elastic CPU in it -- the seed writes no resource
+  // samples -- so the two frames a controller running a bursting pool would
+  // send are sent here. Two, not one: the state a runner is already in when a
+  // tab opens is not something that just happened, and that rule is as much
+  // under test as the line it produces.
+  await goto(page, '/', 'Overview');
+  const feed = page.getByRole('region', { name: 'Recent events', exact: true });
+  await expect(feed.getByRole('listitem').first()).toBeVisible();
+
+  const listed = (await page.request.get('/api/v1/runners?limit=1').then((r) => r.json())) as {
+    items: Array<Record<string, unknown>>;
+  };
+  const runner = listed.items[0];
+  expect(runner, 'the fixture has a runner to lend CPU to').toBeTruthy();
+
+  const withCPU = (cpu: Record<string, unknown>) => ({ ...runner, cpu_resource: cpu });
+  const frame = (id: number, cpu: Record<string, unknown>) =>
+    `id: ${id}\nevent: runner.updated\ndata: ${JSON.stringify(withCPU(cpu))}\n\n`;
+  const body =
+    frame(999_001, {
+      state: 'guaranteed',
+      label: 'Steady paws — guaranteed pace',
+      reason: 'base_allocation',
+      guaranteed_cpus: 2,
+      current_cpus: 2,
+      ceiling_cpus: 4,
+      factor: 1,
+    }) +
+    frame(999_002, {
+      state: 'maximum_zoomies',
+      label: 'Squirrel spotted — maximum zoomies',
+      reason: 'spare_cpu_lent',
+      guaranteed_cpus: 2,
+      current_cpus: 3.8,
+      ceiling_cpus: 4,
+      factor: 1.9,
+    });
+  await page.route('**/api/v1/events*', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+      body,
+    }),
+  );
+  await plantMarker(page);
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('offline'));
+    window.dispatchEvent(new Event('online'));
+  });
+
+  // The controller's own label, verbatim: translating it into "CPU allocation
+  // factor 1.9" would describe a different system from the one on the runner's
+  // own page.
+  const row = feed.getByRole('listitem').filter({ hasText: 'Squirrel spotted' });
+  await expect(row).toHaveCount(1, { timeout: 10_000 });
+  await expect(row, 'and what it actually got').toContainText(
+    '3.8 CPUs now against a guarantee of 2',
+  );
+  // The state it was already in when the tab opened is not a line of its own.
+  await expect(feed.getByRole('listitem').filter({ hasText: 'Steady paws' })).toHaveCount(0);
+  await expectNoReload(page);
+});
+
+test('a runner that comes up ready is a line of its own, and the states on the way are not', async ({
+  page,
+}) => {
+  // The successful half of a runner's life. The demo controller hosts no
+  // runners of its own, so the frames a controller with a host would send are
+  // sent here: provisioning, registering, then idle. Only the last is a line
+  // -- one per state would be a log rather than a feed.
+  await goto(page, '/', 'Overview');
+  const feed = page.getByRole('region', { name: 'Recent events', exact: true });
+  await expect(feed.getByRole('listitem').first()).toBeVisible();
+
+  const runner = {
+    id: 'run_livespec',
+    name: 'zoomies-livespec-runner',
+    pool_id: 'pool_demolinux',
+    pool_name: 'zoomies-demo-linux-x64',
+    host_name: 'demo-builder-1',
+    ephemeral: true,
+    jobs_handled: 0,
+    created_at: new Date().toISOString(),
+  };
+  const frame = (id: number, state: string) =>
+    `id: ${id}\nevent: runner.updated\ndata: ${JSON.stringify({ ...runner, state })}\n\n`;
+  await page.route('**/api/v1/events*', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+      body: frame(999_101, 'provisioning') + frame(999_102, 'registering') + frame(999_103, 'idle'),
+    }),
+  );
+  await plantMarker(page);
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('offline'));
+    window.dispatchEvent(new Event('online'));
+  });
+
+  const ready = feed.getByRole('listitem').filter({ hasText: 'A runner is ready for work' });
+  await expect(ready).toHaveCount(1, { timeout: 10_000 });
+  await expect(ready).toContainText(runner.name);
+  await expect(feed.getByRole('listitem').filter({ hasText: 'Provisioning' })).toHaveCount(0);
+  await expectNoReload(page);
+});

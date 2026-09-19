@@ -23,6 +23,7 @@ import type {
   MachineState,
   Problem,
   Provider,
+  RunnerState,
 } from '../api/types';
 import { outcomeOf } from '../outcomes';
 import { problemKey } from '../problems/identity';
@@ -30,7 +31,7 @@ import { problemKey } from '../problems/identity';
 /* -- hosts ---------------------------------------------------------------- */
 
 /**
- * The four facts about a host worth a line. Everything else a host frame
+ * The five facts about a host worth a line. Everything else a host frame
  * carries -- its load, its free slots, when it last spoke -- moves every
  * thirty seconds and says nothing that has not already been said by the
  * capacity map.
@@ -42,6 +43,8 @@ export interface HostSignal {
   throttle: number;
   /** An agent too old to talk to this controller at all. */
   incompatible: boolean;
+  /** Whether pressure is holding new runners off this host right now. */
+  holding: boolean;
 }
 
 export type HostChange =
@@ -52,6 +55,8 @@ export type HostChange =
   | 'uncordoned'
   | 'throttled'
   | 'calm'
+  | 'holding'
+  | 'admitting'
   | 'incompatible';
 
 export function hostSignal(host: Host): HostSignal {
@@ -60,6 +65,7 @@ export function hostSignal(host: Host): HostSignal {
     cordoned: host.cordoned === true,
     throttle: host.throttle?.level ?? 0,
     incompatible: host.incompatible === true,
+    holding: Boolean(host.admission_reason),
   };
 }
 
@@ -80,7 +86,52 @@ export function hostChanges(next: HostSignal, previous: HostSignal | undefined):
   // worsening pressure, which is the thing an operator is watching for.
   if (next.throttle > previous.throttle) out.push('throttled');
   else if (next.throttle === 0 && previous.throttle > 0) out.push('calm');
+  // The hold is not the throttle: a throttle takes slots away for minutes, a
+  // hold is this moment's pressure refusing the next start. Both are answers
+  // to "why is nothing starting here", and only the transitions are reported
+  // -- the reason's wording moves with the load and would flap.
+  if (next.holding !== previous.holding) out.push(next.holding ? 'holding' : 'admitting');
   return out;
+}
+
+/* -- runners ---------------------------------------------------------------- */
+
+/**
+ * The two moments in an ordinary runner's life worth a line.
+ *
+ * Not the six states it passes through: a fleet of ephemeral runners would
+ * write one line per state per job, which is a log rather than a feed. A
+ * runner reaching `idle` for the first time is the one that says the pool can
+ * actually start containers -- the success the failures are the exception to
+ * -- and a runner removed is the end of it. Coming back to idle from a job is
+ * neither: the job's own line already said that.
+ */
+export type RunnerMilestone = 'ready' | 'retired';
+
+export function runnerMilestone(
+  next: RunnerState | undefined,
+  previous: RunnerState | undefined,
+): RunnerMilestone | null {
+  if (!next || next === previous) return null;
+  if (next === 'idle') return previous === 'busy' ? null : 'ready';
+  if (next === 'removed') return 'retired';
+  return null;
+}
+
+/* -- elastic CPU ------------------------------------------------------------ */
+
+/**
+ * A runner's elastic-CPU state changing: it was lent spare CPU, or had it
+ * taken back, or the host it is on came under enough pressure to slow it.
+ *
+ * The state rather than the factor, because the factor moves with every
+ * heartbeat and the five states are what the runner's own page shows. A
+ * runner seen for the first time says nothing: the state it is already in is
+ * not something that just happened.
+ */
+export function cpuChange(next: string | undefined, previous: string | undefined): string | null {
+  if (!next || previous === undefined || next === previous) return null;
+  return next;
 }
 
 /* -- machines -------------------------------------------------------------- */

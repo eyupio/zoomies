@@ -30,7 +30,7 @@
  */
 import { listAudit, listJobs } from '../api/client';
 import { events } from '../api/sse';
-import type { Host, Job, MachineState, Pool, Provider } from '../api/types';
+import type { Host, Job, MachineState, Pool, Provider, Runner, RunnerState } from '../api/types';
 import { toMillis } from '../format';
 import {
   FEED_CATEGORIES,
@@ -39,6 +39,7 @@ import {
   type FeedCategoryID,
 } from '../feed/categories';
 import {
+  cpuChange,
   hostChanges,
   hostSignal,
   installationChange,
@@ -47,11 +48,13 @@ import {
   newProblems,
   providerChanges,
   providerSignal,
+  runnerMilestone,
   type HostSignal,
   type ProviderSignal,
 } from '../feed/changes';
 import {
   auditEntry,
+  cpuEntry,
   deliveryEntry,
   hostEntry,
   hostRemovedEntry,
@@ -64,6 +67,7 @@ import {
   problemEntry,
   providerEntry,
   runnerFailureEntry,
+  runnerMilestoneEntry,
   scalingEntry,
   type FeedEntry,
 } from '../feed/entries';
@@ -89,6 +93,8 @@ class Feed {
 
   /** What each resource last looked like, so a frame can be compared to it. */
   #hosts = new Map<string, HostSignal>();
+  #runners = new Map<string, RunnerState>();
+  #cpu = new Map<string, string>();
   #machines = new Map<string, MachineState>();
   #providers = new Map<string, ProviderSignal>();
   #installations = new Map<string, boolean>();
@@ -161,6 +167,8 @@ class Feed {
     this.#started = true;
 
     this.#unsubscribers.push(
+      events.subscribe(['runner.created', 'runner.updated'], (runner) => this.#runner(runner)),
+      events.subscribe('runner.deleted', ({ id }) => this.#forget(id)),
       events.subscribe('host.updated', (host) => this.#host(host)),
       events.subscribe('host.deleted', ({ id }) => {
         this.#hosts.delete(id);
@@ -245,6 +253,8 @@ class Feed {
     this.#started = false;
     this.#captured = [];
     this.#hosts.clear();
+    this.#runners.clear();
+    this.#cpu.clear();
     this.#machines.clear();
     this.#providers.clear();
     this.#installations.clear();
@@ -254,6 +264,45 @@ class Feed {
   }
 
   /* -- internals ------------------------------------------------------------ */
+
+  /**
+   * A runner frame: the two milestones of an ordinary life, and the elastic
+   * CPU moving under it. The failures are not here -- they are derived from
+   * the fleet cache, which holds every failed runner already.
+   */
+  #runner(runner: Runner): void {
+    if (!runner.id) return;
+    const state = runner.state;
+    const previous = this.#runners.get(runner.id);
+    if (state) this.#runners.set(runner.id, state);
+    const cpu = runner.cpu_resource?.state;
+    const seenCPU = this.#cpu.get(runner.id);
+    if (cpu) this.#cpu.set(runner.id, cpu);
+    // Before the snapshot has landed there is nothing to compare against that
+    // is not simply this tab's ignorance, and after a reconnect the replay
+    // would otherwise announce a fleet that has been running all morning.
+    if (!fleet.loaded) return;
+    const at = now();
+    const milestone = runnerMilestone(state, previous);
+    if (milestone) {
+      const entry = runnerMilestoneEntry(runner, milestone, at);
+      if (entry) this.#push(entry);
+    }
+    const lent = cpuChange(cpu, seenCPU);
+    if (lent) {
+      const entry = cpuEntry(runner, lent, at);
+      if (entry) this.#push(entry);
+    }
+    // A removed runner is gone from the fleet cache too, and on a fleet of
+    // ephemeral runners these maps would otherwise grow by one entry per job
+    // for as long as the tab is open.
+    if (state === 'removed') this.#forget(runner.id);
+  }
+
+  #forget(id: string): void {
+    this.#runners.delete(id);
+    this.#cpu.delete(id);
+  }
 
   #host(host: Host): void {
     if (!host.id) return;
@@ -297,6 +346,12 @@ class Feed {
       if (!host.id) continue;
       if (host.name) this.#names.set(host.id, host.name);
       if (!this.#hosts.has(host.id)) this.#hosts.set(host.id, hostSignal(host));
+    }
+    for (const runner of fleet.runners) {
+      if (!runner.id) continue;
+      if (runner.state && !this.#runners.has(runner.id)) this.#runners.set(runner.id, runner.state);
+      const cpu = runner.cpu_resource?.state;
+      if (cpu && !this.#cpu.has(runner.id)) this.#cpu.set(runner.id, cpu);
     }
     for (const pool of fleet.pools) {
       if (pool.id && pool.name) this.#names.set(pool.id, pool.name);
