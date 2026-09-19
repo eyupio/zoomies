@@ -1127,6 +1127,12 @@ type Job struct {
 	// Empty means ready; paused and deleted suppress this job's scale-up demand.
 	Provisioning string `json:"provisioning"`
 	ProvisionNow bool   `json:"provision_now"`
+	// CancelRequestedAt is when an operator's cancellation of this job's
+	// workflow run was accepted by GitHub. Like Provisioning it is the fleet's
+	// own note, never written by a delivery, because GitHub's completion event
+	// is still what settles the conclusion -- and that event can be minutes
+	// behind, which is exactly the window this exists to describe.
+	CancelRequestedAt *time.Time `json:"cancel_requested_at,omitempty"`
 
 	ID          string      `json:"id"`
 	GitHubJobID int64       `json:"github_job_id"`
@@ -1349,6 +1355,19 @@ func (j *Job) FailedStep() *JobStep {
 		return st
 	}
 	return nil
+}
+
+// Cancelling reports whether this job is on its way out because somebody
+// cancelled its workflow run, and GitHub has not yet said so.
+//
+// GitHub owns the conclusion, so the row still reads `queued` or `in_progress`
+// for as long as its completion delivery takes -- and the fleet used to report
+// the job as waiting or running for that whole window. It is neither: the
+// queued half raises no demand and the running half has had its runner taken
+// away. Once the job completes this is history, and the conclusion says what
+// happened.
+func (j *Job) Cancelling() bool {
+	return j.CancelRequestedAt != nil && j.State != JobCompleted
 }
 
 // RemovedFromQueue reports whether an operator took this job out of the queue.

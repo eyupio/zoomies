@@ -144,6 +144,11 @@ func jobsList(ctx context.Context, e *env, args []string) error {
 // queued carries one -- once something has run it, what was done to its demand
 // is history rather than status.
 func queueNote(j jobItem) string {
+	// A cancelled run pauses its queued jobs, so this has to come first or an
+	// operator's own cancellation is reported back to them as a pause.
+	if j.CancelRequestedAt != nil && j.State != "completed" {
+		return "cancelling"
+	}
 	if j.State != "queued" {
 		return ""
 	}
@@ -159,6 +164,9 @@ func queueNote(j jobItem) string {
 // queueStatus is the long form for `jobs get`, which says the ordinary case
 // out loud rather than leaving a blank row to be read as "nothing is known".
 func queueStatus(j jobItem) string {
+	if j.CancelRequestedAt != nil && j.State != "completed" {
+		return "cancelling -- GitHub accepted the cancellation and has yet to report the conclusion"
+	}
 	if j.State != "queued" {
 		return ""
 	}

@@ -168,14 +168,25 @@ that no enabled pool claims is one filter away — *Unmatched only* — and the
 problems drawer links straight to it: on an organisation that also rents
 runners elsewhere, most such jobs are somebody else's rather than a fault.
 
-*Queued* means work this fleet is actually waiting on, so it leaves out
-anything an operator removed from the queue — the same set the Overview's queue
-depth counts, and a chip above the grid says so. Those jobs are still here
-under *All*, badged **Removed**, as a paused one is badged **Paused**: GitHub
-goes on calling both queued, because Zoomies cannot unqueue a job, and a row
-that showed only GitHub's word for it left the operator's own decision
-invisible. `?provisioning=deleted` narrows to them on their own, and the
-[Queue](#queue) is where they are restored.
+*Queued* and *Running* mean work this fleet actually has in hand. Both leave
+out a job whose workflow run has been cancelled, and *Queued* also leaves out
+anything an operator removed from the queue — the same sets the Overview's two
+tiles count, and a chip above the grid says so where a filter is in force.
+
+None of those jobs is hidden: they are in the history under *All*, badged
+**Cancelling**, **Removed** or **Paused**. GitHub goes on calling all three
+`queued` or `in_progress`, because Zoomies can neither unqueue a job nor
+conclude one, and a row that showed only GitHub's word for it left the
+operator's own decision invisible — and the fleet reporting work nobody was
+going to do. `?provisioning=deleted` and `?cancelling=true` narrow to each on
+its own, and the [Queue](#queue) is where removed work is restored.
+
+A cancellation is the sharpest case, because the gap is GitHub's rather than
+this fleet's. GitHub accepts the request at once; its completion delivery,
+which settles the conclusion, can be minutes behind. Zoomies stops the work
+immediately — queued demand paused, runners taken back — and records that it
+did, so the tiles and the lists agree from that moment rather than from
+whenever GitHub gets round to it.
 
 ![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
 ![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-light.webp#only-light){ .zoomies-shot }

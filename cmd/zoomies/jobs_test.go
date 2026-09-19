@@ -246,6 +246,12 @@ func TestJobsGetNamesTheQueueStatus(t *testing.T) {
 		want string
 	}{
 		{"removed", `"state":"queued","provisioning":"deleted"`, "removed from the queue"},
+		// A cancelled run pauses its queued jobs, so the cancellation has to
+		// win: an operator told their own cancellation was a pause would go
+		// looking for the Resume that undoes it.
+		{"cancelling", `"state":"queued","provisioning":"paused","cancel_requested_at":"2025-01-01T00:01:00Z"`, "cancelling"},
+		{"cancelling while running", `"state":"in_progress","cancel_requested_at":"2025-01-01T00:01:00Z"`, "cancelling"},
+		{"cancelled and concluded", `"state":"completed","conclusion":"cancelled","cancel_requested_at":"2025-01-01T00:01:00Z"`, "queue status  -"},
 		{"paused", `"state":"queued","provisioning":"paused"`, "paused"},
 		{"expedited", `"state":"queued","provision_now":true`, "expedited"},
 		{"ready", `"state":"queued"`, "ready"},

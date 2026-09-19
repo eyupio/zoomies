@@ -162,6 +162,11 @@ type jobItem struct {
 	// somebody had taken out of the queue as work still waiting to run.
 	Provisioning string `json:"provisioning"`
 	ProvisionNow bool   `json:"provision_now"`
+	// CancelRequestedAt is when GitHub accepted a cancellation of this job's
+	// workflow run. GitHub's completion delivery settles the conclusion and
+	// can be minutes behind, and for that window the job reads queued or
+	// in_progress while being neither.
+	CancelRequestedAt *time.Time `json:"cancel_requested_at"`
 	// InstallationID is the GitHub App installation covering this job's
 	// repository. It is read to tell the two reasons a queued job goes
 	// unclaimed apart: no pool advertises its labels, or nothing here holds a

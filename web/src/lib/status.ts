@@ -13,6 +13,7 @@
 import {
   Ban,
   Circle,
+  CircleStop,
   CircleCheck,
   CircleDashed,
   CircleMinus,
@@ -315,10 +316,35 @@ export const QUEUE_REMOVED: StatusMeta = meta(
  * not touched. Only a job still queued can carry one: once something has run
  * it, what was done to its demand is history rather than status.
  */
+/**
+ * A job on its way out because somebody cancelled its workflow run, which
+ * GitHub has not yet confirmed.
+ *
+ * GitHub owns the conclusion, so the row goes on reading `queued` or
+ * `in_progress` until its completion delivery lands -- which can be minutes.
+ * The job is neither by then: the queued half raises no demand and the running
+ * half has had its runner taken away.
+ */
+export const CANCELLING: StatusMeta = meta(
+  'cancelling',
+  'Cancelling',
+  'neutral',
+  'square',
+  CircleStop,
+  'Its workflow run was cancelled and GitHub has accepted the request. The fleet has already stopped work on it; the conclusion follows when GitHub reports it.',
+);
+
 export function queueStatus(job: {
   state?: JobState;
   provisioning?: string;
+  cancel_requested_at?: string | null;
 }): StatusMeta | undefined {
+  // Cancelling outranks the rest, and is the one that applies to a running
+  // job as well. A cancellation also pauses the run's queued jobs, so without
+  // this a job somebody cancelled would be reported as one an operator had
+  // merely put on hold.
+  if (job.state !== 'queued' && job.state !== 'in_progress') return undefined;
+  if (job.cancel_requested_at) return CANCELLING;
   if (job.state !== 'queued') return undefined;
   if (job.provisioning === 'paused') return QUEUE_PAUSED;
   if (job.provisioning === 'deleted') return QUEUE_REMOVED;

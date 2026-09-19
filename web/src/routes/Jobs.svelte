@@ -256,6 +256,18 @@
 
   const view = $derived(currentJobView(filters));
 
+  /**
+   * Whether this view is one of the two that describe work still in hand.
+   *
+   * A job whose workflow run has been cancelled is neither waiting nor
+   * running: the queued half raises no demand and the running half has had its
+   * runner taken away. GitHub's completion delivery decides the conclusion and
+   * can be minutes behind, and for that whole window the two views listed work
+   * nobody was going to do -- beside the tiles above them, which had already
+   * stopped counting it. Every other view is history and shows it, badged.
+   */
+  const inHand = $derived(view === 'queued' || view === 'running');
+
   function setView(next: JobView): void {
     const chosen = JOB_VIEWS.find((v) => v.id === next);
     if (chosen) patch(chosen.filters);
@@ -369,6 +381,7 @@
         conclusion: filters.conclusion,
         state: filters.state,
         provisioning: filters.provisioning,
+        cancelling: inHand ? false : undefined,
         since: startOfDay(filters.since),
         until: endOfDay(filters.until),
         unmatched: filters.unmatched ? true : undefined,

@@ -91,6 +91,37 @@ func (s *Store) ControlProvisioning(ctx context.Context, ids []string, action st
 	return results, err
 }
 
+// MarkCancelRequested stamps the jobs of a workflow run an operator has
+// cancelled, and returns the ids it actually changed.
+//
+// Only jobs that have not finished: a sibling that completed before the
+// cancellation landed ran to its own conclusion, and saying it was cancelled
+// would be a worse lie than the one this fixes. A job already stamped keeps
+// its first stamp, so a second cancellation of the same run -- an ordinary one
+// followed by a forced one -- does not restart the clock.
+func (s *Store) MarkCancelRequested(ctx context.Context, ids []string, at time.Time) ([]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var changed []string
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		changed = changed[:0]
+		for _, id := range ids {
+			res, err := tx.ExecContext(ctx, `UPDATE jobs SET cancel_requested_at=?
+				WHERE id=? AND state != ? AND cancel_requested_at IS NULL`,
+				ms(at), id, string(JobCompleted))
+			if err != nil {
+				return err
+			}
+			if n, err := res.RowsAffected(); err == nil && n > 0 {
+				changed = append(changed, id)
+			}
+		}
+		return nil
+	})
+	return changed, err
+}
+
 // LastProvisioned includes removed runners so quick jobs and restarts do not
 // reset a pool's place in the fairness rotation.
 func (s *Store) LastProvisioned(ctx context.Context) (map[string]time.Time, error) {

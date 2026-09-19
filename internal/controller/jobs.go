@@ -84,12 +84,20 @@ func (c *Controller) cancelWorkflowRunLocally(ctx context.Context, repo string, 
 		return fmt.Errorf("listing jobs in cancelled workflow run: %w", err)
 	}
 	now := c.Now()
-	var queued []string
+	var queued, live []string
 	var errs []error
 	for _, j := range jobs {
 		wasActive := j.State != store.JobCompleted
 		if !confirmed && j.State == store.JobQueued {
 			queued = append(queued, j.ID)
+		}
+		// Every job the run still owns, queued or running. Pausing the queued
+		// half stops it asking for runners, but neither half stops being
+		// reported as work in hand until the row says the cancellation was
+		// asked for -- GitHub's completion delivery is what ends them, and it
+		// is not always prompt.
+		if !confirmed && wasActive {
+			live = append(live, j.ID)
 		}
 		if confirmed && wasActive {
 			update := *j
@@ -120,12 +128,25 @@ func (c *Controller) cancelWorkflowRunLocally(ctx context.Context, repo string, 
 	if len(queued) > 0 {
 		if _, err := c.st.ControlProvisioning(ctx, queued, "pause"); err != nil {
 			errs = append(errs, fmt.Errorf("suppressing queued jobs in cancelled workflow run: %w", err))
-		} else {
-			for _, id := range queued {
-				if j, getErr := c.st.GetJob(ctx, id); getErr == nil {
-					c.publishJob(ctx, j)
-				}
-			}
+		}
+	}
+	// Stamped after the pause, so one publish carries both: the frame is the
+	// job's GET shape and the UI drops it straight into its cache, so sending
+	// it twice would paint the job as merely paused for a moment first.
+	if len(live) > 0 {
+		stamped, err := c.st.MarkCancelRequested(ctx, live, now)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("recording the cancellation against the run's jobs: %w", err))
+		} else if len(stamped) > 0 {
+			c.log.Info("a cancelled workflow run's jobs are waiting on GitHub to confirm",
+				"repo", repo, "run", runID, "jobs", len(stamped))
+		}
+	}
+	// `live` is every job `queued` holds and the running ones besides, so one
+	// pass over it announces both changes once each.
+	for _, id := range live {
+		if j, getErr := c.st.GetJob(ctx, id); getErr == nil {
+			c.publishJob(ctx, j)
 		}
 	}
 	c.Nudge()
