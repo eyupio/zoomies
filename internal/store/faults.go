@@ -129,7 +129,7 @@ func (k FaultKind) Fix() string {
 	case FaultRegistration:
 		return "check that the GitHub App is still installed on the repository and still holds its runner permissions."
 	case FaultContainerConflict:
-		return "automatic name-conflict recovery could not safely replace this container. Inspect its Zoomies ownership labels and parent runner, and check for duplicate agents sharing the daemon. Do not remove an active runner or a container owned by another workload."
+		return "automatic name-conflict recovery could not safely replace this container, and a name the daemon was merely slow to release has already been waited out. The runner's message names which of the two it was. Inspect the container's Zoomies ownership labels and parent runner, and check for duplicate agents sharing the daemon. Do not remove an active runner or a container owned by another workload."
 	case FaultBackend:
 		return "check the container backend on the host: the socket the agent names on the host's page, and whether the daemon is running."
 	case FaultBackendBusy:

@@ -39,6 +39,33 @@ export const RUNNER_STATES: readonly RunnerState[] = [
 export const JOB_STATES: readonly JobState[] = ['waiting', 'queued', 'in_progress', 'completed'];
 
 /**
+ * What an operator has done to a queued job's provisioning demand.
+ *
+ * Taken from the API's own enumeration so the Queue and the Jobs page cannot
+ * drift apart on the spelling. `ready` and `expedited` are the two halves of
+ * an untouched job -- normal demand, and demand an operator expedited -- and
+ * the other two are the ways of standing it down.
+ */
+export type ProvisioningStatus = NonNullable<Query<'listJobs'>['provisioning']>[number];
+
+export const PROVISIONING_STATUSES: readonly ProvisioningStatus[] = [
+  'ready',
+  'expedited',
+  'paused',
+  'deleted',
+];
+
+/**
+ * The statuses that still mean "waiting for a runner here".
+ *
+ * A paused job is on hold and still waiting; a removed one is an operator
+ * saying it should not run here at all, and it stops counting as queued work
+ * everywhere the fleet reports queue depth. Any list that calls itself Queued
+ * narrows to these, so the list and the figure above it say the same thing.
+ */
+export const WAITING_PROVISIONING: readonly ProvisioningStatus[] = ['ready', 'expedited', 'paused'];
+
+/**
  * Every machine state, in the order a machine passes through them. Deleted,
  * failed and quarantined are exits from the flow rather than steps of it, and
  * come last for that reason.

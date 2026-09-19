@@ -732,6 +732,18 @@ test('an older remote agent offers a copyable upgrade command without a join tok
     );
     await route.fulfill({ json: body });
   });
+  // And no stream: the host this test invents is a rewritten list response,
+  // and the demo fleet's own heartbeat publishes the real one every thirty
+  // seconds. A `host.updated` frame landing between the page and the click
+  // takes the upgrade notice off the card for good, which is a test that
+  // passes or fails on when in the half-minute it happened to run.
+  await page.route('**/api/v1/events*', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+      body: '',
+    }),
+  );
   await goto(page, '/hosts', 'Hosts');
   const card = page.getByRole('article', { name: 'demo-builder-1', exact: true });
   // Folded away until it is asked for, so that a fleet due an upgrade is still

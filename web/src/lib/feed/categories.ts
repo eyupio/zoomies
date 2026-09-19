@@ -19,7 +19,9 @@
  */
 import {
   Boxes,
+  Circle,
   CircleCheck,
+  PawPrint,
   Play,
   Plug,
   ScrollText,
@@ -33,6 +35,8 @@ import type { LucideIcon } from '@lucide/svelte';
 export type FeedCategoryID =
   | 'scaling'
   | 'runners'
+  | 'runner-lifecycle'
+  | 'cpu'
   | 'jobs'
   | 'outcomes'
   | 'hosts'
@@ -42,10 +46,25 @@ export type FeedCategoryID =
   | 'problems'
   | 'audit';
 
+/**
+ * The headings the settings page lists the categories under, in order. They
+ * are only a way to read twelve switches without a wall of them: what a
+ * category reports is its own business, and nothing branches on the group.
+ */
+export const FEED_GROUPS = [
+  'The fleet at work',
+  'Jobs',
+  'Infrastructure',
+  'Connections and records',
+] as const;
+
+export type FeedGroup = (typeof FEED_GROUPS)[number];
+
 export interface FeedCategory {
   id: FeedCategoryID;
   /** What the settings row calls it. */
   label: string;
+  group: FeedGroup;
   /** One line saying what an entry of this kind is. */
   description: string;
   icon: LucideIcon;
@@ -69,6 +88,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
   {
     id: 'scaling',
     label: 'Scaling decisions',
+    group: 'The fleet at work',
     description:
       'Every time the scheduler creates or removes runners, in its own words: “scaled linux-x64 2 → 4: 3 jobs queued > 30s”.',
     icon: TrendingUp,
@@ -78,6 +98,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
   {
     id: 'runners',
     label: 'Runner failures',
+    group: 'The fleet at work',
     description:
       'A runner that stopped unexpectedly, with what to do about it. Ordinary lifecycle — provisioning, idle, busy, gone — stays on the Runners page.',
     icon: TriangleAlert,
@@ -85,8 +106,29 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
     history: true,
   },
   {
+    id: 'runner-lifecycle',
+    label: 'Runners coming and going',
+    group: 'The fleet at work',
+    description:
+      'A runner that registered and is ready for work, and one removed when its work was done — the ordinary, successful half of the life the failures above are the exception to. One or two lines per runner, so a fleet of ephemeral runners writes a couple per job.',
+    icon: Circle,
+    on: true,
+    history: false,
+  },
+  {
+    id: 'cpu',
+    label: 'Elastic CPU',
+    group: 'The fleet at work',
+    description:
+      'A runner lent spare CPU or handed it back, in the words the runner’s own page uses: squirrel spotted, rabbit spotted, leash tightened, steady paws. It is how a pool set to burst is seen doing it, and how a host under pressure is seen slowing its runners down.',
+    icon: PawPrint,
+    on: true,
+    history: false,
+  },
+  {
     id: 'jobs',
     label: 'Job failures',
+    group: 'Jobs',
     description:
       'A job that failed, and the step it stopped at. A job whose runner died under it is named as the fleet’s failure rather than the workflow’s, which is the distinction this page exists to make.',
     icon: Play,
@@ -96,6 +138,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
   {
     id: 'outcomes',
     label: 'Jobs that finished',
+    group: 'Jobs',
     description:
       'Every other job GitHub reports over, with how it ended, where it came from and how long it took. The busiest category on a fleet that finishes a job a minute — switch it off and the failures above stay.',
     icon: CircleCheck,
@@ -105,6 +148,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
   {
     id: 'hosts',
     label: 'Hosts',
+    group: 'Infrastructure',
     description:
       'A host that joined, stopped answering, came back, was cordoned, or that the fleet throttled after sustained pressure.',
     icon: Server,
@@ -114,6 +158,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
   {
     id: 'machines',
     label: 'Rented machines',
+    group: 'Infrastructure',
     description:
       'Machines a provider is renting you: one being created, one that became a host, one that failed or was quarantined, and a provider paused or unreachable.',
     icon: ServerCog,
@@ -123,6 +168,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
   {
     id: 'pools',
     label: 'Pool changes',
+    group: 'Infrastructure',
     description: 'A pool created, changed or deleted — the fleet’s shape, rather than its weather.',
     icon: Boxes,
     on: true,
@@ -131,6 +177,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
   {
     id: 'github',
     label: 'GitHub connection',
+    group: 'Connections and records',
     description:
       'An App installation that started or stopped working, and webhook deliveries GitHub sent that this controller refused.',
     icon: Plug,
@@ -140,6 +187,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
   {
     id: 'problems',
     label: 'Problems raised',
+    group: 'Connections and records',
     description:
       'Each problem the moment it is first reported. Off by default: the bell in the top bar already carries them, and this is the same list arriving twice.',
     icon: TriangleAlert,
@@ -149,6 +197,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
   {
     id: 'audit',
     label: 'Who changed what',
+    group: 'Connections and records',
     description:
       'Every recorded action and who took it. Off by default: on a fleet with automation against the API it is the busiest thing here, and the Audit page has all of it with filters.',
     icon: ScrollText,

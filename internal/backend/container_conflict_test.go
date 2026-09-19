@@ -84,6 +84,7 @@ func TestContainerConflictRecovery(t *testing.T) {
 				"POST " + v + "/containers/{id}/start": func(w http.ResponseWriter, r *http.Request) { starts++; w.WriteHeader(204) },
 			})
 			b := dockerBackendFor(t, f, DockerOptions{})
+			b.nameRelease = 50 * time.Millisecond
 			id, err := b.createWithConflictRecovery(ctx, spec, cfg, sidecar)
 			switch scenario {
 			case "late sidecar", "late runner", "gone":
@@ -110,8 +111,14 @@ func TestContainerConflictRecovery(t *testing.T) {
 					t.Fatalf("wrong fault: %v", err)
 				}
 				if scenario == "repeated" {
-					if calls != 3 || deletes != 2 {
+					// A name that is taken again by a container we own after every
+					// removal is somebody else creating it, so the removals are
+					// bounded even though waiting for a release is not.
+					if calls != maxOwnedRemovals || deletes != maxOwnedRemovals {
 						t.Fatalf("unbounded attempts: %d/%d", calls, deletes)
+					}
+					if !strings.Contains(err.Error(), "duplicate agents") {
+						t.Fatalf("no duplicate-agent advice: %v", err)
 					}
 				} else if scenario != "delete error" && deletes != 0 {
 					t.Fatalf("unsafe deletion: %d", deletes)
@@ -183,5 +190,149 @@ func TestDinDConflictRecoveryStillWaitsForHealth(t *testing.T) {
 	id, err := b.startDinD(context.Background(), spec, containerOptions{})
 	if err != nil || id != "fresh" || probes != 1 {
 		t.Fatalf("readiness skipped: %s %v probes=%d", id, err, probes)
+	}
+}
+
+// A container the daemon has been asked to remove keeps its name until the last
+// of its filesystem has gone, which for a docker-in-docker sidecar is seconds
+// rather than milliseconds. The create that follows must wait that out: failing
+// the runner here costs a job over a name that was already on its way free.
+func TestConflictRecoveryWaitsForADaemonToReleaseAName(t *testing.T) {
+	spec := jitSpec()
+	cfg := buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: time.Now()})
+	calls, deletes := 0, 0
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"POST " + v + "/containers/create": func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			if calls <= 3 {
+				writeJSON(w, 409, map[string]string{"message": `Conflict. The container name "/` + dindName(containerName(spec.Name)) + `" is already in use by container "9a499d77123e49cb3e03b58a15f2b6756cfbeb310233288e14082077b771501c".`})
+				return
+			}
+			writeJSON(w, 201, map[string]string{"Id": "fresh"})
+		},
+		// The container is already gone: only its name is still indexed.
+		"GET " + v + "/containers/{id}/json": func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(404) },
+		"DELETE " + v + "/containers/{id}":   func(w http.ResponseWriter, r *http.Request) { deletes++; w.WriteHeader(204) },
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+	b.nameRelease = 2 * time.Second
+
+	id, err := b.createWithConflictRecovery(context.Background(), spec, cfg, true)
+	if err != nil || id != "fresh" {
+		t.Fatalf("gave up on a name still being released: %s %v", id, err)
+	}
+	if calls != 4 || deletes != 0 {
+		t.Fatalf("calls=%d deletes=%d", calls, deletes)
+	}
+}
+
+// The name and the container behind it can disagree, and when they do an
+// inspect by name reports nothing while the daemon still refuses the name. The
+// conflict reply names the container holding it, and that ID is the only handle
+// left to prove ownership with -- removal is still by inspected ID and still
+// only of a container whose labels say it is ours.
+func TestConflictRecoveryRemovesTheOccupantTheDaemonNamed(t *testing.T) {
+	const occupant = "9a499d77123e49cb3e03b58a15f2b6756cfbeb310233288e14082077b771501c"
+	for _, foreign := range []bool{false, true} {
+		name := "owned"
+		if foreign {
+			name = "foreign"
+		}
+		t.Run(name, func(t *testing.T) {
+			spec := jitSpec()
+			cfg := buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: time.Now()})
+			labels := cfg.Labels
+			if foreign {
+				labels[LabelRunnerID] = "somebody-else"
+			}
+			dind := dindName(containerName(spec.Name))
+			calls, deleted := 0, ""
+			f := newFakeEngine(t, map[string]http.HandlerFunc{
+				"POST " + v + "/containers/create": func(w http.ResponseWriter, r *http.Request) {
+					calls++
+					if calls == 1 {
+						writeJSON(w, 409, map[string]string{"message": `Conflict. The container name "/` + dind + `" is already in use by container "` + occupant + `". You have to remove (or rename) that container to be able to reuse that name.`})
+						return
+					}
+					writeJSON(w, 201, map[string]string{"Id": "fresh"})
+				},
+				"GET " + v + "/containers/{id}/json": func(w http.ResponseWriter, r *http.Request) {
+					if r.PathValue("id") != occupant {
+						// Including the name itself: it resolves to nothing.
+						w.WriteHeader(404)
+						return
+					}
+					writeJSON(w, 200, ContainerInspect{ID: occupant, Name: "/" + dind, Config: &ContainerConfig{Labels: labels}, State: &ContainerState{Running: true}})
+				},
+				"DELETE " + v + "/containers/{id}": func(w http.ResponseWriter, r *http.Request) {
+					deleted = r.PathValue("id")
+					w.WriteHeader(204)
+				},
+			})
+			b := dockerBackendFor(t, f, DockerOptions{})
+			b.nameRelease = 50 * time.Millisecond
+
+			id, err := b.createWithConflictRecovery(context.Background(), spec, cfg, true)
+			if foreign {
+				if !errors.Is(err, ErrContainerConflict) || deleted != "" {
+					t.Fatalf("removed another workload's container: %v deleted=%q", err, deleted)
+				}
+				return
+			}
+			if err != nil || id != "fresh" || deleted != occupant {
+				t.Fatalf("result %s, %v, deleted %q", id, err, deleted)
+			}
+		})
+	}
+}
+
+// The two exhausted conflicts read differently on purpose: an operator sent to
+// look for a duplicate agent finds none when the truth is that the daemon is
+// still unlinking a container this host removed itself.
+func TestExhaustedConflictSaysWhichConflictItIs(t *testing.T) {
+	spec := jitSpec()
+	cfg := buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: time.Now()})
+	inspects := 0
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"POST " + v + "/containers/create": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 409, map[string]string{"message": "name already in use"})
+		},
+		"GET " + v + "/containers/{id}/json": func(w http.ResponseWriter, r *http.Request) {
+			// Ours on the first look, then gone but for its name.
+			if inspects++; inspects > 1 {
+				w.WriteHeader(404)
+				return
+			}
+			writeJSON(w, 200, ContainerInspect{ID: "stale-id", Config: &ContainerConfig{Labels: cfg.Labels}, State: &ContainerState{Running: true}})
+		},
+		"DELETE " + v + "/containers/{id}": func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) },
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+	b.nameRelease = 10 * time.Millisecond
+
+	_, err := b.createWithConflictRecovery(context.Background(), spec, cfg, true)
+	if !errors.Is(err, ErrContainerConflict) || Fault(err) != store.FaultContainerConflict {
+		t.Fatalf("wrong fault: %v", err)
+	}
+	if !strings.Contains(err.Error(), "has not finished releasing the name") {
+		t.Fatalf("does not say the name is still being released: %v", err)
+	}
+	if strings.Contains(err.Error(), "duplicate agents") {
+		t.Fatalf("sends the operator after a duplicate agent that is not there: %v", err)
+	}
+}
+
+func TestConflictOccupantReadsBothDaemonsWordings(t *testing.T) {
+	for _, tc := range []struct{ message, want string }{
+		{`Conflict. The container name "/zoomies-linux-x64-rascal-dind" is already in use by container "9a499d77123e49cb3e03b58a15f2b6756cfbeb310233288e14082077b771501c". You have to remove (or rename) that container to be able to reuse that name.`, "9a499d77123e49cb3e03b58a15f2b6756cfbeb310233288e14082077b771501c"},
+		{`creating container storage: the container name "zoomies-linux-x64-rascal-dind" is already in use by 4b2a91c7de10. You have to remove that container to be able to reuse that name`, "4b2a91c7de10"},
+		// A name is not an ID, and an unrecognised wording names nothing.
+		{`the container name "zoomies-runner" is already in use by zoomies-runner`, ""},
+		{"name already in use", ""},
+		{"", ""},
+	} {
+		if got := conflictOccupant(tc.message); got != tc.want {
+			t.Errorf("conflictOccupant(%q) = %q, want %q", tc.message, got, tc.want)
+		}
 	}
 }

@@ -41,8 +41,9 @@ import type {
   WebhookDelivery,
 } from '../api/types';
 import { faultLabel } from '../faults';
-import { formatDuration, shortId } from '../format';
+import { formatDuration, pluralise, shortId } from '../format';
 import {
+  cpuResourceStatus,
   deliveryStatus,
   hostStatus,
   jobStatus,
@@ -61,6 +62,7 @@ import {
   type InstallationChange,
   type JobNews,
   type ProviderChange,
+  type RunnerMilestone,
 } from './changes';
 
 export interface FeedEntry {
@@ -153,6 +155,82 @@ export function runnerFailureEntry(runner: Runner): FeedEntry | null {
   };
 }
 
+/**
+ * A runner reaching the two moments of an ordinary life: ready for work, and
+ * gone when the work was done.
+ *
+ * This is the half of the fleet that goes right, and it is here because a
+ * panel that only ever reports failures teaches an operator that silence is
+ * the good state -- which is the same thing as teaching them not to read it.
+ */
+export function runnerMilestoneEntry(
+  runner: Runner,
+  milestone: RunnerMilestone,
+  at: string,
+): FeedEntry | null {
+  if (!runner.id) return null;
+  const ready = milestone === 'ready';
+  const status = runnerStatus(ready ? 'idle' : 'removed');
+  const handled = runner.jobs_handled ?? 0;
+  return {
+    id: `runner:${runner.id}:${milestone}`,
+    category: 'runner-lifecycle',
+    at: (ready ? runner.registered_at : runner.finished_at) ?? at,
+    tone: ready ? 'idle' : 'neutral',
+    icon: status.icon,
+    title: ready ? 'A runner is ready for work' : 'A runner finished and was removed',
+    detail: ready
+      ? [runner.pool_name, runner.host_name].filter(Boolean).join(' · ') || undefined
+      : // What it was for, which is the only thing that distinguishes an
+        // ephemeral runner's end from a scale-down taking an idle one away.
+        [
+          handled > 0 ? pluralise(handled, 'job') : 'no jobs',
+          runner.pool_name ?? '',
+          runner.host_name ?? '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
+    target: { label: runner.name ?? shortId(runner.id), href: `/runners/${runner.id}` },
+  };
+}
+
+/* -- elastic CPU ------------------------------------------------------------ */
+
+/**
+ * A runner lent spare CPU, or having it taken back.
+ *
+ * The title is the controller's own label -- "Squirrel spotted — maximum
+ * zoomies" -- because that vocabulary is the product's, it is what the
+ * runner's own page says, and a feed that translated it into "CPU allocation
+ * factor 1.8" would be describing a different system from the one beside it.
+ */
+export function cpuEntry(runner: Runner, state: string, at: string): FeedEntry | null {
+  if (!runner.id) return null;
+  const cpu = runner.cpu_resource;
+  const status = cpuResourceStatus(state, cpu?.label);
+  const current = cpu?.current_cpus;
+  const guaranteed = cpu?.guaranteed_cpus;
+  return {
+    id: `cpu:${runner.id}:${state}:${at}`,
+    category: 'cpu',
+    at,
+    tone: status.tone,
+    icon: status.icon,
+    title: status.label,
+    detail:
+      current !== undefined && guaranteed !== undefined
+        ? `${formatCPUs(current)} CPUs now against a guarantee of ${formatCPUs(guaranteed)}` +
+          (runner.host_name ? ` · ${runner.host_name}` : '')
+        : status.hint,
+    target: { label: runner.name ?? shortId(runner.id), href: `/runners/${runner.id}` },
+  };
+}
+
+/** CPUs as the runner's own page prints them: whole where they are whole. */
+function formatCPUs(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
 /* -- jobs ------------------------------------------------------------------ */
 
 /**
@@ -241,6 +319,8 @@ const HOST_NEWS: Record<HostChange, { title: string; tone: StatusTone }> = {
   uncordoned: { title: 'A host was uncordoned', tone: 'idle' },
   throttled: { title: 'A host was throttled', tone: 'pending' },
   calm: { title: 'A host’s throttle lifted', tone: 'idle' },
+  holding: { title: 'A host is holding new runners', tone: 'pending' },
+  admitting: { title: 'A host is taking runners again', tone: 'idle' },
   incompatible: { title: 'A host’s agent is too old for this controller', tone: 'danger' },
 };
 
@@ -256,13 +336,15 @@ export function hostEntry(host: Host, change: HostChange, at: string): FeedEntry
     icon: change === 'joined' ? Plus : status.icon,
     title: news.title,
     detail:
-      change === 'throttled'
-        ? host.throttle_reason || status.hint
-        : change === 'incompatible'
-          ? host.incompatible_reason || undefined
-          : change === 'unreachable'
-            ? status.hint
-            : undefined,
+      change === 'holding'
+        ? host.admission_reason || undefined
+        : change === 'throttled'
+          ? host.throttle_reason || status.hint
+          : change === 'incompatible'
+            ? host.incompatible_reason || undefined
+            : change === 'unreachable'
+              ? status.hint
+              : undefined,
     target: { label: host.name ?? shortId(host.id), href: '/hosts' },
   };
 }

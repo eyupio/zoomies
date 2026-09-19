@@ -1546,6 +1546,13 @@ func (c *Controller) unmatchedQueuedJobs(ctx context.Context) ([]scheduler.Unmat
 	}
 	out := make([]scheduler.UnmatchedJob, 0, len(jobs))
 	for _, j := range jobs {
+		// Nothing claims a job an operator removed from the queue either, and
+		// the scheduler's own pass leaves those out. Reporting them here would
+		// make a controller that has not yet run a pass raise a problem about
+		// work somebody has already decided not to run.
+		if j.RemovedFromQueue() {
+			continue
+		}
 		out = append(out, scheduler.UnmatchedJob{Job: j})
 	}
 	return out, nil

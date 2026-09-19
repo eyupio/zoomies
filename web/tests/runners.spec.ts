@@ -106,7 +106,7 @@ test('a hidden column stays hidden after a reload', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Columns' }).click();
   await page
-    .getByRole('group', { name: 'Columns to show' })
+    .getByRole('group', { name: 'Column layout' })
     .getByRole('checkbox', { name: 'Host' })
     .uncheck();
   await expect(runners(page).getByRole('columnheader', { name: 'Host' })).toHaveCount(0);

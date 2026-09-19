@@ -73,9 +73,9 @@ test('the grid lists jobs with their queue wait and duration', async ({ page }) 
   const rows = dataRows(jobs(page));
   await expect(rows.first()).toBeVisible();
 
-  // The seed writes fifty jobs and nothing adds more: no webhook ever arrives.
-  // One of them ran on a hosted-runner vendor, and the default view leaves it
-  // out.
+  // The seed writes a fixed set of jobs and nothing adds more: no webhook ever
+  // arrives. Three of them ran on a hosted-runner vendor, and the default view
+  // leaves those out.
   await everyStatus(page);
   await expect(jobs(page).getByRole('columnheader', { name: 'Queue wait' })).toBeVisible();
   await expect(jobs(page).getByRole('columnheader', { name: 'Duration' })).toBeVisible();
@@ -471,4 +471,55 @@ test('a queued job says what the fleet is doing about it', async ({ page }) => {
   // The pool's live counts, so the wait has a reason next to it.
   await expect(status).toContainText('Starting');
   await expect(status).toContainText('Idle');
+});
+
+/**
+ * A job an operator has taken out of the queue is not queued work, and the
+ * page has to say so in both directions.
+ *
+ * GitHub goes on calling it `queued`, because Zoomies cannot unqueue a job, so
+ * the Queued view used to list it beside work the fleet was about to pick up --
+ * and beside its own "Queued now" figure, which stopped counting it. The view
+ * now narrows to what is actually waiting, says so in a chip, and the job is
+ * still in the history under All, badged for what it is.
+ *
+ * Rows are counted by the badge rather than found by name: the fixture runs
+ * the same job names on several workflows, and a filter on one of them matches
+ * work that has nothing to do with this.
+ */
+test('removing a job from the queue takes it out of Queued and badges it under All', async ({
+  page,
+  request,
+}) => {
+  const queue = await (
+    await request.get('/api/v1/provisioning?limit=1&sort=queued_at&order=asc')
+  ).json();
+  const job = queue.items[0];
+  expect(job, 'the fixture has queued work to remove').toBeTruthy();
+  const removed = (p: Page) => dataRows(jobs(p)).filter({ hasText: 'Removed' });
+
+  try {
+    await request.post('/api/v1/provisioning/bulk', {
+      data: { ids: [job.id], action: 'delete' },
+    });
+
+    await goto(page, '/jobs?state=queued', 'Jobs');
+    // The filter the view applies on its own behalf is visible, so a shorter
+    // list never looks like rows that went missing.
+    await expect(page.getByText('Queue status')).toBeVisible();
+    await expect(removed(page)).toHaveCount(0);
+
+    // Still in the history, and called what it is.
+    await everyStatus(page);
+    await expect(removed(page)).toHaveCount(1);
+
+    // And reachable on its own, which is what the chip's filter names.
+    await goto(page, '/jobs?state=queued&provisioning=deleted', 'Jobs');
+    await expect(dataRows(jobs(page))).toHaveCount(1);
+    await expect(removed(page)).toHaveCount(1);
+  } finally {
+    await request.post('/api/v1/provisioning/bulk', {
+      data: { ids: [job.id], action: 'resume' },
+    });
+  }
 });

@@ -1,5 +1,5 @@
 <script module lang="ts">
-  import type { JobState } from '$lib/api/types';
+  import type { JobState, ProvisioningStatus } from '$lib/api/types';
 
   /** Everything the Jobs page filters by. It lives in the URL, so a view is shareable. */
   export interface JobFilterState {
@@ -10,6 +10,14 @@
     label: string[];
     conclusion: string[];
     state: JobState[];
+    /**
+     * Which provisioning statuses to show, for the queued work an operator has
+     * paused or removed. Empty narrows nothing, which is what every view but
+     * Queued wants: a job removed from the queue belongs in the history the
+     * page is, badged as removed, and only the view that calls itself Queued
+     * has to leave it out.
+     */
+    provisioning: ProvisioningStatus[];
     /** Calendar dates, `YYYY-MM-DD`. Converted to instants when the API is called. */
     since: string;
     until: string;
@@ -41,6 +49,7 @@
     label: [],
     conclusion: [],
     state: [],
+    provisioning: [],
     since: '',
     until: '',
     unmatched: false,
@@ -63,9 +72,9 @@
 <script lang="ts">
   import { Search } from '@lucide/svelte';
   import { registerSearch } from '$lib/keys';
-  import { JOB_STATES } from '$lib/api/types';
+  import { JOB_STATES, PROVISIONING_STATUSES } from '$lib/api/types';
   import type { Pool } from '$lib/api/types';
-  import { jobStatus } from '$lib/status';
+  import { jobStatus, QUEUE_STATUS_LABELS } from '$lib/status';
   import FilterBar from '$lib/components/FilterBar.svelte';
   import type { FilterChip } from '$lib/components/FilterBar.svelte';
   import Input from '$lib/components/Input.svelte';
@@ -162,6 +171,29 @@
     ...listChip('label', 'Label'),
     ...listChip('conclusion', 'Outcome', (v) => jobStatus('completed', v).label),
     ...(statusChips ? listChip('state', 'State', (v) => jobStatus(v as JobState).label) : []),
+    /*
+     * One chip for the whole filter rather than one per status, and only while
+     * it actually narrows something.
+     *
+     * The Queued view sets this for itself, to leave out the work an operator
+     * removed from the queue, and a filter a page applies on its own behalf is
+     * exactly the kind that has to be visible: without the chip, a Queued list
+     * shorter than the queue somebody remembers is a page that has quietly
+     * dropped rows. Removing it writes every status out in full, the way the
+     * Jobs page's All button writes out every state, so that "widen this" and
+     * "whatever the view defaults to" stay distinguishable -- otherwise the
+     * chip would come straight back and its cross would do nothing.
+     */
+    ...(value.provisioning.length > 0 && value.provisioning.length < PROVISIONING_STATUSES.length
+      ? [
+          {
+            id: 'provisioning',
+            label: 'Queue status',
+            value: value.provisioning.map((v) => QUEUE_STATUS_LABELS[v]).join(', '),
+            onremove: () => onchange({ provisioning: [...PROVISIONING_STATUSES] }),
+          },
+        ]
+      : []),
     ...(value.since
       ? [
           {

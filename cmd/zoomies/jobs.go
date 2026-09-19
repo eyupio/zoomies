@@ -119,6 +119,9 @@ func jobsList(ctx context.Context, e *env, args []string) error {
 		if !j.Matched {
 			name += p.paint(colourYellow, " (no pool)")
 		}
+		if note := queueNote(j); note != "" {
+			name += p.paint(colourYellow, " ("+note+")")
+		}
 		rows = append(rows, []string{
 			truncate(j.Repo, 28),
 			truncate(j.Workflow, 20),
@@ -134,6 +137,49 @@ func jobsList(ctx context.Context, e *env, args []string) error {
 	p.table([]string{"repo", "workflow", "job", "result", "why", "pool", "waited", "ran for", "queued"}, rows)
 	p.footer(len(out.Items), out.Total, out.Offset)
 	return nil
+}
+
+// queueNote is the short form for a listing: what an operator did to this
+// job's demand, or nothing at all for the ordinary case. Only a job still
+// queued carries one -- once something has run it, what was done to its demand
+// is history rather than status.
+func queueNote(j jobItem) string {
+	// A cancelled run pauses its queued jobs, so this has to come first or an
+	// operator's own cancellation is reported back to them as a pause.
+	if j.CancelRequestedAt != nil && j.State != "completed" {
+		return "cancelling"
+	}
+	if j.State != "queued" {
+		return ""
+	}
+	switch j.Provisioning {
+	case "paused":
+		return "paused"
+	case "deleted":
+		return "removed from queue"
+	}
+	return ""
+}
+
+// queueStatus is the long form for `jobs get`, which says the ordinary case
+// out loud rather than leaving a blank row to be read as "nothing is known".
+func queueStatus(j jobItem) string {
+	if j.CancelRequestedAt != nil && j.State != "completed" {
+		return "cancelling -- GitHub accepted the cancellation and has yet to report the conclusion"
+	}
+	if j.State != "queued" {
+		return ""
+	}
+	switch j.Provisioning {
+	case "paused":
+		return "paused -- no new runner demand until it is resumed"
+	case "deleted":
+		return "removed from the queue -- it no longer counts as work this fleet is waiting on"
+	}
+	if j.ProvisionNow {
+		return "expedited"
+	}
+	return "ready"
 }
 
 func jobsGet(ctx context.Context, e *env, args []string) error {
@@ -181,6 +227,7 @@ func jobsGet(ctx context.Context, e *env, args []string) error {
 		{"conclusion", p.state(dash(j.Conclusion))},
 		{"labels", dash(strings.Join(j.Labels, ", "))},
 		{"matched a pool", p.yesNo(j.Matched, false)},
+		{"queue status", dash(queueStatus(j))},
 		{"pool", dash(j.PoolName)},
 		{"runner", dash(j.RunnerName)},
 		{"queued", p.relTime(j.QueuedAt)},

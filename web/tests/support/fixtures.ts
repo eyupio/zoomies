@@ -128,13 +128,13 @@ export const FIXTURE = {
   /** The host the ready machine became. */
   machineHost: 'demo-builder-2',
   /** Every job the seed writes; nothing adds more, since no webhook arrives. */
-  totalJobs: 52,
+  totalJobs: 55,
   /**
    * Every job this fleet has a hand in: everything except the three jobs the
    * seed runs on a hosted-runner vendor -- one finished, one running and one
    * still queued -- which this fleet had no hand in.
    */
-  managedJobs: 49,
+  managedJobs: 52,
   /**
    * What the Jobs page shows before it is asked anything: the jobs running on
    * this fleet's own runners, one on each busy runner the seed leaves behind.
@@ -142,11 +142,12 @@ export const FIXTURE = {
    */
   runningJobs: 3,
   /**
-   * Jobs in acme/api: the seed cycles three repositories over fifty jobs. The
+   * Jobs in acme/api: the seed cycles three repositories over fifty jobs and
+   * again over the backlog that explains its starting runners. The
    * hosted-runner job the default view hides belongs to acme/widgets, so this
    * count is the same in either view.
    */
-  apiJobs: 17,
+  apiJobs: 18,
 } as const;
 
 /**

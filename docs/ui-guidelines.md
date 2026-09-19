@@ -475,9 +475,15 @@ The one page that has to earn the second monitor.
 * **Recent events** — a reverse-chronological list of what has happened to the
   fleet, whatever kind of thing it was: the scheduler's decisions in its own
   words (*"scaled `linux-x64` 2 → 4: 3 jobs queued > 30s"*), how each job
-  ended, a runner that failed, a host that went quiet or was throttled, a
-  machine a provider is renting, a pool somebody changed, the GitHub
-  connection, problems as they are raised, and the audit trail. Every line is
+  ended, a runner that failed and a runner that came up ready, a runner lent
+  spare CPU or slowed by the host it is on (*"Squirrel spotted — maximum
+  zoomies"*, in the same words the runner's own page uses), a host that went
+  quiet, was throttled or is holding new runners off under pressure, a machine
+  a provider is renting, a pool somebody changed, the GitHub connection,
+  problems as they are raised, and the audit trail. **What goes right is a
+  category as much as what goes wrong**: a panel that only ever reported
+  failures would teach an operator that silence is the good state, which is
+  the same thing as teaching them not to read it. Every line is
   the same four things — a mark in one of the six status tones, what happened,
   what it happened to, and when — with the controller's own sentence under it
   where there is one, printed verbatim. A job's line names the step it stopped
@@ -488,7 +494,8 @@ The one page that has to earn the second monitor.
   else answers that — GitHub records both as *failure*.
 
   **Which kinds it carries is the operator's choice**, one switch per category
-  on *Settings → Events*, kept in the browser like the theme. Two rules make
+  on *Settings → Events*, grouped under four headings and kept in the browser
+  like the theme. Two rules make
   that safe: the panel says how many kinds are switched off rather than
   quietly omitting them, and a category never reports a frame that carries no
   news, so nothing floods the panel with heartbeats. A category with no
@@ -914,7 +921,13 @@ Every PR that touches the UI should be able to answer yes to all of these:
 The Playwright suite's shared fixture is a fleet with nothing wrong with it,
 and deliberately so: the demo keeps its two starting runners young
 (`freshenDemoRunners`) because an instance left open on somebody's desk must
-not report a fault in a fleet that has no agent to have one. The cost is that
+not report a fault in a fleet that has no agent to have one. Those two also
+need a queue behind them. The fixture is a snapshot and the reconcile loop
+reads it as a fleet, so a pool holding more runners than its demand justifies
+has the ones that have not finished starting drained on the very first pass —
+which is why `seedBacklog` writes a queued job for every runner in the pool
+that is neither busy nor draining, and the fixture survives the loop that
+reads it. The cost is that
 every page which explains a fault has nothing to render there — the problems
 drawer, both stuck-runner shapes, a pool nothing can place, a job GitHub is
 holding — so all of them went untested.

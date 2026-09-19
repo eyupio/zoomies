@@ -786,7 +786,7 @@ func TestTheJobsRebuildKeepsEveryRowAndItsIndexes(t *testing.T) {
 		`DELETE FROM schema_migrations WHERE name IN
 			('0009_jobs_waiting_state.sql', '0012_job_installation.sql',
 			 '0019_job_eligible_at.sql', '0026_provisioning_queue.sql',
-			 '0034_job_fault_kind.sql')`,
+			 '0034_job_fault_kind.sql', '0041_job_cancellation_requested.sql')`,
 		`DROP INDEX runners_provisioning_order`,
 		`ALTER TABLE webhook_deliveries DROP COLUMN installation_id`,
 		`DROP TABLE jobs`,
@@ -850,11 +850,12 @@ func TestTheJobsRebuildKeepsEveryRowAndItsIndexes(t *testing.T) {
 		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = 'jobs' AND name LIKE 'idx_jobs_%'`).Scan(&indexes); err != nil {
 		t.Fatal(err)
 	}
-	// Six from the rebuild itself, and one for the fault category a later
-	// migration added. A rebuild that replayed and left the later one behind
-	// would take the Jobs page's category filter back to a full scan.
-	if indexes != 7 {
-		t.Fatalf("the rebuilt jobs table has %d indexes, want 7", indexes)
+	// Six from the rebuild itself, and one each for the fault category and the
+	// cancellation stamp that later migrations added. A rebuild that replayed
+	// and left a later one behind would take the Jobs page's category filter,
+	// or its Running and Queued views, back to a full scan.
+	if indexes != 8 {
+		t.Fatalf("the rebuilt jobs table has %d indexes, want 8", indexes)
 	}
 }
 
