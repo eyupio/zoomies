@@ -30,6 +30,9 @@ const PAGES = [
   { path: '/', heading: 'Overview' },
   { path: '/pools', heading: 'Pools' },
   { path: '/runners', heading: 'Runners' },
+  { path: '/workflows', heading: 'Workflows' },
+  // Not in the navigation any more, and audited for that reason: it is the
+  // page every link that names a job lands on.
   { path: '/jobs', heading: 'Jobs' },
   // The Queue puts four buttons on every row rather than a menu, which is four
   // times as many controls to get the name of right.
@@ -62,7 +65,7 @@ const PAGES = [
 ] as const;
 
 /** The pages whose main content is a grid of rows to wait for. */
-const GRID_PAGES = new Set(['/pools', '/runners', '/jobs', '/queue', '/audit']);
+const GRID_PAGES = new Set(['/pools', '/runners', '/workflows', '/jobs', '/queue', '/audit']);
 
 /**
  * Let the page finish rendering before auditing it.

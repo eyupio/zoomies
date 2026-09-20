@@ -1082,6 +1082,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workflow-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Workflow runs, with their jobs summed up
+         * @description One row per workflow run -- the "#1009" GitHub's Actions tab lists -- summing up the jobs GitHub reported under it, over the latest attempt of each job, the way GitHub's own run page does. Nothing is stored for a run: it is derived from its jobs, so a run and the jobs `GET /jobs?repo=&run_id=` lists for it cannot disagree. Takes `/jobs`'s filters, read at the run's level. `state`, `conclusion`, `failed`, `faulted`, `workflow_failed` and `cancelling` name the run's own status -- a run with one job running and another queued is running, and a run whose only failure was re-run to success has not failed. Every other filter keeps a run whenever any job of it matches, so a run arrives whole rather than reduced to the job that matched.
+         */
+        get: operations["listWorkflowRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hosts": {
         parameters: {
             query?: never;
@@ -4003,6 +4023,73 @@ export interface components {
             /** Format: int64 */
             duration_ms?: number;
         };
+        /** @description One workflow run as this fleet has seen it: the jobs GitHub reported under it, summed up over the latest attempt of each job. Derived from the jobs, never stored, so it cannot go stale on its own. */
+        WorkflowRun: {
+            repo?: string;
+            workflow?: string;
+            /** Format: int64 */
+            github_run_id?: number;
+            /**
+             * Format: int64
+             * @description GitHub's own sequential number for the run - the "#1009" its Actions UI shows. Zero until a job of the run has had it backfilled.
+             */
+            run_number?: number;
+            /** @description The highest attempt any job of the run reported. */
+            run_attempt?: number;
+            head_branch?: string;
+            head_sha?: string;
+            installation_id?: string;
+            /** @description The run's page on GitHub. */
+            html_url?: string;
+            /** @description The run's own state: in_progress while any job is, queued while any job waits for a runner, waiting while any is held for a review, completed once every job is. */
+            state?: components["schemas"]["JobState"];
+            /** @description The run's conclusion once it has completed, worst outcome first: a failure on either side, then cancelled, then action_required, then success. Empty until then. */
+            conclusion?: string;
+            /** @description Whether this fleet has a hand in any job of the run. */
+            managed?: boolean;
+            /** @description Whether every job's labels name runners somebody else operates. */
+            hosted?: boolean;
+            /** @description Whether a cancellation of the run has been accepted by GitHub and not yet confirmed. */
+            cancelling?: boolean;
+            jobs?: components["schemas"]["RunJobCounts"];
+            /**
+             * Format: date-time
+             * @description When the first job was queued.
+             */
+            queued_at?: string;
+            /**
+             * Format: date-time
+             * @description When the first job started.
+             */
+            started_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When the last job finished; null until every job has.
+             */
+            completed_at?: string | null;
+            /** Format: int64 */
+            queue_wait_ms?: number;
+            /**
+             * Format: int64
+             * @description From the first job starting to the last finishing.
+             */
+            duration_ms?: number;
+        };
+        /** @description How a run's jobs are getting on, counted over the latest attempt of each. `failed` counts failures on either side, so `faulted` -- the ones this fleet caused -- is always part of it. */
+        RunJobCounts: {
+            total?: number;
+            waiting?: number;
+            queued?: number;
+            in_progress?: number;
+            completed?: number;
+            succeeded?: number;
+            failed?: number;
+            cancelled?: number;
+            skipped?: number;
+            faulted?: number;
+            /** @description Queued jobs no enabled pool claims and nobody else is about to run. */
+            unmatched?: number;
+        };
         JobStep: {
             number?: number;
             name?: string;
@@ -6672,6 +6759,8 @@ export interface operations {
                 workflow?: string[];
                 pool_id?: string[];
                 runner_id?: string[];
+                /** @description Only the jobs of these workflow runs, by GitHub's run ID -- how the Workflows page opens a run to the jobs inside it. Send `repo` with it: a run ID keys a run only within its repository. */
+                run_id?: number[];
                 state?: components["schemas"]["JobState"][];
                 conclusion?: string[];
                 label?: string[];
@@ -6886,6 +6975,62 @@ export interface operations {
                         repos?: string[];
                         workflows?: string[];
                         conclusions?: string[];
+                    };
+                };
+            };
+        };
+    };
+    listWorkflowRuns: {
+        parameters: {
+            query?: {
+                branch?: string[];
+                provisioning?: ("ready" | "expedited" | "paused" | "deleted")[];
+                repo?: string[];
+                workflow?: string[];
+                pool_id?: string[];
+                runner_id?: string[];
+                run_id?: number[];
+                /** @description The run's own state, worked out from its jobs. */
+                state?: components["schemas"]["JobState"][];
+                /** @description The run's own conclusion, worst outcome of its jobs first. */
+                conclusion?: string[];
+                label?: string[];
+                q?: string;
+                since?: string;
+                until?: string;
+                /** @description Runs with a job that is still queued and that no enabled pool claims. */
+                unmatched?: boolean;
+                /** @description Runs this controller has a hand in */
+                managed?: boolean;
+                /** @description Runs with a job that went wrong on either side */
+                failed?: boolean;
+                /** @description Runs with a failure this fleet caused. */
+                faulted?: boolean;
+                /** @description Runs GitHub failed with nothing wrong on this side. Sending this and `faulted` together is a 400. */
+                workflow_failed?: boolean;
+                /** @description Narrow by whether a cancellation of the run has been accepted by GitHub and not yet confirmed. */
+                cancelling?: boolean;
+                fault?: components["schemas"]["FaultKind"][];
+                limit?: components["parameters"]["Limit"];
+                offset?: components["parameters"]["Offset"];
+                /** @description A column name. An unknown value falls back to the default rather than erroring, so a stale bookmark does not break the page. */
+                sort?: components["parameters"]["Sort"];
+                order?: components["parameters"]["Order"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"] & {
+                        items?: components["schemas"]["WorkflowRun"][];
                     };
                 };
             };

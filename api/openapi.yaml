@@ -1489,6 +1489,15 @@ paths:
         - { name: workflow, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
         - { name: pool_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
         - { name: runner_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - name: run_id
+          in: query
+          description: >-
+            Only the jobs of these workflow runs, by GitHub's run ID -- how the Workflows
+            page opens a run to the jobs inside it. Send `repo` with it: a run ID keys a
+            run only within its repository.
+          schema: { type: array, items: { type: integer, format: int64 } }
+          style: form
+          explode: true
         - { name: state, in: query, schema: { type: array, items: { $ref: "#/components/schemas/JobState" } }, style: form, explode: true }
         - { name: conclusion, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
         - { name: label, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
@@ -1729,6 +1738,76 @@ paths:
                   repos: { type: array, items: { type: string } }
                   workflows: { type: array, items: { type: string } }
                   conclusions: { type: array, items: { type: string } }
+
+  /workflow-runs:
+    get:
+      operationId: listWorkflowRuns
+      tags: [jobs]
+      summary: Workflow runs, with their jobs summed up
+      description: >-
+        One row per workflow run -- the "#1009" GitHub's Actions tab lists -- summing up
+        the jobs GitHub reported under it, over the latest attempt of each job, the way
+        GitHub's own run page does. Nothing is stored for a run: it is derived from its
+        jobs, so a run and the jobs `GET /jobs?repo=&run_id=` lists for it cannot
+        disagree. Takes `/jobs`'s filters, read at the run's level. `state`,
+        `conclusion`, `failed`, `faulted`, `workflow_failed` and `cancelling` name the
+        run's own status -- a run with one job running and another queued is running,
+        and a run whose only failure was re-run to success has not failed. Every other
+        filter keeps a run whenever any job of it matches, so a run arrives whole rather
+        than reduced to the job that matched.
+      x-zoomies-role: viewer
+      parameters:
+        - { name: branch, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: provisioning, in: query, schema: { type: array, items: { type: string, enum: [ready, expedited, paused, deleted] } }, style: form, explode: true }
+        - { name: repo, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: workflow, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: pool_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: runner_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: run_id, in: query, schema: { type: array, items: { type: integer, format: int64 } }, style: form, explode: true }
+        - name: state
+          in: query
+          description: The run's own state, worked out from its jobs.
+          schema: { type: array, items: { $ref: "#/components/schemas/JobState" } }
+          style: form
+          explode: true
+        - name: conclusion
+          in: query
+          description: The run's own conclusion, worst outcome of its jobs first.
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
+        - { name: label, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+        - { name: unmatched, in: query, description: Runs with a job that is still queued and that no enabled pool claims., schema: { type: boolean } }
+        - { name: managed, in: query, description: Runs this controller has a hand in, through any job of theirs., schema: { type: boolean } }
+        - { name: failed, in: query, description: Runs with a job that went wrong on either side, counting only the latest attempt of each job., schema: { type: boolean } }
+        - { name: faulted, in: query, description: Runs with a failure this fleet caused., schema: { type: boolean } }
+        - { name: workflow_failed, in: query, description: Runs GitHub failed with nothing wrong on this side. Sending this and `faulted` together is a 400., schema: { type: boolean } }
+        - { name: cancelling, in: query, description: Narrow by whether a cancellation of the run has been accepted by GitHub and not yet confirmed., schema: { type: boolean } }
+        - name: fault
+          in: query
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/FaultKind" }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Order"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/WorkflowRun" }
 
   # ==========================================================================
   # Hosts
@@ -5404,6 +5483,67 @@ components:
         completed_at: { type: [string, "null"], format: date-time }
         queue_wait_ms: { type: integer, format: int64 }
         duration_ms: { type: integer, format: int64 }
+
+    WorkflowRun:
+      type: object
+      description: >-
+        One workflow run as this fleet has seen it: the jobs GitHub reported under it,
+        summed up over the latest attempt of each job. Derived from the jobs, never
+        stored, so it cannot go stale on its own.
+      properties:
+        repo: { type: string }
+        workflow: { type: string }
+        github_run_id: { type: integer, format: int64 }
+        run_number:
+          type: integer
+          format: int64
+          description: >-
+            GitHub's own sequential number for the run - the "#1009" its Actions UI shows.
+            Zero until a job of the run has had it backfilled.
+        run_attempt: { type: integer, description: The highest attempt any job of the run reported. }
+        head_branch: { type: string }
+        head_sha: { type: string }
+        installation_id: { type: string }
+        html_url: { type: string, description: The run's page on GitHub. }
+        state:
+          allOf:
+            - $ref: "#/components/schemas/JobState"
+          description: >-
+            The run's own state: in_progress while any job is, queued while any job waits
+            for a runner, waiting while any is held for a review, completed once every job is.
+        conclusion:
+          type: string
+          description: >-
+            The run's conclusion once it has completed, worst outcome first: a failure on
+            either side, then cancelled, then action_required, then success. Empty until then.
+        managed: { type: boolean, description: Whether this fleet has a hand in any job of the run. }
+        hosted: { type: boolean, description: Whether every job's labels name runners somebody else operates. }
+        cancelling: { type: boolean, description: Whether a cancellation of the run has been accepted by GitHub and not yet confirmed. }
+        jobs: { $ref: "#/components/schemas/RunJobCounts" }
+        queued_at: { type: string, format: date-time, description: When the first job was queued. }
+        started_at: { type: [string, "null"], format: date-time, description: When the first job started. }
+        completed_at: { type: [string, "null"], format: date-time, description: When the last job finished; null until every job has. }
+        queue_wait_ms: { type: integer, format: int64 }
+        duration_ms: { type: integer, format: int64, description: From the first job starting to the last finishing. }
+
+    RunJobCounts:
+      type: object
+      description: >-
+        How a run's jobs are getting on, counted over the latest attempt of each.
+        `failed` counts failures on either side, so `faulted` -- the ones this fleet
+        caused -- is always part of it.
+      properties:
+        total: { type: integer }
+        waiting: { type: integer }
+        queued: { type: integer }
+        in_progress: { type: integer }
+        completed: { type: integer }
+        succeeded: { type: integer }
+        failed: { type: integer }
+        cancelled: { type: integer }
+        skipped: { type: integer }
+        faulted: { type: integer }
+        unmatched: { type: integer, description: Queued jobs no enabled pool claims and nobody else is about to run. }
 
     JobStep:
       type: object

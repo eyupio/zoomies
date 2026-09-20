@@ -107,7 +107,7 @@
 -->
 <script lang="ts" generics="T extends Record<string, unknown>">
   import { untrack } from 'svelte';
-  import { Columns3, GripVertical, RotateCcw } from '@lucide/svelte';
+  import { ChevronRight, Columns3, GripVertical, RotateCcw } from '@lucide/svelte';
   import {
     columnVisibilityFeature,
     createTable,
@@ -157,6 +157,15 @@
     emptyDescription?: string;
     /** The action that fills an empty grid. */
     emptyAction?: Snippet;
+    /**
+     * Rich content for a row opened in place -- a run's jobs, say -- drawn in
+     * a row of its own beneath it. Given, every row gains a chevron that opens
+     * it, and a click or Enter on the row itself opens it too, unless `onopen`
+     * has another use for them.
+     */
+    expanded?: Snippet<[T]>;
+    /** What the chevron and the phone's card call that content: "Jobs". */
+    expandHeader?: string;
     class?: string;
   }
 
@@ -178,8 +187,23 @@
     emptyTitle = `No ${noun} yet`,
     emptyDescription,
     emptyAction,
+    expanded,
+    expandHeader = 'Details',
     class: className = '',
   }: Props = $props();
+
+  /* -- rows opened in place ------------------------------------------------ */
+
+  /**
+   * Which rows are open, by id rather than by index, so a live refresh that
+   * reorders the page leaves the run an operator is reading open.
+   */
+  let opened = $state<string[]>([]);
+  const isOpen = (id: string): boolean => opened.includes(id);
+  function setOpen(id: string, open: boolean): void {
+    if (open === isOpen(id)) return;
+    opened = open ? [...opened, id] : opened.filter((other) => other !== id);
+  }
 
   /* -- query state, held in the URL --------------------------------------- */
 
@@ -439,6 +463,8 @@
   const DEFAULT_SHARE_REM = 8;
   /** The tick column, which is a control rather than a column of data. */
   const PICK_SHARE_REM = 2.5;
+  /** The chevron column, for the same reason. */
+  const EXPAND_SHARE_REM = 2.25;
 
   /**
    * A declared width in pixels.
@@ -523,7 +549,11 @@
    * another keeps its full measure.
    */
   const columnWidths = $derived.by(() => {
-    const none = { pick: undefined, columns: visibleColumns.map(() => undefined) };
+    const none = {
+      pick: undefined,
+      expand: undefined,
+      columns: visibleColumns.map(() => undefined),
+    };
     // A card has no columns to divide, and a width left on the heading strip
     // would squeeze the sort controls into the shapes of columns that are no
     // longer there.
@@ -532,8 +562,10 @@
     const wanted = visibleColumns.map(
       (column) => layoutWidths[column.id] ?? share(column.width, remPx),
     );
-    // The tick is a control like any other, so it is measured rather than shared.
+    // The tick and the chevron are controls like any other, so they are
+    // measured rather than shared.
     const pick = selectable ? PICK_SHARE_REM * remPx : 0;
+    const expand = expanded ? EXPAND_SHARE_REM * remPx : 0;
     /*
       Scrolling, so there is no frame to divide: every column gets exactly what
       it asked for. The widths are still emitted rather than left to the
@@ -543,11 +575,13 @@
     if (phoneRows || hasCustomWidths) {
       return {
         pick: selectable ? `${pick}px` : undefined,
+        expand: expanded ? `${expand}px` : undefined,
         columns: wanted.map((value) => `${value}px`),
       };
     }
     const measured =
       pick +
+      expand +
       visibleColumns.reduce((sum, column, index) => sum + (column.fixed ? wanted[index]! : 0), 0);
     const shared = visibleColumns.reduce(
       (sum, column, index) => sum + (column.fixed ? 0 : wanted[index]!),
@@ -562,6 +596,7 @@
     const of = (value: number) => `${((value / shared) * spare).toFixed(2)}px`;
     return {
       pick: selectable ? `${pick}px` : undefined,
+      expand: expanded ? `${expand}px` : undefined,
       columns: visibleColumns.map((column, index) =>
         column.fixed ? `${wanted[index]!}px` : of(wanted[index]!),
       ),
@@ -576,9 +611,10 @@
   const tableWidth = $derived.by(() => {
     if (cards || frameWidth <= 0) return undefined;
     const pick = selectable ? PICK_SHARE_REM * remPx : 0;
+    const expand = expanded ? EXPAND_SHARE_REM * remPx : 0;
     const total = visibleColumns.reduce(
       (sum, column) => sum + (layoutWidths[column.id] ?? share(column.width, remPx)),
-      pick,
+      pick + expand,
     );
     // Defaults still fit the window when their useful measures add up to more
     // than it has. Once the operator resizes a column, that explicit measure
@@ -756,7 +792,9 @@
 
   function openRow(index: number): void {
     const row = modelRows[index];
-    if (row && onopen) onopen(row.original);
+    if (!row) return;
+    if (onopen) onopen(row.original);
+    else if (expanded) setOpen(row.id, !isOpen(row.id));
   }
 
   function onBodyKeydown(event: KeyboardEvent): void {
@@ -790,6 +828,18 @@
       case 'Enter':
         event.preventDefault();
         openRow(index);
+        break;
+      // The arrows a tree uses, for the same gesture: a row that opens in
+      // place is a branch, and an operator who has learned one has learned
+      // the other.
+      case 'ArrowRight':
+      case 'ArrowLeft':
+        if (!expanded) return;
+        event.preventDefault();
+        {
+          const id = pageIds[index];
+          if (id) setOpen(id, event.key === 'ArrowRight');
+        }
         break;
       case ' ':
         if (!selectable) return;
@@ -958,6 +1008,11 @@
               />
             </th>
           {/if}
+          {#if expanded}
+            <th role="columnheader" class="expand" scope="col" style:width={columnWidths.expand}>
+              <span class="sr-only">{expandHeader}</span>
+            </th>
+          {/if}
           {#each visibleColumns as column, index (column.id)}
             <!--
               `data-table-column` is what a drag in progress hit-tests against:
@@ -1047,8 +1102,9 @@
               aria-rowindex={offset + index + 2}
               tabindex={index === focused || (focused === -1 && index === 0) ? 0 : -1}
               class:selected={isSelected(row.id)}
-              class:clickable={Boolean(onopen)}
+              class:clickable={Boolean(onopen || expanded)}
               aria-selected={selectable ? isSelected(row.id) : undefined}
+              aria-expanded={expanded ? isOpen(row.id) : undefined}
               onclick={() => {
                 focused = index;
                 openRow(index);
@@ -1074,6 +1130,27 @@
                       focused = index;
                     }}
                   />
+                </td>
+              {/if}
+              {#if expanded}
+                <td
+                  role="gridcell"
+                  class="expand"
+                  data-label={expandHeader}
+                  onclick={(event) => event.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    class="chevron"
+                    aria-expanded={isOpen(row.id)}
+                    aria-label="{isOpen(row.id) ? 'Hide' : 'Show'} {expandHeader.toLowerCase()}"
+                    onclick={() => {
+                      focused = index;
+                      setOpen(row.id, !isOpen(row.id));
+                    }}
+                  >
+                    <ChevronRight size={16} aria-hidden="true" />
+                  </button>
                 </td>
               {/if}
               {#each visibleColumns as column (column.id)}
@@ -1111,6 +1188,21 @@
                 </td>
               {/each}
             </tr>
+            {#if expanded && isOpen(row.id)}
+              <!--
+                Presentation rather than a row of the grid: the grid's row
+                count is the server's total, and a row opened in place is not
+                one of those. Its content is still reached by Tab, since the
+                role only silences the row itself.
+              -->
+              <!-- svelte-ignore a11y_no_interactive_element_to_noninteractive_role -->
+              <tr class="expansion" role="presentation">
+                <!-- svelte-ignore a11y_no_interactive_element_to_noninteractive_role -->
+                <td role="presentation" colspan={visibleColumns.length + (selectable ? 1 : 0) + 1}>
+                  <div class="expansion-body">{@render expanded(row.original)}</div>
+                </td>
+              </tr>
+            {/if}
           {/each}
         {/if}
       </tbody>
@@ -1364,6 +1456,47 @@
     padding-left: var(--z-space-3);
     padding-right: 0;
   }
+  th.expand,
+  td.expand {
+    padding-left: var(--z-space-2);
+    padding-right: 0;
+  }
+  .chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--z-space-6);
+    height: var(--z-space-6);
+    border: 0;
+    padding: 0;
+    border-radius: var(--z-radius-sm);
+    background: none;
+    color: var(--z-text-muted);
+    cursor: pointer;
+  }
+  .chevron:hover {
+    background: var(--z-surface-hover);
+    color: var(--z-text);
+  }
+  .chevron :global(svg) {
+    transition: transform var(--z-motion-fast) var(--z-ease);
+  }
+  .chevron[aria-expanded='true'] :global(svg) {
+    transform: rotate(90deg);
+  }
+  /*
+    The opened row is the row above it, continued: sunken so it reads as
+    inside rather than beside, and left alone by the hover tint, because it is
+    not a row anybody opens.
+  */
+  tbody tr.expansion td,
+  tbody tr.expansion:hover td {
+    padding: 0;
+    background: var(--z-surface-sunken);
+  }
+  .expansion-body {
+    padding: var(--z-space-3) var(--z-space-4) var(--z-space-4);
+  }
   .sort {
     display: inline-flex;
     align-items: center;
@@ -1616,6 +1749,26 @@
     }
     .grid:not(.rows) td.pick::before {
       content: 'Select';
+    }
+    .grid:not(.rows) td.expand {
+      justify-content: flex-start;
+      width: auto;
+      padding: var(--z-space-2) var(--z-space-3);
+      border-bottom: var(--z-border-width) solid var(--z-border);
+    }
+    /* The card it opened, continued: joined to the card above rather than a card of its own. */
+    .grid:not(.rows) tbody tr.expansion {
+      margin-top: calc(-1 * var(--z-space-3));
+      border-top: 0;
+      border-top-left-radius: 0;
+      border-top-right-radius: 0;
+    }
+    .grid:not(.rows) tbody tr.expansion td {
+      display: block;
+      text-align: left;
+    }
+    .grid:not(.rows) tbody tr.expansion td::before {
+      content: none;
     }
     /*
       A value has the width of a card now, so it wraps rather than truncating:

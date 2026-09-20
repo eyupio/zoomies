@@ -181,13 +181,43 @@ with it. Restoring it from the Removed view puts it back.
 ![The Queue page: provisioning demand composition, status filters and bulk controls](screenshots/queue-dark.webp#only-dark){ .zoomies-shot }
 ![The Queue page: provisioning demand composition, status filters and bulk controls](screenshots/queue-light.webp#only-light){ .zoomies-shot }
 
+## Workflows
+
+What GitHub's Actions tab lists, in this fleet's terms: one row per workflow
+run — the *#1009* beside a workflow's name on GitHub — with the jobs GitHub
+reported under it summed up. A run's state and conclusion are worked out the
+way GitHub's own run page works them out, over the latest attempt of each job:
+running while any job is, queued while any waits for a runner, and once every
+job has finished, the worst outcome among them — so a run whose failed job was
+re-run to success reads as a success. The row says how many jobs the run has
+and how they are getting on, when it was queued, how long it waited and how
+long it took, and links to the same run on GitHub.
+
+Each row opens in place — press it, or the chevron, or the right arrow — to
+the jobs inside the run: every job with its state, the pool that claimed it,
+the runner that ran it, the step it failed at, its queue wait and duration,
+and a link to it on GitHub. Earlier attempts are listed too, marked with their
+attempt, because the attempt that failed is usually why somebody is looking.
+Pressing a job opens the same drawer the Jobs page opens. Nothing here is a
+second copy of anything: a run is derived from its jobs, and the jobs under it
+are the same rows, so the two cannot disagree.
+
+The status views and the filters are the Jobs page's, read at the run's
+level — a status names the run's own, and any other filter keeps a run
+whenever one of its jobs matches, so a run arrives whole rather than reduced
+to the job that matched. **Every job** switches to the Jobs page with the same
+filters in force.
+
 ## Jobs
 
-Everything this fleet claims, runs or is waiting to run, with each job's queue
-wait and duration. Status is the filter this page is opened for, so it is a row
-of buttons above the grid — **Running**, **Queued**, **Failed**, **Finished**,
-**All** — and the page opens on *Running*, which is the question an operator
-arrives with. That default is for a bare visit only: every link into this page
+The Workflows page one step down: every job on a row of its own, where
+Workflows has the run each belongs to. It is not in the navigation — Workflows
+is — but every link that names a job lands here, and **Workflow runs** at the
+top goes back up with the same filters in force. Everything this fleet claims,
+runs or is waiting to run is listed, with each job's queue wait and duration.
+Status is the filter this page is opened for, so it is a row of buttons above
+the grid — **Running**, **Queued**, **Failed**, **Finished**, **All** — and
+the page opens on *Running*, which is the question an operator arrives with. That default is for a bare visit only: every link into this page
 that already carries a filter keeps it, so the problems drawer's unmatched link
 and the Overview's outcome links still show what they promised.
 

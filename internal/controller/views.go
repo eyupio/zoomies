@@ -440,6 +440,70 @@ func (c *Controller) jobView(ctx context.Context, j *store.Job) JobView {
 }
 
 // ---------------------------------------------------------------------------
+// Workflow runs
+// ---------------------------------------------------------------------------
+
+// WorkflowRunView is one workflow run -- the "#1009" in GitHub's Actions tab
+// -- with its jobs summed up and its waits measured: the shape
+// GET /workflow-runs returns and the Workflows page lists.
+type WorkflowRunView struct {
+	Repo           string `json:"repo"`
+	Workflow       string `json:"workflow"`
+	GitHubRunID    int64  `json:"github_run_id"`
+	RunNumber      int64  `json:"run_number,omitempty"`
+	RunAttempt     int    `json:"run_attempt,omitempty"`
+	HeadBranch     string `json:"head_branch,omitempty"`
+	HeadSHA        string `json:"head_sha,omitempty"`
+	InstallationID string `json:"installation_id,omitempty"`
+	HTMLURL        string `json:"html_url,omitempty"`
+	// State and Conclusion are the run's own, worked out from its jobs the
+	// way GitHub's run page does it: see store.WorkflowRun.
+	State      store.JobState `json:"state"`
+	Conclusion string         `json:"conclusion,omitempty"`
+	// Managed is whether this fleet has a hand in any job of the run, and
+	// Hosted whether every job runs on somebody else's runners -- the same
+	// two things a job says about itself, lifted to the run.
+	Managed bool `json:"managed"`
+	Hosted  bool `json:"hosted"`
+	// Cancelling is whether an operator's cancellation of the run has been
+	// accepted by GitHub and not yet confirmed by its jobs completing.
+	Cancelling  bool               `json:"cancelling"`
+	Jobs        store.RunJobCounts `json:"jobs"`
+	QueuedAt    time.Time          `json:"queued_at"`
+	StartedAt   *time.Time         `json:"started_at"`
+	CompletedAt *time.Time         `json:"completed_at"`
+	QueueWaitMS int64              `json:"queue_wait_ms"`
+	DurationMS  int64              `json:"duration_ms"`
+}
+
+// NewWorkflowRunView renders a run. Nothing is looked up: every field is the
+// store's own aggregate, so a page of runs costs one query.
+func NewWorkflowRunView(r *store.WorkflowRun) WorkflowRunView {
+	return WorkflowRunView{
+		Repo:           r.Repo,
+		Workflow:       r.Workflow,
+		GitHubRunID:    r.GitHubRunID,
+		RunNumber:      r.RunNumber,
+		RunAttempt:     r.RunAttempt,
+		HeadBranch:     r.HeadBranch,
+		HeadSHA:        r.HeadSHA,
+		InstallationID: r.InstallationID,
+		HTMLURL:        r.HTMLURL,
+		State:          r.State,
+		Conclusion:     r.Conclusion,
+		Managed:        r.Managed,
+		Hosted:         r.Hosted,
+		Cancelling:     r.Cancelling,
+		Jobs:           r.Jobs,
+		QueuedAt:       r.QueuedAt,
+		StartedAt:      r.StartedAt,
+		CompletedAt:    r.CompletedAt,
+		QueueWaitMS:    millis(r.QueueWait()),
+		DurationMS:     millis(r.Duration()),
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Runners
 // ---------------------------------------------------------------------------
 

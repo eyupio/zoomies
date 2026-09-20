@@ -11,6 +11,13 @@
   whose labels all name such a runner, however long it queues -- a vendor is
   about to start it, and this fleet was never in the running.
 
+  This is the Workflows page one step down: every job on a row of its own,
+  where Workflows has the run each belongs to. The two share their filters and
+  their views, so a link into either means the same on the other; what differs
+  is the question. A run is what an operator arrives with from a pull request,
+  and a job is what a pool claimed, a runner ran and a queue wait belongs to --
+  which is why every link that names a job still lands here.
+
   GitHub reports every job in an installed repository, most of which this fleet
   never touches. The page therefore shows Zoomies' own work by default -- jobs a
   pool claims, jobs its runners ran, and queued jobs nothing here claims that
@@ -37,18 +44,10 @@
   import JobsInsights from '$lib/insights/JobsInsights.svelte';
   import FleetHistory from '$lib/insights/FleetHistory.svelte';
   import { getJobFacets, listJobs } from '$lib/api/client';
-  import {
-    JOB_STATES,
-    PROVISIONING_STATUSES,
-    WAITING_PROVISIONING,
-    type Job,
-    type JobState,
-    type ProvisioningStatus,
-  } from '$lib/api/types';
+  import type { Job } from '$lib/api/types';
   import { events } from '$lib/api/sse';
   import { faultLabel, fleetFailed } from '$lib/faults';
   import { formatDuration } from '$lib/format';
-  import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
   import {
     HOSTED,
@@ -70,208 +69,24 @@
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
   import JobFilters from '$lib/jobs/JobFilters.svelte';
-  import type { JobFilterState } from '$lib/jobs/JobFilters.svelte';
   import JobLabels from '$lib/jobs/JobLabels.svelte';
   import JobViewFilter from '$lib/jobs/JobViewFilter.svelte';
   import UnmatchedNote from '$lib/jobs/UnmatchedNote.svelte';
-  import { currentJobView, DEFAULT_JOB_STATE, JOB_VIEWS, type JobView } from '$lib/jobs/views';
+  import { jobFilterState } from '$lib/jobs/filter-state.svelte';
+  import LevelSwitch from '$lib/workflows/LevelSwitch.svelte';
 
   /* -- filter state, held in the URL ---------------------------------------
-   * The keys are the API's own, so the address bar and the request agree and a
-   * pasted link reproduces exactly what the sender was looking at.
+   * Shared with the Workflows page, which reads the same keys at the run's
+   * level, so a link into either means the same on the other. What each key
+   * means, and why the default is what it is, is with the code in
+   * lib/jobs/filter-state.svelte.ts.
    * --------------------------------------------------------------------- */
 
-  /** Every key a filter lives under, so "has this page been asked anything?" has one answer. */
-  const FILTER_KEYS = [
-    'q',
-    'repo',
-    'workflow',
-    'pool_id',
-    'label',
-    'conclusion',
-    'state',
-    'provisioning',
-    'since',
-    'until',
-    'unmatched',
-    'failed',
-    'faulted',
-    'all',
-  ] as const;
-
-  /** The status keys a view owns. A patch touching one of them is choosing a view. */
-  const STATUS_KEYS = [
-    'state',
-    'conclusion',
-    'failed',
-    'faulted',
-    'unmatched',
-    'provisioning',
-  ] as const;
-
-  /**
-   * Nobody has asked this page anything yet, so it answers the question it is
-   * opened with: what is running.
-   *
-   * Scoped to a URL with no filter at all, not to an absent `state`, because
-   * seven of the ten links into this page carry a filter and no state -- the
-   * problems panel's unmatched link, the Overview's failed and outcome links,
-   * a date range off the activity matrix. Each of those said what it wanted,
-   * and narrowing it to running would answer a different question than the one
-   * the sender asked. The address bar is left alone the way Queue's
-   * provisioning statuses and Settings' tab are: an absent key means the
-   * default, and pressing "All" writes every state out in full so that the two
-   * stay distinguishable.
-   */
-  const defaulted = $derived.by(() => {
-    const query = router.query;
-    return !FILTER_KEYS.some((key) => query.has(key));
-  });
-
-  /**
-   * Which of the queue's provisioning statuses to show.
-   *
-   * Validated rather than asserted, for the reason `state` is: the address bar
-   * is whatever somebody pasted, and a cast would send the typo to the server
-   * as a filter matching nothing.
-   *
-   * The default is the interesting part. A view narrowed to queued work means
-   * "what is waiting for a runner here", and a job an operator removed from
-   * the queue is not -- it stopped counting towards the queue depth on the
-   * Overview and towards this page's own "Queued now" figure, so a list that
-   * still carried it disagreed with the number directly above it. Every other
-   * view narrows nothing: a removed job belongs in the history this page is,
-   * badged as removed, and `All` has to show it. The filter is written into
-   * the chips either way, so a shorter list always says why it is shorter.
-   */
-  const provisioning = $derived.by<ProvisioningStatus[]>(() => {
-    const asked = router
-      .paramList('provisioning')
-      .filter((v): v is ProvisioningStatus =>
-        (PROVISIONING_STATUSES as readonly string[]).includes(v),
-      );
-    if (asked.length > 0) return asked;
-    const states = defaulted ? [...DEFAULT_JOB_STATE] : router.paramList('state');
-    return states.length === 1 && states[0] === 'queued' ? [...WAITING_PROVISIONING] : [];
-  });
-
-  const filters = $derived<JobFilterState>({
-    q: router.param('q'),
-    repo: router.paramList('repo'),
-    workflow: router.paramList('workflow'),
-    pool_id: router.paramList('pool_id'),
-    label: router.paramList('label'),
-    conclusion: router.paramList('conclusion'),
-    // Validated rather than asserted: `?state=` is whatever was in the address
-    // bar, and a cast sends the typo straight to the server as a filter that
-    // matches nothing, so the page comes back empty with no explanation.
-    state: defaulted
-      ? [...DEFAULT_JOB_STATE]
-      : router
-          .paramList('state')
-          .filter((value): value is JobState => (JOB_STATES as readonly string[]).includes(value)),
-    provisioning,
-    since: router.param('since'),
-    until: router.param('until'),
-    unmatched: router.param('unmatched') === 'true',
-    failed: router.param('failed') === 'true',
-    faulted: router.param('faulted') === 'true',
-    all: router.param('all') === 'true',
-  });
-
-  /**
-   * Merge a filter change into the URL.
-   *
-   * Only the keys the caller actually passed are written: `setQuery` removes a
-   * key whose value is undefined, so spreading a partial object would quietly
-   * clear every filter it did not mention.
-   */
-  function patch(next: Partial<JobFilterState>): void {
-    const out: Record<string, string | readonly string[] | null> = { offset: null };
-    const choosingStatus = STATUS_KEYS.some((key) => next[key] !== undefined);
-
-    /*
-     * Narrowing something else never moves the status. The status in force is
-     * written down as part of the same change, because it is only ever implied
-     * by what is absent -- the default when nothing is asked, and "every
-     * status" when a link asked for something narrower and said nothing about
-     * status. Without this, one keystroke in the search box took the page from
-     * "running" to every job the fleet has ever run, and removing the last chip
-     * from a link that asked for every status took it the other way, down to
-     * running. Both are the page answering a question nobody asked.
-     */
-    if (!choosingStatus) {
-      out.state = filters.state.length > 0 ? filters.state : [...JOB_STATES];
-    }
-
-    /*
-     * A view owns the queue statuses along with the rest of the status keys.
-     * Pressing All after looking at what was removed from the queue has to
-     * show everything, rather than keeping the narrower filter the last view
-     * left behind; clearing the key lets the new view's own default apply.
-     * Narrowing something else leaves it alone, because the operator was
-     * still looking at that.
-     */
-    if (choosingStatus && next.provisioning === undefined) out.provisioning = null;
-
-    /*
-     * The two switches own the status they contradict, the way a view button
-     * does. `unmatched` is queued-and-unclaimed on the server, so a state
-     * beside it can only subtract -- and from the default view, where the
-     * status has just been written down, `state=in_progress&unmatched=true`
-     * matched nothing at all and left the operator on an empty page with no
-     * sign of why. "Failed" is the server's own reckoning of a job that went
-     * wrong, which is not a state either.
-     */
-    if (next.unmatched === true) {
-      out.state = [];
-      out.conclusion = [];
-    }
-    if (next.failed === true) out.state = [];
-    if (next.faulted === true) out.state = [];
-
-    for (const [key, value] of Object.entries(next)) {
-      if (typeof value === 'boolean') out[key] = value ? 'true' : null;
-      else if (Array.isArray(value)) out[key] = value;
-      else out[key] = (value as string) || null;
-    }
-    router.setQuery(out);
-  }
-
-  /**
-   * Clearing every filter is a return to the default view, not to everything:
-   * a page with nothing asked of it is the page an operator arrives at, and
-   * "All" is one button away and says so.
-   */
-  function clearFilters(): void {
-    router.setQuery({ ...Object.fromEntries(FILTER_KEYS.map((k) => [k, null])), offset: null });
-  }
-
-  /* -- the status views -----------------------------------------------------
-   * The row of buttons above the grid. A view owns the status keys outright,
-   * so pressing one gives exactly what it says; everything narrower the
-   * operator has set -- repository, workflow, pool, labels, dates -- survives
-   * the change, because they were still looking at that.
-   * ---------------------------------------------------------------------- */
-
-  const view = $derived(currentJobView(filters));
-
-  /**
-   * Whether this view is one of the two that describe work still in hand.
-   *
-   * A job whose workflow run has been cancelled is neither waiting nor
-   * running: the queued half raises no demand and the running half has had its
-   * runner taken away. GitHub's completion delivery decides the conclusion and
-   * can be minutes behind, and for that whole window the two views listed work
-   * nobody was going to do -- beside the tiles above them, which had already
-   * stopped counting it. Every other view is history and shows it, badged.
-   */
-  const inHand = $derived(view === 'queued' || view === 'running');
-
-  function setView(next: JobView): void {
-    const chosen = JOB_VIEWS.find((v) => v.id === next);
-    if (chosen) patch(chosen.filters);
-  }
+  const filterState = jobFilterState();
+  const filters = $derived(filterState.filters);
+  const view = $derived(filterState.view);
+  const inHand = $derived(filterState.inHand);
+  const { patch, clearFilters, setView } = filterState;
 
   /* -- facets and live rows -------------------------------------------------- */
 
@@ -607,7 +422,10 @@
   />
 </details>
 <div class="content">
-  <JobViewFilter value={view} onchange={setView} />
+  <div class="toolbar">
+    <JobViewFilter value={view} onchange={setView} />
+    <LevelSwitch level="jobs" />
+  </div>
 
   <JobFilters
     statusChips={view === ''}
@@ -688,6 +506,13 @@
     display: flex;
     flex-direction: column;
     gap: var(--z-space-4);
+  }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-3);
   }
   .state {
     display: inline-flex;

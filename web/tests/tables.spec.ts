@@ -36,6 +36,7 @@ test.use(browserOverride);
 /** Every page whose main content is a grid, with the name its table carries. */
 const GRIDS = [
   { path: '/runners', heading: 'Runners', label: 'Runners' },
+  { path: '/workflows?state=completed', heading: 'Workflows', label: 'Workflow runs' },
   { path: '/jobs?state=completed', heading: 'Jobs', label: 'Jobs' },
   { path: '/pools', heading: 'Pools', label: 'Pools' },
   { path: '/queue', heading: 'Queue', label: 'Provisioning queue' },

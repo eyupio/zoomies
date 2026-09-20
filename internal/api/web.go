@@ -243,6 +243,7 @@ var uiRoutes = []string{
 	"/",
 	"/pools",
 	"/runners",
+	"/workflows",
 	"/jobs",
 	"/queue",
 	"/usage",

@@ -183,6 +183,7 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionJobsRead)).Get("/provisioning", s.handleListJobs)
 		r.With(s.require(auth.ActionJobsRead)).Get("/provisioning/selection", s.handleProvisioningSelection)
 		r.With(s.require(auth.ActionProvisioningWrite)).Post("/provisioning/bulk", s.handleControlProvisioning)
+		r.With(s.require(auth.ActionJobsRead)).Get("/workflow-runs", s.handleListWorkflowRuns)
 		r.Route("/jobs", func(r chi.Router) {
 			r.With(s.require(auth.ActionJobsRead)).Get("/", s.handleListJobs)
 			r.With(s.require(auth.ActionJobsRead)).Get("/facets", s.handleJobFacets)

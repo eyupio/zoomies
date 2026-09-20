@@ -364,8 +364,10 @@ test('the events feed carries the fleet鈥檚 other news, not only the scheduler鈥
   await expect(feed).toContainText('A job failed');
   await expect(feed.getByText(/^at .+ 路 /).first(), 'a step failure names its step').toBeVisible();
   // And the line the outcomes panel carried: where it came from, and how long
-  // it took.
-  await expect(feed.getByText(/ 路 acme\/api 路 release\/2\.4 路 \d/).first()).toBeVisible();
+  // it took. The shape rather than a particular repository and branch: the
+  // seed hands those out by run, and which runs are among the newest fifteen
+  // lines is the seed's business rather than this test's.
+  await expect(feed.getByText(/ 路 acme\/[a-z]+ 路 [\w./-]+ 路 \d/).first()).toBeVisible();
   // The fleet owning up to its own failure: the runner died under the job, so
   // the failure is not the workflow's, and GitHub records both the same way.
   await expect(feed).toContainText(/A job.s runner stopped under it/);

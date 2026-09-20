@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/controller"
@@ -125,6 +126,31 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newPage(out, total, p))
 }
 
+// handleListWorkflowRuns answers GET /api/v1/workflow-runs: the jobs summed
+// up per workflow run, which is the unit GitHub's Actions tab lists and the
+// one the Workflows page shows before it is opened to the jobs inside.
+//
+// It takes the job listing's filters, read at the run's level -- a status
+// names the run's own, anything else keeps a run when any of its jobs
+// matches -- so the Workflows page and the Jobs page share one address bar.
+func (s *Server) handleListWorkflowRuns(w http.ResponseWriter, r *http.Request) {
+	filter, ok := parseJobFilter(w, r)
+	if !ok {
+		return
+	}
+	p := parsePage(r)
+	runs, total, err := s.ctrl.Store().ListWorkflowRuns(r.Context(), filter, p)
+	if err != nil {
+		s.internal(w, r, "listing workflow runs", err)
+		return
+	}
+	out := make([]controller.WorkflowRunView, 0, len(runs))
+	for _, run := range runs {
+		out = append(out, controller.NewWorkflowRunView(run))
+	}
+	writeJSON(w, http.StatusOK, newPage(out, total, p))
+}
+
 // handleGetJob answers GET /api/v1/jobs/{id}.
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	j, err := s.ctrl.Store().GetJob(r.Context(), chiURLParam(r, "id"))
@@ -221,6 +247,14 @@ func parseJobFilter(w http.ResponseWriter, r *http.Request) (store.JobFilter, bo
 		Conclusions:  queryList(r, "conclusion"),
 		Labels:       queryList(r, "label"),
 		Search:       r.URL.Query().Get("q"),
+	}
+	for _, raw := range queryList(r, "run_id") {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id <= 0 {
+			badRequestField(w, "run_id", fmt.Sprintf("%q is not a workflow run ID; GitHub's are whole numbers, the run_id on a job", raw))
+			return filter, false
+		}
+		filter.RunIDs = append(filter.RunIDs, id)
 	}
 	for _, raw := range queryList(r, "state") {
 		st := store.JobState(raw)

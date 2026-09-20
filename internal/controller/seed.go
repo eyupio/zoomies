@@ -966,22 +966,28 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 	for i := range 50 {
 		pool := pools[i%len(pools)]
 		queued := now.Add(-time.Duration(6*60-i*7) * time.Minute)
+		// Two jobs to a run, and everything a run has in common -- the
+		// repository, the workflow, the branch, the commit -- is chosen by the
+		// run rather than by the job. The Workflows page lists runs, and a run
+		// whose two jobs named different repositories was listed as two.
+		run := i / 2
+		repo := repos[run%len(repos)]
 		j := &store.Job{
 			ID:             fmt.Sprintf("job_demo%03d", i),
 			GitHubJobID:    int64(80000 + i),
-			GitHubRunID:    int64(40000 + i/2),
-			RunNumber:      int64(300 + i/2),
-			Repo:           repos[i%len(repos)],
-			Workflow:       workflows[i%len(workflows)],
+			GitHubRunID:    int64(40000 + run),
+			RunNumber:      int64(300 + run),
+			Repo:           repo,
+			Workflow:       workflows[run%len(workflows)],
 			JobName:        jobNames[i%len(jobNames)],
 			Labels:         pool.Labels,
 			InstallationID: pool.InstallationID,
 			PoolID:         pool.ID,
 			Matched:        true,
 			QueuedAt:       queued,
-			HTMLURL:        fmt.Sprintf("https://github.com/%s/actions/runs/%d", repos[i%len(repos)], 40000+i/2),
-			HeadBranch:     branches[i%len(branches)],
-			HeadSHA:        fmt.Sprintf("%040x", 0xC0FFEE+i*7919),
+			HTMLURL:        fmt.Sprintf("https://github.com/%s/actions/runs/%d", repo, 40000+run),
+			HeadBranch:     branches[run%len(branches)],
+			HeadSHA:        fmt.Sprintf("%040x", 0xC0FFEE+run*7919),
 			RunAttempt:     1 + i%7/6,
 		}
 

@@ -59,7 +59,7 @@ export const SECTIONS = [
   { path: '/', label: 'Overview' },
   { path: '/pools', label: 'Pools' },
   { path: '/runners', label: 'Runners' },
-  { path: '/jobs', label: 'Jobs' },
+  { path: '/workflows', label: 'Workflows' },
   { path: '/usage', label: 'Usage' },
   { path: '/hosts', label: 'Hosts' },
   { path: '/providers', label: 'Providers' },
@@ -144,12 +144,29 @@ export const FIXTURE = {
    */
   runningJobs: 3,
   /**
-   * Jobs in acme/api: the seed cycles three repositories over fifty jobs and
-   * again over the backlog that explains its starting runners. The
-   * hosted-runner job the default view hides belongs to acme/widgets, so this
-   * count is the same in either view.
+   * Jobs in acme/api: the seed cycles three repositories over the twenty-five
+   * runs behind its fifty jobs -- two jobs to a run, and a run keeps to one
+   * repository -- and again over the backlog that explains its starting
+   * runners. The hosted-runner job the default view hides belongs to
+   * acme/widgets, so this count is the same in either view.
    */
-  apiJobs: 18,
+  apiJobs: 17,
+  /**
+   * Every workflow run the seed's jobs belong to: the twenty-five behind the
+   * fifty, the vendor's two, and one per backlog job.
+   */
+  totalRuns: 30,
+  /** The runs this fleet has a hand in: everything but the vendor's two. */
+  managedRuns: 28,
+  /**
+   * What the Workflows page shows before it is asked anything: the runs with
+   * a job on one of this fleet's busy runners. Three such jobs, two runs.
+   */
+  runningRuns: 2,
+  /** The run whose runner died under a job -- the one fleet failure the seed writes. */
+  faultedRun: 321,
+  /** A run whose job was re-run: its row says which attempt it is on. */
+  rerunRun: 303,
 } as const;
 
 /**
@@ -216,7 +233,7 @@ export function navEntry(page: Page, path: string): Locator {
 }
 
 /** The paths the phone's bottom bar carries itself, from `lib/shell/sections.ts`. */
-export const PRIMARY_SECTIONS: readonly string[] = ['/', '/pools', '/runners', '/jobs'];
+export const PRIMARY_SECTIONS: readonly string[] = ['/', '/pools', '/runners', '/workflows'];
 
 /** The phone's menu -- the sheet More opens -- once it is open. */
 export function navMenu(page: Page): Locator {

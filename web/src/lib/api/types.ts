@@ -120,6 +120,7 @@ export type RunnerDetail = Schemas['RunnerDetail'];
 export type TimelineEntry = Schemas['TimelineEntry'];
 export type JobExplanation = Schemas['JobExplanation'];
 export type Job = Schemas['Job'];
+export type WorkflowRun = Schemas['WorkflowRun'];
 export type JobStep = Schemas['JobStep'];
 export type JobEvent = Schemas['JobEvent'];
 export type JobEventKind = Schemas['JobEventKind'];
