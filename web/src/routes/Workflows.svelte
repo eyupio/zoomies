@@ -25,7 +25,7 @@
   import { events } from '$lib/api/sse';
   import { formatDuration, formatNumber } from '$lib/format';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { CANCELLING, HOSTED, jobStatus, RUNNER_LOST, UNMATCHED } from '$lib/status';
+  import { HOSTED, jobStatus, RUNNER_LOST, UNMATCHED } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
@@ -33,7 +33,8 @@
   import Duration from '$lib/components/Duration.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
-  import StateCell from '$lib/components/StateCell.svelte';
+  import ActivityStatus from '$lib/jobs/ActivityStatus.svelte';
+  import { workflowActivity } from '$lib/jobs/activity-status';
   import { endOfDay, startOfDay } from '$lib/jobs/DateRange.svelte';
   import { jobFilterState } from '$lib/jobs/filter-state.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
@@ -202,7 +203,7 @@
       id: 'state',
       header: 'State',
       sortable: true,
-      width: '9.5rem',
+      width: '12rem',
       hideable: false,
       value: (run) => jobStatus(run.state, run.conclusion).label,
       cell: stateCell,
@@ -264,10 +265,11 @@
 
 {#snippet stateCell(run: WorkflowRun)}
   <span class="state">
-    <StateCell status={jobStatus(run.state, run.conclusion)} />
-    {#if run.cancelling}
-      <Badge status={CANCELLING} size="sm" title={CANCELLING.hint} />
-    {/if}
+    <ActivityStatus
+      activity={workflowActivity(run)}
+      seed={`${run.repo}/${run.github_run_id}/${run.run_attempt ?? 1}`}
+      pack
+    />
     {#if run.jobs?.faulted}
       <Badge status={RUNNER_LOST} size="sm" title={RUNNER_LOST.hint} />
     {/if}
@@ -420,6 +422,12 @@
     align-items: center;
     gap: var(--z-space-2);
     white-space: nowrap;
+  }
+  .state {
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
   }
   .attempt {
     color: var(--z-text-subtle);

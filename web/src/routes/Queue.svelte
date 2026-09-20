@@ -14,10 +14,11 @@
   import { events } from '$lib/api/sse';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { CANCELLING, QUEUE_STATUS_LABELS } from '$lib/status';
+  import { QUEUE_STATUS_LABELS } from '$lib/status';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
-  import Badge from '$lib/components/Badge.svelte';
+  import ActivityStatus from '$lib/jobs/ActivityStatus.svelte';
+  import { queuedActivity } from '$lib/jobs/activity-status';
   import Button from '$lib/components/Button.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
@@ -363,19 +364,7 @@
 </script>
 
 {#snippet statusCell(job: Job)}
-  <!-- A cancelled run pauses its queued jobs, so without this the demand an
-       operator cancelled was reported as demand they had merely put on hold,
-       with a Resume button offering to restore it. -->
-  {#if job.cancel_requested_at}
-    <Badge status={CANCELLING} size="sm" title={CANCELLING.hint} />
-  {:else}
-    <span class="status {status(job)}">
-      {#if status(job) === 'paused'}<Pause size={13} />{:else if status(job) === 'deleted'}<Trash2
-          size={13}
-        />{:else if job.provision_now}<Zap size={13} />{:else}<span class="dot"></span>{/if}
-      {statuses.find((s) => s.value === status(job))?.label}
-    </span>
-  {/if}
+  <ActivityStatus activity={queuedActivity(job)} seed={job.id ?? `${job.repo}/${job.job_name}`} />
 {/snippet}
 {#snippet jobCell(job: Job)}<div class="cell">
     <strong>{job.job_name || 'Unnamed job'}</strong><span>{job.workflow || 'Workflow'}</span>
@@ -791,33 +780,6 @@
   }
   .cell .repo {
     color: var(--z-text);
-  }
-  .status {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--z-space-2);
-    font-size: var(--z-text-xs);
-    font-weight: var(--z-weight-medium);
-    border-radius: var(--z-radius-sm);
-    padding: var(--z-space-1) var(--z-space-2);
-    background: var(--z-surface-sunken);
-    white-space: nowrap;
-  }
-  .status.expedited {
-    color: var(--z-accent);
-    background: var(--z-accent-subtle);
-  }
-  .status.paused {
-    color: var(--z-text-muted);
-  }
-  .status.deleted {
-    color: var(--z-text-subtle);
-  }
-  .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--z-accent);
   }
   form {
     display: flex;
