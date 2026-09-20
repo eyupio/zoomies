@@ -93,6 +93,8 @@ export function sectionLanding(section: (typeof SECTIONS)[number]): RegExp {
 export const FIXTURE = {
   linuxPool: 'zoomies-demo-linux-x64',
   armPool: 'zoomies-demo-linux-arm64',
+  /** The installation both pools register with, for a spec that makes a third. */
+  installationId: 'ins_demoacme',
   /**
    * A runner that is busy in the fixture, so it is never reaped mid-run.
    *

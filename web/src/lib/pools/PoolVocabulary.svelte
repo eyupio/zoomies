@@ -301,7 +301,7 @@
     review: [],
   };
 
-  type StepId =
+  export type StepId =
     | 'mode'
     | 'target'
     | 'labels'
@@ -337,10 +337,13 @@
    * An operator opening a pool they already have is there to change one
    * setting, and "how much of this pool do you want to decide" is not a
    * question about that -- the pool has already answered it, and the wizard
-   * reads the answer off the pool to pick which path to open. Nothing is lost:
-   * the size step still offers the host's share, the hosts step still offers
-   * the whole fleet, and the runner timings can still be cleared, so every
-   * choice the fork makes is reachable from the steps themselves.
+   * reads the answer off the pool to pick which path to open. Nothing is lost
+   * in either direction: on the advanced path the size step still offers the
+   * host's share, the hosts step the whole fleet, and the runner timings can
+   * still be cleared; on the simple path every step offers the advanced one.
+   * That second half matters more than it looks, because a plain pool is
+   * exactly the pool whose elastic CPU, host selector or fixed size has never
+   * been set, and the fork's absence must not be what keeps it that way.
    */
   function stepIds(mode: WizardMode, editing: boolean): readonly StepId[] {
     const ids = mode === 'simple' ? SIMPLE_STEP_IDS : ADVANCED_STEP_IDS;
@@ -355,6 +358,11 @@
   /** The fields each of this mode's steps owns, indexed the same way. */
   export function stepFields(mode: WizardMode, editing = false): readonly (readonly string[])[] {
     return stepIds(mode, editing).map((id) => STEP_FIELDS_BY_ID[id]);
+  }
+
+  /** Where a step sits on this path, or -1 when the path does not walk it. */
+  export function stepIndex(id: StepId, mode: WizardMode, editing = false): number {
+    return stepIds(mode, editing).indexOf(id);
   }
 
   /** Human labels for the API's field names, used when the server rejects a field. */

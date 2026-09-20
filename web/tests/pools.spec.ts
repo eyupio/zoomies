@@ -802,6 +802,64 @@ test('editing a pool is not refused because its own name is taken', async ({ pag
   await expect(page.getByRole('button', { name: /Save|Update/ })).toBeEnabled();
 });
 
+test('editing an automatic pool offers the advanced path, and elastic CPU with it', async ({
+  page,
+}) => {
+  // An edit skips the fork, and a pool with nothing the simple path cannot
+  // show opens on that path: target, labels, docker, review. None of those is
+  // the size step, so a plain automatic pool -- the very pool elastic CPU is
+  // for -- had no screen to turn it on from, and no way to the one that has
+  // it. Both demo pools are tuned and open on the advanced path already, so
+  // this makes the plain pool the wizard's own automatic path would have made.
+  // Branded up front, because the server brands it anyway and the heading
+  // this waits for is the name as saved.
+  const name = `zoomies-e2e-plain-${Date.now()}`;
+  let poolId = '';
+  try {
+    const created = await page.request.post('/api/v1/pools', {
+      data: { name, installation_id: FIXTURE.installationId, labels: [name] },
+    });
+    expect(created.ok(), 'the plain pool was created').toBeTruthy();
+    poolId = ((await created.json()) as { id: string }).id;
+
+    await goto(page, `/pools/${poolId}?edit=1`, name);
+    await expect(nameField(page)).toHaveValue(name);
+    // The short path, as it should be for a pool with nothing to show on the
+    // long one -- and the way onto the long one beside it.
+    await expect(page.getByText('Step 1 of 4')).toBeVisible();
+    await page.getByRole('button', { name: 'Show every setting' }).click();
+
+    // It lands on the first step the short path skipped, with the rest ahead,
+    // and the offer is gone because there is nothing left to show.
+    await expect(page.getByRole('heading', { level: 2, name: 'Hosts' })).toBeVisible();
+    await expect(page.getByText('Step 3 of 8')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Show every setting' })).toBeHidden();
+    // Nothing typed on the short path was lost on the way.
+    await back(page).click();
+    await expect(page.getByRole('button', { name: `Remove the label ${name}` })).toBeVisible();
+
+    await toStep(page, 'Size');
+    await page.getByRole('combobox', { name: 'Elastic CPU' }).selectOption('automatic');
+    await toReview(page);
+    await expect(page.getByRole('region', { name: /What will be saved/ })).toContainText(
+      'Automatic, up to the host ceiling',
+    );
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.getByRole('button', { name: 'Save changes' })).toBeHidden();
+
+    // Saved as the controller sees it: an elastic pool, not merely a form
+    // that showed the word.
+    const saved = (await page.request.get(`/api/v1/pools/${poolId}`).then((r) => r.json())) as {
+      sizing?: string;
+      cpu_burst?: { mode?: string };
+    };
+    expect(saved.cpu_burst?.mode).toBe('automatic');
+    expect(saved.sizing).toBe('elastic');
+  } finally {
+    if (poolId) await page.request.delete(`/api/v1/pools/${poolId}?force=true`);
+  }
+});
+
 test('a ticked pool can be edited from the same bar that enables and disables it', async ({
   page,
 }) => {
