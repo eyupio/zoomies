@@ -84,7 +84,13 @@ func TestContainerConflictRecovery(t *testing.T) {
 				"POST " + v + "/containers/{id}/start": func(w http.ResponseWriter, r *http.Request) { starts++; w.WriteHeader(204) },
 			})
 			b := dockerBackendFor(t, f, DockerOptions{})
-			b.nameRelease = 50 * time.Millisecond
+			// "gone" is the one scenario here that actually waits out this budget --
+			// every other outcome returns before the deadline is ever read. 50ms cut
+			// it close enough that a loaded race-detector run could spend that on the
+			// create-then-inspect round trip alone and give up before the retry that
+			// was meant to succeed, failing the fleet's own duplicate-agent advice on
+			// a name that was never contested by one.
+			b.nameRelease = 2 * time.Second
 			id, err := b.createWithConflictRecovery(ctx, spec, cfg, sidecar)
 			switch scenario {
 			case "late sidecar", "late runner", "gone":
