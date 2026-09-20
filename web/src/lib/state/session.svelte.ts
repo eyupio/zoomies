@@ -127,7 +127,9 @@ class Session {
   async refresh(): Promise<void> {
     try {
       this.#identity = await getSession();
-      if (this.#identity.kind === 'user' && this.#identity.id) {
+      // Auth-disabled sessions resolve to a fixed identity with no row behind
+      // it, so there is no account for a table layout to belong to.
+      if (!this.authDisabled && this.#identity.kind === 'user' && this.#identity.id) {
         await prefs.syncAccount(this.#identity.id);
       }
       this.#phase = 'ready';

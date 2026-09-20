@@ -283,7 +283,7 @@ type userPreferences struct {
 // them, so those clients continue to use the browser fallback.
 func (s *Server) handleGetPreferences(w http.ResponseWriter, r *http.Request) {
 	id := Identity(r.Context())
-	if id.Kind != auth.KindUser || id.ID == "" {
+	if id.Kind != auth.KindUser || !store.HasPrefix(id.ID, store.PrefixUser) {
 		writeJSON(w, http.StatusOK, userPreferences{})
 		return
 	}
@@ -306,7 +306,7 @@ func (s *Server) handleGetPreferences(w http.ResponseWriter, r *http.Request) {
 // edited.
 func (s *Server) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
 	id := Identity(r.Context())
-	if id.Kind != auth.KindUser || id.ID == "" {
+	if id.Kind != auth.KindUser || !store.HasPrefix(id.ID, store.PrefixUser) {
 		forbidden(w, "only a signed-in account can save preferences")
 		return
 	}

@@ -377,6 +377,26 @@ func TestDisableAuthSynthesisesAnAdmin(t *testing.T) {
 	}
 }
 
+// TestDisableAuthHasNoAccountForPreferences guards against a regression where
+// the synthesised admin's fixed ID ("dev") was passed to the store as if it
+// were a real user row: a GET degraded silently, but a PUT tried to insert a
+// user_preferences row with no users row to reference, and the foreign key
+// refused it with a 500 rather than the "no account to save this to" that an
+// auth-disabled instance actually means.
+func TestDisableAuthHasNoAccountForPreferences(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Security.DisableAuth = true })
+
+	got := h.do(request{method: http.MethodGet, path: "/api/v1/auth/preferences"})
+	got.mustStatus(t, http.StatusOK, "read preferences with auth disabled")
+	if layouts, ok := got.json(t)["table_layouts"].(map[string]any); ok && len(layouts) != 0 {
+		t.Fatalf("auth-disabled session has table layouts from nowhere: %v", layouts)
+	}
+
+	put := h.do(request{method: http.MethodPut, path: "/api/v1/auth/preferences",
+		body: map[string]any{"table_layouts": map[string]any{}}})
+	put.mustStatus(t, http.StatusForbidden, "save preferences with auth disabled")
+}
+
 func TestChangeOwnPassword(t *testing.T) {
 	h := newHarness(t)
 	u, _ := h.user("alice", store.RoleViewer)
