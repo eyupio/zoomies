@@ -1006,3 +1006,67 @@ func TestConcurrentAccountChangesKeepAnEnabledAdministrator(t *testing.T) {
 		t.Fatalf("admins=%d, refused=%d, error=%v; want one administrator and one refusal", n, refused, err)
 	}
 }
+
+// The platform role is above administrator, and an administrator cannot stand
+// in for it: the settings about the process itself, the recovery fence and the
+// backups all need one. So it has its own lock-out invariant, and the ordinary
+// one has to understand that an account holding it administers the fleet too.
+func TestLastPlatformInvariant(t *testing.T) {
+	s, st, _ := newService(t)
+	ctx := t.Context()
+	platform := addUser(t, st, "root", store.RolePlatform, nil)
+	admin := addUser(t, st, "alex", store.RoleAdmin, nil)
+
+	demote := *platform
+	demote.Role = store.RoleAdmin
+	if err := s.UpdateUser(ctx, &demote); !errors.Is(err, ErrLastPlatform) {
+		t.Errorf("demoting the last platform account to admin = %v; want ErrLastPlatform", err)
+	}
+	if err := s.SetUserDisabled(ctx, platform.ID, true); !errors.Is(err, ErrLastPlatform) {
+		t.Errorf("disabling it = %v; want ErrLastPlatform", err)
+	}
+	if err := s.DeleteUser(ctx, platform.ID); !errors.Is(err, ErrLastPlatform) {
+		t.Errorf("deleting it = %v; want ErrLastPlatform", err)
+	}
+	if !strings.Contains(ErrLastPlatform.Error(), "platform role") {
+		t.Errorf("the message should say what to do: %q", ErrLastPlatform)
+	}
+
+	// With a second one, each of the three is allowed again.
+	second := addUser(t, st, "sam", store.RolePlatform, nil)
+	if err := s.DeleteUser(ctx, platform.ID); err != nil {
+		t.Errorf("deleting one of two platform accounts: %v", err)
+	}
+	_ = second
+	_ = admin
+}
+
+// An instance upgraded from a single-team one has exactly one platform
+// account and no administrators at all, because the migration promotes the
+// account that installed it. Counting only role='admin' would call that
+// instance unadministered and let its one account be deleted.
+func TestAPlatformAccountAdministersTheFleetToo(t *testing.T) {
+	s, st, _ := newService(t)
+	ctx := t.Context()
+	platform := addUser(t, st, "root", store.RolePlatform, nil)
+	viewer := addUser(t, st, "eve", store.RoleViewer, nil)
+
+	n, err := st.CountAdmins(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("CountAdmins = %d on an instance whose only privileged account is platform; want 1", n)
+	}
+
+	// Promoting the viewer to admin does not free the platform account:
+	// an administrator cannot operate the process.
+	promote := *viewer
+	promote.Role = store.RoleAdmin
+	if err := s.UpdateUser(ctx, &promote); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteUser(ctx, platform.ID); !errors.Is(err, ErrLastPlatform) {
+		t.Errorf("deleting the platform account once an admin exists = %v; want ErrLastPlatform", err)
+	}
+}

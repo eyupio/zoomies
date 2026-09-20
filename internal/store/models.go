@@ -187,11 +187,23 @@ const (
 	RoleOperator Role = "operator"
 	// RoleAdmin may additionally manage users, tokens, installations and settings.
 	RoleAdmin Role = "admin"
+	// RolePlatform is whoever runs the process rather than the fleet: the
+	// address it binds, the files it reads, the timers it keeps, the fence
+	// it lifts and the backups it holds.
+	//
+	// It sits above administrator because an instance can be operated by
+	// one team for another -- a platform team running Zoomies for a
+	// product team -- and until now there was nowhere to put that half:
+	// the fleet's administrator was the top rung and read the bind address
+	// and the database path along with everything else. On an instance
+	// where one team does both, the account that installed it holds this
+	// as well, and nothing looks any different.
+	RolePlatform Role = "platform"
 )
 
 func (r Role) Valid() bool {
 	switch r {
-	case RoleViewer, RoleOperator, RoleAdmin:
+	case RoleViewer, RoleOperator, RoleAdmin, RolePlatform:
 		return true
 	}
 	return false
@@ -206,6 +218,8 @@ func (r Role) rank() int {
 		return 2
 	case RoleAdmin:
 		return 3
+	case RolePlatform:
+		return 4
 	}
 	return 0
 }

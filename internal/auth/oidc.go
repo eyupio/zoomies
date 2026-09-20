@@ -242,12 +242,18 @@ func (p *OIDCProvider) claimsFrom(subject string, raw map[string]any) (*Claims, 
 	return c, nil
 }
 
-// RoleFor maps the identity provider's groups onto a Zoomies role. Admin wins
-// over operator, and anyone in no mapped group is a viewer -- so misconfiguring
-// the group names produces read-only access rather than accidental admins.
+// RoleFor maps the identity provider's groups onto a Zoomies role. The higher
+// role wins wherever somebody is in two mapped groups, and anyone in no mapped
+// group is a viewer -- so misconfiguring the group names produces read-only
+// access rather than accidental admins.
 func (p *OIDCProvider) RoleFor(groups []string) store.Role {
 	if p == nil {
 		return store.RoleViewer
+	}
+	for _, g := range groups {
+		if containsFold(p.cfg.PlatformGroups, g) {
+			return store.RolePlatform
+		}
 	}
 	for _, g := range groups {
 		if containsFold(p.cfg.AdminGroups, g) {
@@ -266,7 +272,7 @@ func (p *OIDCProvider) RoleFor(groups []string) store.Role {
 // When they did not, EnsureUser leaves an existing account's role alone rather
 // than demoting everyone to viewer on their next login.
 func (p *OIDCProvider) mapsRoles() bool {
-	return p != nil && (len(p.cfg.AdminGroups) > 0 || len(p.cfg.OperatorGroups) > 0)
+	return p != nil && (len(p.cfg.PlatformGroups) > 0 || len(p.cfg.AdminGroups) > 0 || len(p.cfg.OperatorGroups) > 0)
 }
 
 // EnsureUser resolves a set of verified claims to a local account.

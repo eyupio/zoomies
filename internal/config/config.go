@@ -590,6 +590,11 @@ type OIDC struct {
 	// in no mapped group gets the viewer role.
 	AdminGroups    []string `yaml:"admin_groups"`
 	OperatorGroups []string `yaml:"operator_groups"`
+	// PlatformGroups maps onto the role above administrator. It is listed
+	// first when a login is mapped, so somebody in both a platform group
+	// and an admin group gets the higher of the two rather than whichever
+	// the code happened to check first.
+	PlatformGroups []string `yaml:"platform_groups"`
 	// AllowSignup provisions an account on first successful login.
 	AllowSignup bool `yaml:"allow_signup"`
 	// LinkByUsername lets a first single sign-on login take over an existing

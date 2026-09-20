@@ -1,5 +1,5 @@
 /**
- * The three roles, in one place, in the words an operator sees.
+ * The roles, in one place, in the words an operator sees.
  *
  * There were two copies of this list -- one in the accounts panel, one in the
  * tokens panel -- and they had already drifted: an administrator "also manages
@@ -27,6 +27,11 @@ export const ROLE_OPTIONS: readonly RoleOption[] = [
     value: 'admin',
     label: 'Administrator',
     description: 'Also manages accounts, tokens, installations and settings.',
+  },
+  {
+    value: 'platform',
+    label: 'Platform',
+    description: 'Also operates the process itself: its timers, backups and recovery.',
   },
 ];
 

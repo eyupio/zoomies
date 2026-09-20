@@ -165,6 +165,7 @@ func TestStateCacheRefusesEntriesAtItsCap(t *testing.T) {
 
 func TestRoleForMapsGroups(t *testing.T) {
 	p := &OIDCProvider{cfg: config.OIDC{
+		PlatformGroups: []string{"Infra-Platform"},
 		AdminGroups:    []string{"Platform-Admins"},
 		OperatorGroups: []string{"ci-operators"},
 	}}
@@ -177,6 +178,13 @@ func TestRoleForMapsGroups(t *testing.T) {
 		{[]string{"ci-operators"}, store.RoleOperator},
 		{[]string{"platform-admins"}, store.RoleAdmin},                 // case-insensitive
 		{[]string{"ci-operators", "Platform-Admins"}, store.RoleAdmin}, // admin wins
+		{[]string{"infra-platform"}, store.RolePlatform},               // case-insensitive
+		// The higher role wins wherever somebody is in two mapped
+		// groups. Checking admin first would hand whoever runs the
+		// process the lesser of the two, and the mapping order is
+		// configuration nobody should have to reason about.
+		{[]string{"Platform-Admins", "Infra-Platform"}, store.RolePlatform},
+		{[]string{"ci-operators", "Infra-Platform"}, store.RolePlatform},
 	}
 	for _, tc := range cases {
 		if got := p.RoleFor(tc.groups); got != tc.want {
