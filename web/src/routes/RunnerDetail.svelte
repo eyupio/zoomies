@@ -166,6 +166,16 @@
   const targets = $derived(runner ? [runner] : []);
 
   /**
+   * Deleting takes the runner away from under this page, so there is nothing
+   * left here to look at -- back to wherever the operator came from, the
+   * runners grid if this page was opened directly. Draining leaves the runner
+   * in place, still working, so that stays on the page.
+   */
+  function onRunnerConfirmed(): void {
+    if (confirmAction === 'delete') router.back('/runners');
+  }
+
+  /**
    * Fetch this runner again. The detail response carries the host, the pool and
    * the timeline with it, so one request answers for the whole page -- and for
    * a runner that has gone since, the 404 is the honest answer to "is it still
@@ -375,7 +385,12 @@
   </section>
 {/if}
 
-<RunnerConfirm bind:open={confirmOpen} action={confirmAction} {targets} />
+<RunnerConfirm
+  bind:open={confirmOpen}
+  action={confirmAction}
+  {targets}
+  ondone={onRunnerConfirmed}
+/>
 
 <style>
   .stacked {

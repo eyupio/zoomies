@@ -272,6 +272,41 @@ test('a shortcut typed into an open dialog stays in the dialog', async ({ page }
   await expect(page).toHaveURL(/\/$/);
 });
 
+// Deleting takes the runner out from under the detail page, so there is
+// nothing left there to look at. It should return the operator to the grid
+// they opened it from -- not a page loaded fresh, which has lost their place
+// in the fleet.
+test('deleting a runner from its detail page returns to the grid it was opened from', async ({
+  page,
+}) => {
+  await goto(page, '/runners', 'Runners');
+  const rows = await runnerRows(page);
+  const row = rows.filter({ hasText: FIXTURE.busyRunner }).first();
+  const name = await nameOf(row);
+
+  // A click, not a direct load, so the router has somewhere to send the
+  // operator back to.
+  await row.getByRole('link').first().click();
+  await expect(pageHeading(page, name)).toBeVisible();
+
+  // The delete itself is exercised elsewhere against the real controller;
+  // this is about what the page does once it is told the request went
+  // through, which does not depend on the runner actually being gone.
+  await page.route(`**/api/v1/runners/${FIXTURE.busyRunnerId}*`, (route) =>
+    route.request().method() === 'DELETE'
+      ? route.fulfill({ status: 202, contentType: 'application/json', body: '{}' })
+      : route.continue(),
+  );
+
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Delete runner' }).click();
+
+  await expect(page).toHaveURL(/\/runners$/);
+  await expect(pageHeading(page, 'Runners')).toBeVisible();
+});
+
 test('clipboard refusal is visible and does not blame HTTPS on a secure page', async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'clipboard', {
