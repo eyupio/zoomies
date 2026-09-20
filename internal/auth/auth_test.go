@@ -105,8 +105,11 @@ func TestBootstrapRefusesASecondFirstAdmin(t *testing.T) {
 	if admin.Username != "root" {
 		t.Errorf("username = %q; want it lowercased to %q", admin.Username, "root")
 	}
-	if admin.Role != store.RoleAdmin {
-		t.Errorf("role = %q; want admin", admin.Role)
+	// The first account operates the process, not only the fleet: whoever
+	// can read the setup token out of the log, or is running the installer
+	// on the host, already does.
+	if admin.Role != store.RolePlatform {
+		t.Errorf("role = %q; want platform", admin.Role)
 	}
 
 	// The whole security of the unauthenticated bootstrap route is that it
@@ -358,8 +361,11 @@ func TestAuthenticateWithAuthDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
-	if id.Role != store.RoleAdmin || !id.Can(ActionSettingsWrite) {
-		t.Errorf("disable_auth identity = %s; want a full administrator", id)
+	// Everything, not merely everything an administrator may: a developer
+	// instance answering 403 on its own backups would be teaching a
+	// distinction that does not exist where authentication is off.
+	if id.Role != store.RolePlatform || !id.Can(ActionSettingsWrite) || !id.Can(ActionBackupsRead) {
+		t.Errorf("disable_auth identity = %s; want the platform identity", id)
 	}
 }
 

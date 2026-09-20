@@ -50,7 +50,9 @@ func TestReadinessFailsWhileTheFleetIsFenced(t *testing.T) {
 // the audit log is where somebody later asks who decided that, and when.
 func TestLiftingTheFenceIsOneAuditedAct(t *testing.T) {
 	h := newHarness(t)
-	u, _ := h.user("admin", store.RoleAdmin)
+	// Lifting the fence decides whether a restored instance may act on the
+	// world again, which is the platform's call rather than the fleet's.
+	u, _ := h.user("platform", store.RolePlatform)
 	cookie := h.session(u)
 	h.fence(t, "restored from /var/backups/zoomies/zoomies-20260908-181718")
 

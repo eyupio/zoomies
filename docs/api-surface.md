@@ -52,7 +52,7 @@ Conventions:
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| POST | `/api/v1/auth/bootstrap` | — | Create the first admin. **Refuses once any user exists** — that check is the whole security of this route. |
+| POST | `/api/v1/auth/bootstrap` | — | Create the first account, which holds the platform role: whoever can read the setup token out of the log already operates the process. **Refuses once any user exists** — that check is the whole security of this route. |
 | POST | `/api/v1/auth/login` | — | `{username, password}` → sets the session cookie, returns the identity. Rate limited per source address. |
 | POST | `/api/v1/auth/logout` | viewer | Clears the session. |
 | GET | `/api/v1/auth/session` | viewer | The current identity: id, name, role, scopes, `must_change_password`. |
@@ -318,7 +318,7 @@ for: Contents (write), Pull requests (write) and Workflows (write).
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
 | GET | `/api/v1/recovery` | viewer | Whether this fleet is held for recovery, and why. |
-| POST | `/api/v1/recovery/unfence` | admin | Lift it. Audited under its own action; lifting an unfenced instance succeeds and changes nothing. |
+| POST | `/api/v1/recovery/unfence` | platform | Lift it. Audited under its own action; lifting an unfenced instance succeeds and changes nothing. |
 
 `zoomies restore` marks a restored database for recovery, and a controller
 reading that mark decides as normal and applies none of it: no runner is
@@ -336,28 +336,28 @@ fenced controller is not restarted by its own runtime.
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/backups` | admin | Every backup in `backup.directory` and every copy the store took before migrating, newest first, each with what its manifest says and whether a restore of it would be refused (`restorable`, `restore_problem`); the schedule and its last outcome; the restore waiting for a restart, if any; and what became of the last one. |
-| POST | `/api/v1/backups` | admin | Take one now: `VACUUM INTO`, integrity checked, with its manifest. Retention runs afterwards. `409` while another is being taken. |
-| POST | `/api/v1/backups/upload` | admin | `multipart/form-data`: the archive in `file`, and for an encrypted one its `passphrase`. Unpacked into a staging directory, verified, then listed under the name its manifest gives it. Bounded by its own limit rather than the API's, since an archive is the whole database. |
-| GET | `/api/v1/backups/{id}` | admin | |
-| DELETE | `/api/v1/backups/{id}` | admin | `409` while the backup is staged to be restored. |
-| POST | `/api/v1/backups/{id}/verify` | admin | Re-read it: the digest against the manifest, `PRAGMA integrity_check`, and whether this build can open it. A POST because it reads the whole file. |
-| GET | `/api/v1/backups/{id}/download` | admin | `<id>.tar.gz`: manifest, database and, only when it was taken with it, the key. Audited. |
-| POST | `/api/v1/backups/{id}/download` | admin | `{passphrase}` → `<id>.tar.gz.enc`: argon2id and chunked AES-256-GCM, so a file cut short or altered does not open as a shorter backup. |
-| POST | `/api/v1/backups/{id}/restore` | admin | **Stages** a restore: every check `zoomies restore` makes is made now, and the restore is written down for the next controller to apply before it opens the database. Body `{revoke_api_tokens, reset_agent_tokens}`, the command's flags. `202` with the staged restore; `422` names the check that failed. Nothing changes until the restart. |
-| DELETE | `/api/v1/backups/restore` | admin | Cancel the staged restore. |
-| POST | `/api/v1/backups/restore/apply` | admin | Stop this controller so its service manager starts the next, which applies the staged restore. `202`, then the process exits with code 3. `409` when nothing is staged. |
-| DELETE | `/api/v1/backups/restore/outcome` | admin | Dismiss what became of the last restore. |
-| POST | `/api/v1/backups/remotes` | admin | Add an S3-compatible destination. The secret key and the passphrase are sealed with the instance key and never served back; a name `backup.remotes` already uses is refused, because the file has the last word. |
-| POST | `/api/v1/backups/remotes/check` | admin | Test a destination that is not saved yet, against exactly the body a create would store — which is how a secret key is proved when it is typed. A body with no secret falls back to the one stored under that name. |
-| PATCH | `/api/v1/backups/remotes/{name}` | admin | Change a stored destination. The two secrets follow the credential convention: absent leaves what is stored, a value replaces it, an empty string clears it. A destination the file describes answers `409`. |
-| DELETE | `/api/v1/backups/remotes/{name}` | admin | Forget a stored destination. What its bucket holds is left alone. |
-| POST | `/api/v1/backups/offsite` | admin | Make every remote under `backup.remotes` hold what the backup directory holds: list it, send what it is missing oldest first, apply its retention. The pass the controller runs after each backup and hourly, on demand. A destination that refuses is reported in `error` while the others still go; `409` while a pass is running. |
-| POST | `/api/v1/backups/prune` | admin | Apply retention now: the copies beyond `backup.keep` here, and the ones beyond each destination's own `keep` in its bucket. Retention otherwise runs only as part of taking a backup, which leaves a fleet that has just lowered `backup.keep` holding the old number until the next one. The answer lists what went, per destination; `409` while a backup or an offsite pass is running. |
-| GET | `/api/v1/backups/remotes/{name}/copies` | admin | What one remote holds, read live from the bucket rather than from anything remembered — the question is whether the offsite copy is actually there, and a remembered yes is worth nothing. |
-| POST | `/api/v1/backups/remotes/{name}/check` | admin | Test it: one listing, which is the whole of what has to work for a backup to reach it. A remote that refuses is `200` with `ok: false` and the service's own words. |
-| POST | `/api/v1/backups/remotes/{name}/copies/{id}/fetch` | admin | Bring one copy back into `backup.directory`, decrypted with the remote's passphrase or the body's, and verified as an upload is. It is then an ordinary backup; restoring it is the staged restore above. |
-| DELETE | `/api/v1/backups/remotes/{name}/copies/{id}` | admin | Remove one copy from the bucket. Audited, like deleting a local backup. |
+| GET | `/api/v1/backups` | platform | Every backup in `backup.directory` and every copy the store took before migrating, newest first, each with what its manifest says and whether a restore of it would be refused (`restorable`, `restore_problem`); the schedule and its last outcome; the restore waiting for a restart, if any; and what became of the last one. |
+| POST | `/api/v1/backups` | platform | Take one now: `VACUUM INTO`, integrity checked, with its manifest. Retention runs afterwards. `409` while another is being taken. |
+| POST | `/api/v1/backups/upload` | platform | `multipart/form-data`: the archive in `file`, and for an encrypted one its `passphrase`. Unpacked into a staging directory, verified, then listed under the name its manifest gives it. Bounded by its own limit rather than the API's, since an archive is the whole database. |
+| GET | `/api/v1/backups/{id}` | platform | |
+| DELETE | `/api/v1/backups/{id}` | platform | `409` while the backup is staged to be restored. |
+| POST | `/api/v1/backups/{id}/verify` | platform | Re-read it: the digest against the manifest, `PRAGMA integrity_check`, and whether this build can open it. A POST because it reads the whole file. |
+| GET | `/api/v1/backups/{id}/download` | platform | `<id>.tar.gz`: manifest, database and, only when it was taken with it, the key. Audited. |
+| POST | `/api/v1/backups/{id}/download` | platform | `{passphrase}` → `<id>.tar.gz.enc`: argon2id and chunked AES-256-GCM, so a file cut short or altered does not open as a shorter backup. |
+| POST | `/api/v1/backups/{id}/restore` | platform | **Stages** a restore: every check `zoomies restore` makes is made now, and the restore is written down for the next controller to apply before it opens the database. Body `{revoke_api_tokens, reset_agent_tokens}`, the command's flags. `202` with the staged restore; `422` names the check that failed. Nothing changes until the restart. |
+| DELETE | `/api/v1/backups/restore` | platform | Cancel the staged restore. |
+| POST | `/api/v1/backups/restore/apply` | platform | Stop this controller so its service manager starts the next, which applies the staged restore. `202`, then the process exits with code 3. `409` when nothing is staged. |
+| DELETE | `/api/v1/backups/restore/outcome` | platform | Dismiss what became of the last restore. |
+| POST | `/api/v1/backups/remotes` | platform | Add an S3-compatible destination. The secret key and the passphrase are sealed with the instance key and never served back; a name `backup.remotes` already uses is refused, because the file has the last word. |
+| POST | `/api/v1/backups/remotes/check` | platform | Test a destination that is not saved yet, against exactly the body a create would store — which is how a secret key is proved when it is typed. A body with no secret falls back to the one stored under that name. |
+| PATCH | `/api/v1/backups/remotes/{name}` | platform | Change a stored destination. The two secrets follow the credential convention: absent leaves what is stored, a value replaces it, an empty string clears it. A destination the file describes answers `409`. |
+| DELETE | `/api/v1/backups/remotes/{name}` | platform | Forget a stored destination. What its bucket holds is left alone. |
+| POST | `/api/v1/backups/offsite` | platform | Make every remote under `backup.remotes` hold what the backup directory holds: list it, send what it is missing oldest first, apply its retention. The pass the controller runs after each backup and hourly, on demand. A destination that refuses is reported in `error` while the others still go; `409` while a pass is running. |
+| POST | `/api/v1/backups/prune` | platform | Apply retention now: the copies beyond `backup.keep` here, and the ones beyond each destination's own `keep` in its bucket. Retention otherwise runs only as part of taking a backup, which leaves a fleet that has just lowered `backup.keep` holding the old number until the next one. The answer lists what went, per destination; `409` while a backup or an offsite pass is running. |
+| GET | `/api/v1/backups/remotes/{name}/copies` | platform | What one remote holds, read live from the bucket rather than from anything remembered — the question is whether the offsite copy is actually there, and a remembered yes is worth nothing. |
+| POST | `/api/v1/backups/remotes/{name}/check` | platform | Test it: one listing, which is the whole of what has to work for a backup to reach it. A remote that refuses is `200` with `ok: false` and the service's own words. |
+| POST | `/api/v1/backups/remotes/{name}/copies/{id}/fetch` | platform | Bring one copy back into `backup.directory`, decrypted with the remote's passphrase or the body's, and verified as an upload is. It is then an ordinary backup; restoring it is the staged restore above. |
+| DELETE | `/api/v1/backups/remotes/{name}/copies/{id}` | platform | Remove one copy from the bucket. Audited, like deleting a local backup. |
 
 A backup is the whole database, so `backups:read` on a token is the fleet: every
 account's password hash and every sealed credential. `backups:restore` is its

@@ -203,7 +203,7 @@ It needs an admin token, because the document contains the settings section.
 
 | Command | What it does |
 | --- | --- |
-| `zoomies init` | Set this host up: how it runs, backend, listener, GitHub App and the first administrator. `--answers` takes a file and implies `--non-interactive`; `--print-answers` writes one out from an interactive run so the next host can be identical. |
+| `zoomies init` | Set this host up: how it runs, backend, listener, GitHub App and the first account. `--answers` takes a file and implies `--non-interactive`; `--print-answers` writes one out from an interactive run so the next host can be identical. |
 | `zoomies update [--check]` | Short, operator-friendly alias for `zoomies upgrade`. It accepts the same flags and keeps the existing spelling compatible with scripts. |
 | `zoomies upgrade [--check]` | Apply the installed binary and matching images to an existing native, Compose or Docker deployment. Keeps configuration and credentials; `--check` changes nothing. To download the binary too, use `install.sh --upgrade`. See [Upgrading](upgrading.md). |
 | `zoomies logs` | Show the latest 100 controller log lines for the recorded Compose or Docker deployment. Alias for `zoomies deployment logs`. |

@@ -9,7 +9,6 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import { SETTINGS_GROUPS, settingsPath } from './pages';
 
-  const canAdmin = $derived(session.can('admin'));
   const uid = $props.id();
 </script>
 
@@ -24,7 +23,7 @@
       <h2 id="settings-index-{uid}-{i}">{group.label}</h2>
       <ul>
         {#each group.pages as page (page.id)}
-          {@const locked = page.admin && !canAdmin}
+          {@const locked = !session.can(page.needs)}
           <li>
             <a href={settingsPath(page.id)} class:locked>
               <page.icon size={18} aria-hidden="true" />

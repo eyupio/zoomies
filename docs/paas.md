@@ -80,7 +80,7 @@ procedure, and it is the same one here.
 
 ## Adding a host that can run jobs
 
-Once the controller is up, create the first administrator in the UI, connect
+Once the controller is up, create the first account in the UI, connect
 GitHub, then generate a join token (**Hosts → Add a host**, or
 `zoomies hosts join-token create --ttl 15m`) and run the line it gives you on a
 machine with Docker or Podman:

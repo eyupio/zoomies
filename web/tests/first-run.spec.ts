@@ -9,11 +9,11 @@
  *
  * The database is per-run and the bootstrap route closes the moment an account
  * exists, so the order here is load-bearing: the bootstrap tests come first and
- * the last of them creates the administrator the rest sign in with.
+ * the last of them creates the account the rest sign in with.
  */
 import { test, expect } from '@playwright/test';
 // The bootstrap route asks for the token the controller printed at startup, so
-// a test creating the first administrator fetches it the way an operator reads
+// a test creating the first account fetches it the way an operator reads
 // `docker compose logs`. The fixture captures the line into a file.
 import { browserOverride, setupToken } from './support/fixtures';
 
@@ -35,7 +35,7 @@ test('the first screen says what it is, where it sits, and what follows', async 
   await page.goto('/');
 
   const heading = page.getByRole('heading', { level: 1 });
-  await expect(heading).toHaveText('Create the first administrator');
+  await expect(heading).toHaveText('Create the first account');
   // An operator arriving from `docker compose up` has no way to know whether
   // this account finishes setup or begins it. It says which end of the
   // sequence this is and not how long the sequence is: that depends on whether
@@ -98,7 +98,7 @@ async function expectPhoneSafe(
 test('the first screen fits a phone', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 780 });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Create the first administrator' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Create the first account' })).toBeVisible();
   await expectPhoneSafe(page, 'the bootstrap page');
 });
 
@@ -117,7 +117,7 @@ test('submitting an empty form moves focus to the field that is missing', async 
   // With that filled in, the next missing field is the one focus moves to.
   await page.fill('input[name="setup-token"]', setupToken());
   await page.keyboard.press('Enter');
-  await expect(page.getByText('Choose a username for the administrator.')).toBeVisible();
+  await expect(page.getByText('Choose a username for the first account.')).toBeVisible();
   await expect(page.locator('input[name="username"]')).toBeFocused();
 });
 
@@ -125,7 +125,7 @@ test('an error replaces the hint rather than pushing the button out from under t
   page,
 }) => {
   await page.goto('/');
-  const submit = page.getByRole('button', { name: 'Create the administrator' });
+  const submit = page.getByRole('button', { name: 'Create the account' });
 
   // Measured after the focus, not before it: the card is taller than the
   // viewport, so focusing a field part-way down scrolls the page, and that
@@ -138,7 +138,7 @@ test('an error replaces the hint rather than pushing the button out from under t
   // between mousedown and mouseup, and the click was delivered to whatever
   // took its place -- a submit button that visibly did nothing.
   await page.locator('input[name="username"]').blur();
-  await expect(page.getByText('Choose a username for the administrator.')).toBeVisible();
+  await expect(page.getByText('Choose a username for the first account.')).toBeVisible();
 
   expect((await submit.boundingBox())?.y).toBe(before?.y);
 });
@@ -148,7 +148,7 @@ test('a short password is refused with the counter still visible', async ({ page
   await page.fill('input[name="setup-token"]', setupToken());
   await page.fill('input[name="username"]', ADMIN.username);
   await page.fill('input[name="password"]', 'short');
-  await page.getByRole('button', { name: 'Create the administrator' }).click();
+  await page.getByRole('button', { name: 'Create the account' }).click();
 
   // The error is the counter: it says how many characters are still needed,
   // which is more use than the strength hint it replaces.
@@ -162,13 +162,13 @@ test('a wrong setup token is refused, and nobody is created', async ({ page }) =
   await page.fill('input[name="username"]', ADMIN.username);
   await page.fill('input[name="password"]', ADMIN.password);
   await page.fill('input[name="confirm-password"]', ADMIN.password);
-  await page.getByRole('button', { name: 'Create the administrator' }).click();
+  await page.getByRole('button', { name: 'Create the account' }).click();
 
   // The refusal lands on the field it is about and says where the real one is.
   await expect(page.getByText(/is not this controller's setup token/i).first()).toBeVisible();
   // Still on the first-run form: the route has not closed, so the operator who
   // does have the token can still use it. The test after this one does.
-  await expect(page.getByRole('heading', { name: 'Create the first administrator' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Create the first account' })).toBeVisible();
 });
 
 test('creating the administrator lands somewhere that names the next step', async ({ page }) => {
@@ -177,7 +177,7 @@ test('creating the administrator lands somewhere that names the next step', asyn
   await page.fill('input[name="username"]', ADMIN.username);
   await page.fill('input[name="password"]', ADMIN.password);
   await page.fill('input[name="confirm-password"]', ADMIN.password);
-  await page.getByRole('button', { name: 'Create the administrator' }).click();
+  await page.getByRole('button', { name: 'Create the account' }).click();
 
   await expect(page.getByRole('heading', { name: 'Overview', level: 1 })).toBeVisible();
   // The whole point of the checklist: the first action offered is the one that

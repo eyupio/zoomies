@@ -167,7 +167,7 @@ reachable the moment the container starts, and "no user exists yet" is a
 condition an attacker can satisfy too — so an empty database is not proof of
 ownership. Being able to read this instance's log is.
 
-**2. Create the first administrator.** Open the external URL, paste the token,
+**2. Create the first account.** Open the external URL, paste the token,
 choose a username and password. The token is checked against the running
 process, so a wrong one is refused and a restart invalidates the one you were
 holding.

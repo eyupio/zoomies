@@ -155,7 +155,7 @@ class Session {
     this.#phase = 'ready';
   }
 
-  /** Create the first administrator. Only ever available while none exists. */
+  /** Create the first account. Only ever available while none exists. */
   async completeBootstrap(input: {
     username: string;
     password: string;

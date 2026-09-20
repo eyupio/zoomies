@@ -37,13 +37,12 @@
   import UsersPanel from '$lib/settings/UsersPanel.svelte';
   import { DEFAULT_SETTINGS_PAGE, settingsPage, settingsPath } from '$lib/settings/pages';
 
-  const canAdmin = $derived(session.can('admin'));
   const phone = $derived(viewport.phone);
 
   /** The page the address names; empty at `/settings` itself. */
   const wanted = $derived(router.params.page ?? '');
   const page = $derived(wanted ? settingsPage(wanted) : undefined);
-  const locked = $derived(page?.admin === true && !canAdmin);
+  const locked = $derived(page !== undefined && !session.can(page.needs));
   const legacyTab = $derived(router.param('tab'));
 
   // `/settings?tab=configuration&setting=x` was the address before every page
