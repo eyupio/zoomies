@@ -1815,6 +1815,53 @@ paths:
                         type: array
                         items: { $ref: "#/components/schemas/WorkflowRun" }
 
+  /workflow-runs/cancel:
+    post:
+      operationId: cancelWorkflowRun
+      tags: [jobs]
+      summary: Cancel a workflow run
+      description: >-
+        What the Workflows page's own run rows call, rather than reaching for one of the
+        run's jobs' IDs the way `POST /jobs/{id}/cancel` does -- a run has no ID of its
+        own, only `repo` + `github_run_id`, so this takes both directly. Behaves exactly
+        like cancelling through a job of the run: the request is asynchronous, every
+        queued or running job of the run is stopped locally once GitHub accepts it, and
+        Zoomies keeps them pending until a webhook or the fallback poller confirms their
+        terminal state. Requires the opt-in setting and GitHub App Actions write
+        permission.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repo, run_id]
+              properties:
+                repo: { type: string, description: "The repository, as owner/name." }
+                run_id: { type: integer, format: int64, description: GitHub's own ID for the run. }
+                force:
+                  type: boolean
+                  default: false
+                  description: Bypass conditions that may leave an ordinary cancellation stuck.
+      responses:
+        "202":
+          description: GitHub accepted the cancellation request
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted, force, repo, run_id, jobs]
+                properties:
+                  accepted: { type: boolean }
+                  force: { type: boolean }
+                  repo: { type: string }
+                  run_id: { type: integer, format: int64 }
+                  jobs: { type: integer, description: How many of the run's jobs this fleet knows about. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   # ==========================================================================
   # Hosts
   # ==========================================================================

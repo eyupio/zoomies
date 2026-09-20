@@ -12,13 +12,17 @@
   attempt that failed and was re-run is still the reason somebody is looking.
 -->
 <script lang="ts">
-  import { listJobs } from '$lib/api/client';
+  import { CircleX, RotateCcw } from '@lucide/svelte';
+  import { cancelJobWorkflow, listJobs, rerunJobWorkflow } from '$lib/api/client';
   import type { Job, WorkflowRun } from '$lib/api/types';
   import { events } from '$lib/api/sse';
   import { faultLabel, fleetFailed } from '$lib/faults';
   import { formatDuration } from '$lib/format';
+  import { session } from '$lib/state/session.svelte';
+  import { toasts } from '$lib/state/toasts.svelte';
   import {
     HOSTED,
+    jobFailed,
     jobStatus,
     queueStatus,
     RUNNER_LOST,
@@ -26,8 +30,12 @@
     UNMATCHED,
   } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
+  import Checkbox from '$lib/components/Checkbox.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Duration from '$lib/components/Duration.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
+  import RowActions from '$lib/components/RowActions.svelte';
+  import type { RowAction } from '$lib/components/RowActions.svelte';
   import StateCell from '$lib/components/StateCell.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import JobLabels from '$lib/jobs/JobLabels.svelte';
@@ -39,6 +47,9 @@
   }
 
   let { run, onopen }: Props = $props();
+
+  const canOperate = $derived(session.can('operator'));
+  const cancellationEnabled = $derived(session.meta?.workflow_cancellation_enabled === true);
 
   // The run's identity as two values rather than the row, so a live refresh
   // that hands the page a fresh copy of the same run does not refetch its jobs.
@@ -105,6 +116,90 @@
     if (job.failed_step) return job.failed_step.name ?? `step ${job.failed_step.number ?? '?'}`;
     return '';
   }
+
+  /* -- cancelling or re-running a job's run from its own row --------------- */
+
+  let cancelTarget = $state<Job | null>(null);
+  let cancelOpen = $state(false);
+  let forceCancel = $state(false);
+  let rerunningId = $state<string | null>(null);
+
+  function askCancel(job: Job): void {
+    cancelTarget = job;
+    forceCancel = false;
+    cancelOpen = true;
+  }
+
+  async function confirmCancel(): Promise<boolean> {
+    const job = cancelTarget;
+    if (!job?.id) return false;
+    try {
+      await cancelJobWorkflow(job.id, { force: forceCancel });
+      toasts.success(
+        forceCancel ? 'Force cancellation requested' : 'Cancellation requested',
+        'Zoomies is waiting for GitHub to confirm the workflow run has ended.',
+      );
+      return true;
+    } catch (cause) {
+      toasts.fromError(cause, 'GitHub did not accept the cancellation');
+      return false;
+    }
+  }
+
+  async function rerun(job: Job): Promise<void> {
+    if (!job.id || rerunningId) return;
+    rerunningId = job.id;
+    try {
+      await rerunJobWorkflow(job.id);
+      toasts.success(
+        'Re-run requested',
+        "GitHub is running this run's failed jobs again. They arrive as a new run attempt.",
+      );
+    } catch (cause) {
+      toasts.fromError(cause, 'GitHub did not accept the re-run');
+    } finally {
+      rerunningId = null;
+    }
+  }
+
+  /**
+   * Cancel and re-run, the same two the JobDrawer's footer offers, but reached
+   * without opening the drawer first. Both are run-scoped, not job-scoped --
+   * GitHub has no cancel or re-run that touches only one job -- and the
+   * button's label says whose run it takes, the same way JobDrawer's does.
+   */
+  function rowActions(job: Job): RowAction[] {
+    const out: RowAction[] = [];
+    if (cancellationEnabled && canOperate) {
+      const done = job.state === 'completed';
+      out.push({
+        id: 'cancel',
+        label: 'Cancel workflow',
+        icon: CircleX,
+        danger: true,
+        disabled: done,
+        reason: done ? 'This job has already completed.' : undefined,
+        onSelect: () => askCancel(job),
+      });
+    }
+    if (canOperate) {
+      const finished = job.state === 'completed';
+      const failed = finished && jobFailed(job);
+      out.push({
+        id: 'rerun',
+        label: "Re-run workflow's failed jobs",
+        icon: RotateCcw,
+        disabled: !failed,
+        reason: !finished
+          ? 'This job has not finished.'
+          : !failed
+            ? 'This job did not fail.'
+            : undefined,
+        onSelect: () => void rerun(job),
+      });
+    }
+    return out;
+  }
 </script>
 
 <div class="run-jobs">
@@ -127,6 +222,9 @@
           <th scope="col" class="end">Queue wait</th>
           <th scope="col" class="end">Duration</th>
           <th scope="col" class="end"><span class="sr-only">On GitHub</span></th>
+          {#if canOperate}
+            <th scope="col" class="end"><span class="sr-only">Actions</span></th>
+          {/if}
         </tr>
       </thead>
       <tbody>
@@ -208,12 +306,39 @@
                 label="Open {job.job_name || 'this job'} on GitHub, in a new tab"
               />
             </td>
+            {#if canOperate}
+              <td data-label="Actions" class="end">
+                <RowActions
+                  actions={rowActions(job)}
+                  subject="{job.job_name || 'this job'} in {job.repo ?? 'this run'}"
+                />
+              </td>
+            {/if}
           </tr>
         {/each}
       </tbody>
     </table>
   {/if}
 </div>
+
+<ConfirmDialog
+  bind:open={cancelOpen}
+  title="Cancel workflow run"
+  name={cancelTarget?.workflow || cancelTarget?.job_name || 'workflow run'}
+  description="GitHub can only cancel the whole workflow run. Every queued or running job in this run will be stopped, not only the job shown here."
+  consequences={[
+    `Run ${cancelTarget?.run_number ? '#' + cancelTarget.run_number : (cancelTarget?.github_run_id ?? '')} in ${cancelTarget?.repo ?? 'GitHub'} will be cancelled.`,
+  ]}
+  confirmLabel={forceCancel ? 'Force cancel run' : 'Cancel run'}
+  onconfirm={confirmCancel}
+  oncancel={() => (forceCancel = false)}
+>
+  <Checkbox
+    bind:checked={forceCancel}
+    label="Force cancellation"
+    description="Use this only if GitHub leaves an ordinary cancellation stuck. It bypasses conditions that would otherwise keep the run alive."
+  />
+</ConfirmDialog>
 
 <style>
   .run-jobs {

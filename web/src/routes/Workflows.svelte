@@ -20,19 +20,26 @@
   most of which ran somewhere else, and "Include other runners" widens it.
 -->
 <script lang="ts">
-  import { getJobFacets, listWorkflowRuns } from '$lib/api/client';
+  import { CircleX } from '@lucide/svelte';
+  import { cancelWorkflowRun, getJobFacets, listWorkflowRuns } from '$lib/api/client';
   import type { Job, WorkflowRun } from '$lib/api/types';
   import { events } from '$lib/api/sse';
   import { formatDuration, formatNumber } from '$lib/format';
+  import { session } from '$lib/state/session.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { toasts } from '$lib/state/toasts.svelte';
   import { HOSTED, jobStatus, RUNNER_LOST, UNMATCHED } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
+  import Checkbox from '$lib/components/Checkbox.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
   import type { GridColumn, GridPage, GridQuery } from '$lib/components/DataGrid.svelte';
   import Duration from '$lib/components/Duration.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
+  import RowActions from '$lib/components/RowActions.svelte';
+  import type { RowAction } from '$lib/components/RowActions.svelte';
   import ActivityStatus from '$lib/jobs/ActivityStatus.svelte';
   import { workflowActivity } from '$lib/jobs/activity-status';
   import { endOfDay, startOfDay } from '$lib/jobs/DateRange.svelte';
@@ -176,6 +183,59 @@
     return `${run.repo ?? ''}#${run.github_run_id ?? 0}`;
   }
 
+  /* -- cancelling a run from its own row ------------------------------------ */
+
+  const canOperate = $derived(
+    session.meta?.workflow_cancellation_enabled === true && session.can('operator'),
+  );
+
+  let cancelTarget = $state<WorkflowRun | null>(null);
+  let cancelOpen = $state(false);
+  let forceCancel = $state(false);
+
+  function askCancel(run: WorkflowRun): void {
+    cancelTarget = run;
+    forceCancel = false;
+    cancelOpen = true;
+  }
+
+  async function confirmCancel(): Promise<boolean> {
+    const run = cancelTarget;
+    if (!run?.repo || !run.github_run_id) return false;
+    try {
+      await cancelWorkflowRun({ repo: run.repo, run_id: run.github_run_id, force: forceCancel });
+      toasts.success(
+        forceCancel ? 'Force cancellation requested' : 'Cancellation requested',
+        'Zoomies is waiting for GitHub to confirm the workflow run has ended.',
+      );
+      liveKey += 1;
+      return true;
+    } catch (cause) {
+      toasts.fromError(cause, 'GitHub did not accept the cancellation');
+      return false;
+    }
+  }
+
+  /** The one action a run row offers, following the row-actions pattern the Queue page uses. */
+  function rowActions(run: WorkflowRun): RowAction[] {
+    const done = run.state === 'completed';
+    return [
+      {
+        id: 'cancel',
+        label: 'Cancel',
+        icon: CircleX,
+        danger: true,
+        disabled: done || run.cancelling,
+        reason: run.cancelling
+          ? 'Already waiting for GitHub to confirm the cancellation.'
+          : done
+            ? 'This run has already finished.'
+            : undefined,
+        onSelect: () => askCancel(run),
+      },
+    ];
+  }
+
   /**
    * How the run's jobs are getting on, in one phrase: what is still to do
    * while the run is in hand, and how they ended once it is not. Read down a
@@ -260,6 +320,20 @@
       value: (run) => run.queued_at ?? '',
       cell: queuedCell,
     },
+    ...(canOperate
+      ? [
+          {
+            id: 'actions',
+            header: 'Actions',
+            fixed: true,
+            hideable: false,
+            // One button and the cell's own padding.
+            width: '4rem',
+            align: 'end' as const,
+            cell: actionCell,
+          },
+        ]
+      : []),
   ]);
 </script>
 
@@ -311,6 +385,14 @@
     <strong>{formatNumber(run.jobs?.total ?? 0)}</strong>
     <span class="summary">{jobsSummary(run)}</span>
   </span>
+{/snippet}
+
+{#snippet actionCell(run: WorkflowRun)}
+  <RowActions
+    actions={rowActions(run)}
+    subject="{run.repo ?? 'this run'} · {run.workflow || 'workflow'} #{run.run_number ||
+      run.github_run_id}"
+  />
 {/snippet}
 
 {#snippet queueWaitCell(run: WorkflowRun)}
@@ -402,6 +484,25 @@
 </div>
 
 <JobDrawer bind:open={drawerOpen} job={selected} onclose={() => (selected = null)} />
+
+<ConfirmDialog
+  bind:open={cancelOpen}
+  title="Cancel workflow run"
+  name={cancelTarget?.workflow || 'workflow run'}
+  description="GitHub can only cancel the whole workflow run. Every queued or running job in this run will be stopped."
+  consequences={[
+    `Run ${cancelTarget?.run_number ? '#' + cancelTarget.run_number : (cancelTarget?.github_run_id ?? '')} in ${cancelTarget?.repo ?? 'GitHub'} will be cancelled.`,
+  ]}
+  confirmLabel={forceCancel ? 'Force cancel run' : 'Cancel run'}
+  onconfirm={confirmCancel}
+  oncancel={() => (forceCancel = false)}
+>
+  <Checkbox
+    bind:checked={forceCancel}
+    label="Force cancellation"
+    description="Use this only if GitHub leaves an ordinary cancellation stuck. It bypasses conditions that would otherwise keep the run alive."
+  />
+</ConfirmDialog>
 
 <style>
   .content {

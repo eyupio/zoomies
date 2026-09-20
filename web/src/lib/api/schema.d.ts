@@ -1108,6 +1108,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workflow-runs/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a workflow run
+         * @description What the Workflows page's own run rows call, rather than reaching for one of the run's jobs' IDs the way `POST /jobs/{id}/cancel` does -- a run has no ID of its own, only `repo` + `github_run_id`, so this takes both directly. Behaves exactly like cancelling through a job of the run: the request is asynchronous, every queued or running job of the run is stopped locally once GitHub accepts it, and Zoomies keeps them pending until a webhook or the fallback poller confirms their terminal state. Requires the opt-in setting and GitHub App Actions write permission.
+         */
+        post: operations["cancelWorkflowRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hosts": {
         parameters: {
             query?: never;
@@ -7040,6 +7060,54 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    cancelWorkflowRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The repository, as owner/name. */
+                    repo: string;
+                    /**
+                     * Format: int64
+                     * @description GitHub's own ID for the run.
+                     */
+                    run_id: number;
+                    /**
+                     * @description Bypass conditions that may leave an ordinary cancellation stuck.
+                     * @default false
+                     */
+                    force?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description GitHub accepted the cancellation request */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        accepted: boolean;
+                        force: boolean;
+                        repo: string;
+                        /** Format: int64 */
+                        run_id: number;
+                        /** @description How many of the run's jobs this fleet knows about. */
+                        jobs: number;
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listHosts: {

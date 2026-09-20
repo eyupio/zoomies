@@ -184,6 +184,10 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionJobsRead)).Get("/provisioning/selection", s.handleProvisioningSelection)
 		r.With(s.require(auth.ActionProvisioningWrite)).Post("/provisioning/bulk", s.handleControlProvisioning)
 		r.With(s.require(auth.ActionJobsRead)).Get("/workflow-runs", s.handleListWorkflowRuns)
+		// Not nested under /workflow-runs/{id}: a run's identity is
+		// repo + GitHub's run ID, not one path segment, since the repo half
+		// can itself contain a slash.
+		r.With(s.require(auth.ActionJobsCancel)).Post("/workflow-runs/cancel", s.handleCancelWorkflowRun)
 		r.Route("/jobs", func(r chi.Router) {
 			r.With(s.require(auth.ActionJobsRead)).Get("/", s.handleListJobs)
 			r.With(s.require(auth.ActionJobsRead)).Get("/facets", s.handleJobFacets)

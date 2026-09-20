@@ -68,6 +68,79 @@ func TestCancelJobWorkflowCanBeDisabledAndIsOperatorOnly(t *testing.T) {
 	h.do(request{method: http.MethodPost, path: "/api/v1/jobs/" + j.ID + "/cancel", body: map[string]any{}, cookie: operator}).mustStatus(t, http.StatusConflict, "cancellation while the feature is disabled")
 }
 
+// The Workflows page's own run rows cancel a run directly, with no job ID in
+// hand -- so unlike cancelling through a job, every job the run still owns
+// gets the operator's request in its own timeline, not only whichever job
+// happened to be used to reach the run.
+func TestCancelWorkflowRunCallsGitHubAndRecordsRequestOnEveryLiveJob(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.GitHub.AllowWorkflowCancellation = true })
+	h.gh.SetPermissions(map[string]string{"actions": "write"})
+	inst := h.installation()
+	pool := h.pool(inst, "linux")
+	queued := h.job(pool, store.JobQueued)
+	running := h.job(pool, store.JobInProgress)
+	_, cookie := h.user("operator", store.RoleOperator)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/workflow-runs/cancel",
+		body: map[string]any{"repo": "acme/widgets", "run_id": 1, "force": false}, cookie: cookie})
+	if resp.status != http.StatusAccepted {
+		t.Logf("controller log:\n%s", h.logs.text())
+	}
+	resp.mustStatus(t, http.StatusAccepted, "cancelling a workflow run")
+
+	var out cancelWorkflowRunResponse
+	if err := json.Unmarshal(resp.body, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Accepted || out.Jobs != 2 || out.Repo != "acme/widgets" || out.RunID != 1 {
+		t.Fatalf("response = %+v, want accepted with both jobs", out)
+	}
+
+	if !slices.Contains(h.gh.Requests(), "POST /repos/acme/widgets/actions/runs/1/cancel") {
+		t.Fatalf("GitHub requests = %v, want a run cancellation", h.gh.Requests())
+	}
+
+	for _, id := range []string{queued.ID, running.ID} {
+		events, err := h.ctrl.JobEvents(h.ctx, id)
+		if err != nil {
+			t.Fatalf("JobEvents(%s): %v", id, err)
+		}
+		if len(events) != 1 || events[0].Kind != store.JobEventCancelRequested {
+			t.Fatalf("job %s events = %+v, want one cancel_requested entry", id, events)
+		}
+	}
+}
+
+func TestCancelWorkflowRunValidatesItsBody(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.GitHub.AllowWorkflowCancellation = true })
+	_, operator := h.user("operator", store.RoleOperator)
+
+	h.do(request{method: http.MethodPost, path: "/api/v1/workflow-runs/cancel",
+		body: map[string]any{"run_id": 1}, cookie: operator}).
+		mustStatus(t, http.StatusBadRequest, "a run without a repository")
+	h.do(request{method: http.MethodPost, path: "/api/v1/workflow-runs/cancel",
+		body: map[string]any{"repo": "acme/widgets"}, cookie: operator}).
+		mustStatus(t, http.StatusBadRequest, "a run without a run ID")
+	h.do(request{method: http.MethodPost, path: "/api/v1/workflow-runs/cancel",
+		body: map[string]any{"repo": "acme/nothing-here", "run_id": 999}, cookie: operator}).
+		mustStatus(t, http.StatusNotFound, "a run this fleet has never heard of")
+}
+
+// A run this fleet knows about but whose every job has already completed is
+// refused for the same reason cancelling through one of its jobs is: there is
+// nothing left for GitHub to stop.
+func TestCancelWorkflowRunRefusesAFinishedRun(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.GitHub.AllowWorkflowCancellation = true })
+	inst := h.installation()
+	pool := h.pool(inst, "linux")
+	h.job(pool, store.JobCompleted)
+	_, operator := h.user("operator", store.RoleOperator)
+
+	h.do(request{method: http.MethodPost, path: "/api/v1/workflow-runs/cancel",
+		body: map[string]any{"repo": "acme/widgets", "run_id": 1}, cookie: operator}).
+		mustStatus(t, http.StatusConflict, "a run every job of which has completed")
+}
+
 // The Jobs page asks for managed=true by default, so the parameter has to reach
 // the store: GitHub reports every job in an installed repository, and a fleet
 // view that silently includes hosted-runner jobs answers "how is my fleet
