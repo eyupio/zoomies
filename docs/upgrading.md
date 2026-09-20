@@ -289,6 +289,41 @@ other's. Stop the agent on the machine that should not be there and re-join it
 with its own join token; the problem clears itself an hour after the sessions
 stop swapping.
 
+## The platform role, and what your administrators keep
+
+This release adds a fourth role, `platform`, above `admin`, for whoever runs
+the process rather than the fleet. Two things move behind it: lifting the
+recovery fence, and taking, downloading and restoring backups. A backup is
+the whole database — every account's password hash and every sealed
+credential, under the key this host holds — so it belongs to whoever operates
+the instance.
+
+**Nobody loses anything on the way through.** Every account that held `admin`
+comes up holding `platform`, and so does every API token minted at `admin`
+that has not been revoked. That is the same authority as before and not one
+action more: `platform` is `admin` plus the two things above. A nightly
+`zoomies backup` running on an administrator's token keeps working.
+
+What is carried across is what held `admin` *before* the role existed. If you
+track `main` and have already started a build that added the role, an account
+or token you have made at `admin` since then stays `admin` — you made it
+knowing what `admin` no longer reaches, and an upgrade should not overrule
+that. Upgrading from a release, the two steps run seconds apart on the same
+start, so this excludes nothing you have.
+
+You do not have to do anything. On an instance one team runs, the change is
+invisible: everyone who could take a backup yesterday can take one today, and
+the Backups page looks the same.
+
+The role earns its keep on the other shape — an instance one team operates
+while another uses the fleet. There you separate the two deliberately, by
+giving the fleet's people `admin` and keeping `platform` for whoever runs the
+process. An upgrade will not do that to you on its own.
+
+The last enabled `platform` account cannot be demoted, disabled or deleted,
+for the same reason the last administrator could not be: an instance nobody
+can operate is one only a shell can rescue.
+
 ## Schema migrations
 
 Migrations are embedded in the binary, run on first start, and recorded in a
