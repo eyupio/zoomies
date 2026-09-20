@@ -390,24 +390,41 @@ func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 	return affected(r, "pool", p.ID)
 }
 
-// DeletePool removes a pool and, by cascade, its runner rows.
-// DeletePool removes a pool and its runner rows, and returns the IDs of those
-// rows so each can be announced as deleted.
-func (s *Store) DeletePool(ctx context.Context, id string) ([]string, error) {
-	var runners []string
-	err := s.tx(ctx, func(tx *sql.Tx) error {
-		var err error
-		runners, err = deletedIDs(ctx, tx, `DELETE FROM runners WHERE pool_id = ? RETURNING id`, id)
-		if err != nil {
-			return err
+// DeletePool removes a pool and, by cascade, its runner rows and any queued
+// demand still matched to it.
+//
+// Demand goes the same way an operator removes it from the Queue page --
+// provisioning=deleted, reversible from the Removed view -- rather than the
+// row disappearing outright, because nothing else here ever deletes a job
+// wholesale. It is also unmatched (pool_id and matched cleared): a pool_id
+// pointing at a pool row that no longer exists is a dangling reference
+// nothing else corrects, and a resume that tried to match it back to a pool
+// that is gone would have nothing to restore. A job already being cancelled
+// is left to that flow rather than raced with it.
+//
+// It returns the IDs of the runners and the jobs it took with it, so each can
+// be announced.
+func (s *Store) DeletePool(ctx context.Context, id string) (runners, jobs []string, err error) {
+	err = s.tx(ctx, func(tx *sql.Tx) error {
+		var terr error
+		runners, terr = deletedIDs(ctx, tx, `DELETE FROM runners WHERE pool_id = ? RETURNING id`, id)
+		if terr != nil {
+			return terr
 		}
-		res, err := tx.ExecContext(ctx, `DELETE FROM pools WHERE id = ?`, id)
-		if err != nil {
-			return err
+		jobs, terr = deletedIDs(ctx, tx,
+			`UPDATE jobs SET provisioning=?, pool_id='', matched=0
+			 WHERE pool_id = ? AND `+queuedJobSQL("jobs")+` RETURNING id`,
+			ProvisioningDeleted, id)
+		if terr != nil {
+			return terr
+		}
+		res, terr := tx.ExecContext(ctx, `DELETE FROM pools WHERE id = ?`, id)
+		if terr != nil {
+			return terr
 		}
 		return affected(res, "pool", id)
 	})
-	return runners, err
+	return runners, jobs, err
 }
 
 func (s *Store) SetPoolPrewarm(ctx context.Context, poolID, hostID, image, state, digest, failure string) error {

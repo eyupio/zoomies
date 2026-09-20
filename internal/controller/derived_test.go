@@ -359,6 +359,43 @@ func TestRunnerRowsThatVanishAreAnnounced(t *testing.T) {
 	}
 }
 
+// Deleting a pool takes its queued demand with it too, and the Jobs and Queue
+// pages learn about that job.updated frame the same way they learn about
+// everything else -- no refresh needed to see it drop off the pool it just
+// lost.
+func TestDeletingAPoolAnnouncesTheQueuedJobsItTakesWithIt(t *testing.T) {
+	h := newHarness(t)
+	_, pool, _ := h.fleet()
+	job, err := h.st.UpsertJob(h.ctx, &store.Job{
+		GitHubJobID: 900, Repo: "acme/widgets", State: store.JobQueued,
+		Matched: true, PoolID: pool.ID, QueuedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	sub := h.listen(events.KindJobUpdated, events.KindPoolDeleted)
+
+	if err := h.c.DeletePool(h.ctx, pool.ID); err != nil {
+		t.Fatalf("DeletePool: %v", err)
+	}
+	got := nextOfKind(t, sub, events.KindJobUpdated)
+	if got["id"] != job.ID {
+		t.Fatalf("job.updated = %v, want id %s", got, job.ID)
+	}
+	if pid, present := got["pool_id"]; present && pid != "" {
+		t.Fatalf("job.updated for a job whose pool was deleted = %v, want no pool_id", got)
+	}
+	if got["matched"] != false {
+		t.Fatalf("job.updated matched = %v, want false", got["matched"])
+	}
+	if got["provisioning"] != store.ProvisioningDeleted {
+		t.Fatalf("job.updated provisioning = %v, want %q", got["provisioning"], store.ProvisioningDeleted)
+	}
+	if gone := nextOfKind(t, sub, events.KindPoolDeleted); gone["id"] != pool.ID {
+		t.Fatalf("pool.deleted = %v, want %s after its queued jobs", gone, pool.ID)
+	}
+}
+
 // The prune is the quiet one: hourly, and a row it deletes is one the page
 // may well be showing under "include removed".
 func TestPrunedRunnersAreAnnounced(t *testing.T) {

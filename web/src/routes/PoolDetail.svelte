@@ -210,7 +210,9 @@
   let limitsOpen = $state(false);
   let forceDelete = $state(false);
 
-  const consequences = $derived(deletionConsequences(counts, forceDelete));
+  const consequences = $derived(
+    deletionConsequences({ ...counts, queued: pool?.queued_jobs }, forceDelete),
+  );
 
   async function confirmDelete(): Promise<boolean> {
     if (!pool?.id) return false;

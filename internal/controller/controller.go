@@ -903,14 +903,22 @@ func (c *Controller) publishRunnersDeleted(ids []string) {
 }
 
 // DeletePool removes a pool and announces everything that went with it: each
-// runner row, then the pool. The runners go first so a page that drops them
-// has nothing left to explain when the pool disappears.
+// runner row, then any queued job it took off the queue with it, then the
+// pool. The runners go first so a page that drops them has nothing left to
+// explain when the pool disappears; the jobs are announced as their own
+// updated view -- unmatched and off the queue -- so the Jobs and Queue pages
+// drop them without a refresh.
 func (c *Controller) DeletePool(ctx context.Context, id string) error {
-	runners, err := c.st.DeletePool(ctx, id)
+	runners, jobIDs, err := c.st.DeletePool(ctx, id)
 	if err != nil {
 		return err
 	}
 	c.publishRunnersDeleted(runners)
+	for _, jobID := range jobIDs {
+		if j, err := c.st.GetJob(ctx, jobID); err == nil {
+			c.publishJob(ctx, j)
+		}
+	}
 	c.PublishPoolDeleted(id)
 	return nil
 }

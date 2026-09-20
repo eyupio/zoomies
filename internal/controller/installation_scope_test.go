@@ -185,7 +185,7 @@ func TestTheProblemsDrawerNamesThePoolOnTheOtherInstallation(t *testing.T) {
 
 	// Globex's pool is the only one whose labels fit, and it is the wrong
 	// target for this job.
-	if _, err := h.st.DeletePool(h.ctx, acme.ID); err != nil {
+	if _, _, err := h.st.DeletePool(h.ctx, acme.ID); err != nil {
 		t.Fatalf("DeletePool: %v", err)
 	}
 	if _, err := h.st.UpsertJob(h.ctx, &store.Job{

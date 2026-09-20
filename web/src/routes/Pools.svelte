@@ -306,7 +306,9 @@
   }
 
   const doomedConsequences = $derived(
-    doomed ? deletionConsequences(doomed.counts ?? {}, forceDelete) : [],
+    doomed
+      ? deletionConsequences({ ...doomed.counts, queued: doomed.queued_jobs }, forceDelete)
+      : [],
   );
 
   async function confirmDelete(): Promise<boolean> {
