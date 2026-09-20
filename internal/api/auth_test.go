@@ -31,8 +31,10 @@ func TestBootstrapCreatesTheFirstAdmin(t *testing.T) {
 	resp.mustStatus(t, http.StatusCreated, "bootstrap")
 
 	body := resp.json(t)
-	if body["role"] != string(store.RoleAdmin) {
-		t.Errorf("first account has role %v, want admin", body["role"])
+	// Whoever can read the setup token out of the controller's log already
+	// operates the process, so the first account says so.
+	if body["role"] != string(store.RolePlatform) {
+		t.Errorf("first account has role %v, want platform", body["role"])
 	}
 	if resp.cookie == nil || resp.cookie.Value == "" {
 		t.Fatal("bootstrap did not set a session cookie")
@@ -358,17 +360,18 @@ func TestAllowedOriginsPermitsAConfiguredOrigin(t *testing.T) {
 	}
 }
 
-// TestDisableAuthSynthesisesAnAdmin covers the local-development switch. It is
-// refused by config validation off loopback, so the only thing to check here is
-// that it does what it says.
-func TestDisableAuthSynthesisesAnAdmin(t *testing.T) {
+// TestDisableAuthSynthesisesThePlatformIdentity covers the local-development
+// switch. It is refused by config validation off loopback, so the only thing
+// to check here is that it does what it says: with authentication off there
+// is no second audience, and the identity it synthesises reaches everything.
+func TestDisableAuthSynthesisesThePlatformIdentity(t *testing.T) {
 	h := newHarness(t, func(c *config.Config) { c.Security.DisableAuth = true })
 
 	resp := h.do(request{method: http.MethodGet, path: "/api/v1/auth/session"})
 	resp.mustStatus(t, http.StatusOK, "session with auth disabled")
 	body := resp.json(t)
-	if body["name"] != "auth-disabled" || body["role"] != string(store.RoleAdmin) {
-		t.Fatalf("identity = %v, want the auth-disabled admin", body)
+	if body["name"] != "auth-disabled" || body["role"] != string(store.RolePlatform) {
+		t.Fatalf("identity = %v, want the auth-disabled platform identity", body)
 	}
 
 	meta := h.do(request{method: http.MethodGet, path: "/api/v1/meta"})

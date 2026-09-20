@@ -66,7 +66,7 @@
 
   const usernameError = $derived(
     touched.username && username.trim() === ''
-      ? 'Choose a username for the administrator.'
+      ? 'Choose a username for the first account.'
       : undefined,
   );
 
@@ -187,7 +187,7 @@
        Overview's checklist counts the real list from the fleet's own state, so
        this says only which end of it we are at. -->
   <p class="step">First step</p>
-  <h1>Create the first administrator</h1>
+  <h1>Create the first account</h1>
   <p class="lede">
     Nobody has an account on this controller yet. This form creates the first one, with the admin
     role, and stops being available the moment it exists. The setup token is how it knows you are
@@ -350,9 +350,7 @@
       {/snippet}
     </Field>
 
-    <Button type="submit" variant="primary" full loading={submitting}
-      >Create the administrator</Button
-    >
+    <Button type="submit" variant="primary" full loading={submitting}>Create the account</Button>
   </form>
 
   <p class="version">Zoomies {session.meta?.version ?? ''}</p>

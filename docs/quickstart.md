@@ -97,7 +97,7 @@ Then it walks the rest: a dedicated service user and directories, an encryption
 key (which it will tell you to back up, and say exactly what is lost without),
 the runner backend — preferring a rootless Docker or Podman socket, and
 spelling out the consequence of each alternative — the bind address and TLS, and
-your first administrator account.
+your first account.
 
 Setup does not assume the service account can reach the container socket, it
 checks. The account's access is worked out from the socket's own owner and mode

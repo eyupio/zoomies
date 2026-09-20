@@ -210,10 +210,17 @@ var actionRoles = map[Action]store.Role{
 	ActionStatsRead:     store.RoleViewer,
 
 	ActionDiagnosticsRead: store.RoleAdmin,
-	ActionRecoveryWrite:   store.RoleAdmin,
-	ActionBackupsRead:     store.RoleAdmin,
-	ActionBackupsWrite:    store.RoleAdmin,
-	ActionBackupsRestore:  store.RoleAdmin,
+	// The fence and the backups belong to whoever runs the process, not to
+	// whoever runs the fleet. A backup is the whole database -- every
+	// account's password hash and every sealed credential, under the key
+	// this host holds -- and lifting the fence is a decision about whether
+	// a restored instance may act on the world again. Neither is the
+	// fleet's to take, and a fleet that wants its own data has the
+	// per-installation export instead.
+	ActionRecoveryWrite:  store.RolePlatform,
+	ActionBackupsRead:    store.RolePlatform,
+	ActionBackupsWrite:   store.RolePlatform,
+	ActionBackupsRestore: store.RolePlatform,
 }
 
 // AllActions returns every action, sorted. The UI's token editor lists the

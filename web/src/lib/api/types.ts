@@ -85,7 +85,7 @@ export const MACHINE_STATES: readonly MachineState[] = [
 ];
 
 /** The roles, weakest first. `atLeast` below compares by this order. */
-export const ROLES: readonly Role[] = ['viewer', 'operator', 'admin'];
+export const ROLES: readonly Role[] = ['viewer', 'operator', 'admin', 'platform'];
 
 /* -- resources ---------------------------------------------------------- */
 

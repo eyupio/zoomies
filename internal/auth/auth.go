@@ -216,8 +216,14 @@ func AgentIdentity(h *store.Host, ip string) *Identity {
 // -- a non-loopback bind, an external URL, or a trusted proxy -- and produces a
 // startup warning on the loopback-with-nothing-in-front case that is left, so
 // this cannot be reached by accident on a real deployment.
+//
+// It carries the platform role rather than the administrator one. With
+// authentication off there is no second audience to hold anything back from:
+// whoever reaches the socket has the process and everything in it, and a
+// developer instance that answered 403 on its own backups would be teaching a
+// distinction that does not exist there.
 func DevIdentity(ip string) *Identity {
-	return &Identity{Kind: KindUser, ID: "dev", Name: "auth-disabled", Role: store.RoleAdmin, UserID: "dev", IP: ip}
+	return &Identity{Kind: KindUser, ID: "dev", Name: "auth-disabled", Role: store.RolePlatform, UserID: "dev", IP: ip}
 }
 
 // Service is the package's entry point: it owns the store handle, the security
@@ -409,10 +415,15 @@ func (s *Service) createFirstAdmin(ctx context.Context, username, password strin
 	if n > 0 {
 		return nil, ErrAlreadyBootstrapped
 	}
+	// The first account is the platform one. Whoever reaches this route can
+	// read the setup token out of the controller's log, or is running the
+	// installer on the host itself -- which is to say they already operate
+	// the process, and the role is the one that says so. On an instance
+	// where one team does both it changes nothing they can see.
 	return s.createUser(ctx, NewUser{
 		Username: username,
 		Password: password,
-		Role:     store.RoleAdmin,
+		Role:     store.RolePlatform,
 	})
 }
 

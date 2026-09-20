@@ -18,7 +18,7 @@ func TestADestinationAddedOnThePageIsTestedStoredAndUsed(t *testing.T) {
 	t.Cleanup(fake.Close)
 	h := newHarness(t)
 	h.installation()
-	cookie := h.admin()
+	cookie := h.platform()
 
 	// Distinctive values, so "is the secret in the response?" is a question
 	// with an exact answer rather than a search for the word "secret" among
@@ -85,7 +85,7 @@ func TestChangingADestinationLeavesTheSecretsItDoesNotMention(t *testing.T) {
 	fake := backup.NewFakeS3("backups")
 	t.Cleanup(fake.Close)
 	h := newHarness(t)
-	cookie := h.admin()
+	cookie := h.platform()
 
 	create := map[string]any{
 		"name": "offsite", "endpoint": fake.Endpoint(), "bucket": fake.Bucket(),
@@ -131,7 +131,7 @@ func TestTheConfigurationFileHasTheLastWordOnADestinationsName(t *testing.T) {
 		}}
 		c.Normalize()
 	})
-	cookie := h.admin()
+	cookie := h.platform()
 
 	resp := h.do(request{method: http.MethodPost, path: "/api/v1/backups/remotes", cookie: cookie,
 		body: map[string]any{
@@ -164,7 +164,7 @@ func TestTheConfigurationFileHasTheLastWordOnADestinationsName(t *testing.T) {
 // that never receives anything.
 func TestADestinationThatCouldNotWorkIsRefusedByField(t *testing.T) {
 	h := newHarness(t)
-	cookie := h.admin()
+	cookie := h.platform()
 
 	for _, tc := range []struct {
 		name  string
@@ -194,7 +194,7 @@ func TestRemovingADestinationLeavesTheCopiesInTheBucket(t *testing.T) {
 	fake := backup.NewFakeS3("backups")
 	t.Cleanup(fake.Close)
 	h := newHarness(t)
-	cookie := h.admin()
+	cookie := h.platform()
 
 	h.do(request{method: http.MethodPost, path: "/api/v1/backups/remotes", cookie: cookie,
 		body: map[string]any{
@@ -233,7 +233,7 @@ func TestTheNoRemoteFindingGoesAwayWhenADestinationIsAdded(t *testing.T) {
 	fake := backup.NewFakeS3("backups")
 	t.Cleanup(fake.Close)
 	h := newHarness(t)
-	cookie := h.admin()
+	cookie := h.platform()
 
 	codes := func() []string {
 		resp := h.do(request{method: http.MethodGet, path: "/api/v1/settings", cookie: cookie})

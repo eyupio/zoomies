@@ -743,35 +743,35 @@ func routeTable(ids fixtureIDs) []route {
 
 		{method: "GET", path: "/api/v1/diagnostics/bundle", role: store.RoleAdmin, action: auth.ActionDiagnosticsRead},
 
-		{method: "GET", path: "/api/v1/backups", role: store.RoleAdmin, action: auth.ActionBackupsRead},
-		{method: "POST", path: "/api/v1/backups", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
-		{method: "POST", path: "/api/v1/backups/upload", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
-		{method: "DELETE", path: "/api/v1/backups/restore", role: store.RoleAdmin, action: auth.ActionBackupsRestore},
-		{method: "POST", path: "/api/v1/backups/restore/apply", role: store.RoleAdmin, action: auth.ActionBackupsRestore},
-		{method: "DELETE", path: "/api/v1/backups/restore/outcome", role: store.RoleAdmin, action: auth.ActionBackupsRestore},
-		{method: "GET", path: "/api/v1/backups/zoomies-19990101-000000", role: store.RoleAdmin, action: auth.ActionBackupsRead},
-		{method: "DELETE", path: "/api/v1/backups/zoomies-19990101-000000", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
-		{method: "POST", path: "/api/v1/backups/zoomies-19990101-000000/verify", role: store.RoleAdmin, action: auth.ActionBackupsRead},
-		{method: "GET", path: "/api/v1/backups/zoomies-19990101-000000/download", role: store.RoleAdmin, action: auth.ActionBackupsRead},
-		{method: "POST", path: "/api/v1/backups/zoomies-19990101-000000/download", role: store.RoleAdmin, action: auth.ActionBackupsRead,
+		{method: "GET", path: "/api/v1/backups", role: store.RolePlatform, action: auth.ActionBackupsRead},
+		{method: "POST", path: "/api/v1/backups", role: store.RolePlatform, action: auth.ActionBackupsWrite},
+		{method: "POST", path: "/api/v1/backups/upload", role: store.RolePlatform, action: auth.ActionBackupsWrite},
+		{method: "DELETE", path: "/api/v1/backups/restore", role: store.RolePlatform, action: auth.ActionBackupsRestore},
+		{method: "POST", path: "/api/v1/backups/restore/apply", role: store.RolePlatform, action: auth.ActionBackupsRestore},
+		{method: "DELETE", path: "/api/v1/backups/restore/outcome", role: store.RolePlatform, action: auth.ActionBackupsRestore},
+		{method: "GET", path: "/api/v1/backups/zoomies-19990101-000000", role: store.RolePlatform, action: auth.ActionBackupsRead},
+		{method: "DELETE", path: "/api/v1/backups/zoomies-19990101-000000", role: store.RolePlatform, action: auth.ActionBackupsWrite},
+		{method: "POST", path: "/api/v1/backups/zoomies-19990101-000000/verify", role: store.RolePlatform, action: auth.ActionBackupsRead},
+		{method: "GET", path: "/api/v1/backups/zoomies-19990101-000000/download", role: store.RolePlatform, action: auth.ActionBackupsRead},
+		{method: "POST", path: "/api/v1/backups/zoomies-19990101-000000/download", role: store.RolePlatform, action: auth.ActionBackupsRead,
 			body: map[string]any{"passphrase": "long enough"}},
-		{method: "POST", path: "/api/v1/backups/zoomies-19990101-000000/restore", role: store.RoleAdmin, action: auth.ActionBackupsRestore},
-		{method: "POST", path: "/api/v1/backups/offsite", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
-		{method: "POST", path: "/api/v1/backups/prune", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
-		{method: "POST", path: "/api/v1/backups/remotes", role: store.RoleAdmin, action: auth.ActionBackupsWrite,
+		{method: "POST", path: "/api/v1/backups/zoomies-19990101-000000/restore", role: store.RolePlatform, action: auth.ActionBackupsRestore},
+		{method: "POST", path: "/api/v1/backups/offsite", role: store.RolePlatform, action: auth.ActionBackupsWrite},
+		{method: "POST", path: "/api/v1/backups/prune", role: store.RolePlatform, action: auth.ActionBackupsWrite},
+		{method: "POST", path: "/api/v1/backups/remotes", role: store.RolePlatform, action: auth.ActionBackupsWrite,
 			body: map[string]any{"name": "wherever", "endpoint": "https://s3.example.com", "bucket": "b", "secret_access_key": "s"}},
-		{method: "POST", path: "/api/v1/backups/remotes/check", role: store.RoleAdmin, action: auth.ActionBackupsRead,
+		{method: "POST", path: "/api/v1/backups/remotes/check", role: store.RolePlatform, action: auth.ActionBackupsRead,
 			body: map[string]any{"name": "wherever", "endpoint": "https://s3.example.com", "bucket": "b", "secret_access_key": "s"}},
-		{method: "PATCH", path: "/api/v1/backups/remotes/offsite", role: store.RoleAdmin, action: auth.ActionBackupsWrite,
+		{method: "PATCH", path: "/api/v1/backups/remotes/offsite", role: store.RolePlatform, action: auth.ActionBackupsWrite,
 			body: map[string]any{"keep": 3}},
-		{method: "DELETE", path: "/api/v1/backups/remotes/offsite", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
-		{method: "GET", path: "/api/v1/backups/remotes/offsite/copies", role: store.RoleAdmin, action: auth.ActionBackupsRead},
-		{method: "POST", path: "/api/v1/backups/remotes/offsite/check", role: store.RoleAdmin, action: auth.ActionBackupsRead},
-		{method: "POST", path: "/api/v1/backups/remotes/offsite/copies/zoomies-19990101-000000/fetch", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
-		{method: "DELETE", path: "/api/v1/backups/remotes/offsite/copies/zoomies-19990101-000000", role: store.RoleAdmin, action: auth.ActionBackupsWrite},
+		{method: "DELETE", path: "/api/v1/backups/remotes/offsite", role: store.RolePlatform, action: auth.ActionBackupsWrite},
+		{method: "GET", path: "/api/v1/backups/remotes/offsite/copies", role: store.RolePlatform, action: auth.ActionBackupsRead},
+		{method: "POST", path: "/api/v1/backups/remotes/offsite/check", role: store.RolePlatform, action: auth.ActionBackupsRead},
+		{method: "POST", path: "/api/v1/backups/remotes/offsite/copies/zoomies-19990101-000000/fetch", role: store.RolePlatform, action: auth.ActionBackupsWrite},
+		{method: "DELETE", path: "/api/v1/backups/remotes/offsite/copies/zoomies-19990101-000000", role: store.RolePlatform, action: auth.ActionBackupsWrite},
 
 		{method: "GET", path: "/api/v1/recovery", role: store.RoleViewer, action: auth.ActionStatsRead},
-		{method: "POST", path: "/api/v1/recovery/unfence", role: store.RoleAdmin, action: auth.ActionRecoveryWrite},
+		{method: "POST", path: "/api/v1/recovery/unfence", role: store.RolePlatform, action: auth.ActionRecoveryWrite},
 
 		{method: "GET", path: "/api/v1/hosts", role: store.RoleViewer, action: auth.ActionHostsRead},
 
@@ -865,11 +865,14 @@ func (h *harness) fixtures() fixtureIDs {
 	}
 }
 
-// TestRouteAuthorisation walks every route with four callers.
+// TestRouteAuthorisation walks every route with five callers.
 //
 // This is the test that catches an endpoint added without a role: an
-// unauthenticated request must be refused, a viewer must not be able to write,
-// and an operator and an admin must get through to the handler.
+// unauthenticated request must be refused, a viewer must not be able to
+// write, and each role in turn must get through to exactly the handlers its
+// authority reaches. The platform caller is the fifth, and the rows it alone
+// may reach -- the fence and the backups -- are the ones that would otherwise
+// silently fall back to an administrator.
 func TestRouteAuthorisation(t *testing.T) {
 	h := newHarness(t)
 	ids := h.fixtures()
@@ -877,6 +880,7 @@ func TestRouteAuthorisation(t *testing.T) {
 	viewer, _ := h.user("viewer", store.RoleViewer)
 	operator, _ := h.user("operator", store.RoleOperator)
 	admin, _ := h.user("admin", store.RoleAdmin)
+	platform, _ := h.user("platform", store.RolePlatform)
 
 	callers := []struct {
 		name string
@@ -887,6 +891,7 @@ func TestRouteAuthorisation(t *testing.T) {
 		{name: "viewer", role: store.RoleViewer, user: viewer},
 		{name: "operator", role: store.RoleOperator, user: operator},
 		{name: "admin", role: store.RoleAdmin, user: admin},
+		{name: "platform", role: store.RolePlatform, user: platform},
 	}
 
 	for _, rt := range routeTable(ids) {
@@ -962,7 +967,10 @@ func TestScopedTokenRouteAuthorisation(t *testing.T) {
 				scopes = append(scopes, a.Scope())
 			}
 		}
-		tok := h.token("everything-but-"+res, store.RoleAdmin, scopes...)
+		// Minted at the top role on purpose: the only thing this token is
+		// missing must be the scope, or the refusal it collects is about
+		// the role gate and the scope gate goes untested.
+		tok := h.token("everything-but-"+res, store.RolePlatform, scopes...)
 		elsewhere[res] = tok
 		return tok
 	}
@@ -986,8 +994,10 @@ func TestScopedTokenRouteAuthorisation(t *testing.T) {
 			// The positive half, three ways of holding the permission. Without
 			// it, a gate that refused everything would pass the walk.
 			for _, scope := range []string{rt.action.Scope(), rt.action.Resource() + ":*", "*"} {
+				// At the route's own role, so this half tests the scope
+				// and nothing else.
 				allowed := h.do(request{method: rt.method, path: rt.path, body: rt.body,
-					token: h.token(scope+" for "+rt.method+" "+rt.path, store.RoleAdmin, scope)})
+					token: h.token(scope+" for "+rt.method+" "+rt.path, rt.role, scope)})
 				if allowed.status == http.StatusForbidden || allowed.status == http.StatusUnauthorized {
 					t.Errorf("a token scoped to %q was refused %d: %s", scope, allowed.status, truncate(allowed.body))
 				}
