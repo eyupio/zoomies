@@ -170,7 +170,7 @@
                 <span class="quiet">--</span>
               {/if}
             </td>
-            <td data-label="Failed at">
+            <td data-label="Failed at" class:empty={!fleetFailed(job) && !job.failed_step}>
               {#if fleetFailed(job)}
                 <span class="failed-at danger" title={job.runner_fault || job.fault_fix}>
                   {failedAt(job)}
@@ -292,20 +292,25 @@
   }
 
   /*
-    Read by a finger: the heading row goes and each job is a card of its own,
-    every value beside the word that says what it is -- the same treatment the
-    grid around this gives its rows, and at the same width.
+    Read by a finger, and by pairs: the heading row goes, each job is a card
+    of its own, and two short fields share a line instead of one apiece --
+    state with the job's name, pool with runner, queue wait with duration --
+    so the nine rows a desktop spreads across a wide table become four or
+    five here rather than nine, without leaving any of them out. Labels and a
+    failure can run long, so those keep a line to themselves; a job that has
+    not failed drops that line rather than spending it on a dash.
   */
   @media (max-width: 768px) {
     thead {
       display: none;
     }
-    tbody,
-    tr,
-    td {
+    tbody {
       display: block;
     }
     tr {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      column-gap: var(--z-space-4);
       padding: var(--z-space-2) 0;
       border-top: var(--z-border-width) solid var(--z-border);
     }
@@ -313,10 +318,18 @@
       display: flex;
       align-items: baseline;
       justify-content: space-between;
-      gap: var(--z-space-4);
+      gap: var(--z-space-3);
       padding: var(--z-space-1) 0;
       border: 0;
       text-align: right;
+    }
+    td[data-label='Labels'],
+    td[data-label='Failed at'],
+    td[data-label='On GitHub'] {
+      grid-column: 1 / -1;
+    }
+    td.empty {
+      display: none;
     }
     td::before {
       content: attr(data-label);
