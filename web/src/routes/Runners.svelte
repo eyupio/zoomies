@@ -36,6 +36,7 @@
   import DropdownMenu from '$lib/components/DropdownMenu.svelte';
   import type { MenuItem } from '$lib/components/DropdownMenu.svelte';
   import Duration from '$lib/components/Duration.svelte';
+  import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import FilterBar from '$lib/components/FilterBar.svelte';
   import type { FilterChip } from '$lib/components/FilterBar.svelte';
   import Input from '$lib/components/Input.svelte';
@@ -408,7 +409,15 @@
   {#if runner.current_job}
     <span class="job">
       <span class="job-name">{runner.current_job.job_name ?? 'Unnamed job'}</span>
-      <span class="job-repo mono">{runner.current_job.repo ?? ''}</span>
+      <span class="job-repo">
+        <span class="job-repo-name mono">{runner.current_job.repo ?? ''}</span>
+        <GitHubLink
+          href={runner.current_job.html_url}
+          runNumber={runner.current_job.run_number}
+          label="Open {runner.current_job.job_name || 'this job'} on GitHub, in a new tab"
+          onclick={stopRowClick}
+        />
+      </span>
     </span>
   {:else}
     <span class="quiet">--</span>
@@ -614,11 +623,18 @@
     white-space: nowrap;
   }
   .job-repo {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    min-width: 0;
     font-size: var(--z-text-2xs);
     color: var(--z-text-subtle);
+  }
+  .job-repo-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
   }
   .row-actions {
     display: flex;

@@ -1191,6 +1191,12 @@ type Job struct {
 	HeadBranch string `json:"head_branch,omitempty"`
 	HeadSHA    string `json:"head_sha,omitempty"`
 	RunAttempt int    `json:"run_attempt,omitempty"`
+	// RunNumber is GitHub's own sequential number for the workflow run this job
+	// belongs to -- the "#1009" its Actions UI shows next to the workflow name,
+	// so an operator can find the same run there. workflow_job deliveries never
+	// carry it, so it arrives late, backfilled from a workflow_run lookup once
+	// one is made; zero means that lookup has not happened yet.
+	RunNumber int64 `json:"run_number,omitempty"`
 	// Steps are the job's steps as GitHub last reported them. The completed
 	// delivery carries every step with its conclusion, which is how a failed
 	// job can say which step it stopped at.

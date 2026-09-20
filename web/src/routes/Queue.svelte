@@ -34,6 +34,7 @@
   import FacetMenu from '$lib/jobs/FacetMenu.svelte';
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
   import JobLabels from '$lib/jobs/JobLabels.svelte';
+  import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import { startOfDay, endOfDay } from '$lib/jobs/DateRange.svelte';
 
   type Action = Body<'controlProvisioning'>['action'];
@@ -292,6 +293,14 @@
       value: (j) => j.repo ?? '',
     },
     {
+      id: 'run',
+      header: 'Run',
+      priority: 'wide',
+      width: '5.5rem',
+      align: 'end',
+      cell: runCell,
+    },
+    {
       id: 'pool',
       header: 'Pool / priority',
       priority: 'wide',
@@ -374,6 +383,14 @@
 {#snippet repoCell(job: Job)}<div class="cell">
     <span class="repo">{job.repo}</span><span>{job.head_branch || '—'}</span>
   </div>{/snippet}
+{#snippet runCell(job: Job)}
+  <GitHubLink
+    href={job.html_url}
+    runNumber={job.run_number}
+    label="Open {job.job_name || 'this job'} on GitHub, in a new tab"
+    onclick={(event) => event.stopPropagation()}
+  />
+{/snippet}
 {#snippet poolCell(job: Job)}
   <div class="cell">
     <span>{job.pool_name || 'Unclaimed'}</span><span

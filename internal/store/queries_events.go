@@ -15,7 +15,7 @@ import (
 
 const jobCols = `id, github_job_id, github_run_id, repo, workflow, job_name, labels, state,
 	conclusion, installation_id, pool_id, runner_id, runner_name, html_url, queued_at,
-	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, steps, runner_fault, fault_kind, provisioning, provision_now, cancel_requested_at`
+	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, run_number, steps, runner_fault, fault_kind, provisioning, provision_now, cancel_requested_at`
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
@@ -25,7 +25,7 @@ func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	err := sc.Scan(&j.ID, &j.GitHubJobID, &j.GitHubRunID, &j.Repo, &j.Workflow, &j.JobName,
 		&j.Labels, &j.State, &j.Conclusion, &j.InstallationID, &j.PoolID, &j.RunnerID,
 		&j.RunnerName, &j.HTMLURL, &queued, &started, &completed, &matched, &eligible,
-		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.Steps, &j.RunnerFault, &j.FaultKind, &j.Provisioning, &j.ProvisionNow,
+		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.RunNumber, &j.Steps, &j.RunnerFault, &j.FaultKind, &j.Provisioning, &j.ProvisionNow,
 		&cancelRequested)
 	if err != nil {
 		return nil, err
@@ -75,11 +75,11 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 				j.EligibleAt = &now
 			}
 			_, err := tx.ExecContext(ctx, `INSERT INTO jobs (`+jobCols+`)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				j.ID, j.GitHubJobID, j.GitHubRunID, j.Repo, j.Workflow, j.JobName, j.Labels,
 				string(j.State), j.Conclusion, j.InstallationID, j.PoolID, j.RunnerID,
 				j.RunnerName, j.HTMLURL, ms(j.QueuedAt), msp(j.StartedAt), msp(j.CompletedAt),
-				boolInt(j.Matched), msp(j.EligibleAt), j.HeadBranch, j.HeadSHA, j.RunAttempt,
+				boolInt(j.Matched), msp(j.EligibleAt), j.HeadBranch, j.HeadSHA, j.RunAttempt, j.RunNumber,
 				j.Steps, j.RunnerFault, j.FaultKind, j.Provisioning, j.ProvisionNow,
 				msp(j.CancelRequestedAt))
 			if err != nil {
@@ -142,6 +142,12 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 		if j.RunAttempt != 0 && (current || merged.RunAttempt == 0) {
 			merged.RunAttempt = j.RunAttempt
 		}
+		// Never arrives from the webhook itself -- see attachRunNumber -- but
+		// merges the same way as everything else GitHub's own record can settle
+		// after the fact, so a backfilled value survives the next delivery.
+		if j.RunNumber != 0 && (current || merged.RunNumber == 0) {
+			merged.RunNumber = j.RunNumber
+		}
 		if j.GitHubRunID != 0 && (current || merged.GitHubRunID == 0) {
 			merged.GitHubRunID = j.GitHubRunID
 		}
@@ -166,13 +172,13 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 		_, err = tx.ExecContext(ctx, `UPDATE jobs SET github_run_id=?, repo=?, workflow=?,
 			job_name=?, labels=?, state=?, conclusion=?, installation_id=?, pool_id=?,
 			runner_id=?, runner_name=?, html_url=?, started_at=?, completed_at=?, matched=?,
-			eligible_at=?, head_branch=?, head_sha=?, run_attempt=?, steps=?,
+			eligible_at=?, head_branch=?, head_sha=?, run_attempt=?, run_number=?, steps=?,
 			runner_fault=?, fault_kind=?, queued_at=? WHERE id=?`,
 			merged.GitHubRunID, merged.Repo, merged.Workflow, merged.JobName, merged.Labels,
 			string(merged.State), merged.Conclusion, merged.InstallationID, merged.PoolID,
 			merged.RunnerID, merged.RunnerName, merged.HTMLURL, msp(merged.StartedAt),
 			msp(merged.CompletedAt), boolInt(merged.Matched), msp(merged.EligibleAt),
-			merged.HeadBranch, merged.HeadSHA, merged.RunAttempt, merged.Steps,
+			merged.HeadBranch, merged.HeadSHA, merged.RunAttempt, merged.RunNumber, merged.Steps,
 			merged.RunnerFault, merged.FaultKind, ms(merged.QueuedAt), merged.ID)
 		if err != nil {
 			return err
@@ -305,6 +311,43 @@ func (s *Store) GetJobByGitHubID(ctx context.Context, ghID int64) (*Job, error) 
 		return nil, fmt.Errorf("job %d: %w", ghID, ErrNotFound)
 	}
 	return j, err
+}
+
+// RunNumberForRun returns a run number some other job of the same workflow
+// run has already recorded, so a matrix's second job does not have to ask
+// GitHub again for what its first job already learned. ErrNotFound means no
+// job of this run has one yet.
+func (s *Store) RunNumberForRun(ctx context.Context, runID int64) (int64, error) {
+	if runID == 0 {
+		return 0, ErrNotFound
+	}
+	var n int64
+	err := s.read.QueryRowContext(ctx,
+		`SELECT run_number FROM jobs WHERE github_run_id = ? AND run_number != 0 LIMIT 1`, runID).Scan(&n)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	return n, err
+}
+
+// SetJobRunNumber records a job's workflow run number once a caller has
+// fetched it from GitHub. It never overwrites a number already recorded, so
+// two lookups racing for the same job cannot disagree with each other.
+func (s *Store) SetJobRunNumber(ctx context.Context, jobID string, number int64) (*Job, error) {
+	var out *Job
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE jobs SET run_number=? WHERE id=? AND run_number=0`, number, jobID); err != nil {
+			return err
+		}
+		j, err := scanJob(tx.QueryRowContext(ctx, `SELECT `+jobCols+` FROM jobs WHERE id = ?`, jobID))
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("job %s: %w", jobID, ErrNotFound)
+		}
+		out = j
+		return err
+	})
+	return out, err
 }
 
 // ListJobsForRun returns every locally known job in one repository workflow

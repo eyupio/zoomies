@@ -155,6 +155,7 @@ func (c *Controller) seedHeldJob(ctx context.Context, now time.Time) error {
 		ID:             stuckHeldJobID,
 		GitHubJobID:    80099,
 		GitHubRunID:    40099,
+		RunNumber:      399,
 		Repo:           demoRepos[0],
 		Workflow:       "Deploy",
 		JobName:        "deploy-production",
