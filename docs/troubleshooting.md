@@ -274,7 +274,7 @@ The categories, and what each one means you should change:
 | `image` | The runner image could not be pulled or would not start. | Check the pool's image tag, and that the host can reach the registry. |
 | `registration` | GitHub would not register the runner, so it had nothing to attach to. | Check the App is still installed on the repository and still holds its runner permissions. |
 | `backend` | The container backend refused the work or did not answer. This is "cannot start the runner container". | Check the daemon on the host, and the socket the agent names on the host's page. |
-| `container_conflict` | A container name was still occupied once recovery had removed what it safely could and waited out the daemon's release, or ownership could not be verified. | Read the message: it says whether the name is one the daemon has not finished releasing, or one held by a container Zoomies would not touch. Then check the container's managed, runner, pool and role labels, its parent workload and duplicate agents sharing the daemon. Active or unrelated containers are retained; do not remove them blindly. |
+| `container_conflict` | The runner's container name is held by a container Zoomies would not touch — one whose ownership could not be verified, an active runner, a sidecar whose parent runner still exists, or another workload's altogether — or was taken again after Zoomies removed its own, or is reserved to nothing the daemon can show with no create of ours on record. | Read the message: it says which. Then check the container's managed, runner, pool and role labels, its parent workload and duplicate agents sharing the daemon. Active or unrelated containers are retained; do not remove them blindly. |
 | `backend_busy` | The daemon is there and did not answer in time — the host is carrying more work than it can keep up with, not a backend that is broken. | Lower the host's capacity or the pool's maximum runners, or give the pool CPU and memory limits so the daemon keeps a share of the machine. The host's throttle steps it down on its own while the pressure lasts. |
 | `config` | The runner refused a setting it was given. | Read the runner's log for the setting it named. Every runner in that pool will do the same until it is changed. |
 | `runner_exited` | The runner stopped and nothing could narrow it further. | Read the runner's last output on its page. |
@@ -283,12 +283,19 @@ A `backend_busy` create is not failed on the first timeout. The agent gives
 the daemon a few more tries first, waiting longer between each — stability
 over performance for the one fault a retry can actually fix, because the
 daemon is there and only momentarily busier than it can answer, not down or
-refusing the work. If every try is still busy, the runner fails as before,
-and the pool's next create for the job steers away from that host toward
-any other eligible one, rather than sending every retry back to the same
-daemon; it uses that host again only when the fleet has nowhere else to
-place it. Every other category fails on the first attempt, because nothing
-about trying again or trying elsewhere would change the answer.
+refusing the work. Before the agent retries at all, the backend asks the daemon
+what became of the create it stopped waiting on — a daemon does not abandon a
+create because its client did — waits for it, and adopts the container if it
+turns out to be ours and never started; a create the daemon still has not
+finished after that window fails as `backend_busy` too, never as a name
+conflict, so the same retries and the same steering apply
+([Container names already in use](#container-names-already-in-use) has the
+detail). If every try is still busy, the runner fails as before, and the
+pool's next create for the job steers away from that host toward any other
+eligible one, rather than sending every retry back to the same daemon; it uses
+that host again only when the fleet has nowhere else to place it. Every other
+category fails on the first attempt, because nothing about trying again or
+trying elsewhere would change the answer.
 
 ### The failure with no failed job behind it
 
@@ -400,30 +407,62 @@ on GitHub. A finished runner without one still has something outstanding.
 
 ### Container names already in use
 
-Docker can finish a create after the agent has timed out. A later attempt may
-therefore see HTTP 409 even if its initial cleanup found nothing. Zoomies inspects
-the conflicting container and removes only one whose managed, runner, pool, role
-and name labels match the request. A runner must be inactive; a DinD sidecar must
-have no parent runner. Removal uses the inspected container ID, never a name that
-another container could acquire — and when an inspect by name finds nothing while
-the daemon still refuses the name, the container the 409 itself names is inspected
-instead, because that ID is the only handle left to check ownership against.
+A daemon does not stop creating a container because the client stopped waiting
+for it. On a host slow enough that a create outlives the agent's ninety-second
+wait for a reply, the name has been reserved and the container is still being
+built, so the next create under that name is answered with HTTP 409 even though
+nothing could be found to clean up. Zoomies treats the timeout as a question
+rather than a failure: it records the name as a create it gave up waiting on
+and asks the daemon once more. The daemon's own reply says what became of the
+first — a fresh container if it never landed, or a 409 naming the one it did
+create.
 
-Removing a container does not free its name at once. The daemon releases the name
-only when the container's last layer has gone, which for a privileged DinD sidecar
-on a busy host is seconds rather than milliseconds, so creation is retried with
-backoff for up to twenty seconds rather than failed while the name is on its way
-free. A name taken again by a container this host owns is not waited on: three
-such removals stop recovery, because something else is creating containers with
-this runner's name.
+A 409 whose occupant the daemon cannot yet show — an inspect by the ID the 409
+named, or by the name, finds nothing — is a create the daemon has not finished
+registering. When it is a create Zoomies itself gave up waiting on, it waits
+for it with backoff for up to three minutes, counted from the moment it stopped
+waiting rather than from each attempt, so the agent's own retries share one
+window instead of each opening another; a name nobody can inspect with no such
+create on record gets the twenty-second release wait described below. The
+wait also ends at the runner's provision deadline and its credential's expiry,
+because a runner that arrives after either cannot be started. An inspect the
+daemon is too slow to answer is the same slowness, waited on under the same
+deadline rather than treated as a conflict.
 
-Unknown ownership, an active parent, a name that never came free, or a name taken
-again stop recovery with a **Container name conflict** finding, and the message
-says which of those it was. The daemon has answered: socket repair is not the
-appropriate advice. Check for duplicate agents connected to the same runtime —
-unless the message says the name was still being released, which is a host too
-busy to unlink a container rather than a second agent. Recovery never reruns
-registration inside an existing runner container.
+Once the occupant can be inspected, its labels decide. Only a container whose
+managed, runner, pool, role and name labels match the request is Zoomies' to
+act on, and removal always uses the inspected container ID, never a name that
+another container could acquire. A container that is ours, was never started
+and matches what this create would have built — the same image, and for a
+runner the same sidecar binding — is adopted and started as though the create
+had succeeded first time; the agent's log says so. One that is ours but does
+not match — a different image, a runner bound to a sidecar that has since gone,
+a runner that has already exited — is removed and the create tried again under
+the same name. Removing a container does not free its name at once: the daemon
+releases it only when the container's last layer has gone, seconds rather than
+milliseconds for a privileged DinD sidecar on a busy host, so creation is
+retried with backoff for up to twenty seconds. Three removals of our own
+container that each find the name taken again stop recovery, because something
+else is creating containers with this runner's name.
+
+A container Zoomies would not touch — one whose ownership could not be
+verified, a runner that may still be active, a sidecar whose parent runner
+still exists, or another workload's altogether — stops recovery at once with a
+**Container name conflict** finding, because waiting on somebody else's
+workload only delays what an operator has to act on. When it is the budget that
+runs out, whose create it was decides the kind. A name still reserved to a
+create of ours that the daemon never finished fails as `backend_busy`, with the
+daemon's own words in the message and no mention of a duplicate agent: the
+agent retries it, the scheduler steers the replacement away from the host, and
+if the daemon finishes the container after all it is an untracked orphan the
+agent's sweep removes. A name taken again after Zoomies removed its own, or a
+name nobody can inspect with no create of ours on record, is a conflict finding
+too, and the message says which. The daemon has answered, so socket repair is
+not the advice; check for duplicate agents connected to the same runtime. A
+conflict is never raised for a daemon that did not answer, and a name a daemon
+has leaked costs one runner row rather than the job, because a replacement
+runner always gets a fresh name. Recovery never reruns registration inside an
+existing runner container.
 
 ### GitHub says a runner is still running a job during cleanup
 
