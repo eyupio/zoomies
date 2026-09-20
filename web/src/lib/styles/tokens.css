@@ -29,6 +29,21 @@
   --z-brand-runner-blue: #2f80ed;
   --z-brand-fast-cyan: #22d3ee;
   --z-brand-paw-black: #000000;
+  /* Fixed illustration colours preserve the black-and-white spaniel in both
+     themes. Its backdrop and collar use semantic surface/status colours. */
+  --z-avatar-fur: #202630;
+  --z-avatar-ink: #111722;
+  --z-avatar-cream: #fffaf1;
+  --z-avatar-shine: #47505e;
+  --z-avatar-white: #ffffff;
+  --z-avatar-tongue: #ed8f9f;
+  --z-avatar-tongue-line: #c56779;
+  --z-avatar-freckle: #b7b5b0;
+  --z-avatar-tag: #f5d781;
+  --z-avatar-tag-ink: #6b5524;
+  --z-avatar-accent: #5eb89c;
+  --z-avatar-size: 2.75rem;
+
   /* Two of these are the record rather than a value anything reads. Mid Grey
      is the brand's light-theme secondary text, but --z-text-muted darkens it
      to #5b6069 for the same reason the accent is darkened below: at 13px on
