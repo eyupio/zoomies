@@ -51,7 +51,7 @@ test('one live status keeps details accessible without clipping in rows or cards
   else await status.click();
   const tip = page.locator('.runner-status-tip .bubble:popover-open');
   await expect(tip).toBeVisible();
-  await expect(tip).toContainText('Busy');
+  await expect(tip).toContainText('Walkies!');
   await expect(tip).toContainText('Maximum zoomies');
   await expect(tip).toContainText('3.8');
   const bounds = (await tip.boundingBox())!;

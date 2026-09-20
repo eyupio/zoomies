@@ -265,10 +265,10 @@
     pending?.action === 'pause'
       ? 'Hold new runner demand for these items until you resume them.'
       : pending?.action === 'delete'
-        ? 'Remove these items from provisioning demand, so they stop counting as queued work anywhere. You can restore them from the Removed view.'
+        ? 'Remove these items from provisioning demand, so they stop counting as queued work anywhere. You can restore them from the Back in the kennel view.'
         : pending?.action === 'run_now'
           ? 'Resume and prioritise these items within their pool priority, without waiting for the scale-up delay.'
-          : 'Restore normal provisioning demand and clear any Run now priority.',
+          : 'Restore normal provisioning demand and clear any Off the lead priority.',
   );
   const columns = $derived<GridColumn<Job>[]>([
     {
@@ -435,7 +435,7 @@
   {#if Object.keys(counts).length}
     <ChartPanel
       title="Provisioning demand"
-      description="Counts match your repository, workflow, pool and other filters across all pages. Status filters do not narrow this breakdown. Ready and Run now remain subject to scheduling limits."
+      description="Counts match your repository, workflow, pool and other filters across all pages. Status filters do not narrow this breakdown. Lead in hand and Off the lead remain subject to scheduling limits."
     >
       <div class="demand-heading">
         <strong
@@ -449,10 +449,10 @@
       <StateBreakdown
         label="Provisioning states"
         segments={[
-          { label: 'Ready', value: counts.ready ?? 0, tone: 'idle' },
-          { label: 'Run now', value: counts.expedited ?? 0, tone: 'accent' },
-          { label: 'Paused', value: counts.paused ?? 0, tone: 'draining' },
-          { label: 'Removed', value: counts.deleted ?? 0, tone: 'neutral' },
+          { label: QUEUE_STATUS_LABELS.ready, value: counts.ready ?? 0, tone: 'idle' },
+          { label: QUEUE_STATUS_LABELS.expedited, value: counts.expedited ?? 0, tone: 'accent' },
+          { label: QUEUE_STATUS_LABELS.paused, value: counts.paused ?? 0, tone: 'draining' },
+          { label: QUEUE_STATUS_LABELS.deleted, value: counts.deleted ?? 0, tone: 'neutral' },
         ]}
       />
     </ChartPanel>
@@ -462,16 +462,16 @@
     <div>
       <strong>Predictable provisioning, within your limits</strong>
       <p>
-        Higher pool priority first. Run now takes precedence within a priority tier; other pools
-        take turns, least recently provisioned first. Within a pool, demand is oldest first with a
-        stable ID tie-break.
+        Higher pool priority first. Off the lead takes precedence within a priority tier; other
+        pools take turns, least recently provisioned first. Within a pool, demand is oldest first
+        with a stable ID tie-break.
       </p>
       <details>
         <summary>What these controls affect</summary>
         <p>
           Controls change new runner demand. Existing runners, tasks already issued and minimum warm
-          capacity remain available. Run now respects pool and host limits, repository quotas and
-          failure backoff. GitHub still assigns jobs to available runners.
+          capacity remain available. Off the lead respects pool and host limits, repository quotas
+          and failure backoff. GitHub still assigns jobs to available runners.
         </p>
       </details>
     </div>

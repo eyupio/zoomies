@@ -782,10 +782,11 @@ test('the capacity reading keeps its figures on the card whatever the hosts are 
 
 /*
  * The runner lifecycle wrapped as a row of flex items, so each card was as
- * wide as its own label: on a phone "Provisioning" and "Registering" sat side
- * by side at different sizes, the row under them lined up with neither, and
- * the arrow that should point at the next step pointed off the end of the row
- * at nothing. It is a grid now, so the steps stay in step at every width.
+ * wide as its own label: on a phone "Kitting up" and "Checking the
+ * collar" sat side by side at different sizes, the row under them lined up
+ * with neither, and the arrow that should point at the next step pointed off
+ * the end of the row at nothing. It is a grid now, so the steps stay in step
+ * at every width.
  */
 test('the runner lifecycle keeps its steps in columns when it wraps', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 780 });
