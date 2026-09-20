@@ -328,5 +328,17 @@
       letter-spacing: var(--z-tracking-wide);
       text-align: left;
     }
+    /*
+      The value beside the label is a flex item too, and a flex item refuses
+      to shrink below the width its content wants unless told it may -- a
+      runner's name is one long hyphenated word otherwise, pushing the card
+      wider than the phone showing it rather than wrapping.
+    */
+    td > :global(a),
+    td > .job-name,
+    td > .quiet {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
   }
 </style>

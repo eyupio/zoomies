@@ -1801,6 +1801,29 @@
     */
     .grid.rows .scroll {
       overflow-x: auto;
+      /*
+        A size container, so the run detail below can be given the frame's
+        own width in `cqw` rather than the window's: `100vw` overshoots by
+        whatever margin sits outside this frame, and that sliver is exactly
+        the one a `left: 0` sticky element can never scroll to.
+      */
+      container-type: inline-size;
+    }
+    /*
+      A run's own detail is not one more column of that scrolling table: its
+      `<td>` still spans every column laid end to end, so without this a
+      job's label sits at that row's left edge and its value at its right --
+      sometimes a thousand pixels apart on a screen that shows three hundred
+      at a time, each visible only once the operator has scrolled to it and
+      lost the other. Pinned to the frame instead, at the frame's own width,
+      so the two stay together wherever the table underneath is scrolled to.
+    */
+    .grid.rows tbody tr.expansion td {
+      position: sticky;
+      left: 0;
+    }
+    .grid.rows tbody tr.expansion .expansion-body {
+      width: 100cqw;
     }
     /*
       Three controls where there were one or two, and a phone has no room for
