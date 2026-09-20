@@ -33,7 +33,7 @@
       <p class="group-label" id="settings-group-{uid}-{i}">{group.label}</p>
       <ul aria-labelledby="settings-group-{uid}-{i}">
         {#each group.pages as page (page.id)}
-          {@const locked = page.admin && !canAdmin}
+          {@const locked = !session.can(page.needs)}
           {@const here = page.id === current}
           <li>
             <a
@@ -46,7 +46,7 @@
               <span class="label">{page.label}</span>
               {#if locked}
                 <Lock size={12} aria-hidden="true" class="lock" />
-                <span class="sr-only">Needs the administrator role</span>
+                <span class="sr-only">Needs the {roleLabel(page.needs)} role</span>
               {/if}
             </a>
           </li>
@@ -57,8 +57,10 @@
 
   {#if !canAdmin}
     <p class="note">
-      Users, API tokens, the configuration and backups need the administrator role. You are signed
-      in with the {roleLabel(session.role)} role, so those pages are listed but not open to you.
+      Some of these pages need a role above yours — users, API tokens and the configuration need the
+      administrator role, and backups the platform one. You are signed in with the {roleLabel(
+        session.role,
+      )} role, so those pages are listed but not open to you.
     </p>
   {/if}
 </nav>

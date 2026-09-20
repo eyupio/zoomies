@@ -70,9 +70,15 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Create the first administrator
+         * Create the first account
          * @description Available only while no user exists. Once any account has been created
          *     this returns 409 forever.
+         *
+         *     The account holds the `platform` role, the one above `admin`: whoever
+         *     can read the setup token out of the controller's log, or is running
+         *     the installer on the host itself, already operates the process. On an
+         *     instance where one team runs both the process and the fleet this
+         *     changes nothing they can see.
          *
          *     It also requires the setup token the controller prints in its log at
          *     startup while the instance has no accounts. "No account exists yet" is a

@@ -36,7 +36,7 @@ func withRemote(t *testing.T) (*harness, *backup.FakeS3) {
 func TestABackupIsSentOffsiteListedThereAndBroughtBack(t *testing.T) {
 	h, fake := withRemote(t)
 	h.installation()
-	cookie := h.admin()
+	cookie := h.platform()
 	taken := h.takeBackup(t, cookie)
 
 	// The page says where copies go before any has gone.
@@ -110,7 +110,7 @@ func TestABackupIsSentOffsiteListedThereAndBroughtBack(t *testing.T) {
 // carrying the service's own words, because "500" is not a fix.
 func TestARemoteThatRefusesIsReportedRatherThanHidden(t *testing.T) {
 	h, fake := withRemote(t)
-	cookie := h.admin()
+	cookie := h.platform()
 	fake.BreakWith(http.StatusForbidden, "SignatureDoesNotMatch", "no")
 
 	resp := h.do(request{method: http.MethodPost, path: "/api/v1/backups/remotes/offsite/check", cookie: cookie})
@@ -129,7 +129,7 @@ func TestARemoteThatRefusesIsReportedRatherThanHidden(t *testing.T) {
 // remotes configured says so in its listing rather than pretending.
 func TestAnUnknownRemoteIsNotFoundAndNoRemotesIsAnEmptyList(t *testing.T) {
 	h, _ := withRemote(t)
-	cookie := h.admin()
+	cookie := h.platform()
 	for _, path := range []string{
 		"/api/v1/backups/remotes/nowhere/copies",
 		"/api/v1/backups/remotes/nowhere/check",
@@ -143,7 +143,7 @@ func TestAnUnknownRemoteIsNotFoundAndNoRemotesIsAnEmptyList(t *testing.T) {
 	}
 
 	plain := newHarness(t)
-	resp := plain.do(request{method: http.MethodGet, path: "/api/v1/backups", cookie: plain.admin()})
+	resp := plain.do(request{method: http.MethodGet, path: "/api/v1/backups", cookie: plain.platform()})
 	resp.mustStatus(t, http.StatusOK, "list backups with no remotes")
 	var listed backupsResponse
 	resp.into(t, &listed)
@@ -160,7 +160,7 @@ func TestAnUnknownRemoteIsNotFoundAndNoRemotesIsAnEmptyList(t *testing.T) {
 func TestRetentionIsAppliedOnDemandToBothHalves(t *testing.T) {
 	h, fake := withRemote(t)
 	h.installation()
-	cookie := h.admin()
+	cookie := h.platform()
 
 	h.ctrl.UpdateConfig(func(c *config.Config) { c.Backup.Keep = 0 })
 	var taken []string

@@ -68,7 +68,7 @@ func TestEveryActionHasARole(t *testing.T) {
 // not be able to perform any write action -- that single assertion is what
 // stops a new mutating endpoint from being given away for free.
 func TestRoleAuthority(t *testing.T) {
-	roles := []store.Role{store.RoleViewer, store.RoleOperator, store.RoleAdmin}
+	roles := []store.Role{store.RoleViewer, store.RoleOperator, store.RoleAdmin, store.RolePlatform}
 	for _, role := range roles {
 		for _, a := range AllActions() {
 			id := &Identity{Kind: KindUser, ID: "usr_1", Name: "test", Role: role}
@@ -254,5 +254,64 @@ func TestATokenCannotMintMoreThanItsMakerHolds(t *testing.T) {
 				t.Fatalf("a refusal has to be something the API answers 422 to, got %v", err)
 			}
 		})
+	}
+}
+
+// The fence and the backups moved above the fleet's administrator. A backup
+// is the whole database under the key this host holds, and lifting the fence
+// decides whether a restored instance acts on the world again; on an instance
+// operated by one team for another, neither is the fleet's to take.
+func TestTheFenceAndTheBackupsNeedThePlatformRole(t *testing.T) {
+	moved := []Action{
+		ActionRecoveryWrite,
+		ActionBackupsRead, ActionBackupsWrite, ActionBackupsRestore,
+	}
+	admin := &Identity{Kind: KindUser, ID: "usr_a", Name: "alex", Role: store.RoleAdmin}
+	platform := &Identity{Kind: KindUser, ID: "usr_p", Name: "pat", Role: store.RolePlatform}
+
+	for _, a := range moved {
+		if a.MinRole() != store.RolePlatform {
+			t.Errorf("%s needs %s; want platform", a, a.MinRole())
+		}
+		if admin.Can(a) {
+			t.Errorf("an administrator may still %s", a)
+		}
+		if !platform.Can(a) {
+			t.Errorf("a platform account may not %s", a)
+		}
+		// A refusal an operator cannot act on is a support ticket.
+		if msg := Explain(admin, a); !strings.Contains(msg, "platform") {
+			t.Errorf("refusing %s to an admin says %q, which does not name the role they are missing", a, msg)
+		}
+	}
+}
+
+// Everything else an administrator could do, they still can. This is the
+// guard against the change reaching further than the four actions above.
+func TestNothingElseMovedOutOfReachOfAnAdministrator(t *testing.T) {
+	moved := map[Action]bool{
+		ActionRecoveryWrite: true,
+		ActionBackupsRead:   true, ActionBackupsWrite: true, ActionBackupsRestore: true,
+	}
+	admin := &Identity{Kind: KindUser, ID: "usr_a", Name: "alex", Role: store.RoleAdmin}
+	for _, a := range AllActions() {
+		if moved[a] {
+			continue
+		}
+		if !admin.Can(a) {
+			t.Errorf("an administrator may no longer %s, and this change was not meant to touch it", a)
+		}
+	}
+}
+
+// With authentication off there is no second audience: whoever reaches the
+// socket has the process. An instance started that way -- `make dev`, the
+// browser suite, a loopback trial -- must not answer 403 on its own backups.
+func TestWithAuthenticationOffEverythingIsReachable(t *testing.T) {
+	dev := DevIdentity("127.0.0.1")
+	for _, a := range AllActions() {
+		if !dev.Can(a) {
+			t.Errorf("with authentication disabled, %s is refused", a)
+		}
 	}
 }

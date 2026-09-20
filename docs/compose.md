@@ -84,7 +84,7 @@ A container keeps its database in a volume nothing outside it can open, so the
 three things the native installer does on the console happen in the web UI
 instead, in this order:
 
-1. **The first administrator.** Open the external URL and paste the setup
+1. **The first account.** Open the external URL and paste the setup
    token from the container's log. The token is what proves the instance is
    yours: the origin is reachable the moment the container starts, and an
    empty database is a thing a stranger can find too. It changes on every

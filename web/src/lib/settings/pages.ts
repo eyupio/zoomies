@@ -25,6 +25,7 @@ import {
   Users,
 } from '@lucide/svelte';
 import type { LucideIcon } from '@lucide/svelte';
+import type { Role } from '../api/types';
 
 export interface SettingsPage {
   /** The last segment of the address: `users` in `/settings/users`. */
@@ -33,8 +34,15 @@ export interface SettingsPage {
   /** One line under the label where the page is a row in a list. */
   description: string;
   icon: LucideIcon;
-  /** Needs the administrator role. */
-  admin: boolean;
+  /**
+   * The weakest role that may open this page.
+   *
+   * A role rather than an "admin" flag because the pages no longer divide
+   * in two: backups belong to whoever runs the process, and showing an
+   * administrator a page whose every request answers 403 is worse than
+   * listing it locked with the reason.
+   */
+  needs: Role;
 }
 
 export interface SettingsGroup {
@@ -51,21 +59,21 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         label: 'Account',
         description: 'Who you are signed in as, and your password.',
         icon: CircleUser,
-        admin: false,
+        needs: 'viewer',
       },
       {
         id: 'appearance',
         label: 'Appearance',
         description: 'Theme, navigation and how tables read on a phone. Kept in this browser.',
         icon: Palette,
-        admin: false,
+        needs: 'viewer',
       },
       {
         id: 'events',
         label: 'Events',
         description: 'Which of the fleet’s events the Overview’s feed shows. Kept in this browser.',
         icon: Activity,
-        admin: false,
+        needs: 'viewer',
       },
     ],
   },
@@ -77,14 +85,14 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         label: 'Users',
         description: 'Who can sign in, and as what.',
         icon: Users,
-        admin: true,
+        needs: 'admin',
       },
       {
         id: 'tokens',
         label: 'API tokens',
         description: 'Bearer credentials for the CLI and for automation.',
         icon: KeyRound,
-        admin: true,
+        needs: 'admin',
       },
     ],
   },
@@ -96,21 +104,22 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         label: 'Configuration',
         description: 'Every setting, its value, and where the value came from.',
         icon: SlidersHorizontal,
-        admin: true,
+        needs: 'admin',
       },
       {
         id: 'backups',
         label: 'Backups',
         description: 'Copies of the database, taken by hand or on a schedule.',
         icon: DatabaseBackup,
-        admin: true,
+        // A backup is the whole database under the key this host holds.
+        needs: 'platform',
       },
       {
         id: 'about',
         label: 'About',
         description: 'This controller, and where to read more.',
         icon: Info,
-        admin: false,
+        needs: 'viewer',
       },
     ],
   },

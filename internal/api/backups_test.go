@@ -24,9 +24,12 @@ import (
 // moved until the restart.
 
 // admin is a signed-in administrator's cookie.
-func (h *harness) admin() string {
+// platform is a session for the role the backup routes now need. A backup is
+// the whole database under the key this host holds, so it belongs to whoever
+// runs the process rather than to the fleet's administrator.
+func (h *harness) platform() string {
 	h.t.Helper()
-	u, _ := h.user("admin", store.RoleAdmin)
+	u, _ := h.user("platform", store.RolePlatform)
 	return h.session(u)
 }
 
@@ -43,10 +46,10 @@ func (h *harness) takeBackup(t *testing.T, cookie string) backupView {
 func TestABackupTakenFromThePageIsListedWithWhatARestoreNeedsToKnow(t *testing.T) {
 	h := newHarness(t)
 	h.installation()
-	cookie := h.admin()
+	cookie := h.platform()
 
 	taken := h.takeBackup(t, cookie)
-	if taken.Source != backup.SourceManual || taken.TakenBy != "admin" || taken.Bytes == 0 {
+	if taken.Source != backup.SourceManual || taken.TakenBy != "platform" || taken.Bytes == 0 {
 		t.Errorf("taken = %+v", taken)
 	}
 	if taken.KeyMatches == nil || !*taken.KeyMatches || taken.Secrets != 1 || !taken.Restorable {
@@ -90,7 +93,7 @@ func TestABackupTakenFromThePageIsListedWithWhatARestoreNeedsToKnow(t *testing.T
 func TestADownloadRoundTripsThroughAnUploadPlainAndEncrypted(t *testing.T) {
 	h := newHarness(t)
 	h.installation()
-	cookie := h.admin()
+	cookie := h.platform()
 	taken := h.takeBackup(t, cookie)
 
 	plain := h.do(request{method: http.MethodGet, path: "/api/v1/backups/" + taken.ID + "/download", cookie: cookie})
@@ -123,7 +126,7 @@ func TestADownloadRoundTripsThroughAnUploadPlainAndEncrypted(t *testing.T) {
 	up.mustStatus(t, http.StatusCreated, "plain upload")
 	var uploaded backupView
 	up.into(t, &uploaded)
-	if uploaded.ID != taken.ID || uploaded.Source != backup.SourceUploaded || uploaded.TakenBy != "admin" {
+	if uploaded.ID != taken.ID || uploaded.Source != backup.SourceUploaded || uploaded.TakenBy != "platform" {
 		t.Errorf("uploaded = %+v", uploaded)
 	}
 
@@ -158,7 +161,7 @@ func TestADownloadRoundTripsThroughAnUploadPlainAndEncrypted(t *testing.T) {
 // Garbage in is refused as garbage, and nothing lands in the directory.
 func TestAnUploadThatIsNotABackupIsRefused(t *testing.T) {
 	h := newHarness(t)
-	cookie := h.admin()
+	cookie := h.platform()
 	resp := h.upload(t, cookie, "notes.txt", []byte("not an archive"), "")
 	resp.mustStatus(t, http.StatusUnprocessableEntity, "upload of a text file")
 	if !strings.Contains(string(resp.body), "gzipped") {
@@ -200,7 +203,7 @@ func (h *harness) upload(t *testing.T, cookie, filename string, archive []byte, 
 // not OK with a sentence, not as a 500.
 func TestVerifyNoticesAnAlteredBackup(t *testing.T) {
 	h := newHarness(t)
-	cookie := h.admin()
+	cookie := h.platform()
 	taken := h.takeBackup(t, cookie)
 
 	ok := h.do(request{method: http.MethodPost, path: "/api/v1/backups/" + taken.ID + "/verify", cookie: cookie})
@@ -233,7 +236,7 @@ func TestVerifyNoticesAnAlteredBackup(t *testing.T) {
 func TestARestoreIsStagedWithEveryCheckMadeNowAndNothingMoved(t *testing.T) {
 	h := newHarness(t)
 	h.installation()
-	cookie := h.admin()
+	cookie := h.platform()
 	taken := h.takeBackup(t, cookie)
 
 	// A backup that says it was sealed with another key.
@@ -269,7 +272,7 @@ func TestARestoreIsStagedWithEveryCheckMadeNowAndNothingMoved(t *testing.T) {
 	assertShape(t, loadSpec(t), "StagedRestore", staged.body)
 	var s backup.Staged
 	staged.into(t, &s)
-	if s.BackupID != taken.ID || s.RequestedBy != "admin" || !s.RevokeAPITokens || s.ResetAgentTokens {
+	if s.BackupID != taken.ID || s.RequestedBy != "platform" || !s.RevokeAPITokens || s.ResetAgentTokens {
 		t.Errorf("staged = %+v", s)
 	}
 	// The live database is untouched: the fleet is still running on it.
@@ -306,7 +309,7 @@ func TestARestoreIsStagedWithEveryCheckMadeNowAndNothingMoved(t *testing.T) {
 // and the command that runs the controller sees the request.
 func TestApplyingAStagedRestoreAsksForARestart(t *testing.T) {
 	h := newHarness(t)
-	cookie := h.admin()
+	cookie := h.platform()
 	taken := h.takeBackup(t, cookie)
 	h.do(request{method: http.MethodPost, path: "/api/v1/backups/" + taken.ID + "/restore", cookie: cookie}).
 		mustStatus(t, http.StatusAccepted, "stage")
@@ -350,7 +353,7 @@ func TestApplyingAStagedRestoreAsksForARestart(t *testing.T) {
 // that nothing about them can be checked before restoring.
 func TestPreMigrationCopiesAreListedBesideTheBackups(t *testing.T) {
 	h := newHarness(t)
-	cookie := h.admin()
+	cookie := h.platform()
 	dir := filepath.Join(backup.PreMigrationDir(h.ctrl.DatabasePath()), backup.DirPrefix+"20260101-000000")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -378,7 +381,7 @@ func TestPreMigrationCopiesAreListedBesideTheBackups(t *testing.T) {
 // it touches the filesystem, and one that names nothing is a 404.
 func TestBackupIDsThatAreNotBackupIDsAreRefused(t *testing.T) {
 	h := newHarness(t)
-	cookie := h.admin()
+	cookie := h.platform()
 	for _, bad := range []string{"..", "zoomies.db", "zoomies-1"} {
 		resp := h.do(request{method: http.MethodGet, path: "/api/v1/backups/" + bad, cookie: cookie})
 		if resp.status != http.StatusBadRequest && resp.status != http.StatusNotFound {
