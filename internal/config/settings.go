@@ -560,6 +560,11 @@ var registry = buildRegistry([]Setting{
 		RestartReason: "the provider is configured at startup",
 	},
 	{
+		Key: "oidc.platform_groups", Label: "Platform groups", Env: "ZOOMIES_OIDC_PLATFORM_GROUPS", Kind: KindStrings, Scope: ScopeInstance,
+		Summary:       "Provider groups whose members get the platform role, above administrator.",
+		RestartReason: "the provider is configured at startup",
+	},
+	{
 		Key: "oidc.admin_groups", Label: "Administrator groups", Env: "ZOOMIES_OIDC_ADMIN_GROUPS", Kind: KindStrings, Scope: ScopeInstance,
 		Summary:       "Provider groups whose members get the administrator role.",
 		RestartReason: "the provider is configured at startup",

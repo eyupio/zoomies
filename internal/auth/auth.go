@@ -112,6 +112,11 @@ var (
 	// ErrLastAdmin means the change would leave nobody able to administer the
 	// instance.
 	ErrLastAdmin = errors.New("this is the last enabled administrator; give another account the admin role before changing this one")
+	// ErrLastPlatform means the change would leave nobody able to operate
+	// the process: no one to change a timer, lift the recovery fence or
+	// restore a backup. An administrator cannot stand in, which is the
+	// point of the role, so this is its own refusal.
+	ErrLastPlatform = errors.New("this is the last enabled platform account; give another account the platform role before changing this one")
 	// ErrPasswordTooShort is returned by every path that sets a password.
 	ErrPasswordTooShort error = &refusal{kind: ErrInvalidInput, msg: fmt.Sprintf("password must be at least %d characters", MinPasswordLength)}
 	// ErrWrongPassword means ChangePassword's caller gave the wrong current
@@ -976,8 +981,13 @@ func (s *Service) ResetPassword(ctx context.Context, userID, newPassword string)
 // ensureAdminRemains refuses a change that would take away the last enabled
 // admin. It is the invariant behind "you cannot lock yourself out".
 func (s *Service) ensureAdminRemains(ctx context.Context, existing *store.User, newRole store.Role, newDisabled bool) error {
-	stillAdmin := newRole == store.RoleAdmin && !newDisabled
-	wasAdmin := existing.Role == store.RoleAdmin && !existing.Disabled
+	if err := s.ensurePlatformRemains(ctx, existing, newRole, newDisabled); err != nil {
+		return err
+	}
+	// "At least admin" rather than exactly admin: a platform account
+	// outranks one, so an instance holding only that is still administered.
+	stillAdmin := newRole.AtLeast(store.RoleAdmin) && !newDisabled
+	wasAdmin := existing.Role.AtLeast(store.RoleAdmin) && !existing.Disabled
 	if !wasAdmin || stillAdmin {
 		return nil
 	}
@@ -987,6 +997,27 @@ func (s *Service) ensureAdminRemains(ctx context.Context, existing *store.User, 
 	}
 	if n <= 1 {
 		return ErrLastAdmin
+	}
+	return nil
+}
+
+// ensurePlatformRemains refuses a change that would take away the last
+// enabled platform account. Demoting one to administrator is a demotion in
+// the only direction that matters here: the settings the process reads about
+// itself, the fence and the backups all need a platform, and an instance
+// with none is one only a shell can rescue.
+func (s *Service) ensurePlatformRemains(ctx context.Context, existing *store.User, newRole store.Role, newDisabled bool) error {
+	stillPlatform := newRole == store.RolePlatform && !newDisabled
+	wasPlatform := existing.Role == store.RolePlatform && !existing.Disabled
+	if !wasPlatform || stillPlatform {
+		return nil
+	}
+	n, err := s.store.CountPlatform(ctx)
+	if err != nil {
+		return fmt.Errorf("counting platform accounts: %w", err)
+	}
+	if n <= 1 {
+		return ErrLastPlatform
 	}
 	return nil
 }

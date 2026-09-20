@@ -265,6 +265,7 @@ oidc:
   scopes: [openid, profile, email]  # ZOOMIES_OIDC_SCOPES
   username_claim: preferred_username # ZOOMIES_OIDC_USERNAME_CLAIM
   groups_claim: groups          # ZOOMIES_OIDC_GROUPS_CLAIM
+  platform_groups: []           # ZOOMIES_OIDC_PLATFORM_GROUPS
   admin_groups: []              # ZOOMIES_OIDC_ADMIN_GROUPS
   operator_groups: []           # ZOOMIES_OIDC_OPERATOR_GROUPS
   allow_signup: false           # ZOOMIES_OIDC_ALLOW_SIGNUP
@@ -496,6 +497,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 | `oidc.groups_claim` | `ZOOMIES_OIDC_GROUPS_CLAIM` | next restart | Groups claim — The token claim listing the groups a user is in. |
 | `oidc.issuer` | `ZOOMIES_OIDC_ISSUER` | next restart | Issuer URL — The identity provider's issuer URL, from which its endpoints are discovered. |
 | `oidc.link_by_username` | `ZOOMIES_OIDC_LINK_BY_USERNAME` | next restart | Link sign-on to local accounts — Let a first single sign-on take over an existing local account with the same username. Turn it on for the one migration where that is the intention, then turn it off again. |
+| `oidc.platform_groups` | `ZOOMIES_OIDC_PLATFORM_GROUPS` | next restart | Platform groups — Provider groups whose members get the platform role, above administrator. |
 | `oidc.operator_groups` | `ZOOMIES_OIDC_OPERATOR_GROUPS` | next restart | Operator groups — Provider groups whose members get the operator role. A user in no mapped group is a viewer. |
 | `oidc.redirect_url` | `ZOOMIES_OIDC_REDIRECT_URL` | next restart | Redirect URL — Where the provider sends the browser back to. Empty derives it from the external URL. |
 | `oidc.scopes` | `ZOOMIES_OIDC_SCOPES` | next restart | Scopes — The scopes asked for at sign-in. |

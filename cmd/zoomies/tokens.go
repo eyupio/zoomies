@@ -78,11 +78,11 @@ func tokensList(ctx context.Context, e *env, args []string) error {
 }
 
 func tokensCreate(ctx context.Context, e *env, args []string) error {
-	fs := newFlagSet(e, "zoomies tokens create --name <name> --role <viewer|operator|admin>",
+	fs := newFlagSet(e, "zoomies tokens create --name <name> --role <viewer|operator|admin|platform>",
 		"Mint an API token. It is printed once and only its hash is kept.")
 	cf := registerClientFlags(fs, true)
 	name := fs.String("name", "", "what this token is for, e.g. my-laptop or prometheus (required)")
-	role := fs.String("role", "viewer", "viewer, operator or admin")
+	role := fs.String("role", "viewer", "viewer, operator, admin or platform")
 	scopes := &listValue{}
 	fs.Var(scopes, "scope", "narrow the token within its role, e.g. runners:read (repeatable)")
 	expiresIn := fs.Duration("expires-in", 0, "how long the token lasts; zero means never, which is worth avoiding")

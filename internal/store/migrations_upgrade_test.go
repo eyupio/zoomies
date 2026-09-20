@@ -434,3 +434,117 @@ func TestOnlyTheLastTwoCopiesAreKept(t *testing.T) {
 		t.Errorf("retention removed a directory this package did not name: %v", err)
 	}
 }
+
+// The platform role is the first change to reach the users table since the
+// first schema, and the first rebuild of a table another one points at. Two
+// things could go wrong quietly: a column dropped on the way through, and
+// every session deleted by the cascade a DROP fires. Both would surface
+// after the upgrade, on a fleet that was working.
+func TestThePlatformRoleRebuildKeepsEveryRowItsIndexesAndTheSessions(t *testing.T) {
+	ctx := context.Background()
+	migs, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := atSchema(t, len(migs)-1)
+
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := func(query string, args ...any) {
+		t.Helper()
+		if _, err := db.ExecContext(ctx, query, args...); err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+	}
+	// Two administrators, the second enabled and older than the first is
+	// not: the promotion has to pick by creation time, not by row order.
+	seed(`INSERT INTO users (id, username, email, display_name, role, password_hash,
+		oidc_subject, disabled, must_change_password, created_at)
+		VALUES ('usr_late','late','late@example.com','Late','admin','hash','sub-late',0,0,2000)`)
+	seed(`INSERT INTO users (id, username, email, display_name, role, password_hash,
+		oidc_subject, disabled, must_change_password, created_at)
+		VALUES ('usr_first','first','first@example.com','First','admin','hash','sub-first',0,0,1000)`)
+	// An older administrator who has since been disabled is not the one
+	// still operating the instance.
+	seed(`INSERT INTO users (id, username, role, password_hash, disabled, created_at)
+		VALUES ('usr_gone','gone','admin','hash',1,500)`)
+	seed(`INSERT INTO users (id, username, role, password_hash, disabled, created_at)
+		VALUES ('usr_view','viewer','viewer','hash',0,3000)`)
+	seed(`INSERT INTO sessions (id, user_id, token_hash, user_agent, ip, created_at, expires_at)
+		VALUES ('ses_one','usr_first','hash-one','curl','127.0.0.1',1000,9999999)`)
+	seed(`INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at)
+		VALUES ('ses_two','usr_view','hash-two',1000,9999999)`)
+	seed(`INSERT INTO api_tokens (id, name, role, user_id, scopes, token_hash, prefix, revoked, created_at)
+		VALUES ('tok_one','scraper','admin','usr_first','["a"]','hash-tok','zoo_abc',0,1000)`)
+	db.Close()
+
+	s, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatalf("upgrading: %v", err)
+	}
+	defer s.Close()
+
+	// Every row is still there, with its columns.
+	u, err := s.GetUser(ctx, "usr_first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Role != RolePlatform {
+		t.Errorf("the oldest enabled administrator is %q, want platform; an upgrade that promotes nobody leaves an instance whose timers nobody can change", u.Role)
+	}
+	if u.Email != "first@example.com" || u.DisplayName != "First" || u.OIDCSubject != "sub-first" {
+		t.Errorf("columns were lost in the rebuild: %+v", u)
+	}
+	for id, want := range map[string]Role{"usr_late": RoleAdmin, "usr_gone": RoleAdmin, "usr_view": RoleViewer} {
+		got, err := s.GetUser(ctx, id)
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		if got.Role != want {
+			t.Errorf("%s is %q, want %q: exactly one account is promoted", id, got.Role, want)
+		}
+	}
+
+	// The sessions survived the cascade a DROP would otherwise have fired.
+	var sessions int
+	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions`).Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if sessions != 2 {
+		t.Errorf("%d sessions after the upgrade, want 2: dropping a table a foreign key points at deletes them", sessions)
+	}
+
+	// And the token, with the role it had.
+	var tokenRole string
+	if err := s.read.QueryRowContext(ctx, `SELECT role FROM api_tokens WHERE id = 'tok_one'`).Scan(&tokenRole); err != nil {
+		t.Fatalf("the api token did not survive: %v", err)
+	}
+	if tokenRole != "admin" {
+		t.Errorf("the token is %q, want admin: promoting an account does not promote what it minted", tokenRole)
+	}
+
+	// The indexes came back with the tables.
+	if _, err := s.exec(ctx, `INSERT INTO users (id, username, role, password_hash, created_at)
+		VALUES ('usr_dup','first','viewer','hash',4000)`); err == nil {
+		t.Error("a duplicate username was accepted, so the unique index did not come back")
+	}
+	for _, name := range []string{"idx_users_username", "idx_users_oidc", "idx_api_tokens_hash"} {
+		var found string
+		err := s.read.QueryRowContext(ctx,
+			`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`, name).Scan(&found)
+		if err != nil {
+			t.Errorf("index %s is missing after the rebuild: %v", name, err)
+		}
+	}
+	if err := s.IntegrityCheck(ctx); err != nil {
+		t.Errorf("integrity check after the rebuild: %v", err)
+	}
+
+	// And the new role is now a value the column accepts.
+	if _, err := s.exec(ctx, `INSERT INTO users (id, username, role, password_hash, created_at)
+		VALUES ('usr_plat','second-platform','platform','hash',5000)`); err != nil {
+		t.Errorf("the rebuilt CHECK still refuses the platform role: %v", err)
+	}
+}

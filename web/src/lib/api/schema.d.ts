@@ -2443,8 +2443,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @enum {string} */
-        Role: "viewer" | "operator" | "admin";
+        /**
+         * @description What an identity may do. `platform` is above `admin` and belongs to whoever runs the process rather than the fleet; on an instance where one team does both, the account that installed it holds it.
+         * @enum {string}
+         */
+        Role: "viewer" | "operator" | "admin" | "platform";
         /** @enum {string} */
         TargetType: "org" | "repo";
         /** @enum {string} */

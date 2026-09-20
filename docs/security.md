@@ -212,6 +212,7 @@ why each one is there.
 | **viewer** | Read pools, runners, jobs, hosts, the audit log and metrics. Never sees a secret value — including a pool's `env`, where a registry or proxy credential ends up: a viewer is sent the variable names with empty values, on the API and on the event stream alike. |
 | **operator** | Everything a viewer may, plus act on the fleet: create and edit pools, drain/delete/restart runners, cordon hosts. |
 | **admin** | Everything an operator may, plus manage users, API tokens, installations, join tokens and settings, take a support bundle, and take, download and restore backups. A backup is the whole database, so `backups:read` on a token is the fleet. |
+| **platform** | Everything an administrator may. It exists for the instance where one team runs the controller and another uses the fleet — a platform team operating Zoomies for a product team — so that the settings about the process itself, the recovery fence and the backups have somewhere to sit above the fleet's own administrator. On an instance where one team does both, the account that installed it holds this role and nothing looks any different. |
 
 The mapping from every individual API action to its minimum role is a table in
 `internal/auth/rbac.go`, and a test walks the full action list — so a new

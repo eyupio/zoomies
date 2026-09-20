@@ -141,14 +141,14 @@ func usersList(ctx context.Context, e *env, args []string) error {
 }
 
 func usersCreate(ctx context.Context, e *env, args []string) error {
-	fs := newFlagSet(e, "zoomies users create --username <name> --role <viewer|operator|admin>",
+	fs := newFlagSet(e, "zoomies users create --username <name> --role <viewer|operator|admin|platform>",
 		"Create an account. Omit --password for one that will sign in through single sign-on.")
 	cf := registerClientFlags(fs, true)
 	username := fs.String("username", "", "the account's login name (required)")
 	password := fs.String("password", "", "an initial password of at least 12 characters; omit for an SSO-only account")
 	email := fs.String("email", "", "the account's email address")
 	displayName := fs.String("display-name", "", "how the account's name is shown")
-	role := fs.String("role", "viewer", "viewer, operator or admin")
+	role := fs.String("role", "viewer", "viewer, operator, admin or platform")
 	fs.example(
 		"zoomies users create --username alex --role operator --email alex@example.com",
 		"zoomies users create --username ci-readonly --role viewer",
@@ -225,7 +225,7 @@ func usersDelete(ctx context.Context, e *env, args []string) error {
 
 func validRole(role string) bool {
 	switch strings.ToLower(strings.TrimSpace(role)) {
-	case "viewer", "operator", "admin":
+	case "viewer", "operator", "admin", "platform":
 		return true
 	}
 	return false

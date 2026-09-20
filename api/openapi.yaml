@@ -3690,7 +3690,11 @@ components:
     # --- primitives -------------------------------------------------------
     Role:
       type: string
-      enum: [viewer, operator, admin]
+      enum: [viewer, operator, admin, platform]
+      description: >-
+        What an identity may do. `platform` is above `admin` and belongs to
+        whoever runs the process rather than the fleet; on an instance where
+        one team does both, the account that installed it holds it.
     TargetType:
       type: string
       enum: [org, repo]

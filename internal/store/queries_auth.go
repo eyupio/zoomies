@@ -109,8 +109,20 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 // delete or demote the last one.
 func (s *Store) CountAdmins(ctx context.Context) (int, error) {
 	var n int
+	// Platform counts: it is above administrator, so an instance whose only
+	// remaining account holds it is not an instance nobody can administer.
 	err := s.read.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM users WHERE role='admin' AND disabled=0`).Scan(&n)
+		`SELECT COUNT(*) FROM users WHERE role IN ('admin','platform') AND disabled=0`).Scan(&n)
+	return n, err
+}
+
+// CountPlatform counts the enabled accounts that may operate the process
+// itself. An administrator cannot stand in for one, which is why it is
+// counted separately from CountAdmins.
+func (s *Store) CountPlatform(ctx context.Context) (int, error) {
+	var n int
+	err := s.read.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM users WHERE role='platform' AND disabled=0`).Scan(&n)
 	return n, err
 }
 
