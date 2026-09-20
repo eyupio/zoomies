@@ -224,6 +224,15 @@ let loadError: Error | null = null;
 let navigationToken = 0;
 /** Bumped on every completed navigation, so pages can key off a fresh mount. */
 let navigationCount = 0;
+/**
+ * The full path (with its query and hash) navigated away from, each time
+ * `navigate` pushes a new entry. `back` uses this to know whether the actual
+ * browser back button lands somewhere in this app -- a runner opened from a
+ * filtered grid should return to that grid, filters and all, not a bare
+ * `/runners` -- or whether the page was opened directly, in which case there
+ * is nothing behind it to go back to.
+ */
+let previousPath: string | null = null;
 
 /**
  * Route components already fetched, so a revisit is synchronous.
@@ -347,7 +356,10 @@ export function navigate(to: string, options: NavigateOptions = {}): void {
     return;
   }
   if (options.replace) history.replaceState({}, '', target);
-  else history.pushState({}, '', target);
+  else {
+    previousPath = current;
+    history.pushState({}, '', target);
+  }
   if (!options.keepScroll) window.scrollTo(0, 0);
   void apply();
 }
@@ -369,7 +381,13 @@ export function href(
 export const router = {
   /** Start listening. Returns the teardown, for symmetry; the shell never calls it. */
   start(): () => void {
-    addEventListener('popstate', () => void apply());
+    addEventListener('popstate', () => {
+      // What was behind the entry just left is no longer known -- only the
+      // browser's own history stack has that -- so `back` falls through to
+      // its fallback rather than guessing.
+      previousPath = null;
+      void apply();
+    });
     document.addEventListener('click', onClick);
     void apply();
     return () => {
@@ -485,4 +503,17 @@ export const router = {
 
   navigate,
   href,
+
+  /**
+   * Return to wherever this page was opened from, if that is somewhere in
+   * this app, or `fallback` if it was not (a direct load, a bookmark, a link
+   * from outside). Used by a detail page's delete action, where "go back" and
+   * "go to the list this thing lived in" usually mean the same page but not
+   * always -- a runner opened from a pool's own runner list should return
+   * there, filters intact, not a bare list route.
+   */
+  back(fallback: string): void {
+    if (previousPath) history.back();
+    else navigate(fallback);
+  },
 };
