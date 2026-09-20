@@ -20,6 +20,17 @@ It is a pool setting, on by default in its measuring form for every new pool,
 and the runner page and the Overview feed say when it is happening in the
 product's own words: **Squirrel spotted — maximum zoomies**.
 
+The runners table uses one **Status** column. A runner normally shows its
+lifecycle state, such as **Registering** or **Busy**. While a boost or throttle
+is active, **Squirrel spotted**, **Rabbit spotted**, or **Leash tightened** takes
+its place. Hover, focus, or tap the status for its lifecycle state, the reason
+and its current, guaranteed and ceiling CPU allocations. Startup, draining,
+failed and removed states stay visible even if an older CPU sample remains.
+
+The original paw-and-swish status icons move in short, staggered bursts with
+quiet pauses between them. Reduced-motion preferences disable the animation.
+Status labels wrap when a saved column width is narrow; they are not clipped.
+
 ## What it promises
 
 The design starts from what it must never do, because a scheduler that lends
@@ -246,10 +257,11 @@ capacity setting changes for an elastic pool.
 
 ## What you see
 
-**On the runner's page**, the CPU state sits beside the allocation: the
-guaranteed, current and ceiling figures together, under one of six labels. The
-labels are playful because the fleet is, but each is backed by a stable state
-that the API carries and a client can branch on:
+**On the runner's page and in runner lists**, one status combines the lifecycle
+with an active boost or throttle. Its tooltip keeps the lifecycle and CPU
+figures together. When no adjustment is active, the lifecycle label remains
+and the tooltip explains observation, guaranteed pace or a held allocation.
+The API and Overview feed retain these full labels and stable state values:
 
 | Label | `state` | What is true |
 | --- | --- | --- |

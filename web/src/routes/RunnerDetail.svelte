@@ -19,10 +19,8 @@
   import type { RunnerDetail, TimelineEntry } from '$lib/api/types';
   import { faultLabel } from '$lib/faults';
   import { router } from '$lib/router';
-  import { runnerStatus } from '$lib/status';
   import { fleet } from '$lib/state/fleet.svelte';
   import { session } from '$lib/state/session.svelte';
-  import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
@@ -36,7 +34,7 @@
   import Panel from '$lib/components/Panel.svelte';
   import RunnerResources from '$lib/runners/RunnerResources.svelte';
   import RunnerTimeline from '$lib/runners/RunnerTimeline.svelte';
-  import CPUResourceStatus from '$lib/runners/CPUResourceStatus.svelte';
+  import RunnerStatus from '$lib/runners/RunnerStatus.svelte';
 
   const id = $derived(router.params.id ?? '');
   const canOperate = $derived(session.can('operator'));
@@ -137,7 +135,6 @@
   // caused it has come back. (A local called `state` would collide with the
   // `$state` rune, hence the name.)
   const liveState = $derived(fleet.runner(id)?.state ?? runner?.state);
-  const status = $derived(runnerStatus(liveState));
   const terminal = $derived(liveState === 'removed' || liveState === 'failed');
   const running = $derived(!runner?.finished_at);
   const failureMessage = $derived(liveState === 'failed' ? (runner?.message ?? '') : '');
@@ -194,7 +191,7 @@
 >
   {#snippet meta()}
     {#if runner}
-      <Badge {status} />
+      <RunnerStatus runner={fleet.runner(id) ?? runner} />
       {#if runner.pool_name}
         <span class="crumb">
           in <a href="/pools/{runner.pool_id}">{runner.pool_name}</a>
@@ -321,7 +318,11 @@
 
       <Panel title="Resource usage" description="As the host's agent last reported it.">
         {#if runner.cpu_resource}
-          <CPUResourceStatus resource={runner.cpu_resource} />
+          <p class="text-sm text-muted-foreground">
+            CPU allocation: {runner.cpu_resource.current_cpus ?? 'Not reported'} current ·
+            {runner.cpu_resource.guaranteed_cpus ?? 'Not reported'} guaranteed ·
+            {runner.cpu_resource.ceiling_cpus ?? 'Not reported'} ceiling
+          </p>
         {/if}
         {#if runner.resource_sample?.sampled_at}
           <p class="text-sm text-muted-foreground">

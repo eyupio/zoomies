@@ -6,11 +6,10 @@
 <script lang="ts">
   import { Cpu } from '@lucide/svelte';
   import type { Runner } from '$lib/api/types';
-  import { runnerStatus } from '$lib/status';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
-  import StatusDot from '$lib/components/StatusDot.svelte';
+  import RunnerStatus from '$lib/runners/RunnerStatus.svelte';
 
   interface Props {
     runners: readonly Runner[];
@@ -45,13 +44,11 @@
   {:else}
     <ul class="list">
       {#each shown as runner (runner.id)}
-        {@const status = runnerStatus(runner.state)}
         <li class="row">
           <a class="name" href="/runners/{runner.id}">
-            <StatusDot {status} size="sm" />
             <span class="mono">{runner.name ?? runner.id}</span>
           </a>
-          <span class="state">{status.label}</span>
+          <span class="state"><RunnerStatus {runner} /></span>
           <span class="job">
             {#if runner.current_job}
               {runner.current_job.repo ?? ''}
@@ -83,7 +80,7 @@
   }
   .row {
     display: grid;
-    grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 1.4fr) auto;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 14rem) minmax(0, 1.4fr) auto;
     align-items: center;
     gap: var(--z-space-3);
     padding: var(--z-space-2) 0;
@@ -139,7 +136,7 @@
   }
   @media (max-width: 768px) {
     .row {
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 12rem);
     }
     .job {
       display: none;

@@ -9,6 +9,9 @@
   interface Props {
     /** The whole tooltip as one sentence: what assistive technology gets. */
     text: string;
+    /** Optional control for touch triggers that must reopen while still focused. */
+    open?: boolean;
+    descriptionId?: string;
     /**
      * Richer markup for the bubble itself -- a heading, a figure, a line of
      * context -- for sighted readers. `text` stays the accessible copy, so a
@@ -20,9 +23,16 @@
     children: Snippet;
   }
 
-  let { text, content, placement = 'top', class: className = '', children }: Props = $props();
+  let {
+    text,
+    content,
+    placement = 'top',
+    class: className = '',
+    children,
+    open = $bindable(false),
+    descriptionId,
+  }: Props = $props();
 
-  let open = $state(false);
   let wrap = $state<HTMLSpanElement | null>(null);
   let bubble = $state<HTMLSpanElement | null>(null);
   let hovered = false;
@@ -90,6 +100,10 @@
       tip.style.top = `${Math.max(gap, Math.min(y, height - bounds.height - gap))}px`;
     }
 
+    function dismissOutside(event: PointerEvent): void {
+      if (event.target instanceof Node && !anchor.contains(event.target)) hide();
+    }
+    document.addEventListener('pointerdown', dismissOutside, true);
     position();
     // Capture sees scrolls from the table's own viewport, not just the window.
     document.addEventListener('scroll', position, true);
@@ -99,6 +113,7 @@
     observer.observe(tip);
     return () => {
       layers.remove(layer);
+      document.removeEventListener('pointerdown', dismissOutside, true);
       observer.disconnect();
       document.removeEventListener('scroll', position, true);
       window.removeEventListener('resize', position);
@@ -124,11 +139,12 @@
   class="tip-wrap {className}"
   bind:this={wrap}
   role="presentation"
-  onmouseenter={() => {
+  onpointerenter={(event) => {
+    if (event.pointerType === 'touch') return;
     hovered = true;
     show();
   }}
-  onmouseleave={() => {
+  onpointerleave={() => {
     hovered = false;
     if (!focused) hide();
   }}
@@ -143,7 +159,7 @@
   onkeydown={onKeydown}
 >
   {@render children()}
-  <span class="sr-only">{text}</span>
+  <span class="sr-only" id={descriptionId}>{text}</span>
   {#if open}
     <span bind:this={bubble} class="bubble" popover="manual" role="presentation" aria-hidden="true"
       >{#if content}{@render content()}{:else}{text}{/if}</span

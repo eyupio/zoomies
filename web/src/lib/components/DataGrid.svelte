@@ -54,6 +54,8 @@
      * popover -- which has to be let out or it is cut off at the row's edge.
      */
     overflows?: boolean;
+    /** Keep operational status labels complete when the operator narrows a column. */
+    wrap?: boolean;
     /**
      * `wide` columns are the ones a narrow desktop does without.
      *
@@ -1092,7 +1094,8 @@
                     <div
                       class="cell-body"
                       class:loose={column.overflows}
-                      title={column.value?.(row.original) || undefined}
+                      class:wrap={column.wrap}
+                      title={column.wrap ? undefined : column.value?.(row.original) || undefined}
                     >
                       {@render column.cell(row.original)}
                     </div>
@@ -1416,6 +1419,10 @@
     --z-cell-ring: calc(var(--z-focus-offset) + var(--z-focus-width));
     margin: calc(-1 * var(--z-cell-ring));
     padding: var(--z-cell-ring);
+  }
+  .cell-body.wrap {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .cell-body.loose {
     overflow: visible;
