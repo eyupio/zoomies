@@ -125,11 +125,13 @@ and every pool on the `docker` backend can place runners on it. That socket is
 Zoomies' own access to Docker, for creating runner containers; it is not
 reachable from a job unless a pool's `docker_mode` says so.
 
-`ZOOMIES_AGENT_CAPACITY` is empty on purpose. The agent works its own capacity
-out from the machine it measures, and a pool that leaves its runners' size to
-the host is given the machine divided by that number — so a constant here
-would pin every deployment of the file to the same slot count however large
-the host is. Set it to override.
+`ZOOMIES_AGENT_CAPACITY` is the host's slot count, and it is the one value in
+`.env.example` worth a second look: the example sets it to `4`, which is right
+for a four-core box and wrong for most others. Leave it **empty** and the
+agent works its capacity out from the machine it measures, which also sets the
+share a pool sized by its host gives each runner; a constant pins every
+deployment of the file to the same slot count however large the host is. The
+installer's `.env` leaves it empty for that reason.
 
 Every further host joins the same way it would on any other deployment:
 **Hosts → Add a host** hands you one line to paste on the new machine. [Adding

@@ -497,6 +497,12 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 	if err := fs.parse(args); err != nil {
 		return err
 	}
+	// A ceiling on its own would be sent with an empty mode, which the API
+	// reads as off -- and the API's own default of observe applies only when
+	// the policy is absent -- so a create that names one has to name the other.
+	if fs.changed("cpu-burst-max") && !fs.changed("cpu-burst") {
+		return usagef("pools create", "--cpu-burst-max needs --cpu-burst to say which mode the ceiling applies to: observe or automatic")
+	}
 	if err := fs.noMoreArgs(); err != nil {
 		return err
 	}

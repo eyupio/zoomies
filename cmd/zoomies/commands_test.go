@@ -371,3 +371,18 @@ func TestPoolsGetShowsSizingAndTheElasticCPUPolicy(t *testing.T) {
 		}
 	}
 }
+
+// A ceiling typed on a create without a mode would be sent as an explicit
+// empty mode, which the API reads as off, so the ceiling would bind nothing
+// and the pool would quietly miss the observe default it would otherwise get.
+func TestPoolsCreateRefusesACeilingWithoutAMode(t *testing.T) {
+	e, _, errOut := newTestEnv(t)
+	code := dispatch(context.Background(), e, []string{"pools", "create", "--name", "p", "--labels", "p",
+		"--cpu-burst-max", "4", "--url", "http://127.0.0.1:1"})
+	if code != exitUsage {
+		t.Fatalf("exit code = %d, want %d: a ceiling without a mode must be refused as a usage error", code, exitUsage)
+	}
+	if !strings.Contains(errOut.String(), "--cpu-burst") {
+		t.Errorf("the refusal must name the flag to add:\n%s", errOut.String())
+	}
+}

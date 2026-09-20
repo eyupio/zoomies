@@ -81,7 +81,9 @@ What runners to make, and how many.
 `--docker-mode` (`none`), `--run-as-root` (`false`), `--host-selector`, the
 resource limits `--cpus`, `--memory-mb`, `--disk-gb`, and the [elastic
 CPU](elastic-cpu.md) policy, `--cpu-burst` (`off`, `observe` or `automatic`)
-with `--cpu-burst-max` as its ceiling in cores.
+with `--cpu-burst-max` as its ceiling in cores; on a create the ceiling needs
+the mode beside it. Both are read live, so an edit reaches runners already
+running.
 
 On `edit`, only the flags you actually type are sent — the defaults above are
 not applied to a partial update, so editing a pool's image cannot silently reset

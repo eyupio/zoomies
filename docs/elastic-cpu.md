@@ -144,8 +144,8 @@ cores, and a ceiling leaves the rest for a runner that can use it — or when yo
 want the machine shared more evenly than fairness alone would.
 
 A ceiling cannot take a runner below its guarantee. A pool edited to a ceiling
-under a running runner's share keeps that runner where it is; the next runner
-the pool creates adopts the new policy.
+under a running runner's share keeps that runner at its guarantee, and the
+runner page shows the guarantee as the ceiling rather than the smaller figure.
 
 ## Turning it on
 
@@ -165,8 +165,13 @@ the pool creates adopts the new policy.
     consequences in view.
 
     An existing pool is changed on its page: **Edit** opens the same wizard on
-    the same step, and the change applies to the next runner the pool creates.
-    Runners already running keep the policy they were created under.
+    the same step. The change is **live**: the controller reads the pool's
+    policy on every heartbeat, so switching to *Automatic boost* can lend CPU
+    to a job that is already running, lowering the ceiling can take a boost
+    back, and switching to *Off* restores every runner of the pool to its
+    guarantee at the next heartbeat. Nothing is ever taken below the
+    guarantee, and memory is never touched, so a running job is slowed at
+    most back to the quota it started with.
 
 === "The command line"
 

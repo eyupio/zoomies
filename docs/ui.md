@@ -113,7 +113,9 @@ that no host could run is refused with the reason before it is saved.
 A pool's own page shows its runners and recent jobs, the exact `runs-on:` line
 a workflow writes to land here, and its configuration with the warnings — if
 any — that the settings earn it. **Edit** reopens the same wizard on the same
-pool, and a change applies to the next runner it creates.
+pool. A size typed there applies to the next runner it creates; the elastic
+CPU policy is read on every heartbeat, so that change reaches runners already
+running.
 
 ![A pool's page: its runners and their states, recent jobs, the runs-on line to copy, and its configuration](screenshots/pool-dark.webp#only-dark){ .zoomies-shot }
 ![A pool's page: its runners and their states, recent jobs, the runs-on line to copy, and its configuration](screenshots/pool-light.webp#only-light){ .zoomies-shot }
