@@ -151,10 +151,11 @@ the pool creates adopts the new policy.
 
 === "The pool wizard"
 
-    Elasticity is on the **Size** step of the pool wizard, under **One share of
-    each host** — it is a property of a pool sized by its host, and the fixed
-    size radio hides it, because a fixed size *is* the guarantee and has no
-    share to grow into.
+    Elasticity is on the **Size** step of the pool wizard, which the advanced
+    path walks — every step of the simple path offers it, one click along —
+    under **One share of each host**. It is a property of a pool sized by its
+    host, and the fixed size radio hides it, because a fixed size *is* the
+    guarantee and has no share to grow into.
 
     **Elastic CPU** offers the three modes: *Off*, *Observe only* and
     *Automatic boost*. **Boost ceiling** is `max_cpus`; leave it empty for the

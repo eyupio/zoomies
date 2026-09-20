@@ -233,7 +233,10 @@ the automatic path would have used, so you only change what you mean to.
 Neither is a lesser pool, and the choice is not permanent — a pool can be edited
 either way afterwards, and switching never loses what you have already typed.
 Editing a pool that has anything the simple path cannot show opens on the
-advanced one, so a tuned pool never hides the settings it was tuned with.
+advanced one, so a tuned pool never hides the settings it was tuned with. Any
+other pool opens on the simple one, and every step of it offers the advanced
+path — so elastic CPU, a host selector or a fixed size is one click further
+along rather than out of reach.
 
 The CLI takes the same fields, and omitting them is how you ask for the
 automatic answer:
@@ -724,7 +727,12 @@ after every live runner's guarantee and one queued start have been charged,
 and never on a host under pressure — and give it back the moment the demand
 ends. Memory never moves. New pools measure it by default and move no quota
 until you say so; the runner page says **Squirrel spotted — maximum zoomies**
-when it is happening. It has a page of its own: [Elastic CPU
+when it is happening.
+
+In the UI the setting is on the wizard's size step, which the advanced path
+walks; editing an automatic pool opens on the simple path and offers the
+advanced one from every step, so the pool elastic CPU is for is never the pool
+that cannot reach it. It has a page of its own: [Elastic CPU
 zoomies](elastic-cpu.md).
 
 A default is given only where it would bind. The host's own probe says what
