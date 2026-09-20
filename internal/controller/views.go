@@ -317,11 +317,16 @@ type JobView struct {
 	// Hosted is true when every label names a runner somebody else operates:
 	// GitHub's own or a hosted-runner vendor's. Such a job is theirs to run,
 	// so it being unmatched here is expected rather than a job going nowhere.
-	Hosted     bool            `json:"hosted"`
-	HeadBranch string          `json:"head_branch,omitempty"`
-	HeadSHA    string          `json:"head_sha,omitempty"`
-	RunAttempt int             `json:"run_attempt,omitempty"`
-	Steps      []store.JobStep `json:"steps"`
+	Hosted     bool   `json:"hosted"`
+	HeadBranch string `json:"head_branch,omitempty"`
+	HeadSHA    string `json:"head_sha,omitempty"`
+	RunAttempt int    `json:"run_attempt,omitempty"`
+	// RunNumber is GitHub's own sequential number for this workflow run -- the
+	// "#1009" its Actions UI shows next to the workflow name -- so an operator
+	// can find the same run there. Zero until a workflow_run lookup backfills
+	// it, since the webhook that recorded the job never carries it.
+	RunNumber int64           `json:"run_number,omitempty"`
+	Steps     []store.JobStep `json:"steps"`
 	// FailedStep is the step a failed job stopped at, worked out here from the
 	// steps so that the grid and the drawer name the same one. Null when the
 	// job did not fail on a step it ran.
@@ -387,6 +392,7 @@ func NewJobView(j *store.Job, poolName string) JobView {
 		HeadBranch:     j.HeadBranch,
 		HeadSHA:        j.HeadSHA,
 		RunAttempt:     j.RunAttempt,
+		RunNumber:      j.RunNumber,
 		Steps:          emptySlice([]store.JobStep(j.Steps)),
 		FailedStep:     j.FailedStep(),
 		RunnerFault:    j.RunnerFault,

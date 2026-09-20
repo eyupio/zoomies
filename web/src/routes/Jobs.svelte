@@ -499,7 +499,7 @@
       value: (job) => job.queued_at ?? '',
       cell: queuedCell,
     },
-    { id: 'link', header: 'Run', priority: 'wide', width: '4rem', align: 'end', cell: linkCell },
+    { id: 'link', header: 'Run', priority: 'wide', width: '5.5rem', align: 'end', cell: linkCell },
   ]);
 </script>
 
@@ -586,6 +586,7 @@
 {#snippet linkCell(job: Job)}
   <GitHubLink
     href={job.html_url}
+    runNumber={job.run_number}
     label="Open {job.job_name || 'this job'} on GitHub, in a new tab"
     onclick={(event) => event.stopPropagation()}
   />

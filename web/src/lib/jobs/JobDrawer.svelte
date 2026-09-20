@@ -166,7 +166,10 @@
         <dd>{job.repo || '--'}</dd>
 
         <dt>Workflow</dt>
-        <dd>{job.workflow || '--'}</dd>
+        <dd>
+          {job.workflow || '--'}
+          {#if job.run_number}<span class="muted">#{job.run_number}</span>{/if}
+        </dd>
 
         <dt>Branch</dt>
         <dd>
@@ -285,7 +288,13 @@
           Cancel workflow
         </Button>
       {/if}
-      <GitHubLink href={job?.html_url} label="Open the run on GitHub" showLabel variant="button" />
+      <GitHubLink
+        href={job?.html_url}
+        runNumber={job?.run_number}
+        label="Open the run on GitHub"
+        showLabel
+        variant="button"
+      />
     </div>
   {/snippet}
 </Drawer>
@@ -295,7 +304,9 @@
   title="Cancel workflow run"
   name={job?.workflow || job?.job_name || 'workflow run'}
   description="GitHub can only cancel the whole workflow run. Every queued or running job in this run will be stopped, not only the job shown here."
-  consequences={[`Run ${job?.github_run_id ?? ''} in ${job?.repo ?? 'GitHub'} will be cancelled.`]}
+  consequences={[
+    `Run ${job?.run_number ? '#' + job.run_number : (job?.github_run_id ?? '')} in ${job?.repo ?? 'GitHub'} will be cancelled.`,
+  ]}
   confirmLabel={forceCancel ? 'Force cancel run' : 'Cancel run'}
   onconfirm={confirmCancel}
   oncancel={() => (forceCancel = false)}

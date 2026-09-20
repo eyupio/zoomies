@@ -218,6 +218,7 @@ func (c *Controller) ingestQueuedJobs(ctx context.Context, polled *store.Install
 		job := &store.Job{
 			GitHubJobID:    q.ID,
 			GitHubRunID:    q.RunID,
+			RunNumber:      q.RunNumber,
 			Repo:           q.Repo,
 			Workflow:       q.WorkflowName,
 			JobName:        q.JobName,

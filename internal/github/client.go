@@ -163,8 +163,12 @@ type Runner struct {
 // QueuedJob is a job the fallback poller found waiting. It carries only what
 // the scheduler needs to match it to a pool.
 type QueuedJob struct {
-	ID           int64
-	RunID        int64
+	ID    int64
+	RunID int64
+	// RunNumber is GitHub's own sequential number for the workflow run --
+	// free from the same run listing this job was found in, unlike the
+	// webhook path, which has to ask for it separately.
+	RunNumber    int64
 	Repo         string
 	WorkflowName string
 	JobName      string
@@ -184,6 +188,10 @@ type QueuedJob struct {
 type WorkflowRunState struct {
 	Status     string
 	Conclusion string
+	// RunNumber is the "#1009" GitHub's Actions UI shows next to the workflow
+	// name. workflow_job deliveries never carry it, which is what this lookup
+	// is for.
+	RunNumber int64
 }
 
 // Cancelled reports whether GitHub has finished the whole run as cancelled.

@@ -678,6 +678,7 @@ func (c *appClient) queuedJobsForRun(ctx context.Context, owner, repo string, ru
 		q := QueuedJob{
 			ID:           j.GetID(),
 			RunID:        run.GetID(),
+			RunNumber:    int64(run.GetRunNumber()),
 			Repo:         full,
 			WorkflowName: j.GetWorkflowName(),
 			JobName:      j.GetName(),
@@ -914,7 +915,11 @@ func (c *appClient) GetWorkflowRun(ctx context.Context, repo string, runID int64
 	if err != nil {
 		return nil, c.fail("read workflow run", resp, err)
 	}
-	return &WorkflowRunState{Status: run.GetStatus(), Conclusion: run.GetConclusion()}, nil
+	return &WorkflowRunState{
+		Status:     run.GetStatus(),
+		Conclusion: run.GetConclusion(),
+		RunNumber:  int64(run.GetRunNumber()),
+	}, nil
 }
 
 // RerunFailedWorkflowJobs asks GitHub to run the failed jobs of a run again.

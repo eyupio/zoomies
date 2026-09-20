@@ -5352,6 +5352,14 @@ components:
         head_branch: { type: string, description: The branch the run was for. }
         head_sha: { type: string }
         run_attempt: { type: integer, description: "1 for a first run; higher when the run was re-run." }
+        run_number:
+          type: integer
+          format: int64
+          description: >-
+            GitHub's own sequential number for this workflow run - the "#1009" its Actions UI
+            shows next to the workflow name, for cross-referencing the two. Zero until a
+            workflow_run lookup backfills it, since the webhook that recorded the job never
+            carries it.
         steps:
           type: array
           description: >-

@@ -3970,6 +3970,11 @@ export interface components {
             head_sha?: string;
             /** @description 1 for a first run; higher when the run was re-run. */
             run_attempt?: number;
+            /**
+             * Format: int64
+             * @description GitHub's own sequential number for this workflow run - the "#1009" its Actions UI shows next to the workflow name, for cross-referencing the two. Zero until a workflow_run lookup backfills it, since the webhook that recorded the job never carries it.
+             */
+            run_number?: number;
             /** @description The job's steps as GitHub last reported them. A completed job carries every step with its conclusion; a running one carries them mid-flight. */
             steps?: components["schemas"]["JobStep"][];
             /** @description The step a completed job stopped at: the first that did not succeed, whether the job failed there or was cancelled there. Null when every step succeeded or while the job is still running. Worked out by the server so every client names the same step. */

@@ -362,6 +362,9 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 	if err != nil {
 		return fmt.Errorf("recording job %d: %w", e.JobID, err)
 	}
+	if saved.RunNumber == 0 && saved.GitHubRunID > 0 {
+		c.attachRunNumber(ctx, saved)
+	}
 	// A recovery response may omit runner_name even though the earlier
 	// in-progress event linked this job. Use the durable link as the fallback,
 	// or a completed job can still miss its runner cleanup.
@@ -460,6 +463,49 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 	// does to answer.
 	c.Nudge()
 	return nil
+}
+
+// attachRunNumber backfills the workflow run's own display number -- the
+// "#1009" GitHub's Actions UI shows next to the workflow name -- onto a job
+// this controller just saved, so an operator can find the same run there.
+//
+// workflow_job never carries it; only a workflow_run lookup does. Checking
+// the store first means only the first job of a run ever pays for that
+// lookup: ApplyJob keeps whatever run_number a row already has, so every
+// sibling job's delivery finds it already recorded. Best-effort throughout --
+// a failed lookup leaves the job to try again on its next delivery, same as
+// any other webhook enrichment here.
+func (c *Controller) attachRunNumber(ctx context.Context, saved *store.Job) {
+	if n, err := c.st.RunNumberForRun(ctx, saved.GitHubRunID); err == nil {
+		saved.RunNumber = n
+		return
+	} else if !errors.Is(err, store.ErrNotFound) {
+		c.log.Warn("could not look up a run number already recorded for this workflow run",
+			"job", saved.ID, "run", saved.GitHubRunID, "error", err)
+	}
+	if saved.InstallationID == "" {
+		return
+	}
+	client, err := c.ClientFor(ctx, saved.InstallationID)
+	if err != nil {
+		return
+	}
+	run, err := client.GetWorkflowRun(ctx, saved.Repo, saved.GitHubRunID)
+	if err != nil {
+		c.log.Warn("could not read the workflow run behind a job to learn its run number",
+			"job", saved.ID, "run", saved.GitHubRunID, "error", err)
+		return
+	}
+	if run.RunNumber == 0 {
+		return
+	}
+	updated, err := c.st.SetJobRunNumber(ctx, saved.ID, run.RunNumber)
+	if err != nil {
+		c.log.Warn("could not record a job's workflow run number",
+			"job", saved.ID, "run", saved.GitHubRunID, "error", err)
+		return
+	}
+	saved.RunNumber = updated.RunNumber
 }
 
 // observeJobCompletion feeds the histograms the Overview's percentiles and the

@@ -52,10 +52,11 @@ type FakeGitHub struct {
 	// exactly once needs somewhere to look.
 	reruns int
 
-	nextJobID int64
-	nextRunID int64
-	jobs      []*fakeJob
-	repos     []string
+	nextJobID     int64
+	nextRunID     int64
+	nextRunNumber int64
+	jobs          []*fakeJob
+	repos         []string
 	// contents holds what the migration surface reads and writes: files,
 	// branches and pull requests, per repository. It fills in lazily, so a
 	// test that never migrates anything pays nothing for it.
@@ -123,10 +124,11 @@ func NewFake() *FakeGitHub {
 			"pull_requests":                    "write",
 			"workflows":                        "write",
 		},
-		events:       []string{"workflow_job"},
-		nextRunnerID: 1,
-		nextJobID:    1000,
-		nextRunID:    5000,
+		events:        []string{"workflow_job"},
+		nextRunnerID:  1,
+		nextJobID:     1000,
+		nextRunID:     5000,
+		nextRunNumber: 1,
 		groups: []RunnerGroup{{
 			ID: 1, Name: "Default", Default: true,
 			PublicRepositoryAccessKnown: true, AllowsPublicRepositories: true,
@@ -290,6 +292,7 @@ func (f *FakeGitHub) AddQueuedJob(repo, workflow, jobName string, labels []strin
 		QueuedJob: QueuedJob{
 			ID:           f.nextJobID,
 			RunID:        f.nextRunID,
+			RunNumber:    f.nextRunNumber,
 			Repo:         repo,
 			WorkflowName: workflow,
 			JobName:      jobName,
@@ -302,6 +305,7 @@ func (f *FakeGitHub) AddQueuedJob(repo, workflow, jobName string, labels []strin
 	}
 	f.nextJobID++
 	f.nextRunID++
+	f.nextRunNumber++
 	f.jobs = append(f.jobs, j)
 	return j.QueuedJob
 }
@@ -823,6 +827,7 @@ func (f *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 		}
 		runs = append(runs, map[string]any{
 			"id":         j.RunID,
+			"run_number": j.RunNumber,
 			"name":       j.WorkflowName,
 			"status":     j.runStatus,
 			"created_at": j.QueuedAt.Format(time.RFC3339),
@@ -842,7 +847,7 @@ func (f *FakeGitHub) getWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		if j.Repo == full && j.RunID == runID {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"id": runID, "status": j.runStatus, "conclusion": j.Conclusion,
-				"name": j.WorkflowName, "html_url": j.HTMLURL,
+				"name": j.WorkflowName, "html_url": j.HTMLURL, "run_number": j.RunNumber,
 			})
 			return
 		}
