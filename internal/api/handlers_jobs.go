@@ -51,6 +51,63 @@ func (s *Server) handleCancelJobWorkflow(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusAccepted, cancelJobResponse{Accepted: true, Force: req.Force, RunID: j.GitHubRunID})
 }
 
+type cancelWorkflowRunRequest struct {
+	Repo  string `json:"repo"`
+	RunID int64  `json:"run_id"`
+	Force bool   `json:"force"`
+}
+
+type cancelWorkflowRunResponse struct {
+	Accepted bool   `json:"accepted"`
+	Force    bool   `json:"force"`
+	Repo     string `json:"repo"`
+	RunID    int64  `json:"run_id"`
+	Jobs     int    `json:"jobs"`
+}
+
+// handleCancelWorkflowRun answers POST /api/v1/workflow-runs/cancel: the
+// Workflows page's own run rows cancel a run directly, rather than reaching
+// for one of its jobs' IDs the way JobDrawer's cancel button does.
+func (s *Server) handleCancelWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	var req cancelWorkflowRunRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	if req.Repo == "" {
+		badRequestField(w, "repo", "repo is required")
+		return
+	}
+	if req.RunID <= 0 {
+		badRequestField(w, "run_id", "run_id must be a positive GitHub run ID")
+		return
+	}
+	jobs, err := s.ctrl.CancelWorkflowRun(r.Context(), req.Repo, req.RunID, req.Force)
+	if err != nil {
+		switch {
+		case errors.Is(err, controller.ErrWorkflowCancellationDisabled):
+			conflict(w, err.Error()+"; set github.allow_workflow_cancellation to true and restart Zoomies")
+		case errors.Is(err, controller.ErrJobAlreadyCompleted):
+			conflict(w, err.Error())
+		case errors.Is(err, github.ErrForbidden):
+			forbidden(w, err.Error())
+		default:
+			s.fail(w, r, "cancelling the GitHub workflow run", err)
+		}
+		return
+	}
+	action := "workflow_run.cancel_requested"
+	if req.Force {
+		action = "workflow_run.force_cancel_requested"
+	}
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), action, "workflow_run",
+		fmt.Sprintf("%s#%d", req.Repo, req.RunID), map[string]any{
+			"repo": req.Repo, "run_id": req.RunID, "force": req.Force,
+		})
+	writeJSON(w, http.StatusAccepted, cancelWorkflowRunResponse{
+		Accepted: true, Force: req.Force, Repo: req.Repo, RunID: req.RunID, Jobs: len(jobs),
+	})
+}
+
 type rerunJobResponse struct {
 	Accepted bool  `json:"accepted"`
 	RunID    int64 `json:"run_id"`

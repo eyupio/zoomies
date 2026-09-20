@@ -367,6 +367,9 @@ export const getJobExplanation = (id: string, signal?: AbortSignal) =>
 export const cancelJobWorkflow = (id: string, body: Body<'cancelJobWorkflow'>) =>
   api.post<Result<'cancelJobWorkflow'>>(`/jobs/${enc(id)}/cancel`, { body });
 
+export const cancelWorkflowRun = (body: Body<'cancelWorkflowRun'>) =>
+  api.post<Result<'cancelWorkflowRun'>>('/workflow-runs/cancel', { body });
+
 export const rerunJobWorkflow = (id: string) =>
   api.post<Result<'rerunJobWorkflow'>>(`/jobs/${enc(id)}/rerun`, {});
 
