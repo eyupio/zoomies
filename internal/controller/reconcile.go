@@ -209,6 +209,17 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 		}
 		switch a.Kind {
 		case scheduler.ActionCreate:
+			if IsDemoID(pool.InstallationID) {
+				// The demo installation has no GitHub behind it, and its
+				// client refuses every credential, so a create here can only
+				// end as a failed row -- and five of them inside ten minutes
+				// put the pool on a start backoff that reads "keeps failing
+				// to start" on every queued job in the fixture. The runners
+				// a demo shows are the ones the seed wrote; the rest of its
+				// demand is left standing rather than manufactured into
+				// failures a fleet with nothing wrong with it never had.
+				continue
+			}
 			if err := c.createRunner(ctx, pool, hosts[a.HostID], a); err != nil {
 				if !errors.Is(err, errRegistrationDeferred) {
 					c.log.Error("could not create a runner", "pool", pool.Name, "host", a.HostID, "reason", a.Reason, "error", err)
