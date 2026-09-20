@@ -29,7 +29,7 @@ const STATES = [
   'Kitting up',
   'Checking in',
   'Paws up',
-  'Walkies!',
+  'Walking!',
   'Lead on',
   'Slipped the lead',
   'Back in the kennel',
@@ -72,7 +72,7 @@ test('the grid lists the seeded runners with their states', async ({ page }) => 
 
   const busy = rows.filter({ hasText: FIXTURE.busyRunner });
   await expect(busy).toHaveCount(1);
-  await expect(busy).toContainText('Walkies!');
+  await expect(busy).toContainText('Walking!');
   await expect(busy).toContainText(FIXTURE.linuxPool);
 });
 
@@ -84,12 +84,12 @@ test('filtering by state narrows the rows and puts the filter in the URL', async
   await page.getByRole('button', { name: 'Any state' }).click();
   await page
     .getByRole('group', { name: 'Filter by runner state' })
-    .getByRole('checkbox', { name: 'Walkies!' })
+    .getByRole('checkbox', { name: 'Walking!' })
     .check();
   await page.keyboard.press('Escape');
 
   await expect(page).toHaveURL(/[?&]state=busy/);
-  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText('Walkies!');
+  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText('Walking!');
 
   const filtered = dataRows(runners(page));
   await expect(filtered.first()).toBeVisible();
@@ -97,7 +97,7 @@ test('filtering by state narrows the rows and puts the filter in the URL', async
   for (const label of await runners(page)
     .locator('[data-runner-status] .label')
     .allTextContents()) {
-    expect(label.trim(), 'every remaining row matches the filter').toBe('Walkies!');
+    expect(label.trim(), 'every remaining row matches the filter').toBe('Walking!');
   }
   const narrowed = await filtered.count();
 
@@ -105,7 +105,7 @@ test('filtering by state narrows the rows and puts the filter in the URL', async
   await reload(page, 'Runners');
   await expect(page).toHaveURL(/[?&]state=busy/);
   await expect(dataRows(runners(page))).toHaveCount(narrowed);
-  await expect(page.getByRole('button', { name: 'Walkies!', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Walking!', exact: true })).toBeVisible();
 });
 
 test('a hidden column stays hidden after a reload', async ({ page }) => {
@@ -199,11 +199,11 @@ test('draining a runner asks first, names it, and cancelling changes nothing', a
   await expect(dialog).toBeHidden();
 
   // Nothing was asked of the controller, so the runner is exactly as it was.
-  await expect(row).toContainText('Walkies!');
+  await expect(row).toContainText('Walking!');
   await expect(page).toHaveURL(/\/runners$/);
   await reload(page, 'Runners');
   await expect(dataRows(runners(page)).filter({ hasText: FIXTURE.busyRunner })).toContainText(
-    'Walkies!',
+    'Walking!',
   );
 });
 
@@ -223,7 +223,7 @@ test('opening a runner shows its detail page and its state timeline', async ({ p
   // The states this runner passed through on the way to being busy.
   await expect(timeline).toContainText('Kitting up');
   await expect(timeline).toContainText('Checking in');
-  await expect(timeline).toContainText('Walkies!');
+  await expect(timeline).toContainText('Walking!');
   // And the way back to the list is a breadcrumb, not the browser's button.
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Runners');
 });
