@@ -747,7 +747,17 @@ test('the matrix spends the width on squares and figures, with the key beneath',
   const key = matrix.locator('.legend');
 
   // The figures are what the squares on screen come to, so an operator reads
-  // the window without hovering every square in it.
+  // the window without hovering every square in it. Read off the week rather
+  // than today: the demo fleet's most recent finished job landed twenty
+  // minutes before it was seeded, so a suite started in the twenty minutes
+  // after midnight has a today with nothing finished in it, and the aside
+  // says so instead -- correctly, and for the rest of the run, because no
+  // demo job ever completes. The week always has the morning's work in it.
+  await matrix
+    .getByRole('group', { name: 'Range' })
+    .getByRole('button', { name: 'The last 7 days, by the hour' })
+    .click();
+  await expect(grid).toBeVisible();
   await expect(aside).toContainText('Failure rate');
   await expect(aside).toContainText('Busiest hour');
   await expect(aside).toContainText(/\d[\d,]* jobs finished/);
