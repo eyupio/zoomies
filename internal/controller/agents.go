@@ -510,6 +510,7 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		DiskTotalMB:   req.DiskTotalMB,
 		DiskFreeMB:    req.DiskFreeMB,
 		Version:       req.Version,
+		Features:      req.Features,
 		TokenHash:     hash,
 		LastHeartbeat: now,
 		// Recorded at join as well as at every heartbeat. The join above
@@ -667,6 +668,11 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	changed := backendsChanged ||
 		(len(probed) > 0 && !slices.Equal(probed, h.BackendInfo)) ||
 		(req.Version != "" && req.Version != h.Version) ||
+		// Written whenever the list differs, an empty one included: an agent
+		// rolled back to a release that cannot move a live quota has to stop
+		// being counted as one that can, or an elastic pool keeps reading its
+		// runners there as boostable when they are held at their share.
+		!slices.Equal(req.Features, h.Features) ||
 		// A host resized in place -- a VM given more cores, a container's
 		// cgroup limit raised -- has to stop describing itself as the machine
 		// it used to be, or its name and every pool sized from it go stale.
@@ -683,6 +689,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 			h.BackendInfo = probed
 		}
 		h.Version = firstNonEmpty(req.Version, h.Version)
+		h.Features = req.Features
 		if req.CPUs > 0 {
 			h.CPUs = req.CPUs
 		}

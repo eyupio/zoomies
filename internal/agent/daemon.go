@@ -502,6 +502,7 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 		DiskTotalMB:     total,
 		DiskFreeMB:      free,
 		Version:         version.Version,
+		Features:        []string{FeatureElasticCPU},
 		Labels:          a.opts.Labels,
 		Backends:        infos,
 		// A host that has joined before proves it is itself with the token it

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
@@ -240,6 +241,54 @@ func TestTheRoomIsCountedFromTheMachinesAndTheSize(t *testing.T) {
 	}
 	if !hasWarning(verdict.Warnings, "pool.host_overcommitted") {
 		t.Errorf("a host promising 8 slots with room for 4 raised no warning: %+v", verdict.Warnings)
+	}
+}
+
+// An elastic pool on a host whose agent cannot lend CPU is a pool that reads
+// automatic and behaves as off there. The dry run names the host, because the
+// review step is where the pool is saved and the metric that counts each
+// decision as unsupported_agent is not.
+func TestAnElasticPoolIsWarnedAboutHostsThatCannotLendCPU(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	old := &store.Host{
+		Name: "old-1", Capacity: 2, CPUs: 8, MemoryMB: 16384,
+		Backends: store.StringSlice{"docker"}, Labels: store.StringMap{},
+		OS: "linux", Arch: "amd64", LastHeartbeat: time.Now(),
+	}
+	if err := h.st.CreateHost(h.ctx, old); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+
+	body := poolBody(inst.ID)
+	body["cpu_burst"] = map[string]any{"mode": "automatic"}
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	res.into(t, &verdict)
+	if !hasWarning(verdict.Warnings, "pool.elastic_cpu_unsupported") {
+		t.Errorf("an elastic pool on an agent that cannot lend CPU raised no warning: %+v", verdict.Warnings)
+	}
+	if len(verdict.Room.Hosts) != 1 || verdict.Room.Hosts[0].ElasticCPU {
+		t.Errorf("room = %+v, want the host marked as unable to lend CPU", verdict.Room.Hosts)
+	}
+
+	// The agent says it can, and the warning is gone with nothing else changed.
+	old.Features = store.StringSlice{agent.FeatureElasticCPU}
+	if err := h.st.SetHostReported(h.ctx, old); err != nil {
+		t.Fatalf("SetHostReported: %v", err)
+	}
+	res = h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusOK, "validate")
+	res.into(t, &verdict)
+	if hasWarning(verdict.Warnings, "pool.elastic_cpu_unsupported") {
+		t.Errorf("a capable agent was still warned about: %+v", verdict.Warnings)
+	}
+	if len(verdict.Room.Hosts) != 1 || !verdict.Room.Hosts[0].ElasticCPU {
+		t.Errorf("room = %+v, want the host marked as able to lend CPU", verdict.Room.Hosts)
 	}
 }
 

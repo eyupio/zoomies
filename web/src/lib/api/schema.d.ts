@@ -3084,6 +3084,8 @@ export interface components {
             cpus_known?: boolean;
             memory_known?: boolean;
             disk_known?: boolean;
+            /** @description Whether this host's agent can move a live runner's CPU quota. An elastic pool is honoured only where it is true; a runner of one placed elsewhere is held at its share. */
+            elastic_cpu?: boolean;
         };
         /** @description How many runners of a pool the hosts that can run it have room for, counted on an empty fleet. What is running right now changes with every job; the question a size and a maximum are chosen against is how big the machines are, in runners of this pool. */
         PoolRoom: {
@@ -3391,14 +3393,14 @@ export interface components {
             run_as_root?: boolean;
             enabled?: boolean;
         };
-        /** @description The live elastic-boost or host-pressure CPU state for a runner with an enforced CPU quota. */
+        /** @description The live CPU state for a runner with an enforced CPU quota: lent spare CPU, held at its guarantee, throttled by host pressure, or -- on a pool with elastic CPU off -- sitting exactly where it was put. */
         CPUResourceState: {
             /** @enum {string} */
-            state?: "observing" | "guaranteed" | "zoomies" | "maximum_zoomies" | "throttled";
+            state?: "observing" | "guaranteed" | "zoomies" | "maximum_zoomies" | "throttled" | "sit_and_stay";
             /** @description A short dog-themed operator label; clients should branch on state. */
             label?: string;
             /** @enum {string} */
-            reason?: "observe_only" | "base_allocation" | "spare_cpu_lent" | "host_pressure";
+            reason?: "observe_only" | "base_allocation" | "spare_cpu_lent" | "host_pressure" | "elastic_off";
             /** Format: double */
             guaranteed_cpus?: number;
             /** Format: double */
@@ -4175,6 +4177,10 @@ export interface components {
             free?: number;
             backends?: string[];
             backend_info?: components["schemas"]["BackendInfo"][];
+            /** @description What the agent says it can do beyond running a backend, re-read from every heartbeat. `elastic-cpu` means it can move a live runner's CPU quota. */
+            features?: string[];
+            /** @description Whether this host honours an elastic pool: true when its agent advertises `elastic-cpu`. A runner of such a pool placed where this is false is held at its guaranteed share, and the host's card says so. */
+            elastic_cpu?: boolean;
             labels?: {
                 [key: string]: string;
             };

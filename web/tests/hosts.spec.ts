@@ -15,6 +15,7 @@ import {
   goto,
   pageHeading,
   plantMarker,
+  reload,
 } from './support/fixtures';
 
 test.use(browserOverride);
@@ -909,4 +910,51 @@ test('the host capacity map singles out a host or a measurement under the pointe
   await expect(map.getByText(/hosts? past 85% at \d{1,2}:\d{2}/)).toBeVisible();
   await map.getByRole('button', { name: 'Back to now' }).click();
   await expect(map.getByText(/hosts? past 85% now/)).toBeVisible();
+});
+
+test('a host whose agent cannot lend CPU says so, until its agent can', async ({ page }) => {
+  // Elastic CPU moves a live runner's quota through the agent on its host,
+  // and an agent too old to advertise that it can leaves every runner of an
+  // elastic pool at its share -- silently, unless the host says so. This
+  // joins as such an agent does, claiming nothing, then heartbeats as an
+  // upgraded one would.
+  await goto(page, '/hosts/new', 'Add a host');
+  await page.getByRole('button', { name: 'Get the command' }).click();
+  const token = await joinToken(page);
+  const name = `old-agent-${Date.now()}`;
+  let hostId = '';
+  try {
+    const join = await page.request.post('/api/v1/agent/join', {
+      data: {
+        protocol_version: 1,
+        join_token: token,
+        name,
+        capacity: 2,
+        os: 'linux',
+        arch: 'amd64',
+        cpus: 8,
+        memory_mb: 16384,
+        version: 'dev',
+        backends: [{ kind: 'docker', available: true }],
+      },
+    });
+    expect(join.ok()).toBeTruthy();
+    const credentials = (await join.json()) as { host_id: string; agent_token: string };
+    hostId = credentials.host_id;
+
+    await goto(page, '/hosts', 'Hosts');
+    const card = page.getByRole('article', { name, exact: true });
+    await expect(card.getByText('Cannot lend CPU')).toBeVisible();
+
+    const beat = await page.request.post('/api/v1/agent/heartbeat', {
+      headers: { Authorization: `Bearer ${credentials.agent_token}` },
+      data: { protocol_version: 1, features: ['elastic-cpu'] },
+    });
+    expect(beat.ok()).toBeTruthy();
+    await reload(page, 'Hosts');
+    await expect(card).toBeVisible();
+    await expect(card.getByText('Cannot lend CPU')).toBeHidden();
+  } finally {
+    if (hostId) await page.request.delete(`/api/v1/hosts/${hostId}?force=true`);
+  }
 });

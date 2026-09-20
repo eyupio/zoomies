@@ -515,7 +515,7 @@ const hostCols = `id, name, address, embedded, capacity, backends, backend_info,
 	last_heartbeat, created_at, agent_session_id, agent_session_prev,
 	agent_session_alternations, agent_session_alt_at,
 	disk_total_mb, disk_free_mb, reserve_cpus, reserve_memory_mb, reserve_disk_mb,
-	protocol_version, incompatible, connection, usage, throttle`
+	protocol_version, incompatible, connection, usage, throttle, features`
 
 func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 	var h Host
@@ -527,7 +527,7 @@ func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 		&h.MemoryMB, &h.Version, &cordoned, &h.TokenHash, &heartbeat, &created,
 		&h.AgentSessionID, &h.AgentSessionPrev, &h.AgentSessionAlternations, &altAt,
 		&h.DiskTotalMB, &h.DiskFreeMB, &h.ReserveCPUs, &h.ReserveMemoryMB, &h.ReserveDiskMB,
-		&h.ProtocolVersion, &incompatible, &h.Connection, &h.Usage, &h.Throttle)
+		&h.ProtocolVersion, &incompatible, &h.Connection, &h.Usage, &h.Throttle, &h.Features)
 	if err != nil {
 		return nil, err
 	}
@@ -550,13 +550,13 @@ func (s *Store) CreateHost(ctx context.Context, h *Host) error {
 		h.LastHeartbeat = h.CreatedAt
 	}
 	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		h.ID, h.Name, h.Address, boolInt(h.Embedded), h.Capacity, h.Backends, h.BackendInfo,
 		h.Labels, h.OS, h.Distro, h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version,
 		boolInt(h.Cordoned), h.TokenHash, ms(h.LastHeartbeat), ms(h.CreatedAt),
 		h.AgentSessionID, h.AgentSessionPrev, h.AgentSessionAlternations, msp(h.AgentSessionAltAt),
 		h.DiskTotalMB, h.DiskFreeMB, h.ReserveCPUs, h.ReserveMemoryMB, h.ReserveDiskMB,
-		h.ProtocolVersion, boolInt(h.Incompatible), h.Connection, h.Usage, h.Throttle)
+		h.ProtocolVersion, boolInt(h.Incompatible), h.Connection, h.Usage, h.Throttle, h.Features)
 	return wrapWrite(err)
 }
 
@@ -718,12 +718,12 @@ func (s *Store) PatchHost(ctx context.Context, id string, changes HostChanges) e
 // machine somebody is about to power off.
 //
 // What an agent may say about itself is what it can measure: its backends, its
-// version, its processors, its memory, its disk. Everything else on a host is
-// the operator's.
+// version, its features, its processors, its memory, its disk. Everything else
+// on a host is the operator's.
 func (s *Store) SetHostReported(ctx context.Context, h *Host) error {
-	res, err := s.exec(ctx, `UPDATE hosts SET backends=?, backend_info=?, version=?,
+	res, err := s.exec(ctx, `UPDATE hosts SET backends=?, backend_info=?, version=?, features=?,
 		cpus=?, memory_mb=?, disk_total_mb=?, disk_free_mb=?, last_heartbeat=? WHERE id=?`,
-		h.Backends, h.BackendInfo, h.Version, h.CPUs, h.MemoryMB,
+		h.Backends, h.BackendInfo, h.Version, h.Features, h.CPUs, h.MemoryMB,
 		h.DiskTotalMB, h.DiskFreeMB, ms(h.LastHeartbeat), h.ID)
 	if err != nil {
 		return wrapWrite(err)

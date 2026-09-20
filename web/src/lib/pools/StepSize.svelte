@@ -28,7 +28,7 @@
   what choosing it costs.
 -->
 <script lang="ts">
-  import { Sparkles, TriangleAlert } from '@lucide/svelte';
+  import { CircleCheck, Sparkles, TriangleAlert } from '@lucide/svelte';
   import type { PoolRoom as PoolRoomShape, Resources, Result } from '$lib/api/types';
   import { formatMegabytes, pluralise } from '$lib/format';
   import Button from '$lib/components/Button.svelte';
@@ -114,6 +114,12 @@
      charged. It is what both this step and the next one are read against. */
   const room = $derived<PoolRoomShape | null>(verdict?.room ?? null);
   const roomTotal = $derived(room?.runners ?? 0);
+  /* The hosts on which an elastic pool would not be elastic: their agent is
+     too old to move a live quota, so a runner there is held at its share
+     whatever the select above says. The one thing on a host elastic CPU
+     needs, and the one the controller cannot do itself, so it is named here
+     beside the choice rather than found in a metric afterwards. */
+  const cannotLend = $derived((room?.hosts ?? []).filter((host) => !host.elastic_cpu));
 
   function setCpus(value: number): void {
     draft.cpus = String(value);
@@ -284,6 +290,25 @@
           {/snippet}
         </Field>
       </div>
+
+      {#if draft.cpu_burst_mode === 'automatic' && (room?.hosts ?? []).length > 0}
+        {#if cannotLend.length > 0}
+          <p class="shares-note lend lend-warn" role="status">
+            <TriangleAlert size={14} aria-hidden="true" />
+            <span>
+              {cannotLend.map((host) => host.host).join(', ')}
+              {cannotLend.length === 1 ? 'runs' : 'run'} an agent that cannot lend CPU, so a runner placed
+              there is held at its guaranteed share. Upgrade those agents from
+              <a href="/hosts">Hosts</a>; the command is on each card.
+            </span>
+          </p>
+        {:else}
+          <p class="shares-note lend" role="status">
+            <CircleCheck size={14} aria-hidden="true" />
+            <span>Every host this pool can land on runs an agent that can lend CPU.</span>
+          </p>
+        {/if}
+      {/if}
 
       {#if draft.cpu_burst_mode === 'automatic'}
         <p class="shares-note">
@@ -665,5 +690,17 @@
     .pair {
       grid-template-columns: minmax(0, 1fr);
     }
+  }
+  .lend {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--z-space-2);
+  }
+  .lend :global(svg) {
+    flex: none;
+    margin-top: var(--z-nudge-2);
+  }
+  .lend-warn {
+    color: var(--z-pending);
   }
 </style>

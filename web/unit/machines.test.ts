@@ -75,15 +75,23 @@ test('elastic CPU states keep their Zoomies vocabulary and distinct brand icons'
   const boost = cpuResourceStatus('zoomies');
   const throttled = cpuResourceStatus('throttled');
   const steady = cpuResourceStatus('guaranteed');
+  const sitting = cpuResourceStatus('sit_and_stay');
 
   assert.equal(maximum.label, 'Squirrel spotted — maximum zoomies');
   assert.equal(boost.label, 'Rabbit spotted — extra zoomies');
   assert.equal(throttled.label, 'Leash tightened — host under pressure');
   assert.equal(steady.label, 'Steady paws — guaranteed pace');
+  assert.equal(sitting.label, 'Sit and stay — CPU held at its share');
   assert.notEqual(maximum.icon, boost.icon);
   assert.notEqual(boost.icon, throttled.icon);
   assert.equal(maximum.tone, 'busy');
   assert.equal(throttled.tone, 'draining');
+  // A held runner is not an idle one: "guaranteed pace" is the elastic
+  // pool's word for a runner that may yet be lent something, and this one
+  // never will be. Its own dog, sitting, and no status hue.
+  assert.notEqual(sitting.icon, steady.icon);
+  assert.equal(sitting.tone, 'neutral');
+  assert.equal(sitting.key, 'sit_and_stay');
 });
 
 /** The six status hues. Nothing a machine is doing may invent a seventh. */

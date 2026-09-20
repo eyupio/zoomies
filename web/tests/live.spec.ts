@@ -235,11 +235,12 @@ test('a scaling decision delivered twice appears once', async ({ page }) => {
 test('a runner lent spare CPU says so in the feed, in the dog park’s own words', async ({
   page,
 }) => {
-  // The demo fleet has no elastic CPU in it -- the seed writes no resource
-  // samples -- so the two frames a controller running a bursting pool would
-  // send are sent here. Two, not one: the state a runner is already in when a
-  // tab opens is not something that just happened, and that rule is as much
-  // under test as the line it produces.
+  // The demo fleet lends no CPU -- both its pools have elastic CPU off, so
+  // every runner in it sits at its share -- so the two frames a controller
+  // running a bursting pool would send are sent here. Two, not one: the first
+  // is the state the runner is already in when the tab opens, which is not
+  // something that just happened, and that rule is as much under test as the
+  // line the second produces.
   await goto(page, '/', 'Overview');
   const feed = page.getByRole('region', { name: 'Recent events', exact: true });
   await expect(feed.getByRole('listitem').first()).toBeVisible();
@@ -249,20 +250,14 @@ test('a runner lent spare CPU says so in the feed, in the dog park’s own words
   };
   const runner = listed.items[0];
   expect(runner, 'the fixture has a runner to lend CPU to').toBeTruthy();
+  const held = runner?.cpu_resource as Record<string, unknown> | undefined;
+  expect(held?.state, 'the fixture runner sits at its share').toBe('sit_and_stay');
 
   const withCPU = (cpu: Record<string, unknown>) => ({ ...runner, cpu_resource: cpu });
   const frame = (id: number, cpu: Record<string, unknown>) =>
     `id: ${id}\nevent: runner.updated\ndata: ${JSON.stringify(withCPU(cpu))}\n\n`;
   const body =
-    frame(999_001, {
-      state: 'guaranteed',
-      label: 'Steady paws — guaranteed pace',
-      reason: 'base_allocation',
-      guaranteed_cpus: 2,
-      current_cpus: 2,
-      ceiling_cpus: 4,
-      factor: 1,
-    }) +
+    frame(999_001, held ?? {}) +
     frame(999_002, {
       state: 'maximum_zoomies',
       label: 'Squirrel spotted — maximum zoomies',
@@ -294,7 +289,7 @@ test('a runner lent spare CPU says so in the feed, in the dog park’s own words
     '3.8 CPUs now against a guarantee of 2',
   );
   // The state it was already in when the tab opened is not a line of its own.
-  await expect(feed.getByRole('listitem').filter({ hasText: 'Steady paws' })).toHaveCount(0);
+  await expect(feed.getByRole('listitem').filter({ hasText: 'Sit and stay' })).toHaveCount(0);
   await expectNoReload(page);
 });
 
