@@ -958,3 +958,68 @@ func TestATaskArrivingDuringReconcilerWorkIsDroppedRatherThanHeld(t *testing.T) 
 	}
 	a.release("runner-1")
 }
+
+// Model an upgrade while Docker is between sidecar creation and runner start.
+// The old 30-second grace let Run return before the create result existed.
+func TestShutdownFinishesAdmittedCreateAndKeepsReporting(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, tr, b := startupAgent(t)
+		if err := a.Join(context.Background(), "join-token"); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- a.Run(ctx) }()
+		tr.tasks <- []Task{createTask("create", "runner-1")}
+		synctest.Wait()
+		startupEntered(t, b, "runner-1")
+		cancel()
+		synctest.Wait()
+		for len(tr.beats) > 0 {
+			<-tr.beats
+		}
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		select {
+		case err := <-done:
+			t.Fatalf("agent exited with an unfinished create: %v", err)
+		default:
+		}
+		if len(tr.beats) == 0 {
+			t.Fatal("agent stopped reporting while its admitted create was running")
+		}
+		b.finish <- nil
+		synctest.Wait()
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case res := <-tr.results:
+			if !res.OK || res.Handle == "" {
+				t.Fatalf("create was not completed and reported: %+v", res)
+			}
+		default:
+			t.Fatal("agent exited before reporting its create result")
+		}
+		if created, stopped, removed := b.counts(); created != 1 || stopped != 0 || removed != 0 {
+			t.Fatalf("upgrade changed workloads: create=%d stop=%d remove=%d", created, stopped, removed)
+		}
+	})
+}
+
+func TestShutdownTaskWaitRemainsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, _, _, _ := newAgent(t, 1)
+		a.tasks.Add(1)
+		start := time.Now()
+		if a.waitForTasks(context.Background(), time.Minute) {
+			t.Fatal("unfinished work reported complete")
+		}
+		a.tasks.Done()
+		synctest.Wait()
+		if elapsed := time.Since(start); elapsed != time.Minute {
+			t.Fatalf("wait took %s, want one minute", elapsed)
+		}
+	})
+}

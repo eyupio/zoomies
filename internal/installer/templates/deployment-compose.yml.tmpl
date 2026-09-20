@@ -21,6 +21,8 @@ services:
   zoomies:
     image: ${ZOOMIES_IMAGE}
     restart: unless-stopped
+    # Finish admitted runner creation before replacing the service.
+    stop_grace_period: 20m
     container_name: {{.Container}}
     # The last segment of the name the embedded agent registers this host
     # under, which is otherwise derived from what the machine is:

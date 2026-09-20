@@ -54,10 +54,12 @@ const (
 	minPollInterval = 200 * time.Millisecond
 	minPollBackoff  = time.Second
 	maxPollBackoff  = 30 * time.Second
-	// shutdownGrace bounds how long shutdown waits for in-flight tasks. A
-	// create stuck on an image pull must not stop systemd from restarting the
-	// unit.
-	shutdownGrace = 30 * time.Second
+	// ShutdownTimeout covers an admitted create, failed-create cleanup and
+	// its result plus the final inventory report. Supervisors must allow more
+	// time than this: exiting halfway through a create strands its sidecar.
+	// This is a maximum, not a delay, and never waits for running CI jobs.
+	ShutdownTimeout = CreateTimeout + RemoveTimeout + 2*reportTimeout
+	shutdownGrace   = ShutdownTimeout - reportTimeout
 	// probeBudget bounds one round of capability probing, which is a ping per
 	// registered backend.
 	probeBudget = 15 * time.Second
@@ -682,8 +684,8 @@ func (a *Agent) shutdown(ctx context.Context) {
 	a.notify.send("STOPPING=1")
 	a.log.Info("agent shutting down; runners on this host are left running")
 
-	if !waitFor(&a.tasks, shutdownGrace) {
-		a.log.Warn("shutting down with tasks still running; their results will be reported if they finish", "grace", shutdownGrace)
+	if !a.waitForTasks(ctx, shutdownGrace) {
+		a.log.Warn("shutdown grace expired with lifecycle tasks still unfinished", "grace", shutdownGrace)
 	}
 	a.logs.stopAll()
 
@@ -2004,20 +2006,30 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-// waitFor waits on wg for at most d, reporting whether it finished.
-func waitFor(wg *sync.WaitGroup, d time.Duration) bool {
+// waitForTasks stops accepting tasks but keeps reporting while admitted work
+// finishes. Otherwise a slow upgrade of a remote agent would make its live
+// runners look lost to a controller that is still running.
+func (a *Agent) waitForTasks(ctx context.Context, d time.Duration) bool {
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()
+		a.tasks.Wait()
 		close(done)
 	}()
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-done:
-		return true
-	case <-t.C:
-		return false
+	waitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d)
+	defer cancel()
+	ticker := time.NewTicker(a.heartbtI)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return true
+		case <-waitCtx.Done():
+			return false
+		case <-ticker.C:
+			if err := a.heartbeat(waitCtx); err != nil {
+				a.log.Debug("heartbeat during shutdown failed", "error", err)
+			}
+		}
 	}
 }
 

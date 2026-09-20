@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -384,7 +385,7 @@ func (p *upgradePlan) upgradeCompose(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = p.compose(ctx, "up", "-d", "--no-deps", "--force-recreate", "zoomies")
+	_, err = p.compose(ctx, "up", "-d", "--no-deps", "--force-recreate", "--timeout", strconv.Itoa(int(serviceStopTimeout.Seconds())), "zoomies")
 	if err == nil {
 		var running string
 		running, err = p.docker(ctx, "inspect", "--format", "{{.State.Running}}", containerOr(p.record))
@@ -395,13 +396,13 @@ func (p *upgradePlan) upgradeCompose(ctx context.Context) error {
 	if err != nil {
 		restore := writeFileAtomic(p.record.EnvFile, old, mode)
 		if restore == nil {
-			rollback, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			rollback, cancel := context.WithTimeout(context.WithoutCancel(ctx), serviceStopTimeout+time.Minute)
 			defer cancel()
 			p.image = previous["ZOOMIES_IMAGE"]
 			if p.image == "" {
 				p.image = p.record.Image
 			}
-			_, restore = p.compose(rollback, "up", "-d", "--no-deps", "--force-recreate", "zoomies")
+			_, restore = p.compose(rollback, "up", "-d", "--no-deps", "--force-recreate", "--timeout", strconv.Itoa(int(serviceStopTimeout.Seconds())), "zoomies")
 		}
 		return errors.Join(err, restore)
 	}
@@ -416,7 +417,7 @@ func (p *upgradePlan) upgradeDocker(ctx context.Context) error {
 		return err
 	}
 	old := p.replacement
-	if err := p.client.ContainerStop(ctx, old.ID, 10*time.Minute); err != nil {
+	if err := p.client.ContainerStop(ctx, old.ID, serviceStopTimeout); err != nil {
 		return err
 	}
 	backup := old.Name + "-before-upgrade"
@@ -438,7 +439,7 @@ func (p *upgradePlan) upgradeDocker(ctx context.Context) error {
 		}
 	}
 	if err != nil {
-		rollback, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+		rollback, cancel := context.WithTimeout(context.WithoutCancel(ctx), serviceStopTimeout+time.Minute)
 		defer cancel()
 		var restore error
 		if id != "" {
