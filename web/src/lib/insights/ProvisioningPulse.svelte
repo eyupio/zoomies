@@ -2,6 +2,7 @@
   import { listProvisioning } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { QUEUE_STATUS_LABELS } from '$lib/status';
   import Duration from '$lib/components/Duration.svelte';
   import { untrack } from 'svelte';
   let { poolId = '' }: { poolId?: string } = $props();
@@ -74,7 +75,7 @@
 
 <div class="pulse" aria-label="Provisioning demand context">
   <span>Provisioning demand</span>
-  {#if counts}{#each [{ key: 'ready', label: 'Ready' }, { key: 'expedited', label: 'Run now' }, { key: 'paused', label: 'Paused' }, { key: 'deleted', label: 'Removed' }] as item (item.key)}<a
+  {#if counts}{#each [{ key: 'ready', label: QUEUE_STATUS_LABELS.ready }, { key: 'expedited', label: QUEUE_STATUS_LABELS.expedited }, { key: 'paused', label: QUEUE_STATUS_LABELS.paused }, { key: 'deleted', label: QUEUE_STATUS_LABELS.deleted }] as item (item.key)}<a
         class={item.key}
         href={`/queue?provisioning=${item.key}${poolId ? `&pool_id=${encodeURIComponent(poolId)}` : ''}`}
         ><strong>{counts[item.key] ?? 0}</strong> {item.label}</a

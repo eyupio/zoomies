@@ -89,14 +89,14 @@
     poolId
       ? [
           {
-            label: 'Busy',
+            label: runnerStatus('busy').label,
             value: busy ?? 0,
             tone: 'busy' as const,
             href: `/runners?state=busy${suffix}`,
             hint: runnerStatus('busy').hint,
           },
           {
-            label: 'Idle',
+            label: runnerStatus('idle').label,
             value: idle ?? 0,
             tone: 'idle' as const,
             href: `/runners?state=idle${suffix}`,
@@ -112,35 +112,35 @@
         ]
       : [
           {
-            label: 'Provisioning',
+            label: runnerStatus('provisioning').label,
             value: r?.provisioning ?? 0,
             tone: 'pending' as const,
             href: '/runners?state=provisioning',
             hint: runnerStatus('provisioning').hint,
           },
           {
-            label: 'Registering',
+            label: runnerStatus('registering').label,
             value: r?.registering ?? 0,
             tone: 'accent' as const,
             href: '/runners?state=registering',
             hint: runnerStatus('registering').hint,
           },
           {
-            label: 'Idle',
+            label: runnerStatus('idle').label,
             value: r?.idle ?? 0,
             tone: 'idle' as const,
             href: '/runners?state=idle',
             hint: runnerStatus('idle').hint,
           },
           {
-            label: 'Busy',
+            label: runnerStatus('busy').label,
             value: r?.busy ?? 0,
             tone: 'busy' as const,
             href: '/runners?state=busy',
             hint: runnerStatus('busy').hint,
           },
           {
-            label: 'Draining',
+            label: runnerStatus('draining').label,
             value: r?.draining ?? 0,
             tone: 'draining' as const,
             href: '/runners?state=draining',

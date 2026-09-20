@@ -421,13 +421,13 @@
    * The one phrase a row has room for on a job that went wrong: the fleet's own
    * category, or the step the workflow failed at.
    *
-   * The category rather than "Runner lost" for every one of them, because the
-   * column is read down rather than across: nine rows saying the same two words
-   * say only that the fleet is unwell, and six saying "Out of memory" say what
-   * to do about it.
+   * The category rather than "Lost the scent" for every one of them, because
+   * the column is read down rather than across: nine rows saying the same two
+   * words say only that the fleet is unwell, and six saying "Out of memory"
+   * say what to do about it.
    */
   function failedAt(job: Job): string {
-    if (fleetFailed(job)) return faultLabel(job.fault_kind) || 'Runner lost';
+    if (fleetFailed(job)) return faultLabel(job.fault_kind) || 'Lost the scent';
     if (job.failed_step) return job.failed_step.name ?? `step ${job.failed_step.number ?? '?'}`;
     return '';
   }

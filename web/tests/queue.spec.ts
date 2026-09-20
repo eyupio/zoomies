@@ -33,7 +33,7 @@ test('queue controls persist, filter and restore demand without changing GitHub 
     await page.getByRole('dialog').getByRole('button', { name: 'Pause', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: '1 updated' })).toBeVisible();
     await page.reload();
-    await page.getByRole('button', { name: /Paused.*Demand on hold/ }).click();
+    await page.getByRole('button', { name: /Stay.*Demand on hold/ }).click();
     await expect(page.getByRole('grid', { name: 'Provisioning queue' })).toContainText(
       job.job_name,
     );

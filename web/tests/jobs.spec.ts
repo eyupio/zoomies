@@ -82,14 +82,14 @@ test('the grid lists jobs with their queue wait and duration', async ({ page }) 
 
   // A finished job has both numbers, which is what makes the two columns worth
   // sorting by.
-  const finished = rows.filter({ hasText: 'Success' }).first();
+  const finished = rows.filter({ hasText: 'Good dog!' }).first();
   await expect(finished).toBeVisible();
   await expect(await cellUnder(jobs(page), finished, 'Queue wait')).toContainText(DURATION);
   await expect(await cellUnder(jobs(page), finished, 'Duration')).toContainText(DURATION);
   await expect(await cellUnder(jobs(page), finished, 'Repository')).toContainText(/acme\//);
 
   // A job still waiting counts its wait up rather than pretending to know it.
-  const queued = rows.filter({ hasText: 'Queued' }).first();
+  const queued = rows.filter({ hasText: 'Waiting for walkies' }).first();
   await expect(await cellUnder(jobs(page), queued, 'Queue wait')).toContainText('so far');
 });
 
@@ -131,7 +131,7 @@ test('the unmatched filter finds the job no pool claims and explains it', async 
   await expect(rowCount(page)).toContainText('of 1 job');
 
   const row = dataRows(jobs(page)).first();
-  await expect(row).toContainText('Unmatched');
+  await expect(row).toContainText('No lead fits');
   // The seeded job asks for labels no pool answers, so nothing claims it.
   await expect(row).toContainText('Unclaimed');
   await expect(row).toContainText('cuda12');
@@ -166,7 +166,7 @@ test('the page opens on what is running, and the status row moves between views'
   const running = statusFilter(page).getByRole('button', { name: 'Running', exact: true });
   await expect(running).toHaveAttribute('aria-pressed', 'true');
   await expect(rowCount(page)).toContainText(`of ${FIXTURE.runningJobs} jobs`);
-  await statesSettle(page, /^Running$/);
+  await statesSettle(page, /^Walkies!$/);
 
   // The status is already on the row, so it is not repeated as a chip -- and a
   // chip for the default could not be removed, since removing it is what puts
@@ -177,7 +177,7 @@ test('the page opens on what is running, and the status row moves between views'
   await statusFilter(page).getByRole('button', { name: 'Queued', exact: true }).click();
   await expect(page).toHaveURL(/[?&]state=queued/);
   await expect(running).toHaveAttribute('aria-pressed', 'false');
-  await statesSettle(page, /Queued/);
+  await statesSettle(page, /Waiting for walkies/);
 
   // "Failed" is not a state at all -- it is the server's own reckoning of a job
   // that went wrong, runner faults included -- so pressing it has to clear the
@@ -185,7 +185,7 @@ test('the page opens on what is running, and the status row moves between views'
   await statusFilter(page).getByRole('button', { name: 'Failed', exact: true }).click();
   await expect(page).toHaveURL(/[?&]failed=true/);
   await expect(page).not.toHaveURL(/[?&]state=/);
-  await statesSettle(page, /Failure|Timed out|Runner lost/);
+  await statesSettle(page, /Dropped the ball|Snoozed through it|Lost the scent/);
 
   // And "All" is written out rather than left absent, because an absent status
   // is what the default reads as "running".
@@ -249,7 +249,7 @@ test('a job that already ran is never called unmatched, whatever its labels say'
   const vendor = dataRows(jobs(page)).first();
   await expect(vendor).toBeVisible();
   await expect(vendor).toContainText('Unclaimed');
-  await expect(vendor).not.toContainText('Unmatched');
+  await expect(vendor).not.toContainText('No lead fits');
 
   // No banner either: it speaks for queued work, and there is none here.
   await expect(page.getByRole('note')).toHaveCount(0);
@@ -269,7 +269,7 @@ test('the unmatched explanation waits to be asked for', async ({ page }) => {
   await everyStatus(page);
 
   // The job is listed, and its row says what it is.
-  await expect(jobs(page)).toContainText('Unmatched');
+  await expect(jobs(page)).toContainText('No lead fits');
   await expect(page.getByRole('note')).toHaveCount(0);
 
   await page.getByRole('switch', { name: 'Unmatched only' }).click();
@@ -314,15 +314,17 @@ test('other runners are hidden by default and one switch brings them back', asyn
   // fail to hide: GitHub reports a vendor's job the moment it is queued, and
   // "nothing here has run it" is true of it for a few seconds.
   const vendorQueued = dataRows(jobs(page)).filter({ hasText: 'blacksmith-4vcpu-ubuntu-2404' });
-  await expect(vendorQueued.filter({ hasText: 'Queued' })).toHaveCount(1);
-  await expect(vendorQueued.filter({ hasText: 'Queued' })).toContainText('Hosted elsewhere');
+  await expect(vendorQueued.filter({ hasText: 'Waiting for walkies' })).toHaveCount(1);
+  await expect(vendorQueued.filter({ hasText: 'Waiting for walkies' })).toContainText(
+    'Hosted elsewhere',
+  );
 
   // A queued job nothing claims is listed whichever runners are shown: nothing
   // ran it, so it is this fleet's problem to see. The row is how it is seen --
   // the explanation above the grid waits for the filter.
   await goto(page, '/jobs?state=queued', 'Jobs');
   await expect(jobs(page).getByText('cuda12')).toBeVisible();
-  await expect(jobs(page)).toContainText('Unmatched');
+  await expect(jobs(page)).toContainText('No lead fits');
 });
 
 /*
@@ -339,8 +341,8 @@ test('opening a failed job names the step and tells the story', async ({ page })
 
   // Every row in the failed view says where it went wrong, on the row itself.
   const stepFailure = rows
-    .filter({ hasText: 'Failure' })
-    .filter({ hasNotText: 'Runner lost' })
+    .filter({ hasText: 'Dropped the ball' })
+    .filter({ hasNotText: 'Lost the scent' })
     .first();
   await expect(stepFailure).toBeVisible();
   await expect(await cellUnder(jobs(page), stepFailure, 'Failed at')).not.toContainText('--');
@@ -351,7 +353,7 @@ test('opening a failed job names the step and tells the story', async ({ page })
 
   // Why, first.
   const why = drawer.getByRole('note', { name: 'Why this job went wrong' });
-  await expect(why).toContainText(/Failure at step \d+, /);
+  await expect(why).toContainText(/Dropped the ball at step \d+, /);
   await expect(why.getByRole('link', { name: /Open the failed step's log/ })).toBeVisible();
 
   // The steps, with the failed one among them.
@@ -370,9 +372,9 @@ test('opening a failed job names the step and tells the story', async ({ page })
 
 test("a job whose runner died under it is called the fleet's failure", async ({ page }) => {
   await goto(page, '/jobs?failed=true', 'Jobs');
-  const lost = dataRows(jobs(page)).filter({ hasText: 'Runner lost' }).first();
+  const lost = dataRows(jobs(page)).filter({ hasText: 'Lost the scent' }).first();
   await expect(lost).toBeVisible();
-  // The category rather than "Runner lost" repeated down the column: a list
+  // The category rather than "Lost the scent" repeated down the column: a list
   // where every row says the same two words says only that the fleet is
   // unwell, and one that says "Out of memory" says what to do on Monday.
   await expect(await cellUnder(jobs(page), lost, 'Failed at')).toContainText('Out of memory');
@@ -389,7 +391,7 @@ test("a job whose runner died under it is called the fleet's failure", async ({ 
   await expect(why.getByRole('link', { name: 'Open the runner' })).toBeVisible();
 
   const timeline = drawer.getByRole('list', { name: 'Timeline' });
-  await expect(timeline).toContainText('Runner lost');
+  await expect(timeline).toContainText('Lost the scent');
   await expect(timeline).toContainText('via agent');
 
   // The problems drawer says the same thing, and sends the operator here.
@@ -422,7 +424,7 @@ test("the fleet's own failures are one click from everything that failed", async
   // Every row in this view is the fleet's, so every one of them carries the
   // badge that says so.
   for (const row of await ours.all()) {
-    await expect(row).toContainText('Runner lost');
+    await expect(row).toContainText('Lost the scent');
   }
 
   // A copied link reproduces it, which is how this gets sent to somebody.
@@ -453,14 +455,14 @@ test('the failed filter is one switch and survives a copied link', async ({ page
   expect(shown).toBeGreaterThan(0);
   expect(shown).toBeLessThan(FIXTURE.managedJobs);
   for (const state of await columnTexts(jobs(page), 'State')) {
-    expect(state).toMatch(/Failure|Timed out|Runner lost/);
+    expect(state).toMatch(/Dropped the ball|Snoozed through it|Lost the scent/);
   }
 });
 
 test('a queued job says what the fleet is doing about it', async ({ page }) => {
   await goto(page, '/jobs?state=queued', 'Jobs');
   // The queued job a pool claims, not the unmatched one: that one has its own note.
-  const waiting = dataRows(jobs(page)).filter({ hasNotText: 'Unmatched' }).first();
+  const waiting = dataRows(jobs(page)).filter({ hasNotText: 'No lead fits' }).first();
   await expect(waiting).toBeVisible();
   await waiting.click();
 
@@ -496,7 +498,7 @@ test('removing a job from the queue takes it out of Queued and badges it under A
   ).json();
   const job = queue.items[0];
   expect(job, 'the fixture has queued work to remove').toBeTruthy();
-  const removed = (p: Page) => dataRows(jobs(p)).filter({ hasText: 'Removed' });
+  const removed = (p: Page) => dataRows(jobs(p)).filter({ hasText: 'Back in the kennel' });
 
   try {
     await request.post('/api/v1/provisioning/bulk', {
