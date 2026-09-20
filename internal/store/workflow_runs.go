@@ -64,7 +64,10 @@ type WorkflowRun struct {
 
 // RunJobCounts is how a run's jobs are getting on, counted over the latest
 // attempt of each. Failed counts failures on either side, so Faulted -- the
-// failures this fleet caused -- is always part of it.
+// failures this fleet caused -- is always part of it, and a job whose runner
+// stopped under it is a failure whatever conclusion GitHub recorded: the
+// fault wins, as it does on the Overview, so the outcomes never count one
+// job twice.
 type RunJobCounts struct {
 	Total      int `json:"total"`
 	Waiting    int `json:"waiting"`
@@ -181,7 +184,7 @@ func workflowRunsFrom(f JobFilter) (string, []any) {
 	jobs.FailedOnly, jobs.FaultedOnly, jobs.WorkflowFailedOnly = false, false, false
 	jobs.Cancelling = nil
 	where, args := jobWhere(jobs)
-	inner := `WHERE attempt_rank = 1`
+	inner := `WHERE run_attempt = latest_attempt`
 	if where != "" {
 		inner += ` AND (repo, github_run_id) IN (SELECT repo, github_run_id FROM jobs ` + where + `)`
 	}
@@ -223,10 +226,15 @@ func workflowRunsFrom(f JobFilter) (string, []any) {
 		outer = ` WHERE ` + strings.Join(cond, " AND ")
 	}
 
-	// The window ranks each job name's attempts within its run, newest first,
-	// so rank 1 is the attempt GitHub's run page shows. hosted and managed
-	// are worked out per job here, where the label predicates can see the
-	// row, and only summed up below.
+	// The window finds, for each job name within a run, the newest attempt
+	// any job of that name reported, and a job is kept when it belongs to
+	// that attempt: re-running the failed jobs writes new rows under the same
+	// names, and those are the rows GitHub's run page shows. It is the
+	// attempt that is compared rather than a rank, because two jobs of one
+	// attempt may share a display name -- GitHub does not require job names
+	// to be unique -- and ranking them would keep one and lose the other.
+	// hosted and managed are worked out per job here, where the label
+	// predicates can see the row, and only summed up below.
 	from := `FROM (
 	SELECT repo, github_run_id, MAX(workflow) AS workflow, MAX(run_number) AS run_number,
 		MAX(run_attempt) AS run_attempt, MAX(head_branch) AS head_branch, MAX(head_sha) AS head_sha,
@@ -236,8 +244,10 @@ func workflowRunsFrom(f JobFilter) (string, []any) {
 		COUNT(*) AS total,
 		SUM(state = 'waiting') AS waiting, SUM(state = 'queued') AS queued,
 		SUM(state = 'in_progress') AS in_progress, SUM(state = 'completed') AS completed,
-		SUM(conclusion = 'success') AS succeeded, SUM(` + failedJobSQL() + `) AS failed,
-		SUM(conclusion = 'cancelled') AS cancelled, SUM(conclusion = 'skipped') AS skipped,
+		SUM(conclusion = 'success' AND NOT ` + fleetFailedJobSQL() + `) AS succeeded,
+		SUM(` + failedJobSQL() + `) AS failed,
+		SUM(conclusion = 'cancelled' AND NOT ` + fleetFailedJobSQL() + `) AS cancelled,
+		SUM(conclusion = 'skipped' AND NOT ` + fleetFailedJobSQL() + `) AS skipped,
 		SUM(` + fleetFailedJobSQL() + `) AS faulted, SUM(` + workflowFailedJobSQL() + `) AS workflow_failed,
 		SUM(matched = 0 AND state = 'queued' AND NOT hosted) AS unmatched,
 		MAX(managed) AS managed, MIN(hosted) AS hosted,
@@ -245,8 +255,7 @@ func workflowRunsFrom(f JobFilter) (string, []any) {
 		` + runStateSQL + ` AS run_state, ` + runConclusionSQL() + ` AS run_conclusion
 	FROM (
 		SELECT jobs.*, ` + hostedJobSQL("jobs") + ` AS hosted, ` + managedJobSQL("jobs") + ` AS managed,
-			ROW_NUMBER() OVER (PARTITION BY repo, github_run_id, job_name
-				ORDER BY run_attempt DESC, queued_at DESC, id DESC) AS attempt_rank
+			MAX(run_attempt) OVER (PARTITION BY repo, github_run_id, job_name) AS latest_attempt
 		FROM jobs
 	) AS jobs
 	` + inner + `
