@@ -43,8 +43,8 @@
   import Select from '$lib/components/Select.svelte';
   import Switch from '$lib/components/Switch.svelte';
   import RunnerConfirm from '$lib/runners/RunnerConfirm.svelte';
-  import CPUResourceStatus from '$lib/runners/CPUResourceStatus.svelte';
-  import StateCell from '$lib/components/StateCell.svelte';
+  import RunnerStatus from '$lib/runners/RunnerStatus.svelte';
+  import { runnerDisplayStatus } from '$lib/runners/runner-status';
   import RunnerStateFilter from '$lib/runners/RunnerStateFilter.svelte';
 
   const canOperate = $derived(session.can('operator'));
@@ -272,11 +272,13 @@
     const list: GridColumn<Runner>[] = [
       {
         id: 'state',
-        header: 'State',
+        header: 'Status',
         sortable: true,
         hideable: false,
-        width: '9rem',
-        value: (row) => runnerStatus(row.state).label,
+        width: '11.5rem',
+        fixed: true,
+        wrap: true,
+        value: (row) => runnerDisplayStatus(fleet.runner(row.id) ?? row).label,
         cell: stateCell,
       },
       {
@@ -287,14 +289,6 @@
         width: '18rem',
         value: (row) => row.name ?? '',
         cell: nameCell,
-      },
-      {
-        id: 'cpu_resource',
-        header: 'Zoomies',
-        priority: 'wide',
-        width: '15rem',
-        value: (row) => row.cpu_resource?.label ?? '',
-        cell: cpuResourceCell,
       },
       {
         // Pool and host names are hyphenated, and without a width they wrap
@@ -380,16 +374,8 @@
 </script>
 
 {#snippet stateCell(runner: Runner)}
-  <!-- The cached runner first: an SSE update lands here before the grid's next fetch. -->
-  <StateCell status={runnerStatus(fleet.runner(runner.id)?.state ?? runner.state)} />
-{/snippet}
-
-{#snippet cpuResourceCell(runner: Runner)}
-  {#if runner.cpu_resource}
-    <CPUResourceStatus resource={runner.cpu_resource} compact />
-  {:else}
-    <span class="quiet">--</span>
-  {/if}
+  <!-- One cache snapshot supplies both lifecycle and CPU allocation. -->
+  <RunnerStatus runner={fleet.runner(runner.id) ?? runner} />
 {/snippet}
 
 {#snippet nameCell(runner: Runner)}

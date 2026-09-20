@@ -187,7 +187,7 @@ test('every column is still there when the rows become cards', async ({ page }) 
     .first()
     .locator('td')
     .evaluateAll((cells) => cells.map((cell) => cell.getAttribute('data-label')));
-  for (const heading of ['State', 'Name', 'Pool', 'Host', 'Current job', 'CPU', 'Memory']) {
+  for (const heading of ['Status', 'Name', 'Pool', 'Host', 'Current job', 'CPU', 'Memory']) {
     expect(labels, `a card names its ${heading}`).toContain(heading);
   }
 
@@ -216,8 +216,8 @@ test('column width and order survive reload', async ({ page }) => {
     runners
       .getByRole('columnheader')
       .evaluateAll((items) => items.map((item) => item.textContent?.replace(/⋮/g, '').trim()));
-  await expect.poll(headings).toEqual(expect.arrayContaining(['Name', 'State']));
-  expect((await headings()).indexOf('Name')).toBeLessThan((await headings()).indexOf('State'));
+  await expect.poll(headings).toEqual(expect.arrayContaining(['Name', 'Status']));
+  expect((await headings()).indexOf('Name')).toBeLessThan((await headings()).indexOf('Status'));
   await expect
     .poll(() => name.evaluate((heading) => heading.getBoundingClientRect().width))
     .toBeGreaterThan(before);
@@ -225,7 +225,7 @@ test('column width and order survive reload', async ({ page }) => {
   await page.reload();
   await waitForRows(grid(page, 'Runners'));
   const restored = await headings();
-  expect(restored.indexOf('Name')).toBeLessThan(restored.indexOf('State'));
+  expect(restored.indexOf('Name')).toBeLessThan(restored.indexOf('Status'));
   const restoredWidth = await grid(page, 'Runners')
     .getByRole('columnheader', { name: /Name/ })
     .evaluate((heading) => heading.getBoundingClientRect().width);

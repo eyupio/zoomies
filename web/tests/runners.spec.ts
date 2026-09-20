@@ -12,7 +12,6 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
   browserOverride,
   cellUnder,
-  columnTexts,
   dataRows,
   FIXTURE,
   goto,
@@ -53,9 +52,9 @@ test('the grid lists the seeded runners with their states', async ({ page }) => 
   await expect(rowCount(page)).toContainText(/of \d+\s+runners/);
 
   const gridLocator = runners(page);
-  await expect(await cellUnder(gridLocator, rows.first(), 'State')).toBeVisible();
+  await expect(await cellUnder(gridLocator, rows.first(), 'Status')).toBeVisible();
 
-  const states = await columnTexts(gridLocator, 'State');
+  const states = await gridLocator.locator('[data-runner-status] .label').allTextContents();
   expect(states.length).toBe(await rows.count());
   for (const label of states) {
     expect(STATES, `"${label.trim()}" is one of the states the product defines`).toContain(
@@ -87,7 +86,9 @@ test('filtering by state narrows the rows and puts the filter in the URL', async
   const filtered = dataRows(runners(page));
   await expect(filtered.first()).toBeVisible();
   await expect(filtered).not.toHaveCount(before);
-  for (const label of await columnTexts(runners(page), 'State')) {
+  for (const label of await runners(page)
+    .locator('[data-runner-status] .label')
+    .allTextContents()) {
     expect(label.trim(), 'every remaining row matches the filter').toBe('Busy');
   }
   const narrowed = await filtered.count();
@@ -115,7 +116,7 @@ test('a hidden column stays hidden after a reload', async ({ page }) => {
   await runnerRows(page);
   await expect(runners(page).getByRole('columnheader', { name: 'Host' })).toHaveCount(0);
   // Only that column went: hiding one must not quietly hide others.
-  await expect(runners(page).getByRole('columnheader', { name: 'State' })).toBeVisible();
+  await expect(runners(page).getByRole('columnheader', { name: 'Status' })).toBeVisible();
   await expect(runners(page).getByRole('columnheader', { name: 'Name' })).toBeVisible();
 });
 
