@@ -33,6 +33,9 @@ table[data-managed-table='true'] .managed-table-heading {
   border-radius: var(--z-radius-sm);
   cursor: grab;
   letter-spacing: -0.18rem;
+  /* The drag is the gesture, so the browser must not read it as a scroll of
+     the frame the table sits in and take the pointer away mid-column. */
+  touch-action: none;
 }
 .managed-table-move:hover {
   background: var(--z-surface-hover);
@@ -69,6 +72,33 @@ tr > *:last-child .managed-table-resizer {
 .managed-table-heading:hover .managed-table-resizer::after,
 .managed-table-resizer:focus-visible::after {
   opacity: 1;
+}
+/* The column in the air, and the one it would land on. The native drag
+   protocol drew both for us; the gesture that replaced it draws its own. */
+.managed-table-heading.managed-table-dragging {
+  opacity: 0.55;
+}
+.managed-table-heading.managed-table-drop-target {
+  box-shadow: inset var(--z-focus-width) 0 var(--z-focus-colour);
+}
+/* Read by a finger: the heading takes the touch height the rest of the product
+   uses, both controls grow into it, and the resize handle stops waiting for a
+   hover that will never come. See the same block in DataGrid.svelte. */
+@media (pointer: coarse) {
+  table[data-managed-table='true'] .managed-table-heading {
+    height: var(--z-control-touch);
+  }
+  .managed-table-move {
+    width: var(--z-space-6);
+    height: var(--z-control-touch);
+  }
+  .managed-table-resizer {
+    right: calc(-1 * var(--z-space-3));
+    width: var(--z-space-6);
+  }
+  .managed-table-resizer::after {
+    opacity: 1;
+  }
 }
 @media (max-width: 768px) {
   table[data-managed-table='true'] {

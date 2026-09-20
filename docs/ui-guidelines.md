@@ -272,7 +272,8 @@ The drawn controls have their own sizes, for the same reason: `--z-control-box`
 are on the spacing scale and stay there, with one exception: `--z-control-touch`
 (44px) is the height a control read by a finger takes under
 `@media (pointer: coarse)` — the segmented choices, the chips and legend
-switches every trend carries, a slider's thumb — because a 24px row
+switches every trend carries, a slider's thumb, a column heading's reposition
+grip and resize edge — because a 24px row
 a mouse is fine with is two rows under one fingertip. It applies only where the pointer is coarse,
 so the desktop keeps its density.
 
@@ -801,6 +802,16 @@ Five things make it fit, in this order:
   operator's back would make the resize handle lie. Widths and order are saved
   under stable column ids to the signed-in account, with local storage as the
   immediate and offline fallback. New columns append to a saved order.
+* **Both gestures answer a finger.** They are pointer gestures rather than
+  HTML5 drag-and-drop, which a browser raises from a finger only after a long
+  press on Android and never on iOS — so the order was once a preference a
+  phone could read and not write, on the Rows layout that exists to give a
+  phone columns to arrange. Under `@media (pointer: coarse)` the heading takes
+  `--z-control-touch`, both controls grow into it, and the resize edge stops
+  waiting for a hover that will never come. `web/src/lib/actions/columnGesture.ts`
+  is the one implementation, shared with the tables that are not grids, and
+  `web/tests/column-layout.spec.ts` holds it true under both a cursor and a
+  touchscreen.
 * **A narrow desktop shows fewer columns.** Twelve columns in the 660 pixels a
   768px window leaves is 55 pixels each, which fits and says nothing. Between
   `--z-bp-md` and `--z-bp-lg`, columns marked `priority: 'wide'` wait for a

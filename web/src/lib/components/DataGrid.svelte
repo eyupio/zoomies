@@ -113,6 +113,7 @@
     type ColumnDef,
   } from '@tanstack/svelte-table';
   import { layers } from '../keys';
+  import { startColumnDrag, startColumnResize } from '../actions/columnGesture';
   import { prefs, type GridView } from '../state/prefs.svelte';
   import { viewport } from '../state/viewport.svelte';
   import { router } from '../router';
@@ -595,23 +596,15 @@
   }
 
   function beginResize(event: PointerEvent, column: GridColumn<T>): void {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
     const heading = (event.currentTarget as HTMLElement).closest('th');
     const startWidth = heading?.getBoundingClientRect().width ?? share(column.width, remPx);
-    const startX = event.clientX;
-    const onMove = (move: PointerEvent): void => {
-      setLayoutWidth(column, startWidth + move.clientX - startX);
-    };
-    const onUp = (): void => {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-      const width = layoutWidths[column.id];
-      if (width !== undefined) prefs.setColumnWidth(gridId, column.id, width);
-    };
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp, { once: true });
+    startColumnResize(event, startWidth, {
+      move: (width) => setLayoutWidth(column, width),
+      done: () => {
+        const width = layoutWidths[column.id];
+        if (width !== undefined) prefs.setColumnWidth(gridId, column.id, width);
+      },
+    });
   }
 
   function resizeByKey(event: KeyboardEvent, column: GridColumn<T>): void {
@@ -633,6 +626,31 @@
 
   let draggedColumn = $state('');
   let dropColumn = $state('');
+
+  function beginMove(event: PointerEvent, column: GridColumn<T>): void {
+    if (!frame) return;
+    // The last heading the pointer crossed, kept because a finger dragging
+    // along a 44px strip drifts off it. Without this the drag would silently
+    // become a no-op whenever it ended a few pixels below the headings.
+    let target = '';
+    startColumnDrag(event, frame, {
+      over: (id) => {
+        draggedColumn = column.id;
+        if (id) target = id;
+        dropColumn = target === column.id ? '' : target;
+      },
+      drop: (id) => {
+        if (id) target = id;
+        if (target) moveColumn(column.id, target);
+        draggedColumn = '';
+        dropColumn = '';
+      },
+      cancel: () => {
+        draggedColumn = '';
+        dropColumn = '';
+      },
+    });
+  }
 
   function moveColumn(id: string, target: string): void {
     if (id === target) return;
@@ -939,50 +957,35 @@
             </th>
           {/if}
           {#each visibleColumns as column, index (column.id)}
+            <!--
+              `data-table-column` is what a drag in progress hit-tests against:
+              the gesture asks the document what is under the pointer, and the
+              answer has to name a column rather than whichever span of the
+              heading the finger happened to land on.
+            -->
             <th
               role="columnheader"
               scope="col"
+              data-table-column={column.id}
               style:width={columnWidths.columns[index]}
               class:end={column.align === 'end'}
               class:sortable={column.sortable}
+              class:dragging={draggedColumn === column.id}
               class:drop-target={dropColumn === column.id && draggedColumn !== column.id}
               aria-sort={sort === column.id
                 ? order === 'asc'
                   ? 'ascending'
                   : 'descending'
                 : undefined}
-              ondragover={(event) => {
-                if (!draggedColumn) return;
-                event.preventDefault();
-                dropColumn = column.id;
-              }}
-              ondragleave={() => {
-                if (dropColumn === column.id) dropColumn = '';
-              }}
-              ondrop={(event) => {
-                event.preventDefault();
-                moveColumn(draggedColumn, column.id);
-                draggedColumn = '';
-                dropColumn = '';
-              }}
             >
               <div class="heading">
                 <button
                   type="button"
                   class="move"
-                  draggable="true"
                   title="Drag to reposition {column.header}; use left and right arrow keys for keyboard control"
                   aria-label="Reposition {column.header} column"
                   onkeydown={(event) => moveByKey(event, column)}
-                  ondragstart={(event) => {
-                    draggedColumn = column.id;
-                    event.dataTransfer?.setData('text/plain', column.id);
-                    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-                  }}
-                  ondragend={() => {
-                    draggedColumn = '';
-                    dropColumn = '';
-                  }}
+                  onpointerdown={(event) => beginMove(event, column)}
                 >
                   <GripVertical size={12} aria-hidden="true" />
                 </button>
@@ -1288,6 +1291,9 @@
     padding: 0;
     border-radius: var(--z-radius-sm);
     cursor: grab;
+    /* The drag is the gesture, so the browser must not read it as a scroll of
+       the frame the heading sits in and take the pointer away mid-column. */
+    touch-action: none;
   }
   .move:active {
     cursor: grabbing;
@@ -1330,6 +1336,15 @@
   }
   thead th.drop-target {
     box-shadow: inset var(--z-focus-width) 0 var(--z-focus-colour);
+  }
+  /*
+    Which column is in the air. The native drag protocol drew this for us --
+    it greyed the source and followed the cursor with a ghost of it -- and
+    once the gesture is ours the feedback is ours too, or a finger holding a
+    column gets no sign that anything has been picked up.
+  */
+  thead th.dragging {
+    opacity: 0.55;
   }
   /* The sort button is the heading, so it has to truncate as the heading does. */
   .sort > span:first-child {
@@ -1429,6 +1444,32 @@
   }
   .skeleton-row td {
     padding: var(--z-space-3) var(--z-space-4);
+  }
+
+  /*
+    Read by a finger. Both controls are laid out for a mouse: a 12px edge to
+    pull and a 20px grip are fine for a cursor that lands where it is pointed,
+    and are most of a fingertip's width apart from each other. Under a coarse
+    pointer the heading takes the touch height the rest of the product uses and
+    both controls grow into it -- and the resize handle stops waiting for the
+    hover that will never come, because a control nobody can see is one nobody
+    reports as too small.
+  */
+  @media (pointer: coarse) {
+    .heading {
+      min-height: var(--z-control-touch);
+    }
+    .move {
+      width: var(--z-space-6);
+      height: var(--z-control-touch);
+    }
+    .resizer {
+      right: calc(-1 * var(--z-space-3));
+      width: var(--z-space-6);
+    }
+    .resizer::after {
+      opacity: 1;
+    }
   }
 
   /*

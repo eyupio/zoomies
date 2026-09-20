@@ -1,4 +1,5 @@
 import { prefs } from '../state/prefs.svelte';
+import { startColumnDrag, startColumnResize } from './columnGesture';
 
 export interface TableLayoutOptions {
   /** Stable preference key, shared with no other table. */
@@ -19,7 +20,6 @@ const MAX_WIDTH = 640;
 export function tableLayout(node: HTMLTableElement, initial: TableLayoutOptions) {
   let options = initial;
   let applying = false;
-  let dragged = '';
   const widths: Record<string, number> = {};
   const defaults: Record<string, number> = {};
   const disposers: Array<() => void> = [];
@@ -163,7 +163,6 @@ export function tableLayout(node: HTMLTableElement, initial: TableLayoutOptions)
       grip.type = 'button';
       grip.className = 'managed-table-move';
       grip.dataset.tableLayoutControl = 'true';
-      grip.draggable = true;
       grip.textContent = '⋮⋮';
       grip.title = 'Drag to reposition; use left and right arrow keys for keyboard control';
       grip.setAttribute('aria-label', `Reposition ${label} column`);
@@ -175,14 +174,38 @@ export function tableLayout(node: HTMLTableElement, initial: TableLayoutOptions)
         const target = order[index + (event.key === 'ArrowLeft' ? -1 : 1)];
         if (target) move(id, target);
       };
-      const onDragStart = (event: DragEvent): void => {
-        dragged = id;
-        event.dataTransfer?.setData('text/plain', id);
+      const clearDragMarks = (): void => {
+        for (const th of node.querySelectorAll<HTMLElement>('thead th')) {
+          th.classList.remove('managed-table-drop-target', 'managed-table-dragging');
+        }
+      };
+      const onGripPointerDown = (event: PointerEvent): void => {
+        // As in the grid: the last heading crossed stays the target, so a drag
+        // that ends a little off the heading row still lands.
+        let target = '';
+        startColumnDrag(event, node, {
+          over: (over) => {
+            if (over) target = over;
+            heading.classList.add('managed-table-dragging');
+            for (const th of node.querySelectorAll<HTMLElement>('thead th')) {
+              th.classList.toggle(
+                'managed-table-drop-target',
+                th.dataset.tableColumn === target && target !== id,
+              );
+            }
+          },
+          drop: (dropped) => {
+            if (dropped) target = dropped;
+            clearDragMarks();
+            if (target) move(id, target);
+          },
+          cancel: clearDragMarks,
+        });
       };
       grip.addEventListener('keydown', onGripKey);
-      grip.addEventListener('dragstart', onDragStart);
+      grip.addEventListener('pointerdown', onGripPointerDown);
       disposers.push(() => grip.removeEventListener('keydown', onGripKey));
-      disposers.push(() => grip.removeEventListener('dragstart', onDragStart));
+      disposers.push(() => grip.removeEventListener('pointerdown', onGripPointerDown));
       heading.insertBefore(grip, heading.firstChild);
 
       const resize = document.createElement('button');
@@ -192,23 +215,15 @@ export function tableLayout(node: HTMLTableElement, initial: TableLayoutOptions)
       resize.title = 'Drag to resize; double-click to restore the default width';
       resize.setAttribute('aria-label', `Resize ${label} column`);
       const onPointerDown = (event: PointerEvent): void => {
-        if (event.button !== 0) return;
-        event.preventDefault();
-        const startX = event.clientX;
-        const startWidth = heading.getBoundingClientRect().width;
-        const onMove = (moveEvent: PointerEvent): void => {
-          widths[id] = Math.max(
-            MIN_WIDTH,
-            Math.min(MAX_WIDTH, startWidth + moveEvent.clientX - startX),
-          );
-          apply();
-        };
-        const onUp = (): void => {
-          document.removeEventListener('pointermove', onMove);
-          prefs.setColumnWidth(options.id, id, widths[id]!);
-        };
-        document.addEventListener('pointermove', onMove);
-        document.addEventListener('pointerup', onUp, { once: true });
+        startColumnResize(event, heading.getBoundingClientRect().width, {
+          move: (width) => {
+            widths[id] = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, width));
+            apply();
+          },
+          done: () => {
+            if (widths[id] !== undefined) prefs.setColumnWidth(options.id, id, widths[id]);
+          },
+        });
       };
       const onResizeKey = (event: KeyboardEvent): void => {
         if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
@@ -226,24 +241,12 @@ export function tableLayout(node: HTMLTableElement, initial: TableLayoutOptions)
         prefs.clearColumnWidth(options.id, id);
         apply();
       };
-      const onDragOver = (event: DragEvent): void => {
-        if (dragged) event.preventDefault();
-      };
-      const onDrop = (event: DragEvent): void => {
-        event.preventDefault();
-        move(dragged, id);
-        dragged = '';
-      };
       resize.addEventListener('pointerdown', onPointerDown);
       resize.addEventListener('keydown', onResizeKey);
       resize.addEventListener('dblclick', onDoubleClick);
-      heading.addEventListener('dragover', onDragOver);
-      heading.addEventListener('drop', onDrop);
       disposers.push(() => resize.removeEventListener('pointerdown', onPointerDown));
       disposers.push(() => resize.removeEventListener('keydown', onResizeKey));
       disposers.push(() => resize.removeEventListener('dblclick', onDoubleClick));
-      disposers.push(() => heading.removeEventListener('dragover', onDragOver));
-      disposers.push(() => heading.removeEventListener('drop', onDrop));
       heading.appendChild(resize);
     }
   }
