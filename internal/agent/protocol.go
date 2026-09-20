@@ -54,11 +54,14 @@ type JoinRequest struct {
 	// into space the job cannot write to is the failure that distinction
 	// exists to prevent. Zero means the agent could not measure it, which is
 	// not the same as a full disk.
-	DiskTotalMB int64             `json:"disk_total_mb,omitempty"`
-	DiskFreeMB  int64             `json:"disk_free_mb,omitempty"`
-	Version     string            `json:"version"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	Backends    []backend.Info    `json:"backends"`
+	DiskTotalMB int64  `json:"disk_total_mb,omitempty"`
+	DiskFreeMB  int64  `json:"disk_free_mb,omitempty"`
+	Version     string `json:"version"`
+	// Features is sent at join as well as on every heartbeat, so a host is
+	// not shown as unable to lend CPU for the thirty seconds between the two.
+	Features []string          `json:"features,omitempty"`
+	Labels   map[string]string `json:"labels,omitempty"`
+	Backends []backend.Info    `json:"backends"`
 	// PreviousToken is the agent token this host was issued the last time it
 	// joined, sent when the credentials file still holds one. It is what lets
 	// a rebuilt machine reclaim its own row: without it the controller refuses

@@ -92,6 +92,15 @@
   // the sentence; the kernel and architecture are the fallback for an agent too
   // old to report a distribution.
   const platform = $derived(host.platform_label || [host.os, host.arch].filter(Boolean).join('/'));
+  // Whether an elastic pool would be elastic here. Only asked of a host with
+  // a container backend, because moving a live quota is a thing a cgroup has
+  // and a bare process does not; an incompatible host already says the
+  // larger thing.
+  const cannotLendCPU = $derived(
+    host.elastic_cpu === false &&
+      !host.incompatible &&
+      (host.backends ?? []).some((kind) => kind === 'docker' || kind === 'podman'),
+  );
 
   // How much machine it is, which is the other half of the answer to "why is
   // this host full".
@@ -284,6 +293,19 @@
             size="sm"
             dot={false}
             title="This agent has not reported the machine's CPUs, memory or disk, so this host is placed by its slot count alone. Upgrade the agent and the figures appear on its next heartbeat."
+          />
+        {/if}
+        {#if cannotLendCPU}
+          <!-- Neutral for the same reason: an agent that cannot move a live
+               quota is a fact about its release, not a state of the host. It
+               is said only where there is a quota to move, so a process-only
+               host is not badged for a thing it could never do. -->
+          <Badge
+            tone="neutral"
+            label="Cannot lend CPU"
+            size="sm"
+            dot={false}
+            title={`This agent cannot move a live runner's CPU quota, so a runner of an elastic pool placed here is held at its guaranteed share. Upgrade the agent${host.upgrade_command ? '; the command is at the foot of this card' : ''}.`}
           />
         {/if}
         {#if machine}

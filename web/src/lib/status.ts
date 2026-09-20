@@ -33,6 +33,7 @@ import {
   TriangleAlert,
 } from '@lucide/svelte';
 import type { LucideIcon } from '@lucide/svelte';
+import DogSitting from './icons/DogSitting.svelte';
 import type {
   APIToken,
   Host,
@@ -181,6 +182,19 @@ export function cpuResourceStatus(state: string | undefined, label?: string): St
         'pending',
         'dashed',
         PawPrint,
+      );
+    case 'sit_and_stay':
+      // A pool with elastic CPU off: the runner is held at exactly its share,
+      // not moving and doing as it was told. Neutral rather than idle, because
+      // "guaranteed pace" is the elastic pool's word for a runner that may yet
+      // be lent something, and this one never will be.
+      return meta(
+        state,
+        label ?? 'Sit and stay — CPU held at its share',
+        'neutral',
+        'hollow',
+        DogSitting,
+        'This pool has elastic CPU off, so the runner keeps its share and nothing is lent or taken back.',
       );
     default:
       return meta(

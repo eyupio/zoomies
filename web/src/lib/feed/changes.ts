@@ -125,7 +125,7 @@ export function runnerMilestone(
  * taken back, or the host it is on came under enough pressure to slow it.
  *
  * The state rather than the factor, because the factor moves with every
- * heartbeat and the five states are what the runner's own page shows. A
+ * heartbeat and the six states are what the runner's own page shows. A
  * runner seen for the first time says nothing: the state it is already in is
  * not something that just happened.
  */

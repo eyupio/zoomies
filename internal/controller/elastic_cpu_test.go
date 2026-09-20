@@ -91,4 +91,23 @@ func TestCPUResourceStatusSaysWhatTheNumbersMean(t *testing.T) {
 	if got.GuaranteedCPUs != 4 || got.CurrentCPUs != 2 {
 		t.Fatalf("fixed DinD resource status = %+v, want both 2-CPU containers represented", got)
 	}
+
+	// A pool with elasticity off holds its runner at its share, and a runner
+	// doing exactly that has a state of its own rather than none: no state at
+	// all reads as a quota nobody measured, which a held one is not.
+	sample, _ = json.Marshal(backend.Stats{CPUAllocationFactor: 1})
+	r.ResourceSample = sample
+	got = cpuResourceView(r, p, h)
+	if got == nil || got.State != "sit_and_stay" || got.Label != "Sit and stay — CPU held at its share" || got.Reason != "elastic_off" {
+		t.Fatalf("resource status = %+v, want a runner held at its share to say so", got)
+	}
+	if got.CurrentCPUs != got.GuaranteedCPUs || got.CeilingCPUs != got.GuaranteedCPUs {
+		t.Fatalf("resource status = %+v, want current and ceiling both at the guarantee", got)
+	}
+	// A runner nothing has sampled yet says the same: no sample is a factor
+	// of one, not an unknown.
+	r.ResourceSample = nil
+	if got = cpuResourceView(r, p, h); got == nil || got.State != "sit_and_stay" {
+		t.Fatalf("resource status = %+v, want sit_and_stay before the first sample", got)
+	}
 }

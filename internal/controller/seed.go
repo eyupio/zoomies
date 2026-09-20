@@ -306,8 +306,12 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 			// look like a fleet with nothing wrong.
 			Version:         version.Version,
 			ProtocolVersion: agent.ProtocolVersion,
-			Cordoned:        s.cordoned,
-			LastHeartbeat:   now.Add(-s.silentFor),
+			// This build's agent advertises it, so a demo host on this build
+			// does too; a fleet of hosts that could not lend CPU would carry a
+			// badge on every card saying so.
+			Features:      store.StringSlice{agent.FeatureElasticCPU},
+			Cordoned:      s.cordoned,
+			LastHeartbeat: now.Add(-s.silentFor),
 		}
 		if s.arch == "arm64" {
 			h.Connection = "tailcat"
@@ -803,21 +807,27 @@ func (c *Controller) seedRunners(ctx context.Context, now time.Time, pools []*st
 		host := hosts[s.host]
 		created := now.Add(-time.Duration(s.ageMin) * time.Minute)
 		r := &store.Runner{
-			ID:             fmt.Sprintf("run_demo%02d", i),
-			PoolID:         pool.ID,
-			HostID:         host.ID,
-			Name:           demoRunnerName(pool, i),
-			State:          s.state,
-			Ephemeral:      pool.Ephemeral,
-			Labels:         pool.Labels,
-			Image:          pool.Image,
-			ContainerID:    fmt.Sprintf("demo%032d", i),
-			Message:        s.message,
-			FaultKind:      s.fault,
-			JobsHandled:    s.jobs,
-			CPUPercent:     float64((i*17)%90) + 1,
-			MemoryBytes:    int64(256+i*64) << 20,
-			GitHubRunnerID: int64(9000 + i),
+			ID:        fmt.Sprintf("run_demo%02d", i),
+			PoolID:    pool.ID,
+			HostID:    host.ID,
+			Name:      demoRunnerName(pool, i),
+			State:     s.state,
+			Ephemeral: pool.Ephemeral,
+			Labels:    pool.Labels,
+			Image:     pool.Image,
+			// The size the runner was created with, which is what its page
+			// says it is held at. Both demo pools type a size, so it is
+			// theirs; a pool that named none would carry the host's share.
+			AllocatedCPUs:     pool.Resources.CPUs,
+			AllocatedMemoryMB: pool.Resources.MemoryMB,
+			AllocationSource:  store.AllocationFromPool,
+			ContainerID:       fmt.Sprintf("demo%032d", i),
+			Message:           s.message,
+			FaultKind:         s.fault,
+			JobsHandled:       s.jobs,
+			CPUPercent:        float64((i*17)%90) + 1,
+			MemoryBytes:       int64(256+i*64) << 20,
+			GitHubRunnerID:    int64(9000 + i),
 		}
 		if s.state != store.RunnerProvisioning {
 			started := created.Add(20 * time.Second)

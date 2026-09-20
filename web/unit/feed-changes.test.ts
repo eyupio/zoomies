@@ -86,12 +86,16 @@ test('the states on the way up are not milestones', () => {
 });
 
 test('a runner is reported when its elastic CPU state changes, not when the factor moves', () => {
-  // The five states are what the runner's own page shows; the factor behind
+  // The six states are what the runner's own page shows; the factor behind
   // them moves with every heartbeat.
   assert.equal(cpuChange('zoomies', 'guaranteed'), 'zoomies');
   assert.equal(cpuChange('maximum_zoomies', 'zoomies'), 'maximum_zoomies');
   assert.equal(cpuChange('throttled', 'maximum_zoomies'), 'throttled');
   assert.equal(cpuChange('zoomies', 'zoomies'), null);
+  // The lead coming off a runner whose pool lends nothing is news too: it was
+  // slowed by its host, and it is back at its share.
+  assert.equal(cpuChange('sit_and_stay', 'throttled'), 'sit_and_stay');
+  assert.equal(cpuChange('sit_and_stay', 'sit_and_stay'), null);
 });
 
 test('a runner already lent CPU when this tab opened is not news', () => {

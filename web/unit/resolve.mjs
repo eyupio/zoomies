@@ -31,3 +31,15 @@ export async function resolve(specifier, context, next) {
   }
   return next(specifier, context);
 }
+
+// A Svelte component of our own -- an icon drawn for a status -- cannot be
+// compiled here any more than Lucide's can, and nothing a unit test checks
+// needs it to be: a state map only needs its icon to be a distinct value. So
+// every `.svelte` import resolves to a stub, for every test at once, rather
+// than each test that reaches one learning the same lesson.
+export async function load(url, context, next) {
+  if (url.endsWith('.svelte')) {
+    return { format: 'module', shortCircuit: true, source: 'export default function () {}' };
+  }
+  return next(url, context);
+}

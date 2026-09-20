@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
@@ -54,6 +55,11 @@ type PoolHostRoom struct {
 	CPUsKnown   bool    `json:"cpus_known"`
 	MemoryKnown bool    `json:"memory_known"`
 	DiskKnown   bool    `json:"disk_known"`
+	// ElasticCPU is whether this host's agent can move a live runner's CPU
+	// quota. An elastic pool is honoured only where it is true; a runner of
+	// one placed elsewhere is held at its share, and nothing but this says so
+	// while the pool is still being edited.
+	ElasticCPU bool `json:"elastic_cpu"`
 }
 
 // Overcommitted reports whether this host promises more slots than the machine
@@ -126,6 +132,7 @@ func (c *Controller) PoolRoom(ctx context.Context, p *store.Pool) (PoolRoom, err
 			CPUsKnown:      alloc.CPUsKnown,
 			MemoryKnown:    alloc.MemoryKnown,
 			DiskKnown:      alloc.DiskKnown,
+			ElasticCPU:     h.Supports(agent.FeatureElasticCPU),
 		}
 		out.Hosts = append(out.Hosts, entry)
 		out.Runners += entry.Room
@@ -191,6 +198,10 @@ func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 	}
 
 	if w, ok := strandedByFixedSize(p, room); ok {
+		out = append(out, w)
+	}
+
+	if w, ok := heldByOldAgents(p, room); ok {
 		out = append(out, w)
 	}
 
@@ -264,6 +275,52 @@ func strandedByFixedSize(p *store.Pool, room PoolRoom) (Problem, bool) {
 			scheduler.FormatCPUs(p.Resources.CPUs), formatRoomMB(p.Resources.MemoryMB),
 			plural(len(names), "host"), strings.Join(names, ", "), plural(stranded, "runner")),
 		Fix:        "raise those hosts' capacity to the runners they can hold, or clear this pool's CPU and memory so each runner is given one slot's share of the host it lands on -- which fills every slot on every machine, whatever size it is.",
+		TargetKind: "pool",
+		TargetID:   p.ID,
+	}, true
+}
+
+// heldByOldAgents names the hosts on which an elastic pool is not elastic.
+//
+// Lending CPU means moving a live runner's cgroup quota, and the agent is the
+// only thing on the host that can. An agent too old to advertise that it can
+// is sent no directive and the runner stays at its guaranteed share -- which
+// is a correct, safe outcome, and an invisible one: the pool says automatic,
+// the runner says nothing was lent, and the metric that counts the decision as
+// unsupported_agent is not a page anybody edits a pool from. This is the
+// warning in the place the pool is saved, with the hosts named, because the
+// only thing the controller cannot do about it is upgrade the agent itself:
+// agents connect outbound, and a binary is replaced on the host.
+//
+// Observe mode raises nothing. It measures and never moves a quota, so the
+// agent's part is never asked of it.
+func heldByOldAgents(p *store.Pool, room PoolRoom) (Problem, bool) {
+	if !p.CPUBurst.Enforces() {
+		return Problem{}, false
+	}
+	var names []string
+	for _, h := range room.Hosts {
+		if !h.ElasticCPU {
+			names = append(names, h.Host)
+		}
+	}
+	if len(names) == 0 {
+		return Problem{}, false
+	}
+	runs := "run"
+	if len(names) == 1 {
+		runs = "runs"
+	}
+	return Problem{
+		Code:     "pool.elastic_cpu_unsupported",
+		Severity: config.SeverityWarning,
+		Title: fmt.Sprintf("pool %s: %d of its %s %s an agent that cannot lend CPU",
+			p.Name, len(names), plural(len(room.Hosts), "host"), runs),
+		Detail: "elastic CPU moves a live runner's quota through the agent on its host, and these agents are too old to say they can: " +
+			strings.Join(names, ", ") + ". A runner placed there is held at its guaranteed share, exactly as with elastic CPU off, " +
+			"and nothing on the pool says which of its runners that happened to.",
+		Fix: "upgrade the agent on those hosts -- the command is on each host's card under Hosts -- " +
+			"or keep this pool on observe, which needs nothing of the agent, until they are.",
 		TargetKind: "pool",
 		TargetID:   p.ID,
 	}, true

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/github"
@@ -150,7 +151,14 @@ type HostView struct {
 	CanonicalName  string `json:"canonical_name,omitempty"`
 	Version        string `json:"version,omitempty"`
 	VersionChannel string `json:"version_channel,omitempty"`
-	Cordoned       bool   `json:"cordoned"`
+	// Features is what the agent advertises it can do, and ElasticCPU the one
+	// answer a pool cares about: whether a runner placed here can be lent CPU
+	// at all. Rendered as a flag rather than left for the browser to find in
+	// the list, so the card and the pool wizard cannot disagree about which
+	// feature name means what.
+	Features   []string `json:"features"`
+	ElasticCPU bool     `json:"elastic_cpu"`
+	Cordoned   bool     `json:"cordoned"`
 	// ProtocolVersion is the agent protocol this host reported, and
 	// Incompatible whether this controller can work with it. An incompatible
 	// host is excluded from placement exactly as a cordoned one is, so the
@@ -215,6 +223,8 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		CanonicalName:      h.CanonicalName(),
 		Version:            h.Version,
 		VersionChannel:     version.Channel(h.Version),
+		Features:           emptySlice(h.Features),
+		ElasticCPU:         h.Supports(agent.FeatureElasticCPU),
 		Cordoned:           h.Cordoned,
 		ProtocolVersion:    h.ProtocolVersion,
 		Incompatible:       h.Incompatible,
@@ -632,12 +642,6 @@ func cpuResourceView(r *store.Runner, p *store.Pool, h *store.Host) *CPUResource
 	if len(r.ResourceSample) > 0 && json.Unmarshal(r.ResourceSample, &sample) == nil && sample.CPUAllocationFactor > 0 {
 		factor = sample.CPUAllocationFactor
 	}
-	// Host-pressure throttling applies to any limited container, even when its
-	// pool does not use elastic boosts. Keep that state visible on the runner;
-	// hide only an ordinary factor of one for a pool with elasticity off.
-	if !p.CPUBurst.Observes() && factor >= .99 {
-		return nil
-	}
 	ceiling := p.CPUBurst.MaxCPUs
 	if ceiling <= 0 && h != nil {
 		ceiling = h.Allocatable().CPUs
@@ -659,6 +663,16 @@ func cpuResourceView(r *store.Runner, p *store.Pool, h *store.Host) *CPUResource
 		state, label, reason = "zoomies", "Rabbit spotted — extra zoomies", "spare_cpu_lent"
 	case p.CPUBurst.Mode == store.CPUBurstObserve:
 		state, label, reason = "observing", "Nose to the wind — watching spare CPU", "observe_only"
+	case !p.CPUBurst.Observes():
+		// A pool with elasticity off holds every runner at its share, and a
+		// runner doing exactly that is not at "guaranteed pace" -- that is the
+		// elastic pool's word for a runner that may yet be lent something. It
+		// is sitting where it was put, and it says so with a state of its own
+		// rather than with nothing: a runner with no CPU state at all reads
+		// as a quota nobody measured, which a held one is not. Host-pressure
+		// throttling still applies to any limited container, so the cases
+		// above keep the lead on a runner of this pool visible too.
+		state, label, reason = "sit_and_stay", "Sit and stay — CPU held at its share", "elastic_off"
 	}
 	return &CPUResourceView{
 		State: state, Label: label, Reason: reason, GuaranteedCPUs: guaranteed,

@@ -647,6 +647,58 @@ func TestHeartbeatRecordsABackendThatBecameAvailable(t *testing.T) {
 	}
 }
 
+// What an agent can do is re-read from every heartbeat, like its version: an
+// agent rolled back to a release that cannot move a live quota must stop being
+// counted as one that can, or an elastic pool keeps reading its runners on that
+// host as boostable when they are held at their share.
+func TestHeartbeatRecordsWhatTheAgentCanDo(t *testing.T) {
+	h := newHarness(t)
+	tr := h.c.EmbeddedTransport()
+
+	resp, err := tr.Join(h.ctx, agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Name:            "vm-1",
+		Capacity:        2,
+		Features:        []string{agent.FeatureElasticCPU},
+		Backends:        []backend.Info{{Kind: store.BackendDocker, Available: true}},
+	})
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	tr.SetCredentials(resp.HostID, resp.AgentToken)
+
+	host, err := h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	// Recorded at join, so the host is not read as unable to lend CPU for the
+	// thirty seconds before its first heartbeat.
+	if !host.Supports(agent.FeatureElasticCPU) {
+		t.Fatalf("features = %v, want the join's claim recorded", host.Features)
+	}
+	if view := h.c.HostView(host); !view.ElasticCPU {
+		t.Fatalf("host view = %+v, want elastic_cpu true", view)
+	}
+
+	// An older agent sends no features at all, and that is a change.
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Capacity:        2,
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+	host, err = h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if host.Supports(agent.FeatureElasticCPU) {
+		t.Fatalf("features = %v, want a heartbeat that claims nothing to withdraw the claim", host.Features)
+	}
+	if view := h.c.HostView(host); view.ElasticCPU {
+		t.Fatalf("host view = %+v, want elastic_cpu false", view)
+	}
+}
+
 // A heartbeat that carries no probe at all -- an older agent, or one that has
 // not probed yet -- must not wipe what the host is known to be able to do.
 func TestHeartbeatWithoutABackendProbeKeepsWhatIsKnown(t *testing.T) {

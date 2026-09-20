@@ -840,6 +840,11 @@ test('editing an automatic pool offers the advanced path, and elastic CPU with i
 
     await toStep(page, 'Size');
     await page.getByRole('combobox', { name: 'Elastic CPU' }).selectOption('automatic');
+    // And the step says whether the hosts will honour it. The demo agents are
+    // this build's, so every one of them can.
+    await expect(
+      page.getByText('Every host this pool can land on runs an agent that can lend CPU.'),
+    ).toBeVisible();
     await toReview(page);
     await expect(page.getByRole('region', { name: /What will be saved/ })).toContainText(
       'Automatic, up to the host ceiling',

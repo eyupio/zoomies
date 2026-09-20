@@ -164,6 +164,13 @@ runner page shows the guarantee as the ceiling rather than the smaller figure.
     guarantee, memory stays fixed — so the decision is made with its
     consequences in view.
 
+    It also says whether the hosts will honour it. Choosing *Automatic boost*
+    checks the agent on every host the pool can land on: either every one of
+    them can lend CPU, or the step names the ones that cannot and points at
+    the Hosts page, where each such host's card carries the upgrade command.
+    The review step repeats it as a warning, `pool.elastic_cpu_unsupported`,
+    so the pool is never saved as elastic without saying where it will not be.
+
     An existing pool is changed on its page: **Edit** opens the same wizard on
     the same step. The change is **live**: the controller reads the pool's
     policy on every heartbeat, so switching to *Automatic boost* can lend CPU
@@ -226,10 +233,21 @@ runners stay at their guarantee, the decision is still published, and the
 `unsupported_agent` outcome in the metrics says which host to upgrade. Nothing
 breaks on a mixed fleet; it just does not speed up until the agent does.
 
+That is the one thing a host needs for elastic CPU, and the only one the
+controller cannot do for you: agents connect outbound, and a binary is
+replaced on the host. So it says so instead, everywhere the question comes up.
+The controller records what each agent advertises (`features` and
+`elastic_cpu` on the host), the wizard's size step says whether every host the
+pool can land on can lend CPU and names the ones that cannot, the review step
+warns (`pool.elastic_cpu_unsupported`) with the same names, and each such
+host's card carries a **Cannot lend CPU** badge with the upgrade command folded
+beneath it. Nothing else about a host is part of it — no slot, reserve or
+capacity setting changes for an elastic pool.
+
 ## What you see
 
 **On the runner's page**, the CPU state sits beside the allocation: the
-guaranteed, current and ceiling figures together, under one of five labels. The
+guaranteed, current and ceiling figures together, under one of six labels. The
 labels are playful because the fleet is, but each is backed by a stable state
 that the API carries and a client can branch on:
 
@@ -239,6 +257,7 @@ that the API carries and a client can branch on:
 | Rabbit spotted — extra zoomies | `zoomies` | Lent something, under 1.75×. |
 | Steady paws — guaranteed pace | `guaranteed` | At its guarantee, in a pool that is observing or enforcing. |
 | Nose to the wind — watching spare CPU | `observing` | An `observe` pool; the decision was made and no quota moved. |
+| Sit and stay — CPU held at its share | `sit_and_stay` | A pool with elastic CPU off: held at exactly its share, not moving and doing as it was told. A held quota is not an unmeasured one, so this is a state rather than a blank. |
 | Leash tightened — host under pressure | `throttled` | The host's throttle has taken it below its guarantee. Shown for any limited runner, elastic pool or not. |
 
 **On the Overview feed**, a runner lent spare CPU or slowed by its host is an

@@ -597,6 +597,13 @@ func (r RunnerSettings) Set() bool {
 		r.ScaleUpDelay != nil || r.DockerWait != nil
 }
 
+// Supports reports whether this host's agent advertises a feature. The
+// controller passes the agent package's constant; the store does not know
+// what any feature means, only that the agent claimed it.
+func (h *Host) Supports(feature string) bool {
+	return slices.Contains(h.Features, feature)
+}
+
 // Automatic reports whether this pool leaves its runners' size to the host
 // they land on: one slot's share of whichever machine the scheduler picks,
 // charged and enforced as such.
@@ -842,6 +849,13 @@ type Host struct {
 	ReserveMemoryMB int64  `json:"reserve_memory_mb,omitempty"`
 	ReserveDiskMB   int64  `json:"reserve_disk_mb,omitempty"`
 	Version         string `json:"version"`
+	// Features is what the agent says it can do beyond running a backend,
+	// re-read from every heartbeat. An agent that advertises "elastic-cpu"
+	// can move a live runner's CPU quota; one that does not keeps every runner
+	// of an elastic pool at its guaranteed share, and the pool cannot tell.
+	// Recorded so the question is answered while a pool is being edited and
+	// on the host's own card, not by the next heartbeat after the fact.
+	Features StringSlice `json:"features"`
 	// Cordoned hosts keep their existing runners but accept no new ones.
 	Cordoned bool `json:"cordoned"`
 	// ProtocolVersion is the agent protocol this host last reported speaking,
