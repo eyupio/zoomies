@@ -65,6 +65,16 @@ type poolItem struct {
 	// each given one slot's share of the machine they land on.
 	Resources poolResources `json:"resources"`
 	Sizing    string        `json:"sizing"`
+	// CPUBurst is the pool's elastic CPU policy: whether a busy runner may be
+	// lent the host's spare CPU above its guaranteed share.
+	CPUBurst poolCPUBurst `json:"cpu_burst"`
+}
+
+// poolCPUBurst mirrors the API's CPUBurstPolicy. An empty mode is off, which
+// is what every pool created before the policy existed has.
+type poolCPUBurst struct {
+	Mode    string  `json:"mode"`
+	MaxCPUs float64 `json:"max_cpus"`
 }
 
 // poolResources is the size a pool asks for per runner. Every field is zero on

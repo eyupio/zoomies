@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -315,5 +316,73 @@ func TestAuditListRejectsAnUnparseableSince(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "--since") {
 		t.Errorf("the complaint must name the flag:\n%s", errOut)
+	}
+}
+
+// The elastic CPU policy is one object, like the size: an edit that types only
+// the ceiling has to carry the mode forward, or "raise the ceiling" would
+// quietly switch elasticity off.
+func TestPoolsEditCarriesTheElasticCPUModeForward(t *testing.T) {
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-4vcpu","resources":{},"sizing":"automatic",
+				"cpu_burst":{"mode":"automatic","max_cpus":0}}`))
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Errorf("decoding the PATCH body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-4vcpu","enabled":true,
+				"cpu_burst":{"mode":"automatic","max_cpus":6}}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	out, _ := runCLI(t, "pools", "edit", "pool_1", "--cpu-burst-max", "6", "--url", srv.URL)
+
+	burst, _ := sent["cpu_burst"].(map[string]any)
+	if burst["mode"] != "automatic" || burst["max_cpus"] != 6.0 {
+		t.Errorf("the PATCH must keep the mode and set the ceiling, got %v", sent["cpu_burst"])
+	}
+	if _, ok := sent["resources"]; ok {
+		t.Errorf("an edit that touches no part of the size must not send one: %v", sent)
+	}
+	if !strings.Contains(out, "zoomies-4vcpu") {
+		t.Errorf("the edited pool must be confirmed by name:\n%s", out)
+	}
+}
+
+// `pools get` has to say what the runner page says: a pool sized by its host
+// and lent spare CPU is not "cpus 0", which reads as unlimited.
+func TestPoolsGetShowsSizingAndTheElasticCPUPolicy(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{
+		"/api/v1/pools/pool_1": `{"id":"pool_1","name":"zoomies-4vcpu","backend":"docker",
+			"resources":{},"sizing":"automatic","cpu_burst":{"mode":"automatic","max_cpus":6},
+			"counts":{}}`,
+	})
+
+	out, _ := runCLI(t, "pools", "get", "pool_1", "--url", srv.URL)
+
+	for _, want := range []string{"one slot's share", "automatic, up to 6 CPUs per runner"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pools get must show %q:\n%s", want, out)
+		}
+	}
+}
+
+// A ceiling typed on a create without a mode would be sent as an explicit
+// empty mode, which the API reads as off, so the ceiling would bind nothing
+// and the pool would quietly miss the observe default it would otherwise get.
+func TestPoolsCreateRefusesACeilingWithoutAMode(t *testing.T) {
+	e, _, errOut := newTestEnv(t)
+	code := dispatch(context.Background(), e, []string{"pools", "create", "--name", "p", "--labels", "p",
+		"--cpu-burst-max", "4", "--url", "http://127.0.0.1:1"})
+	if code != exitUsage {
+		t.Fatalf("exit code = %d, want %d: a ceiling without a mode must be refused as a usage error", code, exitUsage)
+	}
+	if !strings.Contains(errOut.String(), "--cpu-burst") {
+		t.Errorf("the refusal must name the flag to add:\n%s", errOut.String())
 	}
 }

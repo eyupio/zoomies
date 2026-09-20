@@ -138,37 +138,45 @@ extra:
       name: Zoomies on GitHub
   generator: false
 
+# The navigation is ordered the way a fleet is run: the web UI first, because
+# it is the primary way to configure and operate Zoomies; then the other ways
+# in -- the command line, Docker Compose, a PaaS, the API -- which reach the
+# same controller; then the reference. A page under "Running the fleet"
+# describes a task from the UI and says where its CLI and API equivalents are.
 nav:
   - Home: index.md
   - Quick start: quickstart.md
-  - The UI: ui.md
-  - Guide:
-      - Architecture: architecture.md
-      - Naming and platforms: naming.md
-      - Configuration: configuration.md
+  - Running the fleet from the web UI:
+      - The UI, page by page: ui.md
       - Hosts and pools: hosts-and-pools.md
+      - Elastic CPU zoomies: elastic-cpu.md
       - Private hosts with Tailcat: private-hosts.md
       - Proxmox VE: proxmox.md
       - Migrating repositories: migration.md
+      - Backup and restore: backup-and-restore.md
+      - Upgrading: upgrading.md
+      - Troubleshooting: troubleshooting.md
+  - Other ways in:
+      - Command line: cli.md
+      - Docker Compose: compose.md
       - Deploying on a PaaS: paas.md
       - One-click deployment: marketplace.md
-      - Security: security.md
-      - Troubleshooting: troubleshooting.md
-      - Runner startup stability: runner-startup-stability.md
-      - Runtime compatibility: runtime-compatibility.md
-      - Upgrading: upgrading.md
-      - Backup and restore: backup-and-restore.md
       - API: api-surface.md
       - Capacity-demand receiver: capacity-demand-receiver.md
-  - FAQ: faq.md
   - Reference:
-      - Command line: cli.md
-      - Provider contract: providers.md
+      - Configuration: configuration.md
+      - Architecture: architecture.md
+      - Naming and platforms: naming.md
+      - Security: security.md
+      - Runner startup stability: runner-startup-stability.md
+      - Runtime compatibility: runtime-compatibility.md
       - Problem codes: problem-codes.md
       - Metrics: metrics.md
+      - Provider contract: providers.md
       - Dependencies: dependencies.md
       - UI guidelines: ui-guidelines.md
       - Brand: brand.md
+  - FAQ: faq.md
 
 # The brand pack's own guide is published because docs/brand.md links to it, but
 # it is not a section of the site's navigation.

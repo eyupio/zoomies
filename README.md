@@ -88,6 +88,11 @@ flowchart LR
   button where you want to be sure. Light and dark, a command palette, and a log
   viewer built for a hundred thousand lines.
   [See every page](https://zoomies.sh/ui/).
+* **Elastic CPU zoomies.** Every runner keeps its guaranteed share of its
+  host, and a busy one is lent the CPU nobody else is using — the next queued
+  job's room held back, the host's reserve untouched, memory never moved. New
+  pools measure it by default and move nothing until you say so.
+  [How it works](https://zoomies.sh/elastic-cpu/).
 * **Ephemeral by default.** One job per runner. Nothing leaks from one workflow
   run to the next.
 * **No pasted tokens.** Zoomies authenticates as a GitHub App and mints
@@ -331,10 +336,13 @@ See [docs/migration.md](docs/migration.md).
 
 ## The UI
 
-Ten pages, one job each: **Overview** (fleet health, queue depth, scaling
+Twelve pages, one job each: **Overview** (fleet health, queue depth, scaling
 decisions in plain words, and a problems panel that is quiet when nothing is
-wrong), **Pools**, **Runners**, **Jobs**, **Usage**, **Hosts**,
-**Installations**, **Migrate**, **Audit**, **Settings**.
+wrong), **Pools**, **Runners**, **Queue**, **Jobs**, **Usage**, **Hosts**,
+**Providers**, **Installations**, **Migrate**, **Audit**, **Settings**. It is
+the primary way to configure and run a fleet, and the docs describe each task
+from there first; the CLI, Compose and the API are
+[the other ways in](https://zoomies.sh/#run-it-from-the-browser-reach-it-from-anywhere).
 
 <table>
   <tr>
@@ -388,6 +396,7 @@ from one that is not reachable from the other.
 zoomies status                       # the Overview, in a terminal
 zoomies pools list
 zoomies pools create --name zoomies-linux-x64 --labels zoomies-linux-x64 --installation ins_k3f9qz2m --max 8
+zoomies pools edit pool_k3f9qz2m --cpu-burst automatic   # lend busy runners the host's spare CPU
 zoomies runners list --state busy
 zoomies runners drain run_k3f9qz2m
 zoomies runners logs run_k3f9qz2m --follow

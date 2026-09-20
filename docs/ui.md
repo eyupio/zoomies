@@ -99,9 +99,23 @@ safety away, so the trade is visible from the list.
 ![The Pools page: queue pressure and configured headroom above each pool's runner and configuration details](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
 ![The Pools page: queue pressure and configured headroom above each pool's runner and configuration details](screenshots/pools-light.webp#only-light){ .zoomies-shot }
 
+The wizard that creates one is seven steps on its advanced path, which every
+step of the simple path offers, and the **Size** step is where
+the pool says how much machine one runner gets: *one share of each host*,
+with what every host in the fleet would give a runner listed underneath, or a
+fixed size on every host. Under the shared size sit the two fields of
+[elastic CPU zoomies](elastic-cpu.md) — **Elastic CPU**, off, observe only or
+automatic boost, and **Boost ceiling** — so lending a busy runner the host's
+spare CPU is a choice made beside the guarantee it builds on. The verdict at
+the foot of each step is the controller's own, asked as you type, so a pool
+that no host could run is refused with the reason before it is saved.
+
 A pool's own page shows its runners and recent jobs, the exact `runs-on:` line
 a workflow writes to land here, and its configuration with the warnings — if
-any — that the settings earn it.
+any — that the settings earn it. **Edit** reopens the same wizard on the same
+pool. A size typed there applies to the next runner it creates; the elastic
+CPU policy is read on every heartbeat, so that change reaches runners already
+running.
 
 ![A pool's page: its runners and their states, recent jobs, the runs-on line to copy, and its configuration](screenshots/pool-dark.webp#only-dark){ .zoomies-shot }
 ![A pool's page: its runners and their states, recent jobs, the runs-on line to copy, and its configuration](screenshots/pool-light.webp#only-light){ .zoomies-shot }
@@ -128,9 +142,17 @@ host's agent last reported it, and the live log. Beside the usage is the
 pool set them or the host gave it its default share of the machine. The source
 is the thing to read when a runner was killed for exceeding its memory: a limit
 from the pool is raised on the pool, and a host's share is raised by lowering
-the host's capacity or by giving the pool a `memory_mb` of its own. The page
-also says when the runner's host is throttled, because a job running at half
-its allocation is slow for a reason the runner itself cannot show.
+the host's capacity or by giving the pool a `memory_mb` of its own. Beside the allocation is its **CPU state**: the guaranteed, current and
+ceiling CPU together, under a label that says what is happening to the quota
+right now — *Squirrel spotted — maximum zoomies* for a runner lent most of a
+host, *Rabbit spotted — extra zoomies* for a smaller boost, *Steady paws —
+guaranteed pace* at its share, *Nose to the wind — watching spare CPU* for a
+pool that measures without moving, and *Leash tightened — host under
+pressure* when the throttle has taken it below its guarantee. The last is
+shown for any limited runner, elastic or not, because a job running at three
+quarters of its allocation is slow for a reason the runner itself cannot
+show. [Elastic CPU zoomies](elastic-cpu.md) says what each state means and
+how the decision is made.
 
 ![A busy runner's page: its current job, a timeline of its states, details and resource usage](screenshots/runner-dark.webp#only-dark){ .zoomies-shot }
 ![A busy runner's page: its current job, a timeline of its states, details and resource usage](screenshots/runner-light.webp#only-light){ .zoomies-shot }
