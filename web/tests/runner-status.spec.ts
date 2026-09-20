@@ -75,9 +75,21 @@ test('one live status keeps details accessible without clipping in rows or cards
   });
   const clipped = await leash.evaluate((button) => {
     const label = button.querySelector('.label')!;
+    const avatar = button.querySelector('svg')!.getBoundingClientRect();
     const cell = button.closest('td')!.getBoundingClientRect();
     const rect = label.getBoundingClientRect();
-    return label.scrollWidth > label.clientWidth + 1 || rect.right > cell.right + 1;
+    const overlaps =
+      avatar.left < rect.right &&
+      avatar.right > rect.left &&
+      avatar.top < rect.bottom &&
+      avatar.bottom > rect.top;
+    return (
+      label.scrollWidth > label.clientWidth + 1 ||
+      rect.right > cell.right + 1 ||
+      avatar.left < cell.left - 1 ||
+      avatar.right > cell.right + 1 ||
+      overlaps
+    );
   });
   expect(clipped).toBe(false);
   await page.emulateMedia({ reducedMotion: 'reduce' });

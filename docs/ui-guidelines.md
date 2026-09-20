@@ -18,6 +18,21 @@ from here rather than inventing values.
 
 ## 1. Design tokens
 
+Runner status uses the shared `ZoomiesStatusIcon` cocker spaniel avatar. Its
+44px reserved box keeps the face readable without moving the adjacent label;
+status text still wraps in narrow saved columns. The fixed `--z-avatar-*`
+illustration palette preserves the black-and-white dog in both themes, while
+the backdrop and collar inherit semantic surface and status colours.
+
+Busy and boosted runners take short, increasingly energetic bounds with ear,
+paw and tail movement. Throttled runners tilt their heads patiently; preparing
+runners sniff, registering runners wave, and idle runners wait. Draining is
+calmer, failure has a concerned static pose, and removed runners have closed
+eyes. Runner-specific timing separates gestures across the fleet, with rests
+between bursts. Reduced motion stops every animated part. The avatar is
+decorative: the existing status label and accessible tooltip remain the source
+of meaning, including lifecycle precedence over elastic CPU activity.
+
 All tokens live in exactly one place: `web/src/lib/styles/tokens.css`, declared
 as CSS custom properties on `:root` and overridden under `[data-theme="dark"]`.
 Tailwind v4 consumes them through `@theme` so utility classes and hand-written
