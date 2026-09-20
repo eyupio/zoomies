@@ -42,6 +42,7 @@
   import type { RowAction } from '$lib/components/RowActions.svelte';
   import ActivityStatus from '$lib/jobs/ActivityStatus.svelte';
   import { workflowActivity } from '$lib/jobs/activity-status';
+  import { prefs } from '$lib/state/prefs.svelte';
   import { endOfDay, startOfDay } from '$lib/jobs/DateRange.svelte';
   import { jobFilterState } from '$lib/jobs/filter-state.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
@@ -340,7 +341,7 @@
 {#snippet stateCell(run: WorkflowRun)}
   <span class="state">
     <ActivityStatus
-      activity={workflowActivity(run)}
+      activity={workflowActivity(run, prefs.quirkyStatus)}
       seed={`${run.repo}/${run.github_run_id}/${run.run_attempt ?? 1}`}
       pack
     />

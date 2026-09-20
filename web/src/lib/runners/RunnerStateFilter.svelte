@@ -12,6 +12,7 @@
   import Checkbox from '$lib/components/Checkbox.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
   import { layers } from '$lib/keys';
+  import { prefs } from '$lib/state/prefs.svelte';
   import { runnerStatuses } from '$lib/status';
 
   interface Props {
@@ -23,7 +24,7 @@
 
   let { selected, onchange, class: className = '' }: Props = $props();
 
-  const states = runnerStatuses();
+  const states = $derived(runnerStatuses(prefs.quirkyStatus));
   const menuId = $props.id();
 
   let open = $state(false);

@@ -290,7 +290,7 @@ class Feed {
     }
     const lent = cpuChange(cpu, seenCPU);
     if (lent) {
-      const entry = cpuEntry(runner, lent, at);
+      const entry = cpuEntry(runner, lent, at, prefs.quirkyStatus);
       if (entry) this.#push(entry);
     }
     // A removed runner is gone from the fleet cache too, and on a fleet of

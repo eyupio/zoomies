@@ -23,6 +23,7 @@
   import { navigate, router } from '$lib/router';
   import { runnerStatus } from '$lib/status';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { prefs } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
   import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
@@ -116,7 +117,7 @@
       active.push({
         id: `state-${state}`,
         label: 'State',
-        value: runnerStatus(state).label,
+        value: runnerStatus(state, prefs.quirkyStatus).label,
         onremove: () => router.setQuery({ state: states.filter((s) => s !== state) }),
       });
     }
@@ -279,7 +280,7 @@
         width: '11.5rem',
         fixed: true,
         wrap: true,
-        value: (row) => runnerDisplayStatus(fleet.runner(row.id) ?? row).label,
+        value: (row) => runnerDisplayStatus(fleet.runner(row.id) ?? row, prefs.quirkyStatus).label,
         cell: stateCell,
       },
       {

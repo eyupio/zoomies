@@ -74,3 +74,25 @@ test('observation and normal allocations keep the lifecycle label', () => {
   );
   assert.equal(runnerDisplayStatus({}).label, 'Unknown');
 });
+
+test('turning the kennel vocabulary off gives every state a plain label, lifecycle and boosted alike', () => {
+  assert.equal(runnerStatus('provisioning', false).label, 'Provisioning');
+  assert.equal(runnerStatus('idle', false).label, 'Idle');
+  for (const state of ['busy', 'idle'] as const) {
+    for (const [cpu, label] of [
+      ['maximum_zoomies', 'Boost active'],
+      ['zoomies', 'Boost active'],
+      ['throttled', 'Throttled'],
+    ] as const) {
+      const status = runnerDisplayStatus({ state, cpu_resource: { state: cpu } }, false);
+      assert.equal(status.label, label);
+      assert.equal(status.active, true);
+    }
+  }
+  // The default stays the kennel vocabulary: a caller that does not say
+  // otherwise gets what the product has always shown.
+  assert.equal(
+    runnerDisplayStatus({ state: 'busy', cpu_resource: { state: 'maximum_zoomies' } }).label,
+    'Squirrel spotted',
+  );
+});

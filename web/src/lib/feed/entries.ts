@@ -202,12 +202,19 @@ export function runnerMilestoneEntry(
  * The title is the controller's own label -- "Squirrel spotted — maximum
  * zoomies" -- because that vocabulary is the product's, it is what the
  * runner's own page says, and a feed that translated it into "CPU allocation
- * factor 1.8" would be describing a different system from the one beside it.
+ * factor 1.8" would be describing a different system from the one beside it
+ * -- unless the operator has turned that vocabulary off, when it says the
+ * same thing plainly instead.
  */
-export function cpuEntry(runner: Runner, state: string, at: string): FeedEntry | null {
+export function cpuEntry(
+  runner: Runner,
+  state: string,
+  at: string,
+  quirky = true,
+): FeedEntry | null {
   if (!runner.id) return null;
   const cpu = runner.cpu_resource;
-  const status = cpuResourceStatus(state, cpu?.label);
+  const status = cpuResourceStatus(state, cpu?.label, quirky);
   const current = cpu?.current_cpus;
   const guaranteed = cpu?.guaranteed_cpus;
   return {

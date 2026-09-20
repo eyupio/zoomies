@@ -75,6 +75,22 @@
 
   <div class="setting">
     <div class="text">
+      <p class="label">Zoomies vocabulary</p>
+      <p class="description">
+        Runner and job status shows the fleet's dog-park words and its animated avatar. Off, the
+        same states show as plain names with a standard icon.
+      </p>
+    </div>
+    <Switch
+      label="Zoomies vocabulary"
+      hideLabel
+      checked={prefs.quirkyStatus}
+      onchange={(on) => (prefs.quirkyStatus = on)}
+    />
+  </div>
+
+  <div class="setting">
+    <div class="text">
       <p class="label">Tables on a phone</p>
       <p class="description">
         Rows keeps the table a desktop shows, scrolling sideways to the columns that do not fit.

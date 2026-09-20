@@ -63,3 +63,25 @@ test('workflow pack preserves outcomes and cancellation precedence', () => {
   assert.equal(workflowActivity({ state: 'completed', conclusion: 'cancelled' }).motion, 'removed');
   assert.equal(workflowActivity({}).motion, 'unknown');
 });
+
+test('turning the kennel vocabulary off gives the plain status word instead, motion unchanged', () => {
+  assert.equal(queuedActivity({}, false).label, 'Ready');
+  assert.equal(queuedActivity({ provisioning: 'paused' }, false).label, 'Paused');
+  assert.equal(queuedActivity({ provisioning: 'deleted' }, false).label, 'Removed');
+  assert.equal(queuedActivity({ provision_now: true }, false).label, 'Run now');
+  assert.equal(
+    queuedActivity({ cancel_requested_at: '2026-09-20T12:00:00Z' }, false).label,
+    'Cancelling',
+  );
+  assert.equal(queuedActivity({}, false).motion, queuedActivity({}).motion);
+
+  assert.equal(workflowActivity({ state: 'in_progress' }, false).label, 'Running');
+  assert.equal(
+    workflowActivity({ state: 'completed', conclusion: 'success' }, false).label,
+    'Success',
+  );
+  assert.equal(
+    workflowActivity({ state: 'in_progress' }, false).motion,
+    workflowActivity({ state: 'in_progress' }).motion,
+  );
+});

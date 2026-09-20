@@ -139,6 +139,13 @@ interface StoredPrefs {
    * the exception.
    */
   gridView?: GridView;
+  /**
+   * Whether runner and job status use the fleet's own dog-park vocabulary and
+   * the animated avatar, rather than plain state names and a standard icon.
+   * On by default, because it is what the product has always shown; an
+   * operator who finds it too much turns it off once, here.
+   */
+  quirkyStatus?: boolean;
 }
 
 /** The quick ranges the activity matrix offers, as the buttons name them. */
@@ -193,6 +200,7 @@ class Prefs {
   #activityRange = $state<ActivityRangeKey>('1d');
   #gridView = $state<GridView>(DEFAULT_GRID_VIEW);
   #feed = $state<Record<string, boolean>>({});
+  #quirkyStatus = $state(true);
   #accountSync = false;
   #accountSave: ReturnType<typeof setTimeout> | null = null;
 
@@ -220,6 +228,7 @@ class Prefs {
       ? (stored.gridView as GridView)
       : DEFAULT_GRID_VIEW;
     this.#feed = stored.feed ?? {};
+    this.#quirkyStatus = stored.quirkyStatus ?? true;
     this.#applyNav();
   }
 
@@ -438,6 +447,20 @@ class Prefs {
     this.#persist();
   }
 
+  /**
+   * Whether runner and job status shows the fleet's dog-park vocabulary and
+   * the animated avatar. Off swaps both for plain state names and a standard
+   * icon, everywhere they appear.
+   */
+  get quirkyStatus(): boolean {
+    return this.#quirkyStatus;
+  }
+
+  set quirkyStatus(value: boolean) {
+    this.#quirkyStatus = value;
+    this.#persist();
+  }
+
   /** Whether this browser has put a one-off notice away. */
   isDismissed(notice: string): boolean {
     return this.#dismissed.includes(notice);
@@ -466,6 +489,7 @@ class Prefs {
         activityRange: this.#activityRange,
         gridView: this.#gridView,
         feed: this.#feed,
+        quirkyStatus: this.#quirkyStatus,
       } satisfies StoredPrefs),
     );
     this.#scheduleAccountSave();

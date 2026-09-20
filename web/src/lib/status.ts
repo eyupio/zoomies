@@ -21,7 +21,10 @@ import {
   CircleX,
   Clock,
   Cloud,
+  Eye,
+  Gauge,
   Info,
+  Lock,
   Minus,
   Dog,
   Pause,
@@ -31,6 +34,7 @@ import {
   Squirrel,
   Trash2,
   TriangleAlert,
+  Zap,
 } from '@lucide/svelte';
 import type { LucideIcon } from '@lucide/svelte';
 import DogSitting from './icons/DogSitting.svelte';
@@ -146,64 +150,101 @@ const RUNNER: Record<RunnerState, StatusMeta> = {
 
 const UNKNOWN = meta('unknown', 'Unknown', 'neutral', 'square', CircleMinus);
 
-export function runnerStatus(state: RunnerState | undefined): StatusMeta {
-  return state ? (RUNNER[state] ?? UNKNOWN) : UNKNOWN;
+/**
+ * The same seven states, said plainly. Read instead of `RUNNER`'s label when
+ * the operator has turned the kennel vocabulary off in Settings; the tone,
+ * shape and icon -- already plain Lucide glyphs, not the avatar -- stay.
+ */
+const RUNNER_STANDARD_LABEL: Record<RunnerState, string> = {
+  provisioning: 'Provisioning',
+  registering: 'Registering',
+  idle: 'Idle',
+  busy: 'Busy',
+  draining: 'Draining',
+  failed: 'Failed',
+  removed: 'Removed',
+};
+
+/**
+ * `quirky` is passed in rather than read from a preference store here, so
+ * that this module -- the one place every status comes from -- stays free of
+ * Svelte's runtime and importable by the unit tests as plain TypeScript. Every
+ * caller that renders to the page reads the operator's choice
+ * (`prefs.quirkyStatus`) and passes it through; a caller that does not is a
+ * caller with no rendered vocabulary of its own to switch, and gets the
+ * kennel words, as it always has.
+ */
+export function runnerStatus(state: RunnerState | undefined, quirky = true): StatusMeta {
+  if (!state) return UNKNOWN;
+  const status = RUNNER[state] ?? UNKNOWN;
+  return quirky ? status : { ...status, label: RUNNER_STANDARD_LABEL[state] };
 }
 
 /** Convenience for a row that has the whole runner to hand. */
-export function runnerRowStatus(runner: Pick<Runner, 'state'>): StatusMeta {
-  return runnerStatus(runner.state);
+export function runnerRowStatus(runner: Pick<Runner, 'state'>, quirky = true): StatusMeta {
+  return runnerStatus(runner.state, quirky);
 }
 
 /** Every runner state with its label, for filter menus. */
-export function runnerStatuses(): StatusMeta[] {
-  return Object.values(RUNNER);
+export function runnerStatuses(quirky = true): StatusMeta[] {
+  return (Object.keys(RUNNER) as RunnerState[]).map((state) => runnerStatus(state, quirky));
 }
 
-/** Elastic CPU has its own dog-park vocabulary, backed by stable API states. */
-export function cpuResourceStatus(state: string | undefined, label?: string): StatusMeta {
+/**
+ * Elastic CPU has its own dog-park vocabulary, backed by stable API states --
+ * unless the operator has turned it off in Settings, when the same states get
+ * a plain label and a standard Lucide icon instead of an animal one.
+ */
+export function cpuResourceStatus(
+  state: string | undefined,
+  label?: string,
+  quirky = true,
+): StatusMeta {
   switch (state) {
     case 'maximum_zoomies':
-      return meta(state, label ?? 'Squirrel spotted — maximum zoomies', 'busy', 'filled', Squirrel);
+      return quirky
+        ? meta(state, label ?? 'Squirrel spotted — maximum zoomies', 'busy', 'filled', Squirrel)
+        : meta(state, label ?? 'Maximum boost', 'busy', 'filled', Zap);
     case 'zoomies':
-      return meta(state, label ?? 'Rabbit spotted — extra zoomies', 'busy', 'filled', Rabbit);
+      return quirky
+        ? meta(state, label ?? 'Rabbit spotted — extra zoomies', 'busy', 'filled', Rabbit)
+        : meta(state, label ?? 'Extra boost', 'busy', 'filled', Zap);
     case 'throttled':
-      return meta(
-        state,
-        label ?? 'Leash tightened — host under pressure',
-        'draining',
-        'slash',
-        Dog,
-      );
+      return quirky
+        ? meta(state, label ?? 'Leash tightened — host under pressure', 'draining', 'slash', Dog)
+        : meta(state, label ?? 'Throttled', 'draining', 'slash', CircleSlash);
     case 'observing':
-      return meta(
-        state,
-        label ?? 'Nose to the wind — watching spare CPU',
-        'pending',
-        'dashed',
-        PawPrint,
-      );
-    case 'sit_and_stay':
+      return quirky
+        ? meta(
+            state,
+            label ?? 'Nose to the wind — watching spare CPU',
+            'pending',
+            'dashed',
+            PawPrint,
+          )
+        : meta(state, label ?? 'Observing spare CPU', 'pending', 'dashed', Eye);
+    case 'sit_and_stay': {
       // A pool with elastic CPU off: the runner is held at exactly its share,
       // not moving and doing as it was told. Neutral rather than idle, because
       // "guaranteed pace" is the elastic pool's word for a runner that may yet
       // be lent something, and this one never will be.
-      return meta(
-        state,
-        label ?? 'Sit and stay — CPU held at its share',
-        'neutral',
-        'hollow',
-        DogSitting,
-        'This pool has elastic CPU off, so the runner keeps its share and nothing is lent or taken back.',
-      );
+      const hint =
+        'This pool has elastic CPU off, so the runner keeps its share and nothing is lent or taken back.';
+      return quirky
+        ? meta(
+            state,
+            label ?? 'Sit and stay — CPU held at its share',
+            'neutral',
+            'hollow',
+            DogSitting,
+            hint,
+          )
+        : meta(state, label ?? 'Held at its share', 'neutral', 'hollow', Lock, hint);
+    }
     default:
-      return meta(
-        'guaranteed',
-        label ?? 'Steady paws — guaranteed pace',
-        'idle',
-        'hollow',
-        PawPrint,
-      );
+      return quirky
+        ? meta('guaranteed', label ?? 'Steady paws — guaranteed pace', 'idle', 'hollow', PawPrint)
+        : meta('guaranteed', label ?? 'Guaranteed pace', 'idle', 'hollow', Gauge);
   }
 }
 

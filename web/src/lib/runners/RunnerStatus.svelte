@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Runner } from '$lib/api/types';
   import { formatNumber } from '$lib/format';
+  import { prefs } from '$lib/state/prefs.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import ZoomiesStatusIcon from './ZoomiesStatusIcon.svelte';
   import { runnerDisplayStatus } from './runner-status';
@@ -9,7 +10,7 @@
   const componentId = $props.id();
   const descriptionId = `${componentId}-status-description`;
   let detailsOpen = $state(false);
-  const status = $derived(runnerDisplayStatus(runner));
+  const status = $derived(runnerDisplayStatus(runner, prefs.quirkyStatus));
   const resource = $derived(runner.cpu_resource);
   const cpu = (value: number | undefined) =>
     value === undefined ? 'Not reported' : formatNumber(value);
@@ -72,7 +73,11 @@
       if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
     }}
   >
-    <ZoomiesStatusIcon state={status.key} seed={runner.id} />
+    {#if prefs.quirkyStatus}
+      <ZoomiesStatusIcon state={status.key} seed={runner.id} />
+    {:else}
+      <status.icon class="standard-icon" size={20} aria-hidden="true" />
+    {/if}
     <span class="label">{status.label}</span>
   </button>
 </Tooltip>
@@ -103,6 +108,9 @@
     transition:
       background var(--z-motion-fast),
       border-color var(--z-motion-fast);
+  }
+  .runner-status :global(.standard-icon) {
+    flex: none;
   }
   .runner-status.active {
     background: var(--status-subtle);

@@ -33,6 +33,15 @@ between bursts. Reduced motion stops every animated part. The avatar is
 decorative: the existing status label and accessible tooltip remain the source
 of meaning, including lifecycle precedence over elastic CPU activity.
 
+Both the avatar and the dog-park words it goes with (`web/src/lib/status.ts`'s
+`RUNNER` and `cpuResourceStatus` labels, and the queue and workflow activity
+labels beside it) are the default, and Settings → Appearance's "Zoomies
+vocabulary" switch turns them off in favour of a plain state name and a
+standard Lucide icon, everywhere either appears. The switch is
+`prefs.quirkyStatus`; `web/src/lib/status.ts` and its neighbours take it as a
+`quirky` argument rather than reading it themselves, so the state map stays
+importable by the unit tests as plain TypeScript.
+
 All tokens live in exactly one place: `web/src/lib/styles/tokens.css`, declared
 as CSS custom properties on `:root` and overridden under `[data-theme="dark"]`.
 Tailwind v4 consumes them through `@theme` so utility classes and hand-written

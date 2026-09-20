@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { prefs } from '$lib/state/prefs.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import ZoomiesStatusIcon from '$lib/runners/ZoomiesStatusIcon.svelte';
   import type { ActivityStatus } from './activity-status';
@@ -35,18 +36,25 @@
       if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
     }}
   >
-    <span class="avatars" class:pack aria-hidden="true">
-      {#if pack}
-        <span class="companion left"
-          ><ZoomiesStatusIcon state={activity.motion} seed={`${seed}-left`} /></span
-        >
-        <span class="companion right"
-          ><ZoomiesStatusIcon state={activity.motion} seed={`${seed}-right`} /></span
-        >
-      {/if}
-      <span class="leader"><ZoomiesStatusIcon state={activity.motion} {seed} /></span>
+    {#if prefs.quirkyStatus}
+      <span class="avatars" class:pack aria-hidden="true">
+        {#if pack}
+          <span class="companion left"
+            ><ZoomiesStatusIcon state={activity.motion} seed={`${seed}-left`} /></span
+          >
+          <span class="companion right"
+            ><ZoomiesStatusIcon state={activity.motion} seed={`${seed}-right`} /></span
+          >
+        {/if}
+        <span class="leader"><ZoomiesStatusIcon state={activity.motion} {seed} /></span>
+      </span>
+    {:else}
+      <activity.status.icon class="standard-icon" size={20} aria-hidden="true" />
+    {/if}
+    <span class="labels">
+      <span>{activity.label}</span>
+      {#if activity.status.label !== activity.label}<small>{activity.status.label}</small>{/if}
     </span>
-    <span class="labels"><span>{activity.label}</span><small>{activity.status.label}</small></span>
   </button>
 </Tooltip>
 
@@ -81,6 +89,9 @@
     flex: none;
     width: var(--z-avatar-size);
     height: var(--z-avatar-size);
+  }
+  .activity-status :global(.standard-icon) {
+    flex: none;
   }
   .pack {
     width: calc(var(--z-avatar-size) * 1.5);

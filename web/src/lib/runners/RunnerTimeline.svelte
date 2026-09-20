@@ -10,6 +10,7 @@
 <script lang="ts">
   import type { TimelineEntry } from '$lib/api/types';
   import { ratio } from '$lib/format';
+  import { prefs } from '$lib/state/prefs.svelte';
   import { runnerStatus } from '$lib/status';
   import Duration from '$lib/components/Duration.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -61,7 +62,7 @@
 {:else}
   <ol class="timeline {className}">
     {#each entries as entry, index (`${entry.state}-${entry.at}-${index}`)}
-      {@const status = runnerStatus(entry.state)}
+      {@const status = runnerStatus(entry.state, prefs.quirkyStatus)}
       {@const last = index === entries.length - 1}
       <li style="--entry-colour: {status.colour}; --entry-tint: {status.subtle}">
         <span class="marker" aria-hidden="true"><StatusDot {status} size="sm" /></span>
