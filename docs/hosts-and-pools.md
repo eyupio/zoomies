@@ -233,7 +233,10 @@ the automatic path would have used, so you only change what you mean to.
 Neither is a lesser pool, and the choice is not permanent — a pool can be edited
 either way afterwards, and switching never loses what you have already typed.
 Editing a pool that has anything the simple path cannot show opens on the
-advanced one, so a tuned pool never hides the settings it was tuned with.
+advanced one, so a tuned pool never hides the settings it was tuned with. Any
+other pool opens on the simple one, and every step of it offers the advanced
+path — so elastic CPU, a host selector or a fixed size is one click further
+along rather than out of reach.
 
 The CLI takes the same fields, and omitting them is how you ask for the
 automatic answer:
@@ -730,6 +733,11 @@ cgroup's cumulative CPU-throttling counters. A stale sample, a host at 85% CPU,
 an admission hold, or any rung of the host-pressure throttle produces no boost.
 The pressure throttle always wins and can reduce a quota below its guarantee.
 Memory never changes while a job is running.
+
+In the UI the setting is on the wizard's size step, which the advanced path
+walks; editing an automatic pool opens on the simple path and offers the
+advanced one from every step, so the pool elastic CPU is for is never the pool
+that cannot reach it.
 
 `observe` publishes the same bounded Prometheus decisions without moving a
 quota. `automatic` requires an agent that advertises live elastic CPU support;

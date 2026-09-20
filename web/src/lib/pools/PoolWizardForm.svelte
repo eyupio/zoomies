@@ -14,6 +14,7 @@
     backendOffers,
     backendUnavailable,
     stepFields,
+    stepIndex,
     wizardSteps,
     stepForField,
   } from './PoolVocabulary.svelte';
@@ -464,6 +465,7 @@
   import { nicknamedPoolName, poolName, spinWord } from './names';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
+  import Button from '$lib/components/Button.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Wizard from '$lib/components/Wizard.svelte';
   import StepTarget from './StepTarget.svelte';
@@ -629,6 +631,24 @@
 
   function goTo(step: number): void {
     current = Math.min(Math.max(step, 0), reviewStep);
+  }
+
+  /*
+    The simple path's way to the settings it leaves to the fleet.
+
+    An edit skips the fork, and a pool with nothing the simple path cannot
+    show opens on that path: target, labels, docker, review. That is the right
+    opening for a pool somebody came to relabel, and a dead end for the one
+    they came to make elastic -- the plain automatic pool is exactly the pool
+    elastic CPU is for, and the fork it never walks was the only way to the
+    size step that offers it. So a simple edit offers the advanced path from
+    every step, and taking it lands on the first step the simple path skipped.
+    The draft is one object and the steps only ways of looking at it, so
+    nothing typed so far is lost on the way.
+  */
+  function showEverySetting(): void {
+    mode = 'advanced';
+    goTo(stepIndex('hosts', 'advanced', editing));
   }
 
   /* -- what the fleet and GitHub can offer --------------------------------- */
@@ -1017,6 +1037,16 @@
         />
       {/if}
 
+      {#if editing && mode === 'simple'}
+        <div class="more">
+          <p>
+            Hosts, backend, size, scaling and the runner timings follow the fleet, and elastic CPU
+            with them. Nothing typed here is lost on the way to them.
+          </p>
+          <Button size="sm" onclick={showEverySetting}>Show every setting</Button>
+        </div>
+      {/if}
+
       {#if blocking.length > 0}
         <div class="blocking">
           <p class="blocking-title">
@@ -1088,6 +1118,24 @@
     padding-left: var(--z-space-5);
     font-size: var(--z-text-base);
     line-height: var(--z-leading-base);
+    color: var(--z-text-muted);
+  }
+  .more {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-3);
+    padding: var(--z-space-3) var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
+  }
+  .more p {
+    flex: 1 1 auto;
+    margin: 0;
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
     color: var(--z-text-muted);
   }
 </style>

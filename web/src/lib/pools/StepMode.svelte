@@ -18,7 +18,9 @@
   An edit never reaches this step. The pool has already answered the question,
   the wizard reads the answer off it to choose a path, and an operator who
   opened a pool to change one setting should not have to pass a screen about
-  how much of it they want to decide.
+  how much of it they want to decide. A simple edit offers the advanced path
+  from every step instead, so what this fork would have opened is still one
+  click away.
 -->
 <script lang="ts">
   import { Check, Sliders, Wand } from '@lucide/svelte';
