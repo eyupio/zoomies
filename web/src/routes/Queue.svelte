@@ -19,6 +19,7 @@
   import { toasts } from '$lib/state/toasts.svelte';
   import ActivityStatus from '$lib/jobs/ActivityStatus.svelte';
   import { queuedActivity } from '$lib/jobs/activity-status';
+  import { prefs } from '$lib/state/prefs.svelte';
   import Button from '$lib/components/Button.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
@@ -364,7 +365,10 @@
 </script>
 
 {#snippet statusCell(job: Job)}
-  <ActivityStatus activity={queuedActivity(job)} seed={job.id ?? `${job.repo}/${job.job_name}`} />
+  <ActivityStatus
+    activity={queuedActivity(job, prefs.quirkyStatus)}
+    seed={job.id ?? `${job.repo}/${job.job_name}`}
+  />
 {/snippet}
 {#snippet jobCell(job: Job)}<div class="cell">
     <strong>{job.job_name || 'Unnamed job'}</strong><span>{job.workflow || 'Workflow'}</span>

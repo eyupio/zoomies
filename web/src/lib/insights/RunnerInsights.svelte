@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fleet } from '$lib/state/fleet.svelte';
+  import { prefs } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
   import MetricGrid, { type Metric } from '$lib/components/MetricGrid.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
@@ -89,18 +90,18 @@
     poolId
       ? [
           {
-            label: runnerStatus('busy').label,
+            label: runnerStatus('busy', prefs.quirkyStatus).label,
             value: busy ?? 0,
             tone: 'busy' as const,
             href: `/runners?state=busy${suffix}`,
-            hint: runnerStatus('busy').hint,
+            hint: runnerStatus('busy', prefs.quirkyStatus).hint,
           },
           {
-            label: runnerStatus('idle').label,
+            label: runnerStatus('idle', prefs.quirkyStatus).label,
             value: idle ?? 0,
             tone: 'idle' as const,
             href: `/runners?state=idle${suffix}`,
-            hint: runnerStatus('idle').hint,
+            hint: runnerStatus('idle', prefs.quirkyStatus).hint,
           },
           {
             label: 'Other live',
@@ -112,39 +113,39 @@
         ]
       : [
           {
-            label: runnerStatus('provisioning').label,
+            label: runnerStatus('provisioning', prefs.quirkyStatus).label,
             value: r?.provisioning ?? 0,
             tone: 'pending' as const,
             href: '/runners?state=provisioning',
-            hint: runnerStatus('provisioning').hint,
+            hint: runnerStatus('provisioning', prefs.quirkyStatus).hint,
           },
           {
-            label: runnerStatus('registering').label,
+            label: runnerStatus('registering', prefs.quirkyStatus).label,
             value: r?.registering ?? 0,
             tone: 'accent' as const,
             href: '/runners?state=registering',
-            hint: runnerStatus('registering').hint,
+            hint: runnerStatus('registering', prefs.quirkyStatus).hint,
           },
           {
-            label: runnerStatus('idle').label,
+            label: runnerStatus('idle', prefs.quirkyStatus).label,
             value: r?.idle ?? 0,
             tone: 'idle' as const,
             href: '/runners?state=idle',
-            hint: runnerStatus('idle').hint,
+            hint: runnerStatus('idle', prefs.quirkyStatus).hint,
           },
           {
-            label: runnerStatus('busy').label,
+            label: runnerStatus('busy', prefs.quirkyStatus).label,
             value: r?.busy ?? 0,
             tone: 'busy' as const,
             href: '/runners?state=busy',
-            hint: runnerStatus('busy').hint,
+            hint: runnerStatus('busy', prefs.quirkyStatus).hint,
           },
           {
-            label: runnerStatus('draining').label,
+            label: runnerStatus('draining', prefs.quirkyStatus).label,
             value: r?.draining ?? 0,
             tone: 'draining' as const,
             href: '/runners?state=draining',
-            hint: runnerStatus('draining').hint,
+            hint: runnerStatus('draining', prefs.quirkyStatus).hint,
           },
         ],
   );

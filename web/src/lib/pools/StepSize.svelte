@@ -31,6 +31,7 @@
   import { CircleCheck, Sparkles, TriangleAlert } from '@lucide/svelte';
   import type { PoolRoom as PoolRoomShape, Resources, Result } from '$lib/api/types';
   import { formatMegabytes, pluralise } from '$lib/format';
+  import { prefs } from '$lib/state/prefs.svelte';
   import Button from '$lib/components/Button.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
   import Field from '$lib/components/Field.svelte';
@@ -312,8 +313,14 @@
 
       {#if draft.cpu_burst_mode === 'automatic'}
         <p class="shares-note">
-          Busy runners can sprint; quiet runners keep their guarantee. “Squirrel spotted” marks a
-          major boost, and “Leash tightened” means host-pressure protection has taken precedence.
+          Busy runners can sprint; quiet runners keep their guarantee.
+          {#if prefs.quirkyStatus}
+            “Squirrel spotted” marks a major boost, and “Leash tightened” means host-pressure
+            protection has taken precedence.
+          {:else}
+            “Maximum boost” marks a major boost, and “Throttled” means host-pressure protection has
+            taken precedence.
+          {/if}
           Memory stays fixed throughout.
         </p>
       {/if}

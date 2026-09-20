@@ -11,6 +11,7 @@
 <script lang="ts">
   import type { Stats } from '$lib/api/types';
   import { formatNumber, pluralise } from '$lib/format';
+  import { prefs } from '$lib/state/prefs.svelte';
   import { runnerStatus } from '$lib/status';
   import StatusDot from '$lib/components/StatusDot.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
@@ -25,7 +26,7 @@
   const steps = $derived(
     STEPS.map((state) => ({
       state,
-      status: runnerStatus(state),
+      status: runnerStatus(state, prefs.quirkyStatus),
       count: runners[state] ?? 0,
     })),
   );

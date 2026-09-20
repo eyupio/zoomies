@@ -32,6 +32,7 @@
   import { router } from '../router';
   import { fleet } from '../state/fleet.svelte';
   import { notifications } from '../state/notifications.svelte';
+  import { prefs } from '../state/prefs.svelte';
   import { refresh } from '../state/refresh.svelte';
   import { session } from '../state/session.svelte';
   import { theme } from '../state/theme.svelte';
@@ -242,7 +243,7 @@
     for (const runner of fleet.runners.slice(0, ENTITY_LIMIT)) {
       if (!runner.id) continue;
       const id = runner.id;
-      const status = runnerStatus(runner.state);
+      const status = runnerStatus(runner.state, prefs.quirkyStatus);
       out.push({
         id: `runner-${id}`,
         group: 'Runner',
