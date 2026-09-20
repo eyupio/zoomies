@@ -216,3 +216,49 @@ func TestJobsCanBeListedByTheirRun(t *testing.T) {
 		}
 	}
 }
+
+// Every job of a run is counted once. GitHub does not require job names to be
+// unique, so two jobs of one attempt may share a name and both still count;
+// and a job whose runner stopped under it is the fleet's failure whatever
+// conclusion GitHub recorded, so it is never a success as well.
+func TestWorkflowRunsCountEachJobOnce(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	started, done := now.Add(time.Second), now.Add(time.Minute)
+	seed := []*Job{
+		{GitHubJobID: 51, JobName: "build", Conclusion: "success"},
+		{GitHubJobID: 52, JobName: "build", Conclusion: "failure"},
+		{GitHubJobID: 53, JobName: "deploy", Conclusion: "success"},
+	}
+	for _, j := range seed {
+		j.GitHubRunID, j.RunAttempt, j.Repo, j.Workflow = 5, 1, "acme/widgets", "CI"
+		j.State, j.QueuedAt, j.StartedAt, j.CompletedAt = JobCompleted, now, &started, &done
+		j.Labels, j.Matched, j.PoolID = StringSlice{"self-hosted"}, true, "pool_a"
+		if _, err := s.UpsertJob(ctx, j); err != nil {
+			t.Fatalf("seeding job %d: %v", j.GitHubJobID, err)
+		}
+	}
+	deploy, err := s.GetJobByGitHubID(ctx, 53)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	if _, _, err := s.SetJobRunnerFault(ctx, deploy.ID, "runner exited with code 137", FaultRunnerExited); err != nil {
+		t.Fatalf("SetJobRunnerFault: %v", err)
+	}
+
+	runs, total, err := s.ListWorkflowRuns(ctx, JobFilter{}, Page{})
+	if err != nil {
+		t.Fatalf("ListWorkflowRuns: %v", err)
+	}
+	if total != 1 || len(runs) != 1 {
+		t.Fatalf("got %d runs (total %d), want the one", len(runs), total)
+	}
+	run := runs[0]
+	if run.Jobs != (RunJobCounts{Total: 3, Completed: 3, Succeeded: 1, Failed: 2, Faulted: 1}) {
+		t.Fatalf("job counts = %+v, want three jobs: one succeeded, two failed of which one is the fleet's", run.Jobs)
+	}
+	if run.State != JobCompleted || run.Conclusion != "failure" {
+		t.Fatalf("run = %s/%q, want completed as a failure", run.State, run.Conclusion)
+	}
+}

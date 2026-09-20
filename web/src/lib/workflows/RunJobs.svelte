@@ -51,17 +51,36 @@
   let error = $state<unknown>(null);
   let attempt = $state(0);
 
+  /** The most jobs one request may return: the API's own ceiling. */
+  const PAGE = 500;
+
+  /**
+   * Every job of the run, however many pages that takes. A run with a wide
+   * matrix and a few re-runs can carry more rows than one page holds, and a
+   * panel that showed the first page as though it were the run would count
+   * jobs its rows did not list.
+   */
+  async function fetchAll(signal: AbortSignal): Promise<Job[]> {
+    const out: Job[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+      const page = await listJobs(
+        { repo: [repo], run_id: [runId], limit: PAGE, offset, sort: 'queued_at', order: 'asc' },
+        signal,
+      );
+      const items = page.items ?? [];
+      out.push(...items);
+      if (items.length === 0 || out.length >= (page.total ?? 0)) return out;
+    }
+  }
+
   $effect(() => {
     void attempt;
     const controller = new AbortController();
     loading = true;
     error = null;
-    listJobs(
-      { repo: [repo], run_id: [runId], limit: 200, sort: 'queued_at', order: 'asc' },
-      controller.signal,
-    )
-      .then((page) => {
-        jobs = page.items ?? [];
+    fetchAll(controller.signal)
+      .then((all) => {
+        jobs = all;
       })
       .catch((err: unknown) => {
         if (!controller.signal.aborted) error = err;
