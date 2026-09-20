@@ -723,3 +723,53 @@ func TestTheProviderAndMachineFixturesAreRecognisedAsFixtures(t *testing.T) {
 		t.Errorf("GetJoinToken %s: %v", demoJoinTokenID, err)
 	}
 }
+
+// The demo installation cannot register a runner, so the loop must not keep
+// trying to.
+//
+// It did. The fixture's pools sit at their ceiling when seeded, but the suite
+// drains and cordons things as it goes, and a runner the demo's absent agent
+// never stops is failed fifteen minutes later; from then on the scheduler
+// wanted a runner for the fixture's queue every pass, the controller wrote a
+// provisioning row, asked the demo client for a credential and failed the
+// row with "GitHub would not register". Five of those inside ten minutes and
+// every queued job in the fixture read "Blocked" -- a fleet with nothing wrong
+// with it, aged into one with a problem by its own loop.
+func TestTheDemoFleetCreatesNoRunnerItCannotRegister(t *testing.T) {
+	h := newHarness(t)
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+	// Take the pool below the runners its queue asks for, the way a drained
+	// runner that then timed out does on a demo instance.
+	seeded := map[string]bool{}
+	failed := 0
+	for _, r := range h.runners() {
+		seeded[r.ID] = true
+		if r.State == store.RunnerIdle && failed < 2 {
+			if _, err := h.st.FailRunner(h.ctx, r.ID, "the drain was never carried out", store.FaultRunnerExited); err != nil {
+				t.Fatalf("FailRunner: %v", err)
+			}
+			failed++
+		}
+	}
+	if failed != 2 {
+		t.Fatalf("failed %d idle runners, want 2; the fixture has changed shape", failed)
+	}
+
+	// The beat is what keeps the seeded hosts healthy on a demo instance;
+	// without it nothing could be placed and this test would prove nothing.
+	for range 3 {
+		h.c.beatDemoHosts(h.ctx)
+		if err := h.c.Reconcile(h.ctx); err != nil {
+			t.Fatalf("Reconcile: %v", err)
+		}
+		h.c.lifecycleCalls.Wait()
+	}
+
+	for _, r := range h.runners() {
+		if !seeded[r.ID] {
+			t.Fatalf("the loop created %s (%s, %q) for a pool whose installation cannot register one", r.ID, r.State, r.Message)
+		}
+	}
+}

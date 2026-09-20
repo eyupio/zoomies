@@ -522,3 +522,48 @@ func TestTheDevChannelPublishesEveryBinaryDistBuilds(t *testing.T) {
 		}
 	}
 }
+
+// Scorecard's publishing service verifies the workflow that produced a result
+// before it accepts one, and one of its rules is that the job ran on a
+// GitHub-hosted Ubuntu runner. The move of CI onto the fleet took this job with
+// it, and every push to main afterwards failed the same way: the publish was
+// refused with "invalid runner label", no SARIF was written, and the
+// code-scanning upload found nothing to upload. It is the one workflow that
+// cannot dogfood, so this is the one runs-on that must not follow the others.
+func TestScorecardPublishesFromAGitHubHostedRunner(t *testing.T) {
+	body := workflowFiles(t)["scorecard.yml"]
+	if body == "" {
+		t.Fatal("scorecard.yml is missing")
+	}
+	if !strings.Contains(body, "publish_results: true") {
+		t.Fatal("scorecard.yml no longer publishes its results; the README badge and the public score come from that publish")
+	}
+	if !strings.Contains(body, "    runs-on: ubuntu-latest\n") {
+		t.Error("scorecard.yml's analysis job does not run on ubuntu-latest; the publishing service refuses every other runner label (https://github.com/ossf/scorecard-action#workflow-restrictions), and without the publish no SARIF is written for the upload step")
+	}
+	if strings.Contains(body, "runs-on: zoomies-linux-x64") {
+		t.Error("scorecard.yml's job runs on the fleet's label; this workflow is scored by a service that only accepts results from GitHub's runners")
+	}
+}
+
+// A release tag that does not begin with a lower-case v has to fail out loud.
+// The setup job once ran only for tags matching `v*`, so `V1.1.0` matched
+// nothing: every job was skipped, the run was green, and the release was
+// published with no assets. Skipping is reserved for the rolling dev
+// prerelease by name; everything else reaches the case statement that refuses
+// it with an error annotation.
+func TestTheReleaseWorkflowRefusesAMalformedTagOutLoud(t *testing.T) {
+	body := workflowFiles(t)["release.yml"]
+	if body == "" {
+		t.Fatal("release.yml is missing")
+	}
+	if strings.Contains(body, "startsWith(github.event.release.tag_name, 'v')") {
+		t.Error("release.yml skips the run for a tag that does not begin with v, which is how V1.1.0 was published with no assets and nobody was told")
+	}
+	if !strings.Contains(body, "github.event.release.tag_name != 'dev'") {
+		t.Error("release.yml no longer skips the rolling dev prerelease by name, so publishing dev would try to turn a moving channel into a release")
+	}
+	if !strings.Contains(body, `*) echo "::error::$TAG is not a release tag; they begin with a lower-case v" && exit 1 ;;`) {
+		t.Error("release.yml does not refuse a tag that fails the v* check with an error, so a malformed tag would be built or silently skipped")
+	}
+}

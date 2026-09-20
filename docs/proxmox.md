@@ -21,10 +21,13 @@ Zoomies created it, knows it did, and is the only thing allowed to delete it.
 
     One combination is supported: a **Linux cloud image with `qemu-guest-agent`
     and the Zoomies agent preinstalled**, running the **Docker** runner backend,
-    cloned from a template you prepared. That is what has been tested end to
-    end. Other operating systems, other backends and other bootstrap routes are
-    not "probably fine" — they are untested, and this page will say so until
-    they are not.
+    cloned from a template you prepared. That is the combination the
+    qualification harness at the end of this page is written for — and the
+    harness has not yet been run against a cluster, so nothing on this page
+    has been tested end to end: the lifecycle logic and the wire format are
+    proved against fixtures, and a hypervisor is not. Other operating systems,
+    other backends and other bootstrap routes are untested too, not "probably
+    fine", and this page will say so until they are not.
 
     Renting machines is off until you turn it on: `provider.enabled` defaults to
     `false`, and `provider.max_machines` defaults to **zero, which rents
@@ -108,7 +111,7 @@ is not already there, so what is in the image is what a runner gets.
 
 Proxmox ships no templates, and the standard answer is a distribution's cloud
 image: a disk image with cloud-init in it, published for exactly this purpose.
-Start from Ubuntu 24.04 LTS — it is what has been qualified — and, in one VM
+Start from Ubuntu 24.04 LTS — it is what the harness is written for — and, in one VM
 you then convert to a template:
 
 1. **Install the Docker engine**, or whichever runner backend the machines will
@@ -329,12 +332,14 @@ actually there against the rows.
 
 ## Qualifying your own cluster
 
-Fixture tests prove the logic; they prove nothing about your cluster. Before
-this is load-bearing for you, run the procedure below against **disposable**
-resources and record what happened. This is the same procedure Zoomies'
-own release qualification uses, and
-[the record it produced](https://github.com/eyupio/zoomies/blob/main/roadmap/validation/proxmox-qualification.md)
-is in the repository.
+Fixture tests prove the logic; they prove nothing about your cluster, and so
+far nothing about anyone's. The procedure below is implemented as a harness,
+`make test-e2e-proxmox`, that has not yet been run against a cluster, and
+[the record it fills in](https://github.com/eyupio/zoomies/blob/main/roadmap/validation/proxmox-qualification.md)
+says `not run` on every row. Before this is load-bearing for you, run it against
+**disposable** resources and record what happened — and if you do, send the
+rows it wrote, because a run on a real cluster is the evidence this page is
+waiting for.
 
 1. Twenty full cycles — create, enrol, run a real workflow job, drain, delete.
 2. Scale from zero: no hosts at all, then queued work.

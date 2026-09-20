@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 3.0 · 19 September 2026 · derived from the owner's
+Version 3.1 · 19 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md),
 reconciled against `main` at `6d12a72` on 6 September and again at `9a80b31`
 on 19 September, when the owner set a new primary target, withdrew the
@@ -27,10 +27,13 @@ file first.
 Zoomies is stable in real use. Three full releases shipped in a week —
 `v1.0.0` on 13 September, `V1.1.0` on 15 September and `v1.2.0` on 18
 September, which is what `:latest` resolves to now — and since 18 September
-this repository's own CI, CodeQL, fuzzing, Scorecard and release set-up jobs
-run on a Zoomies fleet (`zoomies-linux-x64`) through the build under test,
-with only the arm64 and Windows legs left on GitHub's runners; a test in
-`internal/docs` keeps it that way. The owner has been running it across
+this repository's own CI, CodeQL, fuzzing and release set-up jobs run on a
+Zoomies fleet (`zoomies-linux-x64`) through the build under test, with only
+the arm64 and Windows legs left on GitHub's runners, and, since 19 September,
+the Scorecard job, whose publishing service accepts results from GitHub's own
+Ubuntu runners alone and had refused every run from the fleet; a test in
+`internal/docs` keeps CI on the fleet and another keeps Scorecard off it. The
+owner has been running it across
 repositories since at least 9 September
 ([rc1-triage.md](roadmap/rc1-triage.md)). The seven-day observation window,
 the two hundred attempts and the second operator that version 2 built its
@@ -86,13 +89,14 @@ landed. Roughly in the order they matter to this document:
 * **Releases**: assets upload one at a time, and the `dev` channel is
   published in a way a slow upload cannot defeat.
 
-Two things the reconciliation found that need the owner's hand, both in
-section 11: `V1.1.0` (capital V) is published as a full release with no
-assets, because the release workflow's tag guard matches `v*` case-sensitively
-and so built nothing for it; and `deploy/marketplace/release.env` still pins
-`v1.0.0`, so a marketplace deployment runs a controller without the pressure
-holds, the throttle ladder, the start-up fixes or elastic CPU until it is
-repinned and `make marketplace-lock` is rerun.
+One thing the reconciliation found still needs the owner's hand (section
+11): `V1.1.0` (capital V) is published as a full release with no assets,
+because the release workflow's tag guard matched `v*` case-sensitively and so
+built nothing for it. The guard now refuses such a tag out loud (ZF-005, 19
+September); the release and its tag are the owner's to delete or leave. The
+other, `deploy/marketplace/release.env` pinning `v1.0.0`, was repinned to
+`v1.2.0` with ZF-005, so a marketplace deployment gets the pressure holds,
+the throttle ladder, the start-up fixes and elastic CPU.
 
 ## 2. The primary target
 
@@ -539,6 +543,11 @@ in section 7 rather than here.
   `retention.scaling_events`, and an unsigned webhook refused before its
   body is read. The first package written from the primary target's
   question.
+* **ZF-005**: the three pages corrected against the record — `docs/index.md`
+  and the support matrix say what runs where now that CI runs in containers
+  on a Zoomies fleet, and `docs/proxmox.md` says the harness has not been
+  run — the marketplace package repinned to `v1.2.0`, and the release
+  workflow's tag guard made loud (19 September).
 
 ### Phase 1, correctness and security under failure
 
@@ -694,15 +703,15 @@ records they produced stay where they are.
 * **ZF-211's measurement half**, the reproducible cold-and-warm workload
   with p50 and p95 per stage. *Cost*: no quotable queue-to-start figure with
   its setup. *What survives*: the histograms and stored timestamps that
-  would produce one, and the documentation half of the package, which is
-  ZF-005 now.
+  would produce one, and the documentation half of the package, which
+  became ZF-005 and is done.
 * **The live-qualification clauses** of ZF-220 (a live fleet before release
   inclusion), ZF-221 (bursts of 1, 4, 8 and 16 on a reference Docker host;
   the runner-and-sidecar budget evaluation), ZF-214b (twenty cycles on a
   disposable cluster before the provider is called qualified) and ZF-206
   (a job on a Windows host before the package closes). *Cost*: the support
   matrix keeps saying "built, not run" for Windows and Proxmox, and
-  `docs/proxmox.md` has to stop saying "qualified" (ZF-005). *What survives*:
+  `docs/proxmox.md` stopped saying "qualified" (ZF-005). *What survives*:
   the harnesses, which a fleet with a cluster or a Windows host can run, and
   whose rows are welcome.
 * **ZF-203's GitHub half** (sign in, re-join an agent, run a job after
@@ -729,43 +738,6 @@ records they produced stay where they are.
 In the order section 10 sequences them. Each was re-read against `main` at
 `9a80b31`; where the code has moved since the package was written, the
 package says so and describes the work from where the code is now.
-
-### ZF-005: corrections from reading the documentation against the fleet
-
-**Classification: new; small; documentation only, plus one pin.** Three
-pages say less or more than is true, and the fleet-hosted CI made the first
-one wrong on 18 September.
-
-**Do, in one pull request:**
-
-1. `docs/index.md` says "Windows runners are not supported" eleven lines
-   above the paragraph that says the Windows agent is built and tested;
-   [roadmap/support-and-measurement.md](roadmap/support-and-measurement.md)'s
-   Docker row says "nothing in this repository has ever started a
-   container" and `docs/index.md` repeats it, while every CI job but two
-   runs inside a container the Docker backend started on a Zoomies fleet.
-   Say what runs where: no *test* in the repository starts a container, and
-   the repository's own CI does, on every pull request, with a link to the
-   selector test that keeps it so. Move the Docker row right accordingly,
-   and leave the Windows and Proxmox rows where they are.
-2. `docs/proxmox.md` says the Ubuntu, guest-agent and Docker combination "is
-   what has been tested end to end" and "what has been qualified", and that
-   the record it links to is the one "Zoomies' own release qualification"
-   produced, while that record says nothing has run. Say what is true: the
-   combination is the one the harness is written for, the harness has not
-   been run against a cluster, and a fleet that runs it is asked to send its
-   rows.
-3. `deploy/marketplace/release.env` repinned to the current full release
-   and `make marketplace-lock` rerun, with the reason in the commit: a
-   marketplace deployment otherwise runs a controller without the pressure
-   holds, the throttle ladder, the start-up fixes or elastic CPU.
-
-**Accept when:** the three pages agree with `roadmap/progress.md` and with
-each other; `mkdocs build --strict` and the `internal/docs` tests pass; the
-lock test `TestEveryPublishedRunnerVariantIsLocked` passes on the new pin.
-
-Depends on nothing. Size S. Session: Claude Sonnet 5 at `high`. Decisions:
-none.
 
 ### ZF-207: two audiences for one instance
 
@@ -1335,7 +1307,7 @@ acceptance from the version that wrote it.
   disposable prototype, never a second scheduler. Not before a measured
   reason.
 * **ZF-404b**: deferred indefinitely under decision 25.
-* **ZF-218**: complete but for the repin, which ZF-005 carries; a second
+* **ZF-218**: complete, the repin having landed with ZF-005; a second
   provider or an official marketplace submission is not planned.
 * **Decision 28's spike**: a container per job on Proxmox from the published
   runner image, one day, only after a fleet with Proxmox exists.
@@ -1348,7 +1320,7 @@ every package in section 8 was re-read on 19 September against the code.
 
 | Order | Work | Exit criterion |
 | --- | --- | --- |
-| 0 | ZF-005 documentation corrections and the marketplace repin | The three pages agree with the record; `release.env` pins the current full release |
+| 0 | ZF-005 documentation corrections and the marketplace repin — done, 19 September | The three pages agree with the record; `release.env` pins the current full release |
 | 1 | ZF-207 two audiences: the role and its migration, the actions, the settings scope, the problems split, tokens, copy and audit | The per-role Playwright assertions hold; a single-team instance is unchanged; an upgraded instance has one platform identity |
 | 2 | ZF-208 edge limits and the outbound address guard | Every limit has a test that reaches it; the hostile-agent drill holds |
 | 3 | ZF-210a environment bootstrap, readiness, the controller-only template | A compose file brings up a controller, a platform identity and a joined agent with no human step |
@@ -1373,7 +1345,7 @@ arrives and never waited for.
 
 | Input | Needed for | Current treatment |
 | --- | --- | --- |
-| `V1.1.0`, a full release with no assets because the tag's capital letter defeated the workflow's `v*` guard | Whoever reads the releases page | Delete the release and its tag, or leave it; either way, make the guard refuse a capital tag loudly rather than build nothing (a one-line change, with ZF-005) |
+| `V1.1.0`, a full release with no assets because the tag's capital letter defeated the workflow's `v*` guard | Whoever reads the releases page | Delete the release and its tag, or leave it. The guard now refuses a tag that does not begin with a lower-case `v` out loud rather than building nothing (ZF-005, 19 September); the release itself is the owner's |
 | Whether immutable releases are enabled in the repository settings | Decision 9's last residue | Check once; not roadmap work |
 | Decisions 29, 31 and 32 | ZF-222; the settings scope in ZF-207; the re-seal in ZF-210b | Written as if the recommendations were accepted; a different answer changes the package it names |
 | A fleet with a Windows host, a Proxmox cluster or a GPU | The section 9 rows | Recorded when it happens; never waited for |
@@ -1399,6 +1371,15 @@ remaining dependency. Do not invent live runs, elapsed observation, benchmark
 results or user feedback; do not wait for them either.
 
 ## 13. Change record
+
+* **19 September 2026 — Version 3.1:** ZF-005 delivered — the three pages
+  corrected, the marketplace package repinned to `v1.2.0`, the release
+  workflow's tag guard made loud — and moved from section 8 to section 6,
+  with section 10's row 0 marked done and section 11's `V1.1.0` row
+  reduced to the release itself. Section 1 corrected: the Scorecard job runs
+  on GitHub's Ubuntu runners again, because its publishing service refuses
+  every other runner label and every run from the fleet had failed since 18
+  September. Nothing in this entry implements runtime behaviour.
 
 * **19 September 2026 — Version 3.0:** the roadmap re-read against `main`
   at `9a80b31` and re-pointed. **The primary target** is now an instance

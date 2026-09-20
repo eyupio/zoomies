@@ -37,7 +37,12 @@ jobs:
     permissions:
       contents: read
       id-token: write # Codecov authenticates uploads without a stored secret.
-    timeout-minutes: 90
+    # On the fleet this job takes 70 to 90 minutes when the runner has a host
+    # to itself -- the race detector, -coverpkg and one CPU slot's share --
+    # and a busy evening's backlog pushed it past 90 and the run was killed
+    # with every package that had finished green. The limit is here to catch
+    # a hang, not a slow machine, so it sits well above the slowest run seen.
+    timeout-minutes: 180
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -68,7 +73,8 @@ jobs:
       - name: Test
         # The timeout is per package, not per test. The growing API/controller
         # suites repeatedly migrate pure-Go SQLite under race instrumentation;
-        # on the small fleet runner they exceed Go's default ten-minute budget.
+        # on the small fleet runner they exceed Go's default ten-minute budget
+        # many times over -- internal/api alone has taken 38 minutes there.
         # Keep the race detector and full coverage; share the bounded budget
         # with local make test / make cover.
         run: make cover

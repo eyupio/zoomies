@@ -28,7 +28,10 @@ RUNNER_VERSION ?= 2.337.0
 GO       ?= go
 NPM      ?= npm
 # Package-wide budget, including race instrumentation and SQLite migrations.
-GO_TEST_TIMEOUT ?= 60m
+# Sized for the fleet runner's one-CPU share with -coverpkg, where the API
+# package alone has taken 38 minutes and the controller package is larger:
+# a package that hits this limit is hung, not slow.
+GO_TEST_TIMEOUT ?= 120m
 
 ##@ Build
 
