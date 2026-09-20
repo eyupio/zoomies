@@ -117,7 +117,7 @@ const RUNNER: Record<RunnerState, StatusMeta> = {
     'Waiting for GitHub to accept the runner.',
   ),
   idle: meta('idle', 'Paws up', 'idle', 'hollow', Circle, 'Registered and waiting for a job.'),
-  busy: meta('busy', 'Walkies!', 'busy', 'filled', Play, 'Running a job right now.'),
+  busy: meta('busy', 'Walking!', 'busy', 'filled', Play, 'Running a job right now.'),
   draining: meta(
     'draining',
     'Lead on',
@@ -213,8 +213,8 @@ export function cpuResourceStatus(state: string | undefined, label?: string): St
  * operator reads the two side by side: "Failure" here is the failure they will
  * find there, and "Timed out" is the conclusion in the run's log. The kennel's
  * vocabulary belongs to the fleet's own objects -- a runner, and the CPU it is
- * lent -- and stops at this line. Lending it to the job lifecycle made
- * "Walkies!" mean both a busy runner and a running job, and turned the Jobs
+ * lent -- and stops at this line. Lending it to the job lifecycle would have
+ * made "Walking!" mean both a busy runner and a running job, and turned the Jobs
  * page into a second Runners page rather than the fleet's view of GitHub's
  * queue. What the fleet does to a job -- claims it, pauses its demand, loses a
  * runner under it -- is said plainly for the same reason: it is a note on a
