@@ -64,12 +64,12 @@ const FAULTS: Record<FaultKind, FaultMeta> = {
   container_conflict: {
     label: 'Container name conflict',
     detail:
-      'A container still occupies this name: it could not be safely reclaimed, or the daemon had not released the name by the time creation gave up waiting. Check its ownership and whether another agent uses the same daemon.',
+      'A container still occupies this name, and it could not be safely reclaimed. Check its ownership and whether another agent uses the same daemon.',
   },
   backend_busy: {
     label: 'Backend overloaded',
     detail:
-      'The container backend on the host is there and did not answer in time. The daemon is running; the machine is carrying more work than it can keep up with.',
+      'The container backend on the host is there and did not answer in time, or was too slow to finish creating a container. The daemon is running; the machine is carrying more work than it can keep up with.',
   },
   config: {
     label: 'Configuration',

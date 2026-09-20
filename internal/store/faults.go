@@ -129,11 +129,11 @@ func (k FaultKind) Fix() string {
 	case FaultRegistration:
 		return "check that the GitHub App is still installed on the repository and still holds its runner permissions."
 	case FaultContainerConflict:
-		return "automatic name-conflict recovery could not safely replace this container, and a name the daemon was merely slow to release has already been waited out. The runner's message names which of the two it was. Inspect the container's Zoomies ownership labels and parent runner, and check for duplicate agents sharing the daemon. Do not remove an active runner or a container owned by another workload."
+		return "this runner's container name is held by a container Zoomies would not touch, was taken again after Zoomies removed its own, or is reserved to nothing the daemon can show with no create of this runner's on record; the runner's message says which. Inspect the container's Zoomies ownership labels and parent runner, and check for duplicate agents sharing the daemon, but do not remove an active runner or a container owned by another workload."
 	case FaultBackend:
 		return "check the container backend on the host: the socket the agent names on the host's page, and whether the daemon is running."
 	case FaultBackendBusy:
-		return "the daemon is there and did not answer in time, so it is the host that is overloaded rather than the backend that is broken: lower the host's capacity or the pool's maximum runners, or give the pool CPU and memory limits so the daemon keeps a share of the machine. The host's throttle steps it down on its own while the pressure lasts."
+		return "the daemon is there and did not answer in time, or was too slow to finish creating a container, so it is the host that is overloaded rather than the backend that is broken: lower the host's capacity or the pool's maximum runners, or give the pool CPU and memory limits so the daemon keeps a share of the machine. The host's throttle steps it down on its own while the pressure lasts."
 	case FaultConfig:
 		return "read the runner's log for the setting it named, and correct it on the pool; every runner in this pool will do the same until it is."
 	case FaultRunnerExited:

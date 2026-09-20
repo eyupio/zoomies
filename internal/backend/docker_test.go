@@ -3,12 +3,16 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -978,5 +982,246 @@ func TestBuildDinDConfigCarriesThePoolsResourceLimits(t *testing.T) {
 	hc := cfg.HostConfig
 	if hc.NanoCPUs != 2e9 || hc.Memory != 4096*1024*1024 || hc.MemorySwap != hc.Memory || hc.PidsLimit == nil || *hc.PidsLimit != 512 {
 		t.Fatalf("the sidecar carries cpus=%d memory=%d swap=%d pids=%v; want the pool's limits", hc.NanoCPUs, hc.Memory, hc.MemorySwap, hc.PidsLimit)
+	}
+}
+
+// A conflict over the runner's name protects the contested occupant from the
+// by-name cleanup, and it used to protect the sidecar this very call had
+// created, started and health-checked along with it. Nothing else can ever
+// bind to that sidecar, no remove task is queued for a runner that failed at
+// create, and a privileged daemon should not idle on an overloaded host until
+// the orphan sweep reaches it -- so it goes, by the ID this call was given, and
+// so does the scratch directory this call made. The foreign occupant is not
+// touched, and an operator's own directory is never removed.
+func TestAConflictOverTheRunnersNameStillRemovesTheSidecarThisCreateStarted(t *testing.T) {
+	const sidecarID = "5a3d9e1c7b2f4a6d8c0e2f4a6b8d0c2e4f6a8b0d2c4e6f8a0b2d4c6e8f0a2b4d"
+	const foreignID = "9f1e3d5c7b9a1c3e5f7a9b1d3f5c7e9a1b3d5f7c9e1a3b5d7f9c1e3a5b7d9f1c"
+	for _, preexisting := range []bool{false, true} {
+		t.Run(map[bool]string{false: "owned scratch", true: "operator directory"}[preexisting], func(t *testing.T) {
+			spec := jitSpec()
+			spec.DockerMode = store.DockerDinD
+			spec.WorkDir = filepath.Join(t.TempDir(), "scratch")
+			if preexisting {
+				if err := os.Mkdir(spec.WorkDir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runner := containerName(spec.Name)
+			sidecar := dindName(runner)
+			var (
+				mu      sync.Mutex
+				deletes []string
+				started bool
+			)
+			f := newFakeEngine(t, map[string]http.HandlerFunc{
+				"GET " + v + "/images/{ref...}": func(w http.ResponseWriter, r *http.Request) {
+					writeJSON(w, 200, map[string]string{"Id": "sha256:cached"})
+				},
+				"POST " + v + "/containers/create": func(w http.ResponseWriter, r *http.Request) {
+					switch r.Form.Get("name") {
+					case sidecar:
+						writeJSON(w, 201, map[string]string{"Id": sidecarID})
+					case runner:
+						writeJSON(w, 409, conflict409(runner, foreignID))
+					default:
+						w.WriteHeader(500)
+					}
+				},
+				"GET " + v + "/containers/{id}/json": func(w http.ResponseWriter, r *http.Request) {
+					mu.Lock()
+					up := started
+					mu.Unlock()
+					switch r.PathValue("id") {
+					case sidecarID:
+						state := &ContainerState{Status: "created"}
+						if up {
+							state = &ContainerState{Status: "running", Running: true, Health: &ContainerHealth{Status: "healthy"}}
+						}
+						writeJSON(w, 200, ContainerInspect{ID: sidecarID, Name: "/" + sidecar, State: state, Config: &ContainerConfig{}})
+					case foreignID:
+						writeJSON(w, 200, ContainerInspect{ID: foreignID, Name: "/" + runner, State: &ContainerState{Status: "running", Running: true}, Config: &ContainerConfig{Labels: map[string]string{
+							LabelManaged: "true", LabelRunnerID: "another-runner", LabelPoolID: spec.PoolID, LabelRole: roleRunner, LabelName: spec.Name,
+						}}})
+					default:
+						w.WriteHeader(404)
+					}
+				},
+				"POST " + v + "/containers/{id}/start": func(w http.ResponseWriter, r *http.Request) {
+					mu.Lock()
+					started = started || r.PathValue("id") == sidecarID
+					mu.Unlock()
+					w.WriteHeader(204)
+				},
+				"DELETE " + v + "/containers/{id}": func(w http.ResponseWriter, r *http.Request) {
+					mu.Lock()
+					deletes = append(deletes, r.PathValue("id"))
+					mu.Unlock()
+					w.WriteHeader(204)
+				},
+			})
+			b := dockerBackendFor(t, f, DockerOptions{})
+
+			_, err := b.CreateWithResult(context.Background(), spec)
+			if !errors.Is(err, ErrContainerConflict) || Fault(err) != store.FaultContainerConflict {
+				t.Fatalf("a foreign occupant of the runner's name must still be a conflict: %v", err)
+			}
+			mu.Lock()
+			got := slices.Clone(deletes)
+			mu.Unlock()
+			if !slices.Equal(got, []string{sidecarID}) {
+				t.Fatalf("deletes=%v; want exactly the sidecar this call started, by ID, and never the foreign occupant", got)
+			}
+			_, serr := os.Stat(spec.WorkDir)
+			if preexisting && serr != nil {
+				t.Fatalf("operator directory was removed: %v", serr)
+			}
+			if !preexisting && !os.IsNotExist(serr) {
+				t.Fatalf("scratch this call created survived the conflict: %v", serr)
+			}
+		})
+	}
+}
+
+// The production incident, end to end, as the agent's busy retry drives it: a
+// host too slow to answer a sidecar create inside the header timeout, twice.
+// The first call ends busy -- not as a conflict, so the agent retries and the
+// scheduler steers the replacement to another host -- and removes nothing. The
+// retry meets the daemon's 409 for the container it finished late, waits for it
+// to become inspectable, adopts it, and binds the runner to it. No container is
+// removed at any point, and nobody is sent after a duplicate agent.
+func TestASlowSidecarCreateIsAdoptedByTheAgentsRetryRatherThanFailedAsAConflict(t *testing.T) {
+	const sidecarID = "446231582fb9a5d3c2e1f0b9a8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9"
+	const runnerID = "7c2b4d6e8f0a2c4e6f8a0b2d4f6a8c0e2f4a6b8d0c2e4f6a8b0d2c4e6f8a0b2d"
+	spec := jitSpec()
+	spec.DockerMode = store.DockerDinD
+	runner := containerName(spec.Name)
+	sidecar := dindName(runner)
+	var (
+		mu              sync.Mutex
+		sidecarCreates  int
+		sidecarInspects int
+		sidecarBody     ContainerCreateRequest
+		runnerBodies    []ContainerCreateRequest
+		deletes, starts []string
+	)
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/images/{ref...}": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, map[string]string{"Id": "sha256:cached"})
+		},
+		"POST " + v + "/containers/create": func(w http.ResponseWriter, r *http.Request) {
+			// Drained before the handler may block; see slowCreateDaemon.
+			var body ContainerCreateRequest
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			name := r.Form.Get("name")
+			mu.Lock()
+			var attempt int
+			switch name {
+			case sidecar:
+				sidecarCreates++
+				attempt = sidecarCreates
+				sidecarBody = body
+			case runner:
+				runnerBodies = append(runnerBodies, body)
+			}
+			mu.Unlock()
+			switch {
+			case name == runner:
+				writeJSON(w, 201, map[string]string{"Id": runnerID})
+			case name != sidecar:
+				w.WriteHeader(500)
+			case attempt <= 2:
+				// The two sidecar creates the daemon is too slow to answer.
+				<-r.Context().Done()
+			default:
+				writeJSON(w, 409, conflict409(sidecar, sidecarID))
+			}
+		},
+		"GET " + v + "/containers/{id}/json": func(w http.ResponseWriter, r *http.Request) {
+			ref := r.PathValue("id")
+			mu.Lock()
+			var (
+				answer any
+				status = 404
+			)
+			switch ref {
+			case sidecarID, sidecar:
+				// Unregistered until the third sidecar create has been served,
+				// and for two inspects after that.
+				if sidecarCreates >= 3 {
+					if sidecarInspects++; sidecarInspects > 2 {
+						insp := echoInspect(sidecarID, sidecar, sidecarBody, "")
+						if slices.Contains(starts, sidecarID) {
+							insp.State = &ContainerState{Status: "running", Running: true, Health: &ContainerHealth{Status: "healthy"}}
+						}
+						answer, status = insp, 200
+					}
+				}
+			case runnerID:
+				answer, status = ContainerInspect{ID: runnerID, State: &ContainerState{Status: "running", Running: true}}, 200
+			}
+			mu.Unlock()
+			if status != 200 {
+				w.WriteHeader(status)
+				return
+			}
+			writeJSON(w, 200, answer)
+		},
+		"POST " + v + "/containers/{id}/start": func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			starts = append(starts, r.PathValue("id"))
+			mu.Unlock()
+			w.WriteHeader(204)
+		},
+		"DELETE " + v + "/containers/{id}": func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			deletes = append(deletes, r.PathValue("id"))
+			mu.Unlock()
+			w.WriteHeader(204)
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+	shortenHeaderTimeout(t, b, 300*time.Millisecond)
+	b.nameRelease = 10 * time.Millisecond
+	b.nameSettle = 5 * time.Second
+
+	// The first call, as the agent makes it.
+	_, err := b.CreateWithResult(context.Background(), spec)
+	if err == nil {
+		t.Fatal("the first call succeeded against a daemon that answered nothing")
+	}
+	if Fault(err) != store.FaultBackendBusy || errors.Is(err, ErrContainerConflict) {
+		t.Fatalf("the first call failed as %q, want backend_busy so the agent retries and the scheduler steers away: %v", Fault(err), err)
+	}
+	mu.Lock()
+	removed := slices.Clone(deletes)
+	mu.Unlock()
+	if len(removed) != 0 {
+		t.Fatalf("the first call's cleanup removed %v", removed)
+	}
+
+	// The retry the agent makes after createBusyBackoff, with the same spec.
+	result, err := b.CreateWithResult(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("the retry failed: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if result.Handle != Handle(runnerID) {
+		t.Fatalf("handle = %q, want the runner %s", result.Handle, shortID(runnerID))
+	}
+	if len(deletes) != 0 {
+		t.Fatalf("removed %v; the incident must cost no container", deletes)
+	}
+	if sidecarCreates != 5 {
+		t.Fatalf("sidecar creates = %d; want the two unanswered, then one 409 per 404 inspect and one for the inspect that adopted", sidecarCreates)
+	}
+	if len(runnerBodies) != 1 || runnerBodies[0].HostConfig == nil || runnerBodies[0].HostConfig.NetworkMode != "container:"+sidecarID {
+		t.Fatalf("runner creates = %+v; want exactly one, bound to the adopted sidecar's namespace", runnerBodies)
+	}
+	if !slices.Equal(starts, []string{sidecarID, runnerID}) {
+		t.Fatalf("starts = %v; want the adopted sidecar started, then the runner", starts)
+	}
+	if _, live := b.abandonedCreateAt(sidecar); live {
+		t.Fatal("the abandoned-create record outlived the adoption")
 	}
 }

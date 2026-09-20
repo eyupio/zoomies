@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/store"
@@ -204,6 +205,17 @@ type DockerBackend struct {
 	// whose container has gone. A field rather than the constant so a test can
 	// exercise the wait without spending it.
 	nameRelease time.Duration
+	// nameSettle is how long a create waits for the daemon to finish a create
+	// of the same name that this agent stopped waiting on, measured from the
+	// moment it stopped. A field for the same reason.
+	nameSettle time.Duration
+	// abandoned is every container name whose create the daemon did not answer
+	// in time, and when this agent gave up on it. It is what tells a 409 for a
+	// container nobody can inspect apart from a leaked name: the first is a
+	// create of ours the daemon is still finishing, the second is a finding.
+	// Podman embeds this backend and inherits it.
+	abandonedMu sync.Mutex
+	abandoned   map[string]time.Time
 }
 
 var _ Backend = (*DockerBackend)(nil)
@@ -256,6 +268,7 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 		log:     log.With("backend", string(fl.kind)),
 
 		nameRelease: nameReleaseBudget,
+		nameSettle:  nameSettleBudget,
 	}, nil
 }
 
@@ -771,10 +784,12 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	// Every failure after allocating scratch space must unwind it, including a
 	// cancelled pull/start or a lost create response. Use the deterministic
 	// names because the daemon may have created a container without returning
-	// its ID. Cleanup gets its own bounded context, not the expired create's.
+	// its ID, and the sidecar's ID when this call did get one. Cleanup gets its
+	// own bounded context, not the expired create's.
+	var dindID string
 	defer func() {
-		if createErr != nil && !errors.Is(createErr, ErrContainerConflict) {
-			if err := b.cleanupFailedCreate(ctx, spec, workDir, owned); err != nil {
+		if createErr != nil {
+			if err := b.cleanupFailedCreate(ctx, spec, createErr, dindID, workDir, owned); err != nil {
 				createErr = errors.Join(createErr, err)
 			}
 		}
@@ -783,7 +798,6 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	b.pruneCacheFor(ctx, spec)
 
 	var dindReadyDuration *time.Duration
-	var dindID string
 	switch spec.DockerMode {
 	case store.DockerDinD:
 		if _, err := b.ensureImage(ctx, b.dind); err != nil {
@@ -936,22 +950,51 @@ func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts container
 	}
 }
 
-func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, spec Spec, workDir string, owned bool) error {
+// cleanupFailedCreate unwinds what a create that failed for cause left behind.
+//
+// The sidecar this call started is this call's to remove, whatever the cause:
+// nothing else can ever bind to it -- only the runner this call would have
+// created with container:<id> -- no controller remove task is queued for a
+// runner that failed at create, and a privileged daemon should not idle on an
+// overloaded host for the two minutes the orphan sweep takes to reach it. It
+// goes by the ID startDinD returned, so the conflict skip below, which protects
+// the contested occupant, does not also protect a sidecar nobody is contesting.
+//
+// The removals by deterministic name are skipped on a conflict because the
+// name is then held by a container this runner must not touch, or one whose
+// ownership could not be established, and looking it up by name would take
+// it. The scratch directory is not skipped: owned means this call created it.
+func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, spec Spec, cause error, dindID, workDir string, owned bool) error {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 	defer cancel()
-	if err := b.removeOwnedForCreate(cleanupCtx, spec, false); err != nil {
-		return fmt.Errorf("cleaning failed runner creation: %w", err)
+	var errs []error
+	if dindID != "" {
+		switch err := b.api.ContainerRemove(cleanupCtx, dindID, true); {
+		case err == nil:
+			b.forgetAbandonedCreate(dindName(containerName(spec.Name)))
+			b.log.Info("removed the docker-in-docker sidecar of a runner that failed to create", "runner", spec.Name, "container", shortID(dindID))
+		case errors.Is(err, ErrNotFound):
+			// Already gone, by the orphan sweep or a hand; nothing left to finish.
+			b.forgetAbandonedCreate(dindName(containerName(spec.Name)))
+		default:
+			errs = append(errs, fmt.Errorf("removing the docker-in-docker sidecar %s this create started: %w", shortID(dindID), err))
+		}
 	}
-	// There may be a sidecar even when the runner never reached creation.
-	if err := b.removeOwnedForCreate(cleanupCtx, spec, true); err != nil {
-		return err
+	if !errors.Is(cause, ErrContainerConflict) {
+		if err := b.removeOwnedForCreate(cleanupCtx, spec, false); err != nil {
+			return errors.Join(append(errs, fmt.Errorf("cleaning failed runner creation: %w", err))...)
+		}
+		// There may be a sidecar even when the runner never reached creation.
+		if err := b.removeOwnedForCreate(cleanupCtx, spec, true); err != nil {
+			return errors.Join(append(errs, err)...)
+		}
 	}
 	if owned && workDir != "" {
 		if err := os.RemoveAll(workDir); err != nil {
-			return fmt.Errorf("cleaning failed runner scratch directory: %w", err)
+			errs = append(errs, fmt.Errorf("cleaning failed runner scratch directory: %w", err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // ensureImage applies the pull policy.
@@ -1222,6 +1265,7 @@ func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 			// Keep the parent and its labels so a retry can find the sidecar.
 			return fmt.Errorf("backend: removing docker-in-docker sidecar for %s: %w", name, err)
 		}
+		b.forgetAbandonedCreate(dindName(containerName(name)))
 	}
 	if workDir != "" {
 		// Stop writers before removing scratch space, but retain the container
@@ -1235,6 +1279,11 @@ func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 	}
 	if err := b.api.ContainerRemove(ctx, string(h), true); err != nil && !errors.Is(err, ErrNotFound) {
 		return fmt.Errorf("backend: removing container %s: %w", shortID(string(h)), err)
+	}
+	// Removed by us is seen through: a create of either name that the daemon
+	// was slow to finish has nothing left to finish.
+	if name != "" {
+		b.forgetAbandonedCreate(containerName(name))
 	}
 	return nil
 }
