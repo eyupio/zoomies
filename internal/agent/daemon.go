@@ -397,6 +397,13 @@ func New(opts Options) (*Agent, error) {
 		cpuFactor:    1,
 	}
 	a.logs = newLogRelay(opts.Transport, log)
+	// Built here rather than in Run, so the field is set before any goroutine
+	// exists. Run's loop is not the only caller of heartbeat -- the tests call
+	// it directly beside a running agent -- and an assignment made inside Run
+	// raced with that read. newNotifier is a nil notifier when systemd is not
+	// listening and every method on it is nil-safe, so nothing else changes;
+	// Run still closes it on the way out.
+	a.notify = newNotifier(log)
 	return a, nil
 }
 
@@ -615,7 +622,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	a.notify = newNotifier(a.log)
 	defer a.notify.close()
 
 	kinds := a.opts.Backends.Kinds()
