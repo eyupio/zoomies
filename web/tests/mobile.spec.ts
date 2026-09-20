@@ -136,7 +136,7 @@ test('the navigation is a bar at the bottom, aligned and reaching every page', a
     Math.min(...widths),
     'each entry is wide enough to be a thumb target',
   ).toBeGreaterThanOrEqual(44);
-  for (const label of ['Overview', 'Pools', 'Runners', 'Jobs', 'More']) {
+  for (const label of ['Overview', 'Pools', 'Runners', 'Workflows', 'More']) {
     await expect(bar.getByText(label, { exact: true })).toBeVisible();
   }
   // Android Chrome can overlay its gesture pill while reporting a zero CSS
@@ -212,6 +212,7 @@ test('the grids stay inside the screen instead of overflowing it', async ({ page
 
   for (const [path, heading, label] of [
     ['/runners', 'Runners', 'Runners'],
+    ['/workflows', 'Workflows', 'Workflow runs'],
     ['/jobs', 'Jobs', 'Jobs'],
     ['/pools', 'Pools', 'Pools'],
   ] as const) {
@@ -431,6 +432,7 @@ test('every text control is at least 16px, so tapping one does not zoom the page
   // page-size select, the date range, and the pool wizard's label field.
   const PAGES = [
     { path: '/runners', heading: 'Runners' },
+    { path: '/workflows', heading: 'Workflows' },
     { path: '/jobs', heading: 'Jobs' },
     { path: '/usage', heading: 'Usage' },
     { path: '/audit', heading: 'Audit' },

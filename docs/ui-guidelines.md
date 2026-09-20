@@ -386,7 +386,10 @@ fixed, because muscle memory is the point:
 1. **Overview** — fleet health at a glance
 2. **Pools** — what runners to make
 3. **Runners** — what runners exist right now
-4. **Jobs** — what has run
+4. **Workflows** — what has run, one row per workflow run, each opening to the
+   jobs inside it. The job-level list is one step down, at `/jobs`: it is not
+   in the navigation, but every link that names a job — the problems drawer's,
+   the Overview's — lands there, and the two pages share their filters.
 5. **Usage** — runner-hours and job activity by pool, repository or workflow
 6. **Hosts** — where runners can go
 7. **Installations** — GitHub App connections
@@ -713,8 +716,8 @@ fleet", which offers to widen the view.
 
 Everything reachable, in a sensible order, with a visible focus ring
 (`2px` `--z-accent`, `2px` offset — never removed). `Cmd/Ctrl+K` palette,
-`g` then `o/p/r/j/u/h/i/m/a/s` to jump between sections, `/` focuses the current
-page's search, `R` refreshes it, `?` opens the shortcut sheet, `Esc` closes the
+`g` then `o/p/r/q/w/j/u/h/v/i/m/a/s` to jump between sections (`j` is the Jobs
+list, one step down from Workflows), `/` focuses the current page's search, `R` refreshes it, `?` opens the shortcut sheet, `Esc` closes the
 topmost layer. While a dialog, drawer, menu or the palette is open, `Esc` is
 the only one of these the shell answers; the rest belong to the overlay, so a
 `g r` typed into a confirmation cannot navigate away from the thing being

@@ -20,12 +20,12 @@ import {
   GitPullRequestArrow,
   HardDrive,
   LayoutDashboard,
-  ListChecks,
   ListOrdered,
   Plug,
   ScrollText,
   Server,
   Settings,
+  Workflow,
 } from '@lucide/svelte';
 import type { LucideIcon } from '@lucide/svelte';
 
@@ -53,7 +53,14 @@ export const SECTIONS: readonly NavItem[] = [
   { path: '/pools', label: 'Pools', icon: Boxes, key: 'p', primary: true, group: 'Fleet' },
   { path: '/runners', label: 'Runners', icon: Server, key: 'r', primary: true, group: 'Fleet' },
   { path: '/queue', label: 'Queue', icon: ListOrdered, key: 'q', group: 'Fleet' },
-  { path: '/jobs', label: 'Jobs', icon: ListChecks, key: 'j', primary: true, group: 'Fleet' },
+  {
+    path: '/workflows',
+    label: 'Workflows',
+    icon: Workflow,
+    key: 'w',
+    primary: true,
+    group: 'Fleet',
+  },
   { path: '/usage', label: 'Usage', icon: ChartNoAxesCombined, key: 'u', group: 'Fleet' },
   { path: '/hosts', label: 'Hosts', icon: HardDrive, key: 'h', group: 'Infrastructure' },
   { path: '/providers', label: 'Providers', icon: Cloud, key: 'v', group: 'Infrastructure' },
@@ -78,7 +85,15 @@ export const NAV_GROUPS: readonly NavGroup[] = SECTIONS.reduce<NavGroup[]>((grou
   return groups;
 }, []);
 
+/**
+ * Pages that belong to a section without living under its path. The Jobs
+ * list is the Workflows page one step down -- the same runs, opened out to
+ * every job -- so the sidebar keeps Workflows lit while an operator is there.
+ */
+const WITHIN: Readonly<Record<string, string>> = { '/jobs': '/workflows' };
+
 /** Whether `path` is the section the address bar is currently inside. */
 export function isCurrentSection(path: string, here: string): boolean {
-  return path === '/' ? here === '/' : here === path || here.startsWith(`${path}/`);
+  const section = WITHIN[here] ?? here;
+  return path === '/' ? section === '/' : section === path || section.startsWith(`${path}/`);
 }

@@ -355,6 +355,9 @@ export const getJob = (id: string, signal?: AbortSignal) =>
 export const getJobFacets = (signal?: AbortSignal) =>
   api.get<Result<'getJobFacets'>>('/jobs/facets', { signal });
 
+export const listWorkflowRuns = (query?: Query<'listWorkflowRuns'>, signal?: AbortSignal) =>
+  api.get<Result<'listWorkflowRuns'>>('/workflow-runs', { query, signal });
+
 export const getJobEvents = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getJobEvents'>>(`/jobs/${enc(id)}/events`, { signal });
 

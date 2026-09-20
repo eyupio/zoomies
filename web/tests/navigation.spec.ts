@@ -77,8 +77,8 @@ test('the browser back button returns to the previous page', async ({ page }) =>
   await openSection(page, '/runners');
   await expect(pageHeading(page, 'Runners')).toBeVisible();
 
-  await openSection(page, '/jobs');
-  await expect(pageHeading(page, 'Jobs')).toBeVisible();
+  await openSection(page, '/workflows');
+  await expect(pageHeading(page, 'Workflows')).toBeVisible();
 
   await page.goBack();
   await expect(pageHeading(page, 'Runners')).toBeVisible();
@@ -237,8 +237,8 @@ test('a tab that has been open across an upgrade moves to the new build', async 
   // navigation from here becomes a page load, for as long as the rollout takes.
   await page.evaluate(() => ((window as unknown as { marker?: string }).marker = 'second'));
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-  await openSection(page, '/jobs');
-  await expect(pageHeading(page, 'Jobs')).toBeVisible({ timeout: 20_000 });
+  await openSection(page, '/workflows');
+  await expect(pageHeading(page, 'Workflows')).toBeVisible({ timeout: 20_000 });
   expect(
     await page.evaluate(() => (window as unknown as { marker?: string }).marker),
     'the tab reloaded a second time for the same upgrade',

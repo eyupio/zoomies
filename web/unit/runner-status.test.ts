@@ -31,6 +31,7 @@ registerHooks({
 });
 
 const { runnerDisplayStatus } = await import('../src/lib/runners/runner-status.ts');
+const { runnerStatus } = await import('../src/lib/status.ts');
 
 test('active boosts and throttles replace busy or idle but retain lifecycle detail', () => {
   for (const state of ['busy', 'idle'] as const) {
@@ -58,11 +59,18 @@ test('stale CPU allocation never masks startup, draining or terminal states', ()
 });
 
 test('observation and normal allocations keep the lifecycle label', () => {
+  // The lifecycle's own word, read from the state map rather than written
+  // here: what is being tested is that a quiet allocation does not replace it,
+  // not what the word is, and the runner vocabulary has already changed once
+  // under a test that spelt it out.
   for (const cpu of ['observing', 'guaranteed', 'sit_and_stay'] as const) {
     const status = runnerDisplayStatus({ state: 'busy', cpu_resource: { state: cpu } });
-    assert.equal(status.label, 'Busy');
+    assert.equal(status.label, runnerStatus('busy').label);
     assert.ok(status.cpuDetail);
   }
-  assert.equal(runnerDisplayStatus({ state: 'registering' }).label, 'Registering');
+  assert.equal(
+    runnerDisplayStatus({ state: 'registering' }).label,
+    runnerStatus('registering').label,
+  );
   assert.equal(runnerDisplayStatus({}).label, 'Unknown');
 });

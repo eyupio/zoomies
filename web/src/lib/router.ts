@@ -70,6 +70,14 @@ export const ROUTES: readonly RouteDef[] = [
     title: 'Runner',
     load: () => import('../routes/RunnerDetail.svelte'),
   },
+  {
+    name: 'workflows',
+    path: '/workflows',
+    title: 'Workflows',
+    load: () => import('../routes/Workflows.svelte'),
+  },
+  // The job-level list, one step down from Workflows: every link that names a
+  // job -- the problems drawer's, the Overview's -- still lands here.
   { name: 'jobs', path: '/jobs', title: 'Jobs', load: () => import('../routes/Jobs.svelte') },
   { name: 'usage', path: '/usage', title: 'Usage', load: () => import('../routes/Usage.svelte') },
   { name: 'hosts', path: '/hosts', title: 'Hosts', load: () => import('../routes/Hosts.svelte') },

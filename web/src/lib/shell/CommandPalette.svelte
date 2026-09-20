@@ -24,6 +24,7 @@
     Server,
     Settings,
     TriangleAlert,
+    Workflow,
   } from '@lucide/svelte';
   import type { LucideIcon } from '@lucide/svelte';
   import { cordonHost, drainRunner } from '../api/client';
@@ -97,6 +98,13 @@
         label: 'Queue',
         icon: ListChecks,
         run: () => router.navigate('/queue'),
+      },
+      {
+        id: 'go-workflows',
+        group: 'Go to',
+        label: 'Workflows',
+        icon: Workflow,
+        run: () => router.navigate('/workflows'),
       },
       {
         id: 'go-jobs',

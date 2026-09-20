@@ -376,8 +376,12 @@ type JobFilter struct {
 	Provisioning []string
 	Branches     []string
 
-	Repos       []string
-	Workflows   []string
+	Repos     []string
+	Workflows []string
+	// RunIDs narrows to the jobs of particular workflow runs, by GitHub's run
+	// ID. It is how the Workflows page opens a run to the jobs inside it; sent
+	// with the repository as well, because a run ID keys a run only within one.
+	RunIDs      []int64
 	PoolIDs     []string
 	RunnerIDs   []string
 	States      []JobState
@@ -499,6 +503,14 @@ func jobWhere(f JobFilter) (string, []any) {
 	}
 	inClause("repo", f.Repos)
 	inClause("workflow", f.Workflows)
+	if len(f.RunIDs) > 0 {
+		ph := make([]string, len(f.RunIDs))
+		for i, id := range f.RunIDs {
+			ph[i] = "?"
+			args = append(args, id)
+		}
+		cond = append(cond, `github_run_id IN (`+strings.Join(ph, ",")+`)`)
+	}
 	inClause("pool_id", f.PoolIDs)
 	inClause("runner_id", f.RunnerIDs)
 	inClause("conclusion", f.Conclusions)

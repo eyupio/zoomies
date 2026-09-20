@@ -28,7 +28,9 @@ func TestTheFrontPagesCountThePagesTheUIHas(t *testing.T) {
 	}
 	// The entries of SECTIONS, which is the one list the sidebar, the phone's
 	// bar and its menu all read -- so counting it counts what an operator sees.
-	entries := regexp.MustCompile(`\{\s*path: '[^']*', label: '`).FindAllString(string(body), -1)
+	// An entry too long for one line is wrapped by the formatter, so the
+	// comma between the path and the label may be followed by a newline.
+	entries := regexp.MustCompile(`\{\s*path: '[^']*',\s*label: '`).FindAllString(string(body), -1)
 	if len(entries) < 2 {
 		t.Fatalf("found %d sections in %s; the list moved rather than the count", len(entries), sectionsSource)
 	}

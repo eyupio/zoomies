@@ -28,6 +28,9 @@ async function chord(page: Page, letter: string): Promise<void> {
 const JUMPS = [
   { key: 'p', path: '/pools', heading: 'Pools' },
   { key: 'r', path: '/runners', heading: 'Runners' },
+  { key: 'w', path: '/workflows', heading: 'Workflows' },
+  // Out of the navigation, still one chord away: the page every link that
+  // names a job lands on.
   { key: 'j', path: '/jobs', heading: 'Jobs' },
   { key: 'u', path: '/usage', heading: 'Usage' },
   { key: 'h', path: '/hosts', heading: 'Hosts' },

@@ -338,7 +338,8 @@ See [docs/migration.md](docs/migration.md).
 
 Twelve pages, one job each: **Overview** (fleet health, queue depth, scaling
 decisions in plain words, and a problems panel that is quiet when nothing is
-wrong), **Pools**, **Runners**, **Queue**, **Jobs**, **Usage**, **Hosts**,
+wrong), **Pools**, **Runners**, **Queue**, **Workflows** (one row per
+workflow run, opening to the jobs inside it), **Usage**, **Hosts**,
 **Providers**, **Installations**, **Migrate**, **Audit**, **Settings**. It is
 the primary way to configure and run a fleet, and the docs describe each task
 from there first; the CLI, Compose and the API are

@@ -207,20 +207,32 @@ export function cpuResourceStatus(state: string | undefined, label?: string): St
   }
 }
 
-/* -- jobs ----------------------------------------------------------------- */
+/* -- jobs -------------------------------------------------------------------
+ * A job is GitHub's, so it is called what GitHub calls it. Every row on the
+ * Jobs page is one workflow job with a link to the same job on GitHub, and an
+ * operator reads the two side by side: "Failure" here is the failure they will
+ * find there, and "Timed out" is the conclusion in the run's log. The kennel's
+ * vocabulary belongs to the fleet's own objects -- a runner, and the CPU it is
+ * lent -- and stops at this line. Lending it to the job lifecycle made
+ * "Walkies!" mean both a busy runner and a running job, and turned the Jobs
+ * page into a second Runners page rather than the fleet's view of GitHub's
+ * queue. What the fleet does to a job -- claims it, pauses its demand, loses a
+ * runner under it -- is said plainly for the same reason: it is a note on a
+ * job, beside GitHub's word for it.
+ * ------------------------------------------------------------------------ */
 
 const JOB_QUEUED = meta(
   'queued',
-  'Waiting for walkies',
+  'Queued',
   'pending',
   'dashed',
   Clock,
   'Waiting for a runner that answers its labels.',
 );
-const JOB_RUNNING = meta('in_progress', 'Walkies!', 'busy', 'filled', Play);
+const JOB_RUNNING = meta('in_progress', 'Running', 'busy', 'filled', Play);
 const JOB_WAITING = meta(
   'waiting',
-  'Waiting on the porch',
+  'Waiting',
   'neutral',
   'hollow',
   Clock,
@@ -228,15 +240,15 @@ const JOB_WAITING = meta(
 );
 
 const CONCLUSIONS: Record<string, StatusMeta> = {
-  success: meta('success', 'Good dog!', 'idle', 'filled', CircleCheck),
-  failure: meta('failure', 'Dropped the ball', 'danger', 'triangle', CircleX),
-  cancelled: meta('cancelled', 'Called back', 'neutral', 'square', Ban),
-  skipped: meta('skipped', 'Left in the yard', 'neutral', 'hollow', Minus),
-  timed_out: meta('timed_out', 'Snoozed through it', 'danger', 'triangle', Clock),
-  startup_failure: meta('startup_failure', 'Never left the porch', 'danger', 'triangle', CircleX),
-  action_required: meta('action_required', 'Needs its owner', 'pending', 'triangle', TriangleAlert),
-  neutral: meta('neutral', 'Sniffed and moved on', 'neutral', 'hollow', Minus),
-  stale: meta('stale', 'Cold scent', 'neutral', 'square', CircleMinus),
+  success: meta('success', 'Success', 'idle', 'filled', CircleCheck),
+  failure: meta('failure', 'Failure', 'danger', 'triangle', CircleX),
+  cancelled: meta('cancelled', 'Cancelled', 'neutral', 'square', Ban),
+  skipped: meta('skipped', 'Skipped', 'neutral', 'hollow', Minus),
+  timed_out: meta('timed_out', 'Timed out', 'danger', 'triangle', Clock),
+  startup_failure: meta('startup_failure', 'Startup failure', 'danger', 'triangle', CircleX),
+  action_required: meta('action_required', 'Action required', 'pending', 'triangle', TriangleAlert),
+  neutral: meta('neutral', 'Neutral', 'neutral', 'hollow', Minus),
+  stale: meta('stale', 'Stale', 'neutral', 'square', CircleMinus),
 };
 
 /** A job's status is its state, except once it is complete, when it is its conclusion. */
@@ -247,7 +259,7 @@ export function jobStatus(state: JobState | undefined, conclusion?: string | nul
   if (state === 'completed') {
     const key = (conclusion ?? '').toLowerCase();
     return (
-      CONCLUSIONS[key] ?? meta(key || 'completed', "Walk's over", 'neutral', 'square', CircleCheck)
+      CONCLUSIONS[key] ?? meta(key || 'completed', 'Completed', 'neutral', 'square', CircleCheck)
     );
   }
   return UNKNOWN;
@@ -256,7 +268,7 @@ export function jobStatus(state: JobState | undefined, conclusion?: string | nul
 /** A queued job no enabled pool claims. Nothing here will start it. */
 export const UNMATCHED: StatusMeta = meta(
   'unmatched',
-  'No lead fits',
+  'Unmatched',
   'danger',
   'triangle',
   TriangleAlert,
@@ -286,14 +298,14 @@ export function stuckUnmatched(job: {
  * The operator's vocabulary for a queued job's provisioning demand, in one
  * place: the Queue's status buttons, the Jobs page's filter chip and the badge
  * on a job row all read from here, so the same state is never called two
- * things on two pages. "Back in the kennel" rather than "deleted" throughout
- * -- the row is still there, and restoring it is one press.
+ * things on two pages. "Removed" rather than "deleted" throughout -- the row
+ * is still there, and restoring it is one press.
  */
 export const QUEUE_STATUS_LABELS: Record<ProvisioningStatus, string> = {
-  ready: 'Lead in hand',
-  expedited: 'Off the lead',
-  paused: 'Stay',
-  deleted: 'Back in the kennel',
+  ready: 'Ready',
+  expedited: 'Run now',
+  paused: 'Paused',
+  deleted: 'Removed',
 };
 
 /**
@@ -309,7 +321,7 @@ export const QUEUE_STATUS_LABELS: Record<ProvisioningStatus, string> = {
  */
 export const QUEUE_PAUSED: StatusMeta = meta(
   'paused',
-  'Stay',
+  'Paused',
   'draining',
   'hollow',
   Pause,
@@ -318,11 +330,11 @@ export const QUEUE_PAUSED: StatusMeta = meta(
 
 export const QUEUE_REMOVED: StatusMeta = meta(
   'removed',
-  'Back in the kennel',
+  'Removed',
   'neutral',
   'square',
   Trash2,
-  'An operator removed this job from the queue, so it no longer counts as work this fleet is waiting on. Restore it from the Queue page, under Back in the kennel.',
+  'An operator removed this job from the queue, so it no longer counts as work this fleet is waiting on. Restore it from the Queue page\u2019s Removed view.',
 );
 
 /**
@@ -341,7 +353,7 @@ export const QUEUE_REMOVED: StatusMeta = meta(
  */
 export const CANCELLING: StatusMeta = meta(
   'cancelling',
-  'Whistled back',
+  'Cancelling',
   'neutral',
   'square',
   CircleStop,
@@ -419,7 +431,7 @@ export const HOSTED: StatusMeta = meta(
  */
 export const RUNNER_LOST: StatusMeta = meta(
   'runner_lost',
-  'Lost the scent',
+  'Runner lost',
   'danger',
   'triangle',
   TriangleAlert,
@@ -454,20 +466,20 @@ const JOB_EVENTS: Record<JobEventKind, StatusMeta> = {
   waiting: JOB_WAITING,
   approved: meta(
     'approved',
-    'Let off the porch',
+    'Approved',
     'pending',
     'dashed',
     Clock,
     'The deployment review passed. The queue wait starts here.',
   ),
-  claimed: meta('claimed', 'Leash clipped on', 'idle', 'hollow', Circle),
+  claimed: meta('claimed', 'Claimed', 'idle', 'hollow', Circle),
   unmatched: UNMATCHED,
   started: JOB_RUNNING,
-  completed: meta('completed', "Walk's over", 'neutral', 'square', CircleCheck),
+  completed: meta('completed', 'Completed', 'neutral', 'square', CircleCheck),
   runner_lost: RUNNER_LOST,
   runner_returned: meta(
     'runner_returned',
-    'Found its way home',
+    'Runner returned',
     'idle',
     'hollow',
     CircleCheck,
@@ -475,7 +487,7 @@ const JOB_EVENTS: Record<JobEventKind, StatusMeta> = {
   ),
   cancel_requested: meta(
     'cancel_requested',
-    'Blew the whistle',
+    'Cancellation requested',
     'pending',
     'slash',
     CircleSlash,
@@ -487,7 +499,7 @@ const JOB_EVENTS: Record<JobEventKind, StatusMeta> = {
   // read as an outcome, which is the one thing it is not.
   runner_start_failed: meta(
     'runner_start_failed',
-    "Wouldn't leave the porch",
+    'A runner failed to start',
     'pending',
     'dashed',
     TriangleAlert,
@@ -495,7 +507,7 @@ const JOB_EVENTS: Record<JobEventKind, StatusMeta> = {
   ),
   rerun_requested: meta(
     'rerun_requested',
-    'Round the block again',
+    'Re-run requested',
     'pending',
     'dashed',
     Play,
