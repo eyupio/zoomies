@@ -304,6 +304,13 @@ that has not been revoked. That is the same authority as before and not one
 action more: `platform` is `admin` plus the two things above. A nightly
 `zoomies backup` running on an administrator's token keeps working.
 
+What is carried across is what held `admin` *before* the role existed. If you
+track `main` and have already started a build that added the role, an account
+or token you have made at `admin` since then stays `admin` — you made it
+knowing what `admin` no longer reaches, and an upgrade should not overrule
+that. Upgrading from a release, the two steps run seconds apart on the same
+start, so this excludes nothing you have.
+
 You do not have to do anything. On an instance one team runs, the change is
 invisible: everyone who could take a backup yesterday can take one today, and
 the Backups page looks the same.

@@ -446,7 +446,10 @@ func TestThePlatformRoleRebuildKeepsEveryRowItsIndexesAndTheSessions(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := atSchema(t, len(migs)-1)
+	// From before the rebuild, so that it runs against these rows. Seeding
+	// into a fixture that had already applied 0044 was the first attempt and
+	// tested nothing: the rebuild had run against an empty users table.
+	path := atSchema(t, len(migs)-2)
 
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
 	if err != nil {
@@ -631,5 +634,78 @@ func TestAnUpgradeLeavesEveryAdministratorWithWhatTheyHad(t *testing.T) {
 	}
 	if got := roleOf("tok_view"); got != string(RoleViewer) {
 		t.Errorf("a viewer token became %q", got)
+	}
+}
+
+// An operator who has already run 0044 can create an account at administrator
+// meaning the new administrator -- one that cannot take a backup or lift the
+// recovery fence -- and mean it. Restoring authority somebody held the day
+// before the split is the point of 0045; granting authority somebody
+// deliberately withheld after it is the one thing worse than the regression
+// 0045 exists to fix. So the promotion stops at the moment 0044 ran.
+func TestAnUpgradeDoesNotPromoteWhatWasMadeAfterTheRoleSplit(t *testing.T) {
+	ctx := context.Background()
+	migs, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Through 0044 but not 0045: the state of anybody tracking main between
+	// the two, the project's own fleet among them.
+	path := atSchema(t, len(migs)-1)
+
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var split int64
+	if err := db.QueryRowContext(ctx,
+		`SELECT applied_at FROM schema_migrations WHERE name = '0044_platform_role.sql'`).Scan(&split); err != nil {
+		t.Fatalf("0044 left no ledger row, so 0045 has nothing to bound itself by: %v", err)
+	}
+	seed := func(query string, args ...any) {
+		t.Helper()
+		if _, err := db.ExecContext(ctx, query, args...); err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+	}
+	// One from before the split, which is owed what it had.
+	seed(`INSERT INTO users (id, username, role, password_hash, disabled, created_at)
+		VALUES ('usr_before','before','admin','hash',0,?)`, split-1000)
+	// And one made afterwards, deliberately, at the administrator the split
+	// left behind.
+	seed(`INSERT INTO users (id, username, role, password_hash, disabled, created_at)
+		VALUES ('usr_after','after','admin','hash',0,?)`, split+1000)
+	seed(`INSERT INTO api_tokens (id, name, role, user_id, scopes, token_hash, prefix, revoked, created_at)
+		VALUES ('tok_before','old','admin','usr_before','["*"]','hash-a','zoo_a',0,?)`, split-1000)
+	seed(`INSERT INTO api_tokens (id, name, role, user_id, scopes, token_hash, prefix, revoked, created_at)
+		VALUES ('tok_after','new','admin','usr_after','["*"]','hash-b','zoo_b',0,?)`, split+1000)
+	db.Close()
+
+	s, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatalf("upgrading: %v", err)
+	}
+	defer s.Close()
+
+	if u, err := s.GetUser(ctx, "usr_before"); err != nil || u.Role != RolePlatform {
+		t.Errorf("the account that predates the split came up as %+v (%v); it is owed what it had", u, err)
+	}
+	if u, err := s.GetUser(ctx, "usr_after"); err != nil || u.Role != RoleAdmin {
+		t.Errorf("an account created after the split came up as %+v (%v); the upgrade granted authority somebody withheld on purpose", u, err)
+	}
+
+	roleOf := func(id string) string {
+		t.Helper()
+		var role string
+		if err := s.read.QueryRowContext(ctx, `SELECT role FROM api_tokens WHERE id = ?`, id).Scan(&role); err != nil {
+			t.Fatal(err)
+		}
+		return role
+	}
+	if got := roleOf("tok_before"); got != string(RolePlatform) {
+		t.Errorf("a token minted before the split is %q; it would start answering 403 with nothing said to anybody", got)
+	}
+	if got := roleOf("tok_after"); got != string(RoleAdmin) {
+		t.Errorf("a token minted after the split was elevated to %q", got)
 	}
 }
