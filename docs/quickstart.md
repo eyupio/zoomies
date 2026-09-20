@@ -9,6 +9,12 @@ description: >-
 Five minutes, on a fresh Ubuntu, Debian, Fedora or Alpine host. macOS works too
 for running a controller in development.
 
+One command installs it and asks the questions only a terminal can answer.
+Everything after that — GitHub, the first pool, the first job, every host you
+add later — happens in the **web UI**, which is where a Zoomies fleet is run.
+Prefer a file or a terminal? Each step below says where its Docker Compose,
+CLI or API equivalent is, and [Other ways in](#other-ways-in) collects them.
+
 ## 1. Install
 
 ```sh
@@ -139,7 +145,8 @@ On a single-host install made by `zoomies init`, setup creates this one for you
 once GitHub is connected -- it is derived from what the host actually is, so the
 numbers below are what you get on a 4-CPU Linux box with Docker. The
 repository's `docker-compose.yml` has no installer, so on that path you create
-it yourself on the **Pools** page:
+it yourself with **Pools → Create a pool**, which opens the same wizard on the
+same defaults:
 
 | | |
 | --- | --- |
@@ -147,7 +154,7 @@ it yourself on the **Pools** page:
 | **Labels** | `zoomies-linux-x64` — what your workflows put in `runs-on` — and `zoomies`, which every pool answers to |
 | **Platform** | What the host is: Ubuntu 24.04, amd64. It picks the runner image, and it keeps this pool off hosts running something else |
 | **Backend** | Docker (rootless if available) |
-| **Size per runner** | `2` cores and `4 GB` — the fleet's default, on sliders, with the room your hosts have for that size counted underneath |
+| **Size per runner** | One share of each host — the machine divided by its slots, as a real limit. A pool made in the wizard also starts with **Elastic CPU** on *Observe only*; the installer's pool starts with it off |
 | **Min / max** | `0` / `4` — nothing idle when nothing is queued; the maximum starts at the room those hosts have and stops following once you type your own |
 | **Idle timeout** | `5m` |
 | **Ephemeral** | yes |
@@ -176,6 +183,17 @@ particular amount of machine everywhere can say so instead, on the advanced
 path. Its sliders open on the figures the whole fleet starts from, under
 **Settings → Configuration** (`runners.default_cpus`,
 `runners.default_memory_mb`).
+
+**Elastic CPU** is the row to come back to. A pool sized by its host can
+*observe*: on every heartbeat the controller works out how much of the host's
+spare CPU a busy runner could have been lent, with every other runner's
+guarantee and the next queued job's room held back, and publishes the answer to
+Prometheus without moving anything. A pool made in the wizard starts there;
+the installer's pool starts with it off, and **Edit** on the pool's page turns
+it on. Switch it to *Automatic boost* once the numbers say there is room, and
+a job that was compiling inside two cores gets the rest of the machine until
+something else wants it. [Elastic CPU zoomies](elastic-cpu.md) is the whole of
+it.
 
 **Operating system** is the other row worth a look. It picks which
 `zoomies-runner` variant the pool boots — Ubuntu 24.04 and 22.04, Debian 12,
@@ -220,6 +238,14 @@ which runner took it, and — for anything that failed — the step it failed at
 ![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
 ![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
 
+Every one of those rows is also a flag on `zoomies pools create`, and
+`--dry-run` gives the wizard's own verdict without creating anything:
+
+```sh
+zoomies pools create --name zoomies-linux-x64 --labels zoomies-linux-x64 \
+  --installation ins_k3f9qz2m --os ubuntu --os-version 24.04 --max 4 --dry-run
+```
+
 ## Moving the rest of your repositories
 
 Editing every workflow by hand is the part nobody does. **Migrate** in the
@@ -253,6 +279,23 @@ the new host needs no inbound firewall rule.
 [Hosts and pools](hosts-and-pools.md) takes it from here: what a host brings with
 it, cordoning one for maintenance, when a second pool is worth having, and the
 rules that decide which host a runner lands on.
+
+## Other ways in
+
+The UI is a client of the REST API, and so is everything else, so nothing on
+this page needs a browser. Where the same thing lives elsewhere:
+
+| In the UI | Elsewhere |
+| --- | --- |
+| The installer's questions | [`zoomies init`](cli.md#setting-up-and-looking-around) with `--answers`, or the repository's [`docker-compose.yml`](compose.md) and a three-line `.env` |
+| **Installations → Connect GitHub** | The native installer does it on the console; there is no CLI form, because the manifest flow needs a browser |
+| **Pools → Create a pool** | [`zoomies pools create`](cli.md#zoomies-pools), or `POST /api/v1/pools` |
+| **Hosts → Add a host** | [`zoomies hosts join-token create`](cli.md#zoomies-hosts), then `zoomies agent join` on the new machine |
+| **Settings → Configuration** | `zoomies.yaml`, a `ZOOMIES_*` variable, or [`zoomies config set`](cli.md#setting-up-and-looking-around) with the controller stopped |
+| The Overview, the Jobs page, a runner's log | [`zoomies status`](cli.md#zoomies-status), `zoomies jobs list`, `zoomies runners logs --follow` |
+
+[The command line](cli.md) lists every command, and [the API](api-surface.md)
+every route with the role it needs.
 
 ## Unattended installs
 

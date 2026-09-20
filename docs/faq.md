@@ -157,6 +157,19 @@ pull request per repository, showing you the exact diff before it opens
 anything, and only touching the jobs it is sure about. See
 [migrating repositories](migration.md).
 
+## Does a runner get the whole machine, or a fixed slice of it?
+
+Neither, by default: it gets a guaranteed share — the host's allocatable CPU
+and memory divided by its slot count, applied as a real cgroup limit — and, on
+a pool with [elastic CPU zoomies](elastic-cpu.md) switched on, a busy runner is
+lent the CPU the rest of the host is not using on top of that. The guarantee is
+never reduced by another runner, one queued job's worth of CPU is held back
+before anything is lent, and memory never changes while a job runs. A pool made
+in the wizard starts by measuring what it would lend and publishing that to
+Prometheus; switch it to *Automatic boost* on the pool's **Size** step once
+the numbers say the host has room. A pool whose jobs need the same size everywhere can
+type a fixed one instead.
+
 ## Can I see what the scheduler is doing, and why?
 
 Yes -- every scaling decision carries a reason string written for a person

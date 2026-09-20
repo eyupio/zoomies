@@ -78,8 +78,10 @@ What runners to make, and how many.
 `create` and `edit` share one set of flags. The ones worth knowing:
 `--name`, `--installation`, `--labels`, `--backend` (`docker`), `--image`,
 `--min` (`0`), `--max` (`4`), `--idle-timeout` (`5m`), `--ephemeral` (`true`),
-`--docker-mode` (`none`), `--run-as-root` (`false`), `--host-selector`, and the
-resource limits `--cpus`, `--memory-mb`, `--disk-gb`.
+`--docker-mode` (`none`), `--run-as-root` (`false`), `--host-selector`, the
+resource limits `--cpus`, `--memory-mb`, `--disk-gb`, and the [elastic
+CPU](elastic-cpu.md) policy, `--cpu-burst` (`off`, `observe` or `automatic`)
+with `--cpu-burst-max` as its ceiling in cores.
 
 On `edit`, only the flags you actually type are sent — the defaults above are
 not applied to a partial update, so editing a pool's image cannot silently reset

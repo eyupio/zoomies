@@ -56,7 +56,7 @@ without Kubernetes and without a database server.
 ![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-light.webp#only-light){ .zoomies-shot }
 
 The Overview, on a fleet part-way through a morning — every number live, and
-nothing to press to keep it that way. [See all ten pages, in both
+nothing to press to keep it that way. [See all twelve pages, in both
 themes](ui.md).
 { .zoomies-shot-caption }
 
@@ -104,6 +104,17 @@ controller's event stream — you never have to press refresh, though there is a
 button where you want to be sure. Light and dark, a command palette, and a log
 viewer built for a hundred thousand lines.
 [See every page](ui.md).
+</div>
+
+<div markdown>
+:material-rabbit:{ .icon }
+
+### Elastic CPU zoomies
+Every runner keeps its guaranteed share of its host, and a busy one is lent
+the CPU nobody else is using — with the next queued job's room held back, the
+host's reserve untouched, and memory never moved. A compile that would run in
+under two cores gets four, and gives them back the moment they are wanted.
+[How it works](elastic-cpu.md).
 </div>
 
 <div markdown>
@@ -198,6 +209,22 @@ survive one — [download it, read it, then run it](quickstart.md#1-install).
 It can deploy three ways — the binary under systemd, a `docker compose` stack
 with a fully populated `.env`, or a single container — and it will only offer
 the ones your host can actually run. See the [quick start](quickstart.md).
+
+## Run it from the browser. Reach it from anywhere.
+
+The web UI is the way a Zoomies fleet is configured and operated: connect
+GitHub, create a pool, add a host, watch a job, size a runner, turn on elastic
+CPU — every one of those is a page or a wizard, live as it happens, and the
+documentation describes each task from there first. Nothing on those pages is
+special: they are clients of the REST API, and so is everything else.
+
+| From | What it is for |
+| --- | --- |
+| [The web UI](ui.md) | Configuring and running the fleet, day to day. Twelve pages, live. |
+| [The command line](cli.md) | The same fleet from a terminal or a script: `zoomies status`, `zoomies pools create`, `zoomies runners drain`. |
+| [Docker Compose](compose.md) | Starting the controller from a file rather than the installer, on a host you own. |
+| [A PaaS](paas.md) or [a marketplace image](marketplace.md) | Starting a controller on a host you do not install on, and joining runner hosts to it. |
+| [The API](api-surface.md) | Everything above, for your own tooling. |
 
 ## Moving what you have now
 

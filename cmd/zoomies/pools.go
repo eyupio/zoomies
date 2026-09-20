@@ -171,11 +171,46 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 		{"docker mode", pool.DockerMode},
 		{"run as root", p.yesNo(pool.RunAsRoot, true)},
 		{"host selector", dash(kvValue(pool.HostSelector).String())},
+		{"sizing", poolSizing(pool)},
+		{"elastic CPU", poolCPUBurstLabel(pool)},
 		{"created", p.relTime(pool.CreatedAt)},
 		{"updated", p.relTime(pool.UpdatedAt)},
 	})
 	printProblems(p, pool.Warnings, "This pool has settings that weaken the defaults:")
 	return nil
+}
+
+// poolSizing says what one runner of this pool is given, in the wizard's own
+// words, because "cpus 0" reads as unlimited and it is the opposite.
+func poolSizing(pool poolItem) string {
+	if pool.Sizing == "fixed" || pool.Resources.CPUs > 0 || pool.Resources.MemoryMB > 0 {
+		var parts []string
+		if pool.Resources.CPUs > 0 {
+			parts = append(parts, strconv.FormatFloat(pool.Resources.CPUs, 'f', -1, 64)+" CPUs")
+		}
+		if pool.Resources.MemoryMB > 0 {
+			parts = append(parts, strconv.FormatInt(pool.Resources.MemoryMB, 10)+" MB")
+		}
+		return "fixed: " + strings.Join(parts, ", ") + " on every host"
+	}
+	return "automatic: one slot's share of each host"
+}
+
+// poolCPUBurstLabel renders the elastic CPU policy the way the pool wizard
+// offers it, with the ceiling beside the mode when there is one.
+func poolCPUBurstLabel(pool poolItem) string {
+	mode := pool.CPUBurst.Mode
+	if mode == "" || mode == "off" {
+		return "off"
+	}
+	label := mode
+	if mode == "observe" {
+		label = "observe only"
+	}
+	if pool.CPUBurst.MaxCPUs > 0 {
+		return fmt.Sprintf("%s, up to %s CPUs per runner", label, strconv.FormatFloat(pool.CPUBurst.MaxCPUs, 'f', -1, 64))
+	}
+	return label + ", up to the host's allocatable CPU"
 }
 
 // poolImage says which image this pool's runners will boot, and where that
@@ -220,7 +255,10 @@ type poolSpec struct {
 	// current is the size the pool has now, so that an edit touching one part
 	// of it carries the rest forward rather than clearing it. Zero on a
 	// create, where there is nothing to carry.
-	current      poolResources
+	current poolResources
+	// currentBurst is the elastic CPU policy the pool has now, kept for the
+	// same reason: a ceiling typed alone must not switch the mode off.
+	currentBurst poolCPUBurst
 	os           *string
 	osVersion    *string
 	arch         *string
@@ -238,6 +276,8 @@ type poolSpec struct {
 	maxRunnerLifetime *string
 	scaleUpDelay      *string
 	dockerWait        *string
+	cpuBurst          *string
+	cpuBurstMax       *float64
 }
 
 // registerPoolFlags declares them, with the API's own defaults so that a
@@ -283,6 +323,8 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.maxRunnerLifetime = fs.String("max-runner-lifetime", "", "override scheduler.max_runner_lifetime for this pool (empty follows the fleet; 0 is no limit)")
 	spec.scaleUpDelay = fs.String("scale-up-delay", "", "override scheduler.scale_up_delay for this pool (empty follows the fleet; 0 scales the moment a job is queued)")
 	spec.dockerWait = fs.String("docker-wait", "", "override runners.docker_wait for this pool's runners (empty follows the fleet)")
+	spec.cpuBurst = fs.String("cpu-burst", "", "elastic CPU: off, observe (measure without moving a quota) or automatic (lend spare host CPU to busy runners); needs automatic sizing on docker or podman")
+	spec.cpuBurstMax = fs.Float64("cpu-burst-max", 0, "the most CPU one runner may be lent up to, in cores; 0 is the host's allocatable CPU")
 	return spec
 }
 
@@ -387,6 +429,19 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	// pool keeps whatever it had.
 	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") {
 		body["resources"] = spec.resources(fs)
+	}
+	// The elastic CPU policy is one object for the same reason the size is,
+	// so an edit that types only the ceiling carries the mode forward from
+	// the pool as it stands rather than resetting it to off.
+	if fs.changed("cpu-burst") || fs.changed("cpu-burst-max") {
+		mode, ceiling := spec.currentBurst.Mode, spec.currentBurst.MaxCPUs
+		if fs.changed("cpu-burst") {
+			mode = *spec.cpuBurst
+		}
+		if fs.changed("cpu-burst-max") {
+			ceiling = *spec.cpuBurstMax
+		}
+		body["cpu_burst"] = map[string]any{"mode": mode, "max_cpus": ceiling}
 	}
 	return body
 }
@@ -553,6 +608,7 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	cf := registerClientFlags(fs, true)
 	spec := registerPoolFlags(fs)
 	fs.example("zoomies pools edit pool_k3f9qz2m --max 12",
+		"zoomies pools edit pool_k3f9qz2m --cpu-burst automatic --cpu-burst-max 6",
 		"zoomies pools edit pool_k3f9qz2m --os ubuntu --os-version 24.04",
 		"zoomies pools edit pool_k3f9qz2m --labels zoomies-4vcpu-ubuntu-2404,gpu")
 	if err := fs.parse(args); err != nil {
@@ -574,12 +630,14 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	// forward -- `resources` is one object, and a partial one clears what it
 	// leaves out -- so the pool as it stands is read first. It is read only
 	// when it is needed, so an edit that changes a label costs no extra call.
-	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") {
+	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") ||
+		fs.changed("cpu-burst") || fs.changed("cpu-burst-max") {
 		var existing poolItem
 		if _, err := client.get(ctx, "/pools/"+url.PathEscape(id), nil, &existing); err != nil {
-			return fmt.Errorf("reading the pool's current size, which an edit to part of it has to keep: %w", err)
+			return fmt.Errorf("reading the pool as it stands, which an edit to part of its size or elastic CPU policy has to keep: %w", err)
 		}
 		spec.current = existing.Resources
+		spec.currentBurst = existing.CPUBurst
 	}
 
 	body := spec.body(fs, true)
