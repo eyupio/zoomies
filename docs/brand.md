@@ -179,6 +179,31 @@ gains it -- in the wizard's field as soon as it loses focus, and again in the
 store, so that a pool created from the CLI, the API or an answer file is
 branded exactly as one created from the wizard is.
 
+## Animated homepage logo
+
+The homepage animates the original white knockout artwork with four short
+performances: paw-wave greeting, curious head tilt, squirrel-chasing run and a full
+double zoomies spin. Blinking, panting, floppy ears and a wagging tail bring the
+dog to life. The nose stays attached to the muzzle, the front paw covers the
+rear leg, and both lower swish strokes remain separate from the dog.
+The source pixels, wordmark and circular swish are retained. SVG clips articulate
+parts of the dog; this is not a new vector master or a replacement logo download.
+
+A shuffled sequence visits each performance once before reshuffling, avoids
+immediate repeats and varies the quiet interval between performances. Every
+performance begins and ends in the same neutral pose, so the logo switches
+without flicker or shifting the page. The wordmark and swish remain still.
+
+Visitors can pause the animation. Reduced-motion preferences and a failed or
+unavailable script leave the original static logo. Motion and its timer pause
+when the logo is off screen or the tab is hidden; Material instant navigation
+cleans up the old controller before attaching the new one.
+
+`docs/brand/animated-logo.html`, `docs/stylesheets/animated-logo.css` and
+`docs/javascripts/animated-logo.js` own this homepage treatment. The approved
+motion exception applies to the articulated dog, not rotation, recolouring or
+distortion of the full brand mark elsewhere.
+
 ## Clear space and minimum sizes
 
 * Full logo clear space: the height of the **O** in the wordmark on every side.

@@ -71,6 +71,10 @@ theme:
 
 extra_css:
   - stylesheets/zoomies.css
+  - stylesheets/animated-logo.css
+
+extra_javascript:
+  - javascripts/animated-logo.js
 
 markdown_extensions:
   - abbr
