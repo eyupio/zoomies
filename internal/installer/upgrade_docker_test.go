@@ -42,7 +42,7 @@ func TestDockerUpgradeRestoresTheOldContainerWhenTheReplacementCannotStart(t *te
 				t.Fatalf("fail=%v: %v", fail, err)
 			}
 			all := strings.Join(calls, "\n")
-			if !strings.Contains(all, "/old/stop?t=600") || !strings.Contains(all, "name=zoomies-before-upgrade") {
+			if !strings.Contains(all, "/old/stop?t=1200") || !strings.Contains(all, "name=zoomies-before-upgrade") {
 				t.Fatalf("missing graceful replacement: %s", all)
 			}
 			if fail {

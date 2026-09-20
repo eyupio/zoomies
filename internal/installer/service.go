@@ -52,6 +52,10 @@ const (
 	// drives it.
 )
 
+// serviceStopTimeout outlasts the agent's admitted work and the controller's
+// shutdown. Keep container upgrades and installed units on the same budget.
+const serviceStopTimeout = 20 * time.Minute
+
 // Unit names the two services Zoomies installs.
 const (
 	// UnitController is the controller, with or without an embedded agent.
@@ -86,8 +90,8 @@ type ServiceSpec struct {
 	// Bind is the listen address, used only to decide whether the service
 	// needs CAP_NET_BIND_SERVICE.
 	Bind string
-	// StopTimeout bounds a graceful stop. The agent's is long because it waits
-	// for jobs; the controller's is short because it does not kill runners.
+	// StopTimeout bounds a graceful stop while admitted lifecycle tasks finish.
+	// Running CI jobs are left alone, including by the embedded agent.
 	StopTimeout time.Duration
 	// WantsDocker orders the unit after the Docker daemon.
 	WantsDocker bool
@@ -148,11 +152,7 @@ func (s *ServiceSpec) defaults() error {
 		}
 	}
 	if s.StopTimeout == 0 {
-		if s.Unit == UnitAgent {
-			s.StopTimeout = 600 * time.Second
-		} else {
-			s.StopTimeout = 60 * time.Second
-		}
+		s.StopTimeout = serviceStopTimeout
 	}
 	if s.ExecPath == "" {
 		return errors.New("installer: the service needs the path of the zoomies binary; pass --installed-binary or install it to /usr/local/bin/zoomies")

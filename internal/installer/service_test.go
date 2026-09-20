@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/eyupio/zoomies/internal/agent"
 )
 
 // requirePOSIX skips a test whose subject is a POSIX fact -- a path that
@@ -52,7 +54,7 @@ func TestRenderSystemdUnit(t *testing.T) {
 		"ReadWritePaths=/var/lib/zoomies",
 		"StateDirectory=zoomies",
 		"ConfigurationDirectory=zoomies",
-		"TimeoutStopSec=60s",
+		"TimeoutStopSec=1200s",
 		"NoNewPrivileges=yes",
 		"ProtectSystem=strict",
 		"WantedBy=multi-user.target",
@@ -144,8 +146,8 @@ func TestRenderAgentUnit(t *testing.T) {
 	if !strings.Contains(out, "Restart=always") {
 		t.Errorf("an agent restarts always:\n%s", out)
 	}
-	// A graceful agent stop waits for in-flight jobs, which is minutes.
-	if !strings.Contains(out, "TimeoutStopSec=600s") {
+	// A graceful agent stop lets admitted lifecycle tasks finish.
+	if !strings.Contains(out, "TimeoutStopSec=1200s") {
 		t.Errorf("the agent's stop timeout must be generous:\n%s", out)
 	}
 }
@@ -218,7 +220,7 @@ func TestServiceSpecDefaults(t *testing.T) {
 	if s.Group != "u" {
 		t.Fatalf("group should default to the user, got %q", s.Group)
 	}
-	if s.StopTimeout != 60*time.Second {
+	if s.StopTimeout != serviceStopTimeout {
 		t.Fatalf("controller stop timeout = %s", s.StopTimeout)
 	}
 	if !strings.HasSuffix(s.LogFile, "zoomies.log") {
@@ -816,5 +818,11 @@ func TestWindowsServiceLogsPointSomewhereWhenThereIsNoFile(t *testing.T) {
 	}
 	if got, want := m.LogCommand(), "sc.exe qc zoomies-agent"; got != want {
 		t.Errorf("LogCommand() = %q, want %q", got, want)
+	}
+}
+
+func TestSupervisorOutlastsAgentShutdown(t *testing.T) {
+	if serviceStopTimeout <= agent.ShutdownTimeout+time.Minute {
+		t.Fatal("supervisor can kill the controller before the embedded agent finishes")
 	}
 }

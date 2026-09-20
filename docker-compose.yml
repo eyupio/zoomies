@@ -52,6 +52,8 @@ services:
     #   dockerfile: deploy/Dockerfile
     #   target: controller
     restart: unless-stopped
+    # Finish admitted runner creation before replacing the service.
+    stop_grace_period: 20m
     # The embedded agent registers this host under the container's hostname.
     # Without one that is the container's random twelve-hex-digit ID, which
     # then follows the host into every scheduler reason and problem message.

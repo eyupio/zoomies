@@ -30,6 +30,26 @@ under their existing tags, including Docker-enabled variants; running runners
 keep their current images. It does not retag a pool's pinned or custom image.
 A custom **service** image needs an explicit `--image <reference>`.
 
+Container upgrades allow up to twenty minutes for the old service to stop.
+This is a ceiling, not an added delay: the agent finishes admitted runner
+creation and cleanup, reports the result, then exits. Running CI jobs keep
+running in their existing containers; the upgrade does not wait for them to
+finish. A cold image pull can therefore make a restart take longer than an
+idle upgrade. Remote agents keep sending heartbeats during this wait.
+
+The upgrade command supplies this timeout even for older Compose files;
+newly generated Compose files also set `stop_grace_period: 20m` for manual
+restarts. Existing native systemd units are preserved during upgrades. If
+yours has a shorter `TimeoutStopSec`, use `systemctl edit zoomies` (or
+`zoomies-agent` on an agent host) and set `[Service]` / `TimeoutStopSec=1200s`
+before upgrading. New systemd installations use that budget by default.
+
+When first upgrading from an older binary, its shorter internal shutdown
+limit still applies to that one stop. To avoid interrupting a creation on
+that transition, cordon the controller's host in **Hosts**, wait for its
+provisioning runners to finish starting, then upgrade and uncordon it.
+Existing running jobs can continue throughout.
+
 For a custom installation, pass `--config-dir <directory>` and, where needed,
 `--prefix <binary-directory>`. Upgrade uses `deployment.json` for container
 installs and the existing systemd or launchd service for native ones. It

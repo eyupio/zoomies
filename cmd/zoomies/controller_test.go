@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/store"
@@ -311,5 +312,11 @@ func TestAStoredLogLevelIsInForceAfterTheDatabaseIsRead(t *testing.T) {
 
 	if level.Level() != slog.LevelDebug {
 		t.Errorf("the gate is at %s after a stored debug level, want debug", level.Level())
+	}
+}
+
+func TestControllerShutdownOutlastsEmbeddedAgent(t *testing.T) {
+	if stopGrace <= agent.ShutdownTimeout {
+		t.Fatalf("controller grace %s must exceed agent shutdown %s", stopGrace, agent.ShutdownTimeout)
 	}
 }

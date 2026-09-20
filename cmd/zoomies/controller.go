@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/api"
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/backup"
@@ -27,11 +28,10 @@ import (
 	"github.com/eyupio/zoomies/internal/version"
 )
 
-// stopGrace bounds how long the controller's loops get to finish once the
-// listener has stopped. It is deliberately generous: nothing here kills a
-// runner, so the only cost of waiting is a slightly slower restart, and the
-// benefit is a final fleet sample and a tidy log.
-const stopGrace = 20 * time.Second
+// stopGrace must outlast the embedded agent's admitted create, cleanup and
+// result reporting. Exiting sooner can strand a DinD sidecar halfway through
+// creation. Existing CI jobs keep running; only lifecycle tasks are awaited.
+const stopGrace = agent.ShutdownTimeout + time.Minute
 
 // runController is `zoomies controller`: the control plane, the API, the UI,
 // the webhook endpoint and -- unless agent.embedded is false -- an agent.

@@ -115,10 +115,15 @@ func TestComposeUpgradeKeepsConfigurationAndPullsBeforeRestarting(t *testing.T) 
 				t.Fatalf("record disagrees with result: %+v", stored)
 			}
 			joined := strings.Join(calls, "\n")
+			for _, call := range calls {
+				if strings.Contains(call, " up ") && !strings.Contains(call, "--timeout 1200") {
+					t.Fatalf("upgrade or rollback can kill admitted work: %s", call)
+				}
+			}
 			if fail == "pull" && strings.Contains(joined, " up ") {
 				t.Fatal("restarted after failed pull")
 			}
-			if fail == "" && (!strings.Contains(joined, "--no-deps --force-recreate zoomies") || strings.Index(joined, "pull zoomies") > strings.Index(joined, " up ")) {
+			if fail == "" && (!strings.Contains(joined, "--no-deps --force-recreate --timeout 1200 zoomies") || strings.Index(joined, "pull zoomies") > strings.Index(joined, " up ")) {
 				t.Fatalf("unsafe ordering: %s", joined)
 			}
 		})
