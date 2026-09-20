@@ -91,8 +91,13 @@ test('filtering by action narrows the log and the address bar carries it', async
   expect(before).toBeGreaterThanOrEqual(SEEDED.length);
 
   await page.getByRole('combobox', { name: 'Filter by action' }).selectOption('pool.create');
-  await expect(rows(page)).toHaveCount(1);
-  await expect(rows(page).first()).toContainText('alice');
+  const filtered = rows(page);
+  // Not asserted as exactly one: pools.spec.ts's elastic-CPU edit test creates
+  // and deletes a pool of its own through the API, and deleting a pool does not
+  // erase the pool.create row it wrote on the way in. What this proves is that
+  // alice's seeded row survived the filter and the total narrowed.
+  await expect(filtered.filter({ hasText: 'alice' })).toHaveCount(1);
+  await expect(filtered).not.toHaveCount(before);
   await expect(page).toHaveURL(/action=pool\.create/);
 
   // The filter is a chip, and removing it puts everything back.
