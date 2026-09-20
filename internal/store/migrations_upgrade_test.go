@@ -492,19 +492,17 @@ func TestThePlatformRoleRebuildKeepsEveryRowItsIndexesAndTheSessions(t *testing.
 		t.Fatal(err)
 	}
 	if u.Role != RolePlatform {
-		t.Errorf("the oldest enabled administrator is %q, want platform; an upgrade that promotes nobody leaves an instance whose timers nobody can change", u.Role)
+		t.Errorf("the account that installed the instance is %q, want platform; an upgrade that promotes nobody leaves an instance whose timers nobody can change", u.Role)
 	}
 	if u.Email != "first@example.com" || u.DisplayName != "First" || u.OIDCSubject != "sub-first" {
 		t.Errorf("columns were lost in the rebuild: %+v", u)
 	}
-	for id, want := range map[string]Role{"usr_late": RoleAdmin, "usr_gone": RoleAdmin, "usr_view": RoleViewer} {
-		got, err := s.GetUser(ctx, id)
-		if err != nil {
-			t.Fatalf("%s: %v", id, err)
-		}
-		if got.Role != want {
-			t.Errorf("%s is %q, want %q: exactly one account is promoted", id, got.Role, want)
-		}
+	// Who else is promoted is 0045's business, and
+	// TestAnUpgradeLeavesEveryAdministratorWithWhatTheyHad is where that
+	// lives. What matters here is that a role nobody held is not invented:
+	// the viewer is still a viewer.
+	if got, err := s.GetUser(ctx, "usr_view"); err != nil || got.Role != RoleViewer {
+		t.Errorf("the viewer came back as %+v (%v)", got, err)
 	}
 
 	// The sessions survived the cascade a DROP would otherwise have fired.
@@ -521,8 +519,10 @@ func TestThePlatformRoleRebuildKeepsEveryRowItsIndexesAndTheSessions(t *testing.
 	if err := s.read.QueryRowContext(ctx, `SELECT role FROM api_tokens WHERE id = 'tok_one'`).Scan(&tokenRole); err != nil {
 		t.Fatalf("the api token did not survive: %v", err)
 	}
-	if tokenRole != "admin" {
-		t.Errorf("the token is %q, want admin: promoting an account does not promote what it minted", tokenRole)
+	// Its role is 0045's business too; what this test is asking is whether
+	// the row survived the rebuild at all.
+	if tokenRole == "" {
+		t.Error("the api token came back with no role")
 	}
 
 	// The indexes came back with the tables.
@@ -546,5 +546,90 @@ func TestThePlatformRoleRebuildKeepsEveryRowItsIndexesAndTheSessions(t *testing.
 	if _, err := s.exec(ctx, `INSERT INTO users (id, username, role, password_hash, created_at)
 		VALUES ('usr_plat','second-platform','platform','hash',5000)`); err != nil {
 		t.Errorf("the rebuilt CHECK still refuses the platform role: %v", err)
+	}
+}
+
+// A self-hosted fleet whose operations are shared between several
+// administrators is the ordinary case, and an upgrade that leaves one of them
+// able to take a backup and the others not -- or that stops a nightly
+// `zoomies backup` running on an administrator's token -- has taken something
+// away without saying so. Everything that held administrator keeps what
+// administrator meant.
+func TestAnUpgradeLeavesEveryAdministratorWithWhatTheyHad(t *testing.T) {
+	ctx := context.Background()
+	migs, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// From before the role existed at all, which is what a released build
+	// left behind.
+	path := atSchema(t, len(migs)-2)
+
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := func(query string, args ...any) {
+		t.Helper()
+		if _, err := db.ExecContext(ctx, query, args...); err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+	}
+	seed(`INSERT INTO users (id, username, role, password_hash, disabled, created_at)
+		VALUES ('usr_first','first','admin','hash',0,1000)`)
+	seed(`INSERT INTO users (id, username, role, password_hash, disabled, created_at)
+		VALUES ('usr_second','second','admin','hash',0,2000)`)
+	seed(`INSERT INTO users (id, username, role, password_hash, disabled, created_at)
+		VALUES ('usr_third','third','admin','hash',0,3000)`)
+	// Disabled today, but what it finds when somebody enables it is what it
+	// had.
+	seed(`INSERT INTO users (id, username, role, password_hash, disabled, created_at)
+		VALUES ('usr_away','away','admin','hash',1,4000)`)
+	seed(`INSERT INTO users (id, username, role, password_hash, disabled, created_at)
+		VALUES ('usr_op','op','operator','hash',0,5000)`)
+	// The nightly backup's credential, and one somebody already revoked.
+	seed(`INSERT INTO api_tokens (id, name, role, user_id, scopes, token_hash, prefix, revoked, created_at)
+		VALUES ('tok_nightly','nightly backup','admin','usr_first','["backups:write"]','hash-a','zoo_a',0,1000)`)
+	seed(`INSERT INTO api_tokens (id, name, role, user_id, scopes, token_hash, prefix, revoked, created_at)
+		VALUES ('tok_gone','retired','admin','usr_first','["*"]','hash-b','zoo_b',1,1000)`)
+	seed(`INSERT INTO api_tokens (id, name, role, user_id, scopes, token_hash, prefix, revoked, created_at)
+		VALUES ('tok_view','dashboard','viewer','usr_op','["*"]','hash-c','zoo_c',0,1000)`)
+	db.Close()
+
+	s, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatalf("upgrading: %v", err)
+	}
+	defer s.Close()
+
+	for _, id := range []string{"usr_first", "usr_second", "usr_third", "usr_away"} {
+		u, err := s.GetUser(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if u.Role != RolePlatform {
+			t.Errorf("%s came up from the upgrade as %q; an administrator who could take a backup yesterday must still be able to today", id, u.Role)
+		}
+	}
+	if u, err := s.GetUser(ctx, "usr_op"); err != nil || u.Role != RoleOperator {
+		t.Errorf("the operator was promoted: %+v (%v)", u, err)
+	}
+
+	roleOf := func(id string) string {
+		t.Helper()
+		var role string
+		if err := s.read.QueryRowContext(ctx, `SELECT role FROM api_tokens WHERE id = ?`, id).Scan(&role); err != nil {
+			t.Fatal(err)
+		}
+		return role
+	}
+	if got := roleOf("tok_nightly"); got != string(RolePlatform) {
+		t.Errorf("the nightly backup's token is %q; it would start answering 403 with nothing said to anybody", got)
+	}
+	if got := roleOf("tok_gone"); got != string(RoleAdmin) {
+		t.Errorf("a revoked token was rewritten to %q; it authorises nothing and the audit trail should not read as though somebody changed it", got)
+	}
+	if got := roleOf("tok_view"); got != string(RoleViewer) {
+		t.Errorf("a viewer token became %q", got)
 	}
 }
