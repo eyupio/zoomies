@@ -12,7 +12,7 @@ hide:
 
 <div class="zoomies-hero" markdown>
 
-![Zoomies](brand/logo-white-transparent.png){ .off-glb }
+--8<-- "docs/brand/animated-logo.html"
 
 # Give your GitHub Actions runners the Zoomies.
 
