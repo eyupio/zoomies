@@ -12,11 +12,14 @@ import { pluralise } from '$lib/format';
 export interface PoolCounts {
   live?: number;
   busy?: number;
+  /** Jobs still queued and matched to this pool -- not yet on a runner. */
+  queued?: number;
 }
 
 export function deletionConsequences(counts: PoolCounts, force: boolean): string[] {
   const live = counts.live ?? 0;
   const busy = counts.busy ?? 0;
+  const queued = counts.queued ?? 0;
   const lines = [
     live === 0
       ? 'It has no runners right now, so nothing is interrupted.'
@@ -29,6 +32,12 @@ export function deletionConsequences(counts: PoolCounts, force: boolean): string
       force
         ? `${pluralise(busy, 'job')} running right now will be interrupted.`
         : `${pluralise(busy, 'job')} running right now will be allowed to finish first.`,
+    );
+  }
+  if (queued > 0) {
+    lines.push(
+      `${pluralise(queued, 'queued job')} asking for this pool will be removed from the queue too, ` +
+        'the same as deleting it from the Queue page. You can restore it from the Removed view.',
     );
   }
   lines.push('The runners are deregistered from GitHub either way.');

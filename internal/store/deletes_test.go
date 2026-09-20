@@ -31,7 +31,7 @@ func TestDeletesReportTheRunnerRowsThatWentWithThem(t *testing.T) {
 	}
 
 	want := ids("a", "b")
-	got, err := s.DeletePool(ctx, pool.ID)
+	got, _, err := s.DeletePool(ctx, pool.ID)
 	if err != nil {
 		t.Fatalf("DeletePool: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestDeletesReportTheRunnerRowsThatWentWithThem(t *testing.T) {
 	if _, err := s.GetRunner(ctx, want[0]); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("the runner row survived its pool: %v", err)
 	}
-	if _, err := s.DeletePool(ctx, pool.ID); !errors.Is(err, ErrNotFound) {
+	if _, _, err := s.DeletePool(ctx, pool.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleting a pool twice = %v, want ErrNotFound", err)
 	}
 
@@ -67,6 +67,68 @@ func TestDeletesReportTheRunnerRowsThatWentWithThem(t *testing.T) {
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
 		t.Fatalf("DeleteInstallation reported %v, want %v", got, want)
+	}
+}
+
+// Deleting a pool takes its queued demand off the queue too, not only its
+// runners: a job left matched to a pool that no longer exists is a dangling
+// reference, and it would keep counting as queued work nobody can ever place.
+func TestDeletePoolRemovesItsQueuedJobsTooAndLeavesTheRestAlone(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	_, pool, _ := seedPool(t, s)
+	now := time.Now()
+
+	queued, err := s.UpsertJob(ctx, &Job{GitHubJobID: 1, Repo: "acme/widgets", State: JobQueued,
+		Matched: true, PoolID: pool.ID, QueuedAt: now})
+	if err != nil {
+		t.Fatalf("UpsertJob queued: %v", err)
+	}
+	// An operator who already removed this from the queue must not have it
+	// reported again: it was already gone before the pool was.
+	alreadyRemoved, err := s.UpsertJob(ctx, &Job{GitHubJobID: 2, Repo: "acme/widgets", State: JobQueued,
+		Matched: true, PoolID: pool.ID, Provisioning: ProvisioningDeleted, QueuedAt: now})
+	if err != nil {
+		t.Fatalf("UpsertJob already-removed: %v", err)
+	}
+	// A job the pool is already running keeps its history: PoolID says who ran
+	// it, and the pool's deletion does not rewrite the past.
+	running, err := s.UpsertJob(ctx, &Job{GitHubJobID: 3, Repo: "acme/widgets", State: JobInProgress,
+		Matched: true, PoolID: pool.ID, QueuedAt: now})
+	if err != nil {
+		t.Fatalf("UpsertJob running: %v", err)
+	}
+
+	_, jobs, err := s.DeletePool(ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("DeletePool: %v", err)
+	}
+	if !slices.Equal(jobs, []string{queued.ID}) {
+		t.Fatalf("DeletePool reported jobs %v, want [%s]", jobs, queued.ID)
+	}
+
+	got, err := s.GetJob(ctx, queued.ID)
+	if err != nil {
+		t.Fatalf("GetJob queued: %v", err)
+	}
+	if got.Provisioning != ProvisioningDeleted || got.PoolID != "" || got.Matched {
+		t.Fatalf("the queued job was not cleanly taken off the deleted pool: %+v", got)
+	}
+
+	still, err := s.GetJob(ctx, alreadyRemoved.ID)
+	if err != nil {
+		t.Fatalf("GetJob alreadyRemoved: %v", err)
+	}
+	if still.PoolID != pool.ID {
+		t.Fatalf("a job already removed from the queue should not be touched again: %+v", still)
+	}
+
+	unaffected, err := s.GetJob(ctx, running.ID)
+	if err != nil {
+		t.Fatalf("GetJob running: %v", err)
+	}
+	if unaffected.PoolID != pool.ID || !unaffected.Matched {
+		t.Fatalf("an in-progress job's pool_id is history, not something the pool's deletion should erase: %+v", unaffected)
 	}
 }
 
