@@ -1,0 +1,36 @@
+name: Cancel Checks For Merged Pull Requests
+
+# Merging a pull request pushes its tree to main, which starts a fresh CI,
+# CodeQL, fuzz and govulncheck run of its own. A run still queued or
+# in-progress against the pull request's old head at that point is answering
+# a question nobody will read -- cancel it rather than let it spend a fleet
+# slot or a GitHub-hosted minute on a result the merge already superseded.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  cancel:
+    name: Cancel
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Cancel runs still queued or in progress for the merged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          for status in queued in_progress; do
+            ids=$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&status=$status&event=pull_request" --jq '.workflow_runs[].id')
+            for id in $ids; do
+              echo "Cancelling run $id ($status)"
+              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" || true
+            done
+          done
