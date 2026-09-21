@@ -26,11 +26,11 @@ test.use(browserOverride);
 
 /** Every state badge the grid can draw, from web/src/lib/status.ts. */
 const STATES = [
-  'Kitting up',
-  'Checking in',
-  'Paws up',
+  'Walkies!',
+  'Putting lead on',
+  'Resting',
   'Walking!',
-  'Lead on',
+  'Nearly home',
   'Slipped the lead',
   'Back in the kennel',
 ];
@@ -221,8 +221,8 @@ test('opening a runner shows its detail page and its state timeline', async ({ p
   await expect(timeline).toBeVisible();
   await expect(timeline.getByRole('listitem').first()).toBeVisible();
   // The states this runner passed through on the way to being busy.
-  await expect(timeline).toContainText('Kitting up');
-  await expect(timeline).toContainText('Checking in');
+  await expect(timeline).toContainText('Walkies!');
+  await expect(timeline).toContainText('Putting lead on');
   await expect(timeline).toContainText('Walking!');
   // And the way back to the list is a breadcrumb, not the browser's button.
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Runners');

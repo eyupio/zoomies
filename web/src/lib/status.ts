@@ -22,7 +22,6 @@ import {
   Clock,
   Cloud,
   Eye,
-  Gauge,
   Info,
   Lock,
   Minus,
@@ -106,7 +105,7 @@ function meta(
 const RUNNER: Record<RunnerState, StatusMeta> = {
   provisioning: meta(
     'provisioning',
-    'Kitting up',
+    'Walkies!',
     'pending',
     'dashed',
     CircleDashed,
@@ -114,17 +113,17 @@ const RUNNER: Record<RunnerState, StatusMeta> = {
   ),
   registering: meta(
     'registering',
-    'Checking in',
+    'Putting lead on',
     'pending',
     'dashed',
     CircleDashed,
     'Waiting for GitHub to accept the runner.',
   ),
-  idle: meta('idle', 'Paws up', 'idle', 'hollow', Circle, 'Registered and waiting for a job.'),
+  idle: meta('idle', 'Resting', 'idle', 'hollow', Circle, 'Registered and waiting for a job.'),
   busy: meta('busy', 'Walking!', 'busy', 'filled', Play, 'Running a job right now.'),
   draining: meta(
     'draining',
-    'Lead on',
+    'Nearly home',
     'draining',
     'slash',
     CircleSlash,
@@ -243,8 +242,8 @@ export function cpuResourceStatus(
     }
     default:
       return quirky
-        ? meta('guaranteed', label ?? 'Steady paws — guaranteed pace', 'idle', 'hollow', PawPrint)
-        : meta('guaranteed', label ?? 'Guaranteed pace', 'idle', 'hollow', Gauge);
+        ? meta('guaranteed', label ?? 'Steady paws — guaranteed pace', 'idle', 'hollow', Circle)
+        : meta('guaranteed', label ?? 'Guaranteed pace', 'idle', 'hollow', Circle);
   }
 }
 

@@ -144,11 +144,11 @@ test('the runner lifecycle draws the state machine with live counts and links', 
   const steps = lifecycle.getByRole('list', { name: 'Runner lifecycle, in order' });
   await expect(steps.getByRole('listitem')).toHaveCount(5);
   await expect(steps.getByRole('link')).toHaveText([
-    /^\s*Kitting up\s*\d+$/,
-    /^\s*Checking in\s*\d+$/,
-    /^\s*Paws up\s*\d+$/,
+    /^\s*Walkies!\s*\d+$/,
+    /^\s*Putting lead on\s*\d+$/,
+    /^\s*Resting\s*\d+$/,
     /^\s*Walking!\s*\d+$/,
-    /^\s*Lead on\s*\d+$/,
+    /^\s*Nearly home\s*\d+$/,
   ]);
   await expect(steps.getByRole('link', { name: 'Walking! runners' })).toHaveAttribute(
     'href',
