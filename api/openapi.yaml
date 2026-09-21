@@ -1862,6 +1862,57 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /workflow-runs/provisioning:
+    post:
+      operationId: controlWorkflowRunProvisioning
+      tags: [jobs]
+      summary: Pause, resume or expedite every queued job of a workflow run
+      description: >-
+        `POST /provisioning/bulk` for a whole run: what the Workflows page's own run rows
+        call, since a run has no ID of its own to select by, only `repo` + `github_run_id`.
+        Acts on the run's queued jobs this fleet has a hand in, in every provisioning state
+        but removed -- a job an operator deleted from the queue was stood down on purpose,
+        and is restored from the Queue page's Removed view rather than swept back in by a
+        Run now on its run. The actions mean what they mean on `/provisioning/bulk`, and
+        delete is not one of them: a removal is a decision about one job. Returns the same
+        per-job results. `404` for a run this fleet has never heard of; `409` when it knows
+        the run but no job of it is waiting for a runner here.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repo, run_id, action]
+              properties:
+                repo: { type: string, description: "The repository, as owner/name." }
+                run_id: { type: integer, format: int64, description: GitHub's own ID for the run. }
+                action: { type: string, enum: [pause, resume, run_now] }
+      responses:
+        "200":
+          description: A result per queued job of the run the action reached
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results, repo, run_id]
+                properties:
+                  repo: { type: string }
+                  run_id: { type: integer, format: int64 }
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, ok]
+                      properties:
+                        id: { type: string }
+                        ok: { type: boolean }
+                        error: { type: string }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   # ==========================================================================
   # Hosts
   # ==========================================================================
@@ -5597,6 +5648,9 @@ components:
         skipped: { type: integer }
         faulted: { type: integer }
         unmatched: { type: integer, description: Queued jobs no enabled pool claims and nobody else is about to run. }
+        expedited: { type: integer, description: Queued jobs an operator has asked to run now. Part of `queued`, not beside it. }
+        paused: { type: integer, description: Queued jobs whose provisioning demand an operator has paused. Part of `queued`. }
+        removed: { type: integer, description: Queued jobs an operator removed from the queue, which a run-level action leaves alone. Part of `queued`. }
 
     JobStep:
       type: object

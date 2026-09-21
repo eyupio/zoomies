@@ -82,6 +82,23 @@ type RunJobCounts struct {
 	// Unmatched counts the queued jobs no enabled pool claims and nobody else
 	// is about to run: the ones the Jobs page's unmatched filter finds.
 	Unmatched int `json:"unmatched"`
+	// Expedited, Paused and Removed count what an operator has done to the
+	// run's queued jobs' provisioning demand -- Run now, Pause and Delete
+	// from queue on the Queue page. They are part of Queued, not beside it:
+	// GitHub goes on calling a paused job queued, and so does the run. The
+	// row needs them so a Pause pressed on the run can be refused, with a
+	// reason, once every queued job of it is already paused.
+	Expedited int `json:"expedited"`
+	Paused    int `json:"paused"`
+	Removed   int `json:"removed"`
+}
+
+// Controllable is how many of the run's queued jobs a run-level provisioning
+// action reaches: the queued ones an operator has not removed from the queue.
+// A removed job was stood down on purpose, and is restored from the Queue
+// page's Removed view rather than swept back in by a Run now on its run.
+func (c RunJobCounts) Controllable() int {
+	return c.Queued - c.Removed
 }
 
 // QueueWait is how long the run waited before any of its jobs was picked up.
@@ -153,7 +170,7 @@ func (s *Store) ListWorkflowRuns(ctx context.Context, f JobFilter, p Page) ([]*W
 	q := `SELECT repo, github_run_id, workflow, run_number, run_attempt, head_branch, head_sha,
 		installation_id, html_url, run_state, run_conclusion, queued_at, started_at, completed_at,
 		total, waiting, queued, in_progress, completed, succeeded, failed, cancelled, skipped,
-		faulted, unmatched, managed, hosted, cancelling ` + from +
+		faulted, unmatched, expedited, paused, removed, managed, hosted, cancelling ` + from +
 		` ORDER BY ` + p.orderBy(workflowRunSortCols, "queued_at DESC") + `, repo ASC, github_run_id ASC LIMIT ? OFFSET ?`
 	args = append(args, p.limit(50, 500), max(p.Offset, 0))
 	rows, err := s.read.QueryContext(ctx, q, args...)
@@ -250,6 +267,9 @@ func workflowRunsFrom(f JobFilter) (string, []any) {
 		SUM(conclusion = 'skipped' AND NOT ` + fleetFailedJobSQL() + `) AS skipped,
 		SUM(` + fleetFailedJobSQL() + `) AS faulted, SUM(` + workflowFailedJobSQL() + `) AS workflow_failed,
 		SUM(matched = 0 AND state = 'queued' AND NOT hosted) AS unmatched,
+		SUM(state = 'queued' AND provisioning = '' AND provision_now = 1) AS expedited,
+		SUM(state = 'queued' AND provisioning = '` + ProvisioningPaused + `') AS paused,
+		SUM(state = 'queued' AND provisioning = '` + ProvisioningDeleted + `') AS removed,
 		MAX(managed) AS managed, MIN(hosted) AS hosted,
 		SUM(cancel_requested_at IS NOT NULL AND state != 'completed') AS cancelling,
 		` + runStateSQL + ` AS run_state, ` + runConclusionSQL() + ` AS run_conclusion
@@ -273,7 +293,7 @@ func scanWorkflowRun(sc interface{ Scan(...any) error }) (*WorkflowRun, error) {
 		&r.HeadSHA, &r.InstallationID, &r.HTMLURL, &r.State, &r.Conclusion, &queued, &started, &completed,
 		&r.Jobs.Total, &r.Jobs.Waiting, &r.Jobs.Queued, &r.Jobs.InProgress, &r.Jobs.Completed,
 		&r.Jobs.Succeeded, &r.Jobs.Failed, &r.Jobs.Cancelled, &r.Jobs.Skipped, &r.Jobs.Faulted,
-		&r.Jobs.Unmatched, &managed, &hosted, &cancelling)
+		&r.Jobs.Unmatched, &r.Jobs.Expedited, &r.Jobs.Paused, &r.Jobs.Removed, &managed, &hosted, &cancelling)
 	if err != nil {
 		return nil, err
 	}

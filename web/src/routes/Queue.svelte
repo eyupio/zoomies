@@ -2,7 +2,7 @@
   import ChartPanel from '$lib/components/ChartPanel.svelte';
   import StateBreakdown from '$lib/insights/StateBreakdown.svelte';
 
-  import { Pause, Play, Zap, Trash2, ListOrdered, Bookmark, X } from '@lucide/svelte';
+  import { ListOrdered, Bookmark, X } from '@lucide/svelte';
   import {
     controlProvisioning,
     getJobFacets,
@@ -10,7 +10,7 @@
     selectProvisioning,
     toQuery,
   } from '$lib/api/client';
-  import type { Body, Job, ProvisioningStatus, Query } from '$lib/api/types';
+  import type { Job, ProvisioningStatus, Query } from '$lib/api/types';
   import { events } from '$lib/api/sse';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
@@ -38,8 +38,14 @@
   import JobLabels from '$lib/jobs/JobLabels.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import { startOfDay, endOfDay } from '$lib/jobs/DateRange.svelte';
+  import {
+    jobProvisioningActions,
+    PROVISIONING_ACTIONS,
+    provisioningActionLabel,
+    provisioningDescription,
+  } from '$lib/jobs/provisioning';
+  import type { ProvisioningAction as Action } from '$lib/jobs/provisioning';
 
-  type Action = Body<'controlProvisioning'>['action'];
   type Status = ProvisioningStatus;
   // The labels come from the shared map so the button here, the Jobs page's
   // filter chip and the badge on a job row all call the same state the same
@@ -58,12 +64,9 @@
       hint: 'Removed demand · can be restored',
     },
   ];
-  const actions = [
-    { id: 'run_now' as Action, label: 'Run now', icon: Zap },
-    { id: 'pause' as Action, label: 'Pause', icon: Pause },
-    { id: 'resume' as Action, label: 'Resume', icon: Play },
-    { id: 'delete' as Action, label: 'Delete from queue', icon: Trash2, danger: true },
-  ];
+  // The verbs, icons and refusals are the ones the Workflows page uses on a
+  // run and on the jobs inside it, from the module both read.
+  const actions = PROVISIONING_ACTIONS;
   const canOperate = $derived(session.can('operator'));
   const filters = $derived<JobFilterState>({
     ...EMPTY_JOB_FILTERS,
@@ -173,9 +176,6 @@
   function rowId(job: Job): string {
     return job.id ?? '';
   }
-  function status(job: Job): Status {
-    return job.provisioning || (job.provision_now ? 'expedited' : 'ready');
-  }
   /** What an action acts on. Names the row's toolbar, and every button in it. */
   function subjectOf(job: Job): string {
     return `${job.repo ?? 'this repository'} / ${job.job_name ?? 'this job'}`;
@@ -190,30 +190,8 @@
    * is a control that gets reported as broken.
    */
   function rowActions(job: Job): RowAction[] {
-    const now = status(job);
-    const reasons: Record<Action, string> = {
-      run_now: 'Already prioritised to run now.',
-      pause: 'Already paused.',
-      resume: 'Already provisioning normally, with nothing to restore.',
-      delete: 'Already removed from the queue.',
-    };
-    return actions.map((a) => {
-      const disabled =
-        (a.id === 'pause' && now === 'paused') ||
-        (a.id === 'delete' && now === 'deleted') ||
-        (a.id === 'run_now' && now === 'expedited') ||
-        (a.id === 'resume' && now === 'ready');
-      return {
-        id: a.id,
-        label: a.label,
-        icon: a.icon,
-        danger: a.danger,
-        disabled,
-        reason: reasons[a.id],
-        onSelect: () => {
-          void ask(a.id, [rowId(job)]);
-        },
-      };
+    return jobProvisioningActions(job, (action) => {
+      void ask(action, [rowId(job)]);
     });
   }
   function openJob(job: Job): void {
@@ -263,15 +241,7 @@
     return true;
   }
   const bulkActions: BulkAction[] = actions.map((a) => ({ ...a, run: (ids) => ask(a.id, ids) }));
-  const description = $derived(
-    pending?.action === 'pause'
-      ? 'Hold new runner demand for these items until you resume them.'
-      : pending?.action === 'delete'
-        ? 'Remove these items from provisioning demand, so they stop counting as queued work anywhere. You can restore them from the Removed view.'
-        : pending?.action === 'run_now'
-          ? 'Resume and prioritise these items within their pool priority, without waiting for the scale-up delay.'
-          : 'Restore normal provisioning demand and clear any Run now priority.',
-  );
+  const description = $derived(provisioningDescription(pending?.action));
   const columns = $derived<GridColumn<Job>[]>([
     {
       id: 'provisioning',
@@ -608,14 +578,14 @@
 
 <ConfirmDialog
   bind:open={confirmOpen}
-  title={actions.find((a) => a.id === pending?.action)?.label ?? 'Update provisioning'}
+  title={provisioningActionLabel(pending?.action)}
   name={pending?.name}
   description={`${pending?.name ?? ''}. ${description}`}
   consequences={[
     'Only the selected provisioning demand changes. Existing runners and GitHub jobs are unaffected.',
     'Items that start or finish before this action reaches the server are skipped and reported.',
   ]}
-  confirmLabel={actions.find((a) => a.id === pending?.action)?.label ?? 'Confirm'}
+  confirmLabel={provisioningActionLabel(pending?.action)}
   tone={pending?.action === 'delete' ? 'danger' : 'default'}
   onconfirm={confirm}
   oncancel={cancel}

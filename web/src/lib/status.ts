@@ -368,6 +368,21 @@ export const QUEUE_PAUSED: StatusMeta = meta(
   'An operator put this job\u2019s provisioning demand on hold. It is still waiting, and no new runner will be created for it until it is resumed.',
 );
 
+/**
+ * The other thing an operator can do to a queued job: ask for it now. Not a
+ * standing-down, so it is the queued tone rather than a warning one, but
+ * still a decision the row has to show -- a Run now pressed on a job whose
+ * row went on reading plainly Queued looked like a button that did nothing.
+ */
+export const QUEUE_EXPEDITED: StatusMeta = meta(
+  'expedited',
+  'Run now',
+  'pending',
+  'filled',
+  Zap,
+  'An operator asked for this job to run now. It is prioritised within its pool\u2019s priority tier and skips the scale-up delay; it is still waiting for a runner, and pool and host limits still apply.',
+);
+
 export const QUEUE_REMOVED: StatusMeta = meta(
   'removed',
   'Removed',
@@ -403,6 +418,7 @@ export const CANCELLING: StatusMeta = meta(
 export function queueStatus(job: {
   state?: JobState;
   provisioning?: string;
+  provision_now?: boolean;
   cancel_requested_at?: string | null;
 }): StatusMeta | undefined {
   // Cancelling outranks the rest, and is the one that applies to a running
@@ -414,6 +430,7 @@ export function queueStatus(job: {
   if (job.state !== 'queued') return undefined;
   if (job.provisioning === 'paused') return QUEUE_PAUSED;
   if (job.provisioning === 'deleted') return QUEUE_REMOVED;
+  if (job.provision_now) return QUEUE_EXPEDITED;
   return undefined;
 }
 
