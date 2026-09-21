@@ -193,6 +193,7 @@ test('a run and the jobs inside it take the Queue page’s controls', async ({ p
     const jobs = page.getByRole('table', { name: `Jobs in run #${number}` });
     await expect(jobs).toBeVisible();
     const first = queuedJobs[0];
+    if (!first) throw new Error('expected at least one queued job');
     const jobRow = jobs.locator('tbody tr').filter({ hasText: first.job_name }).first();
     await expect(jobRow).toContainText('Paused');
     await jobRow
