@@ -247,7 +247,8 @@ test('a dismissed problem stops asking, and can be brought back', async ({ page 
   const before = await problems.getByRole('listitem').count();
 
   const entry = problems.getByRole('listitem').filter({ hasText: 'authentication is disabled' });
-  await entry.getByRole('button', { name: /^Dismiss:/ }).click();
+  await entry.getByRole('button', { name: /^Dismiss or snooze:/ }).click();
+  await page.getByRole('menuitem', { name: 'Dismiss until resolved' }).click();
 
   // Gone from the list, and off the count in the top bar.
   await expect(problems.getByRole('listitem')).toHaveCount(before - 1);
@@ -270,6 +271,36 @@ test('a dismissed problem stops asking, and can be brought back', async ({ page 
     (api.items ?? []).some((p: { code?: string }) => p.code === 'auth.disabled'),
     'the API still reports everything',
   ).toBe(true);
+});
+
+test('a problem can be snoozed for a fixed while instead of dismissed outright', async ({
+  page,
+}) => {
+  const problems = await openProblems(page);
+  const before = await problems.getByRole('listitem').count();
+
+  const entry = problems.getByRole('listitem').filter({ hasText: 'authentication is disabled' });
+  await entry.getByRole('button', { name: /^Dismiss or snooze:/ }).click();
+  // Several durations are offered, not just one: an operator who knows this
+  // will resolve itself in an hour should not have to pick "until resolved".
+  await expect(page.getByRole('menuitem', { name: 'Snooze for 15 minutes' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Snooze for 1 hour' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Snooze for 4 hours' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Snooze for 24 hours' }).click();
+
+  // Gone from the active list, same as an outright dismissal.
+  await expect(problems.getByRole('listitem')).toHaveCount(before - 1);
+  await expect(problems).not.toContainText('authentication is disabled');
+
+  // Filed under dismissed, but it says when it comes back rather than just
+  // when it was put away -- a snooze is a dated decision with a deadline.
+  await problems.getByRole('button', { name: /Show 1 dismissed problem/ }).click();
+  const snoozed = problems.getByRole('listitem').filter({ hasText: 'authentication is disabled' });
+  await expect(snoozed).toContainText('dismissed');
+  await expect(snoozed).toContainText(/back in/i);
+
+  await snoozed.getByRole('button', { name: /^Restore:/ }).click();
+  await expect(problems.getByRole('listitem')).toHaveCount(before);
 });
 
 test('dismissing the last problem closes the drawer', async ({ page }) => {

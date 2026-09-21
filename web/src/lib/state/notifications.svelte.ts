@@ -8,18 +8,22 @@
  * somewhere to put the first kind, a panel that is never clear stops being
  * read, which costs the operator the second kind too.
  *
- * Two rules keep a dismissal from becoming a way to hide a real fault:
+ * Three rules keep a dismissal from becoming a way to hide a real fault:
  *
  *  * A dismissal is forgotten the moment the controller stops reporting the
  *    problem, so the same fault happening again is news again.
  *  * A dismissal only covers the severity it was made at. A warning that
  *    becomes an error comes back, because it is not the thing that was read.
+ *  * A snooze is a dismissal with an expiry the operator picks -- 15 minutes,
+ *    an hour, a day -- rather than "until resolved". It returns to the active
+ *    list on its own once the clock passes that time, with no further click.
  *
  * Dismissals are per-operator preference, not fleet state, so they are stored
  * beside the other preferences rather than on the server. Nothing here changes
  * what `GET /api/v1/problems`, `zoomies status` or an alerting rule sees.
  */
 import type { Problem, Severity } from '../api/types';
+import { onClockTick } from '../format';
 import { problemKey } from '../problems/identity';
 import { fleet } from './fleet.svelte';
 import { storage } from './prefs.svelte';
@@ -49,11 +53,30 @@ function rank(value: Severity): number {
   return i < 0 ? SEVERITY_ORDER.length : i;
 }
 
+export interface SnoozeOption {
+  id: string;
+  /** What the menu item reads: "Snooze for 15 minutes". */
+  label: string;
+  ms: number;
+}
+
+/** The durations offered on every problem. Fixed and short, on purpose: a
+ * custom picker is one more decision on the way to putting a fault down. */
+export const SNOOZE_OPTIONS: readonly SnoozeOption[] = [
+  { id: '15m', label: '15 minutes', ms: 15 * 60_000 },
+  { id: '1h', label: '1 hour', ms: 60 * 60_000 },
+  { id: '4h', label: '4 hours', ms: 4 * 60 * 60_000 },
+  { id: '24h', label: '24 hours', ms: 24 * 60 * 60_000 },
+];
+
 interface Dismissal {
   /** The severity that was read. Anything worse comes back. */
   severity: Severity;
   /** When it was dismissed, so the drawer can say how old the decision is. */
   at: string;
+  /** Set on a snooze: the moment it expires and the problem becomes active
+   * again on its own. Absent on a plain "dismiss until resolved". */
+  until?: string;
 }
 
 type Dismissals = Record<string, Dismissal>;
@@ -79,17 +102,23 @@ class Notifications {
   #dismissals = $state<Dismissals>(load());
   #open = $state(false);
   #showDismissed = $state(false);
+  // Ticks off the same shared clock every other relative time on the page
+  // reads, so a snooze expiring costs nothing beyond the timer already
+  // running for "4m ago" elsewhere on screen.
+  #now = $state(Date.now());
 
   constructor() {
     // A dismissal outlives nothing. Once the controller stops reporting a
     // problem the decision to ignore it is spent, so the fault recurring is
     // reported again rather than being silently swallowed by a click somebody
-    // made last week. Pruning here -- rather than at dismissal time -- is what
-    // makes that true without any bookkeeping at the call sites.
+    // made last week. A snooze is spent the moment its clock runs out, for
+    // the same reason. Sweeping here -- rather than at dismissal time -- is
+    // what makes both true without any bookkeeping at the call sites.
     $effect.root(() => {
+      $effect(() => onClockTick((now) => (this.#now = now)));
       $effect(() => {
         if (!fleet.loaded) return;
-        this.#prune(fleet.problems);
+        this.#sweep(fleet.problems, this.#now);
       });
     });
   }
@@ -148,12 +177,19 @@ class Notifications {
   isDismissed(problem: Problem): boolean {
     const record = this.#dismissals[problemKey(problem)];
     if (!record) return false;
+    if (record.until !== undefined && new Date(record.until).getTime() <= this.#now) return false;
     // A warning that has since become an error was never read as an error.
     return rank(severity(problem)) >= rank(record.severity);
   }
 
   dismissedAt(problem: Problem): string | undefined {
     return this.#dismissals[problemKey(problem)]?.at;
+  }
+
+  /** When a snoozed problem comes back on its own, or undefined when it was
+   * dismissed outright rather than snoozed. */
+  snoozedUntil(problem: Problem): string | undefined {
+    return this.#dismissals[problemKey(problem)]?.until;
   }
 
   /* -- the drawer ---------------------------------------------------------- */
@@ -182,6 +218,21 @@ class Notifications {
     this.#dismissals = {
       ...this.#dismissals,
       [problemKey(problem)]: { severity: severity(problem), at: new Date().toISOString() },
+    };
+    this.#persist();
+    this.#closeIfClear();
+  }
+
+  /** Put this one away for a fixed while rather than until it resolves. */
+  snooze(problem: Problem, ms: number): void {
+    const now = new Date();
+    this.#dismissals = {
+      ...this.#dismissals,
+      [problemKey(problem)]: {
+        severity: severity(problem),
+        at: now.toISOString(),
+        until: new Date(now.getTime() + ms).toISOString(),
+      },
     };
     this.#persist();
     this.#closeIfClear();
@@ -223,13 +274,19 @@ class Notifications {
     if (this.#open && this.active.length === 0) this.open = false;
   }
 
-  #prune(problems: readonly Problem[]): void {
+  /** Drops a dismissal once the problem it covered stops being reported, or
+   * once its snooze has run out -- the two ways a dismissal is spent. */
+  #sweep(problems: readonly Problem[], now: number): void {
     const live = new Set(problems.map(problemKey));
-    const keys = Object.keys(this.#dismissals);
-    const stale = keys.filter((key) => !live.has(key));
-    if (stale.length === 0) return;
     const next = { ...this.#dismissals };
-    for (const key of stale) delete next[key];
+    let changed = false;
+    for (const [key, record] of Object.entries(next)) {
+      const expired = record.until !== undefined && new Date(record.until).getTime() <= now;
+      if (live.has(key) && !expired) continue;
+      delete next[key];
+      changed = true;
+    }
+    if (!changed) return;
     this.#dismissals = next;
     this.#persist();
   }

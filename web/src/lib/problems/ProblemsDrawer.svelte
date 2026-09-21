@@ -65,7 +65,11 @@
     </h3>
     <ul class="items">
       {#each group.items as problem (problem.code + (problem.target_id ?? '') + problem.title)}
-        <ProblemItem {problem} ondismiss={(p) => notifications.dismiss(p)} />
+        <ProblemItem
+          {problem}
+          ondismiss={(p) => notifications.dismiss(p)}
+          onsnooze={(p, ms) => notifications.snooze(p, ms)}
+        />
       {/each}
     </ul>
   {/each}
@@ -99,7 +103,8 @@
       {#if notifications.showDismissed}
         <p class="note">
           A dismissal is forgotten as soon as the controller stops reporting the problem, so the
-          same fault happening again is news again.
+          same fault happening again is news again. A snoozed one also comes back on its own once
+          its time is up.
         </p>
         {#each dismissedGroups as group (group.severity)}
           <ul class="items">
@@ -108,6 +113,7 @@
                 {problem}
                 onrestore={(p) => notifications.restore(p)}
                 dismissedAt={notifications.dismissedAt(problem)}
+                snoozedUntil={notifications.snoozedUntil(problem)}
               />
             {/each}
           </ul>

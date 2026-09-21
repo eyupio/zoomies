@@ -3,10 +3,12 @@
   and a way to get to the thing it is about.
 -->
 <script lang="ts">
-  import { Layers, Undo2, Wrench, X } from '@lucide/svelte';
+  import { Clock, Layers, Undo2, Wrench, X } from '@lucide/svelte';
   import type { Problem } from '$lib/api/types';
   import { severityStatus } from '$lib/status';
-  import { notifications } from '$lib/state/notifications.svelte';
+  import { notifications, SNOOZE_OPTIONS } from '$lib/state/notifications.svelte';
+  import type { MenuItem } from '$lib/components/DropdownMenu.svelte';
+  import DropdownMenu from '$lib/components/DropdownMenu.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
@@ -14,16 +16,48 @@
 
   interface Props {
     problem: Problem;
-    /** Put this one away. Offered on everything the operator has not read yet. */
+    /** Put this one away until the controller stops reporting it. Offered on
+     * everything the operator has not read yet, alongside the snooze options. */
     ondismiss?: (problem: Problem) => void;
-    /** Bring a dismissed one back. */
+    /** Put this one away for a fixed while: `ms` is one of `SNOOZE_OPTIONS`. */
+    onsnooze?: (problem: Problem, ms: number) => void;
+    /** Bring a dismissed or snoozed one back. */
     onrestore?: (problem: Problem) => void;
     /** When it was dismissed, so a decision can be dated before it is undone. */
     dismissedAt?: string;
+    /** When a snooze expires and the problem returns on its own, if it was
+     * snoozed rather than dismissed outright. */
+    snoozedUntil?: string;
     class?: string;
   }
 
-  let { problem, ondismiss, onrestore, dismissedAt, class: className = '' }: Props = $props();
+  let {
+    problem,
+    ondismiss,
+    onsnooze,
+    onrestore,
+    dismissedAt,
+    snoozedUntil,
+    class: className = '',
+  }: Props = $props();
+
+  /** Snooze options first, then dismissing outright -- the menu reads as a
+   * choice of how long, with "indefinitely" as the last, most drastic one. */
+  const dismissItems = $derived.by<MenuItem[]>(() => [
+    ...SNOOZE_OPTIONS.map((option) => ({
+      id: `snooze-${option.id}`,
+      label: `Snooze for ${option.label}`,
+      icon: Clock,
+      onSelect: () => onsnooze?.(problem, option.ms),
+    })),
+    {
+      id: 'dismiss',
+      label: 'Dismiss until resolved',
+      icon: X,
+      separated: true,
+      onSelect: () => ondismiss?.(problem),
+    },
+  ]);
 
   /**
    * One line saying which layer set the offending value, or '' when the fix
@@ -139,18 +173,19 @@
       {#if problem.setting}<code>{problem.setting}</code>{/if}
       {#if problem.since}<RelativeTime value={problem.since} prefix="since " />{/if}
       {#if dismissedAt}<RelativeTime value={dismissedAt} prefix="dismissed " />{/if}
+      {#if snoozedUntil}<RelativeTime value={snoozedUntil} prefix="back " />{/if}
       {#if link}
         <a href={link.href} onclick={() => (notifications.open = false)}>{link.label}</a>
       {/if}
     </p>
   </div>
-  {#if ondismiss}
+  {#if ondismiss || onsnooze}
     <span class="action">
-      <IconButton
-        icon={X}
-        label="Dismiss: {problem.title}"
+      <DropdownMenu
+        label="Dismiss or snooze: {problem.title}"
+        triggerIcon={X}
+        items={dismissItems}
         size="sm"
-        onclick={() => ondismiss(problem)}
       />
     </span>
   {:else if onrestore}
