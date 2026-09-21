@@ -131,6 +131,14 @@ Some suites intentionally require more setup:
 You do not need to run an unrelated privileged or credential-dependent suite.
 State exactly what you ran and what you could not run in the pull request.
 
+CI runs what a pull request's files can affect, decided by the `changes` job
+at the top of `.github/workflows/ci.yml`: a documentation change runs the
+`internal/docs` checks and nothing heavier, a `web/` change runs the UI and
+Playwright jobs, and a Go change runs the whole set. The Go suite is split by
+package across four runners; `make test TEST_PKGS=./internal/store/` runs one
+shard the way CI does. Coverage is measured on `main`, not on pull requests.
+A push to `main` runs everything.
+
 ## Commit and open a pull request
 
 Use clear, imperative commit subjects:

@@ -32,18 +32,120 @@ env:
 # Pin the pool to an already published runner image digest; advance that pin
 # separately after validating new images so builds do not require their output.
 jobs:
+  # Which jobs a pull request needs. A docs-only change used to run the whole
+  # suite: an hour of the Go packages under the race detector, the Playwright
+  # suite, five cross-compiles and the image builds, every one of them on a
+  # fleet slot another pull request was queueing for. Now a pull request runs
+  # what its files can affect. Main and a manual dispatch run everything: main
+  # publishes the dev channel and is the record the pull requests are compared
+  # against, so it keeps the full evidence.
+  #
+  # This is a shell case statement rather than an action so that it stays a
+  # single read: what a path triggers is written next to the path, and an
+  # unknown path falls through to the Go set, which is the largest -- a new
+  # kind of file runs too much rather than too little.
+  changes:
+    name: What changed
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      shards: ${{ steps.filter.outputs.shards }}
+      web: ${{ steps.filter.outputs.web }}
+      deploy: ${{ steps.filter.outputs.deploy }}
+      installer: ${{ steps.filter.outputs.installer }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+          everything() {
+            {
+              echo "go=true"; echo "web=true"; echo "deploy=true"; echo "installer=true"
+              echo 'shards=["controller","api","store","rest"]'
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          if [ "$EVENT" != "pull_request" ]; then
+            everything
+          fi
+          # The checkout is the merge of the pull request into its base, so
+          # its diff against the base commit is exactly what the pull request
+          # changes. A base that cannot be fetched -- a force push, a base
+          # branch that moved on -- says nothing about what changed, so run
+          # everything rather than guess.
+          if ! git fetch --no-tags --depth=1 origin "$BASE" 2>/dev/null; then
+            everything
+          fi
+          go=false; web=false; deploy=false; installer=false; rest=false
+          for f in $(git diff --name-only "$BASE" HEAD); do
+            case "$f" in
+              # The build and the tests themselves: every job is downstream.
+              .github/workflows/ci.yml|Makefile|go.mod|go.sum) everything ;;
+              # The UI, and the spec its client is generated from. The spec is
+              # embedded in the binary too, so it is a Go change as well.
+              api/openapi.yaml) go=true; web=true ;;
+              # The controller image runs npm ci, so its inputs are the
+              # image's too.
+              web/package.json|web/package-lock.json) web=true; deploy=true ;;
+              web/*) web=true ;;
+              # What the images are made of. The runner scripts are also read
+              # by the installer job's shell checks, and every deploy/ file by
+              # a test in internal/docs, which is in the rest shard.
+              deploy/runner-*.sh) deploy=true; installer=true; rest=true ;;
+              deploy/*|docker-compose.yml|.dockerignore) deploy=true; rest=true ;;
+              install.sh|test/install/*|test/upgrade/*) installer=true; rest=true ;;
+              # Prose. internal/docs tests the problem-code table, the
+              # workflows and the roadmap against the code, so the rest shard
+              # runs; nothing heavier does.
+              docs/*|roadmap/*|overrides/*|hooks/*|mkdocs.yml|*.md|.github/*) rest=true ;;
+              # Everything else is Go, or something Go embeds.
+              *) go=true ;;
+            esac
+          done
+          if [ "$go" = true ]; then
+            shards='["controller","api","store","rest"]'
+          elif [ "$rest" = true ]; then
+            shards='["rest"]'
+          else
+            shards='[]'
+          fi
+          {
+            echo "go=$go"; echo "web=$web"; echo "deploy=$deploy"; echo "installer=$installer"
+            echo "shards=$shards"
+          } >> "$GITHUB_OUTPUT"
+          echo "go=$go web=$web deploy=$deploy installer=$installer shards=$shards"
+
+  # The Go suite, split by package across runners. Three packages are most of
+  # it -- on the fleet the controller has taken 45 minutes, the API 29 and the
+  # store 22, single-threaded under the race detector -- so each is a shard of
+  # its own and everything else shares the fourth, along with the checks that
+  # read the whole tree. The wall-clock is now the slowest shard, and a shard
+  # can be tuned on its own.
+  #
+  # Coverage is measured on main and on a manual dispatch, not on a pull
+  # request: -coverpkg=./... with atomic counters is the most expensive
+  # instrumentation Go offers, and the number it produces is the one Codecov
+  # tracks on main. A pull request still runs every test under the race
+  # detector.
   go:
-    name: Go
+    name: Go (${{ matrix.shard }})
+    needs: [changes]
+    if: needs.changes.outputs.shards != '[]'
     permissions:
       contents: read
-      id-token: write # Codecov authenticates uploads without a stored secret.
-    # On the fleet this job takes 70 to 90 minutes when the runner has a host
-    # to itself -- the race detector, -coverpkg and one CPU slot's share --
-    # and a busy evening's backlog pushed it past 90 and the run was killed
-    # with every package that had finished green. The limit is here to catch
-    # a hang, not a slow machine, so it sits well above the slowest run seen.
-    timeout-minutes: 180
+    # On the fleet the controller shard takes 45 to 50 minutes when the runner
+    # has a host to itself, more with coverage on main, and a busy evening's
+    # backlog stretches it. The limit is here to catch a hang, not a slow
+    # machine, so it sits well above the slowest shard seen.
+    timeout-minutes: 120
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -55,7 +157,10 @@ jobs:
       - name: Stub the embedded UI
         run: make build-nogui
 
+      # The checks that read the whole tree run once, in the shard that is
+      # otherwise the lightest.
       - name: gofmt
+        if: matrix.shard == 'rest'
         run: |
           out=$(gofmt -l $(git ls-files '*.go'))
           if [ -n "$out" ]; then
@@ -63,29 +168,83 @@ jobs:
           fi
 
       - name: go vet
+        if: matrix.shard == 'rest'
         run: go vet ./...
 
       - name: go mod tidy is clean
+        if: matrix.shard == 'rest'
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum
 
-      - name: Test
-        # The timeout is per package, not per test. The growing API/controller
-        # suites repeatedly migrate pure-Go SQLite under race instrumentation;
-        # on the small fleet runner they exceed Go's default ten-minute budget
-        # many times over -- internal/api alone has taken 38 minutes there.
-        # Keep the race detector and full coverage; share the bounded budget
-        # with local make test / make cover.
-        run: make cover
+      - name: Pick the shard's packages
+        id: pkgs
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -eu
+          case "$SHARD" in
+            controller) pkgs=./internal/controller/ ;;
+            api) pkgs=./internal/api/ ;;
+            store) pkgs=./internal/store/ ;;
+            rest) pkgs=$(go list ./... | grep -vE '/internal/(controller|api|store)$' | tr '\n' ' ') ;;
+            *) echo "::error::unknown shard $SHARD"; exit 1 ;;
+          esac
+          echo "list=$pkgs" >> "$GITHUB_OUTPUT"
 
+      - name: Test
+        if: github.event_name == 'pull_request'
+        # The timeout is per package, not per test. The API and controller
+        # suites repeatedly migrate pure-Go SQLite under race instrumentation
+        # and exceed Go's default ten-minute budget many times over on the
+        # fleet runner; the Makefile carries the bounded budget so local
+        # make test shares it.
+        run: make test TEST_PKGS="${{ steps.pkgs.outputs.list }}"
+
+      - name: Test with coverage
+        if: github.event_name != 'pull_request'
+        run: make cover-shard TEST_PKGS="${{ steps.pkgs.outputs.list }}" COVERDIR="$RUNNER_TEMP/covdata"
+
+      - name: Preserve the shard's coverage
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: covdata-${{ matrix.shard }}
+          path: ${{ runner.temp }}/covdata
+          if-no-files-found: error
+          retention-days: 3
+
+  # One coverage number from four shards. Each shard instrumented every
+  # package, so their counters are merged rather than concatenated -- see
+  # cover-merge in the Makefile -- and the merged profile is what Codecov and
+  # the job summary see.
+  coverage:
+    name: Coverage
+    needs: [changes, go]
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      id-token: write # Codecov authenticates uploads without a stored secret.
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: covdata-*
+          path: ${{ runner.temp }}/covdata
+      - name: Merge the shards
+        run: |
+          set -eu
+          dirs=$(ls -d "$RUNNER_TEMP"/covdata/covdata-* | tr '\n' ',' | sed 's/,$//')
+          make cover-merge COVERDIRS="$dirs"
       - name: Coverage summary
         run: go tool cover -func=coverage.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
-
-      # Restricted PRs still run the tests and coverage summary, but cannot
-      # request the OIDC token needed to authenticate an upload.
       - name: Upload coverage to Codecov
-        if: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}
+        if: ${{ github.actor != 'dependabot[bot]' }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
@@ -95,6 +254,8 @@ jobs:
 
   drill:
     name: Drill
+    needs: [changes]
+    if: needs.changes.outputs.go == 'true'
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -157,6 +318,8 @@ jobs:
   arm64:
     name: Linux arm64
     runs-on: ubuntu-24.04-arm
+    needs: [changes]
+    if: needs.changes.outputs.go == 'true'
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -194,6 +357,8 @@ jobs:
   windows:
     name: Windows
     runs-on: windows-latest
+    needs: [changes]
+    if: needs.changes.outputs.go == 'true'
     timeout-minutes: 60
     defaults:
       run:
@@ -224,6 +389,8 @@ jobs:
 
   upgrade:
     name: Upgrade
+    needs: [changes]
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.installer == 'true'
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -281,6 +448,8 @@ jobs:
 
   staticcheck:
     name: staticcheck
+    needs: [changes]
+    if: needs.changes.outputs.go == 'true'
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -296,6 +465,8 @@ jobs:
 
   ui:
     name: UI
+    needs: [changes]
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true'
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -339,7 +510,10 @@ jobs:
     # below unpacks them into a private prefix instead of installing them
     # system-wide when sudo is not available.
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
-    needs: [ui]
+    # The suite drives the real binary, so a Go change can break it as
+    # surely as a web one.
+    needs: [changes, ui]
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -405,7 +579,8 @@ jobs:
   build-matrix:
     name: Cross-compile
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
-    needs: [ui]
+    needs: [changes, ui]
+    if: needs.changes.outputs.go == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -556,6 +731,8 @@ jobs:
 
   installer:
     name: install.sh
+    needs: [changes]
+    if: needs.changes.outputs.installer == 'true'
     # Not gated on sudo: a pool running the process backend gives its agent's
     # systemd unit NoNewPrivileges=yes (the job tree hangs off that same
     # process), which makes sudo refuse to escalate, passwordless entry in
@@ -611,10 +788,12 @@ jobs:
   images:
     name: Images
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
-    needs: [dev-binaries]
+    needs: [changes, dev-binaries]
     # Main pushes and manual recovery publish matching binaries before images.
-    # Pull requests and checks on other branches do not publish dev binaries.
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.ref != 'refs/heads/main' || needs.dev-binaries.result == 'success') }}
+    # Pull requests and checks on other branches do not publish dev binaries,
+    # and only build the images when something that goes into them changed:
+    # the binary and the UI inside are built and tested by their own jobs.
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.ref != 'refs/heads/main' || needs.dev-binaries.result == 'success') && needs.changes.outputs.deploy == 'true' }}
     # Publishing needs to write packages; everything else here only reads.
     permissions:
       contents: read

@@ -33,6 +33,12 @@ NPM      ?= npm
 # a package that hits this limit is hung, not slow.
 GO_TEST_TIMEOUT ?= 120m
 
+# The packages a test target runs. CI splits the suite by package across
+# runners -- the controller, API and store packages are each a large share of
+# the whole -- and this is how a shard says which share it is. Local runs
+# leave it alone and get everything.
+TEST_PKGS ?= ./...
+
 ##@ Build
 
 .PHONY: build
@@ -76,7 +82,7 @@ dist: ui ## Cross-compile release binaries into dist/
 
 .PHONY: test
 test: ## Run Go unit and integration tests
-	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) ./...
+	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) $(TEST_PKGS)
 
 .PHONY: test-short
 test-short: ## Run only fast tests
@@ -90,7 +96,24 @@ cover: ## Run tests with a coverage report
 	# entirely by internal/api's handler tests -- reports zero and sends
 	# whoever reads the dashboard to write tests for the best-covered file in
 	# the tree.
-	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./...
+	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) -coverpkg=./... -coverprofile=coverage.out -covermode=atomic $(TEST_PKGS)
+	$(GO) tool cover -func=coverage.out | tail -1
+
+# One shard of the coverage run, in the binary format `go tool covdata` merges.
+# A text profile cannot be joined to another one line by line -- the same block
+# appears in each with its own count -- so a shard leaves its counters in
+# COVERDIR and `cover-merge` turns the set into the one coverage.out that
+# `make cover` writes directly.
+.PHONY: cover-shard
+cover-shard: ## Run one shard of the coverage run into COVERDIR (see cover-merge)
+	@test -n "$(COVERDIR)" || { echo "cover-shard needs COVERDIR=<directory>"; exit 2; }
+	@mkdir -p $(COVERDIR)
+	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) -cover -coverpkg=./... -covermode=atomic $(TEST_PKGS) -args -test.gocoverdir=$(abspath $(COVERDIR))
+
+.PHONY: cover-merge
+cover-merge: ## Merge every cover-shard directory under COVERDIRS into coverage.out
+	@test -n "$(COVERDIRS)" || { echo "cover-merge needs COVERDIRS=<dir>,<dir>,..."; exit 2; }
+	$(GO) tool covdata textfmt -i=$(COVERDIRS) -o coverage.out
 	$(GO) tool cover -func=coverage.out | tail -1
 
 .PHONY: test-ui
