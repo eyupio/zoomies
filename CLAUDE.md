@@ -127,7 +127,10 @@ has a CI job that diffs them:
 * `mkdocs build --strict` — a docs link that points nowhere fails the build. The
   site workflow also checks that `sitemap.xml` and `llms.txt` came out of it,
   both generated (by `overrides/sitemap.xml` and `hooks/seo.py`) rather than
-  written, so a build that quietly stopped producing one would otherwise ship.
+  written, so a build that quietly stopped producing one would otherwise ship,
+  and that the header names a release: `hooks/source.py` resolves the latest
+  release, stars and forks from the GitHub API at build time, and an offline
+  build is allowed to go without them where the published site is not.
 
 ## Configuration
 
@@ -263,8 +266,10 @@ api/openapi.yaml    the API contract both clients are generated from
 deploy/             the controller and runner images, and the runner entrypoint
 docker-compose.yml  the compose deployment, at the root so it is the one people find
 docs/               the zoomies.sh site, built by mkdocs.yml
-overrides/          the site's theme overrides: sharing tags, structured data, sitemap
-hooks/              the site's build-time SEO metadata: git dates and llms.txt
+overrides/          the site's theme overrides: sharing tags, structured data, sitemap,
+                    the header's repository facts
+hooks/              the site's build-time metadata: git dates, llms.txt, and the
+                    latest release and star count the header shows
 ROADMAP.md          the follow-on roadmap, and the decisions it asks the owner to take
 roadmap/            what supports it: the work-package record, decision records,
                     gate evidence, the model guidance and the source document

@@ -515,8 +515,10 @@ deploy/             the controller and runner images, and the runner entrypoint
 docker-compose.yml  the compose deployment
 docs/               the zoomies.sh site: architecture, naming, security,
                     UI guidelines, configuration, brand
-overrides/          the site's theme overrides: sharing tags, structured data
-hooks/              the site's build-time SEO metadata: git dates and llms.txt
+overrides/          the site's theme overrides: sharing tags, structured data,
+                    the header's repository facts
+hooks/              the site's build-time metadata: git dates, llms.txt, and the
+                    latest release and star count the header shows
 ROADMAP.md          the sole active roadmap: scope, order and owner decisions
 roadmap/            supporting status/evidence, decision records, model guidance
                     and historical source material; it does not compete with ROADMAP.md

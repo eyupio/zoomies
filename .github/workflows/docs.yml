@@ -23,6 +23,11 @@ on:
       - "mkdocs.yml"
       - "install.sh"
       - ".github/workflows/docs.yml"
+  # The header names the latest release, resolved when the site is built
+  # (hooks/source.py). A release that did not rebuild the site would leave it
+  # naming the one before until the daily build below caught up.
+  release:
+    types: [published]
   # A failed publish takes the whole site with it: pushes only build this
   # workflow when something under docs/ changed, so the last good deploy stays
   # up -- missing whatever the failed one carried -- until somebody happens to
@@ -56,6 +61,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # A release event runs at the tag. The site is main's docs, and main
+          # may have moved since the tag was cut, so a release builds from
+          # there; every other event is already at the commit it should build.
+          ref: ${{ github.event_name == 'release' && 'main' || '' }}
           # The sitemap stamps each URL with the date its page was last edited,
           # which is in the history. A shallow checkout has none, and every page
           # would claim to have changed on the day of the build.
@@ -72,6 +81,11 @@ jobs:
       # --strict, so a link that points nowhere fails the build rather than
       # shipping. The docs cross-reference each other heavily.
       - name: Build
+        env:
+          # hooks/source.py asks the GitHub API for the latest release and the
+          # repository's counts. Anonymous requests share one rate limit per
+          # address, which a shared runner's address can already have spent.
+          GITHUB_TOKEN: ${{ github.token }}
         run: mkdocs build --strict
 
       # The two files a crawler and an assistant look for first. Both are
@@ -82,6 +96,13 @@ jobs:
           set -eu
           grep -q "https://zoomies.sh/quickstart/" site/sitemap.xml
           grep -q "https://zoomies.sh/faq/" site/llms.txt
+
+      # The header's release, stars and forks are resolved at build time, and a
+      # build that cannot reach the API still succeeds -- for a developer
+      # offline, not for the site. A header that names no release is the thing
+      # this exists to prevent, so it does not ship.
+      - name: The header names the latest release
+        run: grep -q "md-source__fact--version" site/index.html
 
       # The badge is linked from READMEs the migration wizard has edited, out
       # in other people's repositories, and nothing in the docs build looks at
@@ -119,8 +140,10 @@ jobs:
   deploy:
     name: Deploy
     # Only from main, and only when Pages is enabled: a pull request builds the
-    # site to prove it still builds, and publishes nothing.
-    if: github.event.repository.has_pages && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # site to prove it still builds, and publishes nothing. A release runs at
+    # its tag, and is the one event that publishes from somewhere else --
+    # having built main, above.
+    if: github.event.repository.has_pages && (github.ref == 'refs/heads/main' || github.event_name == 'release') && github.event_name != 'pull_request'
     needs: build
     runs-on: ${{ inputs.runner == 'github' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:

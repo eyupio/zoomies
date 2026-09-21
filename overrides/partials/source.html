@@ -1,0 +1,34 @@
+{#-
+  The repository link in the header and in the drawer: the name, and under it
+  the latest release, the stars and the forks.
+
+  Material's own partial renders the name and leaves the facts to its script,
+  which asks the GitHub API in the browser and keeps the answer in the tab's
+  sessionStorage for as long as the tab lives -- through a browser restart,
+  since sessionStorage is restored with the tab. A tab first opened when V1.1.0
+  was the newest release said V1.1.0 two releases later, and nothing in this
+  repository could correct it.
+
+  The facts here were resolved when the site was built (hooks/source.py) and
+  are written into the page. There is deliberately no data-md-component
+  attribute on the link: it is what Material's script mounts on, and with it
+  present the script would replace what the build wrote with whatever the tab
+  had cached. The classes are Material's own, so its icons and layout apply.
+-#}
+{% set icon = config.theme.icon.repo or "fontawesome/brands/git-alt" %}
+{% set facts = config.extra.source_facts %}
+<a href="{{ config.repo_url }}" title="{{ lang.t('source') }}" class="md-source">
+  <div class="md-source__icon md-icon">
+    {% include ".icons/" ~ icon ~ ".svg" %}
+  </div>
+  <div class="md-source__repository">
+    {{ config.repo_name }}
+    {% if facts %}
+      <ul class="md-source__facts">
+        {% for name, value in facts.items() %}
+          <li class="md-source__fact md-source__fact--{{ name }}">{{ value }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+</a>
