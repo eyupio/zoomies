@@ -5,7 +5,7 @@
 
 # ---- UI ---------------------------------------------------------------------
 # UI assets are architecture-independent; build them once on the builder's CPU.
-FROM --platform=$BUILDPLATFORM node:26-alpine@sha256:ef24c5053d50fdc3e4e56eb4e7ddb7861874ab0fdc797046ba897581deb8e868 AS ui
+FROM --platform=$BUILDPLATFORM node:26-alpine@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070 AS ui
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json* ./
 # No `|| npm install` fallback: that turns a lockfile CI would reject into an
@@ -16,7 +16,7 @@ RUN npm run build
 
 # ---- Go ---------------------------------------------------------------------
 # Go cross-compiles on the builder's CPU instead of running the compiler in QEMU.
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b AS build
 WORKDIR /src
 RUN apk add --no-cache git ca-certificates
 COPY go.mod go.sum ./
