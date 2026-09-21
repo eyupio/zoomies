@@ -127,6 +127,10 @@ plugins:
 # rather than a plugin so the docs build keeps to its pinned dependencies.
 hooks:
   - hooks/seo.py
+  # The header's latest release, stars and forks, resolved once per build and
+  # rendered by overrides/partials/source.html. Material would otherwise fetch
+  # them in the browser and cache them in the tab for as long as it lives.
+  - hooks/source.py
 
 extra:
   # Who builds Zoomies. overrides/partials/copyright.html prints this in the

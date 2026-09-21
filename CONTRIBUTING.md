@@ -106,9 +106,11 @@ python -m pip install --require-hashes -r docs/requirements.txt
 mkdocs build --strict
 ```
 
-The build must produce `site/sitemap.xml`, `site/llms.txt` and `site/badge.svg`.
-These checks catch broken links and missing published assets before a PR is
-merged.
+The build must produce `site/sitemap.xml`, `site/llms.txt` and `site/badge.svg`,
+and the header must name the latest release — `hooks/source.py` asks the GitHub
+API for it at build time, so set `GITHUB_TOKEN` if the anonymous rate limit is
+in the way. These checks catch broken links and missing published assets before
+a PR is merged.
 
 For web UI changes, also run:
 
