@@ -1,11 +1,24 @@
 import type { Job, WorkflowRun } from '$lib/api/types';
-import { CANCELLING, jobStatus, QUEUE_PAUSED, QUEUE_REMOVED, toneTokens } from '$lib/status';
+import {
+  CANCELLING,
+  jobStatus,
+  QUEUE_PAUSED,
+  QUEUE_REMOVED,
+  RUN_FAILING,
+  toneTokens,
+} from '$lib/status';
 import type { StatusMeta } from '$lib/status';
 
 export interface ActivityStatus {
   status: StatusMeta;
   label: string;
   motion: string;
+  /**
+   * The pose of the rest of a workflow's pack, where it differs from the
+   * leader's. A run with a failed job among ones still running is both things
+   * at once, and one pose for all three dogs would have to lie about half of it.
+   */
+  packMotion?: string;
   detail: string;
 }
 
@@ -60,7 +73,7 @@ export function queuedActivity(
 }
 
 export function workflowActivity(
-  run: Pick<WorkflowRun, 'state' | 'conclusion' | 'cancelling'>,
+  run: Pick<WorkflowRun, 'state' | 'conclusion' | 'cancelling' | 'jobs'>,
   quirky = true,
 ): ActivityStatus {
   const status = run.cancelling ? CANCELLING : jobStatus(run.state, run.conclusion);
@@ -71,6 +84,22 @@ export function workflowActivity(
       motion: 'draining',
       detail: 'Cancellation requested. Waiting for the workflow and its jobs to stop.',
     };
+  // A failure among jobs still running or waiting is known now, not when the
+  // run's own state catches up, so the row turns before GitHub's does. The
+  // leader shows the hurt; the pack behind it is still on the move.
+  const failed = run.jobs?.failed ?? 0;
+  if (run.state !== 'completed' && failed > 0) {
+    const total = run.jobs?.total ?? 0;
+    const running = run.state === 'in_progress';
+    const count = total ? `${failed} of its ${total} jobs` : `${failed} of its jobs`;
+    return {
+      status: RUN_FAILING,
+      label: quirky ? 'Pack in trouble' : RUN_FAILING.label,
+      motion: 'failed',
+      packMotion: running ? 'busy' : 'idle',
+      detail: `${count} ${failed === 1 ? 'has' : 'have'} failed while the rest ${running ? 'are still running' : 'are still waiting to run'}, so the workflow will end in failure unless ${failed === 1 ? 'it is' : 'they are'} re-run. Expand the row to see which.`,
+    };
+  }
   if (run.state === 'queued' || run.state === 'waiting')
     return {
       status,

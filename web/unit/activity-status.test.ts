@@ -64,6 +64,46 @@ test('workflow pack preserves outcomes and cancellation precedence', () => {
   assert.equal(workflowActivity({}).motion, 'unknown');
 });
 
+test('a run with a failed job says so before GitHub has finished the run', () => {
+  // GitHub keeps the run in progress until its last job ends, so the row is
+  // the only place the operator sees the failure early. The leader shows it;
+  // the rest of the pack keeps the pose the run's own state gives it.
+  const failing = workflowActivity({ state: 'in_progress', jobs: { total: 10, failed: 1 } });
+  assert.equal(failing.status.key, 'failing');
+  assert.equal(failing.status.tone, 'danger');
+  assert.equal(failing.label, 'Pack in trouble');
+  assert.equal(failing.motion, 'failed');
+  assert.equal(failing.packMotion, 'busy');
+  assert.match(failing.detail, /1 of its 10 jobs has failed/);
+
+  const queued = workflowActivity({ state: 'queued', jobs: { total: 4, failed: 2 } });
+  assert.equal(queued.status.key, 'failing');
+  assert.equal(queued.packMotion, 'idle');
+  assert.match(queued.detail, /2 of its 4 jobs have failed/);
+
+  assert.equal(
+    workflowActivity({ state: 'in_progress', jobs: { failed: 1 } }, false).label,
+    'Failing',
+  );
+
+  // A cancellation, and a run that has actually finished, still win: the
+  // first is the operator's own decision, the second is GitHub's conclusion.
+  assert.equal(
+    workflowActivity({ state: 'in_progress', cancelling: true, jobs: { failed: 1 } }).status.key,
+    'cancelling',
+  );
+  assert.equal(
+    workflowActivity({ state: 'completed', conclusion: 'failure', jobs: { failed: 1 } }).status.key,
+    'failure',
+  );
+  // A re-run that passed leaves nothing failed on the latest attempt.
+  assert.equal(workflowActivity({ state: 'in_progress', jobs: { failed: 0 } }).motion, 'busy');
+  assert.equal(
+    workflowActivity({ state: 'in_progress', jobs: { failed: 0 } }).packMotion,
+    undefined,
+  );
+});
+
 test('turning the kennel vocabulary off gives the plain status word instead, motion unchanged', () => {
   assert.equal(queuedActivity({}, false).label, 'Ready');
   assert.equal(queuedActivity({ provisioning: 'paused' }, false).label, 'Paused');

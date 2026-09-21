@@ -305,6 +305,26 @@ export function jobStatus(state: JobState | undefined, conclusion?: string | nul
   return UNKNOWN;
 }
 
+/**
+ * A workflow run still in hand with a job already failed under it.
+ *
+ * GitHub keeps the run "in progress" until its last job finishes, so a row that
+ * read only the run's state went on saying Running for the twenty minutes after
+ * the first job broke -- and an operator scanning the page for trouble found it
+ * only in the counts column, or not at all. The failure is known the moment the
+ * job reports it, so the run says so then: the outcome is already decided
+ * unless somebody re-runs the job. Counted over the latest attempt of each job,
+ * so a re-run that passes takes the run back to plain Running.
+ */
+export const RUN_FAILING: StatusMeta = meta(
+  'failing',
+  'Failing',
+  'danger',
+  'triangle',
+  TriangleAlert,
+  'A job of this run has already failed while others are still running or waiting. The run will end in failure unless the job is re-run.',
+);
+
 /** A queued job no enabled pool claims. Nothing here will start it. */
 export const UNMATCHED: StatusMeta = meta(
   'unmatched',
