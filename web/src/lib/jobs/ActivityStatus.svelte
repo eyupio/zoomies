@@ -39,11 +39,12 @@
     {#if prefs.quirkyStatus}
       <span class="avatars" class:pack aria-hidden="true">
         {#if pack}
+          {@const companions = activity.packMotion ?? activity.motion}
           <span class="companion left"
-            ><ZoomiesStatusIcon state={activity.motion} seed={`${seed}-left`} /></span
+            ><ZoomiesStatusIcon state={companions} seed={`${seed}-left`} /></span
           >
           <span class="companion right"
-            ><ZoomiesStatusIcon state={activity.motion} seed={`${seed}-right`} /></span
+            ><ZoomiesStatusIcon state={companions} seed={`${seed}-right`} /></span
           >
         {/if}
         <span class="leader"><ZoomiesStatusIcon state={activity.motion} {seed} /></span>

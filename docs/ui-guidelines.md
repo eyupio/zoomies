@@ -41,8 +41,11 @@ does not spin. Idle and queued dogs sit and wait, provisioning dogs sniff,
 registering dogs wave, throttled dogs pause patiently, and draining dogs settle.
 Failure has a concerned static pose; removed dogs rest with closed eyes.
 Unknown states stay still. Workflows retain the three-dog pack, which represents
-one workflow rather than a count of its jobs. Cute retains its original artwork
-and motion.
+one workflow rather than a count of its jobs. A run still in hand with a job
+already failed under it turns to the danger tone at once, rather than when
+GitHub finishes the run: its leader takes the failure pose while the companions
+keep the pose the run's own state gives them, so the pack reads as both hurt and
+still moving. Cute retains its original artwork and motion.
 
 Stable per-runner timing separates gestures across the fleet and each pack.
 Reduced motion stops every animated part in both styles. The 44px reserved box

@@ -33,14 +33,7 @@
   import { session } from '$lib/state/session.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
-  import {
-    HOSTED,
-    jobStatus,
-    QUEUE_EXPEDITED,
-    QUEUE_PAUSED,
-    RUNNER_LOST,
-    UNMATCHED,
-  } from '$lib/status';
+  import { HOSTED, QUEUE_EXPEDITED, QUEUE_PAUSED, RUNNER_LOST, UNMATCHED } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
@@ -387,7 +380,7 @@
       sortable: true,
       width: '12rem',
       hideable: false,
-      value: (run) => jobStatus(run.state, run.conclusion).label,
+      value: (run) => workflowActivity(run, false).status.label,
       cell: stateCell,
     },
     {
