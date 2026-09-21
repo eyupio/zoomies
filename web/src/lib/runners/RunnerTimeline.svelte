@@ -28,7 +28,7 @@
 
   /**
    * What a stage is called on the page. Two consecutive rows both labelled
-   * "Checking in" tell an operator nothing, and those two rows are
+   * "Putting lead on" tell an operator nothing, and those two rows are
    * exactly the diagnosis of a stuck runner: a container that never started is
    * a problem on the host, and one that started and never registered is a
    * problem between the runner and GitHub.
