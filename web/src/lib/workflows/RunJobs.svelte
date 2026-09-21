@@ -13,7 +13,12 @@
 -->
 <script lang="ts">
   import { CircleX, RotateCcw } from '@lucide/svelte';
-  import { cancelJobWorkflow, listJobs, rerunJobWorkflow } from '$lib/api/client';
+  import {
+    cancelJobWorkflow,
+    controlProvisioning,
+    listJobs,
+    rerunJobWorkflow,
+  } from '$lib/api/client';
   import type { Job, WorkflowRun } from '$lib/api/types';
   import { events } from '$lib/api/sse';
   import { faultLabel, fleetFailed } from '$lib/faults';
@@ -39,6 +44,13 @@
   import StateCell from '$lib/components/StateCell.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import JobLabels from '$lib/jobs/JobLabels.svelte';
+  import {
+    jobProvisioningActions,
+    provisioningActionLabel,
+    provisioningDescription,
+    RUN_PROVISIONING_ACTIONS,
+  } from '$lib/jobs/provisioning';
+  import type { ProvisioningAction } from '$lib/jobs/provisioning';
 
   interface Props {
     run: WorkflowRun;
@@ -117,6 +129,48 @@
     return '';
   }
 
+  /* -- shaping one job's demand from its own row ----------------------------- */
+
+  /** The job a provisioning action is waiting to be confirmed on, and which. */
+  let provisioning = $state<{ action: ProvisioningAction; job: Job } | null>(null);
+  let provisioningOpen = $state(false);
+
+  function askProvisioning(action: ProvisioningAction, job: Job): void {
+    provisioning = { action, job };
+    provisioningOpen = true;
+  }
+
+  /**
+   * One job through the same endpoint the Queue page's rows use, so what
+   * "Pause" does here is exactly what it does there. The row itself is
+   * repainted by the job.updated frame the controller publishes, which the
+   * subscription above drops into place.
+   */
+  async function confirmProvisioning(): Promise<boolean> {
+    const ask = provisioning;
+    if (!ask?.job.id) return false;
+    const label = provisioningActionLabel(ask.action);
+    try {
+      const result = await controlProvisioning({ ids: [ask.job.id], action: ask.action });
+      const refused = result.results.find((r) => !r.ok);
+      if (refused) {
+        toasts.error(
+          `Could not ${label.toLowerCase()} ${ask.job.job_name || 'this job'}`,
+          refused.error,
+        );
+        return false;
+      }
+      toasts.success(
+        `${label}: ${ask.job.job_name || 'job'}`,
+        `${provisioningDescription(ask.action)} GitHub\u2019s view of the job is unchanged.`,
+      );
+      return true;
+    } catch (cause) {
+      toasts.fromError(cause, `Could not ${label.toLowerCase()} ${ask.job.job_name || 'this job'}`);
+      return false;
+    }
+  }
+
   /* -- cancelling or re-running a job's run from its own row --------------- */
 
   let cancelTarget = $state<Job | null>(null);
@@ -163,13 +217,23 @@
   }
 
   /**
-   * Cancel and re-run, the same two the JobDrawer's footer offers, but reached
-   * without opening the drawer first. Both are run-scoped, not job-scoped --
-   * GitHub has no cancel or re-run that touches only one job -- and the
-   * button's label says whose run it takes, the same way JobDrawer's does.
+   * Run now, Pause and Resume for the job alone, in the Queue page's own
+   * words and through its own endpoint, and then cancel and re-run, the same
+   * two the JobDrawer's footer offers, reached without opening the drawer
+   * first. The first three are the job's -- demand is raised per job -- and
+   * the last two are run-scoped: GitHub has no cancel or re-run that touches
+   * only one job, and the button's label says whose run it takes, the same
+   * way JobDrawer's does. Removal is left to the Queue page, whose Removed
+   * view is where a removed job is found again.
    */
   function rowActions(job: Job): RowAction[] {
-    const out: RowAction[] = [];
+    const out: RowAction[] = canOperate
+      ? jobProvisioningActions(
+          job,
+          (action) => askProvisioning(action, job),
+          RUN_PROVISIONING_ACTIONS,
+        )
+      : [];
     if (cancellationEnabled && canOperate) {
       const done = job.state === 'completed';
       out.push({
@@ -320,6 +384,20 @@
     </table>
   {/if}
 </div>
+
+<ConfirmDialog
+  bind:open={provisioningOpen}
+  title={provisioningActionLabel(provisioning?.action)}
+  name={provisioning?.job.job_name || 'this job'}
+  description={`${provisioning?.job.repo ?? ''} / ${provisioning?.job.job_name ?? 'this job'}. ${provisioningDescription(provisioning?.action)}`}
+  consequences={[
+    'Only this job\u2019s provisioning demand changes. Its siblings in the run, existing runners and GitHub\u2019s view of the job are unaffected.',
+    'If the job starts or finishes before this reaches the server, nothing changes and the refusal is reported.',
+  ]}
+  confirmLabel={provisioningActionLabel(provisioning?.action)}
+  onconfirm={confirmProvisioning}
+  oncancel={() => (provisioning = null)}
+/>
 
 <ConfirmDialog
   bind:open={cancelOpen}

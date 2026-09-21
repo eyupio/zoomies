@@ -1128,6 +1128,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workflow-runs/provisioning": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause, resume or expedite every queued job of a workflow run
+         * @description `POST /provisioning/bulk` for a whole run: what the Workflows page's own run rows call, since a run has no ID of its own to select by, only `repo` + `github_run_id`. Acts on the run's queued jobs this fleet has a hand in, in every provisioning state but removed -- a job an operator deleted from the queue was stood down on purpose, and is restored from the Queue page's Removed view rather than swept back in by a Run now on its run. The actions mean what they mean on `/provisioning/bulk`, and delete is not one of them: a removal is a decision about one job. Returns the same per-job results. `404` for a run this fleet has never heard of; `409` when it knows the run but no job of it is waiting for a runner here.
+         */
+        post: operations["controlWorkflowRunProvisioning"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hosts": {
         parameters: {
             query?: never;
@@ -4115,6 +4135,12 @@ export interface components {
             faulted?: number;
             /** @description Queued jobs no enabled pool claims and nobody else is about to run. */
             unmatched?: number;
+            /** @description Queued jobs an operator has asked to run now. Part of `queued` */
+            expedited?: number;
+            /** @description Queued jobs whose provisioning demand an operator has paused. Part of `queued`. */
+            paused?: number;
+            /** @description Queued jobs an operator removed from the queue */
+            removed?: number;
         };
         JobStep: {
             number?: number;
@@ -7102,6 +7128,52 @@ export interface operations {
                         run_id: number;
                         /** @description How many of the run's jobs this fleet knows about. */
                         jobs: number;
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    controlWorkflowRunProvisioning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The repository, as owner/name. */
+                    repo: string;
+                    /**
+                     * Format: int64
+                     * @description GitHub's own ID for the run.
+                     */
+                    run_id: number;
+                    /** @enum {string} */
+                    action: "pause" | "resume" | "run_now";
+                };
+            };
+        };
+        responses: {
+            /** @description A result per queued job of the run the action reached */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        repo: string;
+                        /** Format: int64 */
+                        run_id: number;
+                        results: {
+                            id: string;
+                            ok: boolean;
+                            error?: string;
+                        }[];
                     };
                 };
             };

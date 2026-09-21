@@ -202,6 +202,22 @@ Pressing a job opens the same drawer the Jobs page opens. Nothing here is a
 second copy of anything: a run is derived from its jobs, and the jobs under it
 are the same rows, so the two cannot disagree.
 
+A run's row carries the [Queue](#provisioning-queue) page's controls for every
+queued job of the run at once — **Run now**, **Pause** and **Resume**, one
+press each, and **Cancel** beside them where the deployment allows it — and
+each job inside an opened run carries the same three for itself. They are the
+Queue page's actions under the Queue page's names, through the same endpoint,
+and mean exactly what they mean there: Run now raises the run's queued jobs
+ahead of the rest of their pool's queue within its priority tier and skips the
+scale-up delay, Pause holds their demand, and neither changes what GitHub
+thinks of the run. A run-level action leaves alone a job an operator removed
+from the queue, which was stood down on purpose and comes back from the Queue
+page's Removed view; and removal itself is not offered on a run, because taking
+work out of the queue is a decision about one job. An action already in force —
+Pause on a run whose every queued job is paused — is disabled and says why, and
+the row badges what has been done, **Paused** or **Run now**, with a count where
+it is only some of the run's jobs.
+
 The status views and the filters are the Jobs page's, read at the run's
 level — a status names the run's own, and any other filter keeps a run
 whenever one of its jobs matches, so a run arrives whole rather than reduced
@@ -503,6 +519,9 @@ that already exists.
 All four are buttons on the row itself, one press each, as well as on the bulk
 bar for a selection. An action already in force is disabled and says why. On the
 keyboard a row's buttons are one stop, with the arrow keys moving along them.
+The first three are offered again on the [Workflows](#workflows) page, on a
+run's own row for every queued job of the run and on each job inside an opened
+run, under the same names and through the same controls.
 
 These controls do not cancel GitHub jobs or retract provisioning tasks already
 issued to agents. Pool minimums and normal runner lifecycle rules still apply;

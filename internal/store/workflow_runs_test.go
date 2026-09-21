@@ -262,3 +262,79 @@ func TestWorkflowRunsCountEachJobOnce(t *testing.T) {
 		t.Fatalf("run = %s/%q, want completed as a failure", run.State, run.Conclusion)
 	}
 }
+
+// A run row can offer Pause and Run now only if it knows what its queued
+// jobs already carry: Pause pressed on a run whose every queued job is paused
+// has to be refused with a reason, and a Run now on the run must not sweep
+// back in a job an operator removed from the queue on purpose.
+func TestWorkflowRunsCountWhatAnOperatorDidToTheirQueuedJobs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	seed := []*Job{
+		{GitHubJobID: 61, JobName: "build"},
+		{GitHubJobID: 62, JobName: "test"},
+		{GitHubJobID: 63, JobName: "lint"},
+		{GitHubJobID: 64, JobName: "package"},
+	}
+	for _, j := range seed {
+		j.GitHubRunID, j.RunAttempt, j.Repo, j.Workflow = 6, 1, "acme/widgets", "CI"
+		j.State, j.QueuedAt = JobQueued, now
+		j.Labels, j.Matched, j.PoolID = StringSlice{"self-hosted"}, true, "pool_a"
+		if _, err := s.UpsertJob(ctx, j); err != nil {
+			t.Fatalf("seeding job %d: %v", j.GitHubJobID, err)
+		}
+	}
+	id := func(githubID int64) string {
+		t.Helper()
+		j, err := s.GetJobByGitHubID(ctx, githubID)
+		if err != nil {
+			t.Fatalf("GetJobByGitHubID(%d): %v", githubID, err)
+		}
+		return j.ID
+	}
+	for _, step := range []struct {
+		action string
+		job    int64
+	}{{"run_now", 61}, {"pause", 62}, {"delete", 63}} {
+		if _, err := s.ControlProvisioning(ctx, []string{id(step.job)}, step.action); err != nil {
+			t.Fatalf("%s job %d: %v", step.action, step.job, err)
+		}
+	}
+
+	runs, _, err := s.ListWorkflowRuns(ctx, JobFilter{}, Page{})
+	if err != nil {
+		t.Fatalf("ListWorkflowRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("got %d runs, want the one", len(runs))
+	}
+	got := runs[0].Jobs
+	want := RunJobCounts{Total: 4, Queued: 4, Expedited: 1, Paused: 1, Removed: 1}
+	if got != want {
+		t.Fatalf("job counts = %+v, want %+v: the four queued jobs, one each expedited, paused and removed", got, want)
+	}
+	// The three the run's own controls reach: the removed one is restored
+	// from the Queue page, not swept up with its siblings.
+	if got.Controllable() != 3 {
+		t.Fatalf("controllable = %d, want 3", got.Controllable())
+	}
+
+	// The run's provisioning selection is what a run-level action acts on,
+	// and it leaves the removed job alone.
+	ids, err := s.ProvisioningSelection(ctx, JobFilter{
+		Repos: []string{"acme/widgets"}, RunIDs: []int64{6},
+		Provisioning: []string{"ready", "expedited", ProvisioningPaused},
+	})
+	if err != nil {
+		t.Fatalf("ProvisioningSelection: %v", err)
+	}
+	if len(ids) != 3 {
+		t.Fatalf("selection = %v, want the three queued jobs not removed", ids)
+	}
+	for _, sel := range ids {
+		if sel == id(63) {
+			t.Fatalf("selection %v includes the removed job", ids)
+		}
+	}
+}

@@ -62,6 +62,20 @@ test('a stood-down queued job says which way it was stood down', () => {
   assert.equal(queueStatus({ state: 'queued', provisioning: 'deleted' })?.label, 'Removed');
 });
 
+test('a job asked to run now says so, and a hold outranks the ask', () => {
+  // Run now is the one thing an operator can do to a queued job that is not
+  // a standing-down, and a row that went on reading plainly Queued after it
+  // was pressed looked like a button that did nothing. Pausing an expedited
+  // job keeps the ask -- resuming brings it back -- but the hold is what the
+  // fleet is doing now, so the hold is what the row says.
+  assert.equal(queueStatus({ state: 'queued', provision_now: true })?.label, 'Run now');
+  assert.equal(
+    queueStatus({ state: 'queued', provisioning: 'paused', provision_now: true })?.label,
+    'Paused',
+  );
+  assert.equal(queueStatus({ state: 'in_progress', provision_now: true }), undefined);
+});
+
 test('a cancellation outranks the pause it causes', () => {
   // Cancelling a run pauses its queued jobs, so a job somebody cancelled
   // carries both marks. Reporting the pause would tell an operator their own
@@ -106,5 +120,9 @@ test('the badges and the Queue page read from one vocabulary', () => {
   assert.equal(
     queueStatus({ state: 'queued', provisioning: 'paused' })?.label,
     QUEUE_STATUS_LABELS.paused,
+  );
+  assert.equal(
+    queueStatus({ state: 'queued', provision_now: true })?.label,
+    QUEUE_STATUS_LABELS.expedited,
   );
 });

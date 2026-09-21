@@ -188,6 +188,7 @@ func (s *Server) apiRoutes() chi.Router {
 		// repo + GitHub's run ID, not one path segment, since the repo half
 		// can itself contain a slash.
 		r.With(s.require(auth.ActionJobsCancel)).Post("/workflow-runs/cancel", s.handleCancelWorkflowRun)
+		r.With(s.require(auth.ActionProvisioningWrite)).Post("/workflow-runs/provisioning", s.handleControlWorkflowRunProvisioning)
 		r.Route("/jobs", func(r chi.Router) {
 			r.With(s.require(auth.ActionJobsRead)).Get("/", s.handleListJobs)
 			r.With(s.require(auth.ActionJobsRead)).Get("/facets", s.handleJobFacets)

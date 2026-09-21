@@ -370,6 +370,9 @@ export const cancelJobWorkflow = (id: string, body: Body<'cancelJobWorkflow'>) =
 export const cancelWorkflowRun = (body: Body<'cancelWorkflowRun'>) =>
   api.post<Result<'cancelWorkflowRun'>>('/workflow-runs/cancel', { body });
 
+export const controlWorkflowRunProvisioning = (body: Body<'controlWorkflowRunProvisioning'>) =>
+  api.post<Result<'controlWorkflowRunProvisioning'>>('/workflow-runs/provisioning', { body });
+
 export const rerunJobWorkflow = (id: string) =>
   api.post<Result<'rerunJobWorkflow'>>(`/jobs/${enc(id)}/rerun`, {});
 

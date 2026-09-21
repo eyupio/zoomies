@@ -21,14 +21,26 @@
 -->
 <script lang="ts">
   import { CircleX } from '@lucide/svelte';
-  import { cancelWorkflowRun, getJobFacets, listWorkflowRuns } from '$lib/api/client';
+  import {
+    cancelWorkflowRun,
+    controlWorkflowRunProvisioning,
+    getJobFacets,
+    listWorkflowRuns,
+  } from '$lib/api/client';
   import type { Job, WorkflowRun } from '$lib/api/types';
   import { events } from '$lib/api/sse';
   import { formatDuration, formatNumber } from '$lib/format';
   import { session } from '$lib/state/session.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
-  import { HOSTED, jobStatus, RUNNER_LOST, UNMATCHED } from '$lib/status';
+  import {
+    HOSTED,
+    jobStatus,
+    QUEUE_EXPEDITED,
+    QUEUE_PAUSED,
+    RUNNER_LOST,
+    UNMATCHED,
+  } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
@@ -51,6 +63,12 @@
   import JobViewFilter from '$lib/jobs/JobViewFilter.svelte';
   import LevelSwitch from '$lib/workflows/LevelSwitch.svelte';
   import RunJobs from '$lib/workflows/RunJobs.svelte';
+  import {
+    provisioningActionLabel,
+    provisioningDescription,
+    RUN_PROVISIONING_ACTIONS,
+  } from '$lib/jobs/provisioning';
+  import type { RunProvisioningAction } from '$lib/jobs/provisioning';
 
   /* -- filter state, held in the URL and shared with the Jobs page -------- */
 
@@ -184,11 +202,96 @@
     return `${run.repo ?? ''}#${run.github_run_id ?? 0}`;
   }
 
-  /* -- cancelling a run from its own row ------------------------------------ */
+  /* -- the run's own controls: its queued jobs' demand, and cancelling it -- */
 
-  const canOperate = $derived(
-    session.meta?.workflow_cancellation_enabled === true && session.can('operator'),
-  );
+  // Shaping demand needs the operator role and nothing else; cancelling a run
+  // asks GitHub to do something, and is behind the opt-in setting besides.
+  const canOperate = $derived(session.can('operator'));
+  const canCancel = $derived(canOperate && session.meta?.workflow_cancellation_enabled === true);
+
+  /** The run a provisioning action is waiting to be confirmed on, and which. */
+  let pending = $state<{ action: RunProvisioningAction; run: WorkflowRun } | null>(null);
+  let provisioningOpen = $state(false);
+
+  function askProvisioning(action: RunProvisioningAction, run: WorkflowRun): void {
+    pending = { action, run };
+    provisioningOpen = true;
+  }
+
+  /** "run #77 of ci in acme/widgets": the run, named the way its row names it. */
+  function runName(run: WorkflowRun | undefined): string {
+    if (!run) return 'this run';
+    return `${run.workflow || 'workflow'} #${run.run_number || run.github_run_id} in ${run.repo ?? 'GitHub'}`;
+  }
+
+  async function confirmProvisioning(): Promise<boolean> {
+    const ask = pending;
+    if (!ask?.run.repo || !ask.run.github_run_id) return false;
+    const label = provisioningActionLabel(ask.action);
+    try {
+      const result = await controlWorkflowRunProvisioning({
+        repo: ask.run.repo,
+        run_id: ask.run.github_run_id,
+        action: ask.action,
+      });
+      const changed = result.results.filter((r) => r.ok).length;
+      const skipped = result.results.length - changed;
+      toasts.success(
+        `${label}: ${changed} queued ${changed === 1 ? 'job' : 'jobs'} updated`,
+        skipped
+          ? `${skipped} of the run's jobs started or finished first and ${skipped === 1 ? 'was' : 'were'} left as ${skipped === 1 ? 'it is' : 'they are'}.`
+          : `Every queued job of ${runName(ask.run)}. GitHub's view of the run is unchanged.`,
+      );
+      liveKey += 1;
+      return true;
+    } catch (cause) {
+      toasts.fromError(cause, `Could not ${label.toLowerCase()} the run's queued jobs`);
+      return false;
+    }
+  }
+
+  /**
+   * Why a run-level action is refused, or nothing when it can be taken.
+   *
+   * The counts on the row are what decide it: a run whose every queued job
+   * is already paused has nothing left for Pause to do, and the refusal
+   * says so rather than opening a confirmation for a no-op. A job removed
+   * from the queue is not the run's to hurry -- it was stood down on purpose
+   * and comes back from the Queue page's Removed view -- so it is left out
+   * of the reckoning here the way the API leaves it out of the action.
+   */
+  function runProvisioningReason(
+    run: WorkflowRun,
+    action: RunProvisioningAction,
+  ): string | undefined {
+    const jobs = run.jobs;
+    if (run.cancelling)
+      return 'This run is being cancelled; the fleet has already stood its jobs down.';
+    if (run.state === 'completed') return 'This run has already finished.';
+    if (run.hosted && !run.managed)
+      return 'This run is on somebody else\u2019s runners, so there is no demand here to shape.';
+    const controllable = (jobs?.queued ?? 0) - (jobs?.removed ?? 0);
+    if (controllable <= 0)
+      return (jobs?.removed ?? 0) > 0
+        ? 'Every queued job of this run was removed from the queue. Restore it from the Queue page.'
+        : 'No job of this run is waiting for a runner here.';
+    const paused = jobs?.paused ?? 0;
+    const expedited = jobs?.expedited ?? 0;
+    switch (action) {
+      case 'pause':
+        return paused === controllable
+          ? 'Every queued job of this run is already paused.'
+          : undefined;
+      case 'run_now':
+        return expedited === controllable
+          ? 'Every queued job of this run is already prioritised to run now.'
+          : undefined;
+      default:
+        return paused + expedited === 0
+          ? 'Every queued job of this run is already provisioning normally, with nothing to restore.'
+          : undefined;
+    }
+  }
 
   let cancelTarget = $state<WorkflowRun | null>(null);
   let cancelOpen = $state(false);
@@ -217,24 +320,42 @@
     }
   }
 
-  /** The one action a run row offers, following the row-actions pattern the Queue page uses. */
+  /**
+   * The run's row actions, following the row-actions pattern the Queue page
+   * uses: Run now, Pause and Resume for every queued job of the run at once,
+   * in the Queue page's own words, and then Cancel where the deployment
+   * allows it. Removal is not offered on a run -- taking work out of the
+   * queue is a decision about one job, made on the Queue page where the
+   * Removed view can undo it.
+   */
   function rowActions(run: WorkflowRun): RowAction[] {
+    const out: RowAction[] = RUN_PROVISIONING_ACTIONS.map((a) => {
+      const reason = runProvisioningReason(run, a.id as RunProvisioningAction);
+      return {
+        id: a.id,
+        label: a.label,
+        icon: a.icon,
+        disabled: Boolean(reason),
+        reason,
+        onSelect: () => askProvisioning(a.id as RunProvisioningAction, run),
+      };
+    });
+    if (!canCancel) return out;
     const done = run.state === 'completed';
-    return [
-      {
-        id: 'cancel',
-        label: 'Cancel',
-        icon: CircleX,
-        danger: true,
-        disabled: done || run.cancelling,
-        reason: run.cancelling
-          ? 'Already waiting for GitHub to confirm the cancellation.'
-          : done
-            ? 'This run has already finished.'
-            : undefined,
-        onSelect: () => askCancel(run),
-      },
-    ];
+    out.push({
+      id: 'cancel',
+      label: 'Cancel',
+      icon: CircleX,
+      danger: true,
+      disabled: done || run.cancelling,
+      reason: run.cancelling
+        ? 'Already waiting for GitHub to confirm the cancellation.'
+        : done
+          ? 'This run has already finished.'
+          : undefined,
+      onSelect: () => askCancel(run),
+    });
+    return out;
   }
 
   /**
@@ -328,8 +449,8 @@
             header: 'Actions',
             fixed: true,
             hideable: false,
-            // One button and the cell's own padding.
-            width: '4rem',
+            // Three or four buttons, the gaps between them and the cell's own padding.
+            width: canCancel ? '9rem' : '7.5rem',
             align: 'end' as const,
             cell: actionCell,
           },
@@ -347,6 +468,33 @@
     />
     {#if run.jobs?.faulted}
       <Badge status={RUNNER_LOST} size="sm" title={RUNNER_LOST.hint} />
+    {/if}
+    <!-- What an operator has done to the run's queued jobs, said on the row
+         the way a job's own row says it, so a Pause pressed here is seen to
+         have landed without opening the run. A run being cancelled has had
+         its queued jobs paused by the cancellation, and says that instead. -->
+    {#if run.state !== 'completed' && !run.cancelling}
+      {#if run.jobs?.paused}
+        <Badge
+          status={QUEUE_PAUSED}
+          size="sm"
+          label={run.jobs.paused === run.jobs.queued
+            ? QUEUE_PAUSED.label
+            : `${run.jobs.paused} ${QUEUE_PAUSED.label.toLowerCase()}`}
+          title="{run.jobs.paused} of the run's {run.jobs.queued} queued jobs: {QUEUE_PAUSED.hint}"
+        />
+      {/if}
+      {#if run.jobs?.expedited}
+        <Badge
+          status={QUEUE_EXPEDITED}
+          size="sm"
+          label={run.jobs.expedited === run.jobs.queued
+            ? QUEUE_EXPEDITED.label
+            : `${run.jobs.expedited} ${QUEUE_EXPEDITED.label.toLowerCase()}`}
+          title="{run.jobs.expedited} of the run's {run.jobs
+            .queued} queued jobs: {QUEUE_EXPEDITED.hint}"
+        />
+      {/if}
     {/if}
     {#if run.jobs?.unmatched}
       <Badge status={UNMATCHED} size="sm" title={UNMATCHED.hint} />
@@ -485,6 +633,20 @@
 </div>
 
 <JobDrawer bind:open={drawerOpen} job={selected} onclose={() => (selected = null)} />
+
+<ConfirmDialog
+  bind:open={provisioningOpen}
+  title="{provisioningActionLabel(pending?.action)}: every queued job of the run"
+  name={runName(pending?.run)}
+  description={`${runName(pending?.run)}. ${provisioningDescription(pending?.action)}`}
+  consequences={[
+    `${(pending?.run.jobs?.queued ?? 0) - (pending?.run.jobs?.removed ?? 0)} queued ${(pending?.run.jobs?.queued ?? 0) - (pending?.run.jobs?.removed ?? 0) === 1 ? 'job' : 'jobs'} of the run will change${pending?.run.jobs?.removed ? `. The ${pending.run.jobs.removed} removed from the queue ${pending.run.jobs.removed === 1 ? 'stays' : 'stay'} as ${pending.run.jobs.removed === 1 ? 'it is' : 'they are'}` : ''}. Jobs already running, finished, or on somebody else\u2019s runners are unaffected, and so is GitHub\u2019s view of the run.`,
+    'A job that starts or finishes before this reaches the server is skipped and reported.',
+  ]}
+  confirmLabel={provisioningActionLabel(pending?.action)}
+  onconfirm={confirmProvisioning}
+  oncancel={() => (pending = null)}
+/>
 
 <ConfirmDialog
   bind:open={cancelOpen}
