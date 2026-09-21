@@ -43,6 +43,13 @@
   --z-avatar-tag-ink: #6b5524;
   --z-avatar-accent: #5eb89c;
   --z-avatar-size: 2.75rem;
+  /* The Standard spaniel uses the approved neutral illustration palette in
+     both themes. Solid fills keep overlapping animated limbs opaque. */
+  --z-standard-ink: #111111;
+  --z-standard-white: var(--z-brand-white);
+  --z-standard-grey: #888888;
+  --z-standard-shade: #777777;
+  --z-standard-highlight: #aaaaaa;
 
   /* Two of these are the record rather than a value anything reads. Mid Grey
      is the brand's light-theme secondary text, but --z-text-muted darkens it

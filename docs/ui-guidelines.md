@@ -18,29 +18,40 @@ from here rather than inventing values.
 
 ## 1. Design tokens
 
-Runner status uses the shared `ZoomiesStatusIcon` cocker spaniel avatar. Its
-44px reserved box keeps the face readable without moving the adjacent label;
-status text still wraps in narrow saved columns. The fixed `--z-avatar-*`
-illustration palette preserves the black-and-white dog in both themes, while
-the backdrop and collar inherit semantic surface and status colours.
+Runner, workflow and queue status share `ZoomiesStatusIcon`. Settings →
+Appearance → **Zoomies vocabulary** offers three choices:
 
-Busy and boosted runners take short, increasingly energetic bounds with ear,
-paw and tail movement. Throttled runners tilt their heads patiently; preparing
-runners sniff, registering runners wave, and idle runners wait. Draining is
-calmer, failure has a concerned static pose, and removed runners have closed
-eyes. Runner-specific timing separates gestures across the fleet, with rests
-between bursts. Reduced motion stops every animated part. The avatar is
-decorative: the existing status label and accessible tooltip remain the source
-of meaning, including lifecycle precedence over elastic CPU activity.
+| Choice | Status words | Illustration |
+| --- | --- | --- |
+| Off | Plain state names | Standard Lucide status icon |
+| Cute | Zoomies dog-park vocabulary | Original animated avatar |
+| Standard | Zoomies dog-park vocabulary | Black-and-white cocker spaniel with grey details |
 
-Both the avatar and the dog-park words it goes with (`web/src/lib/status.ts`'s
-`RUNNER` and `cpuResourceStatus` labels, and the queue and workflow activity
-labels beside it) are the default, and Settings → Appearance's "Zoomies
-vocabulary" switch turns them off in favour of a plain state name and a
-standard Lucide icon, everywhere either appears. The switch is
-`prefs.quirkyStatus`; `web/src/lib/status.ts` and its neighbours take it as a
-`quirky` argument rather than reading it themselves, so the state map stays
-importable by the unit tests as plain TypeScript.
+The choice stays in this browser. Existing users keep Cute when their old
+vocabulary switch was on, and Off when it was off. The validated
+`prefs.statusStyle` is the saved choice; `prefs.quirkyStatus` is its derived
+boolean for state maps, filters and activity text. Those maps still accept a
+`quirky` argument so they remain importable as plain TypeScript.
+
+Standard uses the approved logo-inspired face, long ears and solid monochrome
+shapes. Busy runners run on four separately animated legs; extra zoomies is
+faster, and maximum zoomies uses an approximately 0.32-second gait with an
+occasional whole-dog spin. Extra zoomies spins less frequently; normal work
+does not spin. Idle and queued dogs sit and wait, provisioning dogs sniff,
+registering dogs wave, throttled dogs pause patiently, and draining dogs settle.
+Failure has a concerned static pose; removed dogs rest with closed eyes.
+Unknown states stay still. Workflows retain the three-dog pack, which represents
+one workflow rather than a count of its jobs. Cute retains its original artwork
+and motion.
+
+Stable per-runner timing separates gestures across the fleet and each pack.
+Reduced motion stops every animated part in both styles. The 44px reserved box
+and wrapping labels preserve narrow saved column widths; workflow packs keep
+their existing reserved width. Illustrations are decorative: labels and
+accessible tooltips remain the source of meaning, including lifecycle
+precedence over elastic CPU activity. Standard's fixed `--z-standard-*` neutral
+palette works in both themes and keeps moving limbs opaque; Cute keeps its
+existing `--z-avatar-*` palette.
 
 All tokens live in exactly one place: `web/src/lib/styles/tokens.css`, declared
 as CSS custom properties on `:root` and overridden under `[data-theme="dark"]`.

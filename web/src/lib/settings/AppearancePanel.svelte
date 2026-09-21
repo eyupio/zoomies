@@ -15,6 +15,7 @@
   import { CLOCK_INTERVAL_MS } from '$lib/format';
   import { prefs } from '$lib/state/prefs.svelte';
   import type { GridView } from '$lib/state/prefs.svelte';
+  import { STATUS_STYLE_OPTIONS, type StatusStyle } from '$lib/state/status-style';
   import { theme, THEME_OPTIONS } from '$lib/state/theme.svelte';
   import type { ThemeChoice } from '$lib/state/theme.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
@@ -77,15 +78,16 @@
     <div class="text">
       <p class="label">Zoomies vocabulary</p>
       <p class="description">
-        Runner and job status shows the fleet's dog-park words and its animated avatar. Off, the
-        same states show as plain names with a standard icon.
+        Off uses plain status names and icons. Cute keeps the original animated dog. Standard uses
+        the black-and-white cocker spaniel. Both dog styles use Zoomies words on runners, workflows
+        and the queue.
       </p>
     </div>
-    <Switch
+    <Segmented
+      options={STATUS_STYLE_OPTIONS}
+      value={prefs.statusStyle}
       label="Zoomies vocabulary"
-      hideLabel
-      checked={prefs.quirkyStatus}
-      onchange={(on) => (prefs.quirkyStatus = on)}
+      onchange={(value) => (prefs.statusStyle = value as StatusStyle)}
     />
   </div>
 
