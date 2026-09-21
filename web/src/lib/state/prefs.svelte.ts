@@ -10,6 +10,7 @@
 
 import { getOwnPreferences, replaceOwnPreferences } from '../api/client';
 import type { TableLayoutPreference } from '../api/types';
+import { isStatusStyle, resolveStatusStyle, type StatusStyle } from './status-style';
 
 const PREFS_KEY = 'zoomies.prefs';
 const PREFS_ACCOUNT_KEY = 'zoomies.prefs.account';
@@ -146,6 +147,8 @@ interface StoredPrefs {
    * operator who finds it too much turns it off once, here.
    */
   quirkyStatus?: boolean;
+  /** Persisted replacement for the legacy vocabulary switch. */
+  statusStyle?: StatusStyle;
 }
 
 /** The quick ranges the activity matrix offers, as the buttons name them. */
@@ -200,7 +203,7 @@ class Prefs {
   #activityRange = $state<ActivityRangeKey>('1d');
   #gridView = $state<GridView>(DEFAULT_GRID_VIEW);
   #feed = $state<Record<string, boolean>>({});
-  #quirkyStatus = $state(true);
+  #statusStyle = $state<StatusStyle>('cute');
   #accountSync = false;
   #accountSave: ReturnType<typeof setTimeout> | null = null;
 
@@ -228,7 +231,7 @@ class Prefs {
       ? (stored.gridView as GridView)
       : DEFAULT_GRID_VIEW;
     this.#feed = stored.feed ?? {};
-    this.#quirkyStatus = stored.quirkyStatus ?? true;
+    this.#statusStyle = resolveStatusStyle(stored);
     this.#applyNav();
   }
 
@@ -453,11 +456,21 @@ class Prefs {
    * icon, everywhere they appear.
    */
   get quirkyStatus(): boolean {
-    return this.#quirkyStatus;
+    return this.#statusStyle !== 'off';
   }
 
   set quirkyStatus(value: boolean) {
-    this.#quirkyStatus = value;
+    this.#statusStyle = value ? (this.#statusStyle === 'off' ? 'cute' : this.#statusStyle) : 'off';
+    this.#persist();
+  }
+
+  get statusStyle(): StatusStyle {
+    return this.#statusStyle;
+  }
+
+  set statusStyle(value: StatusStyle) {
+    if (!isStatusStyle(value)) return;
+    this.#statusStyle = value;
     this.#persist();
   }
 
@@ -489,7 +502,8 @@ class Prefs {
         activityRange: this.#activityRange,
         gridView: this.#gridView,
         feed: this.#feed,
-        quirkyStatus: this.#quirkyStatus,
+        quirkyStatus: this.quirkyStatus,
+        statusStyle: this.#statusStyle,
       } satisfies StoredPrefs),
     );
     this.#scheduleAccountSave();
