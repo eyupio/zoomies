@@ -20,7 +20,7 @@
     "test:unit": "node --import ./unit/register.mjs --test unit/*.test.ts"
   },
   "dependencies": {
-    "@lucide/svelte": "^1.44.0",
+    "@lucide/svelte": "^1.47.0",
     "@tanstack/svelte-table": "^9.2.4",
     "@tanstack/table-core": "^9.2.4",
     "@xterm/addon-fit": "^0.11.0",
@@ -35,12 +35,12 @@
     "@playwright/test": "^1.63.0",
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.1",
     "eslint": "^10.10.0",
     "eslint-plugin-svelte": "^3.23.0",
     "globals": "^17.12.0",
     "openapi-typescript": "^7.13.0",
-    "prettier": "^3.6.2",
+    "prettier": "^3.9.8",
     "prettier-plugin-svelte": "^4.1.1",
     "svelte": "^5.57.0",
     "svelte-check": "^4.7.6",
