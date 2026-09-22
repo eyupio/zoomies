@@ -216,6 +216,16 @@ type Controller struct {
 	// earned is a hold the other would otherwise spend the same refused window
 	// discovering for itself.
 	githubPaused map[string]time.Time
+	// deferredMints is, per installation, how many runner creations the last
+	// reconcile pass held back at the credential-minting limit, and when the
+	// holding back started. It is kept so Problems can say so: the limit is
+	// one of ours, it is invisible from anywhere else, and a pool reporting
+	// jobs waiting sends an operator to buy hosts that will not help.
+	//
+	// Reset each pass rather than accumulated, because what an operator needs
+	// is whether this is happening now, not whether it once did.
+	deferredMints map[string]int
+	deferredSince map[string]time.Time
 
 	mu sync.Mutex
 	// lastPlan is the most recent scheduler decision, kept so that Problems

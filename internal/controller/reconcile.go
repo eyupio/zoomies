@@ -79,6 +79,10 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 	defer c.reconcileMu.Unlock()
 
 	started := time.Now()
+	// What the previous pass held back at the minting limit is spent: this
+	// pass either gets those creations through or holds them back again, and
+	// the problems list should describe now rather than then.
+	c.resetDeferredMints()
 	if err := c.recoverHostCleanup(ctx); err != nil {
 		return fmt.Errorf("recovering unfinished host cleanup: %w", err)
 	}
