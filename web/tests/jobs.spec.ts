@@ -466,7 +466,13 @@ test('a queued job says what the fleet is doing about it', async ({ page }) => {
 
   const drawer = page.getByRole('dialog');
   const status = drawer.getByRole('status', { name: 'What is happening to this job' });
-  await expect(status).toContainText('Waiting');
+  // Either lead word answers the question this test asks. The drawer says
+  // "Blocked" once the job's pool carries a pool.no_capacity problem, and the
+  // demo fleet's pool genuinely cannot place, so the word turns over as soon
+  // as the scheduler has counted the seeded job. Asserting one of them races a
+  // background pass and loses on a slow run. Ported from #412, which fixes it
+  // on main; this no-ops once that lands.
+  await expect(status).toContainText(/Waiting|Blocked/);
   await expect(status).toContainText(/zoomies-demo-linux-(x64|arm64)/);
   // The pool's live counts, so the wait has a reason next to it.
   await expect(status).toContainText('Starting');
