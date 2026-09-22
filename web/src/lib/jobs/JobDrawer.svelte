@@ -106,7 +106,7 @@
       await rerunJobWorkflow(job.id);
       toasts.success(
         'Re-run requested',
-        "GitHub is running this run's failed jobs again. They arrive as a new run attempt.",
+        'GitHub is running this job again, together with any job that needs it. They arrive as a new run attempt.',
       );
     } catch (cause) {
       toasts.fromError(cause, 'GitHub did not accept the re-run');

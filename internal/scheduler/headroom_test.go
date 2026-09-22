@@ -146,3 +146,20 @@ func TestStaleAndMissingUsageRetainReservationGuards(t *testing.T) {
 		t.Fatalf("old agent no longer placed by slots: %v", got)
 	}
 }
+
+// The reserve is held back inside Allocatable, and a pool that leaves its size
+// to the host asks for a share of that same figure. Taking the reserve off the
+// measured sample as well made measured headroom permanently one reserve
+// tighter than the share, so a host cut into a single slot could never fit the
+// runner it was sized for: it reported "short of memory" at every pass, on an
+// idle machine with tens of gigabytes free, and its slot was never used.
+func TestASingleSlotHostFitsTheRunnerItsOwnSizeAsksFor(t *testing.T) {
+	p := testPool("build", "build")
+	h := sized("host_a", 1, 8, 31*1024, 100000)
+	withUsage(h, 10, h.Allocatable().MemoryMB)
+
+	hs := newHostSet([]*store.Host{h}, []*store.Pool{p}, nil, now)
+	if got := hs.place(p, 1); len(got) != 1 {
+		t.Fatalf("placed on %v, want the idle host's only slot", got)
+	}
+}
