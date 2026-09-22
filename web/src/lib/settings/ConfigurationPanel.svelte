@@ -19,6 +19,7 @@
   Secrets are absent rather than starred out: the API does not send them at all.
 -->
 <script lang="ts">
+  import { supportHint } from '$lib/errors';
   import { FileDown, FileUp, Lock, RotateCcw, Search, TriangleAlert } from '@lucide/svelte';
   import { getSettings, settingsExportUrl, updateSettings, ApiError } from '$lib/api/client';
   import { registerSearch } from '$lib/keys';
@@ -295,7 +296,7 @@
         const general = Object.values(errors).filter(Boolean);
         return general.length > 0 ? `${cause.message}: ${general.join(' ')}` : cause.message;
       }
-      return 'That change could not be made. The controller log will say why.';
+      return `That change could not be made. ${supportHint()}`;
     }
   }
 </script>

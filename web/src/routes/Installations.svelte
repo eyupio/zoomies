@@ -8,6 +8,7 @@
   "we have spent our hourly quota" look identical from the Overview.
 -->
 <script lang="ts">
+  import { supportHint } from '$lib/errors';
   import MetricGrid from '$lib/components/MetricGrid.svelte';
 
   import { Plug, Plus } from '@lucide/svelte';
@@ -156,9 +157,7 @@
       health = await verifyInstallation(installation.id);
     } catch (cause) {
       verifyError =
-        cause instanceof Error
-          ? cause.message
-          : 'The check could not be made. The controller log will say why.';
+        cause instanceof Error ? cause.message : `The check could not be made. ${supportHint()}`;
     } finally {
       verifying = null;
       reload += 1;

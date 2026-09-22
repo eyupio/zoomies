@@ -71,11 +71,21 @@ func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := Identity(r.Context())
+	// The documents are withheld by what the row is about; the address is
+	// withheld by rank, in the same pass. An audit row's ip says where a
+	// colleague was working from, which is a fact about a person rather than
+	// about the fleet -- an operator who can read that their administrator
+	// signed in from a hotel has learned something the audit log exists to
+	// record, not to publish. Administrators keep it, because chasing a
+	// suspicious sign-in is the reason the column is there.
 	for i := range events {
 		action, guarded := auditReadActions[events[i].TargetKind]
 		if guarded && !auth.Allowed(id, action) {
 			events[i].Before = ""
 			events[i].After = ""
+		}
+		if id == nil || !id.Role.AtLeast(store.RoleAdmin) {
+			events[i].IP = ""
 		}
 	}
 	writeJSON(w, http.StatusOK, newPage(events, total, p))

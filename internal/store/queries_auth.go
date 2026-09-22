@@ -273,7 +273,7 @@ func (s *Store) PruneSessions(ctx context.Context, now time.Time) (int64, error)
 // API tokens
 // ---------------------------------------------------------------------------
 
-const tokenCols = `id, name, role, user_id, scopes, token_hash, prefix, revoked,
+const tokenCols = `id, name, role, owner_role, user_id, scopes, token_hash, prefix, revoked,
 	created_at, expires_at, last_used_at`
 
 func scanToken(sc interface{ Scan(...any) error }) (*APIToken, error) {
@@ -281,7 +281,7 @@ func scanToken(sc interface{ Scan(...any) error }) (*APIToken, error) {
 	var revoked int
 	var created int64
 	var expires, used sql.NullInt64
-	err := sc.Scan(&t.ID, &t.Name, &t.Role, &t.UserID, &t.Scopes, &t.TokenHash, &t.Prefix,
+	err := sc.Scan(&t.ID, &t.Name, &t.Role, &t.OwnerRole, &t.UserID, &t.Scopes, &t.TokenHash, &t.Prefix,
 		&revoked, &created, &expires, &used)
 	if err != nil {
 		return nil, err
@@ -298,8 +298,8 @@ func (s *Store) CreateAPIToken(ctx context.Context, t *APIToken) error {
 		t.ID = NewID(PrefixToken)
 	}
 	t.CreatedAt = s.Now()
-	_, err := s.exec(ctx, `INSERT INTO api_tokens (`+tokenCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		t.ID, t.Name, string(t.Role), t.UserID, t.Scopes, t.TokenHash, t.Prefix,
+	_, err := s.exec(ctx, `INSERT INTO api_tokens (`+tokenCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		t.ID, t.Name, string(t.Role), string(t.OwnerRole), t.UserID, t.Scopes, t.TokenHash, t.Prefix,
 		boolInt(t.Revoked), ms(t.CreatedAt), msp(t.ExpiresAt), msp(t.LastUsedAt))
 	return wrapWrite(err)
 }

@@ -94,7 +94,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		role = store.RoleViewer
 	}
 	if !role.Valid() {
-		fields = append(fields, fieldError{"role", fmt.Sprintf("%q is not a role; use viewer, operator or admin", req.Role)})
+		fields = append(fields, fieldError{"role", fmt.Sprintf("%q is not a role; use %s", req.Role, store.RoleList())})
 	}
 	if req.Password != "" {
 		if err := auth.CheckPassword(req.Password); err != nil {
@@ -170,7 +170,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		role := store.Role(strings.ToLower(strings.TrimSpace(*req.Role)))
 		if !role.Valid() {
 			unprocessable(w, "this account could not be changed", []fieldError{
-				{"role", fmt.Sprintf("%q is not a role; use viewer, operator or admin", *req.Role)},
+				{"role", fmt.Sprintf("%q is not a role; use %s", *req.Role, store.RoleList())},
 			})
 			return
 		}
@@ -275,6 +275,26 @@ func newTokenResponse(t *store.APIToken) tokenResponse {
 	}
 }
 
+// tokenVisibleTo says whether this caller may see a token at all.
+//
+// A token minted by a platform account is the platform's -- the metrics
+// scraper reading an instance it operates for another team, the verifier
+// checking its backups -- and on the Tokens page it used to sit beside the
+// fleet's own, revocable by any administrator. A fleet that can switch off the
+// monitoring of a process it does not run is a fleet that can do so by
+// accident.
+//
+// A token from before the column existed has no owner recorded, and stays
+// visible to whoever could see it before. Guessing an owner from the token's
+// role would hide the fleet's own automation from it, because 0045 promoted
+// those tokens to platform for an unrelated reason.
+func tokenVisibleTo(t *store.APIToken, who store.Role) bool {
+	if t.OwnerRole == store.RolePlatform {
+		return who.AtLeast(store.RolePlatform)
+	}
+	return true
+}
+
 // handleListTokens answers GET /api/v1/tokens.
 func (s *Server) handleListTokens(w http.ResponseWriter, r *http.Request) {
 	tokens, err := s.ctrl.Store().ListAPITokens(r.Context())
@@ -282,8 +302,12 @@ func (s *Server) handleListTokens(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "listing API tokens", err)
 		return
 	}
+	who := callerRole(r)
 	out := make([]tokenResponse, 0, len(tokens))
 	for _, t := range tokens {
+		if !tokenVisibleTo(t, who) {
+			continue
+		}
 		out = append(out, newTokenResponse(t))
 	}
 	writeJSON(w, http.StatusOK, newList(out))
@@ -312,7 +336,7 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		role = store.RoleViewer
 	}
 	if !role.Valid() {
-		fields = append(fields, fieldError{"role", fmt.Sprintf("%q is not a role; use viewer, operator or admin", req.Role)})
+		fields = append(fields, fieldError{"role", fmt.Sprintf("%q is not a role; use %s", req.Role, store.RoleList())})
 	}
 	if err := auth.ValidateScopes(req.Scopes); err != nil {
 		fields = append(fields, fieldError{"scopes", err.Error()})
@@ -351,7 +375,7 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	}
 	token, plaintext, err := s.auth.CreateAPIToken(r.Context(), auth.NewToken{
 		Name: strings.TrimSpace(req.Name), Role: role, UserID: id.UserID,
-		Scopes: req.Scopes, ExpiresAt: expiresAt,
+		Scopes: req.Scopes, ExpiresAt: expiresAt, OwnerRole: id.Role,
 	})
 	if err != nil {
 		if errors.Is(err, auth.ErrInvalidInput) {
@@ -380,7 +404,10 @@ func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	idx := slices.IndexFunc(tokens, func(t *store.APIToken) bool { return t.ID == id })
-	if idx < 0 {
+	// A token this caller cannot see answers exactly as one that is not there.
+	// Refusing with a 403 would confirm the platform holds a credential by
+	// this ID, which is the fact being withheld.
+	if idx < 0 || !tokenVisibleTo(tokens[idx], callerRole(r)) {
 		notFound(w, "there is no API token "+id)
 		return
 	}

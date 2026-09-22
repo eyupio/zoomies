@@ -1,0 +1,20 @@
+-- Record which audience minted a token, so the platform's own credentials are
+-- not the fleet's to see or to revoke.
+--
+-- A platform account that runs an instance for another team needs automation
+-- against it -- a metrics scraper, a backup verifier -- and those tokens are
+-- listed on the same Tokens page the fleet's administrators use. Until now
+-- every token was every administrator's to read and to revoke, which on an
+-- operated instance means the fleet can switch off the monitoring of the
+-- process it does not run.
+--
+-- The token's own role cannot answer this. 0045 promoted every administrator's
+-- token to platform to keep what it could already do, so role says what a
+-- token may reach and not who made it. This says who made it.
+--
+-- Existing rows get the empty string rather than a guess, and empty means "a
+-- token from before anyone asked": visible to whoever could see it yesterday.
+-- Backfilling from role would take the fleet's own automation away from it on
+-- the strength of a promotion 0045 did for a different reason -- which is the
+-- exact mistake 0045 exists to repair, made in the other direction.
+ALTER TABLE api_tokens ADD COLUMN owner_role TEXT NOT NULL DEFAULT '';

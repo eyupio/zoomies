@@ -209,6 +209,24 @@ func (r Role) Valid() bool {
 	return false
 }
 
+// Roles is the closed set, lowest first. It exists so that a refusal can name
+// the roles there are rather than the roles somebody remembered: every "use
+// viewer, operator or admin" in this repository was written before the fourth
+// one, and each was a message telling an operator that a role they had just
+// read about in the documentation did not exist.
+func Roles() []Role { return []Role{RoleViewer, RoleOperator, RoleAdmin, RolePlatform} }
+
+// RoleList renders the closed set for a sentence: "viewer, operator, admin or
+// platform".
+func RoleList() string {
+	all := Roles()
+	names := make([]string, len(all))
+	for i, r := range all {
+		names[i] = string(r)
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
+}
+
 // rank orders roles so that AtLeast can compare them.
 func (r Role) rank() int {
 	switch r {
@@ -1569,10 +1587,17 @@ type Session struct {
 // APIToken is a long-lived credential for automation, scoped by role and
 // optionally limited to a set of pools.
 type APIToken struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Role   Role   `json:"role"`
-	UserID string `json:"user_id,omitempty"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Role Role   `json:"role"`
+	// OwnerRole is the role of the identity that minted this token, which is
+	// not the same question as Role: 0045 promoted every administrator's token
+	// to platform to keep what it could already do, so Role says what a token
+	// may reach and this says whose it is. Empty means a token from before the
+	// column existed, which is nobody's secret and stays visible to whoever
+	// could see it before.
+	OwnerRole Role   `json:"owner_role,omitempty"`
+	UserID    string `json:"user_id,omitempty"`
 	// Scopes optionally narrows a token further than its role, e.g.
 	// ["pools:read", "runners:write"].
 	Scopes     StringSlice `json:"scopes"`

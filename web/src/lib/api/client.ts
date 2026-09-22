@@ -10,6 +10,7 @@
  *   403  the message names the role required. Show it verbatim.
  *   422  `errors` names the offending fields so a form can attach them.
  */
+import { supportHint } from '$lib/errors';
 import type { Body, ErrorCode, FieldError, OptionalBody, Query, Result } from './types';
 
 const BASE = '/api/v1';
@@ -208,7 +209,7 @@ function defaultMessage(status: number): string {
     case 429:
       return 'Too many attempts. Wait a moment and try again.';
     default:
-      return `The server returned ${status}. Check the controller logs for the cause.`;
+      return `The server returned ${status}. ${supportHint()}`;
   }
 }
 

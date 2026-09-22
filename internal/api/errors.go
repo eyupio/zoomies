@@ -206,9 +206,24 @@ func (s *Server) internal(w http.ResponseWriter, r *http.Request, doing string, 
 	}
 	writeError(w, http.StatusInternalServerError, errorEnvelope{Error: errorBody{
 		Code:    codeInternal,
-		Message: "something went wrong while " + doing + ". The cause is in the controller's log; quote the request ID when reporting it.",
+		Message: "something went wrong while " + doing + ". " + supportHint(),
 		Detail:  detail,
 	}})
+}
+
+// supportHint is the one sentence every "something went wrong" ends with.
+//
+// It used to say the cause was in the controller's log, which assumes the
+// reader can read that log. On an instance one team operates while another
+// uses the fleet, they cannot: the log belongs to the process, and the person
+// reading this runs pools on it. So it names the request ID and who to give it
+// to, which is true for both -- an operator running their own instance is
+// "whoever operates this instance", and the log is theirs to open.
+//
+// One function rather than nine sentences, because nine sentences is how the
+// ninth came to say something the other eight had stopped saying.
+func supportHint() string {
+	return "Quote the request ID to whoever operates this instance; the cause is in its log."
 }
 
 // fail maps the errors the store and the controller return onto status codes.

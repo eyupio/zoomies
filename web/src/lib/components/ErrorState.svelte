@@ -4,6 +4,7 @@
   paraphrasing it would throw that away.
 -->
 <script lang="ts">
+  import { supportHint } from '$lib/errors';
   import { TriangleAlert, WifiOff } from '@lucide/svelte';
   import { ApiError } from '../api/client';
   import Button from './Button.svelte';
@@ -48,9 +49,7 @@
   const body = $derived(
     description ??
       apiError?.message ??
-      (error instanceof Error
-        ? error.message
-        : 'The cause was not reported. The controller log will have it.'),
+      (error instanceof Error ? error.message : `The cause was not reported. ${supportHint()}`),
   );
 </script>
 
