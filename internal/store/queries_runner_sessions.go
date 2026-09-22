@@ -1,0 +1,99 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"time"
+)
+
+// RunnerSession is one runner's life as the usage ledger keeps it, after the
+// runner row itself may have been pruned. It is written once and never
+// updated; see migration 0047 for why each column is there.
+type RunnerSession struct {
+	RunnerID          string     `json:"runner_id"`
+	PoolID            string     `json:"pool_id"`
+	HostID            string     `json:"host_id"`
+	InstallationID    string     `json:"installation_id"`
+	JobID             string     `json:"job_id,omitempty"`
+	StartedAt         time.Time  `json:"started_at"`
+	RegisteredAt      *time.Time `json:"registered_at,omitempty"`
+	FinishedAt        time.Time  `json:"finished_at"`
+	CleanedUpAt       *time.Time `json:"cleaned_up_at,omitempty"`
+	CostPerRunnerHour *float64   `json:"cost_per_runner_hour,omitempty"`
+	RecordedAt        time.Time  `json:"recorded_at"`
+}
+
+// insertRunnerSessionSQL copies what the ledger needs from a runner row. The
+// caller supplies the WHERE clause's argument (the runner, or the prune
+// cutoff) after recorded_at.
+//
+// ON CONFLICT DO NOTHING is the exactly-once guarantee: a confirmation that
+// is replayed after a restart, or a prune of a runner whose session was
+// already written, finds the row there and leaves it alone. The first write
+// is the one the ledger keeps, because it was taken nearest the event.
+//
+// finished_at falls back to the cleanup stamps and then to recorded_at so a
+// session always has an end: a runner row that never had finished_at set was
+// still gone by the time anyone wrote this.
+const insertRunnerSessionSQL = `INSERT INTO runner_sessions (runner_id, pool_id, host_id, installation_id, job_id,
+	started_at, registered_at, finished_at, cleaned_up_at, cost_per_runner_hour, recorded_at)
+SELECT r.id, r.pool_id, COALESCE(r.host_id, ''), COALESCE(p.installation_id, ''),
+	COALESCE(NULLIF(r.current_job_id, ''),
+		(SELECT j.id FROM jobs j WHERE j.runner_id = r.id ORDER BY j.queued_at DESC LIMIT 1), ''),
+	r.created_at, r.registered_at, COALESCE(r.finished_at, r.host_removed_at, r.cleaned_up_at, ?1), r.cleaned_up_at,
+	p.cost_per_runner_hour, ?1
+FROM runners r LEFT JOIN pools p ON p.id = r.pool_id
+WHERE `
+
+// recordRunnerSession writes the session of one runner inside the caller's
+// transaction, so the session and the stamp that caused it commit together.
+func recordRunnerSession(ctx context.Context, tx *sql.Tx, id string, now int64) error {
+	_, err := tx.ExecContext(ctx, insertRunnerSessionSQL+`r.id = ?2 ON CONFLICT(runner_id) DO NOTHING`, now, id)
+	return err
+}
+
+// RunnerSessions returns the sessions that overlap [from, to), oldest first.
+func (s *Store) RunnerSessions(ctx context.Context, from, to time.Time) ([]*RunnerSession, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT runner_id, pool_id, host_id, installation_id, job_id,
+		started_at, registered_at, finished_at, cleaned_up_at, cost_per_runner_hour, recorded_at
+		FROM runner_sessions WHERE started_at < ? AND finished_at > ? ORDER BY started_at, runner_id`, ms(to), ms(from))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*RunnerSession
+	for rows.Next() {
+		var x RunnerSession
+		var started, finished, recorded int64
+		var registered, cleaned sql.NullInt64
+		var cost sql.NullFloat64
+		if err := rows.Scan(&x.RunnerID, &x.PoolID, &x.HostID, &x.InstallationID, &x.JobID,
+			&started, &registered, &finished, &cleaned, &cost, &recorded); err != nil {
+			return nil, err
+		}
+		x.StartedAt, x.FinishedAt, x.RecordedAt = time.UnixMilli(started), time.UnixMilli(finished), time.UnixMilli(recorded)
+		if registered.Valid {
+			t := time.UnixMilli(registered.Int64)
+			x.RegisteredAt = &t
+		}
+		if cleaned.Valid {
+			t := time.UnixMilli(cleaned.Int64)
+			x.CleanedUpAt = &t
+		}
+		if cost.Valid {
+			c := cost.Float64
+			x.CostPerRunnerHour = &c
+		}
+		out = append(out, &x)
+	}
+	return out, rows.Err()
+}
+
+// PruneRunnerSessions deletes sessions that finished before the cutoff.
+func (s *Store) PruneRunnerSessions(ctx context.Context, before time.Time) (int64, error) {
+	r, err := s.exec(ctx, `DELETE FROM runner_sessions WHERE finished_at < ?`, ms(before))
+	if err != nil {
+		return 0, err
+	}
+	return r.RowsAffected()
+}

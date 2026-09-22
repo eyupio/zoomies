@@ -278,6 +278,7 @@ func (c *Controller) prune(ctx context.Context) {
 			c.publishRunnersDeleted(ids)
 			return int64(len(ids)), err
 		}},
+		{"runner sessions", r.RunnerSessions, c.st.PruneRunnerSessions},
 		{"fleet samples", r.Samples, c.st.PruneSamples},
 		{"host samples", r.Samples, c.st.PruneHostSamples},
 		{"webhook deliveries", r.Webhooks, c.st.PruneDeliveries},
