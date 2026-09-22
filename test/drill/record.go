@@ -3,6 +3,7 @@
 package drill
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -86,7 +87,7 @@ func (r *record) write() {
 		r.t.Errorf("creating the drill record directory: %v", err)
 		return
 	}
-	path := filepath.Join(dir, "drills.md")
+	path := filepath.Join(dir, recordFileName)
 
 	outcome := "passed"
 	if r.t.Failed() {
@@ -114,8 +115,20 @@ func (r *record) write() {
 		expected = "(the drill did not reach its own statement of what it proves)"
 	}
 
+	// The commit comes from the binary that ran, and any doubt about whether
+	// this row is really about that commit is carried in the same column an
+	// operator reads for everything else that was unclear.
+	stamp, caveat := provenance(builtBinary())
+	if caveat != "" {
+		if human == "none" || human == "" {
+			human = caveat
+		} else {
+			human = caveat + "; " + human
+		}
+	}
+
 	row := fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
-		time.Now().UTC().Format(time.RFC3339), commit(), runLink(), r.name, outcome,
+		time.Now().UTC().Format(time.RFC3339), stamp, runLink(), r.name, outcome,
 		expected, strings.Join(r.notes, "; "), recovery, human)
 
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
@@ -157,6 +170,10 @@ default branch against itself.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 `
 
+// recordFileName is the evidence log a drill appends to. Named once because
+// dirtyTree has to exclude the same file this writes to.
+const recordFileName = "drills.md"
+
 func recordDir() string {
 	if d := os.Getenv("ZOOMIES_DRILL_RECORD_DIR"); d != "" {
 		return d
@@ -175,10 +192,82 @@ func runLink() string {
 	return fmt.Sprintf("%s/%s/actions/runs/%s", server, repo, id)
 }
 
-func commit() string {
+// provenance is the commit this row is evidence about, and a caveat when it
+// might not be.
+//
+// It asks the binary rather than git, because the binary is what a drill runs
+// and git is only what the checkout happens to be pointing at. Four rows in
+// this file once said a commit passed a drill that commit reliably fails: the
+// runs had used a build several hours older than the change, and `git
+// rev-parse HEAD` cheerfully stamped the commit whose code was never
+// executed. A row that asserts something untrue is worse than no row, because
+// the whole point of the file is to be the record of what has been proven.
+//
+// Two ways it can still be wrong, and both are said out loud rather than
+// guessed at:
+//
+//   - the binary was built from a different commit than the checkout is on,
+//     which means somebody forgot to rebuild;
+//   - the working tree is dirty, so the binary was built from a commit plus
+//     changes nobody can name later.
+func provenance(bin string) (string, string) {
+	built := builtCommit(bin)
+	head := headCommit()
+	switch {
+	case built == "":
+		return orUnknown(head), "the binary reported no commit, so this row names the checkout's HEAD and may not be about the code that ran"
+	case head != "" && !strings.HasPrefix(head, built) && !strings.HasPrefix(built, head):
+		return built, "the checkout is on " + head + ": the binary was built from a different commit, so rebuild before trusting this row"
+	case dirtyTree():
+		return built, "the working tree was dirty, so the binary is that commit plus changes this row cannot name"
+	}
+	return built, ""
+}
+
+// builtCommit asks the binary what it was built from.
+func builtCommit(bin string) string {
+	out, err := exec.Command(bin, "version", "--json").Output()
+	if err != nil {
+		return ""
+	}
+	var v struct {
+		Commit string `json:"commit"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(v.Commit)
+}
+
+func headCommit() string {
 	out, err := exec.Command("git", "rev-parse", "--short", "HEAD").Output()
 	if err != nil {
-		return "unknown"
+		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// dirtyTree reports whether the checkout has changes to the code under test
+// that no commit names.
+//
+// The record itself is excluded, and has to be: a drill appends its row to it,
+// so the first drill of a run dirties the tree for every drill after it. The
+// first version of this said "the working tree was dirty" on seven rows out of
+// eight, all of them because of the file they were being written to. A caveat
+// that is nearly always there is one people stop reading, which costs more
+// than it was ever going to save.
+func dirtyTree() bool {
+	out, err := exec.Command("git", "status", "--porcelain", "--", ".",
+		":(exclude)*/"+recordFileName).Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) != ""
+}
+
+func orUnknown(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	return s
 }
