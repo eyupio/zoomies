@@ -286,9 +286,15 @@ type Client interface {
 	// CancelWorkflowRun asks GitHub to cancel the entire run containing a job.
 	// Force bypasses conditions that may otherwise keep a run cancelling.
 	CancelWorkflowRun(ctx context.Context, repo string, runID int64, force bool) error
+	// RerunWorkflowJob asks GitHub to run one job again, together with any
+	// job that declares it in `needs`. It is the narrower of the two and the
+	// one to reach for: a job re-run on its own account should not drag the
+	// rest of the run's failures with it.
+	RerunWorkflowJob(ctx context.Context, repo string, jobID int64) error
 	// RerunFailedWorkflowJobs asks GitHub to run a run's failed jobs again.
 	// Like cancellation it is run-level: GitHub reruns the failed jobs of a
 	// run together, so a caller must be clear about what else goes with it.
+	// It is the fallback for a job whose GitHub job ID this fleet never saw.
 	RerunFailedWorkflowJobs(ctx context.Context, repo string, runID int64) error
 	// RateLimit reports remaining quota.
 	RateLimit(ctx context.Context) (*RateLimit, error)

@@ -280,14 +280,26 @@ func (c *Controller) RerunJobWorkflow(ctx context.Context, jobID string) (*store
 	if err != nil {
 		return nil, err
 	}
-	if err := client.RerunFailedWorkflowJobs(ctx, j.Repo, j.GitHubRunID); err != nil {
-		return nil, err
+	// One job where we can, the whole run's failures only where we cannot.
+	// GitHub's job-level re-run takes the job and whatever names it in
+	// `needs`; the run-level one takes every failure in the run, which for
+	// somebody who asked about one job is three other teams' jobs running
+	// again on their account.
+	var message string
+	if j.GitHubJobID > 0 {
+		if err := client.RerunWorkflowJob(ctx, j.Repo, j.GitHubJobID); err != nil {
+			return nil, err
+		}
+		message = fmt.Sprintf("an operator asked GitHub to run job %d again; GitHub runs it together with any job that needs it, and they arrive as a new run attempt", j.GitHubJobID)
+	} else {
+		// A job recorded before this fleet kept GitHub's job ID, or one whose
+		// workflow_job delivery never arrived. The wider call is still better
+		// than refusing the button.
+		if err := client.RerunFailedWorkflowJobs(ctx, j.Repo, j.GitHubRunID); err != nil {
+			return nil, err
+		}
+		message = fmt.Sprintf("an operator asked GitHub to run the failed jobs of workflow run %d again, because this job has no GitHub job ID recorded; GitHub reruns them together, and they arrive as a new run attempt", j.GitHubRunID)
 	}
-	// The blast radius is said out loud, because GitHub has no job-level
-	// re-run and somebody who asked for one job will get every failed job in
-	// the run. Finding that out from the billing page is worse than reading it
-	// here.
-	message := fmt.Sprintf("an operator asked GitHub to run the failed jobs of workflow run %d again; GitHub reruns them together, and they arrive as a new run attempt", j.GitHubRunID)
 	if j.FleetFailed() {
 		message += ". This job's failure was the fleet's rather than the workflow's"
 	}

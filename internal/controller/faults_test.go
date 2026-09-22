@@ -329,7 +329,7 @@ func TestRerunAsksGitHubOnlyForAJobThatFailed(t *testing.T) {
 	if _, err := h.c.RerunJobWorkflow(h.ctx, job.ID); !errors.Is(err, ErrJobNotFinished) {
 		t.Fatalf("re-running a running job = %v, want ErrJobNotFinished", err)
 	}
-	if n := h.gh.Reruns(); n != 0 {
+	if n := h.gh.Reruns() + h.gh.JobReruns(); n != 0 {
 		t.Fatalf("GitHub was asked %d times about a job that had not finished", n)
 	}
 
@@ -340,7 +340,7 @@ func TestRerunAsksGitHubOnlyForAJobThatFailed(t *testing.T) {
 	if _, err := h.c.RerunJobWorkflow(h.ctx, job.ID); !errors.Is(err, ErrJobDidNotFail) {
 		t.Fatalf("re-running a successful job = %v, want ErrJobDidNotFail", err)
 	}
-	if n := h.gh.Reruns(); n != 0 {
+	if n := h.gh.Reruns() + h.gh.JobReruns(); n != 0 {
 		t.Fatalf("GitHub was asked %d times about a job that succeeded", n)
 	}
 
@@ -356,8 +356,13 @@ func TestRerunAsksGitHubOnlyForAJobThatFailed(t *testing.T) {
 	if _, err := h.c.RerunJobWorkflow(h.ctx, theirs.ID); err != nil {
 		t.Fatalf("RerunJobWorkflow on a workflow failure: %v", err)
 	}
-	if n := h.gh.Reruns(); n != 1 {
-		t.Fatalf("GitHub was asked %d times, want once", n)
+	// Job-level, because this job has a GitHub job ID: the operator asked
+	// about one job and gets that job, not every failure sharing its run.
+	if n := h.gh.JobReruns(); n != 1 {
+		t.Fatalf("GitHub was asked for %d job re-runs, want one", n)
+	}
+	if n := h.gh.Reruns(); n != 0 {
+		t.Fatalf("the run-level re-run was used %d times for a job that has its own ID; that re-runs every failure in the run", n)
 	}
 
 	// Nothing local is written beyond the record that somebody asked: the
@@ -375,9 +380,54 @@ func TestRerunAsksGitHubOnlyForAJobThatFailed(t *testing.T) {
 	if last.Kind != store.JobEventRerunRequested {
 		t.Fatalf("last timeline entry = %v, want rerun_requested", kindsOfEvents(events))
 	}
-	// The blast radius is said out loud: GitHub has no job-level rerun, and
-	// somebody who asked for one job gets every failed job in the run.
-	if !strings.Contains(last.Message, "failed jobs") {
+	// The blast radius is still said out loud, it is just smaller now: the
+	// job, and whatever declares it in `needs`. An operator reading the
+	// timeline should not have to go to GitHub to find out what else ran.
+	if !strings.Contains(last.Message, "any job that needs it") {
 		t.Fatalf("the entry does not say what else goes with it: %q", last.Message)
+	}
+}
+
+// A job whose GitHub job ID this fleet never recorded -- an old row, or one
+// whose workflow_job delivery never arrived -- still gets its button. GitHub's
+// job-level re-run needs that ID, so the wider run-level call is the fallback,
+// and the timeline says so rather than leaving an operator to discover from
+// the billing page that three other jobs ran again.
+func TestRerunFallsBackToTheRunWhenAJobHasNoGitHubID(t *testing.T) {
+	h := newHarness(t)
+	_, _, host := h.fleet()
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	_ = host
+
+	// Written straight to the store with no GitHub job ID, which is the state
+	// this path exists for: a row from before the fleet recorded one, or a job
+	// whose workflow_job delivery never arrived.
+	inst, err := h.st.ListInstallations(h.ctx)
+	if err != nil || len(inst) == 0 {
+		t.Fatalf("the harness has no installation to attribute the job to: %v", err)
+	}
+	job, err := h.st.UpsertJob(h.ctx, &store.Job{
+		GitHubJobID: 0, GitHubRunID: 4401, Repo: "acme/widgets", InstallationID: inst[0].ID,
+		JobName: "test", Workflow: "CI", Labels: labels,
+		State: store.JobCompleted, Conclusion: "failure",
+	})
+	if err != nil {
+		t.Fatalf("seeding a job with no GitHub job ID: %v", err)
+	}
+
+	if _, err := h.c.RerunJobWorkflow(h.ctx, job.ID); err != nil {
+		t.Fatalf("RerunJobWorkflow: %v", err)
+	}
+	if n := h.gh.Reruns(); n != 1 {
+		t.Errorf("the run-level re-run was used %d times, want once: it is the only one that works without a job ID", n)
+	}
+	if n := h.gh.JobReruns(); n != 0 {
+		t.Errorf("a job-level re-run was attempted %d times with no job ID to name", n)
+	}
+
+	events := h.timeline(job.ID)
+	last := events[len(events)-1]
+	if !strings.Contains(last.Message, "failed jobs") {
+		t.Errorf("the entry does not say the whole run's failures went with it: %q", last.Message)
 	}
 }
