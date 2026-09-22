@@ -202,7 +202,11 @@ second when a job needs something the first cannot give it:
 * **A different ceiling.** A noisy repository is easier to bound with its own
   pool and its own `max_runners` than with a shared one.
 * **A different priority.** When the fleet is full, higher-priority pools
-  receive create slots first.
+  receive create slots first. Priority orders the work rather than stopping
+  some of it: once a lower-priority pool's oldest queued job has waited a
+  full scheduler interval, it gets one create in each pass before the higher
+  tier takes the rest, and the higher pool's scaling reason says it was
+  deferred for fairness across priorities.
 
 ### Two ways to make one
 
