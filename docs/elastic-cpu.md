@@ -98,10 +98,13 @@ stranded. Each target is floored to the hundredth of a core the daemon works in,
 so rounding can never promise more than the machine has, however many runners
 share it.
 
-The plan is complete on every heartbeat — every runner is named with a target,
-including the ones going back to their guarantee — so an agent that misses a
-heartbeat restores everything it was lent, and a runner whose demand ended is
-never left holding a boost.
+The plan is complete on every heartbeat — every runner the controller leaves out
+goes back to its guarantee — so a runner whose demand ended is never left
+holding a boost. A controller that stops answering sends no plan at all, so the
+agent keeps count: after three heartbeats in a row go unanswered it gives back
+every boost itself, since a few missed beats are a restart and more are a
+controller not coming back soon. A throttle standing at that moment stays, as
+the safe direction to be wrong in, until the controller returns to lift it.
 
 ### Worked example
 
