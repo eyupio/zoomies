@@ -116,7 +116,7 @@ will not fire when the numbers stop arriving altogether.
 | `zoomies_github_api_requests_total` | counter | `installation`, `result` | GitHub API calls by outcome: `ok`, `rate_limited`, `forbidden`, `not_found`, `error`. Where rate-limiting and a broken installation become visible. |
 | `zoomies_provider_operations_total` | counter | `kind`, `outcome` | Provider operations by what was attempted — `create`, `start`, `stop`, `bootstrap`, `delete` — and how it went: `ok`, `ambiguous`, `quota`, `unreachable` or `refused`. `ambiguous` is separated from the failures because it means something different: a create that failed cost nothing, and a create whose answer was lost may already be a machine somebody is paying for. Any sustained rate of it is worth looking at. |
 | `zoomies_image_prewarms_total` | counter | `pool`, `backend`, `outcome` | Background image preparations by outcome: `prepared`, `cache_hit`, `failed`, or `unknown` for a successful older agent. The hit share says whether shared-image coalescing is saving runtime work. |
-| `zoomies_elastic_cpu_decisions_total` | counter | `pool`, `mode`, `outcome` | Elastic CPU plans by pool. `outcome` is `burst`, `base`, or `unsupported_agent`; observe mode records the same decisions without changing quotas. |
+| `zoomies_elastic_cpu_decisions_total` | counter | `pool`, `mode`, `outcome` | Elastic CPU plans by pool. `outcome` is `burst`, `base`, `host_busy` — the host was held, throttled, or too busy on CPU, load or memory to lend anything — or `unsupported_agent`; observe mode records the same decisions without changing quotas. |
 
 Every `pool` label is the pool's **name**, so a query can join these against
 the gauges above on `pool`. Work no pool claims is counted under the literal

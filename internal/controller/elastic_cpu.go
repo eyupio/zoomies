@@ -23,9 +23,9 @@ const (
 // one compatible queued start is protected so a fast job cannot starve the
 // next job out of the machine.
 func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req agent.HeartbeatRequest, now time.Time) []agent.ElasticCPUDirective {
-	if h == nil || !h.Usage.Fresh(now) || h.Usage.CPUPercent == nil || h.Usage.CPUHeld || h.Throttle.Active() || *h.Usage.CPUPercent >= 85 ||
-		h.Usage.LoadAverage1 != nil && h.CPUs > 0 && *h.Usage.LoadAverage1 >= 2*float64(h.CPUs) ||
-		h.Usage.MemoryAvailableMB != nil && *h.Usage.MemoryAvailableMB <= h.MemoryReserve() {
+	// Nothing measured is no decision at all: there is nothing to judge the
+	// host by, so nothing is recorded as if there were.
+	if h == nil || !h.Usage.Fresh(now) || h.Usage.CPUPercent == nil {
 		return nil
 	}
 	alloc := h.Allocatable()
@@ -84,9 +84,25 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		workloads = append(workloads, w)
 	}
 
+	supported := slices.Contains(req.Features, agent.FeatureElasticCPU)
+	if elasticHostBusy(h) {
+		// A host too busy to lend is still a decision, and it is recorded as
+		// one. Observe mode exists so an operator can read how often a boost
+		// would happen before switching one on; a busy heartbeat that left no
+		// trace would count only the calm ones, and overstate the answer.
+		for _, w := range workloads {
+			p := poolByRunner[w.ID]
+			if p == nil || !p.CPUBurst.Observes() || w.BaseCPUs <= 0 || w.MaxCPUs <= w.BaseCPUs {
+				continue
+			}
+			c.metrics.elasticCPUDecisions.WithLabelValues(p.Name, string(p.CPUBurst.Mode), "host_busy").Inc()
+			c.metrics.elasticCPUFactor.WithLabelValues(p.Name, string(p.CPUBurst.Mode)).Observe(1)
+		}
+		return nil
+	}
+
 	reserve := c.elasticStartReserve(ctx, h, poolByID)
 	targets := scheduler.ElasticCPUPlan(alloc.CPUs, reserve, workloads)
-	supported := slices.Contains(req.Features, agent.FeatureElasticCPU)
 	directives := make([]agent.ElasticCPUDirective, 0, len(workloads))
 	for _, w := range workloads {
 		p := poolByRunner[w.ID]
@@ -115,6 +131,14 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		})
 	}
 	return directives
+}
+
+// elasticHostBusy reports whether the host is too busy to lend CPU: it is held
+// or throttled, its CPU or load is high, or its memory is at its reserve.
+func elasticHostBusy(h *store.Host) bool {
+	return h.Usage.CPUHeld || h.Throttle.Active() || *h.Usage.CPUPercent >= 85 ||
+		h.Usage.LoadAverage1 != nil && h.CPUs > 0 && *h.Usage.LoadAverage1 >= 2*float64(h.CPUs) ||
+		h.Usage.MemoryAvailableMB != nil && *h.Usage.MemoryAvailableMB <= h.MemoryReserve()
 }
 
 func elasticCPUDemanding(r *store.Runner, current backend.Stats, base float64, now time.Time) bool {

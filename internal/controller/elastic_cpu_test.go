@@ -111,3 +111,45 @@ func TestCPUResourceStatusSaysWhatTheNumbersMean(t *testing.T) {
 		t.Fatalf("resource status = %+v, want sit_and_stay before the first sample", got)
 	}
 }
+
+// Observe mode is how an operator decides whether to switch a boost on: the
+// ratio of burst to everything else. A heartbeat the host was too busy to lend
+// on is part of that answer, so it has to be counted -- recording only the
+// calm heartbeats reported a boost as available far more often than it was.
+func TestABusyHostRecordsThatItCouldNotLend(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.CPUBurst = store.CPUBurstPolicy{Mode: store.CPUBurstObserve}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	runner := h.runnerRow(pool, host, store.RunnerBusy)
+	runner.AllocatedCPUs = 1.87
+	runner.AllocationSource = store.AllocationFromHost
+	if err := h.st.UpdateRunner(h.ctx, runner); err != nil {
+		t.Fatal(err)
+	}
+	now := h.c.Now()
+	busy := 95.0
+	host.Usage = store.HostUsage{CPUPercent: &busy, SampledAt: now}
+	sampled := now
+
+	h.c.elasticCPUTargets(h.ctx, host, agent.HeartbeatRequest{
+		Runners: []agent.RunnerReport{{RunnerID: runner.ID, Stats: backend.Stats{SampledAt: &sampled, CPUPercent: 187}}},
+	}, now)
+
+	labels := map[string]string{"pool": pool.Name, "mode": string(store.CPUBurstObserve), "outcome": "host_busy"}
+	if got, _ := gatherValue(t, h.c, "zoomies_elastic_cpu_decisions_total", labels); got != 1 {
+		t.Errorf("host_busy decisions = %v, want 1: a heartbeat the host was too busy to lend on must be counted", got)
+	}
+	if n, sum, _ := gatherHistogram(t, h.c, "zoomies_elastic_cpu_target_factor", map[string]string{"pool": pool.Name, "mode": string(store.CPUBurstObserve)}); n != 1 || sum != 1 {
+		t.Errorf("factor histogram = %d samples summing to %v, want one sample of 1.0: the runner got its guarantee", n, sum)
+	}
+
+	// Nothing measured is no decision, and is not recorded as one.
+	host.Usage = store.HostUsage{}
+	h.c.elasticCPUTargets(h.ctx, host, agent.HeartbeatRequest{}, now)
+	if got, _ := gatherValue(t, h.c, "zoomies_elastic_cpu_decisions_total", labels); got != 1 {
+		t.Errorf("host_busy decisions = %v after an unmeasured heartbeat, want still 1", got)
+	}
+}

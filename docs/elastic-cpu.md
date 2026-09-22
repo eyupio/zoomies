@@ -138,7 +138,7 @@ metrics it publishes:
 
 | Metric | What to look for |
 | --- | --- |
-| `zoomies_elastic_cpu_decisions_total{pool, mode, outcome}` | How often the plan found room. `burst` against `base` says whether the host actually has spare CPU while jobs are demanding it; `unsupported_agent` says an agent needs upgrading before `automatic` will do anything on its host. |
+| `zoomies_elastic_cpu_decisions_total{pool, mode, outcome}` | How often the plan found room. Read `burst` against everything else: `base` is a calm host with nothing to spare, and `host_busy` is a host too busy to lend at all — held, throttled, or high on CPU, load or memory. Both are heartbeats a boost would not have helped, so leaving `host_busy` out would overstate how often one would. `unsupported_agent` says an agent needs upgrading before `automatic` will do anything on its host. |
 | `zoomies_elastic_cpu_target_factor{pool, mode}` | A histogram of the target divided by the guarantee. A p50 around 1.0 means the host is usually full; a p50 at 2.0 means half of it is routinely idle while a job waits on its quota. |
 
 A pool whose factor histogram never leaves 1.0 gains nothing from `automatic`
