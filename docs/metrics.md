@@ -134,6 +134,8 @@ backends and watch `failed` rise before reducing refresh intervals.
 | --- | --- | --- |
 | `zoomies_job_queue_wait_seconds` | histogram | Queued to picked up. The number that answers "is the fleet big enough?". |
 | `zoomies_job_duration_seconds` | histogram | How long jobs ran once started. Capacity planning. |
+| `zoomies_store_write_wait_seconds` | histogram | How long a database write waited for the single writer before it could start. Zoomies has one writer by design, and every heartbeat, webhook, scheduling pass and API write queues for it, so this is where a busy instance slows down first. A p99 climbing into whole seconds means too much is writing at once; past ten, SQLite gives up on the write and GitHub has given up on the webhook it came from. |
+| `zoomies_store_write_held_seconds` | histogram | How long each write then held the writer, with every other write waiting behind it. Read beside the wait: a long wait with short holds is a queue, and a long hold is one slow write. A backup holds the writer for its whole copy, so its interval shows here as a spike. |
 | `zoomies_reconcile_duration_seconds` | histogram | One reconcile pass, including its GitHub calls. A rising p99 means the control loop is being held up by GitHub rather than by itself. |
 | `zoomies_provider_operation_seconds` | histogram | One request to a provider, labelled `kind`. It measures the request, not the clone the request starts: a create that takes four minutes at the hypervisor appears here as the second it took to accept the job. |
 | `zoomies_elastic_cpu_target_factor` | histogram | Planned CPU target divided by the runner's guaranteed CPU, labelled by `pool` and policy `mode`. A value of 2 means the planner found room to double the quota. |

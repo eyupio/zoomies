@@ -409,3 +409,24 @@ func TestRunnerStartupTimingsAreReadOffTheRowTheStoreReturned(t *testing.T) {
 		t.Errorf("registered-to-ready has %d series, want 1", n)
 	}
 }
+
+// A controller's writes reach its histograms. The store measures, but it is
+// the controller that owns the registry, and a histogram registered and never
+// observed would scrape as a writer that is never used -- the one reading
+// that says everything is fine.
+func TestTheWritersQueueIsOnTheScrape(t *testing.T) {
+	h := newHarness(t)
+	beforeWait, _, _ := gatherHistogram(t, h.c, "zoomies_store_write_wait_seconds", nil)
+	beforeHeld, _, _ := gatherHistogram(t, h.c, "zoomies_store_write_held_seconds", nil)
+
+	h.fleet() // installs, pools and a host: writes, all through the one writer
+
+	wait, _, ok := gatherHistogram(t, h.c, "zoomies_store_write_wait_seconds", nil)
+	if !ok || wait <= beforeWait {
+		t.Errorf("zoomies_store_write_wait_seconds counted %d writes after the fleet was seeded, and %d before; the writer's queue never reached the scrape", wait, beforeWait)
+	}
+	held, _, ok := gatherHistogram(t, h.c, "zoomies_store_write_held_seconds", nil)
+	if !ok || held <= beforeHeld {
+		t.Errorf("zoomies_store_write_held_seconds counted %d writes after the fleet was seeded, and %d before; every write has a hold as well as a wait", held, beforeHeld)
+	}
+}

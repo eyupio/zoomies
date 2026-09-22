@@ -83,8 +83,7 @@ func (s *Store) Backup(ctx context.Context, dest string) error {
 		return fmt.Errorf("store: creating %s: %w", filepath.Dir(abs), err)
 	}
 
-	s.wmu.Lock()
-	defer s.wmu.Unlock()
+	defer s.lockWriter()()
 	if _, err := s.write.ExecContext(ctx, `VACUUM INTO '`+abs+`'`); err != nil {
 		return fmt.Errorf("store: copying the database to %s: %w", abs, err)
 	}

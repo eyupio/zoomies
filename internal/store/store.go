@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go driver: no cgo, so the binary stays static
@@ -90,8 +91,11 @@ type Store struct {
 	read  *sql.DB
 	write *sql.DB
 	wmu   sync.Mutex
-	path  string
-	now   func() time.Time
+	// writes, when set, is told how long each write waited for wmu and how
+	// long it then held it; see ObserveWrites.
+	writes atomic.Pointer[WriteObserver]
+	path   string
+	now    func() time.Time
 	// readOnly refuses writes here rather than letting SQLite refuse them,
 	// because "attempt to write a readonly database" names the file and not
 	// the decision that made it read-only.
@@ -402,8 +406,7 @@ func (s *Store) backupIfMigrationsPending(ctx context.Context) error {
 }
 
 func (s *Store) migrate(ctx context.Context) error {
-	s.wmu.Lock()
-	defer s.wmu.Unlock()
+	defer s.lockWriter()()
 
 	if _, err := s.write.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		name       TEXT PRIMARY KEY,
@@ -519,12 +522,49 @@ func (s *Store) AppliedMigrations(ctx context.Context) ([]AppliedMigration, erro
 	return out, rows.Err()
 }
 
+// WriteObserver is told, for every write, how long it waited for the single
+// writer and how long it then held it.
+type WriteObserver func(waited, held time.Duration)
+
+// ObserveWrites reports every write's wait and hold to fn.
+//
+// One writer is the design: it is what keeps "database is locked" out of the
+// codebase. It is also the one place every heartbeat, webhook, scheduling pass
+// and API call queues, so it is where a busy instance slows down first -- and
+// until this, nothing said how long the queue was. A heartbeat that took four
+// seconds and a webhook GitHub gave up on after ten looked like a slow host
+// and a lost delivery, not like writes waiting their turn.
+//
+// fn runs after the writer is released, so an observer that is slow to record
+// cannot lengthen the hold it is measuring.
+func (s *Store) ObserveWrites(fn WriteObserver) {
+	if fn == nil {
+		s.writes.Store(nil)
+		return
+	}
+	s.writes.Store(&fn)
+}
+
+// lockWriter takes the single writer and returns what releases it, timing
+// both halves for ObserveWrites. Every write goes through here, so a lock
+// taken anywhere else is a write the measurement cannot see.
+func (s *Store) lockWriter() (release func()) {
+	asked := time.Now()
+	s.wmu.Lock()
+	got := time.Now()
+	return func() {
+		s.wmu.Unlock()
+		if fn := s.writes.Load(); fn != nil {
+			(*fn)(got.Sub(asked), time.Since(got))
+		}
+	}
+}
+
 func (s *Store) exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if s.readOnly {
 		return nil, ErrReadOnly
 	}
-	s.wmu.Lock()
-	defer s.wmu.Unlock()
+	defer s.lockWriter()()
 	return s.write.ExecContext(ctx, query, args...)
 }
 
@@ -533,8 +573,7 @@ func (s *Store) tx(ctx context.Context, fn func(*sql.Tx) error) error {
 	if s.readOnly {
 		return ErrReadOnly
 	}
-	s.wmu.Lock()
-	defer s.wmu.Unlock()
+	defer s.lockWriter()()
 	t, err := s.write.BeginTx(ctx, nil)
 	if err != nil {
 		return err

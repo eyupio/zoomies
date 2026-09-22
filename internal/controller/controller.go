@@ -398,6 +398,10 @@ func New(opts Options) (*Controller, error) {
 		c.providers = empty
 	}
 	c.metrics = newMetrics(c)
+	c.st.ObserveWrites(func(waited, held time.Duration) {
+		c.metrics.storeWriteWait.Observe(waited.Seconds())
+		c.metrics.storeWriteHeld.Observe(held.Seconds())
+	})
 	c.clients = newClientCache(c)
 	c.queues = newTaskQueues()
 	c.relay = newLogRelay(c)
