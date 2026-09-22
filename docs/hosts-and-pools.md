@@ -655,6 +655,16 @@ box with sixty-four containers to mind, is what those three need to keep
 answering while every runner is flat out. An operator's own `reserve_cpus` is
 whole cores and replaces the floor where it is larger.
 
+The host the controller runs on — the one whose agent is embedded — holds back
+**one more core and one more gigabyte** on top of both floors. The floors are
+sized for dockerd, containerd and the agent; on that host the controller is on
+the machine too, with the scheduler, the database every heartbeat and webhook
+writes through, the API and the event stream, and it answers in the same gaps.
+Without its own room, a busy fleet starves the process that schedules it at
+exactly the moment it is busiest. The allowance is added to the floor rather
+than folded into it, so a small machine keeps its daemon's share too, and an
+operator's own reserve still replaces the total where it is larger.
+
 The memory reserve is the one that is more than a charge: it is also the line
 pressure is judged against. A host whose available memory falls **to its
 reserve** takes no new runners and starts climbing the throttle ladder, and it
