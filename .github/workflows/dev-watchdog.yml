@@ -57,7 +57,12 @@ name: Dev Channel Watchdog
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    # Off the hour and the half-hour on purpose. GitHub runs scheduled
+    # workflows on a best-effort basis and says the start of every hour is when
+    # its load is highest, when a run may be delayed or dropped; the first tick
+    # of this workflow, due at 18:00, never ran. A watchdog whose ticks are
+    # dropped at the moment everybody else's are is not watching.
+    - cron: "17,47 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:

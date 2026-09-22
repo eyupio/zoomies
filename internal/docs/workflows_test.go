@@ -600,4 +600,16 @@ func TestTheDevWatchdogRecoversMainWithoutTheFleet(t *testing.T) {
 	if !strings.Contains(body, "\npermissions: {}\n") {
 		t.Error("the watchdog grants permissions at the top; its one job asks for actions: write itself")
 	}
+	// GitHub delays or drops scheduled runs when it is busiest, and it names
+	// the top of the hour as that moment. The first tick, due at 18:00, never
+	// ran.
+	cron := regexp.MustCompile(`cron: "([^ "]+) `).FindStringSubmatch(body)
+	if cron == nil {
+		t.Fatal("the watchdog has no schedule")
+	}
+	for _, minute := range strings.Split(cron[1], ",") {
+		if minute == "0" || minute == "30" || strings.HasPrefix(minute, "*") {
+			t.Errorf("the watchdog's schedule fires at minute %q; GitHub delays or drops scheduled runs at the top of the hour, so pick minutes clear of :00 and :30", minute)
+		}
+	}
 }
