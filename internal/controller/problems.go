@@ -109,6 +109,7 @@ var problemAudience = map[string]Audience{
 	// be running, the key it seals with, the backups it takes and the receiver
 	// it posts capacity demand to. None of it is about the fleet's runners.
 	"backup.failed":                           AudiencePlatform,
+	"bootstrap.ignored":                       AudiencePlatform,
 	"backup.remote_failed":                    AudiencePlatform,
 	"backup.remote_insecure":                  AudiencePlatform,
 	"backup.remote_plaintext":                 AudiencePlatform,
@@ -318,6 +319,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("host versions", c.hostSkewProblems)
 	gather("host resources", c.hostResourceProblems)
 	out = append(out, c.fenceProblems()...)
+	out = append(out, c.bootstrapProblems()...)
 	gather("webhook deliveries", c.webhookProblems)
 	gather("jobs", c.jobProblems)
 	out = append(out, c.PoolCapacityProblems()...)
