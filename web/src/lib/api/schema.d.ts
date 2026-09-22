@@ -2559,9 +2559,10 @@ export interface components {
         ErrorEnvelope: {
             error: {
                 /** @enum {string} */
-                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "internal";
+                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "limit_reached" | "internal";
                 /** @description Written for a person to read */
                 message: string;
+                /** @description The form field at fault, or on a `limit_reached` refusal the `limits.*` setting that refused. */
                 field?: string;
                 detail?: string;
             };
@@ -5244,6 +5245,15 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description One of the `limits.*` ceilings has been reached. The code is `limit_reached`, and the message and `field` name the setting. Nothing resent will succeed until a resource is removed or the setting is raised. */
+        LimitReached: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
         /** @description The request was understood but is not valid. `errors` names the fields. */
         Unprocessable: {
             headers: {
@@ -5712,6 +5722,7 @@ export interface operations {
                     "text/event-stream": string;
                 };
             };
+            409: components["responses"]["LimitReached"];
         };
     };
     listInstallations: {
@@ -6147,7 +6158,15 @@ export interface operations {
                     "application/json": components["schemas"]["Pool"];
                 };
             };
-            409: components["responses"]["Conflict"];
+            /** @description The request conflicts with the current state, or `limits.pools` has been reached -- the code is then `limit_reached` and `field` names the setting. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -7480,6 +7499,8 @@ export interface operations {
                     };
                 };
             };
+            409: components["responses"]["LimitReached"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     getJoinToken: {
@@ -9108,6 +9129,7 @@ export interface operations {
                     "application/json": components["schemas"]["AgentJoinResponse"];
                 };
             };
+            409: components["responses"]["LimitReached"];
             422: components["responses"]["Unprocessable"];
         };
     };

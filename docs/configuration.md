@@ -286,6 +286,13 @@ retention:
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
   machines: 168h                # ZOOMIES_RETENTION_MACHINES  (7 days of deleted-machine rows -- what was rented, when, and what it cost)
 
+limits:                         # fleet-wide ceilings; 0 is unlimited, and every one is 0 by default
+  hosts: 0                      # ZOOMIES_LIMITS_HOSTS             -- enrolled hosts
+  pools: 0                      # ZOOMIES_LIMITS_POOLS             -- pools
+  runners: 0                    # ZOOMIES_LIMITS_RUNNERS           -- live runners across every pool
+  join_tokens: 0                # ZOOMIES_LIMITS_JOIN_TOKENS       -- join tokens neither used nor expired
+  event_subscribers: 0          # ZOOMIES_LIMITS_EVENT_SUBSCRIBERS -- open live-update streams (one per UI tab)
+
 backup:
   directory: ""                 # ZOOMIES_BACKUP_DIRECTORY  -- empty: a `backups` directory beside the database
   interval: 24h                 # ZOOMIES_BACKUP_INTERVAL   -- 0 switches scheduled backups off
@@ -471,6 +478,27 @@ if you set `keep: 0` and never expect the page to say what is there.
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
 | `images.refresh_interval` | `ZOOMIES_IMAGE_REFRESH_INTERVAL` | at once | Image refresh interval — How often every pool's image is prewarmed again, so a moving tag reaches the hosts. 0 switches it off, which is what an air-gapped fleet wants. |
+
+### `limits`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `limits.event_subscribers` | `ZOOMIES_LIMITS_EVENT_SUBSCRIBERS` | at once | Most live-update streams — The most live-update streams open at once. Every open tab of the UI holds one, so leave room for every operator's browser. 0 is unlimited. |
+| `limits.hosts` | `ZOOMIES_LIMITS_HOSTS` | at once | Most hosts — The most hosts that may be enrolled at once; a join beyond it is refused. 0 is unlimited. A host joining again under its own name is not counted twice. |
+| `limits.join_tokens` | `ZOOMIES_LIMITS_JOIN_TOKENS` | at once | Most outstanding join tokens — The most join tokens that may be outstanding at once, counting those neither used nor expired; minting one beyond it is refused. 0 is unlimited. |
+| `limits.pools` | `ZOOMIES_LIMITS_POOLS` | at once | Most pools — The most pools this instance holds; creating one beyond it is refused. 0 is unlimited. |
+| `limits.runners` | `ZOOMIES_LIMITS_RUNNERS` | at once | Most runners — The most live runners across every pool. At the ceiling the scheduler creates no more, and each pool it held back says so in its scaling reason. 0 is unlimited. |
+
+Every limit is platform-scoped: it is how much of the controller's machine a
+fleet may spend, so on an instance several teams use, the account that runs the
+process sets it and the fleet's administrators do not. A request that would
+cross one is refused with a `409` whose code is `limit_reached` and whose
+message and `field` name the setting. The runner ceiling has no request to
+refuse — runners are the scheduler's to create — so the scheduler stops at it
+and each pool it held back says `limits.runners` in its scaling reason.
+
+A ceiling on a controller only its own machine can reach protects nothing, and
+the validator says so with `limits.loopback`.
 
 ### `log`
 

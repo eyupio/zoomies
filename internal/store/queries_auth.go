@@ -105,6 +105,17 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// CountOutstandingJoinTokens counts join tokens that could still enrol a host:
+// unused and unexpired. It is what limits.join_tokens is measured against,
+// because a spent or lapsed token holds nothing an attacker could use and the
+// row count would refuse an operator for history.
+func (s *Store) CountOutstandingJoinTokens(ctx context.Context) (int, error) {
+	var n int
+	err := s.read.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM join_tokens WHERE used_at IS NULL AND expires_at >= ?`, ms(s.Now())).Scan(&n)
+	return n, err
+}
+
 // CountAdmins returns how many enabled admins exist, so the API can refuse to
 // delete or demote the last one.
 func (s *Store) CountAdmins(ctx context.Context) (int, error) {
