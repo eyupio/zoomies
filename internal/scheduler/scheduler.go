@@ -981,7 +981,15 @@ type hostSet struct {
 	// nothing.
 	left  map[string]Reservation
 	alloc map[string]store.HostAllocation
-	now   time.Time
+	// promisedMemory is the memory still unpromised on each host by
+	// reservation alone, before measured headroom is taken into account, and
+	// ours says whether the host is running or starting any runner of ours.
+	// Together they let an idle host take a share the host itself chose
+	// without its operating system's own use counting against it; see
+	// memoryLeft.
+	promisedMemory map[string]int64
+	ours           map[string]bool
+	now            time.Time
 }
 
 // newHostSet seeds each host with its allocatable resources less what the
@@ -998,13 +1006,15 @@ type hostSet struct {
 // have written nothing yet.
 func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*store.Runner, now time.Time) *hostSet {
 	hs := &hostSet{
-		hosts:       sortedHosts(hosts),
-		free:        make(map[string]int, len(hosts)),
-		observedCPU: make(map[string]float64, len(hosts)),
-		warming:     make(map[string]int, len(hosts)),
-		left:        make(map[string]Reservation, len(hosts)),
-		alloc:       make(map[string]store.HostAllocation, len(hosts)),
-		now:         now,
+		hosts:          sortedHosts(hosts),
+		free:           make(map[string]int, len(hosts)),
+		observedCPU:    make(map[string]float64, len(hosts)),
+		warming:        make(map[string]int, len(hosts)),
+		left:           make(map[string]Reservation, len(hosts)),
+		alloc:          make(map[string]store.HostAllocation, len(hosts)),
+		promisedMemory: make(map[string]int64, len(hosts)),
+		ours:           make(map[string]bool, len(hosts)),
+		now:            now,
 	}
 	for _, h := range hs.hosts {
 		hs.free[h.ID] = h.Free()
@@ -1020,6 +1030,8 @@ func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*
 		l := hs.left[h.ID]
 		l.CPUs -= res.CPUs
 		l.MemoryMB -= res.MemoryMB
+		hs.promisedMemory[h.ID] = l.MemoryMB
+		hs.ours[h.ID] = hostRunsOurs(h, runners)
 		if h.Usage.Fresh(now) {
 			pending := hs.pending(h, pools, runners)
 			if v := h.Usage.MemoryAvailableMB; v != nil {
@@ -1079,6 +1091,8 @@ func (hs *hostSet) placeAvoiding(p *store.Pool, n int, avoid map[string]bool) []
 		l.MemoryMB -= res.MemoryMB
 		l.DiskMB -= res.DiskMB
 		hs.left[h.ID] = l
+		hs.promisedMemory[h.ID] -= res.MemoryMB
+		hs.ours[h.ID] = true
 		if cpu, ok := hs.observedCPU[h.ID]; ok {
 			hs.observedCPU[h.ID] = max(cpu-res.CPUs, 0)
 		}
@@ -1128,7 +1142,56 @@ func (hs *hostSet) eligible(h *store.Host, p *store.Pool) bool {
 // hasRoom reports whether what is still unpromised on the host covers one more
 // runner of this pool.
 func (hs *hostSet) hasRoom(h *store.Host, p *store.Pool) bool {
-	return fits(hs.left[h.ID], Reserve(p, h), hs.alloc[h.ID])
+	return fits(hs.leftFor(h, p), Reserve(p, h), hs.alloc[h.ID])
+}
+
+// leftFor is the room on h as a runner of p sees it: left, with memory
+// answered by memoryLeft.
+func (hs *hostSet) leftFor(h *store.Host, p *store.Pool) Reservation {
+	l := hs.left[h.ID]
+	l.MemoryMB = hs.memoryLeft(h, p)
+	return l
+}
+
+// memoryLeft is how much memory h can still give a runner of p.
+//
+// Usually the tighter of what is unpromised and what was measured free. The
+// measurement is what catches work the reservations cannot see -- the runners
+// already on the host using what they were promised, or something outside
+// Zoomies using the machine -- and a runner must not be handed memory that is
+// not there.
+//
+// The exception is an idle host and a pool that leaves its size to the host.
+// Then the runner's share is carved out of allocatable, which is the machine
+// less the reserve set aside for its own operating system -- and measured free
+// memory is the machine less what that operating system actually uses. On a
+// host whose system uses more than the reserve guessed, the second is always
+// the smaller, so a share of the whole machine never fits it: a host of one
+// slot refused its only slot at every pass, idle, with most of its memory
+// free, and reported itself short of memory for it. Nothing of ours is there
+// to protect, so the measurement has nothing to say that the pressure hold
+// does not already say -- that stops every start once free memory falls to the
+// reserve -- and reservation alone decides.
+//
+// A stated size keeps the measured check even on an idle host. An operator
+// who wrote 8 GB meant the job needs it, and 6 GB free is not 8.
+func (hs *hostSet) memoryLeft(h *store.Host, p *store.Pool) int64 {
+	if p.Resources.MemoryMB <= 0 && !hs.ours[h.ID] {
+		return hs.promisedMemory[h.ID]
+	}
+	return hs.left[h.ID].MemoryMB
+}
+
+// hostRunsOurs reports whether any live runner of ours is on h, in any pool.
+func hostRunsOurs(h *store.Host, runners map[string][]*store.Runner) bool {
+	for _, rs := range runners {
+		for _, r := range rs {
+			if r != nil && r.HostID == h.ID && r.State.Live() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // HostCanRun is the placement rule, in one place: a host may take a runner for
@@ -1294,7 +1357,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			// It has a slot and is the right kind of machine, so what is left
 			// on it is what ran out. Naming which resource is the difference
 			// between adding memory and adding a host.
-			left, alloc, want := hs.left[h.ID], hs.alloc[h.ID], Reserve(p, h)
+			left, alloc, want := hs.leftFor(h, p), hs.alloc[h.ID], Reserve(p, h)
 			switch {
 			case alloc.DiskKnown && (alloc.DiskMB <= 0 || left.DiskMB < want.DiskMB):
 				lowDisk++
