@@ -19,6 +19,7 @@
   Secrets are absent rather than starred out: the API does not send them at all.
 -->
 <script lang="ts">
+  import { supportHint } from '$lib/errors';
   import { FileDown, FileUp, Lock, RotateCcw, Search, TriangleAlert } from '@lucide/svelte';
   import { getSettings, settingsExportUrl, updateSettings, ApiError } from '$lib/api/client';
   import { registerSearch } from '$lib/keys';
@@ -295,14 +296,14 @@
         const general = Object.values(errors).filter(Boolean);
         return general.length > 0 ? `${cause.message}: ${general.join(' ')}` : cause.message;
       }
-      return 'That change could not be made. The controller log will say why.';
+      return `That change could not be made. ${supportHint()}`;
     }
   }
 </script>
 
 <PageHeader
   title="Configuration"
-  subtitle="What this controller runs with, and where each value came from. A change made here is kept in the database and survives a restart; the environment always has the last word."
+  subtitle="What Zoomies runs with, and where each value came from. A change made here is kept in the database and survives a restart; the environment always has the last word."
   onrefresh={() => {
     reload += 1;
   }}
@@ -340,9 +341,9 @@
               : `${pending.length} settings are waiting for a restart`}
           </h3>
           <p>
-            Stored, and in force the next time this controller starts. It cannot apply them to
-            itself — rebinding a listener or rebuilding the container backends under running jobs is
-            how a reload becomes an outage.
+            Stored, and in force the next time Zoomies starts. It cannot apply them to itself —
+            rebinding a listener or rebuilding the container backends under running jobs is how a
+            reload becomes an outage.
           </p>
           <ul class="keys">
             {#each pending as key (key)}
@@ -472,9 +473,8 @@
                 {held.length === 1 ? 'This setting is' : 'These settings are'} set by a
                 <code>ZOOMIES_*</code> variable, and the environment is the last word — it overrides
                 both the database and the configuration file. To change
-                {held.length === 1 ? 'it' : 'them'}, amend the environment file this controller
-                starts with and restart it. Removing a variable hands that setting back to this
-                page.
+                {held.length === 1 ? 'it' : 'them'}, amend the environment file Zoomies starts with
+                and restart it. Removing a variable hands that setting back to this page.
               </p>
               <ul class="held-rows">
                 {#each held as setting (setting.key)}

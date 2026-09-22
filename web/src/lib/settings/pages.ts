@@ -117,7 +117,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
       {
         id: 'about',
         label: 'About',
-        description: 'This controller, and where to read more.',
+        description: 'Zoomies, and where to read more.',
         icon: Info,
         needs: 'viewer',
       },

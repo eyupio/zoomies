@@ -52,7 +52,7 @@
     },
     {
       label: 'This instance’s OpenAPI document',
-      description: 'The specification, served by this controller.',
+      description: 'The specification, served by Zoomies.',
       href: '/api/openapi.yaml',
     },
   ];
@@ -96,7 +96,7 @@
 
 <PageHeader
   title="About"
-  subtitle="This controller, and where to read more."
+  subtitle="Zoomies, and where to read more."
   onrefresh={canAdmin
     ? () => {
         reload += 1;

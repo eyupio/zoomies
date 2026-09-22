@@ -8,6 +8,7 @@
   "we have spent our hourly quota" look identical from the Overview.
 -->
 <script lang="ts">
+  import { supportHint } from '$lib/errors';
   import MetricGrid from '$lib/components/MetricGrid.svelte';
 
   import { Plug, Plus } from '@lucide/svelte';
@@ -122,7 +123,7 @@
   // bar so a reload does not try to use the code twice.
   //
   // The state matters as much as the code: it is what ties the exchange back to
-  // the manifest this controller built, and the tab GitHub returns to is a
+  // the manifest Zoomies built, and the tab GitHub returns to is a
   // fresh one that knows nothing else about the handshake.
   const returnedCode = $derived(router.param('code'));
   const returnedState = $derived(router.param('state'));
@@ -156,9 +157,7 @@
       health = await verifyInstallation(installation.id);
     } catch (cause) {
       verifyError =
-        cause instanceof Error
-          ? cause.message
-          : 'The check could not be made. The controller log will say why.';
+        cause instanceof Error ? cause.message : `The check could not be made. ${supportHint()}`;
     } finally {
       verifying = null;
       reload += 1;

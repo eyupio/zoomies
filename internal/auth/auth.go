@@ -839,7 +839,7 @@ func (s *Service) createUser(ctx context.Context, in NewUser) (*store.User, erro
 		in.Role = store.RoleViewer
 	}
 	if !in.Role.Valid() {
-		return nil, Invalid("%q is not a role; use viewer, operator or admin", in.Role)
+		return nil, Invalid("%q is not a role; use %s", in.Role, store.RoleList())
 	}
 	var hash string
 	if in.Password != "" {
@@ -881,7 +881,7 @@ func (s *Service) UpdateUser(ctx context.Context, u *store.User) error {
 		return err
 	}
 	if !u.Role.Valid() {
-		return Invalid("%q is not a role; use viewer, operator or admin", u.Role)
+		return Invalid("%q is not a role; use %s", u.Role, store.RoleList())
 	}
 	if err := s.ensureAdminRemains(ctx, existing, u.Role, u.Disabled); err != nil {
 		return err
@@ -1050,6 +1050,11 @@ type NewToken struct {
 	// ExpiresAt is when the token stops working. Nil never expires, which the
 	// UI warns about but does not forbid.
 	ExpiresAt *time.Time
+	// OwnerRole is the role of whoever is minting this token, recorded so a
+	// platform account's own automation is not listed to, or revocable by,
+	// the fleet whose instance it operates. Empty on a path with no caller --
+	// the CLI on the host, a test -- which reads as "nobody's secret".
+	OwnerRole store.Role
 }
 
 // CreateAPIToken mints an API token and returns the plaintext exactly once: the
@@ -1068,7 +1073,7 @@ func (s *Service) CreateAPIToken(ctx context.Context, in NewToken) (*store.APITo
 		in.Role = store.RoleViewer
 	}
 	if !in.Role.Valid() {
-		return nil, "", Invalid("%q is not a role; use viewer, operator or admin", in.Role)
+		return nil, "", Invalid("%q is not a role; use %s", in.Role, store.RoleList())
 	}
 	if err := ValidateScopes(in.Scopes); err != nil {
 		return nil, "", Invalid("%v", err)
@@ -1085,6 +1090,7 @@ func (s *Service) CreateAPIToken(ctx context.Context, in NewToken) (*store.APITo
 		ID:        id,
 		Name:      name,
 		Role:      in.Role,
+		OwnerRole: in.OwnerRole,
 		UserID:    in.UserID,
 		Scopes:    store.StringSlice(normalizeScopes(in.Scopes)),
 		TokenHash: cryptox.HashToken(plaintext),

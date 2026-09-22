@@ -50,3 +50,22 @@ export function authFailureText(error: unknown): string {
   }
   return sentence(error.message);
 }
+
+/**
+ * The one sentence every "we could not tell you why" ends with.
+ *
+ * It used to say the controller log would have the cause, which assumes the
+ * reader can read that log. On an instance one team operates while another
+ * uses the fleet they cannot: the log belongs to the process, and the person
+ * reading this runs pools on it. Naming the request ID and who to hand it to
+ * is true for both — someone running their own instance is "whoever operates
+ * this instance", and its log is theirs to open.
+ *
+ * One function rather than nine sentences, because nine sentences is how the
+ * ninth came to say something the other eight had stopped saying.
+ */
+export function supportHint(requestId?: string): string {
+  return requestId
+    ? `Quote ${requestId} to whoever operates this instance; the cause is in its log.`
+    : 'Quote the request ID to whoever operates this instance; the cause is in its log.';
+}

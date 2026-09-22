@@ -362,7 +362,7 @@
                   <dd>
                     {p.connection === 'tailcat'
                       ? 'Private, through a zoomies gateway beside the provider. Its address is sealed and never shown.'
-                      : 'Direct. This controller dials the address over the network.'}
+                      : 'Direct. Zoomies dials the address over the network.'}
                   </dd>
                 </div>
                 <div>

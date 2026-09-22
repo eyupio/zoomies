@@ -11,11 +11,11 @@ import type { StatusTone } from '$lib/status';
 
 /** A section heading, and one line about what the section is for. */
 export const SECTION_BLURB: Record<string, string> = {
-  server: 'How this controller listens, and the URL GitHub and the agents use to reach it.',
+  server: 'How Zoomies listens, and the URL GitHub and the agents use to reach it.',
   database: 'Where the SQLite file lives. It holds everything below.',
   security: 'Sessions, encryption and whether authentication is on at all.',
   github: 'How Zoomies talks to GitHub, and what it falls back to when webhooks do not arrive.',
-  agent: 'The agent built into this controller. A standalone agent is configured on its own host.',
+  agent: 'The agent built into Zoomies. A standalone agent is configured on its own host.',
   runners:
     "What every runner this fleet creates is started with. A pool's own env is layered over it.",
   scheduler:
@@ -27,7 +27,7 @@ export const SECTION_BLURB: Record<string, string> = {
   backup:
     'Copies of this database the controller takes of its own accord. The Backups page is where they are configured, listed, restored and downloaded.',
   images: 'Keeping the images your pools run up to date.',
-  updates: 'Whether this controller asks github.com which release is current.',
+  updates: 'Whether Zoomies asks github.com which release is current.',
   capacity_demand: 'Publishing a signed request for more hosts to an external provisioner.',
   provider: 'Renting machines from a hypervisor, and when to give them back.',
   ui: 'What the web UI opens with. An operator can pick differently on the page itself, and that browser remembers the pick; these are what somebody who has never chosen sees.',

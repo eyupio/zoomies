@@ -328,7 +328,7 @@ const HOST_NEWS: Record<HostChange, { title: string; tone: StatusTone }> = {
   calm: { title: 'A host’s throttle lifted', tone: 'idle' },
   holding: { title: 'A host is holding new runners', tone: 'pending' },
   admitting: { title: 'A host is taking runners again', tone: 'idle' },
-  incompatible: { title: 'A host’s agent is too old for this controller', tone: 'danger' },
+  incompatible: { title: 'A host’s agent is too old for Zoomies', tone: 'danger' },
 };
 
 export function hostEntry(host: Host, change: HostChange, at: string): FeedEntry | null {
@@ -489,7 +489,7 @@ export function installationEntry(
 }
 
 /**
- * A delivery this controller would not take. An accepted one is the system
+ * A delivery Zoomies would not take. An accepted one is the system
  * working, and there are thousands of them.
  */
 export function deliveryEntry(delivery: WebhookDelivery): FeedEntry | null {

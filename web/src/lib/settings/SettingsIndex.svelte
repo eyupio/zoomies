@@ -14,7 +14,7 @@
 
 <PageHeader
   title="Settings"
-  subtitle="Your account, who else can sign in, and what this controller runs with."
+  subtitle="Your account, who else can sign in, and what Zoomies runs with."
 />
 
 <div class="groups">

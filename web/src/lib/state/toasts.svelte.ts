@@ -8,6 +8,7 @@
  * Successes dismiss themselves. Errors do not: an operator who looked away
  * should still find out that the drain was refused.
  */
+import { supportHint } from '$lib/errors';
 import { ApiError } from '../api/client';
 
 export type ToastTone = 'info' | 'success' | 'warning' | 'error';
@@ -142,7 +143,7 @@ class Toasts {
       return this.error(title, detail, action);
     }
     if (cause instanceof Error) return this.error(title, cause.message, action);
-    return this.error(title, 'The cause was not reported. Check the controller logs.', action);
+    return this.error(title, `The cause was not reported. ${supportHint()}`, action);
   }
 
   dismiss(id: number): void {

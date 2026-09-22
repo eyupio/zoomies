@@ -153,7 +153,7 @@
       <EmptyState
         icon={KeyRound}
         title="No API tokens"
-        description="A token lets the zoomies CLI or a script talk to this controller without a browser session."
+        description="A token lets the zoomies CLI or a script talk to Zoomies without a browser session."
       >
         <Button variant="primary" icon={Plus} onclick={open}>Create a token</Button>
       </EmptyState>

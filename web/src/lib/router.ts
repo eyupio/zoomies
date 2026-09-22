@@ -128,7 +128,7 @@ export const ROUTES: readonly RouteDef[] = [
   },
   { name: 'audit', path: '/audit', title: 'Audit', load: () => import('../routes/Audit.svelte') },
   {
-    // GitHub's return address, named in every App manifest this controller
+    // GitHub's return address, named in every App manifest Zoomies
     // builds. It hands what GitHub sent to the Installations page; it is not
     // somewhere anybody navigates to on purpose.
     name: 'github-setup',

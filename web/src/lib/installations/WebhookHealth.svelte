@@ -102,8 +102,8 @@
         {#if lastReceived}
           Last delivery <RelativeTime value={lastReceived} plain />.
         {:else}
-          Nothing has ever arrived at this controller, which is different from nothing arriving
-          lately: it usually means GitHub cannot reach the webhook URL at all.
+          Nothing has ever arrived at Zoomies, which is different from nothing arriving lately: it
+          usually means GitHub cannot reach the webhook URL at all.
         {/if}
       </p>
     </div>
@@ -138,9 +138,9 @@
         {/if}
         {#if check.reachable === false && check.polling_available}
           <p class="check-line">
-            Until that is sorted, this controller can fall back to polling GitHub for queued jobs.
-            Set <span class="mono">github.poll_fallback</span> in the configuration file and restart it;
-            jobs will start more slowly, but they will start.
+            Until that is sorted, Zoomies can fall back to polling GitHub for queued jobs. Set <span
+              class="mono">github.poll_fallback</span
+            > in the configuration file and restart it; jobs will start more slowly, but they will start.
           </p>
         {/if}
         {#if check.last_delivery_at}

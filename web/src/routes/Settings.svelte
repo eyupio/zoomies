@@ -1,6 +1,6 @@
 <!--
   Settings: a section rather than a page. Your account and this browser's
-  preferences, who else can sign in, and what this controller runs with.
+  preferences, who else can sign in, and what Zoomies runs with.
 
   Every page has an address of its own -- /settings/users -- so a page is a
   link and a bookmark, and the browser's back button means something. Where
