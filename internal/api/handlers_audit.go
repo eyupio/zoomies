@@ -1,9 +1,11 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/eyupio/zoomies/internal/auth"
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -71,24 +73,66 @@ func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := Identity(r.Context())
-	// The documents are withheld by what the row is about; the address is
-	// withheld by rank, in the same pass. An audit row's ip says where a
-	// colleague was working from, which is a fact about a person rather than
-	// about the fleet -- an operator who can read that their administrator
-	// signed in from a hotel has learned something the audit log exists to
-	// record, not to publish. Administrators keep it, because chasing a
-	// suspicious sign-in is the reason the column is there.
 	for i := range events {
-		action, guarded := auditReadActions[events[i].TargetKind]
-		if guarded && !auth.Allowed(id, action) {
-			events[i].Before = ""
-			events[i].After = ""
-		}
-		if id == nil || !id.Role.AtLeast(store.RoleAdmin) {
-			events[i].IP = ""
-		}
+		row := auditRowFor(*events[i], id)
+		events[i] = &row
 	}
 	writeJSON(w, http.StatusOK, newPage(events, total, p))
+}
+
+// auditRowFor is an audit row as this caller may read it. The list and the
+// event stream both answer through it, because the stream carries every new
+// row as it is written and a filter applied only to the list was no filter.
+//
+// The documents are withheld by what the row is about; the address is
+// withheld by rank, in the same pass. An audit row's ip says where a
+// colleague was working from, which is a fact about a person rather than
+// about the fleet -- an operator who can read that their administrator
+// signed in from a hotel has learned something the audit log exists to
+// record, not to publish. Administrators keep it, because chasing a
+// suspicious sign-in is the reason the column is there.
+//
+// A settings row is narrowed once more for anybody but the platform: the
+// settings page does not show an administrator the platform's keys, so the
+// row recording a change to backup.directory must not either.
+func auditRowFor(ev store.AuditEvent, id *auth.Identity) store.AuditEvent {
+	action, guarded := auditReadActions[ev.TargetKind]
+	if guarded && !auth.Allowed(id, action) {
+		ev.Before, ev.After = "", ""
+	}
+	if ev.TargetKind == "settings" && (id == nil || !id.Role.AtLeast(store.RolePlatform)) {
+		ev.Before, ev.After = withoutPlatformKeys(ev.Before), withoutPlatformKeys(ev.After)
+	}
+	if id == nil || !id.Role.AtLeast(store.RoleAdmin) {
+		ev.IP = ""
+	}
+	return ev
+}
+
+// withoutPlatformKeys drops the platform's settings from a settings row's
+// document. A document it cannot read is dropped whole: failing open here
+// would be the leak this exists to close.
+func withoutPlatformKeys(doc string) string {
+	if doc == "" {
+		return ""
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(doc), &keys); err != nil {
+		return ""
+	}
+	for k := range keys {
+		if st, ok := config.LookupSetting(k); ok && platformsOwn(st) {
+			delete(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	out, err := json.Marshal(keys)
+	if err != nil {
+		return ""
+	}
+	return string(out)
 }
 
 // handleAuditActions lists the distinct action names, for the filter menu.
