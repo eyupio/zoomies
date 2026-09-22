@@ -75,7 +75,7 @@
   /* -- describe -------------------------------------------------------------- */
 
   /**
-   * Where the new host should be told to find this controller.
+   * Where the new host should be told to find Zoomies.
    *
    * server.external_url is right when it is set and is not loopback; the
    * default single-VM install sets it to http://localhost:8080, which no
@@ -101,7 +101,7 @@
   const controllerError = $derived.by(() => {
     if (connection === 'tailcat') return '';
     const raw = controllerURL.trim();
-    if (!raw) return 'Give the address the new host will reach this controller on.';
+    if (!raw) return 'Give the address the new host will reach Zoomies on.';
     try {
       const u = new URL(raw);
       if (u.protocol !== 'http:' && u.protocol !== 'https:') {
@@ -181,7 +181,7 @@
   const chosenURL = $derived(controllerURL.trim().replace(/\/+$/, ''));
   const installCommand = $derived(minted?.command ?? '');
   /**
-   * Why the command could not be pinned to this controller's build, when it
+   * Why the command could not be pinned to this instance's build, when it
    * could not. Worth its own line rather than a footnote: an operator who is
    * not told this watches the new host arrive reading "Different build", and
    * re-runs the installer to fix something no re-run can change.
@@ -428,7 +428,7 @@
         {#if connection === 'direct'}
           <Field
             label="Controller address"
-            hint="What the new host will dial to reach this controller. It only ever connects outbound, so this is the one address that has to be right."
+            hint="What the new host will dial to reach Zoomies. It only ever connects outbound, so this is the one address that has to be right."
             notice={controllerLocal
               ? 'Only this machine answers on a loopback address. Use one the new host can reach, or set server.external_url so every operator gets it.'
               : undefined}
@@ -529,7 +529,7 @@
         </p>{/if}
       <p class="lede">
         One line, in a shell on that machine. It downloads the Zoomies binary and verifies it, joins
-        this controller with the token, and installs the agent as a service — which is the part that
+        this instance with the token, and installs the agent as a service — which is the part that
         needs root or sudo.
       </p>
 

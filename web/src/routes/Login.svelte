@@ -165,17 +165,17 @@
   {#if meta?.auth_disabled}
     <h1>No sign-in required</h1>
     <p class="lede">
-      Authentication is switched off in this controller's configuration, so there is nothing to sign
+      Authentication is switched off in this instance's configuration, so there is nothing to sign
       in to. Anyone who can reach this address has full access.
     </p>
     <Button variant="primary" full href="/">Continue to the dashboard</Button>
     <p class="note">
-      Turn authentication back on in the configuration file before this controller is reachable by
+      Turn authentication back on in the configuration file before this instance is reachable by
       anyone you do not trust.
     </p>
   {:else}
     <h1>Sign in</h1>
-    <p class="lede">Manage the runner fleet on this controller.</p>
+    <p class="lede">Manage the runner fleet on this instance.</p>
 
     {#if failureText}
       <p class="failure" role="alert">
@@ -209,7 +209,7 @@
            when caps lock is most likely to be the reason for one. -->
       <Field
         label="Password"
-        hint="The one you chose when this controller was set up."
+        hint="The one you chose when this instance was set up."
         error={passwordError}
         notice={capsLock ? 'Caps lock is on.' : undefined}
       >

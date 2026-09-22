@@ -103,7 +103,7 @@
             label="Certificate unchecked"
             size="sm"
             dot={false}
-            title="This controller does not verify the provider's certificate, so the credential travels to whatever answers at that address."
+            title="Zoomies does not verify the provider's certificate, so the credential travels to whatever answers at that address."
           />
         {/if}
       </div>

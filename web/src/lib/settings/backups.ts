@@ -91,7 +91,7 @@ export function keyStatus(
       label: 'This key',
       tone: 'idle',
       icon: KeyRound,
-      hint: `Sealed with the key this controller holds (${backup.key_fingerprint ?? ''}).`,
+      hint: `Sealed with the key Zoomies holds (${backup.key_fingerprint ?? ''}).`,
     };
   }
   if (backup.key_matches === false) {
@@ -99,7 +99,7 @@ export function keyStatus(
       label: 'Other key',
       tone: 'danger',
       icon: KeyRound,
-      hint: `Sealed with ${backup.key_fingerprint ?? 'another key'}, which this controller does not hold. A restore is refused until the right key is in place.`,
+      hint: `Sealed with ${backup.key_fingerprint ?? 'another key'}, which Zoomies does not hold. A restore is refused until the right key is in place.`,
     };
   }
   return {

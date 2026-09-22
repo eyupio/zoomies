@@ -123,7 +123,7 @@
   // bar so a reload does not try to use the code twice.
   //
   // The state matters as much as the code: it is what ties the exchange back to
-  // the manifest this controller built, and the tab GitHub returns to is a
+  // the manifest Zoomies built, and the tab GitHub returns to is a
   // fresh one that knows nothing else about the handshake.
   const returnedCode = $derived(router.param('code'));
   const returnedState = $derived(router.param('state'));

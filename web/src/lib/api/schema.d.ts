@@ -455,7 +455,7 @@ export interface paths {
          * Build a GitHub App manifest
          * @description Returns the manifest JSON, GitHub destination and handshake state. The
          *     browser POSTs the manifest to `manifest/handoff?state=...` on this
-         *     controller, which redirects the POST to GitHub. The operator confirms
+         *     instance, which redirects the POST to GitHub. The operator confirms
          *     there, and GitHub redirects back with a code that `manifest/exchange`
          *     turns into App credentials.
          *
@@ -479,7 +479,7 @@ export interface paths {
         put?: never;
         /**
          * Hand the browser's manifest POST to GitHub
-         * @description Submit a same-tab HTML form to this controller with the exact manifest
+         * @description Submit a same-tab HTML form to Zoomies with the exact manifest
          *     and state returned by `createAppManifest`. After validating the pending
          *     handshake, manifest and allowed destination, the controller responds
          *     with a 307 redirect to GitHub or the configured GitHub Enterprise Server.
@@ -540,7 +540,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Check whether GitHub can reach this controller
+         * Check whether GitHub can reach Zoomies
          * @description Reports plainly whether the configured external URL is reachable from
          *     outside, and when it is not, gives the specific fix -- open a port, use
          *     a tunnel, configure the reverse proxy -- along with the option of
@@ -1968,7 +1968,7 @@ export interface paths {
         put?: never;
         /**
          * Restart the controller to apply the staged restore
-         * @description Stops this controller so that its service manager starts the next one, which applies the staged restore before it opens the database. The response is written before the process stops. Refused with 409 when nothing is staged, because a restart with nothing to apply is an outage. Whether the process comes back is up to whatever started it; a systemd unit and a container with a restart policy both bring it back, and a controller run by hand needs starting by hand.
+         * @description Stops Zoomies so that its service manager starts the next one, which applies the staged restore before it opens the database. The response is written before the process stops. Refused with 409 when nothing is staged, because a restart with nothing to apply is an outage. Whether the process comes back is up to whatever started it; a systemd unit and a container with a restart policy both bring it back, and a controller run by hand needs starting by hand.
          */
         post: operations["applyRestore"];
         delete?: never;
@@ -2296,7 +2296,7 @@ export interface paths {
         };
         /**
          * A support bundle for this instance
-         * @description Everything a bug report needs about this controller in one JSON document: the build and the process, the effective configuration and its findings, the current problems, the fleet's installations, pools, hosts and runners, the work in flight with the controller's own explanation for each of it, and the recent scheduler decisions. It is assembled from the same renderings the other routes serve, so a section that is secret-free on its own route is secret-free here.
+         * @description Everything a bug report needs about this instance in one JSON document: the build and the process, the effective configuration and its findings, the current problems, the fleet's installations, pools, hosts and runners, the work in flight with the controller's own explanation for each of it, and the recent scheduler decisions. It is assembled from the same renderings the other routes serve, so a section that is secret-free on its own route is secret-free here.
          *
          *     It never carries workflow log bodies. There is no redaction pass for them and there cannot be a reliable one, so the bundle carries runner ids and the download route instead and an operator attaches logs deliberately.
          *
@@ -3700,7 +3700,7 @@ export interface components {
             path_style: boolean | null;
             /** @description A stored destination the file overrides by name. Nothing is sent to it; it is listed so that a row which quietly does nothing is visible rather than mysterious. */
             shadowed: boolean;
-            /** @description Why this destination cannot be used at all — almost always that this controller's encryption key does not open its stored secrets. */
+            /** @description Why this destination cannot be used at all — almost always that this instance's encryption key does not open its stored secrets. */
             problem?: string;
             /** @description A secret key is stored for this destination. */
             has_secret_key?: boolean;
@@ -4165,7 +4165,7 @@ export interface components {
         };
         /**
          * @description Why the fleet, rather than the workflow, is the reason something went wrong.
-         *     Every kind exists because something different is done about it, and the `fault_fix` beside it says what. `out_of_memory` is a limit to raise; `host_lost` is a machine or an agent to look at; `image` is a tag or a registry; `registration` is the GitHub App's permissions; `backend` is the container daemon on the host, which is the "cannot start the runner container" case; `backend_busy` is that daemon answering too slowly rather than not at all, which is a host carrying more work than it can keep up with and is fixed on the pool's limits or the host's capacity; `config` is a setting the runner itself refused, and until it is edited every runner in the pool will do the same thing; `out_of_disk` is a full host; `removed` is an operator who meant it, and needs no fixing. `runner_exited` is the unclassified case on purpose -- a runner that stopped for a reason nobody observed, including one reported by an agent newer than this controller. Guessing a kind would send somebody to fix something that is not broken.
+         *     Every kind exists because something different is done about it, and the `fault_fix` beside it says what. `out_of_memory` is a limit to raise; `host_lost` is a machine or an agent to look at; `image` is a tag or a registry; `registration` is the GitHub App's permissions; `backend` is the container daemon on the host, which is the "cannot start the runner container" case; `backend_busy` is that daemon answering too slowly rather than not at all, which is a host carrying more work than it can keep up with and is fixed on the pool's limits or the host's capacity; `config` is a setting the runner itself refused, and until it is edited every runner in the pool will do the same thing; `out_of_disk` is a full host; `removed` is an operator who meant it, and needs no fixing. `runner_exited` is the unclassified case on purpose -- a runner that stopped for a reason nobody observed, including one reported by an agent newer than Zoomies. Guessing a kind would send somebody to fix something that is not broken.
          *     Empty means the fleet has nothing to confess.
          * @enum {string}
          */
@@ -4445,7 +4445,7 @@ export interface components {
             /** @example proxmox-lab */
             name: string;
             /**
-             * @description Where this controller reaches the provider. Not a secret - it is the address an operator typed - and showing it is how somebody tells two clusters apart on a page listing both.
+             * @description Where Zoomies reaches the provider. Not a secret - it is the address an operator typed - and showing it is how somebody tells two clusters apart on a page listing both.
              * @example https://pve.example.com:8006
              */
             endpoint?: string;
@@ -4620,7 +4620,7 @@ export interface components {
             bootstrap: "guest_agent" | "metadata" | "none";
             can_start_stop?: boolean;
             can_discover?: boolean;
-            /** @description Whether the driver can write this controller's marks onto the resource itself. */
+            /** @description Whether the driver can write Zoomies' marks onto the resource itself. */
             can_mark_ownership?: boolean;
             async_operations?: boolean;
             /** @example machine-hour */
@@ -4830,7 +4830,7 @@ export interface components {
             /** Format: date-time */
             last_used_at?: string | null;
         };
-        /** @description One configuration key: what it is, what this controller is running, where that value came from, and whether an administrator may change it here. */
+        /** @description One configuration key: what it is, what Zoomies is running, where that value came from, and whether an administrator may change it here. */
         Setting: {
             /**
              * @description The dotted key
@@ -4856,7 +4856,7 @@ export interface components {
             choices?: string[];
             /** @description One line saying what the setting does. */
             summary: string;
-            /** @description What this controller is running. Absent for a secret. */
+            /** @description What Zoomies is running. Absent for a secret. */
             value?: unknown;
             /** @description What Zoomies uses when nothing says otherwise. Absent for a secret. */
             default?: unknown;
@@ -5547,7 +5547,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Single sign-on is not enabled on this controller. */
+            /** @description Single sign-on is not enabled on this instance. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -5577,7 +5577,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Single sign-on is not enabled on this controller. */
+            /** @description Single sign-on is not enabled on this instance. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -6690,7 +6690,7 @@ export interface operations {
                 until?: string;
                 /** @description Only jobs that are still queued and that no enabled pool claims. A job that already started or finished was run by something else, so it is not included however its labels read, and neither is one whose labels all name GitHub's own runners or a hosted-runner vendor's: those run where their labels say. */
                 unmatched?: boolean;
-                /** @description Only jobs this controller has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too, unless their labels all name somebody else's runners. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
+                /** @description Only jobs Zoomies has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too, unless their labels all name somebody else's runners. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
                 managed?: boolean;
                 /** @description Only jobs that went wrong, on either side: a conclusion GitHub counts as a failure (failure, timed_out, startup_failure), or a runner of this fleet that stopped under the job -- including one GitHub still believes is running. */
                 failed?: boolean;
@@ -6739,7 +6739,7 @@ export interface operations {
                 until?: string;
                 /** @description Only jobs that are still queued and that no enabled pool claims. A job that already started or finished was run by something else, so it is not included however its labels read, and neither is one whose labels all name GitHub's own runners or a hosted-runner vendor's: those run where their labels say. */
                 unmatched?: boolean;
-                /** @description Only jobs this controller has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too, unless their labels all name somebody else's runners. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
+                /** @description Only jobs Zoomies has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too, unless their labels all name somebody else's runners. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
                 managed?: boolean;
                 /** @description Only jobs that went wrong, on either side: a conclusion GitHub counts as a failure (failure, timed_out, startup_failure), or a runner of this fleet that stopped under the job -- including one GitHub still believes is running. */
                 failed?: boolean;
@@ -6821,7 +6821,7 @@ export interface operations {
                 until?: string;
                 /** @description Only jobs that are still queued and that no enabled pool claims. A job that already started or finished was run by something else, so it is not included however its labels read, and neither is one whose labels all name GitHub's own runners or a hosted-runner vendor's: those run where their labels say. */
                 unmatched?: boolean;
-                /** @description Only jobs this controller has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too, unless their labels all name somebody else's runners. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
+                /** @description Only jobs Zoomies has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too, unless their labels all name somebody else's runners. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
                 managed?: boolean;
                 /** @description Only jobs that went wrong, on either side: a conclusion GitHub counts as a failure (failure, timed_out, startup_failure), or a runner of this fleet that stopped under the job -- including one GitHub still believes is running. */
                 failed?: boolean;
@@ -7052,7 +7052,7 @@ export interface operations {
                 until?: string;
                 /** @description Runs with a job that is still queued and that no enabled pool claims. */
                 unmatched?: boolean;
-                /** @description Runs this controller has a hand in */
+                /** @description Runs Zoomies has a hand in */
                 managed?: boolean;
                 /** @description Runs with a job that went wrong on either side */
                 failed?: boolean;
@@ -7431,7 +7431,7 @@ export interface operations {
                      * Format: uri
                      * @description The address the new host should join on, used in the
                      *     returned command in place of `server.external_url`. The
-                     *     UI sends the address the browser reached this controller
+                     *     UI sends the address the browser reached Zoomies
                      *     on, which is the one a machine beside it can usually reach
                      *     too. Must be an absolute http or https URL.
                      * @example https://zoomies.example.com
@@ -7467,7 +7467,7 @@ export interface operations {
                          * @example dev
                          */
                         install_tag?: string;
-                        /** @description Why the command could not be pinned to this controller's build, or absent when it was. Main builds use the rolling dev asset; only local or otherwise unpublished builds have no matching install tag. */
+                        /** @description Why the command could not be pinned to this instance's build, or absent when it was. Main builds use the rolling dev asset; only local or otherwise unpublished builds have no matching install tag. */
                         version_note?: string;
                     };
                 };

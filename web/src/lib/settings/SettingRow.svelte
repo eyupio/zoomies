@@ -247,7 +247,7 @@
           label="Waiting for a restart"
           size="sm"
           dot={false}
-          title="It is saved. This controller cannot apply it to itself, so it takes effect the next time it starts."
+          title="It is saved. Zoomies cannot apply it to itself, so it takes effect the next time it starts."
         />
       {/if}
       {#if source && !pinned}

@@ -189,13 +189,13 @@
   <p class="step">First step</p>
   <h1>Create the first account</h1>
   <p class="lede">
-    Nobody has an account on this controller yet. This form creates the first one, with the admin
+    Nobody has an account on this instance yet. This form creates the first one, with the admin
     role, and stops being available the moment it exists. The setup token is how it knows you are
-    the one who deployed this controller.
+    the one who deployed Zoomies.
   </p>
   <p class="next">
-    Then: connect a GitHub App, add a host if this controller has no agent of its own, create a
-    pool, and point a workflow at it. The Overview keeps the list and ticks it off.
+    Then: connect a GitHub App, add a host if Zoomies has no agent of its own, create a pool, and
+    point a workflow at it. The Overview keeps the list and ticks it off.
   </p>
 
   {#if failure}

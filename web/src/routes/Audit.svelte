@@ -364,7 +364,7 @@
 
 <PageHeader
   title="Audit"
-  subtitle="Every change made through this controller, and who made it."
+  subtitle="Every change made through Zoomies, and who made it."
   onrefresh={() => {
     liveKey += 1;
   }}

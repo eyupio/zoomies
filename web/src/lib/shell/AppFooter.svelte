@@ -36,7 +36,7 @@
         <span class="version" title="The controller build this page is talking to">{version}</span>
       {/if}
       {#if versionChannel}
-        <span class="channel" title="The published channel carrying this controller build"
+        <span class="channel" title="The published channel carrying Zoomies build"
           >:{versionChannel}</span
         >
       {/if}

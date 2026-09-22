@@ -9,7 +9,7 @@
   can pick it up at the right step.
 
   It exists as a route of its own because the address is baked into every App
-  created from this controller: an App made a year ago still points here, and a
+  created from Zoomies: an App made a year ago still points here, and a
   path the router does not know is a "Page not found" in the middle of a
   connection flow.
 -->

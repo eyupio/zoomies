@@ -54,7 +54,7 @@ info:
 
 servers:
   - url: /api/v1
-    description: This controller
+    description: This instance
 
 security:
   - cookieAuth: []
@@ -321,7 +321,7 @@ paths:
       security: []
       responses:
         "302": { description: Redirected to the identity provider. }
-        "503": { description: Single sign-on is not enabled on this controller. }
+        "503": { description: Single sign-on is not enabled on this instance. }
 
   /auth/oidc/callback:
     get:
@@ -341,7 +341,7 @@ paths:
         - { name: error_description, in: query, schema: { type: string } }
       responses:
         "302": { description: Redirected into the app, or to the login page with a message. }
-        "503": { description: Single sign-on is not enabled on this controller. }
+        "503": { description: Single sign-on is not enabled on this instance. }
 
   # ==========================================================================
   # Overview
@@ -628,7 +628,7 @@ paths:
       description: |
         Returns the manifest JSON, GitHub destination and handshake state. The
         browser POSTs the manifest to `manifest/handoff?state=...` on this
-        controller, which redirects the POST to GitHub. The operator confirms
+        instance, which redirects the POST to GitHub. The operator confirms
         there, and GitHub redirects back with a code that `manifest/exchange`
         turns into App credentials.
 
@@ -664,7 +664,7 @@ paths:
       tags: [installations]
       summary: Hand the browser's manifest POST to GitHub
       description: |
-        Submit a same-tab HTML form to this controller with the exact manifest
+        Submit a same-tab HTML form to Zoomies with the exact manifest
         and state returned by `createAppManifest`. After validating the pending
         handshake, manifest and allowed destination, the controller responds
         with a 307 redirect to GitHub or the configured GitHub Enterprise Server.
@@ -783,7 +783,7 @@ paths:
     post:
       operationId: testWebhookReachability
       tags: [installations]
-      summary: Check whether GitHub can reach this controller
+      summary: Check whether GitHub can reach Zoomies
       description: |
         Reports plainly whether the configured external URL is reachable from
         outside, and when it is not, gives the specific fix -- open a port, use
@@ -1351,7 +1351,7 @@ paths:
         - name: managed
           in: query
           description: >-
-            Only jobs this controller has a hand in: one an enabled pool claims, one that
+            Only jobs Zoomies has a hand in: one an enabled pool claims, one that
             ran on a runner this fleet started, and queued jobs no pool claims -- which
             nothing ran, so they belong here too, unless their labels all name somebody
             else's runners. Leave it off to see every job GitHub has reported, including
@@ -1415,7 +1415,7 @@ paths:
         - name: managed
           in: query
           description: >-
-            Only jobs this controller has a hand in: one an enabled pool claims, one that
+            Only jobs Zoomies has a hand in: one an enabled pool claims, one that
             ran on a runner this fleet started, and queued jobs no pool claims -- which
             nothing ran, so they belong here too, unless their labels all name somebody
             else's runners. Leave it off to see every job GitHub has reported, including
@@ -1521,7 +1521,7 @@ paths:
         - name: managed
           in: query
           description: >-
-            Only jobs this controller has a hand in: one an enabled pool claims, one that
+            Only jobs Zoomies has a hand in: one an enabled pool claims, one that
             ran on a runner this fleet started, and queued jobs no pool claims -- which
             nothing ran, so they belong here too, unless their labels all name somebody
             else's runners. Leave it off to see every job GitHub has reported, including
@@ -1787,7 +1787,7 @@ paths:
         - { name: since, in: query, schema: { type: string, format: date-time } }
         - { name: until, in: query, schema: { type: string, format: date-time } }
         - { name: unmatched, in: query, description: Runs with a job that is still queued and that no enabled pool claims., schema: { type: boolean } }
-        - { name: managed, in: query, description: Runs this controller has a hand in, through any job of theirs., schema: { type: boolean } }
+        - { name: managed, in: query, description: Runs Zoomies has a hand in, through any job of theirs., schema: { type: boolean } }
         - { name: failed, in: query, description: Runs with a job that went wrong on either side, counting only the latest attempt of each job., schema: { type: boolean } }
         - { name: faulted, in: query, description: Runs with a failure this fleet caused., schema: { type: boolean } }
         - { name: workflow_failed, in: query, description: Runs GitHub failed with nothing wrong on this side. Sending this and `faulted` together is a 400., schema: { type: boolean } }
@@ -2136,7 +2136,7 @@ paths:
                   description: |
                     The address the new host should join on, used in the
                     returned command in place of `server.external_url`. The
-                    UI sends the address the browser reached this controller
+                    UI sends the address the browser reached Zoomies
                     on, which is the one a machine beside it can usually reach
                     too. Must be an absolute http or https URL.
                   examples: ["https://zoomies.example.com"]
@@ -2171,7 +2171,7 @@ paths:
                       version_note:
                         type: string
                         description: >-
-                          Why the command could not be pinned to this controller's build, or
+                          Why the command could not be pinned to this instance's build, or
                           absent when it was. Main builds use the rolling dev asset; only local
                           or otherwise unpublished builds have no matching install tag.
 
@@ -3093,7 +3093,7 @@ paths:
       tags: [backups]
       summary: Restart the controller to apply the staged restore
       description: >-
-        Stops this controller so that its service manager starts the next one,
+        Stops Zoomies so that its service manager starts the next one,
         which applies the staged restore before it opens the database. The response
         is written before the process stops. Refused with 409 when nothing is
         staged, because a restart with nothing to apply is an outage. Whether the
@@ -3520,7 +3520,7 @@ paths:
       tags: [diagnostics]
       summary: A support bundle for this instance
       description: >-
-        Everything a bug report needs about this controller in one JSON document: the
+        Everything a bug report needs about this instance in one JSON document: the
         build and the process, the effective configuration and its findings, the current
         problems, the fleet's installations, pools, hosts and runners, the work in flight
         with the controller's own explanation for each of it, and the recent scheduler
@@ -4040,7 +4040,7 @@ components:
             True when this deployment can rent machines - the build ships at least one
             provider driver and provider.enabled is on - so the page that would otherwise
             offer to buy machines nothing would ever create knows not to.
-        poller_last_poll_at: { type: string, format: date-time, nullable: true, description: When the fallback poller last completed a sweep, or absent if it has not completed one since this controller started. }
+        poller_last_poll_at: { type: string, format: date-time, nullable: true, description: When the fallback poller last completed a sweep, or absent if it has not completed one since Zoomies started. }
         capacity_map:
           type: object
           description: >-
@@ -5177,7 +5177,7 @@ components:
           type: string
           description: >-
             Why this destination cannot be used at all — almost always that this
-            controller's encryption key does not open its stored secrets.
+            instance's encryption key does not open its stored secrets.
         has_secret_key: { type: boolean, description: A secret key is stored for this destination. }
         where: { type: string, description: The bucket and prefix. }
         endpoint: { type: string, description: The S3-compatible service it talks to. }
@@ -5679,7 +5679,7 @@ components:
         will do the same thing; `out_of_disk` is a full host; `removed` is an operator who
         meant it, and needs no fixing. `runner_exited` is the unclassified case on purpose
         -- a runner that stopped for a reason nobody observed, including one reported by an
-        agent newer than this controller. Guessing a kind would send somebody to fix
+        agent newer than Zoomies. Guessing a kind would send somebody to fix
         something that is not broken.
 
         Empty means the fleet has nothing to confess.
@@ -5971,7 +5971,7 @@ components:
         name: { type: string, examples: [proxmox-lab] }
         endpoint:
           type: string
-          description: Where this controller reaches the provider. Not a secret - it is the address an operator typed - and showing it is how somebody tells two clusters apart on a page listing both.
+          description: Where Zoomies reaches the provider. Not a secret - it is the address an operator typed - and showing it is how somebody tells two clusters apart on a page listing both.
           examples: ["https://pve.example.com:8006"]
         insecure_skip_verify: { type: boolean, description: Certificate verification is off for this provider, which the validator warns about rather than refusing. }
         connection:
@@ -6138,7 +6138,7 @@ components:
             anything is bought.
         can_start_stop: { type: boolean }
         can_discover: { type: boolean }
-        can_mark_ownership: { type: boolean, description: Whether the driver can write this controller's marks onto the resource itself. }
+        can_mark_ownership: { type: boolean, description: Whether the driver can write Zoomies' marks onto the resource itself. }
         async_operations: { type: boolean }
         cost_unit: { type: string, examples: [machine-hour] }
         settings:
@@ -6355,7 +6355,7 @@ components:
     Setting:
       type: object
       description: >-
-        One configuration key: what it is, what this controller is running, where
+        One configuration key: what it is, what Zoomies is running, where
         that value came from, and whether an administrator may change it here.
       required: [key, label, section, kind, summary, secret, configured, source, env, stored, editable, scope, live, pending]
       properties:
@@ -6378,7 +6378,7 @@ components:
         summary: { type: string, description: One line saying what the setting does. }
         value:
           nullable: true
-          description: What this controller is running. Absent for a secret.
+          description: What Zoomies is running. Absent for a secret.
         default:
           nullable: true
           description: What Zoomies uses when nothing says otherwise. Absent for a secret.

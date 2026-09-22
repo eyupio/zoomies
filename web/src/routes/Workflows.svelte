@@ -566,7 +566,7 @@
 <PageHeader
   title="Workflows"
   subtitle={filters.all
-    ? 'Every workflow run GitHub has told this controller about, whatever ran it, and the jobs inside each.'
+    ? 'Every workflow run GitHub has told Zoomies about, whatever ran it, and the jobs inside each.'
     : 'The workflow runs this fleet claims, runs or is waiting to run, and the jobs inside each.'}
   onrefresh={refreshPage}
 />

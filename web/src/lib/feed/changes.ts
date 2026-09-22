@@ -41,7 +41,7 @@ export interface HostSignal {
   cordoned: boolean;
   /** The throttle rung the controller has it on; 0 for none. */
   throttle: number;
-  /** An agent too old to talk to this controller at all. */
+  /** An agent too old to talk to Zoomies at all. */
   incompatible: boolean;
   /** Whether pressure is holding new runners off this host right now. */
   holding: boolean;

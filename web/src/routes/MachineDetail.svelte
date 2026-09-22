@@ -5,7 +5,7 @@
   taken, what went wrong last time and when will it be tried again, and which
   handle to paste into the provider's own task log to see the other half of the
   story. That last one is the whole reason the operation id is on the page:
-  every step this controller takes has a mark at the provider, and an operator
+  every step Zoomies takes has a mark at the provider, and an operator
   who cannot join the two has to guess.
 
   Nothing here polls. The machine arrives once and its own frames are merged
