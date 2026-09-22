@@ -1023,10 +1023,20 @@ func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*
 		if h.Usage.Fresh(now) {
 			pending := hs.pending(h, pools, runners)
 			if v := h.Usage.MemoryAvailableMB; v != nil {
-				// The host sample already includes running work. Subtract only
-				// starts whose demand the sample cannot yet contain, then take
-				// the tighter of measured headroom and reservation headroom.
-				available := *v - h.MemoryReserve() - pending.MemoryMB
+				// The host sample already includes running work, and what the
+				// operating system itself is using is the reserve's whole
+				// job -- so the reserve is not taken off here. It is already
+				// inside Allocatable, which is what a slot's size is measured
+				// against; charging it a second time here makes measured
+				// headroom permanently one reserve tighter than the figure a
+				// pool asks for, and a host cut into a single slot then wants
+				// its whole allocatable memory and can never have that much
+				// left. That host reported "short of memory" at every pass,
+				// at any size of machine, and its slot was never filled.
+				// Subtract only starts whose demand the sample cannot yet
+				// contain, then take the tighter of measured headroom and
+				// reservation headroom.
+				available := *v - pending.MemoryMB
 				l.MemoryMB = min(l.MemoryMB, max(available, 0))
 			}
 			if v := h.Usage.CPUPercent; v != nil {

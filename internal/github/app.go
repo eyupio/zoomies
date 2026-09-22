@@ -922,13 +922,44 @@ func (c *appClient) GetWorkflowRun(ctx context.Context, repo string, runID int64
 	}, nil
 }
 
+// RerunWorkflowJob asks GitHub to run one job again.
+//
+// GitHub re-runs the job together with any job that names it in `needs`, which
+// is the narrowest thing the API offers and the right default: a job that a
+// fleet fault killed should not drag the run's unrelated failures back through
+// CI with it. What it cannot do is make the re-run free of consequence -- a job
+// that had already pushed an image before it died will push it again, because
+// a re-run starts at the first step.
+//
+// Unlike cancellation, this really is job-level. The comment that used to sit
+// on RerunFailedWorkflowJobs said GitHub had no such endpoint; it has had one
+// since 2021, and the run-level call was doing four times the work on a run
+// with four failures in it.
+func (c *appClient) RerunWorkflowJob(ctx context.Context, repo string, jobID int64) error {
+	owner, name, kind := SplitTarget(repo)
+	if kind != store.TargetRepo || jobID <= 0 {
+		return fmt.Errorf("github: invalid workflow job %q/%d", repo, jobID)
+	}
+	resp, err := c.asInstallation.Actions.RerunJobByID(ctx, owner, name, jobID)
+	if err == nil || (resp != nil && (resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusCreated)) {
+		return nil
+	}
+	e := classify(resp, err)
+	if errors.Is(e, ErrForbidden) {
+		return fmt.Errorf("github: rerun job: %w; check the App installation on %s: it needs \"Actions\" (actions) read and write, and changed permissions must be accepted on the installation", e, c.target)
+	}
+	return errorf("rerun job", e)
+}
+
 // RerunFailedWorkflowJobs asks GitHub to run the failed jobs of a run again.
 //
-// It is the counterpart of CancelWorkflowRun and shares its shape, including
-// its blast radius: GitHub has no job-level rerun either, so this re-runs every
-// failed job in the run. The jobs come back as new deliveries with a higher run
-// attempt, and nothing here pretends otherwise -- the re-run is a request, and
-// what GitHub does with it arrives through the ordinary webhook path.
+// It is the counterpart of CancelWorkflowRun and shares its blast radius: every
+// failed job in the run comes back, not only the one somebody had in mind. That
+// is why RerunWorkflowJob above is preferred, and this is kept for the job whose
+// own GitHub job ID this fleet never recorded. The jobs come back as new
+// deliveries with a higher run attempt, and nothing here pretends otherwise --
+// the re-run is a request, and what GitHub does with it arrives through the
+// ordinary webhook path.
 func (c *appClient) RerunFailedWorkflowJobs(ctx context.Context, repo string, runID int64) error {
 	owner, name, kind := SplitTarget(repo)
 	if kind != store.TargetRepo || runID <= 0 {

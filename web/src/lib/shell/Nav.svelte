@@ -12,6 +12,12 @@
   the neighbourhoods stay where they were. The `g` shortcut letter is shown
   beside each entry so the keyboard route is discoverable rather than folklore.
 
+  Expanded, the foot also carries the same two outbound links AppFooter.svelte
+  puts below the page -- documentation and source -- because that footer
+  scrolls out of view with a tall page and this is the one piece of chrome
+  that never does. Collapsed, they fold away: there is no room for a second
+  row of icons beside the toggle at 56px wide.
+
   A phone gets a different component rather than the same one squeezed. Ten
   icon-only targets across a 412px screen were 40px apart and told apart only by
   a glyph, so the bar carries the four sections a fleet is watched with, each
@@ -21,10 +27,12 @@
   bar 56px wide with every entry piled into the corner.
 -->
 <script lang="ts">
-  import { Menu, PanelLeftClose, PanelLeftOpen } from '@lucide/svelte';
+  import { BookOpen, Menu, PanelLeftClose, PanelLeftOpen } from '@lucide/svelte';
+  import { DOCS_URL, REPO_URL } from '../links';
   import { router } from '../router';
   import { prefs } from '../state/prefs.svelte';
   import { viewport } from '../state/viewport.svelte';
+  import GithubMark from '../icons/GithubMark.svelte';
   import IconButton from '../components/IconButton.svelte';
   import Logo from '../components/Logo.svelte';
   import { NAV_GROUPS, SECTIONS, isCurrentSection } from './sections';
@@ -131,6 +139,12 @@
     </div>
 
     <div class="foot">
+      {#if !collapsed}
+        <div class="foot-links">
+          <IconButton icon={BookOpen} label="Documentation" size="sm" href={DOCS_URL} newTab />
+          <IconButton icon={GithubMark} label="Source on GitHub" size="sm" href={REPO_URL} newTab />
+        </div>
+      {/if}
       <IconButton
         icon={collapsed ? PanelLeftOpen : PanelLeftClose}
         label={collapsed ? 'Expand the navigation' : 'Collapse the navigation'}
@@ -300,11 +314,16 @@
   }
   .foot {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: space-between;
     padding-top: var(--z-space-2);
   }
   .collapsed .foot {
     justify-content: center;
+  }
+  .foot-links {
+    display: flex;
+    gap: var(--z-space-1);
   }
   /*
     The phone bar. Every selector here names `.phone` as well, so that a rule

@@ -466,12 +466,17 @@ test('a queued job says what the fleet is doing about it', async ({ page }) => {
 
   const drawer = page.getByRole('dialog');
   const status = drawer.getByRole('status', { name: 'What is happening to this job' });
-  // Either lead word answers the question this test asks. The drawer says
-  // "Blocked" once the job's pool carries a pool.no_capacity problem, and the
-  // demo fleet's pool genuinely cannot place, so the word turns over as soon
-  // as the scheduler has counted the seeded job. Asserting one of them races a
-  // background pass and loses on a slow run. Ported from #412, which fixes it
-  // on main; this no-ops once that lands.
+  // Either lead word answers the question this test asks. Which one appears is
+  // not about the page: the drawer says "Blocked" once the job's pool carries a
+  // pool.no_capacity problem, and the demo fleet's pool genuinely cannot place
+  // -- one host cordoned, one the wrong OS, one short of memory -- so the word
+  // turns over the moment the scheduler has counted the seeded job as queued
+  // and matched. Asserting one of them raced a background pass and lost on any
+  // slow run: it failed twice in one morning, on two pull requests, one of
+  // which changed nothing but Go files under test/drill.
+  //
+  // The substance is below -- the pool it is waiting on, and the live counts
+  // that give the wait a reason -- and that holds either way.
   await expect(status).toContainText(/Waiting|Blocked/);
   await expect(status).toContainText(/zoomies-demo-linux-(x64|arm64)/);
   // The pool's live counts, so the wait has a reason next to it.

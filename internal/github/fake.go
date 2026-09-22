@@ -47,6 +47,9 @@ type FakeGitHub struct {
 	nextRunnerID int64
 	runners      []*Runner
 
+	// jobReruns counts job-level re-run requests, kept apart from reruns so a
+	// test can say which endpoint the controller chose.
+	jobReruns int
 	// reruns counts re-run requests, which nothing else records: the fake
 	// answers and forgets, and a test asserting that Zoomies asked GitHub
 	// exactly once needs somewhere to look.
@@ -455,6 +458,7 @@ func (f *FakeGitHub) handler() http.Handler {
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{run}/cancel", f.cancelWorkflowRun)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{run}/force-cancel", f.cancelWorkflowRun)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{run}/rerun-failed-jobs", f.rerunFailedJobs)
+	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/jobs/{job}/rerun", f.rerunJob)
 
 	f.registerMigrationRoutes(mux)
 
@@ -485,6 +489,29 @@ func (f *FakeGitHub) rerunFailedJobs(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
+}
+
+// rerunJob answers a job-level re-run. It is a separate counter from the
+// run-level one, because which of the two a caller reached for is the whole
+// difference between re-running one job and re-running every failure in its
+// run, and a test that could not tell them apart could not hold that.
+func (f *FakeGitHub) rerunJob(w http.ResponseWriter, _ *http.Request) {
+	f.mu.Lock()
+	level := f.permissions["actions"]
+	f.jobReruns++
+	f.mu.Unlock()
+	if level != "write" {
+		writeError(w, http.StatusForbidden, "Resource not accessible by integration")
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+// JobReruns is how many job-level re-run requests the fake has been sent.
+func (f *FakeGitHub) JobReruns() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.jobReruns
 }
 
 // Reruns is how many re-run requests the fake has been sent, so a test can
