@@ -598,7 +598,22 @@ func TestTheDevWatchdogRecoversMainWithoutTheFleet(t *testing.T) {
 		t.Error("the watchdog does not start its recovery run before it cancels; cancelling main's publisher first can leave :dev with nothing to publish it")
 	}
 	if !strings.Contains(body, "\npermissions: {}\n") {
-		t.Error("the watchdog grants permissions at the top; its one job asks for actions: write itself")
+		t.Error("the watchdog grants permissions at the top; its jobs ask for what they need themselves")
+	}
+	// This repository's scheduled runs start five to six and a half hours
+	// late, longer than the limit the watchdog enforces. Main's CI being
+	// requested is what has to start it.
+	if !strings.Contains(body, "  workflow_run:\n    workflows: [CI]\n    types: [requested]\n    branches: [main]\n") {
+		t.Error("the watchdog is not started by main's CI being requested; on a schedule alone it arrives hours after the limit it enforces")
+	}
+	if !strings.Contains(body, "github.event.workflow_run.event == 'push'") {
+		t.Error("the watchdog waits on dispatched CI runs too; a recovery run, its own included, would be watched and recovered in turn")
+	}
+	// The wait holds its job for up to the limit. A workflow-wide group would
+	// queue every tick and every newer commit behind it; the group that stops
+	// two recoveries starting at once belongs on the job that starts them.
+	if strings.Contains(body, "\nconcurrency:") {
+		t.Error("the watchdog has a workflow-wide concurrency group; a Wait holding it for hours queues the newest commit's watchdog behind a stale one")
 	}
 	// GitHub delays or drops scheduled runs when it is busiest, and it names
 	// the top of the hour as that moment. The first tick, due at 18:00, never
