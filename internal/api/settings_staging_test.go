@@ -86,7 +86,9 @@ func TestASettingsPatchIsAllOrNothing(t *testing.T) {
 // operator guessing at which of the fourteen keys they got wrong and how.
 func TestSettingsRefusalsSayWhatIsWrongWithTheValue(t *testing.T) {
 	h := newHarness(t)
-	admin, _ := h.user("admin", store.RoleAdmin)
+	// Platform: this exercises keys on both sides of the audience split,
+	// and its subject is the behaviour, not who may reach it.
+	admin, _ := h.user("admin", store.RolePlatform)
 	cookie := h.session(admin)
 
 	for _, tc := range []struct {

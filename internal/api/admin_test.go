@@ -136,7 +136,9 @@ func TestDisablingAUserEndsItsSessionsAtTheAPI(t *testing.T) {
 // TestSettings covers what may be changed at runtime and what may not.
 func TestSettings(t *testing.T) {
 	h := newHarness(t)
-	admin, _ := h.user("root", store.RoleAdmin)
+	// Platform: this exercises keys on both sides of the audience split,
+	// and its subject is the behaviour, not who may reach it.
+	admin, _ := h.user("root", store.RolePlatform)
 	cookie := h.session(admin)
 
 	get := h.do(request{method: http.MethodGet, path: "/api/v1/settings", cookie: cookie})
@@ -1016,7 +1018,9 @@ func findSetting(t *testing.T, res settingsResponse, key string) settingView {
 // the one page where each is actionable as the one place it did not appear.
 func TestAStoredRowThatCannotBeUsedIsReportedOnTheSettingsPage(t *testing.T) {
 	h := newHarness(t)
-	admin, _ := h.user("root", store.RoleAdmin)
+	// Platform: this exercises keys on both sides of the audience split,
+	// and its subject is the behaviour, not who may reach it.
+	admin, _ := h.user("root", store.RolePlatform)
 	cookie := h.session(admin)
 
 	// Written straight to the store, because the API would have refused it --

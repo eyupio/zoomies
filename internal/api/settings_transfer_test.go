@@ -13,7 +13,9 @@ import (
 // that reads them, and never a secret's value.
 func TestAnExportCarriesWhatWasSetAndNeverASecret(t *testing.T) {
 	h := newHarness(t)
-	admin, _ := h.user("admin", store.RoleAdmin)
+	// Platform: this exercises keys on both sides of the audience split,
+	// and its subject is the behaviour, not who may reach it.
+	admin, _ := h.user("admin", store.RolePlatform)
 	cookie := h.session(admin)
 	patched := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
 		body: map[string]any{"retention.jobs": "96h", "capacity_demand.signing_secret": "hush-now-secret"}})
@@ -63,7 +65,9 @@ func TestAnExportCarriesWhatWasSetAndNeverASecret(t *testing.T) {
 // key by key, and writes nothing. Applying is then one change or none.
 func TestAnImportIsPreviewedThenAppliedAsOneChange(t *testing.T) {
 	h := newHarness(t)
-	admin, _ := h.user("admin", store.RoleAdmin)
+	// Platform: this exercises keys on both sides of the audience split,
+	// and its subject is the behaviour, not who may reach it.
+	admin, _ := h.user("admin", store.RolePlatform)
 	cookie := h.session(admin)
 	before := h.ctrl.Config().Retention.Jobs
 
@@ -134,7 +138,9 @@ func TestAnImportIsPreviewedThenAppliedAsOneChange(t *testing.T) {
 // the same route reads, with its secrets named as work to do by hand.
 func TestAnExportImportsBackIncludingTheSecretsItCouldNotCarry(t *testing.T) {
 	h := newHarness(t)
-	admin, _ := h.user("admin", store.RoleAdmin)
+	// Platform: this exercises keys on both sides of the audience split,
+	// and its subject is the behaviour, not who may reach it.
+	admin, _ := h.user("admin", store.RolePlatform)
 	cookie := h.session(admin)
 	h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
 		body: map[string]any{"retention.jobs": "96h", "capacity_demand.signing_secret": "hush"}}).mustStatus(t, http.StatusOK, "patch")
