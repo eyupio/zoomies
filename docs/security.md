@@ -218,7 +218,10 @@ The mapping from every individual API action to its minimum role is a table in
 `internal/auth/rbac.go`, and a test walks the full action list — so a new
 endpoint cannot be added without deciding who may call it.
 
-The API refuses to remove or demote the last enabled admin.
+The API refuses to remove or demote the last enabled admin. Nobody may grant a
+role above their own, or change, disable, delete or reset the password of an
+account that outranks them — so an administrator cannot make a platform
+account, or become one.
 
 ### How one request is authorised
 
