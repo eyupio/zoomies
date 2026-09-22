@@ -61,6 +61,7 @@ var shippedMigrations = []string{
 	"0045_upgrade_keeps_what_admins_had.sql",
 	"0046_token_owner_role.sql",
 	"0047_runner_sessions.sql",
+	"0048_usage_daily.sql",
 }
 
 // The two prefixes shared by files that already shipped. They sort by what

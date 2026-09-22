@@ -277,6 +277,14 @@ func TestPruneRunnerSessionsDeletesOnlyThoseThatEndedBeforeTheCutoff(t *testing.
 			}
 		}
 	}
+	// Before the roll-up has absorbed them, the sessions are its only source
+	// and nothing may go.
+	if n, err := s.PruneRunnerSessions(ctx, start.Add(24*time.Hour)); err != nil || n != 0 {
+		t.Fatalf("pruned %d, %v before the roll-up; want 0", n, err)
+	}
+	if _, err := s.RollUpUsage(ctx, start.Add(72*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
 	n, err := s.PruneRunnerSessions(ctx, start.Add(24*time.Hour))
 	if err != nil || n != 1 {
 		t.Fatalf("pruned %d, %v; want 1", n, err)

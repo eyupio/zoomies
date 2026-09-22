@@ -54,9 +54,17 @@ func recordRunnerSession(ctx context.Context, tx *sql.Tx, id string, now int64) 
 
 // RunnerSessions returns the sessions that overlap [from, to), oldest first.
 func (s *Store) RunnerSessions(ctx context.Context, from, to time.Time) ([]*RunnerSession, error) {
-	rows, err := s.read.QueryContext(ctx, `SELECT runner_id, pool_id, host_id, installation_id, job_id,
+	return querySessions(ctx, s.read, ms(from), ms(to))
+}
+
+// querySessions is RunnerSessions against either handle, so the roll-up can
+// read the sessions inside the transaction that moves its watermark.
+func querySessions(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, from, to int64) ([]*RunnerSession, error) {
+	rows, err := q.QueryContext(ctx, `SELECT runner_id, pool_id, host_id, installation_id, job_id,
 		started_at, registered_at, finished_at, cleaned_up_at, cost_per_runner_hour, recorded_at
-		FROM runner_sessions WHERE started_at < ? AND finished_at > ? ORDER BY started_at, runner_id`, ms(to), ms(from))
+		FROM runner_sessions WHERE started_at < ? AND finished_at > ? ORDER BY started_at, runner_id`, to, from)
 	if err != nil {
 		return nil, err
 	}
@@ -90,8 +98,14 @@ func (s *Store) RunnerSessions(ctx context.Context, from, to time.Time) ([]*Runn
 }
 
 // PruneRunnerSessions deletes sessions that finished before the cutoff.
+//
+// It never deletes one the usage roll-up has not yet absorbed: the session is
+// the roll-up's only source, and a session pruned first would leave its days
+// short however long the roll-up itself is kept. Before anything has been
+// rolled up, nothing is pruned.
 func (s *Store) PruneRunnerSessions(ctx context.Context, before time.Time) (int64, error) {
-	r, err := s.exec(ctx, `DELETE FROM runner_sessions WHERE finished_at < ?`, ms(before))
+	r, err := s.exec(ctx, `DELETE FROM runner_sessions WHERE finished_at < MIN(?,
+		COALESCE((SELECT rolled_until FROM usage_rollup WHERE id = 1), 0))`, ms(before))
 	if err != nil {
 		return 0, err
 	}
