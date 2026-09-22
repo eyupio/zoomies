@@ -196,6 +196,18 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 		hosts[h.ID] = h
 	}
 
+	// When each pool's first waiting job was queued, for the queued-to-create
+	// metric. The snapshot already holds the queued jobs, in the order the
+	// store returns them; reading them again for every runner created -- inside
+	// reconcileMu, where every other pool's scheduling waits -- was a full list
+	// query per create for a figure the pass already had.
+	queuedSince := make(map[string]time.Time, len(plan.Pools))
+	for _, j := range snap.Jobs {
+		if _, seen := queuedSince[j.PoolID]; j.PoolID != "" && !seen {
+			queuedSince[j.PoolID] = j.QueuedAt
+		}
+	}
+
 	type changes struct{ created, drained int }
 	counts := make(map[string]*changes, len(plan.Pools))
 	for _, a := range plan.Actions {
@@ -224,7 +236,7 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 				// failures a fleet with nothing wrong with it never had.
 				continue
 			}
-			if err := c.createRunner(ctx, pool, hosts[a.HostID], a); err != nil {
+			if err := c.createRunner(ctx, pool, hosts[a.HostID], a, queuedSince[pool.ID]); err != nil {
 				if !errors.Is(err, errRegistrationDeferred) {
 					c.log.Error("could not create a runner", "pool", pool.Name, "host", a.HostID, "reason", a.Reason, "error", err)
 				}
@@ -319,7 +331,9 @@ func (c *Controller) recordScaling(ctx context.Context, pp scheduler.PoolPlan, c
 // so the Runners page can say what a runner was given and where the figure
 // came from -- an OOM kill on a defaulted limit points at the host's capacity,
 // not at a pool field nobody set.
-func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *store.Host, a scheduler.Action) error {
+// queuedSince is when the pool's first waiting job was queued, or zero when it
+// has none.
+func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *store.Host, a scheduler.Action, queuedSince time.Time) error {
 	inst, err := c.st.GetInstallation(ctx, pool.InstallationID)
 	if err != nil {
 		return fmt.Errorf("pool %s points at installation %s, which is not there; edit the pool to choose an installation: %w",
@@ -354,13 +368,8 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 	if err := c.st.CreateRunner(ctx, r); err != nil {
 		return fmt.Errorf("creating the runner row for %s: %w", name, err)
 	}
-	if queued, err := c.st.ListQueuedJobs(ctx); err == nil {
-		for _, j := range queued {
-			if j.PoolID == pool.ID {
-				observeDuration(c.metrics.queuedToCreate, pool.Name, string(pool.Backend), j.QueuedAt, r.CreatedAt)
-				break
-			}
-		}
+	if !queuedSince.IsZero() {
+		observeDuration(c.metrics.queuedToCreate, pool.Name, string(pool.Backend), queuedSince, r.CreatedAt)
 	}
 	c.publishRunner(ctx, events.KindRunnerCreated, r)
 
