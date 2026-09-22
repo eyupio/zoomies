@@ -11,6 +11,30 @@ import (
 	"testing"
 )
 
+// atSchemaBefore builds a database carrying every migration up to but not
+// including the named one.
+//
+// It names the migration rather than counting back from the end, because
+// counting drifts. These fixtures were written as len(migs)-2 when 0045 was
+// the last one; adding 0046 silently re-pointed all three at a different
+// upgrade, and the tests went on running under their old names against a
+// database one migration further forward than they describe. Naming it means
+// the next migration added moves nothing.
+func atSchemaBefore(t *testing.T, name string) string {
+	t.Helper()
+	migs, err := loadMigrations()
+	if err != nil {
+		t.Fatalf("loadMigrations: %v", err)
+	}
+	for i, m := range migs {
+		if m.name == name {
+			return atSchema(t, i)
+		}
+	}
+	t.Fatalf("no migration called %s, so this fixture is describing an upgrade that does not exist", name)
+	return ""
+}
+
 // atSchema builds a database carrying only the first n migrations, which is
 // what a release older than this one left behind.
 //
@@ -442,14 +466,10 @@ func TestOnlyTheLastTwoCopiesAreKept(t *testing.T) {
 // after the upgrade, on a fleet that was working.
 func TestThePlatformRoleRebuildKeepsEveryRowItsIndexesAndTheSessions(t *testing.T) {
 	ctx := context.Background()
-	migs, err := loadMigrations()
-	if err != nil {
-		t.Fatal(err)
-	}
 	// From before the rebuild, so that it runs against these rows. Seeding
 	// into a fixture that had already applied 0044 was the first attempt and
 	// tested nothing: the rebuild had run against an empty users table.
-	path := atSchema(t, len(migs)-2)
+	path := atSchemaBefore(t, "0044_platform_role.sql")
 
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
 	if err != nil {
@@ -560,13 +580,9 @@ func TestThePlatformRoleRebuildKeepsEveryRowItsIndexesAndTheSessions(t *testing.
 // administrator meant.
 func TestAnUpgradeLeavesEveryAdministratorWithWhatTheyHad(t *testing.T) {
 	ctx := context.Background()
-	migs, err := loadMigrations()
-	if err != nil {
-		t.Fatal(err)
-	}
 	// From before the role existed at all, which is what a released build
 	// left behind.
-	path := atSchema(t, len(migs)-2)
+	path := atSchemaBefore(t, "0044_platform_role.sql")
 
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
 	if err != nil {
@@ -645,13 +661,9 @@ func TestAnUpgradeLeavesEveryAdministratorWithWhatTheyHad(t *testing.T) {
 // 0045 exists to fix. So the promotion stops at the moment 0044 ran.
 func TestAnUpgradeDoesNotPromoteWhatWasMadeAfterTheRoleSplit(t *testing.T) {
 	ctx := context.Background()
-	migs, err := loadMigrations()
-	if err != nil {
-		t.Fatal(err)
-	}
 	// Through 0044 but not 0045: the state of anybody tracking main between
 	// the two, the project's own fleet among them.
-	path := atSchema(t, len(migs)-1)
+	path := atSchemaBefore(t, "0045_upgrade_keeps_what_admins_had.sql")
 
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
 	if err != nil {
