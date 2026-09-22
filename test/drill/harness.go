@@ -388,6 +388,10 @@ func baseEnv(dir string) []string {
 		"ZOOMIES_CONFIG_DIR=" + dir,
 		"ZOOMIES_LOG_FORMAT=text",
 		"ZOOMIES_LOG_LEVEL=debug",
+		// The fake GitHub a drill writes onto its installation is on loopback,
+		// which the API refuses unless told this is a network the operator
+		// owns -- as it is.
+		"ZOOMIES_ALLOW_PRIVATE_EGRESS=true",
 	}
 }
 

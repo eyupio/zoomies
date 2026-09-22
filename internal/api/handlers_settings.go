@@ -582,15 +582,12 @@ func (s *Server) planSettings(current *config.Config, flat map[string]any, who s
 // what is refused.
 func validatePlan(current, candidate *config.Config, staged []change) []fieldError {
 	candidate.Normalize()
-	introduced := newErrors(current, candidate)
-	if len(introduced) == 0 {
-		return nil
-	}
 	changed := map[string]bool{}
 	for _, ch := range staged {
 		changed[ch.setting.Key] = true
 	}
-	var fields []fieldError
+	fields := egressRefusals(candidate, changed)
+	introduced := newErrors(current, candidate)
 	for _, f := range introduced {
 		field := f.Setting
 		if !changed[field] {
@@ -600,6 +597,36 @@ func validatePlan(current, candidate *config.Config, staged []change) []fieldErr
 			field = ""
 		}
 		fields = append(fields, fieldError{field, findingSentence(f)})
+	}
+	return fields
+}
+
+// egressRefusals refuses a write that points one of the settings the
+// controller dials at this machine or a private network, unless the
+// candidate allows it.
+//
+// The validator only warns about the same thing, because at startup the
+// value came from whoever runs the process and an upgrade must not stop a
+// working install. Here it is somebody with settings rights asking this
+// controller to send requests somewhere on their say-so, which is the case
+// the guard exists for -- so it is decided here, whatever the validator's
+// severity. Turning single sign-on on is a write that starts dialling the
+// issuer, so it counts as writing the issuer.
+func egressRefusals(candidate *config.Config, changed map[string]bool) []fieldError {
+	var fields []fieldError
+	for _, o := range candidate.OutboundURLs() {
+		if !changed[o.Setting] && (o.Setting != "oidc.issuer" || !changed["oidc.enabled"]) {
+			continue
+		}
+		if f := config.CheckOutboundURL(o.Setting, o.Value, candidate.Security.AllowPrivateEgress); f != nil {
+			// Blamed on the key the request changed, so an import preview
+			// marks a row the operator can skip.
+			field := o.Setting
+			if !changed[field] {
+				field = "oidc.enabled"
+			}
+			fields = append(fields, fieldError{field, findingSentence(*f)})
+		}
 	}
 	return fields
 }

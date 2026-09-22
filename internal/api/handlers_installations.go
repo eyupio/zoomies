@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
@@ -151,6 +152,8 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 	normalised, err := github.NormalizeAPIBaseURL(apiBase)
 	if err != nil {
 		fields = append(fields, fieldError{"api_base_url", err.Error()})
+	} else if msg := s.egressRefusal(normalised); msg != "" {
+		fields = append(fields, fieldError{"api_base_url", msg})
 	}
 	if len(fields) > 0 {
 		unprocessable(w, "this installation could not be connected", fields)
@@ -226,9 +229,12 @@ func (s *Server) handleUpdateInstallation(w http.ResponseWriter, r *http.Request
 	}
 	if req.APIBaseURL != nil {
 		normalised, nerr := github.NormalizeAPIBaseURL(strings.TrimSpace(*req.APIBaseURL))
-		if nerr != nil {
+		switch {
+		case nerr != nil:
 			fields = append(fields, fieldError{"api_base_url", nerr.Error()})
-		} else {
+		case s.egressRefusal(normalised) != "":
+			fields = append(fields, fieldError{"api_base_url", s.egressRefusal(normalised)})
+		default:
 			inst.APIBaseURL = normalised
 		}
 	}
@@ -1049,4 +1055,17 @@ func (s *Server) probeWebhookURL(ctx context.Context, url string) (bool, string,
 			"GitHub reaching it from outside is still worth confirming with a redelivery from the App's Advanced tab.",
 			url, resp.StatusCode),
 		""
+}
+
+// egressRefusal says why an installation's own API base URL may not be used,
+// or "" when it may. It is github.api_base_url by another route -- the row's
+// value wins over the setting for everything that installation does -- so it
+// has to meet the same outbound address guard, or the guard on the setting is
+// one form field away from meaning nothing.
+func (s *Server) egressRefusal(apiBase string) string {
+	f := config.CheckOutboundURL("api_base_url", apiBase, s.cfg().Security.AllowPrivateEgress)
+	if f == nil {
+		return ""
+	}
+	return f.Title + ". " + f.Fix
 }

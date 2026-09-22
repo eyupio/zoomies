@@ -16,7 +16,7 @@ import (
 func TestADestinationAddedOnThePageIsTestedStoredAndUsed(t *testing.T) {
 	fake := backup.NewFakeS3("backups")
 	t.Cleanup(fake.Close)
-	h := newHarness(t)
+	h := newHarness(t, allowPrivateEgress)
 	h.installation()
 	cookie := h.platform()
 
@@ -84,7 +84,7 @@ func TestADestinationAddedOnThePageIsTestedStoredAndUsed(t *testing.T) {
 func TestChangingADestinationLeavesTheSecretsItDoesNotMention(t *testing.T) {
 	fake := backup.NewFakeS3("backups")
 	t.Cleanup(fake.Close)
-	h := newHarness(t)
+	h := newHarness(t, allowPrivateEgress)
 	cookie := h.platform()
 
 	create := map[string]any{
@@ -193,7 +193,7 @@ func TestADestinationThatCouldNotWorkIsRefusedByField(t *testing.T) {
 func TestRemovingADestinationLeavesTheCopiesInTheBucket(t *testing.T) {
 	fake := backup.NewFakeS3("backups")
 	t.Cleanup(fake.Close)
-	h := newHarness(t)
+	h := newHarness(t, allowPrivateEgress)
 	cookie := h.platform()
 
 	h.do(request{method: http.MethodPost, path: "/api/v1/backups/remotes", cookie: cookie,
@@ -232,7 +232,7 @@ func TestRemovingADestinationLeavesTheCopiesInTheBucket(t *testing.T) {
 func TestTheNoRemoteFindingGoesAwayWhenADestinationIsAdded(t *testing.T) {
 	fake := backup.NewFakeS3("backups")
 	t.Cleanup(fake.Close)
-	h := newHarness(t)
+	h := newHarness(t, allowPrivateEgress)
 	cookie := h.platform()
 
 	codes := func() []string {
@@ -271,5 +271,42 @@ func TestTheNoRemoteFindingGoesAwayWhenADestinationIsAdded(t *testing.T) {
 		body: map[string]any{"enabled": false}}).mustStatus(t, http.StatusOK, "switch it off")
 	if !slices.Contains(codes(), config.NoRemoteFinding) {
 		t.Errorf("a fleet whose only destination is switched off is told nothing: %v", codes())
+	}
+}
+
+// allowPrivateEgress is what a harness needs to talk to a fake that httptest
+// has bound to 127.0.0.1 -- the same switch an operator with a MinIO beside
+// the controller sets, rather than a hole in the guard only tests can use.
+func allowPrivateEgress(c *config.Config) { c.Security.AllowPrivateEgress = true }
+
+// A destination on this machine or its network is somewhere the controller
+// would send the whole fleet's backup and its access key on an
+// administrator's say-so, so it is refused by field, naming the switch, and
+// admitted once the platform has set it.
+func TestADestinationOnAPrivateAddressIsRefusedUntilThePlatformAllowsIt(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		allow bool
+		want  int
+	}{
+		{"refused by default", false, http.StatusUnprocessableEntity},
+		{"admitted by security.allow_private_egress", true, http.StatusCreated},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, func(c *config.Config) { c.Security.AllowPrivateEgress = tc.allow })
+			h.installation()
+			cookie := h.platform()
+			resp := h.do(request{method: http.MethodPost, path: "/api/v1/backups/remotes", cookie: cookie, body: map[string]any{
+				"name": "lan", "endpoint": "http://169.254.169.254", "bucket": "b",
+				"access_key_id": "AKIAEXAMPLE", "secret_access_key": "secret",
+			}})
+			resp.mustStatus(t, tc.want, "create a destination at the metadata address")
+			if tc.allow {
+				return
+			}
+			if body := string(resp.body); !strings.Contains(body, `"field":"endpoint"`) || !strings.Contains(body, "security.allow_private_egress") {
+				t.Errorf("the refusal does not name the field and the setting that would allow it: %s", body)
+			}
+		})
 	}
 }

@@ -429,6 +429,14 @@ type Security struct {
 	// host socket still warns, because it hands a job root on the host, and so
 	// do persistent runners.
 	DockerInDockerExpected bool `yaml:"docker_in_docker_expected"`
+	// AllowPrivateEgress lets the settings that make this process dial a URL
+	// -- the OIDC issuer, the GitHub API, the capacity-demand destination,
+	// the runner download mirror, a backup remote, a provider -- name this
+	// machine, its link-local network or a private range. See
+	// CheckOutboundURL. It is off because those addresses are the platform's
+	// own neighbourhood, and on a single-team instance whose identity
+	// provider or Enterprise Server is on the LAN it is the one key to set.
+	AllowPrivateEgress bool `yaml:"allow_private_egress"`
 }
 
 // GitHub configures the GitHub integration.
