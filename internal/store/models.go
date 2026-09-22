@@ -1750,6 +1750,24 @@ const (
 	MinHostReserveCPUFraction float64 = 0.05
 )
 
+// The controller's own room, held back on top of the floors above on the one
+// host it runs on.
+//
+// The floors are sized for dockerd, containerd and the agent. On the host
+// whose agent is embedded, the controller is on the machine too -- the
+// scheduler, the single database writer every heartbeat and webhook waits on,
+// the API and the event stream -- and it answers in the same gaps. A twelve
+// core host held back six tenths of a core for all of that, and with its
+// runners flat out that was the controller's share of the machine: the fleet
+// slowed down at the moment it was busiest, because what schedules it was
+// starved by what it had scheduled. A core and a gigabyte is enough for the
+// controller to keep answering; it is added to the floor rather than folded
+// into it, so a small host is not left with less for its daemon than it had.
+const (
+	ControllerReserveCPUs     float64 = 1
+	ControllerReserveMemoryMB int64   = 1024
+)
+
 // MemoryReserve is what is held back from placement on this host's memory: the
 // operator's reserve, or the floor when that is larger. Zero on a host that
 // has not reported its memory, where there is nothing to hold back from.
@@ -1762,6 +1780,9 @@ func (h *Host) MemoryReserve() int64 {
 		return 0
 	}
 	floor := min(max(MinHostReserveMemoryMB, int64(MinHostReserveMemoryFraction*float64(h.MemoryMB))), MaxHostReserveMemoryMB)
+	if h.Embedded {
+		floor += ControllerReserveMemoryMB
+	}
 	return max(h.ReserveMemoryMB, floor)
 }
 
@@ -1787,6 +1808,9 @@ func (h *Host) CPUReserve() float64 {
 		return 0
 	}
 	floor := max(MinHostReserveCPUs, MinHostReserveCPUFraction*float64(h.CPUs))
+	if h.Embedded {
+		floor += ControllerReserveCPUs
+	}
 	return max(float64(h.ReserveCPUs), floor)
 }
 

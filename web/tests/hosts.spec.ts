@@ -563,11 +563,12 @@ test('a host shows what the fleet has committed on it, and lets an operator hold
   const committed = card.getByRole('region', { name: /Resources committed/ });
   await expect(committed).toBeVisible();
   // 16 CPUs and 32 GB, less the floors, against what the runners on it hold:
-  // 15.2 CPUs rather than 16, because the scheduler keeps a twentieth of the
-  // machine back for the daemon and the agent.
+  // 14.2 CPUs rather than 16. The scheduler keeps a twentieth of the machine
+  // back for the daemon and the agent, and this is the demo's embedded host --
+  // the controller runs on it -- so it keeps a core back for the controller too.
   await expect(committed).toContainText('CPU');
   await expect(committed).toContainText('Memory');
-  await expect(committed).toContainText(/of 15\.2/);
+  await expect(committed).toContainText(/of 14\.2/);
 
   // And the reserve is settable from the same card, in Adjust -- the one place
   // that owns this host's resources -- against the figures it has reported.

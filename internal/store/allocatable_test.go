@@ -91,3 +91,41 @@ func TestAllocatableSeparatesUnmeasuredFromEmpty(t *testing.T) {
 		})
 	}
 }
+
+// The controller runs on the host whose agent is embedded, so that host holds
+// back room for it on top of the floors meant for the daemon and the agent. The
+// case that made this necessary: twelve cores held back six tenths of one, and
+// with the runners flat out that was all the machine left for the scheduler,
+// the database writer and the API as well as dockerd.
+//
+// The allowance is added to the floor rather than folded into it, and an
+// operator's own reserve still wins where it is larger -- someone who held
+// back four cores on the controller's host meant four.
+func TestTheControllersOwnHostHoldsBackRoomForTheController(t *testing.T) {
+	plain := Host{CPUs: 12, MemoryMB: 31 * 1024}
+	embedded := plain
+	embedded.Embedded = true
+
+	if got, want := embedded.CPUReserve()-plain.CPUReserve(), ControllerReserveCPUs; got != want {
+		t.Errorf("the controller's host holds back %.2f more CPU than another, want %.2f", got, want)
+	}
+	if got, want := embedded.MemoryReserve()-plain.MemoryReserve(), ControllerReserveMemoryMB; got != want {
+		t.Errorf("the controller's host holds back %d MB more memory than another, want %d", got, want)
+	}
+	if got, want := plain.Allocatable().CPUs-embedded.Allocatable().CPUs, ControllerReserveCPUs; got != want {
+		t.Errorf("the controller's host has %.2f fewer CPUs to place on, want %.2f: the reserve must reach allocatable", got, want)
+	}
+
+	// On a small machine the allowance is still the whole allowance: folding it
+	// into a floor the machine already hit would leave the daemon less.
+	small := Host{CPUs: 2, MemoryMB: 4096, Embedded: true}
+	if got, want := small.CPUReserve(), MinHostReserveCPUs+ControllerReserveCPUs; got != want {
+		t.Errorf("a two-core controller host holds back %.2f CPU, want the floor and the allowance, %.2f", got, want)
+	}
+
+	operator := embedded
+	operator.ReserveCPUs = 4
+	if got := operator.CPUReserve(); got != 4 {
+		t.Errorf("an operator's reserve of 4 cores on the controller's host became %.2f; the larger figure stands", got)
+	}
+}

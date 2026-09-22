@@ -877,7 +877,11 @@ type PoolSuggestion struct {
 // machine the job is asking for: the pool gets one share of the host per
 // runner, so "zoomies-4vcpu-ubuntu-2404" is a fact rather than a decoration,
 // and an operator who wants fatter runners changes one number.
-func SuggestPool(det Detection, kind store.BackendKind, capacity int) PoolSuggestion {
+//
+// embedded says the controller runs on this machine too, which holds back a
+// share of it for the controller as well as for the daemon and the agent; a
+// suggestion that ignored it would size runners the controller will not give.
+func SuggestPool(det Detection, kind store.BackendKind, capacity int, embedded bool) PoolSuggestion {
 	maxRunners := max(capacity, 1)
 	cpus := 1.0
 	if det.CPUs > 0 {
@@ -887,7 +891,7 @@ func SuggestPool(det Detection, kind store.BackendKind, capacity int) PoolSugges
 		// capacity's worth of them still fits -- it is the same arithmetic
 		// scheduler.HostShare does, because it is the figure the controller
 		// will actually hand this pool's runners.
-		placeable := float64(det.CPUs) - (&store.Host{CPUs: det.CPUs}).CPUReserve()
+		placeable := float64(det.CPUs) - (&store.Host{CPUs: det.CPUs, Embedded: embedded}).CPUReserve()
 		cpus = max(math.Floor(placeable/float64(maxRunners)*100)/100, 0.5)
 	}
 	platform := store.Platform{
@@ -2439,7 +2443,7 @@ func (i *Installer) stepFirstPool(ctx context.Context, st *store.Store, cfg *con
 		return nil
 	}
 
-	sug := SuggestPool(i.det, p.Backend, p.Capacity)
+	sug := SuggestPool(i.det, p.Backend, p.Capacity, p.Embedded)
 	if i.answers != nil {
 		if i.answers.Pool.Skip {
 			i.ui.note("skipped: pool.skip is set in the answer file.")
@@ -2725,7 +2729,7 @@ func (i *Installer) stepSummary(p Plan, freshKey bool) {
 			p.ExternalURL+"/installations")
 	}
 	if p.PoolName == "" {
-		sug := SuggestPool(i.det, p.Backend, p.Capacity)
+		sug := SuggestPool(i.det, p.Backend, p.Capacity, p.Embedded)
 		next("Create a pool -- it decides what labels your runners answer to",
 			p.ExternalURL+"/pools/new")
 		i.ui.field("", "suggested for this host: "+sug.Name+
@@ -2735,7 +2739,7 @@ func (i *Installer) stepSummary(p Plan, freshKey bool) {
 	if p.PoolName != "" {
 		runsOn = store.BrandedLabel(p.PoolName)
 	} else {
-		runsOn = SuggestPool(i.det, p.Backend, p.Capacity).RunsOn()
+		runsOn = SuggestPool(i.det, p.Backend, p.Capacity, p.Embedded).RunsOn()
 	}
 	next("Point a workflow at it", "runs-on: "+runsOn)
 	if n == 1 {

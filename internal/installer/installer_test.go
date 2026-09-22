@@ -331,7 +331,7 @@ func TestSuggestPool(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := SuggestPool(tc.det, tc.backend, tc.capacity)
+			got := SuggestPool(tc.det, tc.backend, tc.capacity, false)
 			if got.Name != tc.wantName {
 				t.Errorf("Name = %q, want %q", got.Name, tc.wantName)
 			}
@@ -366,13 +366,26 @@ func TestSuggestPool(t *testing.T) {
 // The pool the installer suggests has to be one the scheduler will actually
 // place on the host that suggested it. It is the first thing an operator runs,
 // so a platform mismatch here is the worst possible first impression.
+//
+// It is run for the controller's own host too, which holds back room for the
+// controller: a suggestion that forgot it would size runners the scheduler
+// then refused to give, on the very machine the install was run on.
 func TestTheSuggestedPoolFitsTheHostThatSuggestedIt(t *testing.T) {
+	for _, embedded := range []bool{false, true} {
+		t.Run(map[bool]string{false: "an agent host", true: "the controller's host"}[embedded], func(t *testing.T) {
+			suggestedPoolFitsItsHost(t, embedded)
+		})
+	}
+}
+
+func suggestedPoolFitsItsHost(t *testing.T, embedded bool) {
+	t.Helper()
 	det := Detection{OS: "linux", Arch: "amd64", Distro: "ubuntu", OSVersion: "24.04", CPUs: 8, MemoryMB: 16384}
-	sug := SuggestPool(det, store.BackendDocker, 4)
+	sug := SuggestPool(det, store.BackendDocker, 4, embedded)
 
 	host := &store.Host{
 		OS: det.OS, Distro: det.Distro, OSVersion: det.OSVersion, Arch: det.Arch,
-		CPUs: det.CPUs, MemoryMB: det.MemoryMB,
+		CPUs: det.CPUs, MemoryMB: det.MemoryMB, Embedded: embedded,
 	}
 	if !sug.Platform.Matches(host.Platform()) {
 		t.Errorf("the suggested pool asks for %+v, which this host (%+v) does not satisfy",
