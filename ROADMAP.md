@@ -1284,6 +1284,29 @@ read.
 
 Depends on ZF-209. Size M. Session: Claude Opus 5 at `high`. Decisions: 6.
 
+### ZF-224: auto-recovery on a lost runner
+
+**Classification: extension; S; delivered 22 September, alongside ZF-207.**
+A runner that dies under a job fails it in a way GitHub cannot tell from a
+test failure. Zoomies already knows better — `FleetFailed` is the split the
+Jobs page draws — and #406 gave an operator a button. This makes the choice
+a setting rather than a standing refusal, on the owner's instruction and
+recorded as [decision 0004](roadmap/decisions/0004-the-fleet-may-re-run-a-job-it-broke.md).
+
+**Done:** `scheduler.auto_rerun`, off by default, re-runs a job whose runner
+died under it, bounded by `scheduler.auto_rerun_limit` (1–5, default 1)
+counted from GitHub's own run attempt; the `scheduler.auto_rerun_on` warning;
+a timeline entry marked *via recovery*; and
+`zoomies_job_reruns_total{pool,trigger}`, which also labels the button's
+re-runs so the two are comparable.
+
+**Accepted because:** a table test covers off, on, a workflow's own failure,
+the bound reached and a higher bound; a repeated delivery buys no second
+re-run; the validator refuses a limit outside 1–5; the default configuration
+draws no new finding.
+
+Depends on nothing. Size S. Decisions: 0004.
+
 ## 9. Kept for the day somebody asks
 
 Nothing here is authorised by planning alone. Each starts when a fleet
@@ -1322,6 +1345,7 @@ every package in section 8 was re-read on 19 September against the code.
 | --- | --- | --- |
 | 0 | ZF-005 documentation corrections and the marketplace repin — done, 19 September | The three pages agree with the record; `release.env` pins the current full release |
 | 1 | ZF-207 two audiences: the role and its migration, the actions, the settings scope, the problems split, tokens, copy and audit | The per-role Playwright assertions hold; a single-team instance is unchanged; an upgraded instance has one platform identity |
+| 1b | ZF-224 auto-recovery on a lost runner, off by default | A job the fleet broke is re-run once on its own; a test that failed never is; the bound holds across a restart |
 | 2 | ZF-208 edge limits and the outbound address guard | Every limit has a test that reaches it; the hostile-agent drill holds |
 | 3 | ZF-210a environment bootstrap, readiness, the controller-only template | A compose file brings up a controller, a platform identity and a joined agent with no human step |
 | 4 | ZF-209 the usage ledger | The 90-day equality test; one session per runner across a restart |

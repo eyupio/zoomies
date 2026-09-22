@@ -257,8 +257,16 @@ memory limit to raise.
 **On a job**, the outcome panel leads with the category, carries the runner's
 own last words, and names the fix. Where the failure was the fleet's, it also
 offers **Run it again**: nothing about the workflow has changed, so re-running
-is the ordinary remedy. GitHub has no job-level re-run, so that re-runs every
+is the ordinary remedy. GitHub re-runs the job together with any job that
+names it in `needs`, and they arrive as a new run attempt. For a job recorded
+before this fleet kept GitHub's job ID, it falls back to re-running every
 failed job in the run, and the panel says so before you press it.
+
+[`scheduler.auto_rerun`](configuration.md#schedulerauto_rerun-and-schedulerauto_rerun_limit)
+does the same thing without waiting for a person, for the fleet's own
+failures only and bounded by `scheduler.auto_rerun_limit`. It is off by
+default, because it spends the installation's GitHub minutes without asking.
+When it fires, the job's timeline says so, marked *via recovery*.
 
 **On the Overview**, the failure badge reads "11 failed, 9 ours" rather than
 "11 failed", and links straight to whichever half is worth opening.

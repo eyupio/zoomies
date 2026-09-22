@@ -95,14 +95,13 @@
     {
       value: 'direct',
       label: 'Direct',
-      description:
-        'This controller dials the address over the network. Works on your LAN or over HTTPS.',
+      description: 'Zoomies dials the address over the network. Works on your LAN or over HTTPS.',
     },
     {
       value: 'tailcat',
       label: 'Private connection · Tailcat',
       description: tailcatAvailable
-        ? 'For a hypervisor at home with no address this controller can reach. Run zoomies gateway beside it and paste the address it prints.'
+        ? 'For a hypervisor at home with no address Zoomies can reach. Run zoomies gateway beside it and paste the address it prints.'
         : 'Private connections need authentication, a controller encryption key and server.tailcat_enabled. Ask your administrator to enable these and restart Zoomies.',
       disabled: !tailcatAvailable,
     },
@@ -633,7 +632,7 @@
 
         <Field
           label="Address"
-          hint="Where this controller reaches it. A bare host name gets the scheme and the port filled in."
+          hint="Where Zoomies reaches it. A bare host name gets the scheme and the port filled in."
           help={kind?.endpoint_source}
           error={errors.endpoint}
           required
@@ -1004,7 +1003,7 @@
         <section class="terminal" aria-label="The same thing from a terminal">
           <p class="prose">
             {editing ? 'The same change' : 'The same provider'}, as one command for a shell that can
-            reach this controller — for a setup you would rather keep in a script. It asks for the
+            reach Zoomies — for a setup you would rather keep in a script. It asks for the
             credential itself, so nothing secret is in the line.
           </p>
           <div class="command">

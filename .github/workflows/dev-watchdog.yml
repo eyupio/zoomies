@@ -1,0 +1,178 @@
+name: Dev Channel Watchdog
+
+# The :dev channel is published by CI's run on main, and that run dogfoods the
+# fleet: its jobs run on zoomies-linux-x64, the pool this repository's own
+# Zoomies deployment serves. That is the right default and it is tested. It
+# also means the release that carries a fix to the fleet runs on the fleet,
+# so a fault that starves the fleet starves the release that would cure it.
+#
+# That happened. A host's only slot was left unusable by a scheduler bug, the
+# fleet fell behind, and one main run held CI's concurrency slot for six hours
+# waiting for runners. Five merges landed behind it. GitHub keeps one running
+# and one pending run per concurrency group, and a new run always takes the
+# pending place -- cancel-in-progress only decides the fate of the running
+# one -- so each of the five was cancelled by the next before a single job
+# started. Nothing reached :dev, and the fleet never got the fix for the bug
+# that was starving it.
+#
+# CI already has the way out: dispatched with runner=github, every job runs on
+# GitHub's machines instead. This workflow is the part that notices. It runs
+# where the fleet cannot starve it, and when the newest commit on main has
+# gone too long without its CI finishing, it starts that recovery run.
+#
+# Starting it is not enough on its own. The recovery run joins the same
+# concurrency group, so it waits behind whatever holds the running slot --
+# which is the very run that is stuck. So once the recovery run is in place,
+# the watchdog cancels main's push runs that are still queued or running.
+# That is safe for the reason the group is serialised in the first place:
+# whichever main run publishes last owns :dev, and the recovery run is built
+# from the newest commit, so it publishes everything a cancelled run would
+# have and more. It is never done the other way round -- nothing is
+# cancelled until the recovery run has been seen -- because cancelling the
+# only publisher with no replacement is the failure this guards against.
+#
+# What it does not do:
+#
+# It does not retry a failure. A commit whose CI finished red is a commit with
+# a problem, and running it again elsewhere would only hide it. The watchdog
+# acts on CI that never got to an answer, not on an answer nobody liked.
+#
+# It does not touch pull requests or recovery runs. It cancels push runs on
+# main and nothing else; a dispatched run is somebody's recovery, possibly
+# this workflow's, and is left to finish.
+#
+# It does not end dogfooding. Every pull request's CI still runs on the fleet
+# -- that is where dogfooding is proven, and a test holds it there -- so by
+# the time a commit reaches main its code has already been through CI on the
+# fleet. Main's own run exists to publish. Handing it to GitHub's machines on
+# a day the fleet is behind trades little coverage for a :dev that is hours
+# closer to what was merged.
+#
+# The limit is DEV_WATCHDOG_MINUTES, a repository variable, and 120 without
+# one. It is measured from the moment the commit's CI was first queued. Main
+# runs on this fleet have taken two to five hours on a busy day, so the
+# default will take over on most busy days, which is the intent; raise the
+# variable to give the fleet longer. Run the workflow by hand with dry_run to
+# see what it would decide without it doing anything.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Say what the watchdog would do, and do nothing"
+        type: boolean
+        default: false
+
+permissions: {}
+
+# Two watchdogs deciding at once could each start a recovery run. Queue them;
+# the second finds the first's recovery under way and leaves it.
+concurrency:
+  group: dev-channel-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Watch
+    # GitHub's machines, never the fleet's: this is the job that has to run
+    # when the fleet cannot.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+    steps:
+      - name: Recover main if its CI is stuck
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          LIMIT_MINUTES: ${{ vars.DEV_WATCHDOG_MINUTES || '120' }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+
+          case "$LIMIT_MINUTES" in
+            ''|*[!0-9]*)
+              echo "::error::DEV_WATCHDOG_MINUTES is '$LIMIT_MINUTES'; it must be a whole number of minutes, such as 120."
+              exit 1 ;;
+          esac
+
+          say() { echo "$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
+
+          head=$(gh api "repos/$REPO/commits/main" --jq .sha)
+          short=${head:0:7}
+          runs=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$head&per_page=100")
+
+          # CI reached a verdict for this commit. A red one is a real failure
+          # and is not ours to hide by running it somewhere else.
+          finished=$(jq '[.workflow_runs[] | select(.status == "completed" and .conclusion != "cancelled")] | length' <<<"$runs")
+          if [ "$finished" -gt 0 ]; then
+            say "main is at $short and its CI has finished; nothing to do."
+            exit 0
+          fi
+
+          # A recovery run for this commit is already going, ours or somebody's.
+          recovering=$(jq '[.workflow_runs[] | select(.event == "workflow_dispatch" and .status != "completed")] | length' <<<"$runs")
+          if [ "$recovering" -gt 0 ]; then
+            say "main is at $short and a recovery run is already under way; leaving it."
+            exit 0
+          fi
+
+          # How long this commit has been waiting: from its first CI run, or,
+          # if no run was ever created, from the commit itself.
+          since=$(jq -r '[.workflow_runs[].created_at] | min // empty' <<<"$runs")
+          if [ -z "$since" ]; then
+            since=$(gh api "repos/$REPO/commits/$head" --jq .commit.committer.date)
+          fi
+          waited=$(( ( $(date -u +%s) - $(date -u -d "$since" +%s) ) / 60 ))
+          if [ "$waited" -lt "$LIMIT_MINUTES" ]; then
+            say "main is at $short and its CI has been going for ${waited}m, inside the ${LIMIT_MINUTES}m limit; leaving the fleet to it."
+            exit 0
+          fi
+
+          # What is holding CI's slot on main: push runs past the concurrency
+          # gate. A pending run is not in this list -- the recovery run takes
+          # its place on its own.
+          blockers=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=100" \
+            --jq '[.workflow_runs[] | select(.status == "queued" or .status == "in_progress") | .id] | join(" ")')
+
+          say "main is at $short and its CI has not finished after ${waited}m, past the ${LIMIT_MINUTES}m limit."
+          say "Holding CI's slot on main: ${blockers:-nothing}."
+
+          if [ "$DRY_RUN" = "true" ]; then
+            say "Dry run: would start CI on main with runner=github, then cancel the runs above."
+            exit 0
+          fi
+
+          # A minute's grace for the runner's clock and GitHub's to disagree:
+          # a recovery run stamped a second before this one's idea of now
+          # would otherwise never be seen, and the watchdog would stop.
+          started=$(date -u -d '-1 minute' +%Y-%m-%dT%H:%M:%SZ)
+          gh workflow run ci.yml --repo "$REPO" --ref main -f runner=github
+
+          # Wait to see the recovery run before cancelling anything. Cancelling
+          # the only run that would publish, with nothing to replace it, is
+          # the failure this workflow exists to prevent.
+          seen=""
+          for _ in $(seq 1 12); do
+            sleep 5
+            seen=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?event=workflow_dispatch&branch=main&per_page=10" \
+              --jq "[.workflow_runs[] | select(.created_at >= \"$started\") | .id] | first // empty")
+            [ -n "$seen" ] && break
+          done
+          if [ -z "$seen" ]; then
+            echo "::error::Asked GitHub for a recovery run and none appeared within a minute, so nothing was cancelled. Check the Actions tab, and dispatch CI on main with runner=github by hand."
+            exit 1
+          fi
+          say "Started recovery run $seen on GitHub's machines."
+
+          for id in $blockers; do
+            if gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null; then
+              say "Cancelled run $id, which was holding the slot the recovery run needs."
+            else
+              echo "::warning::Could not cancel run $id; the recovery run will wait until it finishes."
+            fi
+          done
+
+          echo "::notice::main's CI was stuck for ${waited}m; started recovery run $seen on GitHub's machines."

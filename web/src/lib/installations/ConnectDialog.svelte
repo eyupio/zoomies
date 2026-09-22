@@ -301,7 +301,7 @@
 
   /**
    * A failure from one tab has nothing to say about the other, and leaving it
-   * on screen put "the App was created, but this controller no longer has the
+   * on screen put "the App was created, but Zoomies no longer has the
    * setup state" over a form it has no bearing on.
    */
   let lastTab = 'manifest';
@@ -341,7 +341,7 @@
    * -- would otherwise be a failure line naming no cause, so it is listed under
    * the summary instead. They are kept as a list rather than joined into the
    * summary with a space: two independent sentences glued together read as one
-   * broken one ("...could not be connected this controller no longer holds the
+   * broken one ("...could not be connected Zoomies no longer holds the
    * credentials..."), and the seam is where an operator stops trusting the
    * message.
    */
@@ -647,7 +647,7 @@
         installation_id: id,
         target: target.trim(),
         target_type: targetType as TargetType,
-        // Empty means "whatever this controller is configured to talk to".
+        // Empty means "whatever Zoomies is configured to talk to".
         api_base_url: apiBase.trim(),
         // The private key is already held, sealed, from the exchange.
         private_key: '',
@@ -861,15 +861,15 @@
                 <div>
                   <p class="blocked-title">
                     {localExternal
-                      ? 'GitHub cannot reach this controller'
-                      : 'This controller has no external URL yet'}
+                      ? 'GitHub cannot reach Zoomies'
+                      : 'Zoomies has no external URL yet'}
                   </p>
                   <p>
                     {#if localExternal}
-                      This controller believes it is reached at <code>{externalURL}</code>, which is
-                      an address only this machine has. GitHub is told where to deliver webhooks
-                      when the App is created, and that address cannot be changed from here
-                      afterwards -- so an App created now would carry one that never fires.
+                      Zoomies believes it is reached at <code>{externalURL}</code>, which is an
+                      address only this machine has. GitHub is told where to deliver webhooks when
+                      the App is created, and that address cannot be changed from here afterwards --
+                      so an App created now would carry one that never fires.
                     {:else}
                       GitHub is told where to deliver webhooks when the App is created, and that
                       address cannot be changed from here afterwards.
@@ -981,8 +981,8 @@
             {#if arrivedWithCode}
               <p class="lede">
                 GitHub has created the App and sent this tab back with a code. The code is exchanged
-                here for the App's credentials, which stay sealed on this controller; if the
-                exchange did not go through, the button below tries it again.
+                here for the App's credentials, which stay sealed on this instance; if the exchange
+                did not go through, the button below tries it again.
               </p>
             {:else if manifest}
               <p class="lede">
@@ -1030,7 +1030,7 @@
               <p class="lede">
                 GitHub reports that installation {installationIdValue || 'of the App'} was created, but
                 this browser does not know which App it belongs to. The App ID is on the App's settings
-                page, next to its name; this controller still holds the key it created, for an hour.
+                page, next to its name; Zoomies still holds the key it created, for an hour.
               </p>
 
               <Field label="App ID" error={errors.app_id} required>
@@ -1290,8 +1290,8 @@
 
           <Field
             label="Webhook secret"
-            hint="Optional, but without it this controller cannot verify that a delivery really came from GitHub. Point the App's webhook at {webhookURL ||
-              'this controller'}."
+            hint="Optional, but without it Zoomies cannot verify that a delivery really came from GitHub. Point the App's webhook at {webhookURL ||
+              'Zoomies'}."
             error={errors.webhook_secret}
           >
             {#snippet children({ id, describedBy, invalid })}

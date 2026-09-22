@@ -7,7 +7,7 @@
   the page you are looking at. "Why has this not started?" is answered by the
   unmatched filter, which finds the queued jobs no enabled pool claims. A job
   that already ran is never counted there: its labels may name a hosted or vendor
-  runner this controller does not own, and something ran it. Neither is a job
+  runner Zoomies does not own, and something ran it. Neither is a job
   whose labels all name such a runner, however long it queues -- a vendor is
   about to start it, and this fleet was never in the running.
 
@@ -410,7 +410,7 @@
 <PageHeader
   title="Jobs"
   subtitle={filters.all
-    ? 'Every workflow job GitHub has told this controller about, whatever ran it.'
+    ? 'Every workflow job GitHub has told Zoomies about, whatever ran it.'
     : 'The workflow jobs this fleet claims, runs, or is waiting to run.'}
   onrefresh={refreshPage}
 />

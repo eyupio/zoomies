@@ -530,7 +530,7 @@
 {:else if installations.length === 0}
   <ErrorState
     title="No installation to migrate"
-    description="A migration reads and writes repositories through a GitHub App installation, and this controller has none. Connect one on the Installations page first."
+    description="A migration reads and writes repositories through a GitHub App installation, and Zoomies has none. Connect one on the Installations page first."
   />
 {:else if outcome}
   <StepOutcome {outcome} />

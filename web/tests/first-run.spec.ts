@@ -239,7 +239,7 @@ test('the connect dialog refuses before the form when GitHub cannot reach here',
   // This fixture has no external URL, which is the state a fresh compose
   // deployment is in. The refusal used to come after the whole form had been
   // filled in, attached to the "Organisation" field.
-  await expect(dialog.getByText('This controller has no external URL yet')).toBeVisible();
+  await expect(dialog.getByText('Zoomies has no external URL yet')).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Continue to GitHub' })).toBeDisabled();
 });
 

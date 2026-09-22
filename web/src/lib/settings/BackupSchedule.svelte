@@ -10,6 +10,7 @@
   that could disagree.
 -->
 <script lang="ts">
+  import { supportHint } from '$lib/errors';
   import { ApiError, getSettings, updateSettings } from '$lib/api/client';
   import type { Problem, Setting, Settings } from '$lib/api/types';
   import { toasts } from '$lib/state/toasts.svelte';
@@ -72,7 +73,7 @@
         if (errors[key]) return errors[key];
         return cause.message;
       }
-      return 'That change could not be made. The controller log will say why.';
+      return `That change could not be made. ${supportHint()}`;
     }
   }
 </script>

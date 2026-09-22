@@ -205,7 +205,7 @@
             </p>
             <p class="why">
               A host is a machine running the Zoomies agent; it is where runners are actually
-              created. This controller is not running one, so nothing has anywhere to go yet.
+              created. Zoomies is not running one, so nothing has anywhere to go yet.
             </p>
           </div>
           <div class="action">

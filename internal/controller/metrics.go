@@ -28,6 +28,7 @@ type metrics struct {
 
 	jobsTotal                                                                                    *prometheus.CounterVec
 	jobsRunnerLost                                                                               *prometheus.CounterVec
+	jobReruns                                                                                    *prometheus.CounterVec
 	jobFailures                                                                                  *prometheus.CounterVec
 	runnerStartFailures                                                                          *prometheus.CounterVec
 	queueWait                                                                                    prometheus.Histogram
@@ -100,6 +101,13 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_jobs_runner_lost_total",
 			Help: "Jobs whose runner stopped before GitHub reported the job over, by pool. These are the fleet's failures rather than the workflows'.",
 		}, []string{"pool"}),
+		// Who asked, not whether it worked: a re-run this fleet decided on is
+		// spending somebody's GitHub minutes, and an operator turning the
+		// setting on wants to see how often it fires before they trust it.
+		jobReruns: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_job_reruns_total",
+			Help: "Re-runs Zoomies has asked GitHub for, by pool and who asked. trigger is operator for the button on a job and fleet_fault for scheduler.auto_rerun.",
+		}, []string{"pool", "trigger"}),
 		// The same failures as jobs_runner_lost, split by category, and kept
 		// beside it rather than replacing it: an operator whose alert fires on
 		// the old series should not have it disappear under them on an
@@ -220,7 +228,7 @@ func newMetrics(c *Controller) *metrics {
 	m.buildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
 
 	m.reg.MustRegister(
-		m.jobsTotal, m.jobsRunnerLost, m.jobFailures, m.runnerStartFailures, m.queueWait, m.jobDuration, m.scalingEvents,
+		m.jobsTotal, m.jobsRunnerLost, m.jobReruns, m.jobFailures, m.runnerStartFailures, m.queueWait, m.jobDuration, m.scalingEvents,
 		m.registrationsDeferred,
 		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.reconcileErrors, m.cleanups, m.pollsShed, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,

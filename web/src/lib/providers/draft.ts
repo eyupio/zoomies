@@ -37,7 +37,7 @@ export const WIZARD_STEPS: readonly WizardStepDef[] = [
   {
     id: 'connect',
     title: 'Connect',
-    description: 'Where this controller reaches the provider, and what it signs in with.',
+    description: 'Where Zoomies reaches the provider, and what it signs in with.',
   },
   {
     id: 'placement',
@@ -389,7 +389,7 @@ export function draftErrors(
   if (draft.kind === '') out.kind = 'Choose which kind of provider this is.';
   if (draft.name.trim() === '') out.name = 'Give this provider a name you will recognise.';
   const endpoint = draft.endpoint.trim();
-  if (endpoint === '') out.endpoint = 'Give the address this controller reaches the provider on.';
+  if (endpoint === '') out.endpoint = 'Give the address Zoomies reaches the provider on.';
   else if (!/^https?:\/\//i.test(endpoint))
     out.endpoint = 'The address needs a scheme: https://pve.example.com:8006.';
   else if (/^http:\/\//i.test(endpoint) && !isLoopbackEndpoint(endpoint))

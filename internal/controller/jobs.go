@@ -276,9 +276,34 @@ func (c *Controller) RerunJobWorkflow(ctx context.Context, jobID string) (*store
 	if j.InstallationID == "" || j.Repo == "" || j.GitHubRunID <= 0 {
 		return nil, fmt.Errorf("job %s has no GitHub installation and workflow run to re-run", j.ID)
 	}
+	if err := c.askGitHubToRerun(ctx, j, rerunByOperator); err != nil {
+		return nil, err
+	}
+	return j, nil
+}
+
+// Who asked for a re-run. It is the metric's label and the difference between
+// the two sentences a timeline entry can carry, and the two are deliberately
+// not interchangeable: one is a person who looked at the failure and decided,
+// the other is a setting somebody turned on weeks ago.
+const (
+	rerunByOperator = "operator"
+	rerunByFault    = "fleet_fault"
+)
+
+// askGitHubToRerun makes the call, writes the timeline entry and counts the
+// metric. It is shared by the button and by the automatic path so the two
+// cannot drift into asking GitHub for different things.
+func (c *Controller) askGitHubToRerun(ctx context.Context, j *store.Job, trigger string) error {
 	client, err := c.ClientFor(ctx, j.InstallationID)
 	if err != nil {
-		return nil, err
+		return err
+	}
+	who := "an operator"
+	source := sourceController
+	if trigger == rerunByFault {
+		who = "this fleet"
+		source = sourceRecovery
 	}
 	// One job where we can, the whole run's failures only where we cannot.
 	// GitHub's job-level re-run takes the job and whatever names it in
@@ -288,31 +313,35 @@ func (c *Controller) RerunJobWorkflow(ctx context.Context, jobID string) (*store
 	var message string
 	if j.GitHubJobID > 0 {
 		if err := client.RerunWorkflowJob(ctx, j.Repo, j.GitHubJobID); err != nil {
-			return nil, err
+			return err
 		}
-		message = fmt.Sprintf("an operator asked GitHub to run job %d again; GitHub runs it together with any job that needs it, and they arrive as a new run attempt", j.GitHubJobID)
+		message = fmt.Sprintf("%s asked GitHub to run job %d again; GitHub runs it together with any job that needs it, and they arrive as a new run attempt", who, j.GitHubJobID)
 	} else {
 		// A job recorded before this fleet kept GitHub's job ID, or one whose
 		// workflow_job delivery never arrived. The wider call is still better
 		// than refusing the button.
 		if err := client.RerunFailedWorkflowJobs(ctx, j.Repo, j.GitHubRunID); err != nil {
-			return nil, err
+			return err
 		}
-		message = fmt.Sprintf("an operator asked GitHub to run the failed jobs of workflow run %d again, because this job has no GitHub job ID recorded; GitHub reruns them together, and they arrive as a new run attempt", j.GitHubRunID)
+		message = fmt.Sprintf("%s asked GitHub to run the failed jobs of workflow run %d again, because this job has no GitHub job ID recorded; GitHub reruns them together, and they arrive as a new run attempt", who, j.GitHubRunID)
 	}
-	if j.FleetFailed() {
+	switch {
+	case trigger == rerunByFault:
+		message += fmt.Sprintf(", because a runner stopped under it and scheduler.auto_rerun is on. This is attempt %d of the %d this run may be given", c.runAttempt(j)+1, c.cfg().Scheduler.AutoRerunLimit+1)
+	case j.FleetFailed():
 		message += ". This job's failure was the fleet's rather than the workflow's"
 	}
 	if err := c.st.AppendJobEvent(ctx, &store.JobEvent{
-		JobID: j.ID, Kind: store.JobEventRerunRequested, Source: sourceController,
+		JobID: j.ID, Kind: store.JobEventRerunRequested, Source: source,
 		Message: message, At: c.Now(),
 	}); err != nil {
-		return nil, err
+		return err
 	}
+	c.metrics.jobReruns.WithLabelValues(c.poolLabel(j.PoolID), trigger).Inc()
 	c.log.Info("asked GitHub to re-run a run's failed jobs",
-		"job", j.ID, "repo", j.Repo, "run", j.GitHubRunID, "fault", j.FaultKind)
+		"job", j.ID, "repo", j.Repo, "run", j.GitHubRunID, "fault", j.FaultKind, "trigger", trigger)
 	c.publishJob(ctx, j)
-	return j, nil
+	return nil
 }
 
 // A job's timeline is the answer to "what happened to my job?", told in the
@@ -331,6 +360,10 @@ const (
 	sourcePoller     = "poller"
 	sourceAgent      = "agent"
 	sourceController = "controller"
+	// A re-run the fleet decided on rather than a person. It is its own source
+	// so a timeline reads "via recovery" and nobody has to work out which
+	// operator pressed a button that was never pressed.
+	sourceRecovery = "recovery"
 )
 
 // recordJobChange writes the timeline entries a job change earned.
@@ -394,6 +427,66 @@ func (c *Controller) recordJobChange(ctx context.Context, j *store.Job, change s
 	}
 	if j.State == store.JobCompleted {
 		add(store.JobEventCompleted, completionMessage(j))
+		c.autoRerunFleetFailure(ctx, j)
+	}
+}
+
+// runAttempt is GitHub's attempt number for this job's run, reading an
+// unrecorded one as the first. A job from before the column existed, or one
+// whose delivery carried no attempt, is on its first attempt as far as anyone
+// can tell, and treating it as a later one would refuse the re-run that is the
+// whole point.
+func (c *Controller) runAttempt(j *store.Job) int {
+	if j.RunAttempt < 1 {
+		return 1
+	}
+	return j.RunAttempt
+}
+
+// autoRerunFleetFailure sends a job back to GitHub when this fleet is what
+// broke it.
+//
+// A runner that dies under a job fails it in a way indistinguishable, on
+// GitHub, from a test failure -- and the ordinary remedy for a job that did
+// not fail on its merits is to run it again. Until this, somebody had to
+// notice, work out that the fault was the fleet's, and press the button.
+//
+// It is off by default and narrow when on:
+//
+// Only the fleet's own failures. `FleetFailed` is the same predicate the Jobs
+// page splits on, so what is re-run automatically is exactly what the fleet
+// has already confessed to. A test that failed is never touched: re-running
+// somebody's red build for them would be the fleet overruling their result.
+//
+// Only while GitHub's attempt number is under the limit. That is what stops a
+// fault the fleet causes every time -- a host out of disk, an image that will
+// not pull -- from re-running the same job until somebody notices the bill.
+// The count comes from GitHub rather than from us, so a controller restart
+// does not reset it and a re-run an operator asked for by hand counts too.
+//
+// Only once per completion. Deliveries are at-least-once, and a second
+// "completed" for a job already completed does not change its state, so it
+// does not reach here: the caller only runs this branch on a change.
+//
+// A failure to ask is logged and dropped. The button is still there, the job
+// is still failed, and a fleet that cannot reach GitHub has a louder problem
+// than this one already on the drawer.
+func (c *Controller) autoRerunFleetFailure(ctx context.Context, j *store.Job) {
+	cfg := c.cfg()
+	if !cfg.Scheduler.AutoRerun || !j.FleetFailed() || !j.Failed() {
+		return
+	}
+	if j.InstallationID == "" || j.Repo == "" || j.GitHubRunID <= 0 {
+		return
+	}
+	if attempt := c.runAttempt(j); attempt > cfg.Scheduler.AutoRerunLimit {
+		c.log.Info("not re-running a job the fleet broke: this run has had its automatic re-runs",
+			"job", j.ID, "run", j.GitHubRunID, "attempt", attempt, "limit", cfg.Scheduler.AutoRerunLimit)
+		return
+	}
+	if err := c.askGitHubToRerun(ctx, j, rerunByFault); err != nil {
+		c.log.Warn("could not re-run a job the fleet broke",
+			"job", j.ID, "run", j.GitHubRunID, "error", err)
 	}
 }
 

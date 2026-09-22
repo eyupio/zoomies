@@ -561,6 +561,19 @@ type Scheduler struct {
 	// given no limit at all, and a host's worth of them can each take every
 	// core, which is the overload this setting exists to prevent.
 	DefaultRunnerLimits bool `yaml:"default_runner_limits"`
+	// AutoRerun asks GitHub to run a job again when this fleet is what broke
+	// it -- a runner that died under it, not a test that failed. It is off by
+	// default and deliberately so: GitHub minutes are the operator's to spend,
+	// and a job that got as far as running may have had side effects its
+	// author knows about and this does not.
+	AutoRerun bool `yaml:"auto_rerun"`
+	// AutoRerunLimit is how many times one workflow run may be re-run
+	// automatically. It is what stops a fault the fleet is causing every time
+	// from re-running the same job for ever, and it is counted from GitHub's
+	// own run attempt rather than from anything we store: the bound therefore
+	// survives a controller restart, and a re-run an operator asked for by
+	// hand counts against it like any other.
+	AutoRerunLimit int `yaml:"auto_rerun_limit"`
 	// HostThrottling lets the controller throttle a host whose measurements
 	// say it is overwhelmed: fewer slots, and a lower CPU quota on the runners
 	// already on it, stepped back up after a stretch of calm. Off, the
@@ -781,6 +794,7 @@ func Default() *Config {
 			DefaultRunnerLimits:     true,
 			RegistrationConcurrency: 1,
 			HostThrottling:          true,
+			AutoRerunLimit:          1,
 		},
 		Log:     Log{Level: "info", Format: "json"},
 		Metrics: Metrics{Enabled: true, Path: "/metrics"},

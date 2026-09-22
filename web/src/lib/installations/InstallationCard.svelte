@@ -1,7 +1,7 @@
 <!--
   One GitHub App connection.
 
-  The card answers "can this controller still talk to GitHub for this target?".
+  The card answers "can Zoomies still talk to GitHub for this target?".
   Health is the App's last probe result, and when it failed the error is shown
   in full rather than summarised, because it is usually the name of a permission
   somebody has to grant.

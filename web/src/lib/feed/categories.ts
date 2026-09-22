@@ -179,7 +179,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
     label: 'GitHub connection',
     group: 'Connections and records',
     description:
-      'An App installation that started or stopped working, and webhook deliveries GitHub sent that this controller refused.',
+      'An App installation that started or stopped working, and webhook deliveries GitHub sent that Zoomies refused.',
     icon: Plug,
     on: true,
     history: false,

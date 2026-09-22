@@ -847,7 +847,7 @@
               'migration',
             )}{verification.latest ? `, up to ${schemaShort(verification.latest)}` : ''}.
           {:else}
-            Written by a newer release than this controller.
+            Written by a newer release than Zoomies.
           {/if}
         </span>
       </li>
@@ -873,7 +873,7 @@
 <Dialog
   bind:open={encryptOpen}
   title="Download encrypted"
-  description="The archive is sealed with a passphrase before it leaves this controller, so it can sit on a laptop or in a shared drive."
+  description="The archive is sealed with a passphrase before it leaves Zoomies, so it can sit on a laptop or in a shared drive."
   size="sm"
 >
   <form
@@ -941,7 +941,7 @@
 <Dialog
   bind:open={uploadOpen}
   title="Upload a backup"
-  description="An archive this page downloaded, from this controller or another. It is unpacked, verified, and listed; retention never removes it."
+  description="An archive this page downloaded, from Zoomies or another. It is unpacked, verified, and listed; retention never removes it."
   size="sm"
 >
   <form

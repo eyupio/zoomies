@@ -10,6 +10,7 @@
   and not a file.
 -->
 <script lang="ts">
+  import { supportHint } from '$lib/errors';
   import {
     ApiError,
     checkDraftBackupRemote,
@@ -109,7 +110,7 @@
       refusal = Object.keys(errors).length > 0 ? '' : cause.message;
       return;
     }
-    refusal = 'That could not be done. The controller log will say why.';
+    refusal = `That could not be done. ${supportHint()}`;
   }
 
   async function test(): Promise<void> {

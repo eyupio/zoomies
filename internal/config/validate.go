@@ -850,6 +850,27 @@ func (c *Config) Validate() Findings {
 			Fix:    "leave scheduler.host_throttling on unless something outside Zoomies manages the hosts' load.",
 		})
 	}
+	if c.Scheduler.AutoRerun {
+		// Not a weakening of the security posture, but a standing permission
+		// to spend somebody's money without asking, which is the other thing
+		// this list exists to say out loud before a deployment discovers it.
+		add(Finding{
+			Code: "scheduler.auto_rerun_on", Severity: SeverityWarning, Setting: "scheduler.auto_rerun",
+			Title:  "jobs this fleet breaks are re-run without asking",
+			Detail: fmt.Sprintf("a job whose runner died under it is sent back to GitHub automatically, up to %d time(s) per workflow run. That spends GitHub minutes on this installation's account, and a job that got as far as running may have had side effects outside GitHub that its author expected to happen once.", c.Scheduler.AutoRerunLimit),
+			Fix:    "turn scheduler.auto_rerun off to leave the re-run to the button on the job, or lower scheduler.auto_rerun_limit.",
+		})
+	}
+	if c.Scheduler.AutoRerunLimit < 1 || c.Scheduler.AutoRerunLimit > 5 {
+		// Bounded at both ends on purpose. Zero would make the setting above
+		// do nothing while still reading as on, and a large number turns a
+		// fault the fleet is causing every time into a bill.
+		add(Finding{
+			Code: "scheduler.auto_rerun_limit", Severity: SeverityError, Setting: "scheduler.auto_rerun_limit",
+			Title: "auto_rerun_limit must be between 1 and 5",
+			Fix:   "use 1 to re-run a broken run once, or turn scheduler.auto_rerun off.",
+		})
+	}
 	// A runner's start is bounded three times over, and this is the only one
 	// that gives up: the agent allows itself RunnerCreateBudget for the create,
 	// the controller will not re-offer the task for longer still, and the

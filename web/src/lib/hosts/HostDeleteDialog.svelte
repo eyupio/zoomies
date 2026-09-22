@@ -95,7 +95,7 @@
     bind:open
     title="Remove host"
     name={host?.name || host?.id}
-    description="{name} will be removed from this controller. Its agent will have to enrol again with a new join token to come back."
+    description="{name} will be removed from Zoomies. Its agent will have to enrol again with a new join token to come back."
     consequences={[
       runners > 0
         ? `${pluralise(runners, 'runner')} on this host will be refused: cordon it and let them finish first.`
