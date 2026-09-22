@@ -121,7 +121,14 @@ func TestWhoSeesWhat(t *testing.T) {
 		platform, fleetMember bool
 	}{
 		{AudiencePlatform, true, false},
-		{AudienceFleet, false, true},
+		// The platform sees the fleet's too. This row is the one that
+		// matters: without it, "platform sees platform problems" passes every
+		// other assertion here and takes every pool, host, runner and job
+		// problem off the drawer of every operator running their own fleet,
+		// because the account that installed a single-team instance holds
+		// platform. A drill caught that; this row is so the next one does not
+		// have to.
+		{AudienceFleet, true, true},
 		{AudienceBoth, true, true},
 		{Audience(""), true, false},
 	} {

@@ -37,8 +37,17 @@ func problemsSeenBy(t *testing.T, h *harness, role store.Role) problemsBody {
 // can do nothing about it; it also learns how the process is deployed.
 func TestTheProblemsDrawerIsTwoListsNotOne(t *testing.T) {
 	h := newHarness(t)
+	// A fleet problem to actually have one. A bare harness raises none, so
+	// the comparison below was passing by iterating over nothing -- which is
+	// how "the platform sees the fleet's too" went out believed and wrong.
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	h.job(pool, store.JobQueued)
 
 	asAdmin := problemsSeenBy(t, h, store.RoleAdmin)
+	if len(asAdmin.Items) == 0 {
+		t.Fatal("the fleet's list is empty, so nothing below is being compared")
+	}
 	for _, p := range asAdmin.Items {
 		if p.Audience == "platform" {
 			t.Errorf("an administrator was shown %q, which is the platform's", p.Code)
@@ -60,6 +69,21 @@ func TestTheProblemsDrawerIsTwoListsNotOne(t *testing.T) {
 	}
 	if !platformSaw {
 		t.Fatal("the platform's own list carries nothing, so this proves nothing about the split")
+	}
+	// And it still sees the fleet's, which is the half a first draft lost:
+	// the account that installed a single-team instance holds platform, and
+	// its drawer is the only one there is.
+	for _, want := range asAdmin.Items {
+		var found bool
+		for _, got := range asPlatform.Items {
+			if got.Code == want.Code {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("the platform cannot see %q, which the fleet can; on a single-team instance that is the whole drawer gone", want.Code)
+		}
 	}
 	if len(asPlatform.Items) <= len(asAdmin.Items) {
 		t.Errorf("the platform saw %d problems and the fleet %d; the platform sees its own as well as theirs is not the claim, but it must see more here",

@@ -86,13 +86,22 @@ const (
 
 // For reports whether a problem belongs on the list this role is shown.
 func (a Audience) For(platform bool) bool {
-	if a == AudienceBoth {
+	// The platform sees everything, including the fleet's. The split exists to
+	// keep the process's own troubles from the fleet, not to keep the fleet's
+	// from whoever runs the process: platform is the higher role, it is the
+	// account that installed every single-team instance there is, and a first
+	// draft that read "platform sees platform problems" took every pool, host,
+	// runner and job problem off the drawer of every operator running their
+	// own fleet. A drill caught it; the unit tests here did not, because each
+	// asked whether the platform saw its own rather than whether it still saw
+	// theirs.
+	if platform {
 		return true
 	}
-	if platform {
-		return a == AudiencePlatform || a == ""
-	}
-	return a == AudienceFleet
+	// The fleet sees its own and the ones that are both people's. An
+	// unclassified problem is not theirs, which is the withholding default
+	// audienceFor documents.
+	return a == AudienceFleet || a == AudienceBoth
 }
 
 var problemAudience = map[string]Audience{
