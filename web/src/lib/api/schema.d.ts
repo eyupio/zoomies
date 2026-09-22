@@ -4875,10 +4875,10 @@ export interface components {
             /** @description Whether an administrator may change it through this API. */
             editable: boolean;
             /**
-             * @description `instance` lives in the fleet's database. `bootstrap` is read before that database can be opened, so it cannot. `local` belongs to a standalone agent's own host.
+             * @description `instance` lives in the fleet's database. `platform` lives there too but belongs to whoever runs the controller rather than the fleet -- what the process binds, trusts, stores, logs or dials from its own machine -- and is omitted entirely for a caller below the `platform` role. `bootstrap` is read before that database can be opened, so it cannot. `local` belongs to a standalone agent's own host.
              * @enum {string}
              */
-            scope: "instance" | "bootstrap" | "local";
+            scope: "instance" | "platform" | "bootstrap" | "local";
             /** @description Why it is not editable */
             reason?: string;
             /** @description Whether a change is in force by the time the response is written. */

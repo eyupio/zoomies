@@ -193,7 +193,7 @@ func (s *Server) supportBundle(ctx context.Context) supportBundle {
 	b.Instance = s.bundleInstance(ctx, gather)
 
 	gather("config", func() error {
-		b.Config = s.settingsConfig()
+		b.Config = s.settingsConfig(callerRoleCtx(ctx))
 		b.Findings = s.cfg().Validate().ForUI()
 		return nil
 	})
@@ -348,9 +348,9 @@ func (s *Server) bundleInstance(ctx context.Context, gather func(string, func() 
 		CPUs:             runtime.NumCPU(),
 		Goroutines:       runtime.NumGoroutine(),
 		HeapInUseBytes:   mem.HeapInuse,
-		ConfigPath:       s.cfg().Path(),
-		DatabasePath:     s.ctrl.Store().Path(),
-		EventSubscribers: s.ctrl.Events().Subscribers(),
+		ConfigPath:       platformOnly(callerRoleCtx(ctx), s.cfg().Path()),
+		DatabasePath:     platformOnly(callerRoleCtx(ctx), s.ctrl.Store().Path()),
+		EventSubscribers: platformOnlyInt(callerRoleCtx(ctx), s.ctrl.Events().Subscribers()),
 		PollingOnly:      s.ctrl.PollingOnly(),
 		PollerEnabled:    s.ctrl.PollerEnabled(),
 	}

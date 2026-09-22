@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
@@ -56,7 +57,7 @@ func (s *Server) handleExportSettings(w http.ResponseWriter, r *http.Request) {
 		badRequestField(w, "format", "the export is written as json or yaml")
 		return
 	}
-	doc := s.exportSettings()
+	doc := s.exportSettings(callerRole(r))
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "settings.export", "settings", "settings", map[string]any{
 		"format": format, "keys": countKeys(doc.Settings),
 	})
@@ -97,7 +98,11 @@ func (s *Server) handleExportSettings(w http.ResponseWriter, r *http.Request) {
 // stored here, set in the file, or pinned by the environment. Bootstrap and
 // local settings are left out because they belong to a host rather than to a
 // fleet, and a secret contributes its name to the list rather than its value.
-func (s *Server) exportSettings() settingsExport {
+// exportSettings renders what this caller may see, not everything the
+// instance has. Rendering the lot would have made the audience split on
+// GET /settings decorative: an administrator who could not read backup.directory
+// on the page could read it out of the export one click away.
+func (s *Server) exportSettings(who store.Role) settingsExport {
 	c := s.cfg()
 	doc := settingsExport{
 		ExportVersion:     exportVersion,
@@ -108,6 +113,9 @@ func (s *Server) exportSettings() settingsExport {
 		SecretsConfigured: []string{},
 	}
 	for _, st := range config.StoredSettings() {
+		if st.Platform() && !who.AtLeast(store.RolePlatform) {
+			continue
+		}
 		if c.Source(st.Key) == config.SourceDefault {
 			continue
 		}
@@ -243,7 +251,7 @@ func (s *Server) handleImportSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	current := s.cfg()
-	candidate, staged, fields := s.planSettings(current, flat)
+	candidate, staged, fields := s.planSettings(current, flat, callerRole(r))
 	out := importResponse{Changes: []importChange{}, SecretsConfigured: emptySlice(secrets), Summary: importSummary{Skipped: skipped}}
 	refused := map[string]string{}
 	for _, f := range fields {

@@ -160,9 +160,21 @@ func (s *Server) dropAnsweredElsewhere(r *http.Request, findings []config.Findin
 // support bundle and a backup's manifest; what is added here is the handful of
 // values that are derived rather than configured, and are what an operator
 // actually wants to see next to the settings they came from.
-func (s *Server) settingsConfig() map[string]any {
+func (s *Server) settingsConfig(who store.Role) map[string]any {
 	c := s.cfg()
 	out := config.Redacted(c)
+
+	// The nested object says the same thing the key-by-key list does, so it
+	// has to answer the same way: an administrator who is not shown
+	// backup.directory in the list must not find it here, or in the support
+	// bundle that renders this same tree.
+	if !who.AtLeast(store.RolePlatform) {
+		for _, st := range config.Settings() {
+			if st.Platform() {
+				deleteNested(out, st.Key)
+			}
+		}
+	}
 
 	// The encryption key's presence is the one thing here that is not read off
 	// the configuration: it may have come from a file this process read at
@@ -178,6 +190,33 @@ func (s *Server) settingsConfig() map[string]any {
 // setNested writes a dotted key into a tree of maps.
 func setNested(into map[string]any, key string, value any) { config.SetNested(into, key, value) }
 
+// deleteNested removes a dotted key from a tree of maps, and any section the
+// removal leaves empty -- so a caller shown none of `backup.*` is not handed a
+// bare `backup: {}` that says one exists and is being withheld.
+func deleteNested(from map[string]any, key string) {
+	parts := strings.Split(key, ".")
+	node := from
+	parents := make([]map[string]any, 0, len(parts))
+	names := make([]string, 0, len(parts))
+	for _, part := range parts[:len(parts)-1] {
+		child, ok := node[part].(map[string]any)
+		if !ok {
+			return
+		}
+		parents = append(parents, node)
+		names = append(names, part)
+		node = child
+	}
+	delete(node, parts[len(parts)-1])
+	for i := len(parents) - 1; i >= 0; i-- {
+		child, _ := parents[i][names[i]].(map[string]any)
+		if len(child) > 0 {
+			return
+		}
+		delete(parents[i], names[i])
+	}
+}
+
 func (s *Server) oidcRedirectURL() string {
 	if s.oidc.Enabled() {
 		return s.oidc.RedirectURL()
@@ -186,7 +225,7 @@ func (s *Server) oidcRedirectURL() string {
 }
 
 // settingViews renders every key, in the order the documentation lists them.
-func (s *Server) settingViews(rows []store.InstanceSetting, pending []string) []settingView {
+func (s *Server) settingViews(rows []store.InstanceSetting, pending []string, who store.Role) []settingView {
 	c := s.cfg()
 	defaults := config.Default()
 	stored := map[string]store.InstanceSetting{}
@@ -196,6 +235,14 @@ func (s *Server) settingViews(rows []store.InstanceSetting, pending []string) []
 
 	out := make([]settingView, 0, len(config.Settings()))
 	for _, st := range config.Settings() {
+		// A fleet's administrator is not shown the platform's keys at all,
+		// rather than shown them locked. A locked field still says what the
+		// instance binds and where it ships its backups, and on an instance
+		// one team operates for another that is the platform's business and
+		// not the fleet's.
+		if st.Platform() && !who.AtLeast(store.RolePlatform) {
+			continue
+		}
 		value, err := c.Value(st.Key)
 		if err != nil {
 			continue
@@ -230,7 +277,7 @@ func (s *Server) settingViews(rows []store.InstanceSetting, pending []string) []
 			at := row.UpdatedAt
 			v.UpdatedAt, v.UpdatedBy = &at, row.UpdatedBy
 		}
-		v.Editable, v.Reason = s.editable(st, c)
+		v.Editable, v.Reason = s.editable(st, c, who)
 		out = append(out, v)
 	}
 	sort.Slice(out, func(i, j int) bool { return config.CompareKeys(out[i].Key, out[j].Key) < 0 })
@@ -240,7 +287,10 @@ func (s *Server) settingViews(rows []store.InstanceSetting, pending []string) []
 // editable says whether this administrator may change a key here, and when they
 // may not, why -- in a sentence written for the person reading it, because
 // "not editable" with no reason is the thing that sends somebody to the source.
-func (s *Server) editable(st config.Setting, c *config.Config) (bool, string) {
+func (s *Server) editable(st config.Setting, c *config.Config, who store.Role) (bool, string) {
+	if st.Platform() && !who.AtLeast(store.RolePlatform) {
+		return false, "This belongs to whoever runs this controller rather than to the fleet: it changes what the process binds, trusts, stores or logs on its own machine. Ask them to change it."
+	}
 	switch st.Scope {
 	case config.ScopeBootstrap:
 		return false, fmt.Sprintf(
@@ -257,6 +307,59 @@ func (s *Server) editable(st config.Setting, c *config.Config) (bool, string) {
 			st.Env)
 	}
 	return true, ""
+}
+
+// callerRole is the asking identity's role, or the empty role when there is
+// none. The empty role is at least nothing, so an unauthenticated caller that
+// somehow reaches here is treated as the fleet rather than as the platform.
+func callerRole(r *http.Request) store.Role { return callerRoleCtx(r.Context()) }
+
+// callerRoleCtx is callerRole for the handlers that carry a context rather
+// than the request -- the support bundle assembles itself from several.
+func callerRoleCtx(ctx context.Context) store.Role {
+	if id := Identity(ctx); id != nil {
+		return id.Role
+	}
+	return ""
+}
+
+// platformOnly blanks a string that describes the process's own machine --
+// where its configuration file is, where its database is -- for anybody but
+// the platform. A fleet's administrator has no use for a path on somebody
+// else's host, and on an operated instance it is not theirs to know.
+func platformOnly(who store.Role, v string) string {
+	if who.AtLeast(store.RolePlatform) {
+		return v
+	}
+	return ""
+}
+
+// platformOnlyInt is platformOnly for a count. Zero rather than absent: the
+// field is not optional in the schema, and "no subscribers" is the honest
+// reading of a number the caller is not being told.
+func platformOnlyInt(who store.Role, v int) int {
+	if who.AtLeast(store.RolePlatform) {
+		return v
+	}
+	return 0
+}
+
+// visibleKeys drops the platform's keys from a list of key names for anybody
+// but the platform. The settings themselves are already filtered; a key that
+// survived only in the pending-restart or restart-required list would name a
+// setting the caller was never shown, which reads as a bug in the page.
+func visibleKeys(keys []string, who store.Role) []string {
+	if who.AtLeast(store.RolePlatform) {
+		return keys
+	}
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if st, ok := config.LookupSetting(k); ok && st.Platform() {
+			continue
+		}
+		out = append(out, k)
+	}
+	return out
 }
 
 func (s *Server) configFileName() string {
@@ -298,6 +401,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 // that a client which just changed forty keys can repaint without asking.
 func (s *Server) settingsPage(r *http.Request) (settingsResponse, error) {
 	c := s.cfg()
+	who := callerRole(r)
 	rows, err := s.ctrl.Store().ListInstanceSettings(r.Context())
 	if err != nil {
 		return settingsResponse{}, err
@@ -312,6 +416,9 @@ func (s *Server) settingsPage(r *http.Request) (settingsResponse, error) {
 
 	var pinned []string
 	for _, st := range c.PinnedByEnvironment() {
+		if st.Platform() && !who.AtLeast(store.RolePlatform) {
+			continue
+		}
 		pinned = append(pinned, st.Key)
 	}
 
@@ -327,16 +434,16 @@ func (s *Server) settingsPage(r *http.Request) (settingsResponse, error) {
 	findings = s.dropAnsweredElsewhere(r, findings)
 
 	return settingsResponse{
-		Config:              s.settingsConfig(),
-		Settings:            s.settingViews(rows, pending),
+		Config:              s.settingsConfig(who),
+		Settings:            s.settingViews(rows, pending, who),
 		Findings:            findings,
-		PendingRestart:      emptySlice(pending),
+		PendingRestart:      emptySlice(visibleKeys(pending, who)),
 		PinnedByEnvironment: emptySlice(pinned),
-		RestartRequiredKeys: restartRequiredKeys(),
-		ConfigPath:          c.Path(),
+		RestartRequiredKeys: visibleKeys(restartRequiredKeys(), who),
+		ConfigPath:          platformOnly(who, c.Path()),
 		Version:             version.Short(),
-		DatabasePath:        s.ctrl.Store().Path(),
-		EventSubscribers:    s.ctrl.Events().Subscribers(),
+		DatabasePath:        platformOnly(who, s.ctrl.Store().Path()),
+		EventSubscribers:    platformOnlyInt(who, s.ctrl.Events().Subscribers()),
 	}, nil
 }
 
@@ -380,7 +487,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	flatten("", raw, flat)
 
 	current := s.cfg()
-	candidate, staged, fields := s.planSettings(current, flat)
+	candidate, staged, fields := s.planSettings(current, flat, callerRole(r))
 	if len(fields) > 0 {
 		unprocessable(w, "these settings could not be changed", fields)
 		return
@@ -404,7 +511,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 // returns the candidate that results, the changes that would be made, and the
 // refusals. It writes nothing. The import route plans the same way, which is
 // how a preview of an import can be trusted to be what applying it would do.
-func (s *Server) planSettings(current *config.Config, flat map[string]any) (*config.Config, []change, []fieldError) {
+func (s *Server) planSettings(current *config.Config, flat map[string]any, who store.Role) (*config.Config, []change, []fieldError) {
 	// A scratch copy to try the whole request on. Validating the result is
 	// what makes it safe to let a settings page write a listener address.
 	candidate := *current
@@ -419,7 +526,7 @@ func (s *Server) planSettings(current *config.Config, flat map[string]any) (*con
 			fields = append(fields, fieldError{key, fmt.Sprintf("%q is not a setting this version has", key)})
 			continue
 		}
-		if editable, reason := s.editable(st, current); !editable {
+		if editable, reason := s.editable(st, current, who); !editable {
 			fields = append(fields, fieldError{key, reason})
 			continue
 		}
