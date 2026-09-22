@@ -10,12 +10,27 @@
 import type { Problem } from '../api/types';
 
 /**
+ * A pool.dangerous problem is raised once per weakened setting on the same
+ * pool -- persistent runners, the host docker socket, docker-in-docker, root
+ * -- so it is the one code that shares a code and a target across genuinely
+ * different problems, with the title the only thing that separates them. No
+ * other code does this, and every one of those titles is a fixed sentence
+ * from store.Pool.Dangerous, never one built from a count that changes
+ * between reconciliation passes.
+ */
+const CODES_DISTINGUISHED_BY_TITLE: ReadonlySet<string> = new Set(['pool.dangerous']);
+
+/**
  * The identity of a problem across refreshes.
  *
  * Deliberately built from what the problem is *about* rather than from its
  * prose: "5 webhook deliveries were rejected" becoming "6 webhook deliveries
  * were rejected" is the same fault, and re-asking about it every minute is the
- * nagging the dismissals exist to stop.
+ * nagging the dismissals exist to stop. That is why the title only joins the
+ * key for the handful of codes that need it to tell two simultaneous problems
+ * apart -- folding it in for every pool-targeted problem would make
+ * "21 jobs waiting" and "22 jobs waiting" different faults, undoing a
+ * dismissal every time the queue length moved.
  */
 export function problemKey(problem: Problem): string {
   return [
@@ -23,8 +38,6 @@ export function problemKey(problem: Problem): string {
     problem.target_kind ?? '',
     problem.target_id ?? '',
     problem.setting ?? '',
-    // Two dangerous settings on one pool share a code and a target, so the
-    // title is the only thing that separates them.
-    problem.target_kind === 'pool' ? (problem.title ?? '') : '',
+    CODES_DISTINGUISHED_BY_TITLE.has(problem.code) ? (problem.title ?? '') : '',
   ].join('|');
 }
