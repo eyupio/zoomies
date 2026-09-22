@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"time"
@@ -198,4 +199,128 @@ func (s *Store) UsageDays(ctx context.Context, from, to time.Time) ([]UsageDay, 
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+// usageAllocation feeds the usage report's runner allocation, clipped to
+// [lo, observed) and cut at bucket and UTC-day boundaries, to add.
+//
+// A day comes from the roll-up when the roll-up has absorbed it and it sits
+// whole inside the window and inside one bucket; that is what keeps a report
+// complete for days whose runner rows -- and even whose sessions -- have been
+// pruned. Every other moment comes from the rows: runners still in the table,
+// and the sessions of runners that are not. A day the roll-up cannot serve
+// whole (an hourly bucket, a window that starts at 06:30) falls back to the
+// sessions, which are kept for a year, rather than to a share of the day's
+// total that would be a guess.
+//
+// A runner with a session is priced at the session's rate, the rate when it
+// ran, so a report across a price change agrees with the roll-up about which
+// rate applied.
+func (s *Store) usageAllocation(ctx context.Context, group UsageGroup, lo, hi, observed, width int64,
+	add func(key string, at int64, secs float64, cost *float64)) error {
+	var until int64
+	err := s.read.QueryRowContext(ctx, `SELECT rolled_until FROM usage_rollup WHERE id = 1`).Scan(&until)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	rolled := func(day int64) bool {
+		end := day + dayMS
+		return day >= lo && end <= hi && end <= until && end <= observed && (day-lo)/width == (end-1-lo)/width
+	}
+	var col, rowExpr string
+	switch group {
+	case UsageByPool:
+		col, rowExpr = "pool_id", "r.pool_id"
+	case UsageByHost:
+		col, rowExpr = "host_id", "r.host_id"
+	case UsageByInstallation:
+		col, rowExpr = "installation_id", "CASE WHEN rs.runner_id IS NULL THEN COALESCE(p.installation_id, '') ELSE rs.installation_id END"
+	default:
+		return fmt.Errorf("usage group %q has no runner allocation", group)
+	}
+
+	if until > lo {
+		// col is one of three constants above, never caller input.
+		rows, err := s.read.QueryContext(ctx, `SELECT day, `+col+`, SUM(allocated_seconds), SUM(cost_minor)
+			FROM usage_daily WHERE day >= ? AND day < ? GROUP BY day, `+col, lo, min64(hi, until))
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var day, secs int64
+			var key string
+			var minor sql.NullInt64
+			if err := rows.Scan(&day, &key, &secs, &minor); err != nil {
+				rows.Close()
+				return err
+			}
+			if !rolled(day) {
+				continue
+			}
+			var cost *float64
+			if minor.Valid {
+				c := float64(minor.Int64) / 100
+				cost = &c
+			}
+			add(key, day, float64(secs), cost)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+	}
+
+	rows, err := s.read.QueryContext(ctx, `SELECT `+rowExpr+`, r.created_at,
+			CASE WHEN rs.runner_id IS NULL THEN COALESCE(r.finished_at, ?1) ELSE rs.finished_at END AS ended,
+			CASE WHEN rs.runner_id IS NULL THEN p.cost_per_runner_hour ELSE rs.cost_per_runner_hour END
+		FROM runners r JOIN pools p ON p.id = r.pool_id LEFT JOIN runner_sessions rs ON rs.runner_id = r.id
+		WHERE r.created_at < ?2 AND ended > ?3
+		UNION ALL
+		SELECT rs.`+col+`, rs.started_at, rs.finished_at, rs.cost_per_runner_hour FROM runner_sessions rs
+		WHERE rs.started_at < ?2 AND rs.finished_at > ?3
+		AND NOT EXISTS (SELECT 1 FROM runners r WHERE r.id = rs.runner_id)`, observed, hi, lo)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var start, end int64
+		var rate *float64
+		if err := rows.Scan(&key, &start, &end, &rate); err != nil {
+			return err
+		}
+		for at, end := max64(start, lo), min64(end, observed); at < end; {
+			day := utcDay(at)
+			next := min64(end, min64(lo+((at-lo)/width+1)*width, day+dayMS))
+			if !rolled(day) {
+				secs := float64(next-at) / 1000
+				var cost *float64
+				if rate != nil {
+					c := secs / 3600 * *rate
+					cost = &c
+				}
+				add(key, at, secs, cost)
+			}
+			at = next
+		}
+	}
+	return rows.Err()
+}
+
+// UsageLedgerFrom is the earliest instant the usage ledger can still account
+// for runner allocation: the start of the roll-up, or of the oldest session
+// not yet rolled up. It is nil on a database with neither, which is one that
+// has not yet seen a runner go.
+func (s *Store) UsageLedgerFrom(ctx context.Context) (*time.Time, error) {
+	var from sql.NullInt64
+	err := s.read.QueryRowContext(ctx, `SELECT MIN(at) FROM (
+		SELECT rolled_from AS at FROM usage_rollup WHERE id = 1
+		UNION ALL SELECT MIN(started_at) FROM runner_sessions)`).Scan(&from)
+	if err != nil || !from.Valid {
+		return nil, err
+	}
+	t := time.UnixMilli(from.Int64).UTC()
+	return &t, nil
 }

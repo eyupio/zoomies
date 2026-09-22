@@ -174,6 +174,25 @@ that divides it, rather than divided into a runner and a daemon with no limit.
 `host.overprovisioned` now counts a slot as a pair only for pools that typed
 their limits.
 
+## The usage ledger
+
+Migrations `0047_runner_sessions.sql` and `0048_usage_daily.sql` add two
+tables and change none. The first records a session for every runner already
+cleaned up when the upgrade runs, reading the runners table without rewriting
+it, so the usage report's runner history begins at the oldest runner row the
+database still had — about a week back with the default `retention.runners` —
+rather than at the upgrade. Runners pruned by an earlier build are gone, and no
+migration can bring their hours back; `history_from.runners` on `/usage` says
+where the ledger begins.
+
+From then on every runner gets one session when its cleanup is confirmed, or
+when the prune takes a row whose cleanup never was, and the prune pass rolls
+whole UTC days into `usage_daily` before anything they were computed from can
+go. `retention.runner_sessions` keeps sessions for a year by default and never
+deletes one the roll-up has not absorbed; the roll-up itself is not pruned. No
+configuration is required. The new migrations mean the backup and rollback
+rules below apply.
+
 ## What happens to work in flight
 
 A restart does not touch a running job. The runner is a container on its host,

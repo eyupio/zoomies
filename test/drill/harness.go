@@ -735,3 +735,28 @@ func generateAppKey(t *testing.T) string {
 }
 
 var _ = store.RunnerIdle // the state names the drills assert on
+
+// runnerSessions counts the usage ledger's sessions for one runner, read
+// straight from the controller's database. There is no route for the
+// sessions, and a drill asserting on the ledger should not need one: opening
+// read-only neither migrates nor writes, so it cannot disturb the controller
+// that owns the file.
+func (f *fleet) runnerSessions(id string) int {
+	f.t.Helper()
+	s, err := store.Open(context.Background(), store.Options{Path: filepath.Join(f.stateDir, "zoomies.db"), ReadOnly: true})
+	if err != nil {
+		f.t.Fatalf("opening the controller's database read-only: %v", err)
+	}
+	defer s.Close()
+	all, err := s.RunnerSessions(context.Background(), time.Unix(0, 0), time.Now().Add(time.Hour))
+	if err != nil {
+		f.t.Fatalf("reading runner sessions: %v", err)
+	}
+	n := 0
+	for _, x := range all {
+		if x.RunnerID == id {
+			n++
+		}
+	}
+	return n
+}
