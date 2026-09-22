@@ -1343,6 +1343,22 @@ func NewProblemsView(items []Problem) ProblemsView {
 	return ProblemsView{OK: len(items) == 0, Items: items}
 }
 
+// NewProblemsViewFor is NewProblemsView for one of the two audiences.
+//
+// OK is computed after the filter, not before it. A fleet whose own runners
+// are fine, on an instance whose backups are failing, is a fleet with nothing
+// to do: showing it "something needs your attention" above an empty drawer
+// would send somebody looking for a problem they are not allowed to see.
+func NewProblemsViewFor(items []Problem, platform bool) ProblemsView {
+	kept := make([]Problem, 0, len(items))
+	for _, p := range items {
+		if p.Audience.For(platform) {
+			kept = append(kept, p)
+		}
+	}
+	return ProblemsView{OK: len(kept) == 0, Items: kept}
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

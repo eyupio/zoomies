@@ -21,6 +21,25 @@ Problems come from two places and behave differently:
   These come and go with the fleet: a host that starts answering again clears
   `host.unhealthy` by itself.
 
+Each code also has an **audience**, which decides who is shown it on an
+instance where one team operates the controller and another uses the fleet:
+
+* The **platform's** are what the process itself is doing wrong — its lease,
+  its loops, its backups, the release it could be running — together with every
+  finding from the startup validator, because each of those names a setting
+  that says what the process binds, trusts, stores or logs.
+* The **fleet's** are what its own pools, hosts, runners and jobs are doing
+  wrong. These reach everyone who can read the list.
+* One code is **both**: `controller.problems_partial`, because a list that
+  could not be fully gathered has to say so to whoever is reading it.
+
+On a single-team instance the account that installed it holds the platform
+role, so the list is undivided and this changes nothing. The audience of each
+code is recorded once, in `problemAudience` in
+`internal/controller/problems.go`, and a test fails if a code is raised without
+one — it is deliberately not repeated in the table below, because a second
+copy of an answer is a second copy to get out of step.
+
 Both use the same three severities:
 
 | Severity | What it means |
