@@ -75,6 +75,25 @@ const (
 	// and an administrator changes it in the UI. This is almost everything.
 	ScopeInstance Scope = "instance"
 
+	// ScopePlatform belongs to whoever runs the process rather than whoever
+	// runs the fleet. It lives in the same database and is edited the same
+	// way; what differs is who may edit it, and who is shown it at all.
+	//
+	// The line is what the setting changes. A platform-scoped key changes
+	// what the process binds, trusts, stores, logs or dials from its own
+	// machine, or how much of that machine it spends -- the listener and its
+	// certificates, the session lifetime, the log level, the backups, the
+	// retention windows. A fleet-scoped key changes how the fleet's own
+	// runners are placed, timed and sized. An operator who may set
+	// server.bind may move the instance's front door; an operator who may set
+	// scheduler.max_runners may not.
+	//
+	// On the ordinary single-team instance this separates nothing, because
+	// the account that installed it holds platform and sees what an
+	// administrator saw before. It earns its keep on an instance one team
+	// operates while another uses the fleet.
+	ScopePlatform Scope = "platform"
+
 	// ScopeBootstrap is read before the database can be opened, so it cannot
 	// live inside it. There are exactly three: the path to the database, and
 	// the two ways of naming the key that unseals what is in it. A setting
@@ -138,7 +157,15 @@ type Setting struct {
 }
 
 // Stored reports whether this setting's value belongs in the database.
-func (s Setting) Stored() bool { return s.Scope == ScopeInstance }
+//
+// Platform-scoped settings are stored exactly as fleet-scoped ones are: the
+// scope says who may change a key, not where it lives. Keeping them stored is
+// what lets the export, the import and the file seed go on carrying every key
+// an instance has rather than the ones one audience can see.
+func (s Setting) Stored() bool { return s.Scope == ScopeInstance || s.Scope == ScopePlatform }
+
+// Platform reports whether changing this setting is the platform's to make.
+func (s Setting) Platform() bool { return s.Scope == ScopePlatform }
 
 // Section is the part before the first dot: the group the UI draws a heading
 // for.
@@ -158,68 +185,68 @@ var registry = buildRegistry([]Setting{
 	// server -- the listener, and how the world reaches it.
 	// ---------------------------------------------------------------------
 	{
-		Key: "server.bind", Label: "Listen address", Env: "ZOOMIES_BIND", Kind: KindString, Scope: ScopeInstance,
+		Key: "server.bind", Label: "Listen address", Env: "ZOOMIES_BIND", Kind: KindString, Scope: ScopePlatform,
 		Summary:       "The address the controller listens on. 127.0.0.1:8080 is this machine only; 0.0.0.0:8080 is every interface.",
 		RestartReason: "the listener is already bound, and rebinding it under live connections is how a reload becomes an outage",
 	},
 	{
-		Key: "server.external_url", Label: "External URL", Env: "ZOOMIES_EXTERNAL_URL", Kind: KindString, Scope: ScopeInstance,
+		Key: "server.external_url", Label: "External URL", Env: "ZOOMIES_EXTERNAL_URL", Kind: KindString, Scope: ScopePlatform,
 		Summary:       "How GitHub and browsers reach this controller. It forms the webhook URL, so webhooks need it.",
 		RestartReason: "the shell's sharing metadata and the single sign-on redirect are built from it at startup",
 	},
 	{
-		Key: "server.tls.mode", Label: "TLS mode", Env: "ZOOMIES_TLS_MODE", Kind: KindEnum, Scope: ScopeInstance,
+		Key: "server.tls.mode", Label: "TLS mode", Env: "ZOOMIES_TLS_MODE", Kind: KindEnum, Scope: ScopePlatform,
 		Choices:       []string{string(TLSOff), string(TLSSelfSigned), string(TLSFiles)},
 		Summary:       "How the listener terminates TLS: off behind a reverse proxy, self-signed for a generated certificate, files for one of your own.",
 		RestartReason: "the certificate is handed to the listener when it is created",
 	},
 	{
-		Key: "server.tls.cert_file", Label: "Certificate file", Env: "ZOOMIES_TLS_CERT_FILE", Kind: KindString, Scope: ScopeInstance,
+		Key: "server.tls.cert_file", Label: "Certificate file", Env: "ZOOMIES_TLS_CERT_FILE", Kind: KindString, Scope: ScopePlatform,
 		Summary:       "The certificate the listener serves, when the mode is files.",
 		RestartReason: "the certificate is handed to the listener when it is created",
 	},
 	{
-		Key: "server.tls.key_file", Label: "Private key file", Env: "ZOOMIES_TLS_KEY_FILE", Kind: KindString, Scope: ScopeInstance,
+		Key: "server.tls.key_file", Label: "Private key file", Env: "ZOOMIES_TLS_KEY_FILE", Kind: KindString, Scope: ScopePlatform,
 		Summary:       "The private key for that certificate. The file stays on disk; only its path is stored here.",
 		RestartReason: "the certificate is handed to the listener when it is created",
 	},
 	{
-		Key: "server.tls.hosts", Label: "Certificate host names", Env: "ZOOMIES_TLS_HOSTS", Kind: KindStrings, Scope: ScopeInstance,
+		Key: "server.tls.hosts", Label: "Certificate host names", Env: "ZOOMIES_TLS_HOSTS", Kind: KindStrings, Scope: ScopePlatform,
 		Summary:       "The names baked into a generated self-signed certificate.",
 		RestartReason: "the certificate is generated once, at startup",
 	},
 	{
-		Key: "server.trusted_proxies", Label: "Trusted proxies", Env: "ZOOMIES_TRUSTED_PROXIES", Kind: KindStrings, Scope: ScopeInstance,
+		Key: "server.trusted_proxies", Label: "Trusted proxies", Env: "ZOOMIES_TRUSTED_PROXIES", Kind: KindStrings, Scope: ScopePlatform,
 		Summary:       "CIDRs whose X-Forwarded-For header is believed, or the word cloudflare for Cloudflare's published ranges. Empty takes client addresses from the socket, which is the safe answer.",
 		RestartReason: "the ranges are parsed once and consulted on every request",
 	},
 	{
-		Key: "server.allowed_origins", Label: "Allowed browser origins", Env: "ZOOMIES_ALLOWED_ORIGINS", Kind: KindStrings, Scope: ScopeInstance,
+		Key: "server.allowed_origins", Label: "Allowed browser origins", Env: "ZOOMIES_ALLOWED_ORIGINS", Kind: KindStrings, Scope: ScopePlatform,
 		Summary:       "Extra browser origins allowed to make state-changing requests. Empty means same-origin only, which is what the built-in UI needs.",
 		RestartReason: "the list is compiled into the request middleware at startup",
 	},
 	{
-		Key: "server.allow_indexing", Label: "Allow search engine indexing", Env: "ZOOMIES_ALLOW_INDEXING", Kind: KindBool, Scope: ScopeInstance,
+		Key: "server.allow_indexing", Label: "Allow search engine indexing", Env: "ZOOMIES_ALLOW_INDEXING", Kind: KindBool, Scope: ScopePlatform,
 		Summary:       "Invite search engines into the UI. Off by default: a controller is somebody's infrastructure rather than somebody's website.",
 		RestartReason: "robots.txt is rendered once, with the rest of the shell",
 	},
 	{
-		Key: "server.tailcat_enabled", Label: "Private agent network", Env: "ZOOMIES_TAILCAT_ENABLED", Kind: KindBool, Scope: ScopeInstance,
+		Key: "server.tailcat_enabled", Label: "Private agent network", Env: "ZOOMIES_TAILCAT_ENABLED", Kind: KindBool, Scope: ScopePlatform,
 		Summary:       "Permit private agent connections, started on first enrolment.",
 		RestartReason: "the private network is joined at startup",
 	},
 	{
-		Key: "server.read_timeout", Label: "Read timeout", Env: "ZOOMIES_READ_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
+		Key: "server.read_timeout", Label: "Read timeout", Env: "ZOOMIES_READ_TIMEOUT", Kind: KindDuration, Scope: ScopePlatform,
 		Summary:       "How long a client may take to send its request.",
 		RestartReason: "it is a field of the HTTP server, set when that server is built",
 	},
 	{
-		Key: "server.write_timeout", Label: "Write timeout", Env: "ZOOMIES_WRITE_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
+		Key: "server.write_timeout", Label: "Write timeout", Env: "ZOOMIES_WRITE_TIMEOUT", Kind: KindDuration, Scope: ScopePlatform,
 		Summary:       "How long a response may take. It is 0, and should stay 0: the event stream and a followed log are responses that never end.",
 		RestartReason: "it is a field of the HTTP server, set when that server is built",
 	},
 	{
-		Key: "server.idle_timeout", Label: "Idle timeout", Env: "ZOOMIES_IDLE_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance,
+		Key: "server.idle_timeout", Label: "Idle timeout", Env: "ZOOMIES_IDLE_TIMEOUT", Kind: KindDuration, Scope: ScopePlatform,
 		Summary:       "How long an idle keep-alive connection is held open.",
 		RestartReason: "it is a field of the HTTP server, set when that server is built",
 	},
@@ -244,26 +271,26 @@ var registry = buildRegistry([]Setting{
 		RestartReason: "the key is read once, before anything that needs it",
 	},
 	{
-		Key: "security.session_ttl", Label: "Session lifetime", Env: "ZOOMIES_SESSION_TTL", Kind: KindDuration, Scope: ScopeInstance,
+		Key: "security.session_ttl", Label: "Session lifetime", Env: "ZOOMIES_SESSION_TTL", Kind: KindDuration, Scope: ScopePlatform,
 		Summary:       "How long a browser login lasts before it has to be made again.",
 		RestartReason: "the authentication service takes its security settings when it is built",
 	},
 	{
-		Key: "security.cookie_secure", Label: "Secure session cookies", Env: "ZOOMIES_COOKIE_SECURE", Kind: KindOptionalBool, Scope: ScopeInstance,
+		Key: "security.cookie_secure", Label: "Secure session cookies", Env: "ZOOMIES_COOKIE_SECURE", Kind: KindOptionalBool, Scope: ScopePlatform,
 		Summary:       "Force the Secure attribute on session cookies. Unset derives it from the external URL and the TLS mode, which is right unless a proxy in front makes it wrong.",
 		RestartReason: "the authentication service takes its security settings when it is built",
 	},
 	{
-		Key: "security.docker_in_docker_expected", Label: "Docker-in-Docker is expected here", Env: "ZOOMIES_DOCKER_IN_DOCKER_EXPECTED", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Key: "security.docker_in_docker_expected", Label: "Docker-in-Docker is expected here", Env: "ZOOMIES_DOCKER_IN_DOCKER_EXPECTED", Kind: KindBool, Scope: ScopePlatform, Live: true,
 		Summary: "Stops a pool that gives its jobs their own Docker daemon being listed as a dangerous setting. The daemon still runs in a privileged container -- this is a fleet saying it knows, so that the settings still worth a second look are not buried under one it has already decided. The host socket and persistent runners keep warning.",
 	},
 	{
-		Key: "security.disable_auth", Label: "Disable authentication", Env: "ZOOMIES_DISABLE_AUTH", Kind: KindBool, Scope: ScopeInstance,
+		Key: "security.disable_auth", Label: "Disable authentication", Env: "ZOOMIES_DISABLE_AUTH", Kind: KindBool, Scope: ScopePlatform,
 		Summary:       "Remove all authentication. It exists for local development, and it is refused wherever this controller looks reachable.",
 		RestartReason: "the authentication service takes its security settings when it is built",
 	},
 	{
-		Key: "security.rate_limit_logins", Label: "Login attempts per minute", Env: "ZOOMIES_RATE_LIMIT_LOGINS", Kind: KindInt, Scope: ScopeInstance,
+		Key: "security.rate_limit_logins", Label: "Login attempts per minute", Env: "ZOOMIES_RATE_LIMIT_LOGINS", Kind: KindInt, Scope: ScopePlatform,
 		Summary:       "Password attempts allowed per source address per minute, and five times that per account.",
 		RestartReason: "the limiters are built with their limit when the authentication service is",
 	},
@@ -311,7 +338,7 @@ var registry = buildRegistry([]Setting{
 	// agent -- the runner-executing half.
 	// ---------------------------------------------------------------------
 	{
-		Key: "agent.embedded", Label: "Run an agent in this controller", Env: "ZOOMIES_AGENT_EMBEDDED", Kind: KindBool, Scope: ScopeInstance,
+		Key: "agent.embedded", Label: "Run an agent in this controller", Env: "ZOOMIES_AGENT_EMBEDDED", Kind: KindBool, Scope: ScopePlatform,
 		Summary:       "Run an agent inside this controller, so a single machine needs one process. Off makes a controller that schedules runners onto other hosts and starts none itself.",
 		RestartReason: "the backends and the agent are built at startup, and runners are already running against them",
 	},
@@ -326,18 +353,18 @@ var registry = buildRegistry([]Setting{
 		RestartReason: "the agent reports its capacity when it enrols",
 	},
 	{
-		Key: "agent.backend", Label: "Runner backend", Env: "ZOOMIES_AGENT_BACKEND", Kind: KindEnum, Scope: ScopeInstance,
+		Key: "agent.backend", Label: "Runner backend", Env: "ZOOMIES_AGENT_BACKEND", Kind: KindEnum, Scope: ScopePlatform,
 		Choices:       []string{"docker", "podman", "process"},
 		Summary:       "What a runner runs in: a Docker container, a Podman container, or a bare process on this host.",
 		RestartReason: "the backend is built at startup, and runners are already running against it",
 	},
 	{
-		Key: "agent.docker_host", Label: "Docker socket", Env: "ZOOMIES_DOCKER_HOST", Kind: KindString, Scope: ScopeInstance,
+		Key: "agent.docker_host", Label: "Docker socket", Env: "ZOOMIES_DOCKER_HOST", Kind: KindString, Scope: ScopePlatform,
 		Summary:       "The Docker or Podman socket. Empty finds one, preferring a rootless socket over the root one.",
 		RestartReason: "the backend is built at startup, and runners are already running against it",
 	},
 	{
-		Key: "agent.work_dir", Label: "Working directory", Env: "ZOOMIES_WORK_DIR", Kind: KindString, Scope: ScopeInstance,
+		Key: "agent.work_dir", Label: "Working directory", Env: "ZOOMIES_WORK_DIR", Kind: KindString, Scope: ScopePlatform,
 		Summary:       "Where runner working directories and the agent's own credentials live.",
 		RestartReason: "the agent's credentials are read from it at startup",
 	},
@@ -505,12 +532,12 @@ var registry = buildRegistry([]Setting{
 	// log
 	// ---------------------------------------------------------------------
 	{
-		Key: "log.level", Label: "Log level", Env: "ZOOMIES_LOG_LEVEL", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Key: "log.level", Label: "Log level", Env: "ZOOMIES_LOG_LEVEL", Kind: KindEnum, Scope: ScopePlatform, Live: true,
 		Choices: []string{"debug", "info", "warn", "error"},
 		Summary: "How much detail the controller logs.",
 	},
 	{
-		Key: "log.format", Label: "Log format", Env: "ZOOMIES_LOG_FORMAT", Kind: KindEnum, Scope: ScopeInstance,
+		Key: "log.format", Label: "Log format", Env: "ZOOMIES_LOG_FORMAT", Kind: KindEnum, Scope: ScopePlatform,
 		Choices:       []string{"json", "text"},
 		Summary:       "json for a log collector, text for a person reading a terminal.",
 		RestartReason: "the log handler is built before anything else, including the database this setting is read from",
@@ -599,7 +626,7 @@ var registry = buildRegistry([]Setting{
 		RestartReason: "the route is mounted once, when the router is built",
 	},
 	{
-		Key: "metrics.public", Label: "Serve metrics without authentication", Env: "ZOOMIES_METRICS_PUBLIC", Kind: KindBool, Scope: ScopeInstance,
+		Key: "metrics.public", Label: "Serve metrics without authentication", Env: "ZOOMIES_METRICS_PUBLIC", Kind: KindBool, Scope: ScopePlatform,
 		Summary:       "Serve it without authentication. Off by default, because job and repository names are visible in the label set.",
 		RestartReason: "the authentication around the route is decided when the router is built",
 	},
@@ -608,27 +635,27 @@ var registry = buildRegistry([]Setting{
 	// retention -- audit rows are deliberately absent; they are never pruned.
 	// ---------------------------------------------------------------------
 	{
-		Key: "retention.jobs", Label: "Keep job history for", Env: "ZOOMIES_RETENTION_JOBS", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "retention.jobs", Label: "Keep job history for", Env: "ZOOMIES_RETENTION_JOBS", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How long job history is kept.",
 	},
 	{
-		Key: "retention.runners", Label: "Keep finished runners for", Env: "ZOOMIES_RETENTION_RUNNERS", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "retention.runners", Label: "Keep finished runners for", Env: "ZOOMIES_RETENTION_RUNNERS", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How long finished runners are kept.",
 	},
 	{
-		Key: "retention.scaling_events", Label: "Keep scaling history for", Env: "ZOOMIES_RETENTION_SCALING_EVENTS", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "retention.scaling_events", Label: "Keep scaling history for", Env: "ZOOMIES_RETENTION_SCALING_EVENTS", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How long scaling decisions are kept. Audit rows are not covered by this, or by anything: they are never deleted.",
 	},
 	{
-		Key: "retention.samples", Label: "Keep Overview samples for", Env: "ZOOMIES_RETENTION_SAMPLES", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "retention.samples", Label: "Keep Overview samples for", Env: "ZOOMIES_RETENTION_SAMPLES", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How long the Overview's samples are kept.",
 	},
 	{
-		Key: "retention.webhooks", Label: "Keep webhook deliveries for", Env: "ZOOMIES_RETENTION_WEBHOOKS", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "retention.webhooks", Label: "Keep webhook deliveries for", Env: "ZOOMIES_RETENTION_WEBHOOKS", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How long webhook deliveries are kept.",
 	},
 	{
-		Key: "retention.machines", Label: "Keep deleted machines for", Env: "ZOOMIES_RETENTION_MACHINES", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "retention.machines", Label: "Keep deleted machines for", Env: "ZOOMIES_RETENTION_MACHINES", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How long a deleted machine's row is kept, so what the fleet rented and gave back is still answerable after the machine itself is gone.",
 	},
 
@@ -640,7 +667,7 @@ var registry = buildRegistry([]Setting{
 		Summary: "How often every pool's image is prewarmed again, so a moving tag reaches the hosts. 0 switches it off, which is what an air-gapped fleet wants.",
 	},
 	{
-		Key: "updates.check_interval", Label: "Update check interval", Env: "ZOOMIES_UPDATE_CHECK_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "updates.check_interval", Label: "Update check interval", Env: "ZOOMIES_UPDATE_CHECK_INTERVAL", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How often github.com is asked which release of Zoomies is current. 0 never asks, and is the one request that is not about your fleet. Nothing is ever downloaded by it.",
 	},
 
@@ -648,16 +675,16 @@ var registry = buildRegistry([]Setting{
 	// backup -- the controller's own copies of its database.
 	// ---------------------------------------------------------------------
 	{
-		Key: "backup.directory", Label: "Backup directory", Env: "ZOOMIES_BACKUP_DIRECTORY", Kind: KindString, Scope: ScopeInstance, Live: true,
+		Key: "backup.directory", Label: "Backup directory", Env: "ZOOMIES_BACKUP_DIRECTORY", Kind: KindString, Scope: ScopePlatform, Live: true,
 		Summary: "Where backups are kept. Empty is a backups directory beside the database, which on a container deployment is the mounted volume. A relative path is relative to the database's directory.",
 	},
 	{
-		Key: "backup.interval", Label: "Scheduled backup interval", Env: "ZOOMIES_BACKUP_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "backup.interval", Label: "Scheduled backup interval", Env: "ZOOMIES_BACKUP_INTERVAL", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How often the controller takes a copy of its own database. 0 switches scheduled backups off; one can still be taken on demand from the Backups tab or with zoomies backup.",
 		Floor:   time.Minute,
 	},
 	{
-		Key: "backup.keep", Label: "Backups to keep", Env: "ZOOMIES_BACKUP_KEEP", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Key: "backup.keep", Label: "Backups to keep", Env: "ZOOMIES_BACKUP_KEEP", Kind: KindInt, Scope: ScopePlatform, Live: true,
 		Summary: "How many of the controller's own backups are kept; the oldest beyond it go after each new one. 0 keeps every one. Backups somebody uploaded are never counted and never deleted by this.",
 	},
 
@@ -665,23 +692,23 @@ var registry = buildRegistry([]Setting{
 	// capacity_demand -- publishing a request for more hosts to a provisioner.
 	// ---------------------------------------------------------------------
 	{
-		Key: "capacity_demand.destination_url", Label: "Destination URL", Env: "ZOOMIES_CAPACITY_DEMAND_URL", Kind: KindString, Scope: ScopeInstance, Live: true,
+		Key: "capacity_demand.destination_url", Label: "Destination URL", Env: "ZOOMIES_CAPACITY_DEMAND_URL", Kind: KindString, Scope: ScopePlatform, Live: true,
 		Summary: "Where signed requests for host capacity are posted. Empty disables the integration.",
 	},
 	{
-		Key: "capacity_demand.signing_secret", Label: "Signing secret", Env: "ZOOMIES_CAPACITY_DEMAND_SIGNING_SECRET", Kind: KindString, Scope: ScopeInstance, Secret: true, Live: true,
+		Key: "capacity_demand.signing_secret", Label: "Signing secret", Env: "ZOOMIES_CAPACITY_DEMAND_SIGNING_SECRET", Kind: KindString, Scope: ScopePlatform, Secret: true, Live: true,
 		Summary: "The secret those requests are signed with. Anyone holding it can forge one, so it is stored sealed.",
 	},
 	{
-		Key: "capacity_demand.cooldown", Label: "Cooldown", Env: "ZOOMIES_CAPACITY_DEMAND_COOLDOWN", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "capacity_demand.cooldown", Label: "Cooldown", Env: "ZOOMIES_CAPACITY_DEMAND_COOLDOWN", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How long to wait before asking for capacity for the same pool again.",
 	},
 	{
-		Key: "capacity_demand.timeout", Label: "Request timeout", Env: "ZOOMIES_CAPACITY_DEMAND_TIMEOUT", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Key: "capacity_demand.timeout", Label: "Request timeout", Env: "ZOOMIES_CAPACITY_DEMAND_TIMEOUT", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How long one of those requests may take.",
 	},
 	{
-		Key: "capacity_demand.pools", Label: "Pools to publish for", Env: "ZOOMIES_CAPACITY_DEMAND_POOLS", Kind: KindStrings, Scope: ScopeInstance, Live: true,
+		Key: "capacity_demand.pools", Label: "Pools to publish for", Env: "ZOOMIES_CAPACITY_DEMAND_POOLS", Kind: KindStrings, Scope: ScopePlatform, Live: true,
 		Summary: "Which pools to publish demand for. Empty publishes for all of them.",
 	},
 

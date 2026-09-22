@@ -14,7 +14,10 @@ import (
 // what stops one being added to the vocabulary with no checking behind it.
 func TestEverySettableKeyRoundTrips(t *testing.T) {
 	h := newHarness(t)
-	admin, _ := h.user("admin", store.RoleAdmin)
+	// Platform rather than admin: this list spans both audiences -- log.level
+	// and the retention windows are the platform's, the scheduler keys the
+	// fleet's -- and what it is checking is the round trip, not the gate.
+	admin, _ := h.user("admin", store.RolePlatform)
 	cookie := h.session(admin)
 
 	settings := map[string]any{
@@ -83,7 +86,9 @@ func TestASettingsPatchIsAllOrNothing(t *testing.T) {
 // operator guessing at which of the fourteen keys they got wrong and how.
 func TestSettingsRefusalsSayWhatIsWrongWithTheValue(t *testing.T) {
 	h := newHarness(t)
-	admin, _ := h.user("admin", store.RoleAdmin)
+	// Platform: this exercises keys on both sides of the audience split,
+	// and its subject is the behaviour, not who may reach it.
+	admin, _ := h.user("admin", store.RolePlatform)
 	cookie := h.session(admin)
 
 	for _, tc := range []struct {
