@@ -177,10 +177,25 @@ test-e2e-required: ## The same run, but a missing prerequisite is a failure and 
 screenshots: build ## Recapture docs/screenshots from the real UI (needs Pillow: pip install pillow)
 	cd $(UI_DIR) && node tests/support/screenshots.mjs
 
+# The UI's dependencies, as an order-only prerequisite of anything that checks
+# the UI.
+#
+# Without them `prettier --check` fails with "Cannot find package
+# 'prettier-plugin-svelte'", which reads like an npm hiccup and is easy to
+# scroll past -- and the UI is then not checked at all. That is the one check
+# that matters for a change to .svelte files, and it went unrun twice in a
+# fresh worktree before anybody noticed. So a missing tree is installed rather
+# than reported: the failure mode of this step should be slow, not silent.
+#
+# Order-only, so an install already there is never redone because something
+# touched its mtime.
+$(UI_DIR)/node_modules:
+	cd $(UI_DIR) && $(NPM) ci --no-audit --no-fund
+
 ##@ Quality
 
 .PHONY: lint
-lint: ## Vet, format check, and staticcheck when available
+lint: | $(UI_DIR)/node_modules ## Vet, format check, and staticcheck when available
 	$(GO) vet ./...
 # The tagged suites too. An ordinary `go vet ./...` never compiles them, which
 # is how test/e2e sat with a non-test file referring to a symbol only its
@@ -197,7 +212,7 @@ lint: ## Vet, format check, and staticcheck when available
 	cd $(UI_DIR) && $(NPM) run lint
 
 .PHONY: fmt
-fmt: ## Format Go and UI sources
+fmt: | $(UI_DIR)/node_modules ## Format Go and UI sources
 	gofmt -w $$(git ls-files '*.go')
 	cd $(UI_DIR) && $(NPM) run format
 
