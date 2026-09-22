@@ -337,3 +337,13 @@ const DefaultPollWait = 25 * time.Second
 // DefaultStopTimeout is how long a graceful stop waits for a runner to finish
 // its current job before the workload is killed.
 const DefaultStopTimeout = 5 * time.Minute
+
+// MaxRunnersPerReport is the most runners one heartbeat or runner report may
+// carry. It lives here so both halves of the protocol agree on it.
+//
+// A host runs as many runners as it has slots, which is tens and never
+// thousands, so the number is far above anything a working agent sends. What
+// it bounds is the other case: every entry in a report is a store read and
+// possibly a write behind the single writer, so an unbounded array is a way
+// for one host to hold the writer for every other host.
+const MaxRunnersPerReport = 1000

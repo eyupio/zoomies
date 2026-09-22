@@ -46,6 +46,8 @@ type metrics struct {
 	cleanups                                                                                     *prometheus.CounterVec
 	schedulingLatency, cleanupDuration                                                           *prometheus.HistogramVec
 	pollsShed                                                                                    prometheus.Counter
+	agentLimited                                                                                 *prometheus.CounterVec
+	logRelayDropped                                                                              prometheus.Counter
 	buildInfo                                                                                    *prometheus.GaugeVec
 	providerOperations                                                                           *prometheus.CounterVec
 	providerOperationSeconds                                                                     *prometheus.HistogramVec
@@ -206,6 +208,16 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_agent_polls_shed_total",
 			Help: "Task polls answered with a backoff because the controller was holding too many at once.",
 		}),
+		// One series per limit rather than per host: a host id is unbounded
+		// cardinality, and the log line that goes with each refusal names it.
+		agentLimited: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_agent_requests_limited_total",
+			Help: "Agent requests refused or cut short by a per-host limit, by which limit.",
+		}, []string{"limit"}),
+		logRelayDropped: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "zoomies_log_relay_dropped_bytes_total",
+			Help: "Relayed runner output dropped because a stream went over its byte budget.",
+		}),
 		buildInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "zoomies_build_info",
 			Help: "Always 1; the version and commit are in the labels.",
@@ -249,7 +261,7 @@ func newMetrics(c *Controller) *metrics {
 	m.reg.MustRegister(
 		m.jobsTotal, m.jobsRunnerLost, m.jobReruns, m.jobFailures, m.runnerStartFailures, m.queueWait, m.jobDuration, m.scalingEvents,
 		m.registrationsDeferred,
-		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.storeWriteWait, m.storeWriteHeld, m.reconcileErrors, m.cleanups, m.pollsShed, m.buildInfo,
+		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.storeWriteWait, m.storeWriteHeld, m.reconcileErrors, m.cleanups, m.pollsShed, m.agentLimited, m.logRelayDropped, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,
 		m.imagePrewarms, m.imagePrewarmDuration,
 		m.elasticCPUDecisions, m.elasticCPUFactor,
