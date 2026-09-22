@@ -54,6 +54,169 @@ type Problem struct {
 	Alternatives []string `json:"alternatives,omitempty"`
 	// Since is when the situation started, where that is knowable.
 	Since *time.Time `json:"since,omitempty"`
+	// Audience is whose problem this is. It is filled in by Problems() from
+	// the code, in one pass, rather than at each of the thirty-odd places a
+	// Problem is made -- a field set at the site is a field somebody forgets
+	// at the site, which is the drift the settings registry exists to
+	// prevent.
+	Audience Audience `json:"audience"`
+}
+
+// Audience says which of an instance's two audiences a problem is for.
+//
+// An instance one team operates while another uses the fleet has two lists,
+// not one. The platform's is what the process is doing wrong -- its lease,
+// its loops, its backups, the release it could be running. The fleet's is
+// what its own runners are doing wrong. Showing either audience the other's
+// is a leak in one direction and noise in the other: a fleet told its
+// controller's backup remote is unreadable can do nothing about it, and
+// learns the instance has a backup remote.
+type Audience string
+
+const (
+	// AudiencePlatform is for whoever runs the process.
+	AudiencePlatform Audience = "platform"
+	// AudienceFleet is for whoever runs the fleet.
+	AudienceFleet Audience = "fleet"
+	// AudienceBoth is for the handful that are genuinely both people's, of
+	// which there is currently one: a list that could not be fully gathered
+	// has to say so to whoever is reading it.
+	AudienceBoth Audience = "both"
+)
+
+// For reports whether a problem belongs on the list this role is shown.
+func (a Audience) For(platform bool) bool {
+	// The platform sees everything, including the fleet's. The split exists to
+	// keep the process's own troubles from the fleet, not to keep the fleet's
+	// from whoever runs the process: platform is the higher role, it is the
+	// account that installed every single-team instance there is, and a first
+	// draft that read "platform sees platform problems" took every pool, host,
+	// runner and job problem off the drawer of every operator running their
+	// own fleet. A drill caught it; the unit tests here did not, because each
+	// asked whether the platform saw its own rather than whether it still saw
+	// theirs.
+	if platform {
+		return true
+	}
+	// The fleet sees its own and the ones that are both people's. An
+	// unclassified problem is not theirs, which is the withholding default
+	// audienceFor documents.
+	return a == AudienceFleet || a == AudienceBoth
+}
+
+var problemAudience = map[string]Audience{
+	// The process's own operation: its lease, its loops, the release it could
+	// be running, the key it seals with, the backups it takes and the receiver
+	// it posts capacity demand to. None of it is about the fleet's runners.
+	"backup.failed":                           AudiencePlatform,
+	"backup.remote_failed":                    AudiencePlatform,
+	"backup.remote_insecure":                  AudiencePlatform,
+	"backup.remote_plaintext":                 AudiencePlatform,
+	"backup.remote_shadowed":                  AudiencePlatform,
+	"backup.remote_unreadable":                AudiencePlatform,
+	"backup.restore_failed":                   AudiencePlatform,
+	"backup.restore_staged":                   AudiencePlatform,
+	"capacity_demand.delivery_failed":         AudiencePlatform,
+	"controller.development_update_available": AudiencePlatform,
+	"controller.lease_lost":                   AudiencePlatform,
+	"controller.loop_panicked":                AudiencePlatform,
+	"controller.update_available":             AudiencePlatform,
+	"crypto.key_mismatch":                     AudiencePlatform,
+	// The credential-minting limit is scheduler.registration_concurrency,
+	// which only the platform can change. A fleet told its runners are being
+	// held back at a number it cannot reach would go looking for hosts, which
+	// is the wrong answer twice over.
+	"scheduler.registration_throttled": AudiencePlatform,
+
+	// Whoever is reading a truncated list has to be told it is truncated,
+	// whichever list it is. A section quietly missing reads as a healthy
+	// fleet, which is the one thing this must never say by accident.
+	"controller.problems_partial": AudienceBoth,
+
+	// The fleet's own: its pools, its hosts, its runners, its jobs, the
+	// machines it rents and the App it runs on. An operator who uses the
+	// fleet is the person who can act on every one of these.
+	"host.cordoned_with_work":                       AudienceFleet,
+	"host.duplicate_agent":                          AudienceFleet,
+	"host.limits_unenforceable":                     AudienceFleet,
+	"host.limits_unverified":                        AudienceFleet,
+	"host.overprovisioned":                          AudienceFleet,
+	"host.resources_unknown":                        AudienceFleet,
+	"host.throttled":                                AudienceFleet,
+	"host.unhealthy":                                AudienceFleet,
+	"host.version_behind":                           AudienceFleet,
+	"installation.unhealthy":                        AudienceFleet,
+	"jobs.runner_lost":                              AudienceFleet,
+	"jobs.unmatched":                                AudienceFleet,
+	"poller.paused":                                 AudienceFleet,
+	"poller.stale":                                  AudienceFleet,
+	"pool.cache_above_disk":                         AudienceFleet,
+	"pool.cache_shared":                             AudienceFleet,
+	"pool.dangerous":                                AudienceFleet,
+	"pool.docker_client_missing":                    AudienceFleet,
+	"pool.elastic_cpu_unsupported":                  AudienceFleet,
+	"pool.github_rate_limited":                      AudienceFleet,
+	"pool.host_overcommitted":                       AudienceFleet,
+	"pool.max_above_room":                           AudienceFleet,
+	"pool.no_capacity":                              AudienceFleet,
+	"pool.provision_timeout_short":                  AudienceFleet,
+	"pool.repository_scale_up_deferred":             AudienceFleet,
+	"pool.resources_unenforced":                     AudienceFleet,
+	"pool.runner_group_public_repositories_blocked": AudienceFleet,
+	"pool.runner_group_unresolved":                  AudienceFleet,
+	"pool.runners_failing":                          AudienceFleet,
+	"pool.size_strands_hosts":                       AudienceFleet,
+	"pool.size_unlimited":                           AudienceFleet,
+	"provider.bootstrap_failed":                     AudienceFleet,
+	"provider.contract_unsupported":                 AudienceFleet,
+	"provider.credentials_refused":                  AudienceFleet,
+	"provider.delete_pending":                       AudienceFleet,
+	"provider.machine_failed":                       AudienceFleet,
+	"provider.orphan_found":                         AudienceFleet,
+	"provider.ownership_unverified":                 AudienceFleet,
+	"provider.preflight_failed":                     AudienceFleet,
+	"provider.provisioning_paused":                  AudienceFleet,
+	"provider.quota_exhausted":                      AudienceFleet,
+	"provider.template_unverified":                  AudienceFleet,
+	"provider.unreachable":                          AudienceFleet,
+	"provider.unservable":                           AudienceFleet,
+	"provider.zone_missing":                         AudienceFleet,
+	"proxmox.bridge_missing":                        AudienceFleet,
+	"proxmox.credentials_refused":                   AudienceFleet,
+	"proxmox.insecure_tls":                          AudienceFleet,
+	"proxmox.node_missing":                          AudienceFleet,
+	"proxmox.node_offline":                          AudienceFleet,
+	"proxmox.privilege_missing":                     AudienceFleet,
+	"proxmox.storage_inactive":                      AudienceFleet,
+	"proxmox.storage_missing":                       AudienceFleet,
+	"proxmox.storage_no_images":                     AudienceFleet,
+	"proxmox.template_missing":                      AudienceFleet,
+	"proxmox.template_no_agent":                     AudienceFleet,
+	"proxmox.template_not_a_template":               AudienceFleet,
+	"proxmox.unreachable":                           AudienceFleet,
+	"proxmox.version_unqualified":                   AudienceFleet,
+	"proxmox.vmid_range":                            AudienceFleet,
+	"proxmox.vmid_range_reserved":                   AudienceFleet,
+	"recovery.fenced":                               AudienceFleet,
+	"runners.cleanup_failed":                        AudienceFleet,
+	"runners.failed":                                AudienceFleet,
+	"runners.not_progressing":                       AudienceFleet,
+	"webhook.never_received":                        AudienceFleet,
+	"webhook.rejected":                              AudienceFleet,
+}
+
+// audienceFor is whose a problem is, by its code.
+//
+// An unknown code is the platform's, which is the safer way to be wrong: a
+// problem withheld from the fleet is a gap in their list, while one shown to
+// them that should not have been is a fact about somebody else's machine that
+// cannot be taken back. TestEveryProblemCodeHasAnAudience makes the question
+// moot in CI, but the default decides what a build between the two does.
+func audienceFor(code string) Audience {
+	if a, ok := problemAudience[code]; ok {
+		return a
+	}
+	return AudiencePlatform
 }
 
 // problemWindow is how far back rejected webhook deliveries are counted. An
@@ -102,10 +265,16 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 		if f.Severity != config.SeverityError && f.Severity != config.SeverityWarning {
 			continue
 		}
+		// Every validator finding is the platform's: each one names a
+		// setting, and the settings that can be dangerous are the ones that
+		// say what the process binds, trusts, stores and logs. Set here
+		// rather than in the table below, because this is the one site all
+		// of them come through.
 		out = append(out, Problem{
 			Code: f.Code, Severity: f.Severity, Setting: f.Setting,
 			Source: f.Source, Undo: f.Undo,
 			Title: f.Title, Detail: f.Detail, Fix: f.Fix,
+			Audience: AudiencePlatform,
 		})
 	}
 
@@ -177,6 +346,14 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 				", so problems from " + section(len(missing)) + " are missing here.",
 			Fix: "check the controller log for the query that failed, and that the database is readable and not out of disk.",
 		})
+	}
+
+	// Whose each one is, in one pass over the finished list. Anything that
+	// already said -- the validator's findings -- keeps what it said.
+	for i := range out {
+		if out[i].Audience == "" {
+			out[i].Audience = audienceFor(out[i].Code)
+		}
 	}
 
 	// Errors first, then warnings, then a stable order so the list does not

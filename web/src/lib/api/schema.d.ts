@@ -2596,6 +2596,14 @@ export interface components {
             /** @example bind.public_no_tls */
             code: string;
             severity: components["schemas"]["Severity"];
+            /**
+             * @description Whose problem this is. `platform` is the process's own -- its lease, its loops, its backups, the release it could be running -- and reaches only a caller at the `platform` role. `fleet` is what the fleet's own pools, hosts, runners and jobs are doing wrong, and reaches everyone who can read the list. `both` is for the ones genuinely both people's: a list that could not be fully gathered has to say so to whoever is reading it.
+             *
+             *     On a single-team instance the one account holds `platform` and the list is undivided, which is what it was before the role existed.
+             * @example platform
+             * @enum {string}
+             */
+            audience: "platform" | "fleet" | "both";
             /** @example server.bind */
             setting?: string;
             source?: components["schemas"]["SettingSource"];

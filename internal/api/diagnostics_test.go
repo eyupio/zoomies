@@ -23,7 +23,11 @@ func TestTheBundleDescribesTheInstanceAndTheFleet(t *testing.T) {
 	host := h.host("vm-1")
 	h.runner(pool, host, store.RunnerBusy)
 	h.job(pool, store.JobQueued)
-	u, _ := h.user("admin", store.RoleAdmin)
+	// Platform: this is about what a whole bundle carries, and the whole one
+	// is the platform's. What a fleet's administrator gets instead -- the
+	// build it all ran on, and not the machine -- is
+	// TestTheFleetsBundleIdentifiesTheBuildAndNotTheMachine.
+	u, _ := h.user("admin", store.RolePlatform)
 	cookie := h.session(u)
 
 	resp := h.do(request{method: http.MethodGet, path: "/api/v1/diagnostics/bundle", cookie: cookie})
