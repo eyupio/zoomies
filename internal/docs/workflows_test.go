@@ -609,6 +609,11 @@ func TestTheDevWatchdogRecoversMainWithoutTheFleet(t *testing.T) {
 	if !strings.Contains(body, "github.event.workflow_run.event == 'push'") {
 		t.Error("the watchdog waits on dispatched CI runs too; a recovery run, its own included, would be watched and recovered in turn")
 	}
+	// Wait is skipped for a CI run that was not a push as well as for a tick,
+	// so Watch deciding by "Wait was skipped" ran at once for every such run.
+	if strings.Contains(body, "needs.wait.result == 'skipped'") || !strings.Contains(body, "github.event_name != 'workflow_run' || needs.wait.outputs.act == 'true'") {
+		t.Error("Watch decides whether to run from Wait being skipped; a CI run that was not a push skips Wait too, and Watch must not act on it")
+	}
 	// The wait holds its job for up to the limit. A workflow-wide group would
 	// queue every tick and every newer commit behind it; the group that stops
 	// two recoveries starting at once belongs on the job that starts them.
