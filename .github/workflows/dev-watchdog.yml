@@ -56,6 +56,16 @@ name: Dev Channel Watchdog
 # see what it would decide without it doing anything.
 
 on:
+  # The trigger that does the work. When main's CI is asked for, a job on
+  # GitHub's machines starts at once and watches that commit's run. A clock
+  # cannot do this here: this repository's scheduled runs start five to six
+  # and a half hours after their cron says, longer than the limit the watchdog
+  # enforces, so a tick arrives after the harm is done.
+  workflow_run:
+    workflows: [CI]
+    types: [requested]
+    branches: [main]
+  # The backstop, for a commit whose CI was never requested at all.
   schedule:
     # Off the hour and the half-hour on purpose. GitHub runs scheduled
     # workflows on a best-effort basis and says the start of every hour is when
@@ -72,19 +82,92 @@ on:
 
 permissions: {}
 
-# Two watchdogs deciding at once could each start a recovery run. Queue them;
-# the second finds the first's recovery under way and leaves it.
-concurrency:
-  group: dev-channel-watchdog
-  cancel-in-progress: false
-
 jobs:
+  # Started by main's CI being requested: waits, on GitHub's machines, until
+  # that commit's CI finishes, a newer commit supersedes it, or the limit
+  # passes -- and only the last of those hands over to Watch.
+  wait:
+    name: Wait
+    # A push only. A dispatched run is a recovery, possibly this workflow's
+    # own, and a watchdog waiting on it would recover the recovery.
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    # GitHub's ceiling for a hosted job. A limit longer than this cannot be
+    # waited out here; the schedule is what covers it.
+    timeout-minutes: 360
+    permissions:
+      actions: read
+    # A newer commit's wait replaces an older one's: main's head is the only
+    # commit whose CI publishes, and one waiter holding the group for hours
+    # would otherwise leave the newest commit queued behind it.
+    concurrency:
+      group: dev-channel-watchdog-wait
+      cancel-in-progress: true
+    outputs:
+      act: ${{ steps.wait.outputs.act }}
+    steps:
+      - name: Wait for this commit's CI, or the limit
+        id: wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          LIMIT_MINUTES: ${{ vars.DEV_WATCHDOG_MINUTES || '120' }}
+        run: |
+          set -euo pipefail
+
+          case "$LIMIT_MINUTES" in
+            ''|*[!0-9]*)
+              echo "::error::DEV_WATCHDOG_MINUTES is '$LIMIT_MINUTES'; it must be a whole number of minutes, such as 120."
+              exit 1 ;;
+          esac
+
+          short=${SHA:0:7}
+          while true; do
+            head=$(gh api "repos/$REPO/commits/main" --jq .sha)
+            if [ "$head" != "$SHA" ]; then
+              echo "main has moved on from $short; the newer commit's watchdog has it."
+              echo "act=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            runs=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=100")
+            finished=$(jq '[.workflow_runs[] | select(.status == "completed" and .conclusion != "cancelled")] | length' <<<"$runs")
+            if [ "$finished" -gt 0 ]; then
+              echo "CI for $short has finished; nothing to do."
+              echo "act=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            since=$(jq -r '[.workflow_runs[].created_at] | min // empty' <<<"$runs")
+            if [ -n "$since" ]; then
+              waited=$(( ( $(date -u +%s) - $(date -u -d "$since" +%s) ) / 60 ))
+              if [ "$waited" -ge "$LIMIT_MINUTES" ]; then
+                echo "CI for $short has not finished after ${waited}m; handing over."
+                echo "act=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "CI for $short has been going for ${waited}m of ${LIMIT_MINUTES}m."
+            fi
+            sleep 300
+          done
+
   watch:
     name: Watch
+    needs: wait
+    # Straight away on a tick or by hand (Wait is skipped); after a wait, only
+    # when it ran out the limit. A wait cancelled by a newer commit's is not a
+    # reason to act.
+    if: ${{ !cancelled() && (needs.wait.result == 'skipped' || needs.wait.outputs.act == 'true') }}
     # GitHub's machines, never the fleet's: this is the job that has to run
     # when the fleet cannot.
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Two watchdogs deciding at once could each start a recovery run. Queue
+    # them; the second finds the first's recovery under way and leaves it.
+    # On this job, not the workflow: a Wait holding the group for hours would
+    # otherwise queue every tick behind it.
+    concurrency:
+      group: dev-channel-watchdog
+      cancel-in-progress: false
     permissions:
       actions: write
     steps:
