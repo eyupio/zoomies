@@ -196,3 +196,46 @@ func TestABoostBeingUsedDoesNotTripItsOwnGuard(t *testing.T) {
 		t.Fatalf("a host at full CPU with its runner back at its guarantee got %+v; that CPU is someone else's, and nothing should be lent", got)
 	}
 }
+
+// "The next job keeps its room": a compatible job waiting for this host holds
+// one runner's share back before any CPU is lent, so a fast job cannot crowd
+// the next one off the machine. Deciding that costs a read of the fleet's
+// queued jobs on every heartbeat, which is only worth paying when there is a
+// runner to lend to -- and has to be paid then.
+func TestAQueuedJobKeepsItsRoomFromABoost(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.CPUBurst = store.CPUBurstPolicy{Mode: store.CPUBurstAutomatic}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	runner := h.runnerRow(pool, host, store.RunnerBusy)
+	runner.AllocatedCPUs = 1.87
+	runner.AllocationSource = store.AllocationFromHost
+	if err := h.st.UpdateRunner(h.ctx, runner); err != nil {
+		t.Fatal(err)
+	}
+	host.CPUs, host.ReserveCPUs = 8, 0
+	now := h.c.Now()
+	sampled := now
+	calm := 30.0
+	host.Usage = store.HostUsage{CPUPercent: &calm, SampledAt: now}
+	lent := func() float64 {
+		t.Helper()
+		got := h.c.elasticCPUTargets(h.ctx, host, agent.HeartbeatRequest{
+			Features: []string{agent.FeatureElasticCPU},
+			Runners:  []agent.RunnerReport{{RunnerID: runner.ID, Stats: backend.Stats{SampledAt: &sampled, CPUPercent: 187}}},
+		}, now)
+		if len(got) != 1 {
+			t.Fatalf("directives = %+v, want one boost for a demanding runner on a calm host", got)
+		}
+		return got[0].TargetCPUs
+	}
+
+	alone := lent()
+	h.queuedJob(t, pool, pool.Labels)
+	withJob := lent()
+	if withJob >= alone {
+		t.Errorf("a runner was lent %.2f CPUs with a job queued for this host and %.2f without; the queued job's share must be held back", withJob, alone)
+	}
+}

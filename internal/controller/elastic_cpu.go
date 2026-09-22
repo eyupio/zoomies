@@ -38,6 +38,12 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		c.log.Warn("could not plan elastic CPU for a host", "host", h.ID, "error", err)
 		return nil
 	}
+	// This runs on every heartbeat of every host, so it stops as soon as there
+	// is nothing to decide: before the fleet-wide pool read when the host runs
+	// nothing, and before any plan or record when nothing here is elastic.
+	if !slices.ContainsFunc(runners, func(r *store.Runner) bool { return r != nil && r.State.Live() }) {
+		return nil
+	}
 	pools, err := c.st.ListPools(ctx)
 	if err != nil {
 		c.log.Warn("could not list pools while planning elastic CPU", "host", h.ID, "error", err)
@@ -88,6 +94,17 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		workloads = append(workloads, w)
 	}
 
+	elastic, demanding := false, false
+	for _, w := range workloads {
+		if p := poolByRunner[w.ID]; p != nil && p.CPUBurst.Observes() && w.BaseCPUs > 0 && w.MaxCPUs > w.BaseCPUs {
+			elastic = true
+			demanding = demanding || w.Demanding
+		}
+	}
+	if !elastic {
+		return nil
+	}
+
 	supported := slices.Contains(req.Features, agent.FeatureElasticCPU)
 	if elasticHostBusy(h, lent) {
 		// A host too busy to lend is still a decision, and it is recorded as
@@ -105,7 +122,13 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		return nil
 	}
 
-	reserve := c.elasticStartReserve(ctx, h, poolByID)
+	// The start reserve only shapes a plan that lends something. With no
+	// runner demanding, every one stays at its guarantee whatever the reserve
+	// is, so the fleet-wide read of queued jobs it needs is skipped.
+	reserve := 0.0
+	if demanding {
+		reserve = c.elasticStartReserve(ctx, h, poolByID)
+	}
 	targets := scheduler.ElasticCPUPlan(alloc.CPUs, reserve, workloads)
 	directives := make([]agent.ElasticCPUDirective, 0, len(workloads))
 	for _, w := range workloads {
