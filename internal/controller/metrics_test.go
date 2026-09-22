@@ -292,6 +292,10 @@ func TestNoMetricDeclaresAnUnboundedLabel(t *testing.T) {
 		// test draws: a job id would multiply every series by the day's work,
 		// and nine categories do not.
 		"domain": true, "fault": true,
+		// "trigger" is the two ways a re-run is asked for -- the button and
+		// the setting -- and both are constants in the source. What it must
+		// never become is who asked, which would grow with the people.
+		"trigger": true,
 	}
 
 	descs := make(chan *prometheus.Desc, 256)

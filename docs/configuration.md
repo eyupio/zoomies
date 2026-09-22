@@ -244,6 +244,8 @@ scheduler:
   max_creates_per_tick: 10      # ZOOMIES_MAX_CREATES_PER_TICK
   default_runner_limits: true   # ZOOMIES_DEFAULT_RUNNER_LIMITS -- a pool with no cpus or memory_mb gets one slot's share of its host; off is warned about
   host_throttling: true         # ZOOMIES_HOST_THROTTLING -- step an overwhelmed host down and lift it after calm; off is warned about
+  auto_rerun: false             # ZOOMIES_AUTO_RERUN -- re-run a job whose runner died under it; on is warned about
+  auto_rerun_limit: 1           # ZOOMIES_AUTO_RERUN_LIMIT -- automatic re-runs per workflow run, 1–5
 
 capacity_demand:
   destination_url: ""           # ZOOMIES_CAPACITY_DEMAND_URL (empty disables)
@@ -548,6 +550,8 @@ if you set `keep: 0` and never expect the page to say what is there.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
+| `scheduler.auto_rerun` | `ZOOMIES_AUTO_RERUN` | at once | Re-run jobs the fleet broke — Ask GitHub to run a job again when this fleet is what broke it, never a test that failed. Off by default: it spends GitHub minutes without asking. |
+| `scheduler.auto_rerun_limit` | `ZOOMIES_AUTO_RERUN_LIMIT` | at once | Automatic re-runs per workflow run — How many times one run may be re-run automatically (1–5), counted from GitHub's own run attempt. |
 | `scheduler.default_runner_limits` | `ZOOMIES_DEFAULT_RUNNER_LIMITS` | at once | Default runner limits — Give a runner whose pool sets no CPU or memory limit one slot's share of its host as a real limit. Off, a host's worth of them can each take every core. |
 | `scheduler.drain_timeout` | `ZOOMIES_DRAIN_TIMEOUT` | at once | Drain timeout — Fail a runner that has been draining this long with no job left on it. A runner still finishing a job is never touched by it. |
 | `scheduler.host_throttling` | `ZOOMIES_HOST_THROTTLING` | at once | Throttle hosts under pressure — Let the controller throttle a host its measurements say is overwhelmed, and step it back up after a stretch of calm. |
@@ -1263,6 +1267,44 @@ what ends a throttle, and which hosts can be throttled at all.
 the setting is switched off is lifted rather than left on a rung nothing will
 ever step down. Leave it on unless something outside Zoomies manages the
 hosts' load.
+
+### `scheduler.auto_rerun` and `scheduler.auto_rerun_limit`
+
+Whether a job this fleet broke is sent back to GitHub without anybody asking.
+**Off by default**, and the default is the recommendation for most
+deployments: the button on the job does the same thing when a person
+has looked at the failure and decided —
+[whose failure was it?](troubleshooting.md#ci-is-flaky-is-it-or-is-it-us)
+has it.
+
+A runner that dies under a job — the host rebooted, the container was killed
+for its memory limit, the daemon stopped answering — fails that job in a way
+that is, on GitHub, indistinguishable from a test failure. The job did not
+fail on its merits, and the ordinary remedy is to run it again. With
+`auto_rerun` on, Zoomies asks as soon as GitHub reports the job over.
+
+It is narrow on purpose:
+
+* **Only the fleet's own failures.** The same split the Jobs page shows: a job
+  Zoomies has confessed to breaking. A test that failed is never re-run.
+* **Only while GitHub's attempt number is at or below `auto_rerun_limit`.**
+  That is what bounds a fault the fleet causes every time — a host out of
+  disk, an image that will not pull — rather than re-running the same job
+  until somebody notices the bill. The count is GitHub's own run attempt, so
+  a controller restart does not reset it, and a re-run an operator asked for
+  by hand counts against it too.
+* **Only once per completion.** A duplicate delivery does not change the
+  job's state, so it never reaches the re-run.
+
+Each one writes a line on the job's timeline, marked *via recovery* rather
+than as an operator's doing, and counts
+`zoomies_job_reruns_total{trigger="fleet_fault"}`.
+
+Turning it on raises `scheduler.auto_rerun_on`, which is a warning rather than
+an error: it is not a weaker security posture, it is a standing permission to
+spend the installation's GitHub minutes. A job that got as far as running may
+also have had side effects outside GitHub that its author expected to happen
+once — a deployment, a published package — and Zoomies cannot know which.
 
 ### `runners.default_cpus` and `runners.default_memory_mb` — how big a runner is
 

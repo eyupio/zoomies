@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -429,5 +430,100 @@ func TestRerunFallsBackToTheRunWhenAJobHasNoGitHubID(t *testing.T) {
 	last := events[len(events)-1]
 	if !strings.Contains(last.Message, "failed jobs") {
 		t.Errorf("the entry does not say the whole run's failures went with it: %q", last.Message)
+	}
+}
+
+// Auto-recovery is the same call the button makes, decided by a setting rather
+// than by a person. What matters is that it is narrow: the fleet's own
+// failures, bounded by GitHub's attempt number, and nothing at all while the
+// setting is off -- which is the default, because each one of these spends
+// somebody's GitHub minutes.
+func TestAJobTheFleetBrokeIsReRunOnlyWhenTheSettingSaysSo(t *testing.T) {
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	for _, tc := range []struct {
+		name       string
+		on         bool
+		limit      int
+		attempt    int
+		fleetFault bool
+		want       int
+	}{
+		{"off by default", false, 1, 1, true, 0},
+		{"on, first attempt, the fleet's fault", true, 1, 1, true, 1},
+		{"on, but the workflow's own failure", true, 1, 1, false, 0},
+		{"on, but this run has had its re-run", true, 1, 2, true, 0},
+		{"a higher limit lets a second attempt through", true, 2, 2, true, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			_, _, host := h.fleet()
+			h.c.live.Update(func(c *config.Config) {
+				c.Scheduler.AutoRerun, c.Scheduler.AutoRerunLimit = tc.on, tc.limit
+			})
+
+			job, r := startJobOnRunner(t, h, host.ID, 9501, labels)
+			if tc.fleetFault {
+				// The order the fleet actually sees it in: the runner goes
+				// first, GitHub reports the job over afterwards.
+				before, err := h.st.GetRunner(h.ctx, r.ID)
+				if err != nil {
+					t.Fatalf("GetRunner: %v", err)
+				}
+				h.c.noteRunnerLost(h.ctx, before, sourceAgent,
+					"runner exited with code 137: the container was killed for exceeding its memory limit",
+					store.FaultOutOfMemory)
+			}
+			h.deliverJob(jobEvent{Action: "completed", JobID: 9501, RunID: 4501, Name: "test", Workflow: "CI",
+				Labels: labels, RunnerName: r.Name, Conclusion: "failure", RunAttempt: tc.attempt,
+				Steps: failingSteps()})
+
+			if n := h.gh.JobReruns(); n != tc.want {
+				t.Fatalf("GitHub was asked to re-run %d times, want %d", n, tc.want)
+			}
+			if tc.want == 0 {
+				return
+			}
+			// The timeline says the fleet asked, not an operator: somebody
+			// reading it must not go looking for the colleague who pressed a
+			// button nobody pressed.
+			events := h.timeline(job.ID)
+			last := events[len(events)-1]
+			if last.Kind != store.JobEventRerunRequested || last.Source != sourceRecovery {
+				t.Fatalf("last entry = %s via %s, want a re-run via recovery", last.Kind, last.Source)
+			}
+			if !strings.Contains(last.Message, "scheduler.auto_rerun") {
+				t.Errorf("the entry does not name the setting that did it: %q", last.Message)
+			}
+		})
+	}
+}
+
+// A duplicate delivery must not buy a second re-run. GitHub delivers at least
+// once, and a completion that arrives twice for a job already completed is not
+// a state change -- so it never reaches the re-run. This pins that, because
+// the cost of getting it wrong is a bill rather than a wrong pixel.
+func TestARepeatedCompletionDoesNotReRunTwice(t *testing.T) {
+	h := newHarness(t)
+	_, _, host := h.fleet()
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+	h.c.live.Update(func(c *config.Config) {
+		c.Scheduler.AutoRerun, c.Scheduler.AutoRerunLimit = true, 3
+	})
+
+	_, r := startJobOnRunner(t, h, host.ID, 9601, labels)
+	before, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	h.c.noteRunnerLost(h.ctx, before, sourceAgent, "the runner stopped", store.FaultRunnerExited)
+
+	done := jobEvent{Action: "completed", JobID: 9601, RunID: 4601, Name: "test", Workflow: "CI",
+		Labels: labels, RunnerName: r.Name, Conclusion: "failure", RunAttempt: 1, Steps: failingSteps()}
+	h.deliverJob(done)
+	h.deliverJob(done)
+	h.deliverJob(done)
+
+	if n := h.gh.JobReruns(); n != 1 {
+		t.Fatalf("GitHub was asked to re-run %d times for three deliveries of one completion, want once", n)
 	}
 }

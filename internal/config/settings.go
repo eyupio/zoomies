@@ -527,6 +527,14 @@ var registry = buildRegistry([]Setting{
 		Key: "scheduler.host_throttling", Label: "Throttle hosts under pressure", Env: "ZOOMIES_HOST_THROTTLING", Kind: KindBool, Scope: ScopeInstance, Live: true,
 		Summary: "Let the controller throttle a host its measurements say is overwhelmed, and step it back up after a stretch of calm.",
 	},
+	{
+		Key: "scheduler.auto_rerun", Label: "Re-run jobs the fleet broke", Env: "ZOOMIES_AUTO_RERUN", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Summary: "Ask GitHub to run a job again when this fleet is what broke it -- a runner that died under it, never a test that failed. Off by default: it spends GitHub minutes without asking.",
+	},
+	{
+		Key: "scheduler.auto_rerun_limit", Label: "Automatic re-runs per workflow run", Env: "ZOOMIES_AUTO_RERUN_LIMIT", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "How many times one workflow run may be re-run automatically (1-5), counted from GitHub's own run attempt. It bounds a fault the fleet causes every time.",
+	},
 
 	// ---------------------------------------------------------------------
 	// log

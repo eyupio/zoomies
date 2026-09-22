@@ -18,7 +18,8 @@ export const SECTION_BLURB: Record<string, string> = {
   agent: 'The agent built into this controller. A standalone agent is configured on its own host.',
   runners:
     "What every runner this fleet creates is started with. A pool's own env is layered over it.",
-  scheduler: 'How eagerly runners are created, and when they are given up on.',
+  scheduler:
+    'How eagerly runners are created, when they are given up on, and what happens to a job one of them broke.',
   log: 'How much the controller says, and in what format.',
   oidc: 'Single sign-on.',
   metrics: 'The Prometheus endpoint.',

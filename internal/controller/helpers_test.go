@@ -262,6 +262,10 @@ type jobEvent struct {
 	RunnerName string
 	Conclusion string
 	QueuedAt   time.Time
+	// RunAttempt is GitHub's attempt number for the job's run. Zero is sent
+	// as the first attempt, which is what a delivery for a run nobody has
+	// re-run carries.
+	RunAttempt int
 	// Steps, when set, are rendered as GitHub's steps array.
 	Steps []map[string]any
 }
@@ -297,6 +301,7 @@ func (e jobEvent) body() []byte {
 		"runner_name":   e.RunnerName,
 		"created_at":    e.QueuedAt.Format(time.RFC3339),
 		"html_url":      "https://github.com/" + e.Repo + "/actions/runs/1",
+		"run_attempt":   max(e.RunAttempt, 1),
 	}
 	if e.Action == "in_progress" || e.Action == "completed" {
 		job["started_at"] = e.QueuedAt.Add(30 * time.Second).Format(time.RFC3339)

@@ -225,6 +225,13 @@ func TestQuietDangerousValuesAreNamed(t *testing.T) {
 		{"hosts that are never throttled", "scheduler.host_throttling_off", func(c *Config) {
 			c.Scheduler.HostThrottling = false
 		}},
+		// The one warning here that is not about safety. Re-running a job the
+		// fleet broke spends the installation's GitHub minutes with nobody
+		// asking, so a deployment should read it at startup rather than find
+		// it on a bill.
+		{"jobs re-run without asking", "scheduler.auto_rerun_on", func(c *Config) {
+			c.Scheduler.AutoRerun = true
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -837,6 +844,23 @@ func TestMachineDeadlinesAreJudgedAgainstTheSilenceThatFreesRunners(t *testing.T
 	for _, code := range []string{"provider.delete_grace_short", "provider.idle_timeout_short"} {
 		if f := c.Validate(); hasCode(f, code) {
 			t.Errorf("the default provider settings raise %s against themselves", code)
+		}
+	}
+}
+
+// The bound on automatic re-runs is refused at both ends. Zero would leave
+// scheduler.auto_rerun reading as on while doing nothing, which is worse than
+// either answer; a large one turns a fault the fleet causes every time into a
+// bill nobody chose.
+func TestTheAutomaticRerunLimitIsRefusedOutsideItsRange(t *testing.T) {
+	for _, tc := range []struct {
+		limit int
+		want  bool
+	}{{0, true}, {1, false}, {5, false}, {6, true}} {
+		c := Default()
+		c.Scheduler.AutoRerunLimit = tc.limit
+		if got := hasCode(c.Validate(), "scheduler.auto_rerun_limit"); got != tc.want {
+			t.Errorf("limit %d drew the finding = %v, want %v", tc.limit, got, tc.want)
 		}
 	}
 }
