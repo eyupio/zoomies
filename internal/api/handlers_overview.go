@@ -64,13 +64,18 @@ func (s *Server) handleSamples(w http.ResponseWriter, r *http.Request) {
 //
 // The body is controller.ProblemsView, which is also what a problems.updated
 // frame carries, so the drawer cannot see two shapes for the same list.
+//
+// Which problems are on it depends on who is asking: the process's own
+// troubles go to whoever runs the process, and the fleet's to whoever runs
+// the fleet. On a single-team instance the one account holds platform and the
+// list is undivided, which is what it was before the role existed.
 func (s *Server) handleProblems(w http.ResponseWriter, r *http.Request) {
 	items, err := s.ctrl.Problems(r.Context())
 	if err != nil {
 		s.internal(w, r, "gathering the current problems", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, controller.NewProblemsView(items))
+	writeJSON(w, http.StatusOK, controller.NewProblemsViewFor(items, isPlatform(r)))
 }
 
 // handleScalingEvents lists the scheduler's recent decisions, each with the

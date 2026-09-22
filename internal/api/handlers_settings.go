@@ -314,6 +314,10 @@ func (s *Server) editable(st config.Setting, c *config.Config, who store.Role) (
 // somehow reaches here is treated as the fleet rather than as the platform.
 func callerRole(r *http.Request) store.Role { return callerRoleCtx(r.Context()) }
 
+// isPlatform reports whether this caller runs the process rather than the
+// fleet. It is the one question every audience filter asks.
+func isPlatform(r *http.Request) bool { return callerRole(r).AtLeast(store.RolePlatform) }
+
 // callerRoleCtx is callerRole for the handlers that carry a context rather
 // than the request -- the support bundle assembles itself from several.
 func callerRoleCtx(ctx context.Context) store.Role {

@@ -3977,10 +3977,25 @@ components:
 
     Problem:
       type: object
-      required: [code, severity, title]
+      required: [code, severity, title, audience]
       properties:
         code: { type: string, examples: [bind.public_no_tls] }
         severity: { $ref: "#/components/schemas/Severity" }
+        audience:
+          type: string
+          enum: [platform, fleet, both]
+          description: >-
+            Whose problem this is. `platform` is the process's own -- its lease, its
+            loops, its backups, the release it could be running -- and reaches only a
+            caller at the `platform` role. `fleet` is what the fleet's own pools, hosts,
+            runners and jobs are doing wrong, and reaches everyone who can read the list.
+            `both` is for the ones genuinely both people's: a list that could not be
+            fully gathered has to say so to whoever is reading it.
+
+
+            On a single-team instance the one account holds `platform` and the list is
+            undivided, which is what it was before the role existed.
+          examples: [platform]
         setting: { type: string, examples: [server.bind] }
         source:
           $ref: "#/components/schemas/SettingSource"

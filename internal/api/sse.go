@@ -201,6 +201,26 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			data := ev.Data
+			if ev.Kind == events.KindProblems {
+				// The same two lists the REST route serves, chosen per
+				// subscriber. Resolved per frame rather than once at
+				// connect, for the reason the pool frames are: a viewer may
+				// keep the stream open across a demotion.
+				id, err := s.resolveIdentity(r)
+				platform := err == nil && id != nil && id.Role.AtLeast(store.RolePlatform)
+				filtered, ok := problemsFor(data, platform)
+				if !ok && !platform {
+					// Unfilterable, and this subscriber is not entitled to
+					// the unfiltered list. Unlike the pool frames below,
+					// passing it through would hand the fleet the whole of
+					// the platform's list rather than leak one field, so the
+					// frame is dropped instead. The drawer keeps what it had
+					// until the next change, and GET /problems -- which
+					// filters the same way -- repairs it on any reload.
+					continue
+				}
+				data = filtered
+			}
 			if ev.Kind == events.KindPoolCreated || ev.Kind == events.KindPoolUpdated {
 				// A viewer may keep watching after a demotion, but must not
 				// keep the environment access they opened this stream with.
@@ -436,6 +456,30 @@ func jsonString(s string) []byte {
 		return []byte(`""`)
 	}
 	return b
+}
+
+// problemsFor narrows an already-rendered problems frame to one audience,
+// and reports whether it could. It works on the encoded bytes for the reason
+// withoutEnvValues does: the frame is rendered once and fanned out, so
+// filtering per connection is what one subscriber's presence costs rather
+// than what every subscriber pays.
+//
+// ok is false when the payload is not a problems frame this version
+// understands. The caller decides what that means, and the two audiences
+// decide differently.
+func problemsFor(data []byte, platform bool) ([]byte, bool) {
+	var view struct {
+		OK    bool                 `json:"ok"`
+		Items []controller.Problem `json:"items"`
+	}
+	if err := json.Unmarshal(data, &view); err != nil {
+		return data, false
+	}
+	out, err := json.Marshal(controller.NewProblemsViewFor(view.Items, platform))
+	if err != nil {
+		return data, false
+	}
+	return out, true
 }
 
 // withoutEnvValues blanks the env values in an already-rendered pool frame,
