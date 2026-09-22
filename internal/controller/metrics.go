@@ -40,6 +40,8 @@ type metrics struct {
 	webhookDeliveries                                                                            *prometheus.CounterVec
 	githubRequests                                                                               *prometheus.CounterVec
 	reconcileDuration                                                                            prometheus.Histogram
+	storeWriteWait                                                                               prometheus.Histogram
+	storeWriteHeld                                                                               prometheus.Histogram
 	reconcileErrors                                                                              prometheus.Counter
 	cleanups                                                                                     *prometheus.CounterVec
 	schedulingLatency, cleanupDuration                                                           *prometheus.HistogramVec
@@ -157,6 +159,23 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_github_api_requests_total",
 			Help: "GitHub API calls by installation and outcome.",
 		}, []string{"installation", "result"}),
+		// The single database writer is the design, and the queue behind it is
+		// where a busy instance slows down first: every heartbeat, webhook,
+		// scheduling pass and API write waits its turn there. The two halves
+		// are kept apart because they point at different fixes -- a long wait
+		// says too much is writing, a long hold says one write is too slow --
+		// and the buckets reach the ten seconds SQLite's busy timeout allows,
+		// which is also how long GitHub waits for a webhook to be answered.
+		storeWriteWait: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "zoomies_store_write_wait_seconds",
+			Help:    "How long a database write waited for the single writer before it could start.",
+			Buckets: []float64{.0005, .001, .005, .01, .05, .1, .5, 1, 2.5, 5, 10},
+		}),
+		storeWriteHeld: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "zoomies_store_write_held_seconds",
+			Help:    "How long a database write then held the single writer, every other write waiting behind it.",
+			Buckets: []float64{.0005, .001, .005, .01, .05, .1, .5, 1, 2.5, 5, 10},
+		}),
 		reconcileDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "zoomies_reconcile_duration_seconds",
 			Help:    "How long one reconcile pass took, including the GitHub calls it made.",
@@ -230,7 +249,7 @@ func newMetrics(c *Controller) *metrics {
 	m.reg.MustRegister(
 		m.jobsTotal, m.jobsRunnerLost, m.jobReruns, m.jobFailures, m.runnerStartFailures, m.queueWait, m.jobDuration, m.scalingEvents,
 		m.registrationsDeferred,
-		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.reconcileErrors, m.cleanups, m.pollsShed, m.buildInfo,
+		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.storeWriteWait, m.storeWriteHeld, m.reconcileErrors, m.cleanups, m.pollsShed, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,
 		m.imagePrewarms, m.imagePrewarmDuration,
 		m.elasticCPUDecisions, m.elasticCPUFactor,
