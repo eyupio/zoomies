@@ -225,6 +225,10 @@ func (d *demoClient) GetWorkflowRun(context.Context, string, int64) (*github.Wor
 	return nil, ErrDemoFixture
 }
 
+func (d *demoClient) RerunWorkflowJob(context.Context, string, int64) error {
+	return nil
+}
+
 func (d *demoClient) RerunFailedWorkflowJobs(context.Context, string, int64) error {
 	return ErrDemoFixture
 }

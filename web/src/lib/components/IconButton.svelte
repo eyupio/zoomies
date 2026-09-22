@@ -14,6 +14,8 @@
     disabled?: boolean;
     loading?: boolean;
     href?: string;
+    /** An `href` that leaves the product: opens in a new tab, and says so. */
+    newTab?: boolean;
     /** For toggle buttons: renders `aria-pressed`. */
     pressed?: boolean;
     expanded?: boolean;
@@ -33,6 +35,7 @@
     disabled = false,
     loading = false,
     href,
+    newTab = false,
     pressed,
     expanded,
     controls,
@@ -49,8 +52,10 @@
   <a
     {href}
     class="icon-btn {variant} {size} {className}"
-    aria-label={label}
+    aria-label={newTab ? `${label} (opens in a new tab)` : label}
     title={showTitle ? label : undefined}
+    target={newTab ? '_blank' : undefined}
+    rel={newTab ? 'noopener noreferrer' : undefined}
   >
     <Icon size={iconSize} aria-hidden="true" />
   </a>
