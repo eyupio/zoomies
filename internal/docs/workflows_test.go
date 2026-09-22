@@ -567,3 +567,37 @@ func TestTheReleaseWorkflowRefusesAMalformedTagOutLoud(t *testing.T) {
 		t.Error("release.yml does not refuse a tag that fails the v* check with an error, so a malformed tag would be built or silently skipped")
 	}
 }
+
+// The watchdog exists for the day the fleet cannot publish its own fix, so
+// each property here is one whose loss would bring that day back.
+//
+// It runs on GitHub's machines, because a watchdog on the fleet is starved by
+// the fault it is watching for. It recovers with runner=github, the one path
+// that needs nothing from the fleet. It starts the recovery run before it
+// cancels anything: the recovery run queues behind the stuck one, so the stuck
+// one has to go -- but cancelling main's only publisher with no replacement in
+// place is the failure the whole arrangement guards against. And it cancels
+// push runs only, never a dispatched one, which is somebody's recovery.
+func TestTheDevWatchdogRecoversMainWithoutTheFleet(t *testing.T) {
+	body := workflowFiles(t)["dev-watchdog.yml"]
+	if body == "" {
+		t.Fatal("dev-watchdog.yml is missing; nothing notices when main's CI is starved and :dev goes stale")
+	}
+	if !strings.Contains(body, "    runs-on: ubuntu-latest\n") || strings.Contains(body, "zoomies-linux-x64\n") {
+		t.Error("the watchdog does not run on ubuntu-latest; on the fleet it is starved by the very fault it watches for")
+	}
+	if !strings.Contains(body, "-f runner=github") {
+		t.Error("the watchdog's recovery does not dispatch CI with runner=github; any other runner waits on the fleet")
+	}
+	if !strings.Contains(body, "event=push") {
+		t.Error("the watchdog's cancellation is not limited to push runs; it could cancel a recovery run, its own included")
+	}
+	dispatch := strings.Index(body, "gh workflow run ci.yml")
+	cancel := strings.Index(body, "/cancel\"")
+	if dispatch < 0 || cancel < 0 || dispatch > cancel {
+		t.Error("the watchdog does not start its recovery run before it cancels; cancelling main's publisher first can leave :dev with nothing to publish it")
+	}
+	if !strings.Contains(body, "\npermissions: {}\n") {
+		t.Error("the watchdog grants permissions at the top; its one job asks for actions: write itself")
+	}
+}
