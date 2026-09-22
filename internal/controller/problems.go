@@ -122,6 +122,11 @@ var problemAudience = map[string]Audience{
 	"controller.loop_panicked":                AudiencePlatform,
 	"controller.update_available":             AudiencePlatform,
 	"crypto.key_mismatch":                     AudiencePlatform,
+	// The credential-minting limit is scheduler.registration_concurrency,
+	// which only the platform can change. A fleet told its runners are being
+	// held back at a number it cannot reach would go looking for hosts, which
+	// is the wrong answer twice over.
+	"scheduler.registration_throttled": AudiencePlatform,
 
 	// Whoever is reading a truncated list has to be told it is truncated,
 	// whichever list it is. A section quietly missing reads as a healthy
@@ -318,6 +323,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	out = append(out, c.PoolCapacityProblems()...)
 	out = append(out, c.PoolRunnerGroupProblems()...)
 	out = append(out, c.leaseProblems()...)
+	out = append(out, c.registrationProblems(ctx)...)
 	out = append(out, c.loopProblems()...)
 	out = append(out, c.updateProblems()...)
 	out = append(out, c.backupProblems(ctx)...)
@@ -1137,6 +1143,64 @@ func (c *Controller) webhookURLOrPath() string {
 // reclaim each other's hosts and reap each other's workloads, and every
 // symptom of it looks like a bug somewhere else -- which is the reason to name
 // it here rather than leave an operator to work it out.
+// registrationProblems reports the runner creations this fleet held back at
+// its own credential-minting limit.
+//
+// scheduler.registration_concurrency bounds outstanding credential requests
+// per installation, and defaults to one. Everything past it is deferred to a
+// later pass. That is a deliberate throttle and mostly a good one -- it keeps
+// a thundering herd from spending an installation's whole GitHub quota in a
+// second -- but until now it was the only limit in the fleet that said
+// nothing when it bound.
+//
+// The shape of the failure it caused is why this exists. The pool reports
+// jobs waiting and nowhere to run them. The operator reads that, looks at the
+// hosts, sees them idle, and adds more. The new hosts do not help, because
+// hosts were never what ran out, and nothing anywhere names the thing that
+// did. A deferral is counted only after the scheduler has already chosen a
+// host for the runner, so every one of these is a creation that had somewhere
+// to go.
+func (c *Controller) registrationProblems(ctx context.Context) []Problem {
+	held, since := c.deferredMintsNow()
+	if len(held) == 0 {
+		return nil
+	}
+	limit := max(1, min(16, c.cfg().Scheduler.RegistrationConcurrency))
+
+	names := map[string]string{}
+	if insts, err := c.st.ListInstallations(ctx); err == nil {
+		for _, in := range insts {
+			names[in.ID] = in.Target
+		}
+	}
+
+	out := make([]Problem, 0, len(held))
+	for id, n := range held {
+		target := names[id]
+		if target == "" {
+			target = id
+		}
+		p := Problem{
+			Code:     "scheduler.registration_throttled",
+			Severity: config.SeverityWarning,
+			Title: fmt.Sprintf("%s is minting runner credentials one at a time",
+				target),
+			Detail: fmt.Sprintf("the last scheduling pass had a host chosen for %s and did not create %s, because %s already had %s in flight and scheduler.registration_concurrency is %d. The demand is kept and a later pass takes it, so this shows as runners appearing slowly rather than as anything failing -- and adding hosts will not change it, because hosts are not what ran out.",
+				plural(n, "runner"), plural(n, "one"), target, plural(limit, "credential request"), limit),
+			Fix:        fmt.Sprintf("raise scheduler.registration_concurrency if this installation's GitHub quota has room for it; it accepts 1 to 16. Leave it where it is if the fleet is deliberately gentle with %s's quota -- this says the throttle is working, not that it is wrong.", target),
+			Setting:    "scheduler.registration_concurrency",
+			TargetKind: "installation", TargetID: id,
+		}
+		if t, ok := since[id]; ok {
+			at := t
+			p.Since = &at
+		}
+		out = append(out, p)
+	}
+	slices.SortFunc(out, func(a, b Problem) int { return strings.Compare(a.TargetID, b.TargetID) })
+	return out
+}
+
 func (c *Controller) leaseProblems() []Problem {
 	held := c.leaseLost.Load()
 	if held == nil {

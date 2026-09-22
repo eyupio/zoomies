@@ -36,6 +36,7 @@ type metrics struct {
 	startupWait, dindReady                                                                       *prometheus.HistogramVec
 	queuedToCreate, createToContainer, containerToRegistered, registeredToReady, queuedToStarted *prometheus.HistogramVec
 	scalingEvents                                                                                *prometheus.CounterVec
+	registrationsDeferred                                                                        *prometheus.CounterVec
 	webhookDeliveries                                                                            *prometheus.CounterVec
 	githubRequests                                                                               *prometheus.CounterVec
 	reconcileDuration                                                                            prometheus.Histogram
@@ -86,6 +87,16 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_jobs_total",
 			Help: "Workflow jobs Zoomies has seen complete, by pool and conclusion.",
 		}, []string{"pool", "conclusion"}),
+		// A runner the scheduler had already chosen a host for, and did not
+		// create, because the installation was at its credential-minting
+		// limit. It counts work deferred rather than work failed: the demand
+		// stands and a later pass takes it. Without it the limit is invisible
+		// -- the pool reports jobs waiting, an operator adds hosts, and the
+		// hosts do not help, because hosts were never what ran out.
+		registrationsDeferred: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_registrations_deferred_total",
+			Help: "Runner creations held back by scheduler.registration_concurrency, by installation. Demand is retained and retried on a later pass.",
+		}, []string{"installation"}),
 		jobsRunnerLost: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "zoomies_jobs_runner_lost_total",
 			Help: "Jobs whose runner stopped before GitHub reported the job over, by pool. These are the fleet's failures rather than the workflows'.",
@@ -218,6 +229,7 @@ func newMetrics(c *Controller) *metrics {
 
 	m.reg.MustRegister(
 		m.jobsTotal, m.jobsRunnerLost, m.jobReruns, m.jobFailures, m.runnerStartFailures, m.queueWait, m.jobDuration, m.scalingEvents,
+		m.registrationsDeferred,
 		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.reconcileErrors, m.cleanups, m.pollsShed, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,
 		m.imagePrewarms, m.imagePrewarmDuration,
