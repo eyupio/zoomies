@@ -74,15 +74,19 @@ test('a run opens in place to the jobs inside it, and closes again from the keyb
   await expect(jobs).toContainText(FIXTURE.linuxPool);
 
   // A job opens the same drawer the Jobs page opens.
-  await jobs
-    .getByRole('button', { name: /^(build|test|lint|package)$/ })
-    .first()
-    .click();
+  const job = jobs.getByRole('button', { name: /^(build|test|lint|package)$/ }).first();
+  await job.click();
   const drawer = page.getByRole('dialog');
   await expect(drawer).toBeVisible();
   await expect(drawer.getByRole('list', { name: 'Timeline' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(drawer).toBeHidden();
+  // Closing it hands focus back to the job, a frame after the drawer has
+  // gone -- the page has to lift its inert first. Waited for, because a row
+  // focused inside that frame has focus taken back from it, and the arrow
+  // below then lands on the job's button, which the grid rightly leaves
+  // alone -- which failed a full-suite run, the table still open.
+  await expect(job).toBeFocused();
 
   // The arrows a tree uses close and open the run again.
   await row.focus();
