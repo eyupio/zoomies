@@ -492,6 +492,21 @@ registering, starts newer than the measurement, and all placements in the
 current pass are charged before another placement is allowed. The independent
 reservation budget remains enforced as well.
 
+One exception, for a pool that sets no `memory_mb` and so takes one slot's
+share of its host. On a host running nothing of Zoomies', that share is
+checked against the reservation budget alone, not against measured free
+memory. The share is carved from the host's allocatable memory — the machine
+less its reserve — while measured free memory is the machine less what its
+operating system actually uses, and on a host whose system uses more than the
+reserve allows for, the share never fits: a host of one slot, whose share is
+the whole of its allocatable memory, would refuse its only slot while idle and
+report itself short of memory. With nothing of ours on the host there is
+nothing for the measurement to protect, and the hold in the table below still
+stops every start once free memory falls to the reserve. From the first runner
+on, the measured check applies as usual, and a pool that states its
+`memory_mb` is checked against measured free memory even on an idle host,
+because that figure is what its jobs need.
+
 | Observation | New runner placement |
 | --- | --- |
 | CPU below 85% | Balance across eligible hosts using CPU and memory headroom. |

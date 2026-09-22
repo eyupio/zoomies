@@ -163,3 +163,61 @@ func TestASingleSlotHostFitsTheRunnerItsOwnSizeAsksFor(t *testing.T) {
 		t.Fatalf("placed on %v, want the idle host's only slot", got)
 	}
 }
+
+// An idle host that is using more for its own operating system than the reserve
+// guessed -- Docker, containerd and a VPN on a 31 GB machine is enough -- has
+// less measured free memory than its allocatable figure. A pool that leaves its
+// size to the host asks for a share of allocatable, and on a host of one slot
+// that share is the whole of it, so comparing the share with what was measured
+// free refused the slot at every pass, on a machine running nothing. The Hosts
+// page, which counts from allocatable, said the slot was free all along.
+//
+// This is the case the test above does not cover: there, measured free memory
+// was set exactly equal to allocatable, the one value at which it worked.
+func TestAnIdleHostTakesAHostSizedRunnerWhenItsOperatingSystemUsesMoreThanTheReserve(t *testing.T) {
+	p := testPool("build", "build")
+	h := sized("host_a", 1, 4, 31*1024, 100000)
+	// Three gigabytes in use by the machine itself, against a reserve of
+	// about one and a half.
+	withUsage(h, 5, h.MemoryMB-3*1024)
+	if avail, alloc := *h.Usage.MemoryAvailableMB, h.Allocatable().MemoryMB; avail >= alloc {
+		t.Fatalf("the fixture does not reproduce the fault: %d MB available is not below %d MB allocatable", avail, alloc)
+	}
+
+	hs := newHostSet([]*store.Host{h}, []*store.Pool{p}, nil, now)
+	if got := hs.place(p, 1); len(got) != 1 {
+		t.Fatalf("placed on %v, want the idle host's only slot", got)
+	}
+}
+
+// What the measured check is for still holds once the host runs work of ours:
+// a second host-sized runner is refused when what is measured free cannot
+// carry it, because the runners already there are using that memory.
+func TestAHostAlreadyRunningOurWorkStillMeasuresBeforeTakingMore(t *testing.T) {
+	p := testPool("build", "build")
+	h := sized("host_a", 2, 8, 32*1024, 100000)
+	h.ActiveRunners = 1
+	r := testRunner("existing", p, store.RunnerBusy, time.Minute)
+	r.HostID = h.ID
+	// The busy runner is using most of the machine.
+	withUsage(h, 40, 6*1024)
+
+	hs := newHostSet([]*store.Host{h}, []*store.Pool{p}, map[string][]*store.Runner{p.ID: {r}}, now)
+	if got := hs.place(p, 1); len(got) != 0 {
+		t.Fatalf("placed on %v; a host whose runner is using its memory must not be handed another share it has not got", got)
+	}
+}
+
+// A pool that states its size is asking for that much, so an idle host must
+// have it free: the leniency is for a share the host chose, not for a figure
+// an operator wrote down.
+func TestAnIdleHostStillRefusesAStatedSizeItHasNotGotFree(t *testing.T) {
+	p := limited("build", 2, 8192)
+	h := sized("host_a", 1, 4, 16*1024, 100000)
+	withUsage(h, 5, 6*1024)
+
+	hs := newHostSet([]*store.Host{h}, []*store.Pool{p}, nil, now)
+	if got := hs.place(p, 1); len(got) != 0 {
+		t.Fatalf("placed on %v; an 8 GB runner does not fit in 6 GB free, whatever the host is otherwise doing", got)
+	}
+}
