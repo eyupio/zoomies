@@ -114,8 +114,17 @@ which leaves 7.5 allocatable, and gives each runner a guarantee of 1.87 CPUs.
 | Two busy runners, one compatible job queued | 2.81 CPUs | 1.5× | Rabbit spotted — extra zoomies |
 | Two busy runners, ceiling of 3 CPUs on the pool | 3 CPUs | 1.6× | Rabbit spotted — extra zoomies |
 | Two busy and two idle runners, nothing queued | 1.87 CPUs | 1.0× | Steady paws — guaranteed pace |
-| Host at 90% CPU | 1.87 CPUs | 1.0× | Steady paws — guaranteed pace |
+| Host at 90% CPU from other work | 1.87 CPUs | 1.0× | Steady paws — guaranteed pace |
 | Host throttled one rung | 1.40 CPUs | 0.75× | Leash tightened — host under pressure |
+
+The fifth row is about CPU the plan did not lend. The first row's two runners,
+using their boosts, put the host above 90% themselves, and a host busy only
+because of what it was lent is not a busy host: the test for "under 85%" is
+made on the host's CPU less the lent CPU its runners are using. Judged on the
+raw figure instead, a boost that worked withdrew itself on the next heartbeat,
+the host fell quiet, and the one after lent it again — every other heartbeat,
+for as long as the job ran. Outside work, a runner with no limit, or the
+daemon still count in full, and still stop a boost.
 
 The fourth row is the one that surprises people: the two idle runners are
 charged their guarantees even though they are using nothing, because their

@@ -153,3 +153,46 @@ func TestABusyHostRecordsThatItCouldNotLend(t *testing.T) {
 		t.Errorf("host_busy decisions = %v after an unmeasured heartbeat, want still 1", got)
 	}
 }
+
+// The docs' own 8-core host: two runners' worth of guarantee is 1.87 CPUs
+// each, and a busy one lent twice that uses 3.75. A host doing exactly that is
+// well over 85% busy -- because of the boost. Judged on the raw figure, the
+// next heartbeat withdrew the boost, the host fell quiet, and the one after
+// lent it again, every other heartbeat for as long as the job ran.
+//
+// What the line is for is CPU the plan did not lend, and that still stops it:
+// the same host at full CPU with the runner back at its guarantee is busy with
+// something else, and gets nothing.
+func TestABoostBeingUsedDoesNotTripItsOwnGuard(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.CPUBurst = store.CPUBurstPolicy{Mode: store.CPUBurstAutomatic}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	runner := h.runnerRow(pool, host, store.RunnerBusy)
+	runner.AllocatedCPUs = 1.87
+	runner.AllocationSource = store.AllocationFromHost
+	if err := h.st.UpdateRunner(h.ctx, runner); err != nil {
+		t.Fatal(err)
+	}
+	host.CPUs, host.ReserveCPUs = 8, 0
+	now := h.c.Now()
+	sampled := now
+	beat := func(hostCPU, runnerCPU, factor float64) []agent.ElasticCPUDirective {
+		host.Usage = store.HostUsage{CPUPercent: &hostCPU, SampledAt: now}
+		return h.c.elasticCPUTargets(h.ctx, host, agent.HeartbeatRequest{
+			Features: []string{agent.FeatureElasticCPU},
+			Runners: []agent.RunnerReport{{RunnerID: runner.ID, Stats: backend.Stats{
+				SampledAt: &sampled, CPUPercent: runnerCPU, CPUAllocationFactor: factor,
+			}}},
+		}, now)
+	}
+
+	if got := beat(94, 375, 2); len(got) != 1 || got[0].TargetCPUs <= got[0].BaseCPUs {
+		t.Fatalf("a host at 94%% because its runner is using a boost got %+v; want the boost kept, not withdrawn by its own success", got)
+	}
+	if got := beat(100, 187, 2); len(got) != 0 {
+		t.Fatalf("a host at full CPU with its runner back at its guarantee got %+v; that CPU is someone else's, and nothing should be lent", got)
+	}
+}
