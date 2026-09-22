@@ -1272,8 +1272,10 @@ hosts' load.
 
 Whether a job this fleet broke is sent back to GitHub without anybody asking.
 **Off by default**, and the default is the recommendation for most
-deployments: the [button on the job](jobs.md) does the same thing when a
-person has looked at the failure and decided.
+deployments: the button on the job does the same thing when a person
+has looked at the failure and decided —
+[whose failure was it?](troubleshooting.md#ci-is-flaky-is-it-or-is-it-us)
+has it.
 
 A runner that dies under a job — the host rebooted, the container was killed
 for its memory limit, the daemon stopped answering — fails that job in a way
