@@ -191,6 +191,20 @@ func (s *Server) supportBundle(ctx context.Context) supportBundle {
 	}
 
 	b.Instance = s.bundleInstance(ctx, gather)
+	if !callerRoleCtx(ctx).AtLeast(store.RolePlatform) {
+		// "Send me a bundle" is the platform's first support question, so the
+		// fleet has to be able to answer it -- the route stays theirs rather
+		// than moving behind the platform's. What they send is the fleet's
+		// half: their pools, hosts, runners and jobs, and of the instance
+		// only what identifies the build it all ran on. The machine the
+		// process is on is not theirs to describe.
+		b.Instance = bundleInstance{
+			Version:   b.Instance.Version,
+			Commit:    b.Instance.Commit,
+			BuildDate: b.Instance.BuildDate,
+			Go:        b.Instance.Go,
+		}
+	}
 
 	gather("config", func() error {
 		b.Config = s.settingsConfig(callerRoleCtx(ctx))
@@ -348,9 +362,9 @@ func (s *Server) bundleInstance(ctx context.Context, gather func(string, func() 
 		CPUs:             runtime.NumCPU(),
 		Goroutines:       runtime.NumGoroutine(),
 		HeapInUseBytes:   mem.HeapInuse,
-		ConfigPath:       platformOnly(callerRoleCtx(ctx), s.cfg().Path()),
-		DatabasePath:     platformOnly(callerRoleCtx(ctx), s.ctrl.Store().Path()),
-		EventSubscribers: platformOnlyInt(callerRoleCtx(ctx), s.ctrl.Events().Subscribers()),
+		ConfigPath:       s.cfg().Path(),
+		DatabasePath:     s.ctrl.Store().Path(),
+		EventSubscribers: s.ctrl.Events().Subscribers(),
 		PollingOnly:      s.ctrl.PollingOnly(),
 		PollerEnabled:    s.ctrl.PollerEnabled(),
 	}

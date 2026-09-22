@@ -68,7 +68,7 @@ Conventions:
 | --- | --- | --- | --- |
 | GET | `/api/v1/stats` | viewer | Queued/running counts, the window's completed jobs split into `succeeded`, `failed`, `cancelled` and `unknown` (the four add up to `completed`; `unknown` is a conclusion that is none of the others, including a job GitHub stopped reporting, and is never counted as a success), live runner counts by state, median and p95 queue wait, per-pool utilisation, and a `fleet` object carrying the same job figures narrowed to the jobs this fleet has a hand in — one an enabled pool claimed, one that ran on a runner started here, or one still queued that no pool claims. GitHub reports every job in an installed repository, so on an organisation that also uses hosted runners the unscoped figures are mostly somebody else's; both travel in one payload because the same numbers arrive over the event stream, which is one frame for every viewer. `?window=1h`. |
 | GET | `/api/v1/samples` | viewer | Fleet samples for the sparklines. `?since=` or `?window=1h`. |
-| GET | `/api/v1/problems` | viewer | The problems drawer: unhealthy hosts, failed registrations, webhook delivery failures, unmatched queued jobs, jobs whose runner stopped under them in the last hour, and every configuration warning from `config.Validate`. Returns `{ "items": [...], "ok": true }` — `ok` is true and `items` empty when there is nothing wrong. |
+| GET | `/api/v1/problems` | viewer | The problems drawer: unhealthy hosts, failed registrations, webhook delivery failures, unmatched queued jobs, jobs whose runner stopped under them in the last hour, and every configuration warning from `config.Validate`. Returns `{ "items": [...], "ok": true }` — `ok` is true and `items` empty when there is nothing wrong. **Answers by audience**: each problem carries an `audience`, and a caller below `platform` gets the fleet's — its pools, hosts, runners and jobs — while the process's own (its lease, its loops, its backups, the release it could be running, and every `config.Validate` finding) reach `platform` only. `ok` is computed after that filter, so a fleet with nothing of its own wrong is told so. On a single-team instance the one account holds `platform` and the list is undivided. |
 | GET | `/api/v1/scaling-events` | viewer | Recent scheduler decisions with their reason strings. `?pool_id=&limit=`. |
 | GET | `/api/v1/events` | viewer | **SSE.** All live updates. Honours `Last-Event-ID`, and opens with a `resync` frame when it cannot replay the gap. Query `kinds=` and `topic=` narrow it. Sends a `heartbeat` comment every 20s. |
 
@@ -370,7 +370,7 @@ fleet. [Backup and restore](backup-and-restore.md) is the operator's page.
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/diagnostics/bundle` | admin | This instance in one JSON document, for a bug report. Admin because it contains the settings section, which is. |
+| GET | `/api/v1/diagnostics/bundle` | admin | This instance in one JSON document, for a bug report. Admin because it contains the settings section, which is. It stays the fleet's to collect — "send me a bundle" is the platform's first support question — but below `platform` the `instance` section is reduced to the build it all ran on (version, commit, date and Go), and the configuration section carries only fleet-scoped keys. |
 
 The bundle is assembled from the same renderings the routes above serve, so a
 section that is secret-free on its own route is secret-free here; the
@@ -449,7 +449,9 @@ client ever has to poll or ask the operator to reload:
   after every reconcile pass and every housekeeping tick, and sends each only
   when its JSON changed. `stats` summarises the same one-hour window
   `GET /stats` defaults to; `problems.updated` is the whole `GET /problems`
-  response. A host is the same idea per row: `active_runners` is counted from
+  response, narrowed to each subscriber's audience as it is sent — the frame is
+  rendered once and filtered per connection, the way a pool frame's `env` values
+  are blanked for a viewer. A host is the same idea per row: `active_runners` is counted from
   the runners table when the host is read, and the heartbeat behind
   `last_heartbeat` writes one column nothing publishes, so a runner starting or
   an agent checking in moves the card with no row change to announce it. Each
