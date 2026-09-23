@@ -170,6 +170,18 @@ The privileges the credential itself holds are yours to scope, and
 [Proxmox VE](proxmox.md#the-api-token) lists exactly which ones are needed and
 why each one is there.
 
+### An installation archive
+
+`zoomies export --installation` is the one path by which a GitHub App's private
+key leaves the instance. It leaves only when the exporter gives a passphrase,
+sealed under a key derived from it with argon2id, and never as the
+instance-sealed column — a copy of that ciphertext would outlive a purge and be
+one leaked instance key away from readable. The export is admin-only
+(`installations.export`) and audited, the archive is written mode 0600, and the
+import seals the key again under the receiving instance's own key before it
+writes a row. Treat an archive with a passphrase as you would the key itself,
+and keep the passphrase somewhere else.
+
 ---
 
 ## 4. Authentication and authorisation
