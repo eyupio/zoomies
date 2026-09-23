@@ -154,6 +154,11 @@ func (s *Server) apiRoutes() chi.Router {
 			// What a pool that says nothing is. The size a runner gets is a
 			// fleet setting now, so a form has to ask rather than assume.
 			r.With(s.require(auth.ActionPoolsRead)).Get("/defaults", s.handlePoolDefaults)
+			// Moving pools between instances, as a file. Export is a read, so
+			// whoever can see the pools can keep a copy; import creates and edits,
+			// so it needs what creating and editing need.
+			r.With(s.require(auth.ActionPoolsRead)).Get("/export", s.handleExportPools)
+			r.With(s.require(auth.ActionPoolsWrite)).Post("/import", s.handleImportPools)
 			r.With(s.require(auth.ActionPoolsRead)).Get("/{id}", s.handleGetPool)
 			r.With(s.require(auth.ActionPoolsWrite)).Patch("/{id}", s.handleUpdatePool)
 			r.With(s.require(auth.ActionPoolsDelete)).Delete("/{id}", s.handleDeletePool)

@@ -526,3 +526,37 @@ administrator has set, and nothing else — travels separately, from
   on the page afterwards, exactly as a change made by hand would be.
 
 Both are audited, as `settings.export` and `settings.import`.
+
+### Moving pools
+
+The pools are the fleet's other half, and they travel the same way, from
+**Pools → Export** and **Pools → Import** or with `zoomies pools export` and
+`zoomies pools import`. It is how the pools you run on one instance reach
+another you run — staging to production, an old machine to a new one — and how
+they are kept in version control beside the workflows that use them.
+
+* **Export** writes every pool's own settings: its platform, labels, limits and
+  runner settings. Nothing the instance made up about a pool is in it — no id,
+  no counts, no timestamps — and the installation is named by the organisation
+  or repository it covers rather than by its id, so the file means the same
+  thing on an instance with the same GitHub App installed. A pool's
+  environment is the one place a secret can hide, so the export names the
+  variables and never carries their values; set those by hand afterwards.
+* **Import** reads that file back and matches pools by name. Each is planned
+  through the same checks the pool wizard and `PATCH` go through and shown
+  first: which pools would be created, which would change and in which
+  settings — with the value now and the value incoming — which are already so,
+  and which this instance refuses and why. An installation it does not have,
+  a figure the pools API refuses, and an edit that would leave a pool with no
+  host that could run it are all refusals; a new pool that no host can run yet
+  is created with a warning, as the wizard allows. Applying is one change or
+  none: a refused pool has to be fixed in the document or skipped.
+
+As with the settings, what a document leaves out is left alone. A pool the
+file does not name is never deleted, and a setting a pool entry leaves out
+keeps the value it has, so a hand-written file that says only
+`max_runners: 2` changes that and nothing else. Applying the same file twice
+changes nothing the second time.
+
+Both are audited, as `pools.export` and `pools.import`, and every pool the
+import creates or changes has its own `pool.create` or `pool.update` row.

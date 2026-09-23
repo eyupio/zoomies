@@ -184,6 +184,8 @@ export type RestoreOutcome = Schemas['RestoreOutcome'];
 export type SettingsImport = Schemas['SettingsImport'];
 export type SettingsImportChange = Schemas['SettingsImportChange'];
 export type SettingsImportAction = SettingsImportChange['action'];
+export type PoolsImport = Schemas['PoolsImport'];
+export type PoolsImportChange = Schemas['PoolsImportChange'];
 
 /** A resource that no longer exists. Carried by the `*.deleted` SSE kinds. */
 export interface Deleted {

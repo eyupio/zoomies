@@ -624,6 +624,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pools/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every pool, as a file another instance can import
+         * @description Every pool's own settings -- platform, labels, limits, runner settings -- and nothing the instance made up about it: no id, no counts, no timestamps. The installation is named by the organisation or repository it covers rather than by its id, so the document imports on another instance with the same GitHub App installed. No environment value is ever in it; `env_keys` names the variables to set by hand. `format=json` wraps the list with when it was taken and where from; `format=yaml` is the same list with those facts as a comment. Audited.
+         */
+        get: operations["exportPools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pools/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a pools export back, previewing first
+         * @description Every pool in the document is matched by name and planned through the checks a create or an edit makes, and reported as `create`, `change`, `unchanged` or `refused`, with the current and incoming value of every setting that would move and the reason for a refusal. An edit that would leave a pool with no host that could run it is refused, as a PATCH is; a new pool no host could run yet is created with a warning, as the wizard allows. A dry run reports and writes nothing. A real run refuses the whole document with 422 while any pool is refused, so an import is one change or none; `skip` names the pools to leave out. A pool the document does not name is left alone, and a setting a pool entry leaves out keeps its current value.
+         */
+        post: operations["importPools"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pools/validate": {
         parameters: {
             query?: never;
@@ -3383,6 +3423,93 @@ export interface components {
             source?: string;
             /** @description The repository a repository-scoped cache belongs to, as owner/name. Required when the pool's installation targets an organisation, and left empty when it targets a single repository, which supplies it. */
             repository?: string;
+        };
+        PoolsExport: {
+            export_version: number;
+            /** Format: date-time */
+            exported_at: string;
+            /** @description The address the source instance answers on. */
+            exported_from?: string;
+            /** @description The Zoomies build that wrote it. */
+            version: string;
+            pools: components["schemas"]["PoolDocument"][];
+        };
+        /** @description One pool as a pools export carries it. */
+        PoolDocument: {
+            name: string;
+            /** @description The organisation or owner/repository the pool's installation covers. */
+            installation: string;
+            labels: string[];
+            runner_group?: string;
+            backend: string;
+            platform: components["schemas"]["Platform"];
+            image: string;
+            pull_policy: string;
+            runner_version?: string;
+            min_runners: number;
+            max_runners: number;
+            repository_scale_up_limit?: number;
+            cost_per_runner_hour?: number | null;
+            priority?: number;
+            idle_timeout: string;
+            ephemeral: boolean;
+            docker_mode: string;
+            resources: components["schemas"]["Resources"];
+            cpu_burst: components["schemas"]["CPUBurstPolicy"];
+            /** @description Every override, with null for one the pool does not make, so importing hands it back to the fleet. */
+            runner_settings: {
+                provision_timeout?: string | null;
+                drain_timeout?: string | null;
+                max_runner_lifetime?: string | null;
+                scale_up_delay?: string | null;
+                docker_wait?: string | null;
+            };
+            cache: components["schemas"]["CacheConfig"];
+            host_selector: {
+                [key: string]: string;
+            };
+            /** @description The environment variables the pool injects. Their values are never exported. */
+            env_keys: string[];
+            run_as_root: boolean;
+            enabled: boolean;
+        };
+        PoolsImportRequest: {
+            /** @description A pools export */
+            document: string;
+            /** @description Plan and report; write nothing. */
+            dry_run?: boolean;
+            /** @description Names of pools in the document to leave out. */
+            skip?: string[];
+        };
+        PoolsImportChange: {
+            pool: string;
+            /** @enum {string} */
+            action: "create" | "change" | "unchanged" | "refused";
+            /** @description Every setting for a create, the ones that move for a change, and none otherwise. */
+            fields: {
+                field: string;
+                /** @description The pool's value here; null for a pool that does not exist yet. */
+                current: unknown;
+                /** @description The document's value. */
+                incoming: unknown;
+            }[];
+            /** @description Why it is refused. */
+            reason?: string;
+            /** @description What would not stop the import but should be known first. */
+            warnings: string[];
+            /** @description Environment variables the source pool injected */
+            env_keys: string[];
+        };
+        PoolsImport: {
+            applied: boolean;
+            changes: components["schemas"]["PoolsImportChange"][];
+            summary: {
+                create: number;
+                change: number;
+                unchanged: number;
+                refused: number;
+                skipped: number;
+            };
         };
         PoolCreate: {
             /**
@@ -6215,6 +6342,54 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    exportPools: {
+        parameters: {
+            query?: {
+                format?: "json" | "yaml";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The export */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolsExport"];
+                    "application/yaml": string;
+                };
+            };
+        };
+    };
+    importPools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolsImportRequest"];
+            };
+        };
+        responses: {
+            /** @description The preview, or the result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolsImport"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
         };
     };
     validatePool: {

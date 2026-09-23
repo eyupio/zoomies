@@ -268,6 +268,18 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 // would show under a name saying nothing about which fleet it belongs to. The
 // scheduler then never has to think about case or whitespace either.
 func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
+	query, args, err := s.poolInsert(p)
+	if err != nil {
+		return err
+	}
+	_, err = s.exec(ctx, query, args...)
+	return wrapWrite(err)
+}
+
+// poolInsert normalises a new pool and returns the statement that stores it,
+// so that a pool created on its own and one created as part of an import are
+// the same row.
+func (s *Store) poolInsert(p *Pool) (string, []any, error) {
 	if p.ID == "" {
 		p.ID = NewID(PrefixPool)
 	}
@@ -279,31 +291,33 @@ func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	if p.PullPolicy == "" {
 		p.PullPolicy = PullIfNotPresent
 	}
-	res, err := marshalJSON(p.Resources)
+	res, cache, settings, burst, err := poolJSON(p)
 	if err != nil {
-		return err
+		return "", nil, err
 	}
-	cache, err := marshalJSON(p.Cache)
-	if err != nil {
-		return err
-	}
-	settings, err := marshalJSON(p.RunnerSettings)
-	if err != nil {
-		return err
-	}
-	burst, err := marshalJSON(p.CPUBurst)
-	if err != nil {
-		return err
-	}
-	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	return `INSERT INTO pools (` + poolCols + `) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{
 		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
 		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
 		string(p.PullPolicy),
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt),
-		p.RepositoryScaleUpLimit, p.CostPerRunnerHour, settings, burst)
-	return wrapWrite(err)
+		p.RepositoryScaleUpLimit, p.CostPerRunnerHour, settings, burst}, nil
+}
+
+// poolJSON encodes the four columns a pool keeps as JSON documents.
+func poolJSON(p *Pool) (res, cache, settings, burst string, err error) {
+	if res, err = marshalJSON(p.Resources); err != nil {
+		return
+	}
+	if cache, err = marshalJSON(p.Cache); err != nil {
+		return
+	}
+	if settings, err = marshalJSON(p.RunnerSettings); err != nil {
+		return
+	}
+	burst, err = marshalJSON(p.CPUBurst)
+	return
 }
 
 // GetPool returns a pool by ID.
@@ -348,6 +362,19 @@ func (s *Store) ListPools(ctx context.Context) ([]*Pool, error) {
 // the reason CreatePool brands it, which also means a pool carried over from a
 // build that did not brand names gains the prefix the next time it is edited.
 func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
+	query, args, err := s.poolUpdate(p)
+	if err != nil {
+		return err
+	}
+	r, err := s.exec(ctx, query, args...)
+	if err != nil {
+		return wrapWrite(err)
+	}
+	return affected(r, "pool", p.ID)
+}
+
+// poolUpdate is poolInsert's counterpart for a pool that already exists.
+func (s *Store) poolUpdate(p *Pool) (string, []any, error) {
 	p.UpdatedAt = s.Now()
 	p.Name = BrandedName(p.Name)
 	p.Labels = NormalizeLabels(p.Labels)
@@ -355,39 +382,56 @@ func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 	if p.PullPolicy == "" {
 		p.PullPolicy = PullIfNotPresent
 	}
-	res, err := marshalJSON(p.Resources)
+	res, cache, settings, burst, err := poolJSON(p)
 	if err != nil {
-		return err
+		return "", nil, err
 	}
-	cache, err := marshalJSON(p.Cache)
-	if err != nil {
-		return err
-	}
-	settings, err := marshalJSON(p.RunnerSettings)
-	if err != nil {
-		return err
-	}
-	burst, err := marshalJSON(p.CPUBurst)
-	if err != nil {
-		return err
-	}
-	r, err := s.exec(ctx, `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
+	return `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
 		backend=?, os=?, os_version=?, arch=?, image=?, pull_policy=?, runner_version=?,
 		min_runners=?, max_runners=?, priority=?, idle_timeout_ms=?, ephemeral=?,
 		docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
 		enabled=?, updated_at=?, repository_scale_up_limit=?, cost_per_runner_hour=?,
-		runner_settings=?, cpu_burst=? WHERE id=?`,
-		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
-		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
-		string(p.PullPolicy),
-		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
-		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
-		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.RepositoryScaleUpLimit,
-		p.CostPerRunnerHour, settings, burst, p.ID)
-	if err != nil {
-		return wrapWrite(err)
-	}
-	return affected(r, "pool", p.ID)
+		runner_settings=?, cpu_burst=? WHERE id=?`, []any{
+			p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
+			p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
+			string(p.PullPolicy),
+			p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
+			boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
+			boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.RepositoryScaleUpLimit,
+			p.CostPerRunnerHour, settings, burst, p.ID}, nil
+}
+
+// ApplyPools creates and updates pools as one transaction: every row is
+// written or none is. It is what an import of pools applies through, because
+// a document that half-landed -- three pools created and the fourth refused
+// by the database -- leaves a fleet that matches neither the file nor what
+// was there before, and nobody can say which of the two to go back to.
+func (s *Store) ApplyPools(ctx context.Context, create, update []*Pool) error {
+	return s.tx(ctx, func(t *sql.Tx) error {
+		for _, p := range create {
+			query, args, err := s.poolInsert(p)
+			if err != nil {
+				return err
+			}
+			if _, err := t.ExecContext(ctx, query, args...); err != nil {
+				return wrapWrite(err)
+			}
+		}
+		for _, p := range update {
+			query, args, err := s.poolUpdate(p)
+			if err != nil {
+				return err
+			}
+			r, err := t.ExecContext(ctx, query, args...)
+			if err != nil {
+				return wrapWrite(err)
+			}
+			if err := affected(r, "pool", p.ID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // DeletePool removes a pool and, by cascade, its runner rows and any queued

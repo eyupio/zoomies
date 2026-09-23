@@ -910,6 +910,63 @@ paths:
                         description: The wait that actually happens rather than the one configured — zero in the setting means the runner image chooses, and the image waits two minutes.
                         examples: ["2m0s"]
 
+  /pools/export:
+    get:
+      operationId: exportPools
+      tags: [pools]
+      summary: Every pool, as a file another instance can import
+      description: >-
+        Every pool's own settings -- platform, labels, limits, runner settings --
+        and nothing the instance made up about it: no id, no counts, no
+        timestamps. The installation is named by the organisation or repository
+        it covers rather than by its id, so the document imports on another
+        instance with the same GitHub App installed. No environment value is
+        ever in it; `env_keys` names the variables to set by hand. `format=json`
+        wraps the list with when it was taken and where from; `format=yaml` is
+        the same list with those facts as a comment. Audited.
+      x-zoomies-role: viewer
+      parameters:
+        - { name: format, in: query, schema: { type: string, enum: [json, yaml], default: json } }
+      responses:
+        "200":
+          description: The export
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PoolsExport" }
+            application/yaml:
+              schema: { type: string }
+
+  /pools/import:
+    post:
+      operationId: importPools
+      tags: [pools]
+      summary: Read a pools export back, previewing first
+      description: >-
+        Every pool in the document is matched by name and planned through the
+        checks a create or an edit makes, and reported as `create`, `change`,
+        `unchanged` or `refused`, with the current and incoming value of every
+        setting that would move and the reason for a refusal. An edit that
+        would leave a pool with no host that could run it is refused, as a
+        PATCH is; a new pool no host could run yet is created with a warning,
+        as the wizard allows. A dry run reports and writes nothing. A real run
+        refuses the whole document with 422 while any pool is refused, so an
+        import is one change or none; `skip` names the pools to leave out. A
+        pool the document does not name is left alone, and a setting a pool
+        entry leaves out keeps its current value.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PoolsImportRequest" }
+      responses:
+        "200":
+          description: The preview, or the result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PoolsImport" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
   /pools/validate:
     post:
       operationId: validatePool
@@ -4855,6 +4912,102 @@ components:
             The repository a repository-scoped cache belongs to, as owner/name.
             Required when the pool's installation targets an organisation, and
             left empty when it targets a single repository, which supplies it.
+
+    PoolsExport:
+      type: object
+      required: [export_version, exported_at, version, pools]
+      properties:
+        export_version: { type: integer }
+        exported_at: { type: string, format: date-time }
+        exported_from: { type: string, description: The address the source instance answers on. }
+        version: { type: string, description: The Zoomies build that wrote it. }
+        pools: { type: array, items: { $ref: "#/components/schemas/PoolDocument" } }
+
+    PoolDocument:
+      type: object
+      description: One pool as a pools export carries it.
+      required: [name, installation, labels, backend, platform, image, pull_policy, min_runners, max_runners, idle_timeout, ephemeral, docker_mode, resources, cpu_burst, runner_settings, cache, host_selector, env_keys, run_as_root, enabled]
+      properties:
+        name: { type: string }
+        installation: { type: string, description: The organisation or owner/repository the pool's installation covers. }
+        labels: { type: array, items: { type: string } }
+        runner_group: { type: string }
+        backend: { type: string }
+        platform: { $ref: "#/components/schemas/Platform" }
+        image: { type: string }
+        pull_policy: { type: string }
+        runner_version: { type: string }
+        min_runners: { type: integer }
+        max_runners: { type: integer }
+        repository_scale_up_limit: { type: integer }
+        cost_per_runner_hour: { type: number, nullable: true }
+        priority: { type: integer }
+        idle_timeout: { type: string }
+        ephemeral: { type: boolean }
+        docker_mode: { type: string }
+        resources: { $ref: "#/components/schemas/Resources" }
+        cpu_burst: { $ref: "#/components/schemas/CPUBurstPolicy" }
+        runner_settings:
+          type: object
+          description: Every override, with null for one the pool does not make, so importing hands it back to the fleet.
+          properties:
+            provision_timeout: { type: string, nullable: true }
+            drain_timeout: { type: string, nullable: true }
+            max_runner_lifetime: { type: string, nullable: true }
+            scale_up_delay: { type: string, nullable: true }
+            docker_wait: { type: string, nullable: true }
+        cache: { $ref: "#/components/schemas/CacheConfig" }
+        host_selector: { type: object, additionalProperties: { type: string } }
+        env_keys:
+          type: array
+          items: { type: string }
+          description: The environment variables the pool injects. Their values are never exported.
+        run_as_root: { type: boolean }
+        enabled: { type: boolean }
+
+    PoolsImportRequest:
+      type: object
+      required: [document]
+      properties:
+        document: { type: string, description: A pools export, as text. YAML or JSON. }
+        dry_run: { type: boolean, description: Plan and report; write nothing. }
+        skip: { type: array, items: { type: string }, description: Names of pools in the document to leave out. }
+
+    PoolsImportChange:
+      type: object
+      required: [pool, action, fields, warnings, env_keys]
+      properties:
+        pool: { type: string }
+        action: { type: string, enum: [create, change, unchanged, refused] }
+        fields:
+          type: array
+          description: Every setting for a create, the ones that move for a change, and none otherwise.
+          items:
+            type: object
+            required: [field, current, incoming]
+            properties:
+              field: { type: string }
+              current: { nullable: true, description: The pool's value here; null for a pool that does not exist yet. }
+              incoming: { nullable: true, description: The document's value. }
+        reason: { type: string, description: Why it is refused. }
+        warnings: { type: array, items: { type: string }, description: What would not stop the import but should be known first. }
+        env_keys: { type: array, items: { type: string }, description: Environment variables the source pool injected, to set by hand. }
+
+    PoolsImport:
+      type: object
+      required: [applied, changes, summary]
+      properties:
+        applied: { type: boolean }
+        changes: { type: array, items: { $ref: "#/components/schemas/PoolsImportChange" } }
+        summary:
+          type: object
+          required: [create, change, unchanged, refused, skipped]
+          properties:
+            create: { type: integer }
+            change: { type: integer }
+            unchanged: { type: integer }
+            refused: { type: integer }
+            skipped: { type: integer }
 
     PoolCreate:
       type: object

@@ -74,6 +74,8 @@ What runners to make, and how many.
 | `pools delete <pool-id>` | Delete it. Its runners drain first unless `--force`. |
 | `pools enable` / `pools disable` | Let a pool create runners, or stop it. Disabling interrupts nothing: existing runners drain as they go idle. |
 | `pools prewarm <pool-id>` | Pre-pull the pool's image on every matching host. |
+| `pools export [--file pools.yaml] [--format yaml\|json]` | Write every pool to a file another instance can import. Installations are named by what they cover, and no environment value is in it. See [moving pools](backup-and-restore.md#moving-pools). |
+| `pools import <file> [--dry-run] [--skip <pool>,...]` | Create and change pools to match an export, pool by pool and setting by setting. Nothing is written while any pool is refused; `-` reads stdin. |
 
 `create` and `edit` share one set of flags. The ones worth knowing:
 `--name`, `--installation`, `--labels`, `--backend` (`docker`), `--image`,

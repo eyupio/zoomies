@@ -20,6 +20,8 @@ func runPools(ctx context.Context, e *env, args []string) error {
 		{"enable", "<pool-id>", "Let a pool create runners again", poolsEnable},
 		{"disable", "<pool-id>", "Stop creating runners; existing ones drain", poolsDisable},
 		{"prewarm", "<pool-id>", "Pre-pull the image on every matching host", poolsPrewarm},
+		{"export", "[--file pools.yaml]", "Write every pool to a file another instance can import", poolsExport},
+		{"import", "<file> [--dry-run]", "Create and change pools to match an export, previewed first", poolsImport},
 	}, args)
 }
 

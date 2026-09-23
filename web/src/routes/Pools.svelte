@@ -7,13 +7,25 @@
 -->
 <script lang="ts">
   import PoolPressure from '$lib/insights/PoolPressure.svelte';
-  import { Gauge, Pencil, Plug, Plus, Power, PowerOff, Search, Trash2 } from '@lucide/svelte';
+  import {
+    FileDown,
+    FileUp,
+    Gauge,
+    Pencil,
+    Plug,
+    Plus,
+    Power,
+    PowerOff,
+    Search,
+    Trash2,
+  } from '@lucide/svelte';
   import {
     deletePool,
     disablePool,
     enablePool,
     listInstallations,
     listPools,
+    poolsExportUrl,
   } from '$lib/api/client';
   import type { Pool } from '$lib/api/types';
   import { formatGoDuration, formatNumber, parseGoDuration, pluralise } from '$lib/format';
@@ -42,6 +54,7 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Select from '$lib/components/Select.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
+  import ImportPoolsDialog from '$lib/pools/ImportPoolsDialog.svelte';
   import PoolLabels from '$lib/pools/PoolLabels.svelte';
   import PoolRunnerLimitsDialog from '$lib/pools/PoolRunnerLimitsDialog.svelte';
   import PoolRiskBadge from '$lib/pools/PoolRiskBadge.svelte';
@@ -53,6 +66,27 @@
   import { deletionConsequences } from '$lib/pools/consequences';
 
   const canOperate = $derived(session.can('operator'));
+
+  /*
+    Moving pools as a file. The export is a navigation, as the settings export
+    is, so the browser does the download and the cookie goes with it; YAML is
+    the form a repository keeps, JSON carries when and where it was taken.
+  */
+  const exportItems: MenuItem[] = [
+    {
+      id: 'yaml',
+      label: 'As YAML',
+      icon: FileDown,
+      onSelect: () => window.location.assign(poolsExportUrl('yaml')),
+    },
+    {
+      id: 'json',
+      label: 'As JSON, with provenance',
+      icon: FileDown,
+      onSelect: () => window.location.assign(poolsExportUrl('json')),
+    },
+  ];
+  let importOpen = $state(false);
 
   /**
    * Whether a pool is even possible yet.
@@ -493,6 +527,15 @@
   subtitle="A pool decides what labels your runners answer to, and how many of them exist."
   onrefresh={() => fleet.reconcile()}
 >
+  <DropdownMenu
+    items={exportItems}
+    label="Export the pools"
+    triggerLabel="Export"
+    triggerIcon={FileDown}
+  />
+  {#if canOperate && !noInstallation}
+    <Button variant="secondary" icon={FileUp} onclick={() => (importOpen = true)}>Import</Button>
+  {/if}
   {#if canOperate}
     {#if noInstallation}
       <!-- A pool registers its runners with a GitHub App installation, so the
@@ -572,6 +615,8 @@
     {/if}
   {/snippet}
 </DataGrid>
+
+<ImportPoolsDialog bind:open={importOpen} onapplied={() => void fleet.reconcile()} />
 
 <PoolRunnerLimitsDialog bind:open={sizeOpen} pool={sizing} onclose={() => (sizing = null)} />
 
