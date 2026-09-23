@@ -142,3 +142,42 @@ func TestAPoolsOwnLimitsAreRecordedAsThePools(t *testing.T) {
 			r.AllocatedCPUs, r.AllocatedMemoryMB, r.AllocationSource, store.AllocationFromPool)
 	}
 }
+
+// A pool with a minimum runs on a host a little short of its standard size,
+// and the runner, the task and the view all say what it was actually given.
+// The row is the one place the reduced size is written down: its host is
+// charged from it, and an operator reading a slow job needs it.
+func TestARunnerOnAShortHostIsGivenWhatItCanSpareAndSaysSo(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	pool.MinRunners = 1
+	pool.Resources = store.Resources{CPUs: 2, MemoryMB: 32 * 1024, MinCPUs: 1, MinMemoryMB: 8 * 1024}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	// 16 GB less its reserve is well short of 32 GB and well above 8.
+	host := h.measuredHost("short", 8, 16384, 1, enforcesEverything)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	h.c.lifecycleCalls.Wait()
+	r := h.onlyRunner()
+	if r.AllocationSource != store.AllocationReduced {
+		t.Fatalf("allocation source = %q, want %q", r.AllocationSource, store.AllocationReduced)
+	}
+	if r.AllocatedCPUs != 2 {
+		t.Errorf("CPU = %v, want the standard 2: the host has room for it", r.AllocatedCPUs)
+	}
+	if r.AllocatedMemoryMB >= 32*1024 || r.AllocatedMemoryMB < 8*1024 {
+		t.Errorf("memory = %d MB, want between the 8 GB minimum and the 32 GB standard", r.AllocatedMemoryMB)
+	}
+	task := h.taskOfKind(host.ID, agent.TaskCreateRunner)
+	if task.Spec == nil || task.Spec.Resources.MemoryMB != r.AllocatedMemoryMB {
+		t.Fatalf("task spec = %+v; the agent would apply something other than what the row records", task.Spec)
+	}
+	if task.Spec.Resources.MinCPUs != 0 || task.Spec.Resources.MinMemoryMB != 0 {
+		t.Errorf("task spec carries the pool's minimum %+v; the agent is told a size, not a policy", task.Spec.Resources)
+	}
+}

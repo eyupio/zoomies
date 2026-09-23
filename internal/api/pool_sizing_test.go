@@ -171,6 +171,11 @@ func TestASizeTooSmallToRunAJobIsRefused(t *testing.T) {
 	}{
 		{"a tenth of a core", map[string]any{"cpus": 0.1, "memory_mb": 4096}, "resources.cpus"},
 		{"256 MB", map[string]any{"cpus": 2, "memory_mb": 256}, "resources.memory_mb"},
+		// A minimum is a floor under the size: it cannot sit above it, cannot
+		// exist without it, and is held to what any runner needs.
+		{"a minimum above the standard", map[string]any{"cpus": 2, "memory_mb": 4096, "min_memory_mb": 8192}, "resources.min_memory_mb"},
+		{"a minimum with no standard", map[string]any{"memory_mb": 4096, "min_cpus": 1}, "resources.min_cpus"},
+		{"a minimum below a runner", map[string]any{"cpus": 2, "memory_mb": 4096, "min_memory_mb": 256}, "resources.min_memory_mb"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := poolBody(inst.ID)
@@ -406,4 +411,25 @@ func hasWarning(warnings []controller.Problem, code string) bool {
 		}
 	}
 	return false
+}
+
+// A minimum under a fixed size is kept, so a pool that asked to run on a host a
+// little short of its size still does after an edit or a restart.
+func TestAMinimumUnderTheSizeIsKept(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["resources"] = map[string]any{"cpus": 8, "memory_mb": 32768, "min_cpus": 4, "min_memory_mb": 24576}
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var got struct {
+		Resources store.Resources `json:"resources"`
+	}
+	res.into(t, &got)
+	if got.Resources.MinCPUs != 4 || got.Resources.MinMemoryMB != 24576 {
+		t.Fatalf("resources = %+v, want the minimum kept", got.Resources)
+	}
 }

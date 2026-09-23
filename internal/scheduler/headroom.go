@@ -42,7 +42,7 @@ func (hs *hostSet) pending(h *store.Host, pools []*store.Pool, runners map[strin
 			}
 			if starting || r.CreatedAt.After(h.Usage.SampledAt) ||
 				(r.ContainerStartedAt != nil && r.ContainerStartedAt.After(h.Usage.SampledAt)) {
-				res := Reserve(p, h)
+				res := RunnerCharge(p, h, r)
 				out.CPUs += res.CPUs
 				out.MemoryMB += res.MemoryMB
 			}

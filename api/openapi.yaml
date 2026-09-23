@@ -4520,6 +4520,24 @@ components:
           description: Megabytes. Omitted or zero leaves the size to the host, which gives each runner one slot's share of its machine; below 512 is refused, because the runner binary is killed before it takes a job.
         disk_gb: { type: integer, format: int64, description: Advisory, and charged against the host's free disk. Zero is no limit. }
         pids_limit: { type: integer, format: int64, description: The container's pids cgroup limit. Zero is no limit. }
+        min_cpus:
+          type: number
+          format: double
+          examples: [1.5]
+          description: >-
+            The least CPU a runner may be given when no host has room for `cpus`: a host a
+            little short of the standard size then runs the job with as much as it can spare,
+            never less than this, instead of leaving it queued. The standard is still what the
+            fleet places at wherever it can. Needs `cpus`, and must be below it; zero is no
+            minimum.
+        min_memory_mb:
+          type: integer
+          format: int64
+          examples: [3072]
+          description: >-
+            The least memory, in megabytes, a runner may be given when no host has room for
+            `memory_mb`, as `min_cpus` is for CPU. Needs `memory_mb`, must be below it, and is
+            held to the same 512 MB floor; zero is no minimum.
 
     CPUBurstPolicy:
       type: object
@@ -5005,11 +5023,13 @@ components:
           description: The memory limit this runner's workload was created with. Omitted when it has none.
         allocation_source:
           type: string
-          enum: [pool, host, ""]
+          enum: [pool, host, reduced, ""]
           description: >-
             Where the allocation came from: `pool` for the pool's own limits, `host` for one
-            slot's share of the host it landed on (the default when the pool sets none). Omitted
-            when the runner was created with no limit at all.
+            slot's share of the host it landed on (the default when the pool sets none), and
+            `reduced` for a runner no host had room for at the pool's standard size, given what
+            one could spare at or above the pool's minimum. Omitted when the runner was created
+            with no limit at all.
         cpu_resource: { $ref: "#/components/schemas/CPUResourceState" }
         created_at: { type: string, format: date-time }
         container_started_at:

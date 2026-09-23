@@ -80,6 +80,13 @@
   const defaultMemoryMb = $derived(defaults?.memory_mb ?? 4096);
 
   const cpuNotches = $derived(withValue(CPU_NOTCHES, cpus));
+  /* A minimum sits under the standard, so its notches stop there. */
+  const minCpus = $derived(Number(draft.min_cpus) || 0);
+  const minMemoryMb = $derived(Number(draft.min_memory_mb) || 0);
+  const minCpuNotches = $derived(withValue([0, ...CPU_NOTCHES.filter((n) => n <= cpus)], minCpus));
+  const minMemoryNotches = $derived(
+    withValue([0, ...MEMORY_NOTCHES.filter((n) => n <= memoryMb)], minMemoryMb),
+  );
   /* The boost ceiling's notches start at nothing, which leaves it to the host. */
   const burstNotches = $derived(withValue([0, ...CPU_NOTCHES], Number(draft.cpu_burst_max) || 0));
   const memoryNotches = $derived(withValue(MEMORY_NOTCHES, memoryMb));
@@ -397,6 +404,74 @@
         />
       {/snippet}
     </Field>
+
+    <!--
+      The floor under the two figures above. The standard is what the fleet
+      places at wherever a host has room; the minimum is what a host a little
+      short of it may give instead, so the job runs rather than waiting for a
+      machine that is never coming. Empty is no minimum, which is what a pool
+      was before this existed.
+    -->
+    <div class="pair">
+      <Field
+        label="Minimum CPU"
+        error={errors['resources.min_cpus']}
+        hint="Where no host has room for the CPU above, a runner may be given less, down to this. Empty is none."
+      >
+        {#snippet children({ id, describedBy, invalid })}
+          <QuantityField
+            {id}
+            quantity="cpus"
+            values={minCpuNotches}
+            value={minCpus}
+            label="Minimum CPU"
+            valuetext={(v) => (v === 0 ? 'no minimum' : cpuLabel(v))}
+            marks={[{ value: 0, label: 'none' }]}
+            empty={{ value: 0, placeholder: 'no minimum' }}
+            {describedBy}
+            {invalid}
+            onchange={(v) => {
+              draft.min_cpus = v ? String(v) : '';
+              touch('resources.min_cpus');
+            }}
+          />
+        {/snippet}
+      </Field>
+      <Field
+        label="Minimum memory"
+        error={errors['resources.min_memory_mb']}
+        hint="Where no host has room for the memory above, a runner may be given less, down to this. Empty is none."
+      >
+        {#snippet children({ id, describedBy, invalid })}
+          <QuantityField
+            {id}
+            quantity="mb"
+            values={minMemoryNotches}
+            value={minMemoryMb}
+            label="Minimum memory"
+            valuetext={(v) => (v === 0 ? 'no minimum' : memoryLabel(v))}
+            marks={[{ value: 0, label: 'none' }]}
+            empty={{ value: 0, placeholder: 'no minimum' }}
+            {describedBy}
+            {invalid}
+            onchange={(v) => {
+              draft.min_memory_mb = v ? String(v) : '';
+              touch('resources.min_memory_mb');
+            }}
+          />
+        {/snippet}
+      </Field>
+    </div>
+    {#if minCpus > 0 || minMemoryMb > 0}
+      <p class="echo">
+        A runner goes at <strong>{cpuLabel(cpus)}</strong> and
+        <strong>{memoryLabel(memoryMb)}</strong>
+        wherever a host has room. Where none has, it goes on the host that can spare the most and is
+        given as much of that as it can, never less than
+        <strong>{cpuLabel(minCpus > 0 ? minCpus : cpus)}</strong>
+        and <strong>{memoryLabel(minMemoryMb > 0 ? minMemoryMb : memoryMb)}</strong>.
+      </p>
+    {/if}
 
     <Field
       label="Disk per runner"

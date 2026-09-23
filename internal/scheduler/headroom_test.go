@@ -44,12 +44,12 @@ func TestPlaceAvoidingPrefersAnyOtherEligibleHost(t *testing.T) {
 	p := limited("build", 2, 2048)
 
 	hs := newHostSet([]*store.Host{a, b}, []*store.Pool{p}, nil, now)
-	if got := hs.placeAvoiding(p, 1, map[string]bool{"a": true}); len(got) != 1 || got[0] != "b" {
+	if got := hs.placeAvoiding(p, 1, map[string]bool{"a": true}); len(got) != 1 || got[0].hostID != "b" {
 		t.Fatalf("placed on %v, want the host not in avoid", got)
 	}
 
 	hs = newHostSet([]*store.Host{a}, []*store.Pool{p}, nil, now)
-	if got := hs.placeAvoiding(p, 1, map[string]bool{"a": true}); len(got) != 1 || got[0] != "a" {
+	if got := hs.placeAvoiding(p, 1, map[string]bool{"a": true}); len(got) != 1 || got[0].hostID != "a" {
 		t.Fatalf("placed on %v, want the only host even though it is avoided", got)
 	}
 }

@@ -475,12 +475,20 @@ var registry = buildRegistry([]Setting{
 		Summary: "How long DinD provisioning waits for a healthy daemon, and a Docker runner waits before registering. Default 3m. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool.",
 	},
 	{
-		Key: "runners.default_cpus", Label: "Default CPUs per runner", Env: "ZOOMIES_RUNNER_DEFAULT_CPUS", Kind: KindFloat, Scope: ScopeInstance, Live: true,
+		Key: "runners.default_cpus", Label: "Standard CPUs per runner", Env: "ZOOMIES_RUNNER_DEFAULT_CPUS", Kind: KindFloat, Scope: ScopeInstance, Live: true,
 		Summary: "Where a pool's CPU slider opens when somebody chooses a fixed size, in cores; fractions are allowed. It is not what a pool with no size becomes: such a pool is given one slot's share of whichever host each runner lands on. 0 means nothing has been said and the built-in 2 cores answers.",
 	},
 	{
-		Key: "runners.default_memory_mb", Label: "Default memory per runner", Env: "ZOOMIES_RUNNER_DEFAULT_MEMORY_MB", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Key: "runners.default_memory_mb", Label: "Standard memory per runner", Env: "ZOOMIES_RUNNER_DEFAULT_MEMORY_MB", Kind: KindInt, Scope: ScopeInstance, Live: true,
 		Summary: "How much memory one runner gets on a pool that has not said otherwise, in megabytes. It is the figure a new pool opens on, and the one a host's recommended capacity is worked out from. 0 means nothing has been said and the built-in 4096 answers.",
+	},
+	{
+		Key: "runners.minimum_cpus", Label: "Minimum CPUs per runner", Env: "ZOOMIES_RUNNER_MINIMUM_CPUS", Kind: KindFloat, Scope: ScopeInstance, Live: true,
+		Summary: "Where a pool's minimum CPU slider opens, in cores: the least a runner of a fixed-size pool may be given when no host has room for its standard size, so a host a little short still runs the job. 0 is no minimum, and a pool's own minimum is what placement reads.",
+	},
+	{
+		Key: "runners.minimum_memory_mb", Label: "Minimum memory per runner", Env: "ZOOMIES_RUNNER_MINIMUM_MEMORY_MB", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "Where a pool's minimum memory slider opens, in megabytes: the least a runner of a fixed-size pool may be given when no host has room for its standard size. 0 is no minimum; anything set is held to 512.",
 	},
 	{
 		Key: "runners.env", Label: "Runner environment", Env: "ZOOMIES_RUNNER_ENV", Kind: KindLabels, Scope: ScopeInstance, Live: true,

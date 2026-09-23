@@ -1010,3 +1010,35 @@ test('a runner size can be typed the way people write it, and is written back in
     '1.5 GB',
   );
 });
+
+test('a fixed size can carry a minimum for hosts a little short of it', async ({ page }) => {
+  // A standard a host cannot quite meet used to leave the job queued. The
+  // minimum is the size the pool will still accept, and the step says what
+  // happens with it in the pool's own figures.
+  await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
+  await nameField(page).fill('e2e-minimum');
+  await next(page).click();
+  await addLabel(page, 'minimum');
+  await next(page).click();
+  await next(page).click();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
+  await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
+
+  const memory = page.getByRole('textbox', { name: 'Memory per runner', exact: true });
+  await memory.fill('8g');
+  await memory.press('Enter');
+  const minimum = page.getByRole('textbox', { name: 'Minimum memory' });
+  await minimum.fill('6g');
+  await minimum.press('Enter');
+  await expect(minimum).toHaveValue('6 GB');
+  await expect(page.getByText(/never less than/)).toContainText('6 GB');
+
+  // A minimum above the standard is refused where it is typed.
+  await minimum.fill('12g');
+  await minimum.press('Enter');
+  await expect(
+    page.getByText('The minimum has to be at or below the standard memory.'),
+  ).toBeVisible();
+});
