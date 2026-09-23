@@ -810,8 +810,8 @@ Existing saved `:latest` values are treated as explicit overrides; clear the
 pool image and remove any fallback setting to restore automatic selection.
 
 Both runner images are also published with one tag per operating system —
-`ubuntu-2404`, `ubuntu-2204`, `debian-12`, `fedora-42`, `rocky-9`, each built
-for amd64 and arm64 — plus `<os>-<version>-dev`, `<os>-<version>-main` and
+`ubuntu-2404`, `ubuntu-2604`, `ubuntu-2204`, `debian-12`, `debian-13`,
+`fedora-42`, `rocky-9`, each built for amd64 and arm64 — plus `<os>-<version>-dev`, `<os>-<version>-main` and
 `<os>-<version>-<tag>` for
 pinning one operating system without pinning the controller. `latest` is the
 `ubuntu-2404` variant. Set this key to a specific variant to change what an
