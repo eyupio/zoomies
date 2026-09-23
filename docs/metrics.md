@@ -185,6 +185,87 @@ estimates, and never used as confirmed completion. Compare scheduling figures
 with the scheduler interval and available capacity; compare cleanup duration
 with retention before interpreting either as a delay.
 
+## Per-installation report
+
+The histograms above are what the controller has seen since it started. The
+per-installation report is the other kind of answer: an operator's own record,
+over a month or any window up to a year, of how well each GitHub App
+installation has been served — how long its jobs waited on the fleet, how many
+the fleet broke, and whether the runners it started were cleaned up. It is
+computed exactly from stored timestamps, not from histogram buckets, and it is
+the section of the Usage page that opens on one installation, the
+`GET /api/v1/installations/{id}/report` route, and — grouped by installation —
+the extra columns of `/api/v1/usage.csv` ([API surface](api-surface.md)).
+
+The window is moved back to the UTC midnight it begins in, so every day in it
+is whole. A job belongs to the day it was first observed (`Job.QueuedAt`) and
+a runner to the day it finished.
+
+### Counts
+
+| Figure | Exactly |
+| --- | --- |
+| **Observed** | Every job first observed in the window for the installation (`Job.InstallationID`), whatever became of it — including jobs no pool claimed and jobs held for a deployment review. |
+| **Eligible** | Observed jobs with `Job.EligibleAt` set: a pool claimed the labels and GitHub was not holding the job for a review, so the fleet could act on it. |
+| **Created for** | Eligible jobs that ran on a runner this fleet created, whose first create task (`Runner.CreateTaskIssuedAt`) was issued at or after the job became eligible. That is a runner started while the job was waiting, as opposed to one already there. |
+| **Ran here** | Jobs that ran on any runner this fleet created (`Job.RunnerID` set), including one prewarmed or left idle by an earlier job. *Ran here* minus *created for* is the jobs an already-waiting runner took. |
+| **Ran elsewhere** | Jobs GitHub gave to a runner this fleet did not create: GitHub reported a runner name that matches no runner here. A GitHub-hosted runner, or another fleet's. |
+| **Fleet fault** | Jobs carrying a `fault_kind` — the `fleet` domain of `zoomies_job_failures_total`: the runner died under the job or never worked. A workflow's own failure is not one. |
+| **Cleanup pending** | Runners of the installation's pools that finished in the window and whose cleanup has not been confirmed: the host has not confirmed removal, GitHub has not confirmed the registration is gone, or both. A runner pruned in that state stays pending for good. |
+| **Cleanup converged** | Runners that finished in the window with `Runner.CleanedUpAt` set — both confirmations seen. |
+
+### Timings
+
+Each is an exact percentile of intervals with both ends recorded. A pair with
+either end missing is left out rather than counted as zero, and the response
+says how many samples each figure is from. A sample belongs to the window its
+interval starts in.
+
+| Figure | From | To |
+| --- | --- | --- |
+| **Eligible to first create task** | `Job.EligibleAt` | `Runner.CreateTaskIssuedAt` of the runner that ran it, for the jobs counted as *created for*. It includes capacity waits and any configured `scheduler.scale_up_delay` after eligibility. |
+| **Create to registered** | `Runner.CreateTaskIssuedAt` | `Runner.RegisteredAt` |
+| **Cleanup convergence** | `Runner.FinishedAt` | `Runner.CleanedUpAt`. It includes the configured runner retention before removal. |
+
+The percentile method is **nearest rank**: the p-th percentile of *n* sorted
+samples is the sample at 1-based rank ⌈p/100 × n⌉. It always answers with an
+interval that was actually observed, never an interpolation between two. Worked
+through for the sets the store's tests use:
+
+| Samples (seconds) | p50 | p95 |
+| --- | --- | --- |
+| 2, 4, 10 (odd, *n* = 3) | rank ⌈1.5⌉ = 2 → **4** | rank ⌈2.85⌉ = 3 → **10** |
+| 20, 30, 40, 50 (even, *n* = 4) | rank ⌈2⌉ = 2 → **30**, not the 35 an average would give | rank ⌈3.8⌉ = 4 → **50** |
+
+With fewer than twenty samples the p95 is the largest, which is honest about
+how little there is to go on.
+
+### Where the figures come from, and where they stop
+
+Job rows are pruned after `retention.jobs` and runner rows after
+`retention.runners`, so a month read from the rows alone would be short. Two
+records outlive them:
+
+- **The counts** are rolled up by the prune loop into one row per installation
+  per UTC day before the rows go. A day closes once every job observed on it
+  has completed and every runner created on it has a session; a job that never
+  completes stops holding its day when the jobs prune would delete it, and is
+  counted as it stood. Days the roll-up has absorbed are read from it, later
+  moments from the rows. Neither jobs nor runner sessions are pruned before the
+  day they belong to has been counted.
+- **The timings** are read from runner sessions — kept for
+  `retention.runner_sessions`, a year by default — and from the rows still
+  here. A percentile cannot be summed across days, so the roll-up keeps no
+  timings at all rather than an approximation of them.
+
+The response carries `counts_from` and `timings_from`. When either is later
+than the window's start, that half of the report does not cover the part of the
+window before it — the records were pruned before anything kept them, or
+predate the build that started keeping them — and `unavailable` says so in
+words. The figures are then for the rest of the window, never an estimate of
+the whole. Sessions recorded before the timings columns existed have no create
+task or eligibility on them and give no scheduling or registration sample.
+
 ## Machines a fleet is renting
 
 Present only when a [provider](providers.md) is configured.

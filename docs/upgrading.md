@@ -193,6 +193,22 @@ deletes one the roll-up has not absorbed; the roll-up itself is not pruned. No
 configuration is required. The new migrations mean the backup and rollback
 rules below apply.
 
+## The per-installation report
+
+Migration `0051_installation_report.sql` adds the daily roll-up of the
+[per-installation report](metrics.md#per-installation-report)'s counts and two
+columns to `runner_sessions`: the runner's first create task and its job's
+eligibility, the two ends of the scheduling interval. Sessions already recorded
+get them where the runner and job rows are still there to copy from; the rest
+give no scheduling or registration sample, which the report counts as missing
+rather than zero. The first roll-up starts from the oldest job or runner row
+the database still has, and `counts_from` on the report says so.
+
+From then on the prune pass holds the jobs prune and the sessions prune behind
+that roll-up, so a job row is never deleted before the day it belongs to has
+been counted. A job still unfinished when `retention.jobs` would take it is
+counted as it stood. No configuration is required.
+
 ## What happens to work in flight
 
 A restart does not touch a running job. The runner is a container on its host,
