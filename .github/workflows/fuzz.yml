@@ -1,9 +1,22 @@
 name: Fuzz
 
+# The fuzz targets are the encryption boundaries in internal/cryptox, so only a
+# change there, or to the toolchain it is built with, can find anything new.
+# The weekly run keeps fuzzing main regardless.
 on:
   push:
     branches: [main]
+    paths:
+      - "internal/cryptox/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/fuzz.yml"
   pull_request:
+    paths:
+      - "internal/cryptox/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/fuzz.yml"
   schedule:
     - cron: "31 5 * * 2"
   workflow_dispatch:
