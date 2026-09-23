@@ -216,7 +216,10 @@ func (s *Server) supportBundle(ctx context.Context) supportBundle {
 		if err != nil {
 			return err
 		}
-		view := controller.NewProblemsView(items)
+		// The same audience split as the problems drawer: a failed backup
+		// names the directory it could not write, and that directory is the
+		// machine's, not the fleet's.
+		view := controller.NewProblemsViewFor(items, callerRoleCtx(ctx).AtLeast(store.RolePlatform))
 		b.Problems = &view
 		return nil
 	})

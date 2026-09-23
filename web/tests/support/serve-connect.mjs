@@ -78,5 +78,8 @@ serveController({
     // Nothing seeded: this fixture is about connecting an installation, and a
     // demo one already on the page would answer the question first.
     ZOOMIES_SEED_DEMO: 'false',
+    // The fake GitHub is on loopback, which the API refuses as an App's
+    // address unless told this is a network the operator owns -- as it is.
+    ZOOMIES_ALLOW_PRIVATE_EGRESS: 'true',
   },
 });

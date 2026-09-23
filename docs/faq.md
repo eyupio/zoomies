@@ -152,6 +152,7 @@ scoped to that repository, and its runners register at the repository level --
 GitHub offers no account-wide runners for personal accounts. Each repository you
 want to run jobs for is one installation and one pool, and the installer and
 the Connect GitHub dialog both offer the choice.
+[One fleet for many repositories](many-repositories.md) covers both cases.
 
 ## How do I move my existing workflows onto it?
 

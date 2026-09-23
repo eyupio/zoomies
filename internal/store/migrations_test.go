@@ -60,6 +60,8 @@ var shippedMigrations = []string{
 	"0044_platform_role.sql",
 	"0045_upgrade_keeps_what_admins_had.sql",
 	"0046_token_owner_role.sql",
+	"0047_runner_sessions.sql",
+	"0048_usage_daily.sql",
 	"0049_host_incidents.sql",
 	"0052_pool_no_default_labels.sql",
 }

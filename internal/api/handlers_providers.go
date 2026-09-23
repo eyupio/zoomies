@@ -545,6 +545,15 @@ func (s *Server) connectionErrors(in *providerInput, p *store.Provider) []fieldE
 	if kind == "tailcat" && (address != "" || len(p.TailcatAddressEnc) == 0) && !s.tailcatAvailable() {
 		errs = append(errs, fieldError{"connection", "private connections are disabled; enable authentication, set server.tailcat_enabled to true and configure a controller encryption key, then restart the controller"})
 	}
+	// Only a direct connection is dialled from this machine. Through a
+	// gateway the endpoint is reached from the gateway's own network, which
+	// is the private network it was installed on purpose to reach, and
+	// nothing near this controller is.
+	if kind == "direct" {
+		if f := config.CheckOutboundURL("endpoint", p.Endpoint, s.cfg().Security.AllowPrivateEgress); f != nil {
+			errs = append(errs, fieldError{"endpoint", f.Title + ". " + f.Fix})
+		}
+	}
 	return errs
 }
 

@@ -76,39 +76,54 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows = filterUsageRows(rows, r)
+	history, err := s.usageHistoryFrom(r)
+	if err != nil {
+		s.internal(w, r, "reading where usage history begins", err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"from": f, "to": t, "group_by": g, "items": rows,
 		"costs_are_estimates": true,
 		// Told to the client even when items is empty, so the page can explain
 		// an absent runner-hours column rather than leaving it blank.
 		"allocation_attributable": store.UsageAllocationAttributable(g),
-		"history_from":            s.usageHistoryFrom(),
+		"history_from":            history,
 	})
 }
 
 // usageHistoryFrom is the earliest instant each side of the usage aggregate
 // can still be computed from, given what the prune loop has already deleted.
 //
-// The aggregate is read from rows, not from a ledger, and the rows have
-// windows: jobs are kept thirty days by default and runners seven. A report
-// over a longer range is not wrong for the days it has rows for, but it is
-// silently short for the days it has not, and a runner-hours figure short by
-// three weeks is one an operator takes to a finance meeting. So the response
-// says where each history begins, and the page says so beside the figure. A
-// window of zero keeps everything and is reported as null.
-func (s *Server) usageHistoryFrom() map[string]any {
+// Job figures are read from job rows, which are kept thirty days by default.
+// Runner allocation is read from the usage ledger -- the daily roll-up and the
+// sessions behind it -- as well as the runner rows, so it begins where the
+// ledger begins however short retention.runners is: on a database upgraded
+// into the ledger, that is the oldest runner row the upgrade found. A report
+// over a longer range is not wrong for the days it has history for, but it is
+// silently short for the days it has not, so the response says where each
+// history begins and the page says so beside the figure. A window of zero
+// keeps everything and is reported as null.
+func (s *Server) usageHistoryFrom(r *http.Request) (map[string]*time.Time, error) {
 	now := s.ctrl.Now()
-	since := func(window time.Duration) any {
+	since := func(window time.Duration) *time.Time {
 		if window <= 0 {
 			return nil
 		}
-		return now.Add(-window)
+		t := now.Add(-window)
+		return &t
 	}
-	r := s.cfg().Retention
-	return map[string]any{
-		"jobs":    since(r.Jobs),
-		"runners": since(r.Runners),
+	ret := s.cfg().Retention
+	runners := since(ret.Runners)
+	if runners != nil {
+		ledger, err := s.ctrl.Store().UsageLedgerFrom(r.Context())
+		if err != nil {
+			return nil, err
+		}
+		if ledger != nil && ledger.Before(*runners) {
+			runners = ledger
+		}
 	}
+	return map[string]*time.Time{"jobs": since(ret.Jobs), "runners": runners}, nil
 }
 
 func (s *Server) handleUsageCSV(w http.ResponseWriter, r *http.Request) {
@@ -123,10 +138,26 @@ func (s *Server) handleUsageCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows = filterUsageRows(rows, r)
+	history, err := s.usageHistoryFrom(r)
+	if err != nil {
+		s.internal(w, r, "reading where usage history begins", err)
+		return
+	}
+	// The export leaves the page behind, so it carries the page's caveat with
+	// it: a spreadsheet reconciled against a bill should say where its runner
+	// history begins as plainly as the page does. It is a column on every row
+	// rather than a preamble, because a preamble breaks every CSV reader.
+	instant := func(t *time.Time) string {
+		if t == nil {
+			return ""
+		}
+		return t.UTC().Format(time.RFC3339)
+	}
+	jobsFrom, runnersFrom := instant(history["jobs"]), instant(history["runners"])
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="zoomies-usage.csv"`)
 	c := csv.NewWriter(w)
-	_ = c.Write([]string{"group", "job_execution_seconds", "allocated_runner_seconds", "jobs_queued", "jobs_started", "jobs_completed", "average_queue_wait_seconds", "peak_concurrency", "estimated_cost"})
+	_ = c.Write([]string{"group", "job_execution_seconds", "allocated_runner_seconds", "jobs_queued", "jobs_started", "jobs_completed", "average_queue_wait_seconds", "peak_concurrency", "estimated_cost", "history_from_jobs", "history_from_runners"})
 	for _, x := range rows {
 		cost := ""
 		if x.EstimatedCost != nil {
@@ -136,7 +167,7 @@ func (s *Server) handleUsageCSV(w http.ResponseWriter, r *http.Request) {
 		// grouping"; a spreadsheet would sum a zero.
 		_ = c.Write([]string{csvText(x.Key), fmt.Sprint(x.JobExecutionSeconds), optionalFloat(x.AllocatedRunnerSeconds),
 			strconv.Itoa(x.Jobs), strconv.Itoa(x.JobsStarted), strconv.Itoa(x.JobsCompleted),
-			optionalFloat(x.AverageQueueWaitSeconds), strconv.Itoa(x.PeakConcurrency), cost})
+			optionalFloat(x.AverageQueueWaitSeconds), strconv.Itoa(x.PeakConcurrency), cost, jobsFrom, runnersFrom})
 	}
 	c.Flush()
 }
