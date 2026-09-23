@@ -4219,6 +4219,8 @@ export interface components {
             cpu_high_since?: string;
             /** @description Admission held after sustained CPU pressure. Running jobs continue. Owned by the controller. */
             cpu_held?: boolean;
+            /** @description The part of cpu_percent runners were using out of CPU elastic CPU lent them. The admission hold and the throttle judge CPU without it. Owned by the controller. */
+            lent_cpu_percent?: number;
             /** @description The kernel's one-minute load average for the whole machine, as the agent read it from /proc/loadavg. Absent when unmeasured. Judged against the host's CPU count: a load of at least twice the CPUs is what steps the throttle up, because a runnable queue that deep is a machine that has stopped keeping up even when the CPU figure saturates at 100. */
             load_average_1m?: number;
         };
@@ -5085,6 +5087,11 @@ export interface components {
              * @description One is the guaranteed creation quota; above one is elastic CPU and below one is host-pressure throttling.
              */
             cpu_allocation_factor?: number;
+            /**
+             * Format: double
+             * @description For a docker-in-docker pair
+             */
+            busiest_half_percent?: number;
         };
         /** @enum {string} */
         AgentTaskKind: "create_runner" | "stop_runner" | "remove_runner" | "stream_logs" | "cancel_logs" | "prewarm_image";
