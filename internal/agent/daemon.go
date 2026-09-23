@@ -1164,7 +1164,7 @@ func (a *Agent) start(ctx context.Context, task Task) {
 				a.log.Info("startup admitted", "kind", task.Kind, "queue_wait", wait)
 			case <-ctx.Done():
 				release()
-				a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver", store.FaultRunnerExited)
+				a.reportNotStarted(ctx, task)
 				return
 			}
 			if !a.waitForRuntime(ctx) {
@@ -1175,27 +1175,20 @@ func (a *Agent) start(ctx context.Context, task Task) {
 		}
 		if ctx.Err() != nil {
 			release()
-			a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver", store.FaultRunnerExited)
+			a.reportNotStarted(ctx, task)
 			return
 		}
 		select {
 		case a.sem <- struct{}{}:
 		case <-ctx.Done():
 			release()
-			a.report(ctx, TaskResult{
-				TaskID:      task.ID,
-				Kind:        task.Kind,
-				RunnerID:    task.RunnerID,
-				OK:          false,
-				Error:       "agent shut down before this task started; it is safe to redeliver",
-				CompletedAt: a.now(),
-			})
+			a.reportNotStarted(ctx, task)
 			return
 		}
 		defer func() { <-a.sem }()
 		if ctx.Err() != nil {
 			release()
-			a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver", store.FaultRunnerExited)
+			a.reportNotStarted(ctx, task)
 			return
 		}
 		if task.Kind == TaskCreateRunner {
@@ -1663,6 +1656,21 @@ func (a *Agent) reportFailure(ctx context.Context, task Task, msg string, fault 
 		Error:       msg,
 		State:       store.RunnerFailed,
 		Fault:       fault,
+		CompletedAt: a.now(),
+	})
+}
+
+// reportNotStarted gives a task back to the controller untouched. It carries
+// no runner state: nothing happened to the runner, and a failed state here is
+// what turned every upgrade into a column of "Runner stopped" failures.
+func (a *Agent) reportNotStarted(ctx context.Context, task Task) {
+	a.report(ctx, TaskResult{
+		TaskID:      task.ID,
+		Kind:        task.Kind,
+		RunnerID:    task.RunnerID,
+		OK:          false,
+		NotStarted:  true,
+		Error:       "agent shut down before this task started; it is safe to redeliver",
 		CompletedAt: a.now(),
 	})
 }
