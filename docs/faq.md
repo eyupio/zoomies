@@ -38,7 +38,8 @@ already run Kubernetes. Zoomies is for the case where you do not: a VM or three,
 where a Helm chart and a set of CRDs are more machinery than the problem needs,
 but hand-registering a few long-lived runners is not enough. The
 [comparison table](index.md#why-not-something-else) on the home page is the
-short version.
+short version, and [Zoomies and actions-runner-controller](actions-runner-controller.md)
+the long one.
 
 ## What does "ephemeral by default" actually buy me?
 
