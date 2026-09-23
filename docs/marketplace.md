@@ -181,6 +181,20 @@ encryption key. Nothing had to travel through the provider to get here.
 pools](hosts-and-pools.md) explains what the settings mean, and the
 [Quick start](quickstart.md) is the same walk with pictures.
 
+### When nobody is at a browser
+
+Steps 1 and 2 are for a person. When the instance is driven by a Terraform
+module or a configuration-management run, nobody is there to read the log, so
+skip both: put a token you generated in a file only the controller can read,
+and start the controller with `ZOOMIES_BOOTSTRAP_ADMIN` and
+`ZOOMIES_BOOTSTRAP_TOKEN_FILE`. The first account is created from them at
+startup, as `platform`, and recorded in the audit log. Wait on `/readyz` until
+`bootstrap_required` is `false`, then call the API with that token — to connect
+GitHub, create a pool, or mint join tokens for agents. [The first account,
+from the environment](configuration.md#the-first-account-from-the-environment)
+has the rules for the files, and `deploy/marketplace/controller-answers.yaml` is
+a whole unattended answer file for a controller that runs no agent of its own.
+
 If the deployment runs in `controller` mode, or you want capacity beyond this
 instance, generate a join token under **Hosts → Add a host** and run the line it
 gives you on a machine with Docker or Podman. Agents connect outbound only, so

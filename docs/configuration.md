@@ -667,7 +667,8 @@ docker compose logs zoomies | grep 'setup token'
 It is minted per process and held only in memory, so restarting the controller
 prints a new one, and the line stops appearing for good once an account exists.
 `zoomies init` and the installer create the first account on the console
-and never need it.
+and never need it. The token is for a person at a browser; an unattended
+deployment should not scrape it out of the log, and uses the variables below.
 
 ### The first account, from the environment
 
