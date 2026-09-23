@@ -111,6 +111,13 @@
     </dd>
   </div>
 
+  {#if pool.no_default_labels === true}
+    <div class="pair">
+      <dt>Default labels</dt>
+      <dd>Left out — runners advertise only this pool’s labels</dd>
+    </div>
+  {/if}
+
   <div class="pair">
     <dt>Runs as root</dt>
     <dd class:flagged={pool.run_as_root === true}>{pool.run_as_root === true ? 'Yes' : 'No'}</dd>

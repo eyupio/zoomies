@@ -48,6 +48,7 @@
     priority: string;
     idle_timeout: string;
     ephemeral: boolean;
+    no_default_labels: boolean;
     docker_mode: DockerMode;
     run_as_root: boolean;
     enabled: boolean;
@@ -117,6 +118,7 @@
       priority: '0',
       idle_timeout: '5m',
       ephemeral: true,
+      no_default_labels: false,
       docker_mode: 'none',
       run_as_root: false,
       enabled: true,
@@ -172,6 +174,7 @@
       priority: fromNumber(pool.priority),
       idle_timeout: pool.idle_timeout ?? base.idle_timeout,
       ephemeral: pool.ephemeral !== false,
+      no_default_labels: pool.no_default_labels === true,
       docker_mode: pool.docker_mode ?? 'none',
       run_as_root: pool.run_as_root === true,
       enabled: pool.enabled !== false,
@@ -290,6 +293,9 @@
       priority: toInteger(draft.priority) ?? 0,
       idle_timeout: draft.idle_timeout.trim() || '5m',
       ephemeral: draft.ephemeral,
+      // GitHub adds the default labels to every ephemeral runner itself, so
+      // the setting only survives on a pool that reuses its runners.
+      no_default_labels: !draft.ephemeral && draft.no_default_labels,
       docker_mode: draft.docker_mode,
       cpu_burst: {
         mode: fixed || !elasticBackend ? 'off' : draft.cpu_burst_mode,

@@ -228,22 +228,23 @@ const poolCols = `id, name, installation_id, labels, runner_group, backend, os, 
 	arch, image, pull_policy, runner_version, min_runners, max_runners, priority,
 	idle_timeout_ms, ephemeral, docker_mode, resources, cache, host_selector, env,
 	run_as_root, enabled, created_at, updated_at, repository_scale_up_limit,
-	cost_per_runner_hour, runner_settings, cpu_burst`
+	cost_per_runner_hour, runner_settings, cpu_burst, no_default_labels`
 
 func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var p Pool
 	var idle, created, updated int64
-	var ephemeral, runAsRoot, enabled int
+	var ephemeral, runAsRoot, enabled, noDefaultLabels int
 	var resources, cache, runnerSettings, cpuBurst string
 	err := sc.Scan(&p.ID, &p.Name, &p.InstallationID, &p.Labels, &p.RunnerGroup, &p.Backend,
 		&p.Platform.OS, &p.Platform.OSVersion, &p.Platform.Arch,
 		&p.Image, &p.PullPolicy, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &p.Priority,
 		&idle, &ephemeral, &p.DockerMode, &resources, &cache, &p.HostSelector, &p.Env,
 		&runAsRoot, &enabled, &created, &updated, &p.RepositoryScaleUpLimit, &p.CostPerRunnerHour,
-		&runnerSettings, &cpuBurst)
+		&runnerSettings, &cpuBurst, &noDefaultLabels)
 	if err != nil {
 		return nil, err
 	}
+	p.NoDefaultLabels = noDefaultLabels == 1
 	p.IdleTimeout = Duration(time.Duration(idle) * time.Millisecond)
 	p.Ephemeral, p.RunAsRoot, p.Enabled = ephemeral == 1, runAsRoot == 1, enabled == 1
 	p.CreatedAt, p.UpdatedAt = at(created), at(updated)
@@ -295,14 +296,14 @@ func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
 		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
 		string(p.PullPolicy),
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt),
-		p.RepositoryScaleUpLimit, p.CostPerRunnerHour, settings, burst)
+		p.RepositoryScaleUpLimit, p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels))
 	return wrapWrite(err)
 }
 
@@ -376,14 +377,14 @@ func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 		min_runners=?, max_runners=?, priority=?, idle_timeout_ms=?, ephemeral=?,
 		docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
 		enabled=?, updated_at=?, repository_scale_up_limit=?, cost_per_runner_hour=?,
-		runner_settings=?, cpu_burst=? WHERE id=?`,
+		runner_settings=?, cpu_burst=?, no_default_labels=? WHERE id=?`,
 		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
 		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
 		string(p.PullPolicy),
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.RepositoryScaleUpLimit,
-		p.CostPerRunnerHour, settings, burst, p.ID)
+		p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels), p.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}

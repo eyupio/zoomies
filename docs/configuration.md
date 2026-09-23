@@ -1385,6 +1385,35 @@ for each runner individually — its name, labels, group and credentials — are
 refused (`runners.env_reserved`), because one value for the whole fleet is
 wrong for every runner in it.
 
+#### How a runner picks up a proxy
+
+A runner inherits `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` — in both
+spellings, since curl reads only the lowercase ones — from the agent that
+starts it. That holds on every backend: the bare-process runner, the Docker and
+Podman runner container, and a pool's docker-in-docker sidecar, whose daemon
+pulls the images a job's builds name and needs the proxy as much as the runner
+does. Nothing else from the agent's environment reaches a runner.
+
+A host that can reach GitHub only through a proxy has its agent configured with
+one already — it could not reach the controller or pull an image otherwise — so
+setting the proxy on the agent's service is usually all a proxied host needs.
+Where that is not what the runners should use, the more specific setting wins,
+variable by variable:
+
+1. a pool's `env`,
+2. `runners.env`,
+3. the agent's own environment.
+
+Setting a variable to an empty string in either is how a pool, or the whole
+fleet, sends its runners direct although the agent uses a proxy. The sidecar
+takes the same proxy variables as its runner and none of the pool's other
+`env`, which are the job's rather than the daemon's.
+
+`NO_PROXY` needs nothing added for Zoomies itself: a runner never talks to the
+controller, and the docker-in-docker daemon is reached on `127.0.0.1`, which
+proxy-aware clients already go to direct. Add your own internal registries and
+package mirrors to it as you would for any other machine behind the proxy.
+
 ### `images.refresh_interval` — keeping a moving tag current
 
 ```yaml
@@ -1514,6 +1543,7 @@ the CLI or the API. These are their fields:
 | `priority` | Higher-priority pools are given creation capacity first when the fleet cannot satisfy every pool at once. Pools at the same priority share it fairly. Under `scheduler.max_creates_per_tick`, a lower-priority pool whose oldest queued job has waited a full `scheduler.interval` is first given one create, so a busy top tier cannot starve it; the higher pool's scaling reason then says it was deferred for fairness across priorities. |
 | `idle_timeout` | How long an idle runner waits before being drained. |
 | `ephemeral` | One job per runner. Leave it on. |
+| `no_default_labels` | Off. On, runners register with only the pool's `labels` — no `self-hosted`, operating system or architecture — as `config.sh --no-default-labels` does, and a job asking for one of those no longer matches the pool unless it lists it. Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. See [Leaving out the default labels](hosts-and-pools.md#leaving-out-the-default-labels). |
 | `docker_mode` | `none`, `dind`, or `host-socket`. Anything but `none` switches a pool on the stock runner image to its Docker variant, under the same tag — see [below](#jobs-that-build-container-images) and [security.md](security.md). |
 | `resources` | `cpus`, `memory_mb`, `disk_gb`, `pids_limit` per runner. Leaving `cpus` and `memory_mb` out is how a pool says “the host decides”: each runner is then given one slot's share of whichever machine it lands on, charged against that host and applied as a real cgroup limit. Set them for the same size on every host. `disk_gb` is advisory, enforced only where the backend can, and independent of that choice. |
 | `cpu_burst` | The elastic CPU policy: `mode` is `off`, `observe` (decide and publish metrics, move nothing) or `automatic` (lend the host's spare CPU to a busy runner above its guarantee), and `max_cpus` is the most one runner may be lent up to, with `0` meaning the host's allocatable CPU. Needs automatic sizing on `docker` or `podman`; a new pool that qualifies starts on `observe`, an existing one stays `off`. See [Elastic CPU zoomies](elastic-cpu.md). |
@@ -1521,7 +1551,7 @@ the CLI or the API. These are their fields:
 | `cache` | A disposable accelerator directory mounted at `/opt/zoomies-cache`, scoped `pool` or `repository`, with an enforced `size_limit`. It is not workflow storage and may be evicted — see [below](#the-pool-cache). |
 | `cost_per_runner_hour` | An optional rate you supply, used only to estimate what the fleet costs. Zoomies never embeds prices of its own. |
 | `host_selector` | Restricts the pool to matching hosts. |
-| `env` | Injected into every runner. |
+| `env` | Injected into every runner. A proxy variable here wins over the one the runner would otherwise inherit from its agent — see [How a runner picks up a proxy](#how-a-runner-picks-up-a-proxy). |
 | `run_as_root` | Off. Turning it on is warned about. |
 | `enabled` | A disabled pool drains to zero and creates nothing. |
 

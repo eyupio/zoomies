@@ -771,6 +771,33 @@ func TestAPoolWithNoPlatformFallsBackToTheInstanceDefault(t *testing.T) {
 	}
 }
 
+// GitHub adds self-hosted and the os and arch labels to every just-in-time
+// runner itself, so an ephemeral pool cannot promise to leave them out; saying
+// so at creation is better than a scheduler that disagrees with GitHub.
+func TestOnlyANonEphemeralPoolMayLeaveOutTheDefaultLabels(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	req := poolBody(inst.ID)
+	req["no_default_labels"] = true
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: req})
+	res.mustStatus(t, http.StatusUnprocessableEntity, "create ephemeral")
+	if body := string(res.body); !strings.Contains(body, "no_default_labels") || !strings.Contains(body, "ephemeral") {
+		t.Fatalf("the refusal does not say what to change: %s", body)
+	}
+
+	req["ephemeral"] = false
+	res = h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: req})
+	res.mustStatus(t, http.StatusCreated, "create non-ephemeral")
+	var got map[string]any
+	res.into(t, &got)
+	if got["no_default_labels"] != true {
+		t.Fatalf("no_default_labels = %v in the created pool, want true", got["no_default_labels"])
+	}
+}
+
 // A platform nothing is published for is refused at creation, where it can
 // still be fixed, rather than at every create, where it cannot.
 func TestAPoolCannotAskForAPlatformNothingPublishes(t *testing.T) {
