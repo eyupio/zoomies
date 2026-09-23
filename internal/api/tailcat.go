@@ -28,6 +28,14 @@ const tailcatIdentitySetting = "tailcat.identity.v1"
 // down is asked three times a minute rather than hammered.
 const tailcatCheckInterval = 20 * time.Second
 
+// tailcatHealthyInterval is how often a listener that is healthy on its sealed
+// relay checks it. The public relays are documented as rate-limited, so a
+// probe every twenty seconds from every controller is traffic nobody should
+// generate while nothing is wrong; five minutes still notices an outage well
+// before a host's heartbeats have been missed for long, and the moment it is
+// noticed the loop drops back to tailcatCheckInterval.
+const tailcatHealthyInterval = 5 * time.Minute
+
 // relayProbeTimeout bounds one relay probe. A relay that takes longer than
 // this to answer an HTTPS request is not one an agent can hold a session on.
 const relayProbeTimeout = 5 * time.Second
@@ -420,9 +428,11 @@ func (s *Server) checkTailcat(ctx context.Context) {
 	}
 }
 
-// watchTailcat runs checkTailcat until ctx ends.
-func (s *Server) watchTailcat(ctx context.Context, every time.Duration) {
-	t := time.NewTicker(every)
+// watchTailcat runs checkTailcat until ctx ends: every fast while there is a
+// fault or the node is on a fallback relay, and every slow while it is healthy
+// on the sealed one.
+func (s *Server) watchTailcat(ctx context.Context, fast, slow time.Duration) {
+	t := time.NewTimer(s.nextTailcatCheck(fast, slow))
 	defer t.Stop()
 	for {
 		select {
@@ -430,8 +440,21 @@ func (s *Server) watchTailcat(ctx context.Context, every time.Duration) {
 			return
 		case <-t.C:
 			s.checkTailcat(ctx)
+			t.Reset(s.nextTailcatCheck(fast, slow))
 		}
 	}
+}
+
+// nextTailcatCheck is how long to wait before the next check.
+func (s *Server) nextTailcatCheck(fast, slow time.Duration) time.Duration {
+	p := &s.private
+	p.mu.Lock()
+	healthy := p.node != nil && sameRegion(p.region, p.sealed)
+	p.mu.Unlock()
+	if healthy && s.ctrl.PrivateConnectionFault() == nil {
+		return slow
+	}
+	return fast
 }
 
 func (s *Server) closeTailcat() {
@@ -453,7 +476,7 @@ func (s *Server) closeTailcat() {
 // webhooks down with it, and would need a restart to recover once the relay
 // comes back. It is raised as tailcat.unavailable and retried instead, so the
 // only error here is a database that cannot be read.
-func (s *Server) resumeTailcat(ctx context.Context, every time.Duration) error {
+func (s *Server) resumeTailcat(ctx context.Context, fast, slow time.Duration) error {
 	if !s.cfg().Server.TailcatEnabled || s.cfg().Security.DisableAuth {
 		return nil
 	}
@@ -469,6 +492,6 @@ func (s *Server) resumeTailcat(ctx context.Context, every time.Duration) error {
 			s.reportPrivateFault(err)
 		}
 	}
-	go s.watchTailcat(ctx, every)
+	go s.watchTailcat(ctx, fast, slow)
 	return nil
 }

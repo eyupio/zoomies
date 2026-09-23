@@ -123,7 +123,7 @@ func TestAControllerWhoseSealedRelayIsDownSaysSoAndRecoversWithoutARestart(t *te
 	ctx, cancel := context.WithCancel(h.ctx)
 	defer cancel()
 	t.Cleanup(h.api.closeTailcat)
-	if err := h.api.resumeTailcat(ctx, 100*time.Millisecond); err != nil {
+	if err := h.api.resumeTailcat(ctx, 100*time.Millisecond, 100*time.Millisecond); err != nil {
 		t.Fatalf("an unreachable relay stopped the controller starting: %v", err)
 	}
 
@@ -194,7 +194,7 @@ func TestTheListenerPrefersItsSealedRelayAndFallsBackOnlyWhileItIsDown(t *testin
 	t.Cleanup(h.api.closeTailcat)
 	ctx, cancel := context.WithCancel(h.ctx)
 	defer cancel()
-	if err := h.api.resumeTailcat(ctx, time.Hour); err != nil {
+	if err := h.api.resumeTailcat(ctx, time.Hour, time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	regionOf := func() tailcfg.DERPRegionID {
@@ -229,5 +229,51 @@ func TestTheListenerPrefersItsSealedRelayAndFallsBackOnlyWhileItIsDown(t *testin
 	}
 	if privateProblem(t, h) == nil {
 		t.Fatal("no relay answers and tailcat.unavailable was not raised")
+	}
+}
+
+// The public relays are rate-limited, so a listener that is healthy on its
+// sealed relay must not probe it at the outage rate; one that has a fault must.
+func TestAHealthyListenerProbesItsRelayAtTheSlowRate(t *testing.T) {
+	t.Setenv("IN_TS_TEST", "true")
+	h := newHarness(t)
+	sealed := &tailcfg.DERPRegion{RegionID: 1, RegionCode: "sealed", Nodes: []*tailcfg.DERPNode{{Name: "1a", RegionID: 1, HostName: "sealed.invalid"}}}
+	sealRelay(t, h, sealed)
+	var mu sync.Mutex
+	probes, up := 0, true
+	h.api.private.probe = func(context.Context, *tailcfg.DERPRegion) error {
+		mu.Lock()
+		defer mu.Unlock()
+		probes++
+		if !up {
+			return errors.New("relay did not answer")
+		}
+		return nil
+	}
+	h.api.private.expand = func(context.Context) (*tailcfg.DERPRegion, error) { return nil, errors.New("no relay map") }
+	t.Cleanup(h.api.closeTailcat)
+	ctx, cancel := context.WithCancel(h.ctx)
+	defer cancel()
+	if err := h.api.resumeTailcat(ctx, 10*time.Millisecond, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	healthy := probes
+	up = false
+	mu.Unlock()
+	if healthy > 1 {
+		t.Fatalf("a healthy listener probed its relay %d times in 300ms; it should wait the slow interval", healthy)
+	}
+	// A fault found some other way -- a failed enrolment -- must switch the
+	// loop to the fast rate at its next check; here the slow timer is already
+	// running, so drive one check by hand and then watch the fast rate take over.
+	h.api.checkTailcat(h.ctx)
+	go h.api.watchTailcat(ctx, 10*time.Millisecond, time.Hour)
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if probes-healthy < 5 {
+		t.Fatalf("a listener with a fault probed only %d times in 300ms; it should check at the fast rate", probes-healthy)
 	}
 }

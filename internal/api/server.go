@@ -277,7 +277,7 @@ const shutdownGrace = 15 * time.Second
 // bind.
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	defer s.closeTailcat()
-	if err := s.resumeTailcat(ctx, tailcatCheckInterval); err != nil {
+	if err := s.resumeTailcat(ctx, tailcatCheckInterval, tailcatHealthyInterval); err != nil {
 		return err
 	}
 	// A cancellable base context is what makes shutdown tidy. An SSE stream or
