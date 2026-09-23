@@ -115,6 +115,37 @@ func TestAFleetAdministratorIsNotToldWhereTheProcessKeepsItsFiles(t *testing.T) 
 	}
 }
 
+// The bootstrap keys are not platform-scoped -- they are not stored anywhere
+// a scope could apply to -- but their values are the database file and the
+// key file. Blanking database_path while database.path carried the same
+// string in the same response is the leak the browser-level audience test
+// found, so this pins it where it is cheapest to run.
+func TestAFleetAdministratorIsNotShownTheDatabaseOrKeyFile(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("fleet-admin", store.RoleAdmin)
+
+	for _, path := range []string{"/api/v1/settings", "/api/v1/diagnostics/bundle"} {
+		resp := h.do(request{method: http.MethodGet, path: path, cookie: h.session(admin)})
+		if resp.status != http.StatusOK {
+			t.Fatalf("GET %s as admin = %d: %s", path, resp.status, resp.body)
+		}
+		for _, leak := range []string{"database.path", `"database":`, "encryption_key_file", h.ctrl.Store().Path()} {
+			if leak != "" && strings.Contains(string(resp.body), leak) {
+				t.Errorf("GET %s told an administrator %q", path, leak)
+			}
+		}
+	}
+
+	asPlatform := settingsFor(t, h, store.RolePlatform)
+	var sawDatabase bool
+	for _, s := range asPlatform.Settings {
+		sawDatabase = sawDatabase || s.Key == "database.path"
+	}
+	if !sawDatabase {
+		t.Error("the platform was not shown database.path; it is theirs to see")
+	}
+}
+
 // The refusal is the half an operator acts on: a settings page that says
 // "not editable" with no reason is what sends somebody to the source.
 func TestAnAdministratorChangingAPlatformSettingIsToldWhoseItIs(t *testing.T) {

@@ -1,3 +1,9 @@
+---
+# Written for contributors, not for someone choosing a runner controller:
+# published so links to it work, kept out of search results and the sitemap.
+noindex: true
+---
+
 # Operational insights across Zoomies
 
 The operator pages share the visual language introduced by Usage, with metrics

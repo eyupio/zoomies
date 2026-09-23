@@ -38,7 +38,8 @@ already run Kubernetes. Zoomies is for the case where you do not: a VM or three,
 where a Helm chart and a set of CRDs are more machinery than the problem needs,
 but hand-registering a few long-lived runners is not enough. The
 [comparison table](index.md#why-not-something-else) on the home page is the
-short version.
+short version, and [Zoomies and actions-runner-controller](actions-runner-controller.md)
+the long one.
 
 ## What does "ephemeral by default" actually buy me?
 
@@ -116,7 +117,9 @@ to carry `docker` itself, as is a digest or a tag from a build that may never
 have published the variant — and a pool left on one of those says so, with
 `pool.docker_client_missing`, rather than failing its jobs one at a time. See
 [Jobs that build container
-images](configuration.md#jobs-that-build-container-images).
+images](configuration.md#jobs-that-build-container-images), and
+[self-hosted runners in Docker](docker.md) for how the three ways of giving a
+job Docker compare.
 
 ## Which platforms does it run on?
 
@@ -149,6 +152,7 @@ scoped to that repository, and its runners register at the repository level --
 GitHub offers no account-wide runners for personal accounts. Each repository you
 want to run jobs for is one installation and one pool, and the installer and
 the Connect GitHub dialog both offer the choice.
+[One fleet for many repositories](many-repositories.md) covers both cases.
 
 ## How do I move my existing workflows onto it?
 
@@ -181,6 +185,15 @@ reasons reliable enough to print.
 
 Nothing. Zoomies is free and open source under the GNU Affero General Public
 License (AGPL-3.0). You pay for the machines you run it on.
+[What self-hosted runners cost](costs.md) works through the sums against
+GitHub's hosted runner prices.
+
+## Are GitHub self-hosted runners still free?
+
+Yes. GitHub charges nothing for minutes on self-hosted runners. In December 2025 it
+announced a $0.002-a-minute platform charge for them from 1 March 2026, then
+postponed it to re-evaluate; it has been postponed, not cancelled.
+[What self-hosted runners cost](costs.md) has the details and the links.
 
 ## Can I run Zoomies as a service for other people?
 
@@ -330,6 +343,14 @@ modified or not, asks nothing of you. The full text is in
       "acceptedAnswer": {
         "@type": "Answer",
         "text": "Nothing. Zoomies is free and open source under the GNU Affero General Public License (AGPL-3.0). You pay only for the machines you run it on."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Are GitHub self-hosted runners still free?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. GitHub charges nothing for minutes on self-hosted runners. In December 2025 it announced a $0.002-a-minute platform charge for them from 1 March 2026, then postponed it to re-evaluate; it has been postponed, not cancelled."
       }
     },
     {

@@ -53,6 +53,8 @@
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
+  import QuantityField from '$lib/components/QuantityField.svelte';
+  import { cpuLabel, memoryLabel, withValue } from '$lib/pools/sizing';
   import RadioGroup from '$lib/components/RadioGroup.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
   import Select from '$lib/components/Select.svelte';
@@ -78,6 +80,16 @@
     WIZARD_STEPS,
   } from './draft';
   import type { ProviderDraft } from './draft';
+
+  /* What a machine is sized in, with zero for "the template decides". The
+     steps are the sizes a hypervisor template is actually built at. */
+  const MACHINE_CPU_NOTCHES = [0, 1, 2, 4, 6, 8, 12, 16, 24, 32, 48, 64];
+  const MACHINE_MEMORY_NOTCHES = [
+    0, 1024, 2048, 4096, 8192, 16384, 24576, 32768, 49152, 65536, 98304, 131072, 262144,
+  ];
+  const MACHINE_DISK_NOTCHES = [
+    0, 10240, 20480, 40960, 81920, 102400, 163840, 204800, 327680, 512000, 1048576, 2097152,
+  ];
 
   interface Props {
     /** The provider being edited, or absent when one is being created. */
@@ -820,47 +832,73 @@
           {/snippet}
         </Field>
 
-        <div class="row">
-          <Field label="vCPUs" hint="Empty means the template decides." error={errors.machine_cpus}>
-            {#snippet children({ id, describedBy, invalid })}
-              <Input
-                bind:value={draft.machine_cpus}
-                {id}
-                {describedBy}
-                {invalid}
-                type="number"
-                min={0}
-                onblur={() => touch('machine_cpus')}
-              />
-            {/snippet}
-          </Field>
-          <Field label="Memory (MB)" error={errors.machine_memory_mb}>
-            {#snippet children({ id, describedBy, invalid })}
-              <Input
-                bind:value={draft.machine_memory_mb}
-                {id}
-                {describedBy}
-                {invalid}
-                type="number"
-                min={0}
-                onblur={() => touch('machine_memory_mb')}
-              />
-            {/snippet}
-          </Field>
-          <Field label="Disk (MB)" error={errors.machine_disk_mb}>
-            {#snippet children({ id, describedBy, invalid })}
-              <Input
-                bind:value={draft.machine_disk_mb}
-                {id}
-                {describedBy}
-                {invalid}
-                type="number"
-                min={0}
-                onblur={() => touch('machine_disk_mb')}
-              />
-            {/snippet}
-          </Field>
-        </div>
+        <!--
+          The machine's size is three sliders, each with a field that reads
+          what a person writes -- 8g, 32768 MB, 100 GB -- because a hypervisor
+          template is sized in whichever unit its author thought in. Nothing
+          on the slider, and an empty field, is the template's own size.
+        -->
+        <Field label="vCPUs" hint="Empty means the template decides." error={errors.machine_cpus}>
+          {#snippet children({ id, describedBy, invalid })}
+            <QuantityField
+              {id}
+              quantity="cpus"
+              whole
+              values={withValue(MACHINE_CPU_NOTCHES, Number(draft.machine_cpus) || 0)}
+              value={Number(draft.machine_cpus) || 0}
+              label="vCPUs"
+              valuetext={(v) => (v === 0 ? 'the template decides' : cpuLabel(v))}
+              marks={[{ value: 0, label: 'the template' }]}
+              empty={{ value: 0, placeholder: 'the template decides' }}
+              {describedBy}
+              {invalid}
+              onchange={(v) => {
+                draft.machine_cpus = v ? String(v) : '';
+                touch('machine_cpus');
+              }}
+            />
+          {/snippet}
+        </Field>
+        <Field label="Memory" error={errors.machine_memory_mb}>
+          {#snippet children({ id, describedBy, invalid })}
+            <QuantityField
+              {id}
+              quantity="mb"
+              values={withValue(MACHINE_MEMORY_NOTCHES, Number(draft.machine_memory_mb) || 0)}
+              value={Number(draft.machine_memory_mb) || 0}
+              label="Memory"
+              valuetext={(v) => (v === 0 ? 'the template decides' : memoryLabel(v))}
+              marks={[{ value: 0, label: 'the template' }]}
+              empty={{ value: 0, placeholder: 'the template decides' }}
+              {describedBy}
+              {invalid}
+              onchange={(v) => {
+                draft.machine_memory_mb = v ? String(v) : '';
+                touch('machine_memory_mb');
+              }}
+            />
+          {/snippet}
+        </Field>
+        <Field label="Disk" error={errors.machine_disk_mb}>
+          {#snippet children({ id, describedBy, invalid })}
+            <QuantityField
+              {id}
+              quantity="mb"
+              values={withValue(MACHINE_DISK_NOTCHES, Number(draft.machine_disk_mb) || 0)}
+              value={Number(draft.machine_disk_mb) || 0}
+              label="Disk"
+              valuetext={(v) => (v === 0 ? 'the template decides' : memoryLabel(v))}
+              marks={[{ value: 0, label: 'the template' }]}
+              empty={{ value: 0, placeholder: 'the template decides' }}
+              {describedBy}
+              {invalid}
+              onchange={(v) => {
+                draft.machine_disk_mb = v ? String(v) : '';
+                touch('machine_disk_mb');
+              }}
+            />
+          {/snippet}
+        </Field>
 
         <div class="row">
           <Field label="Operating system" hint="What a pool's platform will match against.">

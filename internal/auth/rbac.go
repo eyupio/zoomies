@@ -314,6 +314,24 @@ func scopesAllow(scopes []string, a Action) bool {
 	return false
 }
 
+// ManageWithin refuses an account change that would reach past the caller's
+// own role: granting a role the caller does not hold, or acting on an account
+// that outranks it. Without it the platform role separated nothing -- an
+// administrator could create a platform account, promote their own, or reset
+// the platform's password and sign in as it. It is MintWithin's rule for
+// accounts: authority is handed on, never made up.
+func ManageWithin(by *Identity, roles ...store.Role) error {
+	if by == nil {
+		return Invalid("an account can only be changed by an authenticated caller")
+	}
+	for _, role := range roles {
+		if !by.Role.AtLeast(role) {
+			return Invalid("the %s role cannot grant or change a %s account; ask somebody with the %s role", by.Role, role, role)
+		}
+	}
+	return nil
+}
+
 // MintWithin refuses a token that would carry more than the identity minting
 // it. A token is a way to hand authority on, and handing on more than one
 // holds is how a narrowly scoped credential that leaked turns into an

@@ -287,3 +287,55 @@ test('the Events page decides what the Overview’s feed carries', async ({ page
   await expect(feed).toContainText(/scaled zoomies-demo-/);
   await expect(feed).toContainText(`${on} of ${kinds} kinds`);
 });
+
+test('a size setting reads 8g and writes it back as 8 GB', async ({ page }) => {
+  // The build cache target is a megabyte count in the file, and the row used to
+  // be a number box that took 8192 and nothing else. It is edited and then
+  // cancelled rather than saved: the database is shared by every spec running
+  // at once, and nothing here is about storing a value.
+  const key = 'agent.docker_build_cache_mb';
+  await goto(page, `/settings/configuration?setting=${key}`, 'Configuration');
+  const row = page.locator(`[id="setting-${key}"]`);
+  await row.getByRole('button', { name: 'Change' }).click();
+
+  const field = row.getByRole('textbox', { name: `New value for ${key}` });
+  await field.fill('8g');
+  await field.press('Enter');
+  await expect(field).toHaveValue('8 GB');
+  await expect(row.getByRole('slider', { name: `New value for ${key}` })).toHaveAttribute(
+    'aria-valuetext',
+    '8 GB',
+  );
+
+  await field.fill('8192 mb');
+  await field.press('Enter');
+  await expect(field).toHaveValue('8 GB');
+
+  await row.getByRole('button', { name: `Cancel editing ${key}` }).click();
+  await expect(field).toBeHidden();
+});
+
+test('a duration setting reads 2 weeks and writes it back as 14d', async ({ page }) => {
+  // Go writes a retention period in hours, so the row used to say 720h and
+  // take 336h. It is edited and cancelled rather than saved, for the same
+  // shared-database reason as the size above.
+  const key = 'retention.jobs';
+  await goto(page, `/settings/configuration?setting=${key}`, 'Configuration');
+  const row = page.locator(`[id="setting-${key}"]`);
+  await expect(row.locator('.shown')).not.toHaveText(/\d+h$/);
+  await row.getByRole('button', { name: 'Change' }).click();
+
+  const field = row.getByRole('textbox', { name: `New value for ${key}` });
+  await field.fill('2 weeks');
+  await field.press('Enter');
+  await expect(field).toHaveValue('14d');
+  await expect(row.getByRole('slider', { name: `New value for ${key}` })).toHaveAttribute(
+    'aria-valuetext',
+    '14d',
+  );
+  await field.fill('36h');
+  await field.press('Enter');
+  await expect(field).toHaveValue('1d 12h');
+
+  await row.getByRole('button', { name: `Cancel editing ${key}` }).click();
+});

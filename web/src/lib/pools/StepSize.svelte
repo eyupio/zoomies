@@ -38,7 +38,7 @@
   import Input from '$lib/components/Input.svelte';
   import Select from '$lib/components/Select.svelte';
   import RadioGroup from '$lib/components/RadioGroup.svelte';
-  import Slider from '$lib/components/Slider.svelte';
+  import QuantityField from '$lib/components/QuantityField.svelte';
   import PoolFit from './PoolFit.svelte';
   import PoolRoom from './PoolRoom.svelte';
   import {
@@ -80,6 +80,8 @@
   const defaultMemoryMb = $derived(defaults?.memory_mb ?? 4096);
 
   const cpuNotches = $derived(withValue(CPU_NOTCHES, cpus));
+  /* The boost ceiling's notches start at nothing, which leaves it to the host. */
+  const burstNotches = $derived(withValue([0, ...CPU_NOTCHES], Number(draft.cpu_burst_max) || 0));
   const memoryNotches = $derived(withValue(MEMORY_NOTCHES, memoryMb));
   const diskNotches = $derived(withValue(DISK_NOTCHES, diskGb));
 
@@ -249,48 +251,53 @@
     </div>
 
     {#if draft.backend === 'docker' || draft.backend === 'podman'}
-      <div class="pair">
-        <Field
-          label="Elastic CPU"
-          error={errors['cpu_burst.mode']}
-          hint="Observe measures safe boosts first. Automatic may lend spare CPU while preserving every runner's guarantee and room for the next queued job."
-        >
-          {#snippet children({ id, describedBy, invalid })}
-            <Select
-              bind:value={draft.cpu_burst_mode}
-              options={[
-                { value: 'off', label: 'Off' },
-                { value: 'observe', label: 'Observe only' },
-                { value: 'automatic', label: 'Automatic boost' },
-              ]}
-              {id}
-              {describedBy}
-              {invalid}
-              onchange={() => touch('cpu_burst.mode')}
-            />
-          {/snippet}
-        </Field>
+      <Field
+        label="Elastic CPU"
+        error={errors['cpu_burst.mode']}
+        hint="Observe measures safe boosts first. Automatic may lend spare CPU while preserving every runner's guarantee and room for the next queued job."
+      >
+        {#snippet children({ id, describedBy, invalid })}
+          <Select
+            bind:value={draft.cpu_burst_mode}
+            options={[
+              { value: 'off', label: 'Off' },
+              { value: 'observe', label: 'Observe only' },
+              { value: 'automatic', label: 'Automatic boost' },
+            ]}
+            {id}
+            {describedBy}
+            {invalid}
+            onchange={() => touch('cpu_burst.mode')}
+          />
+        {/snippet}
+      </Field>
 
-        <Field
-          label="Boost ceiling"
-          error={errors['cpu_burst.max_cpus']}
-          hint="Maximum CPU for one runner. Leave empty to use whatever the host can safely lend."
-        >
-          {#snippet children({ id, describedBy, invalid })}
-            <Input
-              bind:value={draft.cpu_burst_max}
-              type="number"
-              min={0.25}
-              step={0.25}
-              placeholder="Host ceiling"
-              {id}
-              {describedBy}
-              {invalid}
-              onblur={() => touch('cpu_burst.max_cpus')}
-            />
-          {/snippet}
-        </Field>
-      </div>
+      <!-- The ceiling is a slider of its own, so it has the full width rather
+           than half a row beside a menu. -->
+      <Field
+        label="Boost ceiling"
+        error={errors['cpu_burst.max_cpus']}
+        hint="Maximum CPU for one runner, such as 4 or 1.5. Leave empty to use whatever the host can safely lend."
+      >
+        {#snippet children({ id, describedBy, invalid })}
+          <QuantityField
+            quantity="cpus"
+            values={burstNotches}
+            value={Number(draft.cpu_burst_max) || 0}
+            label="Boost ceiling"
+            valuetext={(v) => (v === 0 ? 'the host decides' : cpuLabel(v))}
+            marks={[{ value: 0, label: 'the host decides' }]}
+            empty={{ value: 0, placeholder: 'Host ceiling' }}
+            {id}
+            {describedBy}
+            {invalid}
+            onchange={(v) => {
+              draft.cpu_burst_max = v ? String(v) : '';
+              touch('cpu_burst.max_cpus');
+            }}
+          />
+        {/snippet}
+      </Field>
 
       {#if draft.cpu_burst_mode === 'automatic' && (room?.hosts ?? []).length > 0}
         {#if cannotLend.length > 0}
@@ -357,15 +364,16 @@
       hint="Becomes the container's CPU quota, and the cores the scheduler holds for it on a host."
     >
       {#snippet children({ id, describedBy })}
-        <Slider
+        <QuantityField
           {id}
+          quantity="cpus"
           values={cpuNotches}
           value={cpus}
           label="CPU per runner"
           valuetext={cpuLabel}
           marks={cpuMarks}
           {describedBy}
-          onchange={setCpus}
+          onchange={(v) => setCpus(v ?? 0)}
         />
       {/snippet}
     </Field>
@@ -376,15 +384,16 @@
       hint="The container's memory limit. A job that goes past it is killed, so this is the figure to raise when a build dies without a message."
     >
       {#snippet children({ id, describedBy })}
-        <Slider
+        <QuantityField
           {id}
+          quantity="mb"
           values={memoryNotches}
           value={memoryMb}
           label="Memory per runner"
           valuetext={memoryLabel}
           marks={memoryMarks}
           {describedBy}
-          onchange={setMemory}
+          onchange={(v) => setMemory(v ?? 0)}
         />
       {/snippet}
     </Field>
@@ -395,15 +404,17 @@
       hint="Advisory, and charged against the host's free disk so the fleet does not promise the same space twice. No limit is the usual answer: what keeps a host from filling up is its own disk reserve."
     >
       {#snippet children({ id, describedBy })}
-        <Slider
+        <QuantityField
           {id}
+          quantity="gb"
           values={diskNotches}
           value={diskGb}
           label="Disk per runner"
           valuetext={gbLabel}
           marks={diskMarks}
+          empty={{ value: 0, placeholder: 'no limit' }}
           {describedBy}
-          onchange={setDisk}
+          onchange={(v) => setDisk(v ?? 0)}
         />
       {/snippet}
     </Field>
@@ -484,16 +495,18 @@
       hint="Kept by evicting whole entries, least recently used first, between one runner and the next."
     >
       {#snippet children({ id, describedBy })}
-        <Slider
+        <QuantityField
           {id}
+          quantity="gb"
           values={cacheNotches}
           value={cacheLimitGb}
           label="Cache size limit"
           valuetext={gbLabel}
           marks={cacheMarks}
           tone={cacheAboveDisk ? 'warning' : 'accent'}
+          empty={{ value: 0, placeholder: 'no limit' }}
           {describedBy}
-          onchange={setCacheLimit}
+          onchange={(v) => setCacheLimit(v ?? 0)}
         />
       {/snippet}
     </Field>

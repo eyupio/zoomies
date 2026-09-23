@@ -1,4 +1,5 @@
 ---
+title: Prometheus metrics for your runner fleet
 description: >-
   Every Prometheus metric Zoomies exposes, what it measures and what to alert
   on: fleet gauges, job counters and startup histograms.
@@ -7,9 +8,16 @@ description: >-
 # Metrics
 
 The controller exposes Prometheus metrics at `/metrics`. They are the same
-numbers the Overview draws, without the browser, and they are the only way to
-keep a history: Zoomies stores enough to answer "what is happening now" and
-leaves "what happened last month" to whatever you already scrape with.
+numbers the Overview draws, without the browser, and they are how you keep a
+history of everything that moves minute to minute: Zoomies stores enough of
+those to answer "what is happening now" and leaves their past to whatever you
+already scrape with. What it does keep is the usage ledger — every finished
+runner's session for a year (`retention.runner_sessions`) and a daily roll-up
+of runner-hours and cost per pool, host and installation that is never pruned —
+so the [usage report](api-surface.md) answers "how many runner-hours did we use
+last month, and what did they cost" however short `retention.runners` is. Job
+counts, execution time and queue waits still come from job rows and go with
+`retention.jobs`.
 
 **The agent exposes nothing.** Everything below is the controller's. Agent-side
 work still reaches Prometheus, because the agent reports what it did and the
