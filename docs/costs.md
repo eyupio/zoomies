@@ -48,7 +48,7 @@ alongside public repositories as free.
 
 In December 2025 GitHub announced a "GitHub Actions cloud platform charge" of
 $0.002 a minute for self-hosted runners, starting on 1 March 2026, and
-postponed it a few days later "to take time to re-evaluate our approach"
+later postponed it "to take time to re-evaluate our approach"
 ([the announcement and its update](https://github.blog/changelog/2025-12-16-coming-soon-simpler-pricing-and-a-better-experience-for-github-actions/),
 [GitHub's summary of the 2026 changes](https://github.com/resources/insights/2026-pricing-changes-for-github-actions)).
 Postponed is not cancelled. If it comes back at the announced rate, 20,000

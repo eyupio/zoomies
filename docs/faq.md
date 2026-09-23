@@ -186,9 +186,9 @@ GitHub's hosted runner prices.
 
 ## Are GitHub self-hosted runners still free?
 
-Yes. GitHub charges nothing for minutes on self-hosted runners. It announced a
-$0.002-a-minute platform charge for them from 1 March 2026, then postponed it in
-December 2025 to re-evaluate; it has been postponed, not cancelled.
+Yes. GitHub charges nothing for minutes on self-hosted runners. In December 2025 it
+announced a $0.002-a-minute platform charge for them from 1 March 2026, then
+postponed it to re-evaluate; it has been postponed, not cancelled.
 [What self-hosted runners cost](costs.md) has the details and the links.
 
 ## Can I run Zoomies as a service for other people?
@@ -346,7 +346,7 @@ modified or not, asks nothing of you. The full text is in
       "name": "Are GitHub self-hosted runners still free?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Yes. GitHub charges nothing for minutes on self-hosted runners. It announced a $0.002-a-minute platform charge for them from 1 March 2026, then postponed it in December 2025 to re-evaluate; it has been postponed, not cancelled."
+        "text": "Yes. GitHub charges nothing for minutes on self-hosted runners. In December 2025 it announced a $0.002-a-minute platform charge for them from 1 March 2026, then postponed it to re-evaluate; it has been postponed, not cancelled."
       }
     },
     {
