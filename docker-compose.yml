@@ -14,6 +14,13 @@
 # token, which only somebody who can read this container's log has, is. It
 # changes on every restart and stops being printed once an account exists.
 #
+# Steps 4 and 5 are for a person. Where nobody is watching -- this file driven
+# by a Terraform module or a configuration-management run -- set the
+# ZOOMIES_BOOTSTRAP_* lines and the secrets block below instead: the first
+# account is created from a file at startup, /readyz reports
+# bootstrap_required false once it exists, and nothing has to be read out of
+# the log. docs/configuration.md has the details.
+#
 # Compose refuses to start with any of the three missing, on purpose: each one
 # left to a default produces a container that is healthy and useless. A wrong
 # external URL sends GitHub's webhooks and its App-creation redirect to the
@@ -118,6 +125,23 @@ services:
       # the socket is owned by 987; change DOCKER_GID in .env" rather than
       # leaving you to work out which file the number came from.
       DOCKER_GID: ${DOCKER_GID:?set this in .env to the gid that owns /var/run/docker.sock, which stat -c %g /var/run/docker.sock prints}
+
+      # The unattended first account. Unset, the setup token above is the way
+      # in. Set the username and exactly one of the two files; each is read
+      # once, on a database with no accounts, and ignored with a warning ever
+      # after. The token file holds a token you generated
+      # (openssl rand -hex 32) that becomes a platform API token; the password
+      # file holds a password for a person's account instead.
+      # ZOOMIES_BOOTSTRAP_ADMIN: platform
+      # ZOOMIES_BOOTSTRAP_TOKEN_FILE: /run/secrets/zoomies_bootstrap_token
+      # ZOOMIES_BOOTSTRAP_PASSWORD_FILE: /run/secrets/zoomies_bootstrap_password
+    # The file behind it, if you set one. The long syntax matters: compose
+    # mounts a secret 0444 by default, and Zoomies refuses a credential file
+    # that group or other can read. The uid is the one the image runs as.
+    # secrets:
+    #   - source: zoomies_bootstrap_token
+    #     uid: "65532"
+    #     mode: 0400
     ports:
       # Cloudflare connects here over HTTP. Nothing but Cloudflare should be
       # able to: put the origin behind a firewall that allows only Cloudflare's
@@ -157,6 +181,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+# The secret the commented bootstrap lines above name, kept out of .env and out
+# of `docker inspect`.
+# secrets:
+#   zoomies_bootstrap_token:
+#     file: ./bootstrap-token
 
 networks:
   # Runner containers are attached to this network by the embedded agent, which

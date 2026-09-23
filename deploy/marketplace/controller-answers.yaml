@@ -1,0 +1,48 @@
+# A controller-only instance, answered in full: `zoomies init --answers
+# controller-answers.yaml`.
+#
+# This is the shape a Terraform module or a configuration-management run
+# writes: nobody is at the console, so every question the installer would ask
+# is answered here, and nothing has to be read back out of a log afterwards.
+# Replace the example values; the keys are the whole contract.
+#
+# It runs no agent. Runners live on the hosts that join it, each with
+# `zoomies agent join` and a join token minted through the API by the account
+# below -- so the settings page leaves out the agent settings this process has
+# no use for.
+
+# controller runs no embedded agent; the answer the file exists to give.
+mode: controller
+
+# native: a systemd service, and the installer creates the first account below
+# on the console. A containerised controller creates it from the environment
+# instead -- see ZOOMIES_BOOTSTRAP_* in docs/configuration.md.
+deployment: native
+
+# Zoomies terminates TLS itself with a certificate the provisioner put on disk,
+# so the controller is reachable by agents on other hosts with nothing in front.
+bind: 0.0.0.0:8443
+tls:
+  mode: files
+  cert_file: /etc/zoomies/tls/fullchain.pem
+  key_file: /etc/zoomies/tls/privkey.pem
+
+# How agents, GitHub and the browser reach this controller.
+external_url: https://zoomies.example.com:8443
+
+# The first account, which holds the platform role. The password is read from
+# a file the provisioner wrote with mode 0600 and is never written here.
+# The installer records it in the audit log as auth.bootstrap, method
+# answer_file.
+admin:
+  username: platform
+  password_file: /etc/zoomies/bootstrap-password
+
+github:
+  # Connected later, in the UI or through the API, by the account above.
+  skip: true
+
+pool:
+  # A controller with no agent has no runners of its own for a pool to
+  # describe; pools are created once hosts have joined.
+  skip: true

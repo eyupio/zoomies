@@ -138,8 +138,20 @@
     links there, so the keys are still findable from here without this page
     offering a second editor for them.
   */
+  /*
+    A controller that runs no agent has nothing for the rest of the agent
+    section to describe: its backend, socket and capacity are the joined
+    hosts' business, set on those hosts. Listing them here invites an edit that
+    changes nothing. The switch that would bring an agent back stays, so the
+    choice is still reachable from this page.
+  */
+  const noAgent = $derived((settings?.findings ?? []).some((f) => f.code === 'agent.none'));
   const all = $derived<readonly Setting[]>(
-    (settings?.settings ?? []).filter((s) => !SECTIONS_ELSEWHERE[s.section]),
+    (settings?.settings ?? []).filter(
+      (s) =>
+        !SECTIONS_ELSEWHERE[s.section] &&
+        !(noAgent && s.key.startsWith('agent.') && s.key !== 'agent.embedded'),
+    ),
   );
   /*
     The pointer is shown while a search is running too, and that is the point
