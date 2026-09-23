@@ -443,3 +443,59 @@ func TestAdoptionDoesNotRestartTheBootstrapGrace(t *testing.T) {
 		t.Fatalf("old adopted runner gained startup grace: %+v", got)
 	}
 }
+
+// A boost is lent on the controller's word and only withdrawn by its next plan.
+// With the controller gone no plan comes, so the agent gives the CPU back
+// itself -- not on the first missed beat, which is a restart, but once enough
+// have gone by that nothing is coming. A throttle is left standing: it is the
+// safe direction to be wrong in.
+func TestBoostsAreGivenBackWhenTheControllerStopsAnswering(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 4)
+	createdRunner(a, "run_a", "wl-a", store.Resources{CPUs: 2, MemoryMB: 4096})
+	if got := beat(t, a, tr, be, &ThrottleDirective{CPUFactor: 1}, ElasticCPUDirective{
+		RunnerID: "run_a", CPUFactor: 2, BaseCPUs: 2, TargetCPUs: 4,
+	}); len(got) != 1 || got[0].res.CPUs != 4 {
+		t.Fatalf("updates = %+v, want the runner lent 4 CPUs", got)
+	}
+
+	tr.mu.Lock()
+	tr.beatErr = errors.New("controller unreachable")
+	tr.mu.Unlock()
+	miss := func() []resourceUpdate {
+		before := len(be.resourceUpdates())
+		if err := a.heartbeat(context.Background()); err == nil {
+			t.Fatal("heartbeat succeeded against an unreachable controller")
+		}
+		return be.resourceUpdates()[before:]
+	}
+	for i := 1; i < boostExpiryMisses; i++ {
+		if got := miss(); len(got) != 0 {
+			t.Fatalf("after %d missed beat(s) the agent changed %+v; a restart should not cost a running job its boost", i, got)
+		}
+	}
+	if got := miss(); len(got) != 1 || got[0].res.CPUs != 2 {
+		t.Fatalf("after %d missed beats updates = %+v, want the runner back at its 2 CPU guarantee", boostExpiryMisses, got)
+	}
+	if got := miss(); len(got) != 0 {
+		t.Fatalf("a further missed beat changed %+v; a boost given back is given back once", got)
+	}
+}
+
+func TestAThrottleOutlastsAControllerThatStopsAnswering(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 4)
+	createdRunner(a, "run_a", "wl-a", store.Resources{CPUs: 2})
+	a.opts.BootstrapCPUGrace = 0
+	if got := beat(t, a, tr, be, &ThrottleDirective{Level: 2, CPUFactor: 0.5}); len(got) != 1 || got[0].res.CPUs != 1 {
+		t.Fatalf("updates = %+v, want the runner throttled to 1 CPU", got)
+	}
+	tr.mu.Lock()
+	tr.beatErr = errors.New("controller unreachable")
+	tr.mu.Unlock()
+	before := len(be.resourceUpdates())
+	for range boostExpiryMisses + 2 {
+		_ = a.heartbeat(context.Background())
+	}
+	if got := be.resourceUpdates()[before:]; len(got) != 0 {
+		t.Fatalf("a missing controller lifted the throttle: %+v; only a boost is given back", got)
+	}
+}
