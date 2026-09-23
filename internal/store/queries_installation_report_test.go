@@ -78,7 +78,9 @@ func newReportFleet(t *testing.T) *reportFleet {
 		t.Fatal(err)
 	}
 
-	at := func(h, m, s int) time.Time { return f.day.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(s)*time.Second) }
+	at := func(h, m, s int) time.Time {
+		return f.day.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(s)*time.Second)
+	}
 	ms := func(x time.Time) int64 { return x.UnixMilli() }
 
 	// finish gives a runner exactly the create task, registration and finish
