@@ -176,6 +176,11 @@ type Agent struct {
 	// Runtime failures hold the next admission briefly without stopping jobs.
 	runtimeFailures int
 	runtimeRetryAt  time.Time
+	// runtimeKind and runtimeError are the last failure, kept so the
+	// heartbeat can say what the cooldown is about and not only that there
+	// is one.
+	runtimeKind  string
+	runtimeError string
 	// resolveRetry is how long a create waits between attempts to ask the
 	// host whether its runner already exists; tests shorten it.
 	resolveRetry []time.Duration
@@ -225,6 +230,9 @@ type Agent struct {
 	// elasticCPU is replaced as a set on every heartbeat. A runner omitted by
 	// the controller therefore returns to its guaranteed creation allocation.
 	elasticCPU map[string]float64
+	// missedBeats counts heartbeats in a row the controller did not answer;
+	// see expireBoosts.
+	missedBeats int
 
 	// polled records that at least one task poll has completed since start.
 	// The reconciler will not delete anything until it has, so a controller
@@ -756,10 +764,15 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		DiskFreeMB:      free,
 		Backends:        infos,
 		Runners:         runners,
+		Runtime:         a.runtimeReport(),
 	})
 	if err != nil {
+		a.expireBoosts(ctx)
 		return err
 	}
+	a.mu.Lock()
+	a.missedBeats = 0
+	a.mu.Unlock()
 	// The beat carried every runner the agent tracks, so the controller now
 	// knows how each finished one ended, and its workload may go.
 	a.markReported(runners)
@@ -1157,7 +1170,7 @@ func (a *Agent) start(ctx context.Context, task Task) {
 				a.log.Info("startup admitted", "kind", task.Kind, "queue_wait", wait)
 			case <-ctx.Done():
 				release()
-				a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver", store.FaultRunnerExited)
+				a.reportNotStarted(ctx, task)
 				return
 			}
 			if !a.waitForRuntime(ctx) {
@@ -1168,27 +1181,20 @@ func (a *Agent) start(ctx context.Context, task Task) {
 		}
 		if ctx.Err() != nil {
 			release()
-			a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver", store.FaultRunnerExited)
+			a.reportNotStarted(ctx, task)
 			return
 		}
 		select {
 		case a.sem <- struct{}{}:
 		case <-ctx.Done():
 			release()
-			a.report(ctx, TaskResult{
-				TaskID:      task.ID,
-				Kind:        task.Kind,
-				RunnerID:    task.RunnerID,
-				OK:          false,
-				Error:       "agent shut down before this task started; it is safe to redeliver",
-				CompletedAt: a.now(),
-			})
+			a.reportNotStarted(ctx, task)
 			return
 		}
 		defer func() { <-a.sem }()
 		if ctx.Err() != nil {
 			release()
-			a.reportFailure(ctx, task, "agent shut down before this task started; it is safe to redeliver", store.FaultRunnerExited)
+			a.reportNotStarted(ctx, task)
 			return
 		}
 		if task.Kind == TaskCreateRunner {
@@ -1298,6 +1304,10 @@ func (a *Agent) handlePrewarm(ctx context.Context, task Task, release func()) {
 	}
 	if err != nil {
 		res.Error = err.Error()
+		// Classified here for the same reason a create is: an image the host
+		// cannot pull is found by the prewarm first, and the controller can
+		// only name the registry if it is told this was the image.
+		res.Fault = backend.Fault(err)
 	}
 	a.report(ctx, res)
 }
@@ -1656,6 +1666,21 @@ func (a *Agent) reportFailure(ctx context.Context, task Task, msg string, fault 
 		Error:       msg,
 		State:       store.RunnerFailed,
 		Fault:       fault,
+		CompletedAt: a.now(),
+	})
+}
+
+// reportNotStarted gives a task back to the controller untouched. It carries
+// no runner state: nothing happened to the runner, and a failed state here is
+// what turned every upgrade into a column of "Runner stopped" failures.
+func (a *Agent) reportNotStarted(ctx context.Context, task Task) {
+	a.report(ctx, TaskResult{
+		TaskID:      task.ID,
+		Kind:        task.Kind,
+		RunnerID:    task.RunnerID,
+		OK:          false,
+		NotStarted:  true,
+		Error:       "agent shut down before this task started; it is safe to redeliver",
 		CompletedAt: a.now(),
 	})
 }

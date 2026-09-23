@@ -862,6 +862,10 @@ type Host struct {
 	// heartbeat carries the measurements it is decided from and never the
 	// decision -- and it is written by its own statement, like the reserve.
 	Throttle HostThrottle `json:"throttle,omitempty"`
+	// Incidents is the runtime cooldown the agent last reported and the
+	// last image that would not pull here. Each half has its own setter;
+	// neither UpdateHost nor SetHostReported writes it.
+	Incidents HostIncidents `json:"incidents,omitempty"`
 	// DiskTotalMB and DiskFreeMB measure the filesystem holding the agent's
 	// work directory, which is where a runner's checkout and its caches land.
 	// Free is what a runner may use rather than what is unused, since the two

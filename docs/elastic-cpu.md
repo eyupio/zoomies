@@ -98,10 +98,13 @@ stranded. Each target is floored to the hundredth of a core the daemon works in,
 so rounding can never promise more than the machine has, however many runners
 share it.
 
-The plan is complete on every heartbeat — every runner is named with a target,
-including the ones going back to their guarantee — so an agent that misses a
-heartbeat restores everything it was lent, and a runner whose demand ended is
-never left holding a boost.
+The plan is complete on every heartbeat — every runner the controller leaves out
+goes back to its guarantee — so a runner whose demand ended is never left
+holding a boost. A controller that stops answering sends no plan at all, so the
+agent keeps count: after three heartbeats in a row go unanswered it gives back
+every boost itself, since a few missed beats are a restart and more are a
+controller not coming back soon. A throttle standing at that moment stays, as
+the safe direction to be wrong in, until the controller returns to lift it.
 
 ### Worked example
 
@@ -114,8 +117,17 @@ which leaves 7.5 allocatable, and gives each runner a guarantee of 1.87 CPUs.
 | Two busy runners, one compatible job queued | 2.81 CPUs | 1.5× | Rabbit spotted — extra zoomies |
 | Two busy runners, ceiling of 3 CPUs on the pool | 3 CPUs | 1.6× | Rabbit spotted — extra zoomies |
 | Two busy and two idle runners, nothing queued | 1.87 CPUs | 1.0× | Steady paws — guaranteed pace |
-| Host at 90% CPU | 1.87 CPUs | 1.0× | Steady paws — guaranteed pace |
+| Host at 90% CPU from other work | 1.87 CPUs | 1.0× | Steady paws — guaranteed pace |
 | Host throttled one rung | 1.40 CPUs | 0.75× | Leash tightened — host under pressure |
+
+The fifth row is about CPU the plan did not lend. The first row's two runners,
+using their boosts, put the host above 90% themselves, and a host busy only
+because of what it was lent is not a busy host: the test for "under 85%" is
+made on the host's CPU less the lent CPU its runners are using. Judged on the
+raw figure instead, a boost that worked withdrew itself on the next heartbeat,
+the host fell quiet, and the one after lent it again — every other heartbeat,
+for as long as the job ran. Outside work, a runner with no limit, or the
+daemon still count in full, and still stop a boost.
 
 The fourth row is the one that surprises people: the two idle runners are
 charged their guarantees even though they are using nothing, because their
@@ -138,7 +150,7 @@ metrics it publishes:
 
 | Metric | What to look for |
 | --- | --- |
-| `zoomies_elastic_cpu_decisions_total{pool, mode, outcome}` | How often the plan found room. `burst` against `base` says whether the host actually has spare CPU while jobs are demanding it; `unsupported_agent` says an agent needs upgrading before `automatic` will do anything on its host. |
+| `zoomies_elastic_cpu_decisions_total{pool, mode, outcome}` | How often the plan found room. Read `burst` against everything else: `base` is a calm host with nothing to spare, and `host_busy` is a host too busy to lend at all — held, throttled, or high on CPU, load or memory. Both are heartbeats a boost would not have helped, so leaving `host_busy` out would overstate how often one would. `unsupported_agent` says an agent needs upgrading before `automatic` will do anything on its host. |
 | `zoomies_elastic_cpu_target_factor{pool, mode}` | A histogram of the target divided by the guarantee. A p50 around 1.0 means the host is usually full; a p50 at 2.0 means half of it is routinely idle while a job waits on its quota. |
 
 A pool whose factor histogram never leaves 1.0 gains nothing from `automatic`
