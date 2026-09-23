@@ -905,8 +905,13 @@ func TestATaskShutDownBeforeItStartedIsReportedAsRedeliverable(t *testing.T) {
 			if res.TaskID != "task-waiting" {
 				continue
 			}
-			if res.OK || !strings.Contains(res.Error, "safe to redeliver") {
+			if res.OK || !res.NotStarted || !strings.Contains(res.Error, "safe to redeliver") {
 				t.Fatalf("result = %+v, want the waiting task reported as redeliverable", res)
+			}
+			// A failed state would have the controller fail a runner nothing
+			// happened to, which is what every upgrade used to do.
+			if res.State != "" {
+				t.Fatalf("state = %q, want none: the runner was never touched", res.State)
 			}
 			return
 		case <-deadline:

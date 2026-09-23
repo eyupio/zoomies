@@ -225,6 +225,74 @@ func TestFailedTaskResultFailsTheRunner(t *testing.T) {
 	}
 }
 
+// An agent that is upgraded or restarted gives back the creates still waiting
+// for a startup slot. Those runners were never touched, so they must come back
+// to the queue for the agent that returns -- not be failed, which is what put
+// a "Runner stopped" on every runner queued across a zoomies upgrade.
+func TestATaskGivenBackUnstartedIsOfferedAgainAndTheRunnerIsLeftAlone(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerProvisioning)
+
+	h.c.enqueue(host.ID, agent.Task{Kind: agent.TaskCreateRunner, RunnerID: r.ID})
+	batch, err := h.c.PollTasks(h.ctx, host.ID, time.Second)
+	if err != nil {
+		t.Fatalf("PollTasks: %v", err)
+	}
+	first := batch.Tasks[0]
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: first.ID, Kind: first.Kind, RunnerID: r.ID,
+		OK: false, NotStarted: true, Error: "agent shut down before this task started",
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+
+	after, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerProvisioning {
+		t.Fatalf("state = %q, want it still %q", after.State, store.RunnerProvisioning)
+	}
+	again, err := h.c.PollTasks(h.ctx, host.ID, time.Second)
+	if err != nil {
+		t.Fatalf("PollTasks: %v", err)
+	}
+	if len(again.Tasks) != 1 || again.Tasks[0].ID != first.ID || again.Tasks[0].Attempt != 2 {
+		t.Fatalf("tasks = %+v, want the same create offered again as attempt 2", again.Tasks)
+	}
+}
+
+// The attempt still counts, so a host whose agent never stays up does not have
+// the same create bounced at it for ever: the last give-back fails the runner.
+func TestATaskGivenBackOnItsLastAttemptFailsTheRunner(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerProvisioning)
+
+	h.c.enqueue(host.ID, agent.Task{Kind: agent.TaskCreateRunner, RunnerID: r.ID})
+	for attempt := 1; attempt <= maxTaskAttempts; attempt++ {
+		batch, err := h.c.PollTasks(h.ctx, host.ID, time.Second)
+		if err != nil || len(batch.Tasks) != 1 {
+			t.Fatalf("attempt %d: PollTasks = %+v, %v", attempt, batch, err)
+		}
+		task := batch.Tasks[0]
+		if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+			TaskID: task.ID, Kind: task.Kind, RunnerID: r.ID,
+			OK: false, NotStarted: true, Error: "agent shut down before this task started",
+		}); err != nil {
+			t.Fatalf("attempt %d: ReportResult: %v", attempt, err)
+		}
+	}
+	after, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerFailed {
+		t.Fatalf("state = %q, want %q after %d give-backs", after.State, store.RunnerFailed, maxTaskAttempts)
+	}
+}
+
 // A host may only speak for its own runners.
 func TestAHostCannotReportOnAnotherHostsRunner(t *testing.T) {
 	h := newHarness(t)

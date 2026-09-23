@@ -78,6 +78,7 @@ func (a *Agent) runtimeResult(err error) {
 	if err == nil {
 		a.runtimeFailures = 0
 		a.runtimeRetryAt = time.Time{}
+		a.runtimeKind, a.runtimeError = "", ""
 		return
 	}
 	// context.DeadlineExceeded satisfies net.Error with Timeout() true, so a
@@ -92,12 +93,47 @@ func (a *Agent) runtimeResult(err error) {
 		return
 	}
 	a.warmed = nil
+	a.runtimeKind = RuntimeUnavailable
+	if !errors.Is(err, backend.ErrUnavailable) {
+		a.runtimeKind = RuntimeTimeout
+	}
+	a.runtimeError = truncateRunes(err.Error(), maxRuntimeError)
 	a.runtimeFailures = min(a.runtimeFailures+1, 5)
 	delay := min(5*time.Second*time.Duration(1<<(a.runtimeFailures-1)), time.Minute)
 	delay = recoveryDelay(delay, a.randomFraction())
 	a.runtimeRetryAt = a.now().Add(delay)
 	a.log.Warn("container runtime failed; holding new starts before one recovery attempt",
 		"error", err, "retry_in", delay, "consecutive_failures", a.runtimeFailures)
+}
+
+// maxRuntimeError bounds the error a heartbeat carries: it is shown on a host
+// card and stored on the host row, and a daemon's reply can be a page long.
+const maxRuntimeError = 500
+
+// runtimeReport is the cooldown as the heartbeat carries it, nil when there
+// is none. It reports a runtime whose retry time has passed too: the hold is
+// over but the recovery attempt has not yet said whether it worked, and only
+// a success clears it.
+func (a *Agent) runtimeReport() *RuntimeReport {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.runtimeFailures == 0 {
+		return nil
+	}
+	return &RuntimeReport{
+		Failures: a.runtimeFailures,
+		Kind:     a.runtimeKind,
+		Error:    a.runtimeError,
+		RetryIn:  max(0, a.runtimeRetryAt.Sub(a.now())),
+	}
+}
+
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "..."
 }
 
 func (a *Agent) waitForRuntime(ctx context.Context) bool {
