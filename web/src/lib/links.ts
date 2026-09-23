@@ -27,6 +27,8 @@ export const QUICKSTART_URL = `${SITE_URL}/quickstart/`;
 export const CONFIGURATION_URL = `${SITE_URL}/configuration/`;
 export const API_SURFACE_URL = `${SITE_URL}/api-surface/`;
 export const SECURITY_URL = `${SITE_URL}/security/`;
+/** What an enrolled agent owns on its host, linked from the enrolment command. */
+export const AGENT_OWNS_URL = `${SECURITY_URL}#what-the-agent-owns-on-a-host`;
 
 /** The host name alone, for places that show a link without decoration. */
 export const SITE_HOST = SITE_URL.replace(/^https?:\/\//, '');
