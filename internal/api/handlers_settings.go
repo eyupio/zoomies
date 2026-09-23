@@ -170,7 +170,7 @@ func (s *Server) settingsConfig(who store.Role) map[string]any {
 	// bundle that renders this same tree.
 	if !who.AtLeast(store.RolePlatform) {
 		for _, st := range config.Settings() {
-			if st.Platform() {
+			if platformsOwn(st) {
 				deleteNested(out, st.Key)
 			}
 		}
@@ -240,7 +240,7 @@ func (s *Server) settingViews(rows []store.InstanceSetting, pending []string, wh
 		// instance binds and where it ships its backups, and on an instance
 		// one team operates for another that is the platform's business and
 		// not the fleet's.
-		if st.Platform() && !who.AtLeast(store.RolePlatform) {
+		if platformsOwn(st) && !who.AtLeast(store.RolePlatform) {
 			continue
 		}
 		value, err := c.Value(st.Key)
@@ -327,6 +327,16 @@ func callerRoleCtx(ctx context.Context) store.Role {
 	return ""
 }
 
+// platformsOwn reports whether a setting describes the process's own machine,
+// and so is shown to the platform alone. The bootstrap keys count: they are
+// not platform-scoped, because they are not stored at all, but their values
+// are the database file and the key file -- the two paths on the host that
+// matter most -- and hiding database_path from an administrator while
+// database.path sat in the same response hid nothing.
+func platformsOwn(st config.Setting) bool {
+	return st.Platform() || st.Scope == config.ScopeBootstrap
+}
+
 // platformOnly blanks a string that describes the process's own machine --
 // where its configuration file is, where its database is -- for anybody but
 // the platform. A fleet's administrator has no use for a path on somebody
@@ -358,7 +368,7 @@ func visibleKeys(keys []string, who store.Role) []string {
 	}
 	out := make([]string, 0, len(keys))
 	for _, k := range keys {
-		if st, ok := config.LookupSetting(k); ok && st.Platform() {
+		if st, ok := config.LookupSetting(k); ok && platformsOwn(st) {
 			continue
 		}
 		out = append(out, k)
@@ -420,7 +430,7 @@ func (s *Server) settingsPage(r *http.Request) (settingsResponse, error) {
 
 	var pinned []string
 	for _, st := range c.PinnedByEnvironment() {
-		if st.Platform() && !who.AtLeast(store.RolePlatform) {
+		if platformsOwn(st) && !who.AtLeast(store.RolePlatform) {
 			continue
 		}
 		pinned = append(pinned, st.Key)
