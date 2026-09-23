@@ -65,6 +65,16 @@ type HostView struct {
 	// decision.
 	Throttle       *store.HostThrottle `json:"throttle,omitempty"`
 	ThrottleReason string              `json:"throttle_reason"`
+	// RuntimeRecovering is the container-runtime cooldown the agent last
+	// reported, absent when there is none, and RuntimeReason the card's
+	// sentence for it. The times are carried rather than written into the
+	// sentence, so the card can count down to the retry and say how old the
+	// report is against the viewer's own clock.
+	RuntimeRecovering *store.RuntimeIncident `json:"runtime_recovering,omitempty"`
+	RuntimeReason     string                 `json:"runtime_reason,omitempty"`
+	// ImagePullFailed is the last start or prewarm here that could not make
+	// its pool's image ready, naming the registry, absent when there is none.
+	ImagePullFailed *store.ImagePullIncident `json:"image_pull_failed,omitempty"`
 	// EffectiveCapacity is the slots the host takes right now: Capacity
 	// stepped down by the throttle, and Capacity itself when there is none.
 	// Free is measured against it, so a throttled host's card does not
@@ -242,6 +252,15 @@ func (c *Controller) HostView(h *store.Host) HostView {
 	if h.Throttle.Active() {
 		throttle := h.Throttle
 		out.Throttle = &throttle
+	}
+	if inc := h.Incidents.Runtime; inc != nil {
+		runtime := *inc
+		out.RuntimeRecovering = &runtime
+		out.RuntimeReason = runtimeReason(inc)
+	}
+	if inc := h.Incidents.ImagePull; inc != nil {
+		pull := *inc
+		out.ImagePullFailed = &pull
 	}
 	alloc := h.Allocatable()
 	out.AllocatableCPUs = alloc.CPUs

@@ -5940,6 +5940,36 @@ components:
         changed_at: { type: string, format: date-time, description: The last step in either direction, which the next step up is paced from. Owned by the controller. }
         calm_since: { type: string, format: date-time, description: The start of the calm streak the next step down waits on. Absent while the host is not calm. Owned by the controller. }
         reason: { type: string, description: Which measurement took the last step up, as one sentence. Owned by the controller. }
+    RuntimeIncident:
+      type: object
+      description: >-
+        A host's container-runtime cooldown as its agent last reported it: the runtime failed,
+        new starts are held, and one recovery attempt is due. Kept on the host row, so it
+        survives a controller restart; cleared by the first heartbeat that reports none.
+      required: [failures, kind, retry_at, since, observed_at]
+      properties:
+        failures: { type: integer, minimum: 1, description: Runtime failures in a row. The agent counts no higher than five. }
+        kind: { type: string, enum: [unavailable, timeout], description: "unavailable: the daemon could not be reached; timeout: it was reached and did not answer in time." }
+        error: { type: string, description: The last failure as the backend worded it, which names the socket and how to start it. }
+        retry_at: { type: string, format: date-time, description: When the agent's one recovery attempt is due, on the controller's clock. }
+        since: { type: string, format: date-time, description: When the controller first heard of this episode. }
+        observed_at: { type: string, format: date-time, description: When the controller last heard anything new about it. }
+    ImagePullIncident:
+      type: object
+      description: >-
+        The last runner start or prewarm on a host that failed because its pool's image could
+        not be made ready. Cleared by the next start or prewarm of the same pool that succeeds
+        on the host.
+      required: [pool_id, pool, image, registry, source, since, observed_at]
+      properties:
+        pool_id: { type: string }
+        pool: { type: string, description: The pool's name when the failure was recorded. }
+        image: { type: string }
+        registry: { type: string, description: "The registry the image is pulled from: docker.io for a bare name, otherwise the reference's host, with its port.", examples: [ghcr.io] }
+        source: { type: string, enum: [start, prewarm], description: Which of the agent's results said so. }
+        error: { type: string }
+        since: { type: string, format: date-time, description: When this pool's image was first recorded failing here. }
+        observed_at: { type: string, format: date-time, description: When the latest failure was recorded. }
     BackendInfo:
       type: object
       properties:
@@ -5973,6 +6003,22 @@ components:
           allOf:
             - $ref: "#/components/schemas/HostThrottle"
           description: The throttle the controller has this host on. Absent when it is on none.
+        runtime_recovering:
+          allOf:
+            - $ref: "#/components/schemas/RuntimeIncident"
+          description: The container-runtime cooldown the agent last reported. Absent when there is none.
+        runtime_reason:
+          type: string
+          description: >-
+            The host card's sentence for the runtime cooldown, without its times: the card
+            renders the retry and the report's age against the viewer's clock. Absent when
+            there is none.
+          examples:
+            - "Runtime recovering: third failure in a row, the container runtime could not be reached. New starts here are held until one recovery attempt; running jobs continue."
+        image_pull_failed:
+          allOf:
+            - $ref: "#/components/schemas/ImagePullIncident"
+          description: The last start or prewarm here whose image could not be made ready. Absent when there is none.
         throttle_reason:
           type: string
           description: >-
