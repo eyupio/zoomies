@@ -466,8 +466,8 @@
       <p class="echo">
         A runner goes at <strong>{cpuLabel(cpus)}</strong> and
         <strong>{memoryLabel(memoryMb)}</strong>
-        wherever a host has room. Where none has, it goes on the host that can spare the most and is
-        given as much of that as it can, never less than
+        wherever a host has room. Where none has, it goes on the host that can spare the most and is given
+        as much of that as it can, never less than
         <strong>{cpuLabel(minCpus > 0 ? minCpus : cpus)}</strong>
         and <strong>{memoryLabel(minMemoryMb > 0 ? minMemoryMb : memoryMb)}</strong>.
       </p>
