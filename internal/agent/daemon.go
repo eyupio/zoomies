@@ -225,6 +225,9 @@ type Agent struct {
 	// elasticCPU is replaced as a set on every heartbeat. A runner omitted by
 	// the controller therefore returns to its guaranteed creation allocation.
 	elasticCPU map[string]float64
+	// missedBeats counts heartbeats in a row the controller did not answer;
+	// see expireBoosts.
+	missedBeats int
 
 	// polled records that at least one task poll has completed since start.
 	// The reconciler will not delete anything until it has, so a controller
@@ -758,8 +761,12 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		Runners:         runners,
 	})
 	if err != nil {
+		a.expireBoosts(ctx)
 		return err
 	}
+	a.mu.Lock()
+	a.missedBeats = 0
+	a.mu.Unlock()
 	// The beat carried every runner the agent tracks, so the controller now
 	// knows how each finished one ended, and its workload may go.
 	a.markReported(runners)
