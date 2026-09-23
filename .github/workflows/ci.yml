@@ -119,6 +119,8 @@ jobs:
               # which are in the rest shard.
               deploy/runner-*.sh) deploy=true; installer=true; rest=true ;;
               deploy/*|docker-compose.yml|.dockerignore) deploy=true; rest=true ;;
+              # The check each built runner image is run through.
+              test/runner-image/*) deploy=true; installer=true ;;
               # The script people curl is checked by the install.sh job and
               # exercised by the upgrade test. No Go test reads it, and no
               # binary or image carries it: the site serves it, and the site's
@@ -858,6 +860,8 @@ jobs:
           shellcheck deploy/runner-entrypoint.sh
           dash -n test/upgrade/upgrade-check.sh
           shellcheck -s sh test/upgrade/upgrade-check.sh
+          dash -n test/runner-image/check.sh
+          shellcheck -s sh test/runner-image/check.sh
           # The runner image's own scripts run under whatever /bin/sh the base
           # image has, which on Debian is not bash. Globbed rather than listed,
           # so a new one is covered by existing.
@@ -1003,7 +1007,7 @@ jobs:
           fi
 
           if git diff --name-only "$BASE" HEAD |
-             grep -qE '^deploy/(Dockerfile\.runner|runner-entrypoint\.sh|runner-[a-z-]+\.sh)$'; then
+             grep -qE '^(deploy/(Dockerfile\.runner|runner-entrypoint\.sh|runner-[a-z-]+\.sh)|test/runner-image/.*)$'; then
             echo "runner=true" >> "$GITHUB_OUTPUT"
           else
             echo "runner=false" >> "$GITHUB_OUTPUT"
@@ -1212,6 +1216,67 @@ jobs:
             COMMIT=${{ github.sha }}
             DATE=${{ needs.images.outputs.date }}
           tags: ${{ steps.tags.outputs.zoomies-runner-docker }}
+
+      # Check each finished image holds what the rest of Zoomies assumes of it:
+      # the runner user's uid, the files the entrypoint execs, the pinned
+      # actions/runner release, the tools workflows expect, the Docker client
+      # on exactly one of the two targets, and an operating system that is the
+      # one this catalogue row names. test/runner-image/check.sh says where
+      # each expectation comes from.
+      #
+      # The same build arguments as above, so both are cache hits rather than
+      # rebuilds. amd64 only: a multi-platform image cannot be loaded into the
+      # local daemon, and running an arm64 one here would be under QEMU on an
+      # x64 host -- which is also what segfaults Ubuntu 22.04's ldconfig (see
+      # internal/naming/images.go), so a failure there would say more about
+      # the emulator than the image. The arm64 layers come from the same
+      # Dockerfile and package lists; what differs by architecture is the
+      # runner archive, whose digest the build already verifies.
+      - name: Load the runner image to check it
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile.runner
+          target: runner
+          platforms: linux/amd64
+          push: false
+          load: true
+          cache-from: type=gha,version=2,scope=ci-runner-${{ matrix.tag }}
+          build-args: |
+            BASE=${{ matrix.base }}
+            OS_FAMILY=${{ matrix.family }}
+            OS_ID=${{ matrix.os }}
+            OS_VERSION=${{ matrix.version }}
+            VERSION=${{ needs.images.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ needs.images.outputs.date }}
+          tags: zoomies-runner-check:${{ matrix.tag }}
+
+      - name: The runner image has what Zoomies relies on
+        run: test/runner-image/check.sh "zoomies-runner-check:${{ matrix.tag }}" "${{ matrix.os }}" "${{ matrix.version }}" runner
+
+      - name: Load the runner-docker image to check it
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile.runner
+          target: runner-docker
+          platforms: linux/amd64
+          push: false
+          load: true
+          cache-from: type=gha,version=2,scope=ci-runner-docker-${{ matrix.tag }}
+          build-args: |
+            BASE=${{ matrix.base }}
+            OS_FAMILY=${{ matrix.family }}
+            OS_ID=${{ matrix.os }}
+            OS_VERSION=${{ matrix.version }}
+            VERSION=${{ needs.images.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ needs.images.outputs.date }}
+          tags: zoomies-runner-docker-check:${{ matrix.tag }}
+
+      - name: The runner-docker image has what Zoomies relies on
+        run: test/runner-image/check.sh "zoomies-runner-docker-check:${{ matrix.tag }}" "${{ matrix.os }}" "${{ matrix.version }}" runner-docker
 
       # EXTRA_PACKAGES is a documented way to bake a fleet's own toolchain into
       # a variant without forking the Dockerfile, and nothing above exercises
