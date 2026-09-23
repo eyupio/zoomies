@@ -153,10 +153,12 @@ jobs:
   watch:
     name: Watch
     needs: wait
-    # Straight away on a tick or by hand (Wait is skipped); after a wait, only
-    # when it ran out the limit. A wait cancelled by a newer commit's is not a
-    # reason to act.
-    if: ${{ !cancelled() && (needs.wait.result == 'skipped' || needs.wait.outputs.act == 'true') }}
+    # Straight away on a tick or by hand; after a wait, only when it ran out the
+    # limit. Keyed on the event, not on Wait being skipped: Wait is skipped for
+    # a CI run that was not a push too, and that is a reason to do nothing, not
+    # to act at once. A wait cancelled by a newer commit's is not a reason to
+    # act either.
+    if: ${{ !cancelled() && (github.event_name != 'workflow_run' || needs.wait.outputs.act == 'true') }}
     # GitHub's machines, never the fleet's: this is the job that has to run
     # when the fleet cannot.
     runs-on: ubuntu-latest

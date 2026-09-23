@@ -62,6 +62,7 @@ var shippedMigrations = []string{
 	"0046_token_owner_role.sql",
 	"0047_runner_sessions.sql",
 	"0048_usage_daily.sql",
+	"0049_host_incidents.sql",
 	"0051_installation_report.sql",
 }
 

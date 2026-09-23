@@ -40,6 +40,7 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Select from '$lib/components/Select.svelte';
   import { isLoopbackURL } from '$lib/addresses';
+  import { AGENT_OWNS_URL } from '$lib/links';
   import { hostMatchesSelector } from '$lib/pools/hostSelector';
   import BackendList from './BackendList.svelte';
   import LabelMapEditor from './LabelMapEditor.svelte';
@@ -531,6 +532,14 @@
         One line, in a shell on that machine. It downloads the Zoomies binary and verifies it, joins
         this instance with the token, and installs the agent as a service — which is the part that
         needs root or sudo.
+      </p>
+      <p class="fine">
+        What the agent will own on that machine — its service, its work directory, the containers it
+        labels, its pools' caches and the one daemon-wide thing it does, pruning unused Docker
+        builder cache — is
+        <a href={AGENT_OWNS_URL} target="_blank" rel="noopener noreferrer"
+          >written down in the security guide</a
+        >.
       </p>
 
       {#if connection === 'tailcat'}<p class="fine">

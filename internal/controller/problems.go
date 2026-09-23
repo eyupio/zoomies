@@ -138,10 +138,12 @@ var problemAudience = map[string]Audience{
 	// fleet is the person who can act on every one of these.
 	"host.cordoned_with_work":                       AudienceFleet,
 	"host.duplicate_agent":                          AudienceFleet,
+	"host.image_pull_failed":                        AudienceFleet,
 	"host.limits_unenforceable":                     AudienceFleet,
 	"host.limits_unverified":                        AudienceFleet,
 	"host.overprovisioned":                          AudienceFleet,
 	"host.resources_unknown":                        AudienceFleet,
+	"host.runtime_recovering":                       AudienceFleet,
 	"host.throttled":                                AudienceFleet,
 	"host.unhealthy":                                AudienceFleet,
 	"host.version_behind":                           AudienceFleet,
@@ -317,6 +319,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("the encryption key", c.keyProblems)
 	gather("host versions", c.hostSkewProblems)
 	gather("host resources", c.hostResourceProblems)
+	gather("host incidents", c.hostIncidentProblems)
 	out = append(out, c.fenceProblems()...)
 	gather("webhook deliveries", c.webhookProblems)
 	gather("jobs", c.jobProblems)

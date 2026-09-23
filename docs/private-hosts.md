@@ -35,6 +35,13 @@ matching Zoomies binary already installed can use the shorter command under
 the existing-binary instructions The install command selects the controller's published
 channel; unpublished builds must be distributed to agents manually.
 
+Before you run it, read
+[what the agent owns on a host](security.md#what-the-agent-owns-on-a-host):
+its service and user, its work directory, the containers carrying its labels,
+its per-pool cache, and the one daemon-wide thing it does — pruning unused
+Docker builder cache — with the setting that turns that off on a shared
+daemon.
+
 The runtime must permit network-interface discovery (including netlink on
 Linux); sandboxes that block it cannot initialise Tailcat. No root privilege
 or TUN device is needed for the tunnel itself.
