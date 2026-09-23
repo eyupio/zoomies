@@ -309,6 +309,11 @@ func TestAnImportRefusesATableOrColumnTheSchemaDoesNotHave(t *testing.T) {
 			ts[1].Columns[0] = "id) VALUES (1); DROP TABLE users; --"
 			return ts
 		}},
+		{"a column named twice", func(ts []ArchiveTable) []ArchiveTable {
+			ts[0].Columns = append([]string(nil), ts[0].Columns...)
+			ts[0].Columns[len(ts[0].Columns)-1] = ts[0].Columns[0]
+			return ts
+		}},
 		{"no installation", func(ts []ArchiveTable) []ArchiveTable { return ts[1:] }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

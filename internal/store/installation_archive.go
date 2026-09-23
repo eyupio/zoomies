@@ -347,13 +347,25 @@ func (s *Store) ImportInstallation(ctx context.Context, tables []ArchiveTable) (
 			if err != nil {
 				return err
 			}
-			for _, c := range t.Columns {
-				if !have[c] {
+			// The statement is built from the schema's own spelling of each
+			// column, never the archive's: the archive is a file anyone can
+			// hand the import, and a name that reaches the SQL only because it
+			// matched is one careless edit away from injection.
+			cols := make([]string, len(t.Columns))
+			seen := map[string]bool{}
+			for i, c := range t.Columns {
+				name, ok := have[c]
+				if !ok {
 					return fmt.Errorf("%w: %s.%s is not a column here; the archive came from a newer Zoomies, so upgrade this instance first",
 						ErrArchiveShape, spec.name, c)
 				}
+				if seen[name] {
+					return fmt.Errorf("%w: %s names the column %s twice", ErrArchiveShape, spec.name, name)
+				}
+				seen[name] = true
+				cols[i] = name
 			}
-			stmt := `INSERT INTO ` + spec.name + ` (` + strings.Join(t.Columns, ", ") + `) VALUES (` +
+			stmt := `INSERT INTO ` + spec.name + ` (` + strings.Join(cols, ", ") + `) VALUES (` +
 				strings.TrimSuffix(strings.Repeat("?, ", len(t.Columns)), ", ") + `)`
 			for _, row := range t.Rows {
 				if len(row) != len(t.Columns) {
@@ -383,22 +395,22 @@ func (s *Store) ImportInstallation(ctx context.Context, tables []ArchiveTable) (
 	return out, nil
 }
 
-// tableColumns reads a table's columns from the schema, which is what makes
-// it safe to put an archive's column names into a statement: a name that is
-// not one of these never reaches SQL.
-func tableColumns(ctx context.Context, tx *sql.Tx, table string) (map[string]bool, error) {
+// tableColumns maps each of a table's columns to its name as the schema
+// spells it. The import looks an archive's column up here and writes the
+// value it finds, so only the schema's own strings ever reach SQL.
+func tableColumns(ctx context.Context, tx *sql.Tx, table string) (map[string]string, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT name FROM pragma_table_info(?)`, table)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]bool{}
+	out := map[string]string{}
 	for rows.Next() {
 		var n string
 		if err := rows.Scan(&n); err != nil {
 			return nil, err
 		}
-		out[n] = true
+		out[n] = n
 	}
 	return out, rows.Err()
 }
