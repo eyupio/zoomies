@@ -146,7 +146,10 @@ func TestTheEntrypointTrustsTheExtraCABeforeStartingItsListener(t *testing.T) {
 			if (copyErr == nil) != tc.trusted || (storeErr == nil) != tc.trusted {
 				t.Fatalf("copied=%v store updated=%v, want %v: %s", copyErr == nil, storeErr == nil, tc.trusted, out)
 			}
-			for _, want := range []string{"NODE_EXTRA_CA_CERTS=" + ca, "REQUESTS_CA_BUNDLE=" + filepath.Join(dir, "bundle.crt")} {
+			for _, want := range []string{"NODE_EXTRA_CA_CERTS=" + ca, // The script joins with a slash whatever the platform, so
+				// that is what it hands the listener -- filepath.Join would
+				// write a backslash on Windows and expect something else.
+				"REQUESTS_CA_BUNDLE=" + dir + "/bundle.crt"} {
 				if strings.Contains(string(env), want+"\n") != tc.trusted {
 					t.Fatalf("listener env has %q = %v, want %v", want, !tc.trusted, tc.trusted)
 				}
