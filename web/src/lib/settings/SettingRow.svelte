@@ -125,6 +125,7 @@
   let list = $state<string[]>([]);
   let pairs = $state<string[]>([]);
   let amount = $state<number | null>(null);
+  let unreadable = $state('');
 
   /* A size is edited as one: a slider for choosing and a field that reads
      4g, 4096mb or 1.5, written back as 4 GB. */
@@ -141,6 +142,7 @@
 
   function start(): void {
     failure = '';
+    unreadable = '';
     const value = setting.value;
     switch (setting.kind) {
       case 'bool':
@@ -202,6 +204,9 @@
   }
 
   async function commit(): Promise<void> {
+    // The field has already said what it could not read; saving now would
+    // send the last value it could, which is not what was typed.
+    if (unreadable) return;
     await send(draft());
   }
 
@@ -282,6 +287,7 @@
         <div class="amount">
           <QuantityField
             bind:value={amount}
+            bind:error={unreadable}
             {quantity}
             whole={setting.kind === 'int'}
             values={amountNotches}
