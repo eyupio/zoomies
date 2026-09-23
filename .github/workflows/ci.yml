@@ -901,7 +901,6 @@ jobs:
     # from here, so a change to what publishes only has to be made once.
     outputs:
       publish: ${{ steps.publish.outputs.value }}
-      platforms: ${{ steps.platforms.outputs.list }}
       runner: ${{ steps.changed.outputs.runner }}
       sha: ${{ steps.tags.outputs.sha }}
       version: ${{ steps.tags.outputs.version }}
@@ -957,8 +956,9 @@ jobs:
           password: ${{ github.token }}
 
       # Pull requests build amd64; main publishes both architectures. The
-      # controller and agent cross-compile natively, while runner images still
-      # need QEMU for their ARM64 package installations on an x64 builder.
+      # controller and agent cross-compile natively, so neither needs an arm64
+      # machine; the runner images, which install packages, build each
+      # architecture on its own kind of machine in runner-images below.
       - id: platforms
         name: Decide the platforms
         run: |
@@ -1088,21 +1088,28 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # One build per operating system in internal/naming's catalogue, each
-  # building both of deploy/Dockerfile.runner's targets.
+  # One build per operating system in internal/naming's catalogue and per
+  # architecture, each building both of deploy/Dockerfile.runner's targets.
   #
   # It is a separate job from `images` because it is the expensive half -- five
   # variants, each downloading the ~200 MB actions/runner archive and a build
   # toolchain. Pull requests run it only for relevant changes; main runs it for
   # every published dev build so all artifacts carry one commit stamp.
-  # A pull request builds amd64 only and publishes nothing; main builds both
-  # architectures and publishes every variant.
+  #
+  # Each architecture builds on a machine of its own kind: amd64 on the x64
+  # pool, arm64 on GitHub's hosted arm64 runner, as the arm64 test job does.
+  # They used to share an x64 builder with QEMU emulating arm64, which was slow
+  # and could not build Ubuntu 22.04 at all -- the emulator segfaulted inside
+  # ldconfig. A leg pushes its image by digest only, and runner-manifests below
+  # joins the legs into the tags a pool pulls. A pull request builds both
+  # architectures, because the arm64 leg is the half an emulator used to hide,
+  # and publishes nothing.
   #
   # TestWorkflowMatricesCoverTheCatalogue keeps this list and internal/naming's
   # catalogue in step, so a new operating system cannot be half-added.
   runner-images:
-    name: Runner image (${{ matrix.tag }})
-    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
+    name: Runner image (${{ matrix.tag }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || (((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64') }}
     needs: [images]
     if: needs.images.outputs.runner == 'true'
     permissions:
@@ -1111,6 +1118,7 @@ jobs:
     env:
       RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner
       RUNNER_DOCKER_IMAGE: ghcr.io/eyupio/zoomies-runner-docker
+      PUBLISH: ${{ needs.images.outputs.publish }}
     strategy:
       fail-fast: false
       matrix:
@@ -1118,11 +1126,16 @@ jobs:
         # or swapping an operating system is a row there, not here.
         # zoomies:catalogue-begin
         include:
-          - { tag: ubuntu-2404, base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
-          - { tag: ubuntu-2204, base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64" }
-          - { tag: debian-12,   base: "debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171",          family: apt, os: debian, version: "12",    platforms: "linux/amd64,linux/arm64" }
-          - { tag: fedora-42,   base: "fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814",               family: dnf, os: fedora, version: "42",    platforms: "linux/amd64,linux/arm64" }
-          - { tag: rocky-9,     base: "rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f", family: dnf, os: rocky,  version: "9",     platforms: "linux/amd64,linux/arm64" }
+          - { tag: ubuntu-2404, arch: amd64, base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
+          - { tag: ubuntu-2404, arch: arm64, base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
+          - { tag: ubuntu-2204, arch: amd64, base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64,linux/arm64" }
+          - { tag: ubuntu-2204, arch: arm64, base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64,linux/arm64" }
+          - { tag: debian-12,   arch: amd64, base: "debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171",          family: apt, os: debian, version: "12",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: debian-12,   arch: arm64, base: "debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171",          family: apt, os: debian, version: "12",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: fedora-42,   arch: amd64, base: "fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814",               family: dnf, os: fedora, version: "42",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: fedora-42,   arch: arm64, base: "fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814",               family: dnf, os: fedora, version: "42",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: rocky-9,     arch: amd64, base: "rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f", family: dnf, os: rocky,  version: "9",     platforms: "linux/amd64,linux/arm64" }
+          - { tag: rocky-9,     arch: arm64, base: "rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f", family: dnf, os: rocky,  version: "9",     platforms: "linux/amd64,linux/arm64" }
         # zoomies:catalogue-end
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1134,27 +1147,33 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - if: needs.images.outputs.platforms != 'linux/amd64'
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # Only the default variant carries the unqualified tags. Anything else
       # would mean a pool that named no operating system got whichever variant
       # this matrix happened to finish last.
+      #
+      # Written to a file rather than applied here: this leg holds one
+      # architecture, and a tag pointing at it alone would hand the other
+      # architecture's hosts an image they cannot run. runner-manifests applies
+      # them once every leg has pushed.
       - id: tags
         name: Work out the tags
         env:
           IS_DEFAULT: ${{ matrix.default && 'true' || 'false' }}
           TAG: ${{ matrix.tag }}
+          ARCH: ${{ matrix.arch }}
+          PLATFORMS: ${{ matrix.platforms }}
           SHA_TAG: ${{ needs.images.outputs.sha }}
         run: |
           set -eu
+          out="$RUNNER_TEMP/digests/$TAG"
+          mkdir -p "$out"
+          echo "$PLATFORMS" > "$out/platforms"
           for image in "$RUNNER_IMAGE" "$RUNNER_DOCKER_IMAGE"; do
             key="${image##*/}"
             {
-              echo "$key<<EOF"
               echo "$image:$TAG-dev"
               echo "$image:$TAG-main"
               echo "$image:$TAG-$SHA_TAG"
@@ -1163,24 +1182,22 @@ jobs:
                 echo "$image:main"
                 echo "$image:$SHA_TAG"
               fi
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
+            } > "$out/$ARCH-$key.tags"
           done
 
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - id: runner
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: deploy/Dockerfile.runner
           target: runner
-          # A pull request builds one architecture to stay fast; main and a
-          # dispatch build the set this variant is actually published for,
-          # which is not the same for every row -- see internal/naming.
-          platforms: ${{ needs.images.outputs.platforms == 'linux/amd64' && 'linux/amd64' || matrix.platforms }}
-          push: ${{ needs.images.outputs.publish }}
-          # Separate variants and targets so matrix jobs cannot replace one
-          # another's cache. GitHub also isolates PR caches from main.
-          cache-from: type=gha,version=2,scope=ci-runner-${{ matrix.tag }}
-          cache-to: type=gha,version=2,scope=ci-runner-${{ matrix.tag }},mode=max,timeout=5m,ignore-error=true
+          platforms: linux/${{ matrix.arch }}
+          # Pushed by digest and named by nothing yet; see the tags step.
+          outputs: ${{ env.PUBLISH == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.RUNNER_IMAGE) || 'type=cacheonly' }}
+          # Separate variants, architectures and targets so matrix jobs cannot
+          # replace one another's cache. GitHub also isolates PR caches from main.
+          cache-from: type=gha,version=2,scope=ci-runner-${{ matrix.tag }}-${{ matrix.arch }}
+          cache-to: type=gha,version=2,scope=ci-runner-${{ matrix.tag }}-${{ matrix.arch }},mode=max,timeout=5m,ignore-error=true
           build-args: |
             BASE=${{ matrix.base }}
             OS_FAMILY=${{ matrix.family }}
@@ -1189,20 +1206,20 @@ jobs:
             VERSION=${{ needs.images.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ needs.images.outputs.date }}
-          tags: ${{ steps.tags.outputs.zoomies-runner }}
 
       # The variant with a Docker CLI, for pools whose docker_mode gives jobs a
       # daemon. Everything below the client is a layer the step above just
       # built, so this costs one package install rather than another image.
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - id: runner-docker
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: deploy/Dockerfile.runner
           target: runner-docker
-          platforms: ${{ needs.images.outputs.platforms == 'linux/amd64' && 'linux/amd64' || matrix.platforms }}
-          push: ${{ needs.images.outputs.publish }}
-          cache-from: type=gha,version=2,scope=ci-runner-docker-${{ matrix.tag }}
-          cache-to: type=gha,version=2,scope=ci-runner-docker-${{ matrix.tag }},mode=max,timeout=5m,ignore-error=true
+          platforms: linux/${{ matrix.arch }}
+          outputs: ${{ env.PUBLISH == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.RUNNER_DOCKER_IMAGE) || 'type=cacheonly' }}
+          cache-from: type=gha,version=2,scope=ci-runner-docker-${{ matrix.tag }}-${{ matrix.arch }}
+          cache-to: type=gha,version=2,scope=ci-runner-docker-${{ matrix.tag }}-${{ matrix.arch }},mode=max,timeout=5m,ignore-error=true
           build-args: |
             BASE=${{ matrix.base }}
             OS_FAMILY=${{ matrix.family }}
@@ -1211,7 +1228,27 @@ jobs:
             VERSION=${{ needs.images.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ needs.images.outputs.date }}
-          tags: ${{ steps.tags.outputs.zoomies-runner-docker }}
+
+      - if: needs.images.outputs.publish == 'true'
+        name: Record the digests
+        env:
+          TAG: ${{ matrix.tag }}
+          ARCH: ${{ matrix.arch }}
+          RUNNER_DIGEST: ${{ steps.runner.outputs.digest }}
+          RUNNER_DOCKER_DIGEST: ${{ steps.runner-docker.outputs.digest }}
+        run: |
+          set -eu
+          test -n "$RUNNER_DIGEST" && test -n "$RUNNER_DOCKER_DIGEST"
+          echo "$RUNNER_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner.digest"
+          echo "$RUNNER_DOCKER_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner-docker.digest"
+
+      - if: needs.images.outputs.publish == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runner-digests-${{ matrix.tag }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests
+          if-no-files-found: error
+          retention-days: 1
 
       # EXTRA_PACKAGES is a documented way to bake a fleet's own toolchain into
       # a variant without forking the Dockerfile, and nothing above exercises
@@ -1222,20 +1259,20 @@ jobs:
       # That is cheap because deploy/runner-extra.sh is the image's last layer:
       # everything beneath it is a cache hit from the build above. Doing it on
       # every row rather than one covers both package families, which is the
-      # only thing that script branches on. amd64 only, because a
-      # multi-platform image cannot be loaded into the local daemon to run.
+      # only thing that script branches on, and both architectures, now that
+      # each leg's machine can run what it built.
       - name: Build the variant with an extra package
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: deploy/Dockerfile.runner
           target: runner
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           push: false
           load: true
-          # Reuse the base, but do not replace its multi-platform cache with
-          # this temporary amd64-only image.
-          cache-from: type=gha,version=2,scope=ci-runner-${{ matrix.tag }}
+          # Reuse the base, but do not replace its cache with this temporary
+          # image.
+          cache-from: type=gha,version=2,scope=ci-runner-${{ matrix.tag }}-${{ matrix.arch }}
           build-args: |
             BASE=${{ matrix.base }}
             OS_FAMILY=${{ matrix.family }}
@@ -1252,3 +1289,64 @@ jobs:
           # `tree` is in no variant's own package list, so finding it on PATH
           # can only mean the build argument arrived.
           docker run --rm --entrypoint tree "$IMAGE" --version
+
+  # Joins each variant's per-architecture digests into the tags a pool pulls.
+  # A variant goes out only when every architecture it is published for
+  # pushed: a tag missing one would be a runner that cannot start on that
+  # architecture's hosts, which is worse than the previous tag it would have
+  # replaced. One variant failing leaves the others to publish, as it did when
+  # a matrix row built both architectures itself.
+  runner-manifests:
+    name: Runner image manifests
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
+    needs: [images, runner-images]
+    if: ${{ !cancelled() && needs.images.outputs.publish == 'true' && needs.images.outputs.runner == 'true' }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: runner-digests-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Publish the tags
+        env:
+          DIGESTS: ${{ runner.temp }}/digests
+        run: |
+          set -eu
+          failed=0
+          for dir in "$DIGESTS"/*/; do
+            variant=$(basename "$dir")
+            for image in zoomies-runner zoomies-runner-docker; do
+              refs="" missing=""
+              for platform in $(tr ',' ' ' < "$dir/platforms"); do
+                arch="${platform#linux/}"
+                if [ -s "$dir/$arch-$image.digest" ]; then
+                  refs="$refs ghcr.io/eyupio/$image@$(cat "$dir/$arch-$image.digest")"
+                else
+                  missing="$missing $arch"
+                fi
+              done
+              if [ -n "$missing" ]; then
+                echo "::error::$image for $variant was not published: nothing was built for$missing"
+                failed=1
+                continue
+              fi
+              tags=$(sort -u "$dir"/*-"$image".tags | sed 's/^/-t /' | tr '\n' ' ')
+              # Both lists are split into words on purpose.
+              # shellcheck disable=SC2086
+              docker buildx imagetools create $tags $refs
+            done
+          done
+          exit "$failed"
