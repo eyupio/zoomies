@@ -297,8 +297,14 @@ type TaskResult struct {
 	State store.RunnerState `json:"state,omitempty"`
 	// Fault categorises a lifecycle task that failed, for the same reason
 	// RunnerReport carries one: the backend's answer is here and nowhere else.
-	Fault       store.FaultKind `json:"fault,omitempty"`
-	CompletedAt time.Time       `json:"completed_at"`
+	Fault store.FaultKind `json:"fault,omitempty"`
+	// NotStarted says the agent gave the task back untouched -- it was
+	// shutting down before the task began -- so the controller should offer
+	// it again rather than fail the runner. Without it a routine upgrade
+	// failed every create still waiting for a startup slot, with a message
+	// that said it was safe to redeliver while the runner was marked failed.
+	NotStarted  bool      `json:"not_started,omitempty"`
+	CompletedAt time.Time `json:"completed_at"`
 }
 
 // TaskBatch is the response to a task poll.
