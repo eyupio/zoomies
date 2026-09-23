@@ -1,4 +1,5 @@
 ---
+title: "Install self-hosted GitHub Actions runners: quick start"
 description: >-
   Install Zoomies and run your first job on a self-hosted ephemeral runner in
   about five minutes — one curl command, one GitHub App, no Kubernetes.

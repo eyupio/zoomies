@@ -110,6 +110,9 @@ func TestUpdateInstallationRefusesThingsTheOperatorCanFix(t *testing.T) {
 	}{
 		{"an empty target", map[string]any{"target": "   "}, "target"},
 		{"a key that is not a key", map[string]any{"private_key": "just some text"}, "private_key"},
+		// The row's API base URL wins over github.api_base_url for everything
+		// the installation does, so it meets the same outbound address guard.
+		{"an API base URL on the metadata address", map[string]any{"api_base_url": "http://169.254.169.254/api/v3"}, "security.allow_private_egress"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := h.do(request{method: http.MethodPatch, path: "/api/v1/installations/" + inst.ID,

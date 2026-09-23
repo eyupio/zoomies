@@ -285,6 +285,10 @@ var registry = buildRegistry([]Setting{
 		Summary: "Stops a pool that gives its jobs their own Docker daemon being listed as a dangerous setting. The daemon still runs in a privileged container -- this is a fleet saying it knows, so that the settings still worth a second look are not buried under one it has already decided. The host socket and persistent runners keep warning.",
 	},
 	{
+		Key: "security.allow_private_egress", Label: "Allow private outbound addresses", Env: "ZOOMIES_ALLOW_PRIVATE_EGRESS", Kind: KindBool, Scope: ScopePlatform, Live: true,
+		Summary: "Let the URLs this controller dials -- the OIDC issuer, the GitHub API, the capacity-demand destination, the runner download mirror, a backup remote and a provider -- name this machine, a link-local address or a private network. Off, writing one through the API is refused and one in the file or environment is warned about, as egress.private_target. Turn it on when one of them really lives on a network you own.",
+	},
+	{
 		Key: "security.disable_auth", Label: "Disable authentication", Env: "ZOOMIES_DISABLE_AUTH", Kind: KindBool, Scope: ScopePlatform,
 		Summary:       "Remove all authentication. It exists for local development, and it is refused wherever this controller looks reachable.",
 		RestartReason: "the authentication service takes its security settings when it is built",

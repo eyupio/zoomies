@@ -52,7 +52,13 @@ func TestRunnerRequiresDockerReadinessBeforeStartingItsListener(t *testing.T) {
 			write("entrypoint.sh", strings.Replace(string(source), "cd /home/runner", "cd \"$TEST_RUNNER_HOME\"", 1))
 			write("docker", "#!/usr/bin/env bash\n"+tc.docker+"\n")
 			write("run.sh", "#!/usr/bin/env bash\ntouch listener-started\n")
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			// The bound has to sit under the hung probe's thirty-second sleep,
+			// or it proves nothing about the wait being bounded, and well above
+			// the time the script takes when nothing is wrong. Five seconds was
+			// under the second on a Windows runner, where starting bash and the
+			// stub processes alone took nine, so a ready daemon failed as
+			// "not bounded" on unrelated changes.
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, bash, filepath.Join(dir, "entrypoint.sh"))
 			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),

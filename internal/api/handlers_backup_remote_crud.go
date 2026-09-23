@@ -45,7 +45,7 @@ type remoteInput struct {
 }
 
 // apply writes the input over a row and returns what is wrong with the result.
-func (in *remoteInput) apply(row *store.BackupRemote) []fieldError {
+func (in *remoteInput) apply(row *store.BackupRemote, allowPrivate bool) []fieldError {
 	if in.Name != nil {
 		row.Name = strings.ToLower(strings.TrimSpace(*in.Name))
 	}
@@ -74,12 +74,12 @@ func (in *remoteInput) apply(row *store.BackupRemote) []fieldError {
 	if in.Enabled != nil {
 		row.Enabled = *in.Enabled
 	}
-	return validateRemoteRow(row)
+	return validateRemoteRow(row, allowPrivate)
 }
 
 // validateRemoteRow refuses a destination that could not work, in the words
 // the validator uses about the same mistake in the configuration file.
-func validateRemoteRow(row *store.BackupRemote) []fieldError {
+func validateRemoteRow(row *store.BackupRemote, allowPrivate bool) []fieldError {
 	var errs []fieldError
 	if !config.ValidRemoteName(row.Name) {
 		errs = append(errs, fieldError{"name",
@@ -98,6 +98,10 @@ func validateRemoteRow(row *store.BackupRemote) []fieldError {
 	case err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https"):
 		errs = append(errs, fieldError{"endpoint",
 			"that is not an HTTP URL. The scheme is what decides whether the connection is encrypted, so it has to be there"})
+	default:
+		if f := config.CheckOutboundURL("endpoint", row.Endpoint, allowPrivate); f != nil {
+			errs = append(errs, fieldError{"endpoint", f.Title + ". " + f.Fix})
+		}
 	}
 	if row.Keep < 0 {
 		errs = append(errs, fieldError{"keep", "use 0 to keep every copy, or the number of copies this destination should hold"})
@@ -116,7 +120,7 @@ func (s *Server) handleCreateBackupRemote(w http.ResponseWriter, r *http.Request
 		return
 	}
 	row := &store.BackupRemote{Enabled: true}
-	errs := in.apply(row)
+	errs := in.apply(row, s.cfg().Security.AllowPrivateEgress)
 	if in.SecretKey == nil || strings.TrimSpace(*in.SecretKey) == "" {
 		errs = append(errs, fieldError{"secret_access_key",
 			"a destination with no secret key would have every request to it refused"})
@@ -159,7 +163,7 @@ func (s *Server) handleUpdateBackupRemote(w http.ResponseWriter, r *http.Request
 		return
 	}
 	before := *row
-	errs := in.apply(row)
+	errs := in.apply(row, s.cfg().Security.AllowPrivateEgress)
 	errs = append(errs, s.remoteNameErrors(r, row.Name, row.ID)...)
 	if len(errs) > 0 {
 		unprocessable(w, "this backup remote cannot be changed as described", errs)
@@ -215,7 +219,7 @@ func (s *Server) handleCheckDraftRemote(w http.ResponseWriter, r *http.Request) 
 		row.Name = strings.ToLower(strings.TrimSpace(*in.Name))
 	}
 	in.Name = nil
-	if errs := in.apply(row); len(errs) > 0 {
+	if errs := in.apply(row, s.cfg().Security.AllowPrivateEgress); len(errs) > 0 {
 		unprocessable(w, "this backup remote cannot be tested as described", errs)
 		return
 	}
