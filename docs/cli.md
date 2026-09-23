@@ -1,4 +1,5 @@
 ---
+title: "Command line: drive a runner fleet from a terminal"
 description: >-
   Every `zoomies` command, what it does and the flags it takes: running the
   controller and agent, driving a fleet from a terminal, and setting a host up.

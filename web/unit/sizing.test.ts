@@ -42,6 +42,8 @@ test('a cache limit round-trips between the slider and the bytes the API takes',
   assert.equal(cacheGb(10 * 1024 * 1024 * 1024), 10);
   assert.equal(cacheGb(0), 0);
   assert.equal(cacheGb(undefined), 0);
+  // A limit typed off the notches is kept as typed, not moved to the nearest.
+  assert.equal(cacheGb(7 * 1024 * 1024 * 1024), 7);
 });
 
 test('the words say what the figure means rather than repeating it', () => {

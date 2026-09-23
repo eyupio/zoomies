@@ -54,6 +54,16 @@ concurrency:
 jobs:
   build:
     name: Build
+    outputs:
+      # The pages this build changed, as an IndexNow payload (hooks/indexnow.py),
+      # for the deploy job to submit once they are actually live. Empty when
+      # nothing changed.
+      indexnow: ${{ steps.indexnow.outputs.payload }}
+    env:
+      # The IndexNow key. Not a secret: the protocol proves ownership by this
+      # key being served as docs/<key>.txt at the site root, where anyone can
+      # read it. See hooks/indexnow.py.
+      INDEXNOW_KEY: d849cbc8f4ab6dbef799f56bd99d1475
     # The site is a mkdocs build with no vendor-specific step in it, so the
     # escape hatch here is one expression: publishing documentation must not be
     # impossible because a runner vendor is having a bad day.
@@ -127,6 +137,22 @@ jobs:
           # files and directories beginning with an underscore.
           touch site/.nojekyll
 
+      # IndexNow tells Bing and the other participating engines which pages
+      # changed, rather than waiting for them to recrawl. The protocol trusts a
+      # submission only if the key file is served at the site root, so a build
+      # that stopped publishing it would have every submission ignored.
+      - name: The IndexNow key file is published at the site root
+        run: |
+          set -eu
+          test "$(cat "site/${INDEXNOW_KEY}.txt")" = "${INDEXNOW_KEY}"
+
+      # Compared against the sitemap that is live now, before this build
+      # replaces it: only new pages and pages whose last-edited date moved are
+      # submitted. It never fails the build.
+      - name: Work out which pages changed, for IndexNow
+        id: indexnow
+        run: python hooks/indexnow.py site/sitemap.xml https://zoomies.sh/sitemap.xml "${INDEXNOW_KEY}"
+
       - name: The published install.sh is byte-identical to the repository's
         run: cmp install.sh site/install.sh
 
@@ -155,3 +181,21 @@ jobs:
     steps:
       - id: deploy
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+      # After the deploy, not before: an engine told about a page fetches it
+      # straight away, and it has to find the new one. A failed submission is
+      # reported and does not fail the deploy -- the site is up, and the
+      # sitemap will get the pages found regardless.
+      - name: Tell IndexNow which pages changed
+        if: needs.build.outputs.indexnow != ''
+        env:
+          PAYLOAD: ${{ needs.build.outputs.indexnow }}
+        run: |
+          set -u
+          status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H 'Content-Type: application/json; charset=utf-8' \
+            --data "$PAYLOAD" https://api.indexnow.org/indexnow) || status=unreachable
+          case "$status" in
+            200|202) echo "IndexNow accepted the submission ($status)" ;;
+            *) echo "::warning::IndexNow did not accept the submission ($status)" ;;
+          esac

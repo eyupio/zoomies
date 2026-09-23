@@ -231,3 +231,70 @@ func TestUsageSaysWhereItsHistoryBegins(t *testing.T) {
 		t.Errorf("runners history_from = %v with retention off, want null", body.HistoryFrom.Runners)
 	}
 }
+
+// Runner history now begins where the usage ledger does, not where the runner
+// rows do: a runner whose row retention.runners has taken is still in the
+// report, so saying its history starts a week ago would send an operator to
+// look for a gap that is not there. The export says the same as the page,
+// because a spreadsheet is what leaves the building.
+func TestRunnerHistoryBeginsWhereTheLedgerDoesInTheReportAndTheExport(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("viewer", store.RoleViewer)
+	pool, host := h.pool(h.installation(), "linux-x64"), h.host("vm-1")
+	r := &store.Runner{PoolID: pool.ID, HostID: host.ID, Name: "ledgered"}
+	if err := h.st.CreateRunner(h.ctx, r); err != nil {
+		t.Fatalf("CreateRunner: %v", err)
+	}
+	// Long enough to be allocation the export has a row for.
+	time.Sleep(5 * time.Millisecond)
+	for _, to := range []store.RunnerState{store.RunnerRegistering, store.RunnerRemoved} {
+		if _, err := h.st.TransitionRunner(h.ctx, r.ID, to, ""); err != nil {
+			t.Fatalf("TransitionRunner(%s): %v", to, err)
+		}
+	}
+	for _, side := range []bool{true, false} {
+		if _, err := h.st.ConfirmRunnerCleanup(h.ctx, r.ID, side); err != nil {
+			t.Fatalf("ConfirmRunnerCleanup: %v", err)
+		}
+	}
+	started, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A retention shorter than the runner's age: the rows' own history begins
+	// after the runner started, and only the ledger reaches back to it.
+	time.Sleep(5 * time.Millisecond)
+	h.cfg.Retention.Runners = time.Millisecond
+	h.cfg.Retention.Jobs = 30 * 24 * time.Hour
+
+	now := h.ctrl.Now()
+	query := "?from=" + now.Add(-24*time.Hour).Format(time.RFC3339) + "&to=" + now.Add(time.Hour).Format(time.RFC3339)
+	resp := h.do(request{method: http.MethodGet, cookie: h.session(u), path: "/api/v1/usage" + query})
+	resp.mustStatus(t, http.StatusOK, "usage")
+	var body struct {
+		HistoryFrom struct {
+			Runners *time.Time `json:"runners"`
+		} `json:"history_from"`
+	}
+	resp.into(t, &body)
+	if body.HistoryFrom.Runners == nil || !body.HistoryFrom.Runners.Equal(started.CreatedAt) {
+		t.Fatalf("runners history_from = %v, want the ledger's first session at %v", body.HistoryFrom.Runners, started.CreatedAt)
+	}
+
+	resp = h.do(request{method: http.MethodGet, cookie: h.session(u), path: "/api/v1/usage.csv" + query})
+	resp.mustStatus(t, http.StatusOK, "usage csv")
+	records, err := csv.NewReader(strings.NewReader(string(resp.body))).ReadAll()
+	if err != nil || len(records) != 2 {
+		t.Fatalf("export = %q, %v; want a header and the pool's row", resp.body, err)
+	}
+	col := map[string]string{}
+	for i, name := range records[0] {
+		col[name] = records[1][i]
+	}
+	if got, want := col["history_from_runners"], started.CreatedAt.UTC().Format(time.RFC3339); got != want {
+		t.Errorf("history_from_runners = %q, want %q", got, want)
+	}
+	if col["history_from_jobs"] == "" {
+		t.Error("history_from_jobs is blank with thirty days of job retention")
+	}
+}

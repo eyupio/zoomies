@@ -170,7 +170,7 @@ func (s *Server) settingsConfig(who store.Role) map[string]any {
 	// bundle that renders this same tree.
 	if !who.AtLeast(store.RolePlatform) {
 		for _, st := range config.Settings() {
-			if st.Platform() {
+			if platformsOwn(st) {
 				deleteNested(out, st.Key)
 			}
 		}
@@ -240,7 +240,7 @@ func (s *Server) settingViews(rows []store.InstanceSetting, pending []string, wh
 		// instance binds and where it ships its backups, and on an instance
 		// one team operates for another that is the platform's business and
 		// not the fleet's.
-		if st.Platform() && !who.AtLeast(store.RolePlatform) {
+		if platformsOwn(st) && !who.AtLeast(store.RolePlatform) {
 			continue
 		}
 		value, err := c.Value(st.Key)
@@ -327,6 +327,16 @@ func callerRoleCtx(ctx context.Context) store.Role {
 	return ""
 }
 
+// platformsOwn reports whether a setting describes the process's own machine,
+// and so is shown to the platform alone. The bootstrap keys count: they are
+// not platform-scoped, because they are not stored at all, but their values
+// are the database file and the key file -- the two paths on the host that
+// matter most -- and hiding database_path from an administrator while
+// database.path sat in the same response hid nothing.
+func platformsOwn(st config.Setting) bool {
+	return st.Platform() || st.Scope == config.ScopeBootstrap
+}
+
 // platformOnly blanks a string that describes the process's own machine --
 // where its configuration file is, where its database is -- for anybody but
 // the platform. A fleet's administrator has no use for a path on somebody
@@ -358,7 +368,7 @@ func visibleKeys(keys []string, who store.Role) []string {
 	}
 	out := make([]string, 0, len(keys))
 	for _, k := range keys {
-		if st, ok := config.LookupSetting(k); ok && st.Platform() {
+		if st, ok := config.LookupSetting(k); ok && platformsOwn(st) {
 			continue
 		}
 		out = append(out, k)
@@ -420,7 +430,7 @@ func (s *Server) settingsPage(r *http.Request) (settingsResponse, error) {
 
 	var pinned []string
 	for _, st := range c.PinnedByEnvironment() {
-		if st.Platform() && !who.AtLeast(store.RolePlatform) {
+		if platformsOwn(st) && !who.AtLeast(store.RolePlatform) {
 			continue
 		}
 		pinned = append(pinned, st.Key)
@@ -582,15 +592,12 @@ func (s *Server) planSettings(current *config.Config, flat map[string]any, who s
 // what is refused.
 func validatePlan(current, candidate *config.Config, staged []change) []fieldError {
 	candidate.Normalize()
-	introduced := newErrors(current, candidate)
-	if len(introduced) == 0 {
-		return nil
-	}
 	changed := map[string]bool{}
 	for _, ch := range staged {
 		changed[ch.setting.Key] = true
 	}
-	var fields []fieldError
+	fields := egressRefusals(candidate, changed)
+	introduced := newErrors(current, candidate)
 	for _, f := range introduced {
 		field := f.Setting
 		if !changed[field] {
@@ -600,6 +607,36 @@ func validatePlan(current, candidate *config.Config, staged []change) []fieldErr
 			field = ""
 		}
 		fields = append(fields, fieldError{field, findingSentence(f)})
+	}
+	return fields
+}
+
+// egressRefusals refuses a write that points one of the settings the
+// controller dials at this machine or a private network, unless the
+// candidate allows it.
+//
+// The validator only warns about the same thing, because at startup the
+// value came from whoever runs the process and an upgrade must not stop a
+// working install. Here it is somebody with settings rights asking this
+// controller to send requests somewhere on their say-so, which is the case
+// the guard exists for -- so it is decided here, whatever the validator's
+// severity. Turning single sign-on on is a write that starts dialling the
+// issuer, so it counts as writing the issuer.
+func egressRefusals(candidate *config.Config, changed map[string]bool) []fieldError {
+	var fields []fieldError
+	for _, o := range candidate.OutboundURLs() {
+		if !changed[o.Setting] && (o.Setting != "oidc.issuer" || !changed["oidc.enabled"]) {
+			continue
+		}
+		if f := config.CheckOutboundURL(o.Setting, o.Value, candidate.Security.AllowPrivateEgress); f != nil {
+			// Blamed on the key the request changed, so an import preview
+			// marks a row the operator can skip.
+			field := o.Setting
+			if !changed[field] {
+				field = "oidc.enabled"
+			}
+			fields = append(fields, fieldError{field, findingSentence(*f)})
+		}
 	}
 	return fields
 }

@@ -176,8 +176,8 @@ up — which is why these are their own routes rather than a field on `/jobs`.
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/usage` | viewer | `from` and `to` are required RFC 3339 instants no more than 366 days apart; `group_by` is `pool` (default), `installation`, `repository`, `workflow` or `host`. Each row carries a history of buckets, hourly for a range of two days or less and daily beyond; `interval=hour` or `interval=day` chooses instead, and hourly buckets may be asked for over at most 14 days. `history_from` says where the job and runner history the figures come from begins, because retention prunes runner rows sooner than job rows and a range that reaches past either is complete only from that instant on. |
-| GET | `/api/v1/usage.csv` | viewer | The same aggregate as a `text/csv` attachment. A value the grouping cannot produce is an empty cell, not a zero. |
+| GET | `/api/v1/usage` | viewer | `from` and `to` are required RFC 3339 instants no more than 366 days apart; `group_by` is `pool` (default), `installation`, `repository`, `workflow` or `host`. Each row carries a history of buckets, hourly for a range of two days or less and daily beyond; `interval=hour` or `interval=day` chooses instead, and hourly buckets may be asked for over at most 14 days. `history_from` says where the job and runner history the figures come from begins, and a range that reaches past either is complete only from that instant on. Runner time and cost are read from the usage ledger — the daily roll-up for the whole UTC days it covers, runner rows and sessions for the rest — so `runners` is where the ledger begins, not where `retention.runners` cuts the rows. |
+| GET | `/api/v1/usage.csv` | viewer | The same aggregate as a `text/csv` attachment. A value the grouping cannot produce is an empty cell, not a zero. Every row ends with `history_from_jobs` and `history_from_runners`, the same instants as the JSON's `history_from`, blank where that history is never pruned. |
 
 Two things about the shape are worth knowing before a figure is quoted at
 anyone.

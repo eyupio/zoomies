@@ -221,6 +221,22 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				}
 				data = filtered
 			}
+			if ev.Kind == events.KindAudit {
+				// The same row GET /audit serves this caller, resolved per
+				// frame for the reason the others are. A frame that will not
+				// decode is dropped rather than passed through: the whole
+				// document is exactly what the filter exists to withhold.
+				var row store.AuditEvent
+				if err := json.Unmarshal(data, &row); err != nil {
+					continue
+				}
+				id, _ := s.resolveIdentity(r)
+				filtered, err := json.Marshal(auditRowFor(row, id))
+				if err != nil {
+					continue
+				}
+				data = filtered
+			}
 			if ev.Kind == events.KindPoolCreated || ev.Kind == events.KindPoolUpdated {
 				// A viewer may keep watching after a demotion, but must not
 				// keep the environment access they opened this stream with.

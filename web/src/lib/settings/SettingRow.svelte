@@ -30,7 +30,52 @@
   import Switch from '$lib/components/Switch.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import LabelInput from '$lib/pools/LabelInput.svelte';
-  import { describeSource, displayValue, isUnset } from './settings';
+  import QuantityField from '$lib/components/QuantityField.svelte';
+  import { CPU_NOTCHES, withValue } from '$lib/pools/sizing';
+  import { describeSource, displayValue, isUnset, settingQuantity } from './settings';
+  import { goDuration, parseQuantity, type Quantity } from '$lib/units';
+
+  const SECOND = 1000;
+  const MINUTE = 60 * SECOND;
+  const HOUR = 60 * MINUTE;
+  const DAY = 24 * HOUR;
+  /* The notches a setting's slider moves between, by what it measures. The
+     field beside it takes any figure, and one off the notches joins them. */
+  const NOTCHES: Record<Quantity, readonly number[]> = {
+    cpus: CPU_NOTCHES,
+    mb: [512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072],
+    gb: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1024],
+    count: [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 25, 30, 40, 50, 75, 100, 200, 500, 1000],
+    ms: [
+      SECOND,
+      2 * SECOND,
+      5 * SECOND,
+      10 * SECOND,
+      15 * SECOND,
+      30 * SECOND,
+      MINUTE,
+      2 * MINUTE,
+      5 * MINUTE,
+      10 * MINUTE,
+      15 * MINUTE,
+      30 * MINUTE,
+      HOUR,
+      2 * HOUR,
+      3 * HOUR,
+      6 * HOUR,
+      12 * HOUR,
+      DAY,
+      2 * DAY,
+      3 * DAY,
+      7 * DAY,
+      14 * DAY,
+      30 * DAY,
+      60 * DAY,
+      90 * DAY,
+      180 * DAY,
+      365 * DAY,
+    ],
+  };
 
   interface Props {
     setting: Setting;
@@ -79,9 +124,25 @@
   let flag = $state(false);
   let list = $state<string[]>([]);
   let pairs = $state<string[]>([]);
+  let amount = $state<number | null>(null);
+  let unreadable = $state('');
+
+  /* A size is edited as one: a slider for choosing and a field that reads
+     4g, 4096mb or 1.5, written back as 4 GB. */
+  const quantity = $derived(settingQuantity(setting));
+  const amountNotches = $derived.by(() => {
+    const base = quantity ? NOTCHES[quantity] : [];
+    /* Zero joins the notches only where it is already an answer this
+       setting gives -- the build cache target's "leave the daemon alone", a
+       lifetime of 0s that means none. A count starts at it anyway. */
+    const zero =
+      quantity === 'count' || [setting.default, setting.value].some((v) => v === 0 || v === '0s');
+    return withValue(zero ? [0, ...base] : [...base], amount ?? 0);
+  });
 
   function start(): void {
     failure = '';
+    unreadable = '';
     const value = setting.value;
     switch (setting.kind) {
       case 'bool':
@@ -98,6 +159,11 @@
         break;
       default:
         text = value === null || value === undefined ? '' : String(value);
+        if (typeof value === 'number') amount = value;
+        else if (typeof value === 'string' && quantity === 'ms') {
+          const parsed = parseQuantity(value, 'ms');
+          amount = parsed.ok ? parsed.value : null;
+        } else amount = null;
     }
     editing = true;
   }
@@ -123,8 +189,12 @@
         }
         return out;
       }
+      case 'duration':
+        // Go's spelling, which is what the controller reads: 7d goes as 168h.
+        return amount === null ? text.trim() : goDuration(amount);
       case 'int':
       case 'float': {
+        if (quantity) return amount;
         const n = Number(text.trim());
         return Number.isFinite(n) ? n : text.trim();
       }
@@ -134,6 +204,9 @@
   }
 
   async function commit(): Promise<void> {
+    // The field has already said what it could not read; saving now would
+    // send the last value it could, which is not what was typed.
+    if (unreadable) return;
     await send(draft());
   }
 
@@ -192,7 +265,10 @@
   </div>
 
   {#if editing}
-    <div class="editor" class:wide={setting.kind === 'strings' || setting.kind === 'labels'}>
+    <div
+      class="editor"
+      class:wide={setting.kind === 'strings' || setting.kind === 'labels' || quantity !== null}
+    >
       {#if setting.kind === 'bool' || setting.kind === 'optional_bool'}
         <Switch bind:checked={flag} label="New value for {setting.key}" hideLabel />
         <span class="hint">{flag ? 'on' : 'off'}</span>
@@ -207,6 +283,18 @@
         <LabelInput bind:value={list} placeholder="Type a value, then press Enter" />
       {:else if setting.kind === 'labels'}
         <LabelInput bind:value={pairs} placeholder={labelPlaceholder} />
+      {:else if quantity}
+        <div class="amount">
+          <QuantityField
+            bind:value={amount}
+            bind:error={unreadable}
+            {quantity}
+            whole={setting.kind === 'int'}
+            values={amountNotches}
+            label="New value for {setting.key}"
+            fieldLabel="New value for {setting.key}"
+          />
+        </div>
       {:else}
         <Input
           bind:value={text}
@@ -395,6 +483,10 @@
   }
   .editor.wide {
     align-items: flex-start;
+  }
+  .amount {
+    flex: 1;
+    min-width: 0;
   }
   .shown {
     font-size: var(--z-text-sm);

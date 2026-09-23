@@ -954,3 +954,59 @@ test('a refused pool deletion keeps the typed confirmation available for retry',
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(dialog).toBeHidden();
 });
+
+test('a runner size can be typed the way people write it, and is written back in the largest unit', async ({
+  page,
+}) => {
+  // "4g" is how Docker spells four gigabytes and "1.5" is how a ticket asks for
+  // a core and a half. A slider alone could not take either, and a number box
+  // labelled in megabytes made the operator do the arithmetic.
+  await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
+  await nameField(page).fill('e2e-typed-size');
+  await next(page).click();
+  await addLabel(page, 'typed');
+  await next(page).click();
+  await next(page).click();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
+  await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
+
+  const memory = page.getByRole('textbox', { name: 'Memory per runner' });
+  for (const typed of ['4096mb', '4g', '4 GB']) {
+    await memory.fill(typed);
+    await memory.press('Enter');
+    await expect(memory).toHaveValue('4 GB');
+    await expect(page.getByRole('slider', { name: 'Memory per runner' })).toHaveAttribute(
+      'aria-valuetext',
+      '4 GB',
+    );
+  }
+
+  // A figure off the notches is kept as typed rather than snapped to one.
+  await memory.fill('1.5g');
+  await memory.press('Enter');
+  await expect(memory).toHaveValue('1.5 GB');
+
+  const cpu = page.getByRole('textbox', { name: 'CPU per runner' });
+  await cpu.fill('1.5');
+  await cpu.press('Enter');
+  await expect(cpu).toHaveValue('1.5 cores');
+  await expect(page.getByRole('slider', { name: 'CPU per runner' })).toHaveAttribute(
+    'aria-valuetext',
+    '1.5 cores',
+  );
+
+  // Moving the slider moves the field with it.
+  await setSlider(page, 'CPU per runner', '4 cores');
+  await expect(cpu).toHaveValue('4 cores');
+
+  // What cannot be read is said beside the field and changes nothing.
+  await memory.fill('lots');
+  await memory.press('Enter');
+  await expect(page.getByRole('alert').filter({ hasText: '4 GB, 4096 MB or 4g' })).toBeVisible();
+  await expect(page.getByRole('slider', { name: 'Memory per runner' })).toHaveAttribute(
+    'aria-valuetext',
+    '1.5 GB',
+  );
+});
