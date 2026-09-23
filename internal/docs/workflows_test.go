@@ -355,6 +355,9 @@ func TestMainPublishesAnInstallableDevBinary(t *testing.T) {
 		"make dist VERSION=${{ steps.build.outputs.version }}",
 		"gh release create dev",
 		"--prerelease --latest=false",
+		// A documentation merge leaves the channel where it was rather than
+		// republishing every binary with nothing in them different.
+		"needs.changes.outputs.publish == 'true'",
 	} {
 		if !strings.Contains(ci, want) {
 			t.Errorf("ci.yml is missing %q, so --version dev is not a complete rolling binary channel", want)
