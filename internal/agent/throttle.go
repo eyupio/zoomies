@@ -51,6 +51,37 @@ func (a *Agent) applyResourceDirectives(ctx context.Context, d *ThrottleDirectiv
 	a.applyThrottle(ctx, changed)
 }
 
+// boostExpiryMisses is how many heartbeats in a row may go unanswered before a
+// boost is given back.
+const boostExpiryMisses = 3
+
+// expireBoosts gives back every boost once the controller has missed
+// boostExpiryMisses heartbeats in a row.
+//
+// A boost is lent on the controller's say-so, from what it judged the host
+// could spare, and is only ever withdrawn by the next plan. With the controller
+// down or unreachable no plan comes: the boost stays whatever the host is doing
+// now, and the throttle that would rein it in is the controller's too. A few
+// missed beats is a restart; more is a controller that is not coming back soon,
+// and the runners go back to the guarantee they were created with. A throttle
+// standing when the controller went away is left alone -- it is the safe
+// direction to be wrong in, and the controller lifts it when it returns.
+func (a *Agent) expireBoosts(ctx context.Context) {
+	a.mu.Lock()
+	a.missedBeats++
+	expire := a.missedBeats >= boostExpiryMisses && len(a.elasticCPU) > 0
+	if expire {
+		a.elasticCPU = map[string]float64{}
+	}
+	a.mu.Unlock()
+	if !expire {
+		return
+	}
+	a.log.Warn("the controller has missed several heartbeats; giving back the CPU it lent this host's runners",
+		"missed", boostExpiryMisses)
+	a.applyThrottle(ctx, true)
+}
+
 // applyThrottle brings every live runner's CPU quota to the standing factor.
 //
 // It is the one lever a host has left once every runner on it is busy: a

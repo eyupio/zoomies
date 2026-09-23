@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -79,6 +80,10 @@ var ErrMachineBusy = errors.New("an operation is already in flight for this mach
 // because it is the only one of the three that means somebody copied a
 // credential out of a guest.
 var ErrJoinTokenScope = errors.New("join token was issued for a different machine")
+
+// walSizeLimit is the size the write-ahead log is truncated back to whenever a
+// checkpoint resets it; see the journal_size_limit pragma in Open.
+const walSizeLimit = 16 << 20
 
 // Store is the single owner of the SQLite database.
 //
@@ -161,13 +166,26 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 		}
 		// _txlock=immediate makes write transactions take the write lock up
 		// front, which turns a would-be mid-transaction "database is locked"
-		// into a clean, retryable start-of-transaction wait.
+		// into a clean, retryable start-of-transaction wait. Both pools share
+		// this DSN, so a transaction begun on the read pool takes the write lock
+		// too: reads are single statements, and must stay so.
+		//
+		// journal_size_limit is what gives the write-ahead log's space back. A
+		// reader holding an old snapshot stops checkpoints reaching the end of
+		// the log, so it grows while the reader lasts -- that is SQLite working
+		// as designed -- but without a limit the file then stays at its
+		// high-water mark for the life of the process: seventy-five megabytes
+		// after one long read, in the test that pins this, on the disk the
+		// runners' images and caches share. With the limit, the next checkpoint
+		// that resets the log truncates it back. Sixteen megabytes is four times
+		// the log a thousand-page automatic checkpoint leaves in steady state.
 		dsn = "file:" + abs + "?" + url.Values{
 			"_pragma": []string{
 				"journal_mode(WAL)",
 				"busy_timeout(10000)",
 				"foreign_keys(1)",
 				"synchronous(NORMAL)",
+				"journal_size_limit(" + strconv.Itoa(walSizeLimit) + ")",
 			},
 			"_txlock": []string{"immediate"},
 		}.Encode()

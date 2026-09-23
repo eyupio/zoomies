@@ -435,3 +435,48 @@ func TestTheWritersQueueIsOnTheScrape(t *testing.T) {
 		t.Errorf("zoomies_store_write_held_seconds counted %d writes after the fleet was seeded, and %d before; every write has a hold as well as a wait", held, beforeHeld)
 	}
 }
+
+// Queued-to-create is how long a job waited before the fleet started a runner
+// for it -- the first figure anyone reads when the queue feels slow. Nothing
+// tested it, so this pins it before the read that feeds it moves: one
+// observation per runner created, measured from the job the pool was serving.
+func TestEveryRunnerCreatedForAWaitingJobRecordsHowLongItWaited(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	// Two runners wanted outright, so the pass creates whatever the demand
+	// arithmetic makes of the jobs; the metric reads the job the pool is
+	// serving either way.
+	pool.MinRunners = 2
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	h.measuredHost("measured", 8, 16384, 4, enforcesEverything)
+	h.queuedJob(t, pool, pool.Labels) // queued two minutes ago
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	h.c.lifecycleCalls.Wait()
+
+	created := 0
+	rs, err := h.st.ListRunnersForPool(h.ctx, pool.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rs {
+		if r.State.Live() || r.State == store.RunnerFailed {
+			created++
+		}
+	}
+	if created == 0 {
+		t.Fatal("the pass created no runner; the fixture is not exercising a create")
+	}
+	n, sum, ok := gatherHistogram(t, h.c, "zoomies_runner_queued_to_create_seconds", map[string]string{"pool": pool.Name})
+	if !ok || int(n) != created {
+		t.Fatalf("queued-to-create has %d observation(s) for %d runner(s) created; want one per runner", n, created)
+	}
+	if mean := sum / float64(n); mean < 100 || mean > 200 {
+		t.Errorf("queued-to-create averaged %.0fs; the jobs were queued two minutes before the pass", mean)
+	}
+}

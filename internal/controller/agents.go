@@ -241,6 +241,38 @@ func (q *taskQueue) complete(taskID string) (agent.Task, bool) {
 	return agent.Task{}, false
 }
 
+type redelivery int
+
+const (
+	redelivered redelivery = iota
+	notInFlight
+	outOfAttempts
+)
+
+// redeliver moves a task the agent gave back unstarted from flight to the
+// front of the queue, unless it is not in flight or has used its attempts.
+func (q *taskQueue) redeliver(taskID string) redelivery {
+	q.mu.Lock()
+	lt, ok := q.inflight[taskID]
+	if !ok {
+		q.mu.Unlock()
+		return notInFlight
+	}
+	if lt.attempts >= maxTaskAttempts {
+		q.mu.Unlock()
+		return outOfAttempts
+	}
+	delete(q.inflight, taskID)
+	lt.expires = time.Time{}
+	q.pending = append([]*leasedTask{lt}, q.pending...)
+	q.mu.Unlock()
+	select {
+	case q.wake <- struct{}{}:
+	default:
+	}
+	return redelivered
+}
+
 // lifecycleTask reports whether a task's failure leaves its runner unusable.
 //
 // A create, stop or remove that fails does; a log relay that could not be
@@ -742,6 +774,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		h.Usage = usage
 		c.Nudge()
 	}
+	c.noteRuntime(ctx, h, req.Runtime, now)
 	// The ladder runs on the measurements just recorded, and on every beat
 	// rather than only the ones that carry a sample: a host whose agent has
 	// stopped measuring is lifted here after StaleThrottleReset, not left on a
@@ -983,6 +1016,27 @@ func (c *Controller) stampIssued(ctx context.Context, tasks []agent.Task) {
 
 // ReportResult applies the outcome of one task and clears its lease.
 func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.TaskResult) error {
+	if res.NotStarted && !res.OK {
+		// The agent was shutting down -- an upgrade, a restart -- and gave the
+		// task back before touching the runner. Offer it again straight away
+		// so the agent that comes back picks it up, instead of waiting out a
+		// twenty-minute lease or failing a runner nothing happened to. The
+		// attempt still counts, so a host that never stays up long enough
+		// ends at the provision timeout rather than looping.
+		switch c.queues.get(hostID).redeliver(res.TaskID) {
+		case redelivered:
+			c.log.Info("an agent gave a task back while shutting down; it will be offered again",
+				"host", hostID, "task", res.TaskID, "kind", res.Kind, "runner", res.RunnerID)
+			return nil
+		case notInFlight:
+			// A controller restart since, so the task is not on record. The
+			// runner is untouched; the reconcile loop and the provision
+			// timeout are what notice one that is never built.
+			return nil
+		}
+		// Out of attempts: fall through and fail the runner, which is the
+		// honest answer for a host that never stays up long enough.
+	}
 	task, known := c.queues.get(hostID).complete(res.TaskID)
 	if known && task.Kind == agent.TaskPrewarmImage {
 		outcome := "failed"
@@ -1006,6 +1060,7 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 		if !res.OK {
 			state = "failed"
 		}
+		c.noteImagePull(ctx, hostID, task.PoolID, task.Image, "prewarm", res.OK, res.Fault, res.Error)
 		return c.st.SetPoolPrewarm(ctx, task.PoolID, hostID, task.Image, state, res.Digest, res.Error)
 	}
 	kind := res.Kind
@@ -1048,6 +1103,14 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 	}
 	if res.Digest != "" {
 		_ = c.st.SetRunnerImageDigest(ctx, r.ID, res.Digest)
+	}
+
+	if kind == agent.TaskCreateRunner {
+		image := ""
+		if known && task.Spec != nil {
+			image = task.Spec.Image
+		}
+		c.noteImagePull(ctx, hostID, r.PoolID, image, "start", res.OK, res.Fault, res.Error)
 	}
 
 	state := res.State

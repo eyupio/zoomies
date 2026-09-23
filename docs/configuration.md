@@ -212,7 +212,7 @@ agent:
   prewarm_jitter: 30s          # ZOOMIES_AGENT_PREWARM_JITTER -- random delay before background pulls; 0s–5m
   bootstrap_cpu_grace: 2m       # ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE -- 0 applies pressure throttling immediately; maximum 10m
   finished_retention: 0s        # ZOOMIES_AGENT_FINISHED_RETENTION -- 0 removes a finished workload after its report is acknowledged
-  docker_build_cache_mb: 5120   # ZOOMIES_DOCKER_BUILD_CACHE_MB -- target for unused builder cache; 0 prunes nothing
+  docker_build_cache_mb: 5120   # ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB -- target for unused builder cache; 0 prunes nothing
   # Process backend only:
   runner_sha256: ""             # ZOOMIES_AGENT_RUNNER_SHA256 -- digest of the runner archive, when github.runner_version is pinned
   allow_unverified_runner_download: false   # ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD -- warned about
@@ -1510,7 +1510,7 @@ the CLI or the API. These are their fields:
 | `min_runners` | Kept warm even with nothing queued. `0` is usually right. |
 | `max_runners` | Hard ceiling. **Always set this** — it is your backstop against a runaway workflow. |
 | `repository_scale_up_limit` | Best-effort limit on new capacity attributed to one repository; `0` disables it. This is a creation throttle, **not** a strict concurrency or isolation boundary: GitHub can assign any matching queued job to an existing compatible idle runner. Strict isolation requires repository-specific pools and corresponding repository-specific `runs-on` labels in workflows. |
-| `priority` | Higher-priority pools are given creation capacity first when the fleet cannot satisfy every pool at once. Pools at the same priority share it fairly. |
+| `priority` | Higher-priority pools are given creation capacity first when the fleet cannot satisfy every pool at once. Pools at the same priority share it fairly. Under `scheduler.max_creates_per_tick`, a lower-priority pool whose oldest queued job has waited a full `scheduler.interval` is first given one create, so a busy top tier cannot starve it; the higher pool's scaling reason then says it was deferred for fairness across priorities. |
 | `idle_timeout` | How long an idle runner waits before being drained. |
 | `ephemeral` | One job per runner. Leave it on. |
 | `docker_mode` | `none`, `dind`, or `host-socket`. Anything but `none` switches a pool on the stock runner image to its Docker variant, under the same tag — see [below](#jobs-that-build-container-images) and [security.md](security.md). |

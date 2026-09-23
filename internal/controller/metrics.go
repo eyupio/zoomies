@@ -51,6 +51,8 @@ type metrics struct {
 	buildInfo                                                                                    *prometheus.GaugeVec
 	providerOperations                                                                           *prometheus.CounterVec
 	providerOperationSeconds                                                                     *prometheus.HistogramVec
+	runtimeFailures                                                                              *prometheus.CounterVec
+	imagePullFailures                                                                            *prometheus.CounterVec
 	imagePrewarms                                                                                *prometheus.CounterVec
 	imagePrewarmDuration                                                                         *prometheus.HistogramVec
 	elasticCPUDecisions                                                                          *prometheus.CounterVec
@@ -237,6 +239,14 @@ func newMetrics(c *Controller) *metrics {
 			// answering": a tenth of a second to five minutes.
 			Buckets: []float64{.1, .5, 1, 2.5, 5, 10, 30, 60, 120, 300},
 		}, []string{"kind"}),
+		runtimeFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_host_runtime_failures_total",
+			Help: "Container-runtime failures agents reported, each one opening or extending a cooldown on new starts, by kind: unavailable or timeout.",
+		}, []string{"kind"}),
+		imagePullFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_image_pull_failures_total",
+			Help: "Runner starts and prewarms that failed because the pool's image could not be made ready on the host, by pool and kind: start or prewarm.",
+		}, []string{"pool", "kind"}),
 		imagePrewarms: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "zoomies_image_prewarms_total",
 			Help: "Background image preparations by pool, backend and outcome: prepared, cache_hit, failed or unknown for a successful older agent.",
@@ -263,7 +273,7 @@ func newMetrics(c *Controller) *metrics {
 		m.registrationsDeferred,
 		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.storeWriteWait, m.storeWriteHeld, m.reconcileErrors, m.cleanups, m.pollsShed, m.agentLimited, m.logRelayDropped, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,
-		m.imagePrewarms, m.imagePrewarmDuration,
+		m.imagePrewarms, m.imagePrewarmDuration, m.runtimeFailures, m.imagePullFailures,
 		m.elasticCPUDecisions, m.elasticCPUFactor,
 		m.startupWait, m.dindReady, m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
 		m.schedulingLatency, m.cleanupDuration,
@@ -358,6 +368,8 @@ var (
 		"Machines whose ownership could not be proved, which nothing will act on until a person does.", nil, nil)
 	descHostLoadAverage = prometheus.NewDesc("zoomies_host_load_average_1m",
 		"Recent whole-host one-minute load average. Absent when stale or unmeasured.", []string{"host"}, nil)
+	descHostRuntimeRecovering = prometheus.NewDesc("zoomies_host_runtime_recovering",
+		"1 while a host's agent reports its container runtime is in a recovery cooldown, 0 otherwise.", []string{"host"}, nil)
 	descHostThrottleLevel = prometheus.NewDesc("zoomies_host_throttle_level",
 		"The throttle rung a host is on after sustained pressure, 0 to 3; 0 while it is not throttled.", []string{"host"}, nil)
 )
@@ -385,6 +397,7 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descProviderQuarantined
 	ch <- descHostLoadAverage
 	ch <- descHostThrottleLevel
+	ch <- descHostRuntimeRecovering
 	ch <- descHostEffectiveCapacity
 }
 
@@ -496,6 +509,11 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 		// the paused gauge does: a series that only exists while something
 		// is wrong cannot be alerted on with a threshold.
 		gauge(descHostThrottleLevel, float64(h.Throttle.Level), h.ID)
+		recovering := 0.0
+		if h.Incidents.Runtime != nil {
+			recovering = 1
+		}
+		gauge(descHostRuntimeRecovering, recovering, h.ID)
 		switch {
 		case !h.Healthy(now):
 			unhealthy++
