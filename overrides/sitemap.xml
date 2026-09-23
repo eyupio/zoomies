@@ -11,11 +11,14 @@
   a graded guess: the home page is the entry point, every documentation page
   matters equally after that. A page can override it with `sitemap_priority` in
   its front matter.
+
+  A page marked `noindex: true` is left out: overrides/main.html already tells
+  crawlers not to index it, and a sitemap that lists it anyway contradicts that.
 -#}
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 {%- for file in pages %}
-  {%- if file.page and not file.page.is_link %}
+  {%- if file.page and not file.page.is_link and not file.page.meta.noindex %}
   <url>
     <loc>{{ file.page.canonical_url }}</loc>
     <lastmod>{{ file.page.meta.git_date | default(build_date_utc.strftime('%Y-%m-%d'), true) }}</lastmod>

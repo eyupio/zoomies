@@ -1,4 +1,5 @@
 ---
+title: "Brand: the Zoomies logo, colours and rules"
 description: >-
   The Zoomies identity: the cocker spaniel mark, the wordmark, the colour
   tokens, and the rules for placing them.
