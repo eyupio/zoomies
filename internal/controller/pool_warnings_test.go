@@ -149,7 +149,7 @@ func TestTheDockerClientFixNamesWhicheverSettingCanBeChanged(t *testing.T) {
 	if got := fix(following, cfg); !strings.Contains(got, "github.runner_image") {
 		t.Errorf("a pool on the fleet's default is told: %q", got)
 	}
-	if got := fix(own, config.Default()); !strings.Contains(got, "builders pool's image") {
+	if got := fix(own, config.Default()); !strings.Contains(got, "image of pool builders") {
 		t.Errorf("a pool with an image of its own is told: %q", got)
 	}
 }

@@ -1098,9 +1098,12 @@ func dockerClientWarning(p *store.Pool, cfg *config.Config) (Problem, bool) {
 	// Where the reference came from decides what there is to change: a pool
 	// that named the image owns it, and a pool that named none is running the
 	// fleet's default, which no edit to the pool can correct.
-	fix := fmt.Sprintf("set the %s pool's image to %s, or clear it so the pool follows the fleet's default.", p.Name, pin)
+	// The wording avoids apostrophes: the pool name can arrive in an imported
+	// document, and a quote character beside it reads to a scanner as a
+	// string that could be broken out of, even though this is only prose.
+	fix := fmt.Sprintf("set the image of pool %s to %s, or clear it so the pool follows the default for the fleet.", p.Name, pin)
 	if strings.TrimSpace(p.Image) == "" {
-		fix = fmt.Sprintf("set github.runner_image to %s, which fixes every pool following the fleet's default, or give the %s pool that image of its own.", pin, p.Name)
+		fix = fmt.Sprintf("set github.runner_image to %s, which fixes every pool following the default for the fleet, or give pool %s that image of its own.", pin, p.Name)
 	}
 	return Problem{
 		Code:     "pool.docker_client_missing",
