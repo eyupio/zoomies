@@ -1,4 +1,5 @@
 ---
+title: Upgrading a Zoomies fleet
 description: >-
   What an upgrade actually does, what happens to running jobs, how far a
   controller and its agents may drift apart, and why there is no downgrade.

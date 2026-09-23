@@ -1,4 +1,5 @@
 ---
+title: "Hosts and pools: where runners run"
 description: >-
   How a pool decides what runners to make and a host decides whether it can
   make them: labels, selectors, capacity, and why a pool sometimes has nowhere

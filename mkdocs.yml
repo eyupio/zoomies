@@ -184,6 +184,11 @@ nav:
       - Dependencies: dependencies.md
       - UI guidelines: ui-guidelines.md
       - Brand: brand.md
+  - Many repositories: many-repositories.md
+  - Runners in your home lab: home-lab.md
+  - Runners in Docker: docker.md
+  - Compared with ARC: actions-runner-controller.md
+  - What it costs: costs.md
   - FAQ: faq.md
 
 # The brand pack's own guide is published because docs/brand.md links to it, but

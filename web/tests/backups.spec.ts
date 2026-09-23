@@ -189,7 +189,7 @@ test('the configuration can be exported and an import is previewed before it is 
   // Applied, and shown on the page as a value stored here -- then put back,
   // so the next spec sees the fixture it expects.
   const row = page.locator('.row').filter({ has: page.getByText('Keep webhook deliveries for') });
-  await expect(row).toContainText('72h');
+  await expect(row).toContainText('3d');
   await row.getByRole('button', { name: 'Reset' }).click();
   await expect(row.getByText('Saved here')).toBeHidden();
 });

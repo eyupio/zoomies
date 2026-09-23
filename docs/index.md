@@ -314,6 +314,9 @@ hand-registered long-lived runners is too little.
 
 </div>
 
+[Zoomies and actions-runner-controller](actions-runner-controller.md) is the
+longer comparison, including where ARC is the better choice.
+
 ## A word about self-hosted runners
 
 A self-hosted runner executes code from your repositories, and on a public

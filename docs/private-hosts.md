@@ -18,6 +18,9 @@ No public host IP. No router port forwarding. No Tailscale account or separate
 Tailcat installation. Free, open source, and managed from the same web UI as
 the rest of your pack.
 
+Still deciding which machines to use, or where the controller should run?
+[Runners in your home lab](home-lab.md) covers the planning.
+
 ## Add a private host
 
 1. Open **Hosts → Add a host** and choose **Private connection · Tailcat**.

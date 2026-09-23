@@ -99,10 +99,12 @@
         <PageHeader title={page.label} subtitle={page.description} />
         <EmptyState
           icon={Lock}
-          title="{page.label} needs the administrator role"
+          title="{page.label} needs the {roleLabel(page.needs).toLowerCase()} role"
           description="You are signed in as {session.displayName} with the {roleLabel(
             session.role,
-          )} role. An administrator can change that on the Users page."
+          )} role. {page.needs === 'platform'
+            ? 'This page belongs to whoever runs this controller rather than to the fleet, so ask them.'
+            : 'An administrator can change that on the Users page.'}"
         />
       {:else if page.id === 'account'}
         <AccountPanel />
