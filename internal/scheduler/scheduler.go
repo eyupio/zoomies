@@ -117,6 +117,12 @@ type Policy struct {
 	// thundering herd of queued jobs cannot fill every host at once. Pools are
 	// shared fairly among pools at the same priority; zero means no cap.
 	MaxCreatesPerTick int
+	// Interval is how often the reconcile loop runs. A lower-priority pool
+	// whose oldest queued job has waited at least this long is owed one
+	// create before a higher tier spends the rest of the budget, so a deep
+	// backlog at the top cannot starve every other pool pass after pass.
+	// Zero turns that share off and priority alone decides.
+	Interval time.Duration
 }
 
 // For is this policy as one pool sees it: the fleet's figures, with whatever
@@ -659,6 +665,9 @@ func (t *tick) allocate(pools []*store.Pool, plans []PoolPlan, runners map[strin
 		byID[plans[i].PoolID] = &plans[i]
 	}
 
+	// The share across tiers is granted before any tier is served, so that
+	// what is left is what priority then decides.
+	shared, floor := t.shareAcrossTiers(tiers, byID, runners, demand)
 	for start := 0; start < len(tiers); {
 		end := start + 1
 		for end < len(tiers) && tiers[end].Priority == tiers[start].Priority {
@@ -703,8 +712,69 @@ func (t *tick) allocate(pools []*store.Pool, plans []PoolPlan, runners map[strin
 			continue
 		}
 		why := fmt.Sprintf("this tick's global limit of %s is exhausted; the next pass will continue", plural(t.policy.MaxCreatesPerTick, "new runner"))
+		if shared > 0 && p.Priority > floor {
+			why = fmt.Sprintf("deferred for fairness across priorities: %s of this tick's global limit of %s went to lower-priority pools whose jobs had waited a full scheduling interval; the next pass will continue",
+				plural(shared, "create"), plural(t.policy.MaxCreatesPerTick, "new runner"))
+		}
 		pp.Reason = cannotScale(p.Name, pp.Current+got, pp.Desired, why)
 	}
+}
+
+// shareAcrossTiers grants one create to every pool below the highest tier
+// with demand whose oldest queued job has waited a full interval, before that
+// tier is served. Without it a top-priority pool with a deep backlog takes
+// the whole budget every pass and a lower tier waits for as long as the
+// backlog lasts -- priority should order the fleet's work, not stop some of
+// it. A lower tier that has not yet waited an interval takes nothing, so a
+// burst at the top still gets the tick to itself.
+//
+// It returns how many creates it granted and the lowest priority that
+// received one; a pool above that priority left short this tick was deferred
+// by the share, and its reason says so.
+func (t *tick) shareAcrossTiers(tiers []*store.Pool, byID map[string]*PoolPlan, runners map[string][]*store.Runner, demand map[string][]*store.Job) (granted, floor int) {
+	if t.policy.Interval <= 0 || t.policy.MaxCreatesPerTick <= 0 {
+		// An uncapped tick serves every tier anyway; there is nothing to share.
+		return 0, 0
+	}
+	wants := func(p *store.Pool) bool {
+		pp := byID[p.ID]
+		return p.Enabled && pp.Desired > pp.Current+creates(pp.Actions) && pp.Failing == "" && pp.Held == ""
+	}
+	top, found := 0, false
+	for _, p := range tiers {
+		if wants(p) {
+			top, found = p.Priority, true
+			break
+		}
+	}
+	if !found {
+		return 0, 0
+	}
+	for _, p := range tiers {
+		if t.budget == 0 {
+			break
+		}
+		if p.Priority >= top || !wants(p) || !t.waitedAnInterval(demand[p.ID]) {
+			continue
+		}
+		if t.grant(p, byID[p.ID], runners[p.ID], demand[p.ID]) {
+			granted++
+			// tiers is sorted highest first, so the last grant is the lowest.
+			floor = p.Priority
+		}
+	}
+	return granted, floor
+}
+
+// waitedAnInterval reports whether any of these queued jobs has waited at
+// least one reconcile interval, measured against the snapshot's time.
+func (t *tick) waitedAnInterval(queued []*store.Job) bool {
+	for _, j := range queued {
+		if !j.QueuedAt.IsZero() && t.now.Sub(j.QueuedAt) >= t.policy.Interval {
+			return true
+		}
+	}
+	return false
 }
 
 func creates(actions []Action) int {
