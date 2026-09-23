@@ -182,6 +182,42 @@ import seals the key again under the receiving instance's own key before it
 writes a row. Treat an archive with a passphrase as you would the key itself,
 and keep the passphrase somewhere else.
 
+### What the agent owns on a host
+
+Running the enrolment command on a machine hands Zoomies a small, fixed part
+of it, and nothing else. The agent does not upgrade packages, change a
+firewall, reboot, open a port or accept a connection — it only ever dials out
+to the controller. This is the whole list, as the code does it:
+
+| What | Where | What the agent does with it |
+| --- | --- | --- |
+| Its service and user | The `zoomies-agent` service (a systemd unit on Linux), running as the `zoomies` system user when the command runs as root, otherwise as the user who ran it | Created by `zoomies agent join`, removed by `zoomies uninstall`. The unit is sandboxed: `NoNewPrivileges`, `ProtectSystem=strict`, and write access to its state directory only. Where the container socket belongs to a group, the service joins that group rather than running as root. |
+| `agent.work_dir` | `work/` under its state directory — `/var/lib/zoomies/work` for a root install | Its credentials (`agent.json`, mode `0600`) and the runners' working directories. |
+| Containers carrying its labels | Every container it creates is labelled `io.zoomies.managed=true`, with its runner and pool | It lists, reaps and removes only containers with that label; a container without it is never touched. Removing one also removes that container's anonymous volumes. |
+| Its per-pool cache | A named volume `zoomies-cache-<pool>`, or a directory `<source>/<pool>` when a pool's cache source is an absolute path — with the repository appended for a repository-scoped cache | A cache directory with a size limit is trimmed back under it, oldest entries first, before a runner starts. A named cache volume is never deleted. |
+| The Docker builder cache | The Docker daemon the agent uses | See below. |
+
+It never removes an image, a volume it did not create with a container, or a
+container without its label, and a test in the agent's own suite fails if
+that ever widens.
+
+**The builder cache is the one thing that is not only Zoomies'.** With the
+`docker` backend, the agent asks the daemon every five minutes, and at start,
+to prune **unused** builder cache down to `agent.docker_build_cache_mb`
+(default `5120`, 5 GiB). Docker never prunes cache that a build in progress is
+using, and the prune is bounded by that target — but it is daemon-wide: on a
+daemon something else also builds with, the cache it trims is partly somebody
+else's. On a shared daemon, set `agent.docker_build_cache_mb: 0` (or
+`ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB=0`) and the agent prunes nothing. Podman
+and the `process` backend have no builder cache for it to touch.
+
+Enrolment itself does one more thing, once, on a host whose rootless Docker or
+Podman cannot apply a CPU, memory or pids limit: run as root on a cgroup v2
+systemd host, it writes
+`/etc/systemd/system/user@<uid>.service.d/zoomies-delegate.conf` to delegate
+those controllers to that user's slice and restarts that user's daemon. It
+says so when it does, and a daemon that already applies limits is left alone.
+
 ---
 
 ## 4. Authentication and authorisation

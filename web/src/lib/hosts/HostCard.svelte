@@ -11,7 +11,7 @@
   import { navigate } from '$lib/router';
   import { CircleDashed, Gauge, Pencil, ServerCog, Trash2 } from '@lucide/svelte';
   import type { Host, Machine } from '$lib/api/types';
-  import { formatMegabytes, formatNumber } from '$lib/format';
+  import { formatMegabytes, formatNumber, onClockTick, toMillis } from '$lib/format';
   import { hostStatus, throttled } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -61,6 +61,19 @@
   // Whether the controller has stepped this host down. The slots line, the
   // bar and the menu all follow it; the sentence itself is the controller's.
   const isThrottled = $derived(throttled(host.throttle));
+
+  // The runtime cooldown and the last image that would not pull, as the
+  // controller stored them. Both carry their times rather than a sentence
+  // with the times written in, so the retry counts down and the report's age
+  // grows against this page's clock -- nothing here is shown as current
+  // without saying how old it is.
+  const recovering = $derived(host.runtime_recovering ?? null);
+  const pullFailed = $derived(host.image_pull_failed ?? null);
+  let now = $state(Date.now());
+  $effect(() => onClockTick((t) => (now = t)));
+  // Past the retry time the hold is over, but nothing has yet said the
+  // runtime works; "retrying 5s ago" would read as a mistake.
+  const retryDue = $derived(recovering !== null && (toMillis(recovering.retry_at) ?? 0) <= now);
 
   // How this host's release stands to the controller's, and whether its agent
   // speaks a protocol the controller understands at all. Both come from the
@@ -400,6 +413,31 @@
     <p class="cordoned">CPU is busy. New runners start one at a time while pressure clears.</p>
   {/if}
 
+  {#if recovering}
+    <!-- Outside the chain above: a cordoned or throttled host's runtime can
+         fail too, and the operator needs both facts. Pending, like the
+         throttle, because the agent is attending to it and it clears itself. -->
+    <p class="cordoned throttled" data-testid="host-runtime-recovering">
+      {host.runtime_reason}
+      {#if retryDue}
+        The recovery attempt is due now.
+      {:else}
+        Retrying <RelativeTime value={recovering.retry_at} plain />.
+      {/if}
+      <span class="muted">Reported <RelativeTime value={recovering.observed_at} plain />.</span>
+    </p>
+  {/if}
+  {#if pullFailed}
+    <p class="cordoned failing" data-testid="host-image-pull-failed">
+      Cannot pull pool {pullFailed.pool}'s image from
+      <span class="mono">{pullFailed.registry}</span>: the last {pullFailed.source === 'prewarm'
+        ? 'prewarm'
+        : 'runner start'} here failed because the image could not be made ready. Every runner that pool
+      places here fails the same way until it can.
+      <span class="muted">Failed <RelativeTime value={pullFailed.observed_at} plain />.</span>
+    </p>
+  {/if}
+
   <p class="meta" aria-label="Current host usage">
     {#if host.usage_fresh && host.usage}
       {#if host.usage.cpu_percent !== undefined}
@@ -661,6 +699,12 @@
   .cordoned.throttled {
     border-color: var(--z-pending-border);
     background: var(--z-pending-subtle);
+  }
+  /* An image that will not pull fails every runner the pool places here, so
+     it takes the danger tone a failed runner has. */
+  .cordoned.failing {
+    border-color: var(--z-danger-border);
+    background: var(--z-danger-subtle);
   }
   .capacity {
     display: flex;
