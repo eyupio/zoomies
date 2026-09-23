@@ -277,16 +277,8 @@ const shutdownGrace = 15 * time.Second
 // bind.
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	defer s.closeTailcat()
-	if s.cfg().Server.TailcatEnabled && !s.cfg().Security.DisableAuth {
-		stored, err := s.ctrl.Store().GetSetting(ctx, tailcatIdentitySetting)
-		if err != nil {
-			return err
-		}
-		if stored != "" {
-			if _, err := s.ensureTailcat(ctx); err != nil {
-				return err
-			}
-		}
+	if err := s.resumeTailcat(ctx, tailcatCheckInterval, tailcatHealthyInterval); err != nil {
+		return err
 	}
 	// A cancellable base context is what makes shutdown tidy. An SSE stream or
 	// a log tail is an ordinary request as far as net/http is concerned, and
