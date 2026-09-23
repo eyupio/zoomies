@@ -18,9 +18,13 @@ import (
 )
 
 // maxWebhookBody caps an inbound delivery. GitHub's own limit is 25 MB, but a
-// workflow_job payload is a few kilobytes; anything approaching this is either
-// not from GitHub or not something Zoomies should be parsing.
-const maxWebhookBody = 5 << 20
+// workflow_job payload is tens of kilobytes; anything approaching this is
+// either not from GitHub or not something Zoomies should be parsing. The body
+// is read into memory before its signature can be checked -- the repository in
+// it chooses the secret -- so this is what one request on a public endpoint
+// costs the controller whoever sends it, and a megabyte is still some twenty
+// times the largest delivery the fleet acts on.
+const maxWebhookBody = 1 << 20
 
 // What a delivery is allowed to say about itself before its signature has been
 // checked.
@@ -30,7 +34,7 @@ const maxWebhookBody = 5 << 20
 // repository is what chooses the secret. All of it is then written down --
 // a database row that is kept, a line in the log, and a frame on the event
 // stream every watching browser holds in memory -- because a rejected delivery
-// is worth recording. Unbounded, that is an open invitation: five megabytes of
+// is worth recording. Unbounded, that is an open invitation: a megabyte of
 // "repository.full_name" per request, from anyone who can reach the endpoint,
 // with no credential of any kind.
 //
@@ -103,7 +107,7 @@ func (c *Controller) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWebhookBody))
 	if err != nil {
 		c.recordDelivery(ctx, d, "error", fmt.Sprintf("could not read the delivery body (limit %d bytes): %v", maxWebhookBody, err))
-		http.Error(w, "the delivery body could not be read, or was larger than 5 MiB", http.StatusRequestEntityTooLarge)
+		http.Error(w, fmt.Sprintf("the delivery body could not be read, or was larger than %d MiB", maxWebhookBody>>20), http.StatusRequestEntityTooLarge)
 		return
 	}
 

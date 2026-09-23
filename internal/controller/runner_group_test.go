@@ -145,6 +145,10 @@ func TestTheRunnerGroupWarningClearsOnceTheGroupExists(t *testing.T) {
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	// Registration -- where the group is resolved and the warning cleared --
+	// runs on its own goroutine after the pass. Asking before it finishes
+	// read whichever it happened to be, and failed about one run in three.
+	h.c.lifecycleCalls.Wait()
 	if w := runnerGroupWarning(h, pool.ID); w != nil {
 		t.Fatalf("the warning survived the group being created: %+v", w)
 	}
