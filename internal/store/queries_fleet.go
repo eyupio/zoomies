@@ -1326,8 +1326,19 @@ func (s *Store) ConfirmRunnerCleanup(ctx context.Context, id string, host bool) 
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
+		if err != nil {
+			return err
+		}
 		completed = cleaned.Valid
-		return err
+		if !completed {
+			return nil
+		}
+		// The session is written by the same transaction that closes the
+		// cleanup interval, so a controller that stops between the two cannot
+		// leave a confirmed runner without one -- and the UPDATE above only
+		// matches while the stamp is unset, so a replay after a restart never
+		// reaches here twice.
+		return recordRunnerSession(ctx, tx, id, now)
 	})
 	return completed, err
 }
@@ -1610,6 +1621,14 @@ func (s *Store) StartupSamples(ctx context.Context, since time.Time) (startup, r
 func (s *Store) PruneRunners(ctx context.Context, before time.Time) ([]string, error) {
 	var ids []string
 	err := s.tx(ctx, func(tx *sql.Tx) error {
+		// A runner whose cleanup was never confirmed has no session yet, and
+		// this is the last moment one can be written: without it the usage
+		// ledger would be short by exactly the runners whose cleanup went
+		// wrong. Those already recorded are left alone by the conflict clause.
+		if _, err := tx.ExecContext(ctx, insertRunnerSessionSQL+`r.state IN ('removed','failed')
+			AND COALESCE(r.finished_at, r.created_at) < ?2 ON CONFLICT(runner_id) DO NOTHING`, s.Now().UnixMilli(), ms(before)); err != nil {
+			return err
+		}
 		var err error
 		ids, err = deletedIDs(ctx, tx, `DELETE FROM runners WHERE state IN ('removed','failed')
 			AND COALESCE(finished_at, created_at) < ? RETURNING id`, ms(before))

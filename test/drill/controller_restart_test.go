@@ -97,5 +97,20 @@ func TestKillingTheControllerMidJobLeavesTheWorkRunning(t *testing.T) {
 	// work is moving through it.
 	rec.recovered()
 	rec.note("host workloads after the restart finished the job", "0")
+
+	// The usage ledger: the runner's session is written once, when its
+	// cleanup is confirmed, and a second restart -- with an agent that may
+	// report its results again -- must not write another. Two would double
+	// this runner's hours in every report that covers them.
+	waitFor(t, waitPromptCleanup, "the runner's usage session to be written", func() bool {
+		return f.runnerSessions(runner.ID) == 1
+	})
+	f.controller.kill()
+	f.startControllerOn(f.stateDir)
+	f.runnerByID(runner.ID, poolID)
+	if n := f.runnerSessions(runner.ID); n != 1 {
+		t.Errorf("the runner has %d usage sessions after a second restart, want exactly 1", n)
+	}
+	rec.note("usage sessions for the runner after a second restart", "1")
 	rec.pass("a controller killed mid-job left the work running, and the fleet finished and cleaned it up after the restart")
 }

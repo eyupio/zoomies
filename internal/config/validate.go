@@ -980,6 +980,20 @@ func (c *Config) Validate() Findings {
 		}
 	}
 
+	// --- Outbound addresses ----------------------------------------------
+	// A warning here, never an error. The value in front of the validator
+	// came from whoever runs the process -- the file, the environment, or a
+	// row an earlier write already passed -- and an upgrade must not stop an
+	// install that has been talking to a LAN Enterprise Server for a year.
+	// The threat is somebody with settings rights writing one of these
+	// through the API, and the API refuses that at the write.
+	for _, o := range c.OutboundURLs() {
+		if f := CheckOutboundURL(o.Setting, o.Value, c.Security.AllowPrivateEgress); f != nil {
+			f.Severity = SeverityWarning
+			add(*f)
+		}
+	}
+
 	// --- Backups ----------------------------------------------------------
 	c.validateBackupRemotes(add)
 
@@ -1260,6 +1274,7 @@ func (c *Config) validateBackupRemotes(add func(Finding)) {
 		}
 
 		u, err := url.Parse(endpoint)
+		egress := CheckOutboundURL("backup.remotes", endpoint, c.Security.AllowPrivateEgress)
 		switch {
 		case err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https"):
 			add(Finding{
@@ -1267,6 +1282,13 @@ func (c *Config) validateBackupRemotes(add func(Finding)) {
 				Title: fmt.Sprintf("the backup remote %s has an endpoint that is not an HTTP URL: %q", named, endpoint),
 				Fix:   "write the service's URL, such as https://s3.eu-west-2.amazonaws.com or http://minio:9000.",
 			})
+		case egress != nil:
+			// Named for the remote, because backup.remotes is a list and the
+			// key alone does not say which entry to change; a warning, for the
+			// reason the outbound settings above give.
+			egress.Severity = SeverityWarning
+			egress.Title = fmt.Sprintf("the backup remote %s points at %s", named, strings.TrimPrefix(egress.Title, "backup.remotes points at "))
+			add(*egress)
 		case u.Scheme == "http" && !loopbackHost(u.Hostname()):
 			add(Finding{
 				Code: "backup.remote_insecure", Severity: SeverityWarning, Setting: "backup.remotes",

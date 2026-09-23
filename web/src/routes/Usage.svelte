@@ -144,10 +144,11 @@
 
   /**
    * The instant the report's runner history begins, when the range asked for
-   * reaches further back than that. Runner rows are pruned sooner than job
-   * rows, so a 30-day report has every job but by default only a week of
-   * runner-hours -- and a runner-hours figure that is silently short by three
-   * weeks is the one number on this page somebody takes to a finance meeting.
+   * reaches further back than that. Runner-hours come from the usage ledger,
+   * which begins with the oldest runner the database still knew when it was
+   * upgraded into one -- and a runner-hours figure that is silently short
+   * before then is the one number on this page somebody takes to a finance
+   * meeting.
    */
   const runnersFrom = $derived.by(() => {
     const from = report?.history_from?.runners;

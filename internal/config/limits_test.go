@@ -20,7 +20,7 @@ var limitFields = []struct {
 	{"limits.event_subscribers", "ZOOMIES_LIMITS_EVENT_SUBSCRIBERS", func(c *Config, n int) { c.Limits.EventSubscribers = n }, func(c *Config) int { return c.Limits.EventSubscribers }},
 }
 
-func findingFor(fs []Finding, code, setting string) *Finding {
+func limitFinding(fs []Finding, code, setting string) *Finding {
 	for i := range fs {
 		if fs[i].Code == code && fs[i].Setting == setting {
 			return &fs[i]
@@ -49,7 +49,7 @@ func TestALimitOnALoopbackBindIsAWarningAndOnAReachableOneIsNot(t *testing.T) {
 			c := Default()
 			c.Server.Bind = "127.0.0.1:8080"
 			l.set(c, 1)
-			f := findingFor(c.Validate(), "limits.loopback", l.key)
+			f := limitFinding(c.Validate(), "limits.loopback", l.key)
 			if f == nil {
 				t.Fatalf("%s set on a loopback bind drew no limits.loopback finding", l.key)
 			}
@@ -58,7 +58,7 @@ func TestALimitOnALoopbackBindIsAWarningAndOnAReachableOneIsNot(t *testing.T) {
 			}
 
 			c.Server.ExternalURL = "https://zoomies.example.com"
-			if findingFor(c.Validate(), "limits.loopback", l.key) != nil {
+			if limitFinding(c.Validate(), "limits.loopback", l.key) != nil {
 				t.Errorf("%s drew limits.loopback on a controller with an external URL", l.key)
 			}
 		})
@@ -70,7 +70,7 @@ func TestANegativeLimitIsRefused(t *testing.T) {
 		t.Run(l.key, func(t *testing.T) {
 			c := Default()
 			l.set(c, -1)
-			f := findingFor(c.Validate(), "limits.negative", l.key)
+			f := limitFinding(c.Validate(), "limits.negative", l.key)
 			if f == nil || f.Severity != SeverityError {
 				t.Fatalf("a negative %s was not refused: %+v", l.key, f)
 			}

@@ -1,4 +1,5 @@
 ---
+title: Troubleshooting a Zoomies runner fleet
 description: >-
   The commands to run first when a Zoomies fleet misbehaves, the five things
   that go wrong on a first run, and what a queued job means.

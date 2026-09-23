@@ -1,3 +1,9 @@
+---
+# Written for contributors, not for someone choosing a runner controller:
+# published so links to it work, kept out of search results and the sitemap.
+noindex: true
+---
+
 # Zoomies Branding Guide
 
 Version 2.1 - September 2026

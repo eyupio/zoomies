@@ -107,6 +107,10 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		unprocessable(w, "this account could not be created", fields)
 		return
 	}
+	if err := auth.ManageWithin(Identity(r.Context()), role); err != nil {
+		forbidden(w, err.Error())
+		return
+	}
 
 	u, err := s.auth.CreateUser(r.Context(), auth.NewUser{
 		Username:    req.Username,
@@ -159,6 +163,10 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
+	if err := auth.ManageWithin(Identity(r.Context()), u.Role); err != nil {
+		forbidden(w, err.Error())
+		return
+	}
 	before := *u
 	if req.Email != nil {
 		u.Email = strings.TrimSpace(*req.Email)
@@ -172,6 +180,10 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			unprocessable(w, "this account could not be changed", []fieldError{
 				{"role", fmt.Sprintf("%q is not a role; use %s", *req.Role, store.RoleList())},
 			})
+			return
+		}
+		if err := auth.ManageWithin(Identity(r.Context()), role); err != nil {
+			forbidden(w, err.Error())
 			return
 		}
 		u.Role = role
@@ -207,6 +219,10 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "reading the account", err)
 		return
 	}
+	if err := auth.ManageWithin(Identity(r.Context()), u.Role); err != nil {
+		forbidden(w, err.Error())
+		return
+	}
 	if err := s.auth.DeleteUser(r.Context(), id); err != nil {
 		if errors.Is(err, auth.ErrLastAdmin) {
 			conflict(w, err.Error())
@@ -234,6 +250,15 @@ func (s *Server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := auth.CheckPassword(req.NewPassword); err != nil {
 		unprocessable(w, "that password cannot be used", []fieldError{{"new_password", err.Error()}})
+		return
+	}
+	target, err := s.ctrl.Store().GetUser(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, "reading the account", err)
+		return
+	}
+	if err := auth.ManageWithin(Identity(r.Context()), target.Role); err != nil {
+		forbidden(w, err.Error())
 		return
 	}
 	if err := s.auth.ResetPassword(r.Context(), id, req.NewPassword); err != nil {

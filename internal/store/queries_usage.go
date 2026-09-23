@@ -122,7 +122,10 @@ func (s *Store) UsageWithInterval(ctx context.Context, from, to time.Time, group
 	case UsageByWorkflow:
 		expr = "j.workflow"
 	case UsageByHost:
-		expr = "COALESCE(r.host_id, '')"
+		// A job whose runner row has been pruned is still on the host its
+		// session names; without the session it would move to the blank host
+		// a week after it ran, and a host's month would shrink as it aged.
+		expr = "COALESCE(r.host_id, rs.host_id, '')"
 	case UsageByPool:
 		expr = "j.pool_id"
 	default:
@@ -157,6 +160,7 @@ func (s *Store) UsageWithInterval(ctx context.Context, from, to time.Time, group
 	}
 	rows, err := s.read.QueryContext(ctx, `SELECT `+expr+`, j.queued_at, j.started_at, j.completed_at, j.conclusion, j.runner_fault
 		FROM jobs j LEFT JOIN pools p ON p.id=j.pool_id LEFT JOIN runners r ON r.id=j.runner_id
+		LEFT JOIN runner_sessions rs ON rs.runner_id=j.runner_id
 		WHERE j.queued_at < ? AND COALESCE(j.completed_at, ?) >= ?
 		AND `+managedJobSQL("j"), ms(to), ms(to), ms(from))
 	if err != nil {
@@ -231,48 +235,22 @@ func (s *Store) UsageWithInterval(ctx context.Context, from, to time.Time, group
 	// groupings report no figure at all rather than an honest-looking zero.
 	attributable := UsageAllocationAttributable(group)
 	if attributable {
-		rExpr := "r.pool_id"
-		if group == UsageByHost {
-			rExpr = "r.host_id"
-		}
-		if group == UsageByInstallation {
-			rExpr = "p.installation_id"
-		}
-		rr, err := s.read.QueryContext(ctx, `SELECT `+rExpr+`, r.created_at, COALESCE(r.finished_at, ?), p.cost_per_runner_hour FROM runners r JOIN pools p ON p.id=r.pool_id WHERE r.created_at < ? AND COALESCE(r.finished_at, ?) > ?`, observed, ms(to), observed, ms(from))
-		if err != nil {
-			return nil, err
-		}
-		defer rr.Close()
-		for rr.Next() {
-			var key string
-			var start, end int64
-			var cost *float64
-			if err := rr.Scan(&key, &start, &end, &cost); err != nil {
-				return nil, err
-			}
+		err := s.usageAllocation(ctx, group, lo, hi, observed, width, func(key string, at int64, secs float64, cost *float64) {
 			x := a[key]
 			if x == nil {
 				x = &acc{row: UsageRow{Key: key}}
 				a[key] = x
 			}
-			secs := float64(min64(end, observed)-max64(start, lo)) / 1000
-			if secs < 0 {
-				secs = 0
-			}
 			x.allocated += secs
-			for at, end := max64(start, lo), min64(end, observed); at < end; {
-				next := min64(end, lo+((at-lo)/width+1)*width)
-				bucket(x, at).AllocatedSeconds += float64(next-at) / 1000
-				at = next
-			}
+			bucket(x, at).AllocatedSeconds += secs
 			if cost != nil {
 				if x.row.EstimatedCost == nil {
 					x.row.EstimatedCost = new(float64)
 				}
-				*x.row.EstimatedCost += secs / 3600 * *cost
+				*x.row.EstimatedCost += *cost
 			}
-		}
-		if err := rr.Err(); err != nil {
+		})
+		if err != nil {
 			return nil, err
 		}
 	}
