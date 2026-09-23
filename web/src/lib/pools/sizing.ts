@@ -58,10 +58,14 @@ export function cacheBytes(gb: number): number {
   return Math.round(gb * BYTES_PER_GB);
 }
 
-/** The gigabytes a stored cache limit is nearest to, so a slider can open on it. */
+/**
+ * The gigabytes a stored cache limit comes to. It is not snapped to a notch:
+ * a limit typed as 7 GB is 7 GB, and the slider takes it in as a notch of its
+ * own the way it takes any other figure set off the notches.
+ */
 export function cacheGb(bytes: number | undefined): number {
   if (!bytes || bytes <= 0) return 0;
-  return nearest(CACHE_NOTCHES, bytes / BYTES_PER_GB);
+  return Math.round((bytes / BYTES_PER_GB) * 100) / 100;
 }
 
 /** The notch nearest a value, so a figure typed elsewhere lands on the slider. */
