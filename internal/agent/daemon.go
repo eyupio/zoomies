@@ -176,6 +176,11 @@ type Agent struct {
 	// Runtime failures hold the next admission briefly without stopping jobs.
 	runtimeFailures int
 	runtimeRetryAt  time.Time
+	// runtimeKind and runtimeError are the last failure, kept so the
+	// heartbeat can say what the cooldown is about and not only that there
+	// is one.
+	runtimeKind  string
+	runtimeError string
 	// resolveRetry is how long a create waits between attempts to ask the
 	// host whether its runner already exists; tests shorten it.
 	resolveRetry []time.Duration
@@ -756,6 +761,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		DiskFreeMB:      free,
 		Backends:        infos,
 		Runners:         runners,
+		Runtime:         a.runtimeReport(),
 	})
 	if err != nil {
 		return err
@@ -1298,6 +1304,10 @@ func (a *Agent) handlePrewarm(ctx context.Context, task Task, release func()) {
 	}
 	if err != nil {
 		res.Error = err.Error()
+		// Classified here for the same reason a create is: an image the host
+		// cannot pull is found by the prewarm first, and the controller can
+		// only name the registry if it is told this was the image.
+		res.Fault = backend.Fault(err)
 	}
 	a.report(ctx, res)
 }

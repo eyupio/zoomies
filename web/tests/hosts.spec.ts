@@ -174,6 +174,13 @@ test('the Hosts page leads here', async ({ page }) => {
  * hold's does and what happens next. The memory figure recovers on the next
  * beat; the throttle stays a rung until the host has been calm for five
  * minutes, which is the fleet's promise rather than this test's.
+ *
+ * The same host's runtime then fails. That used to be a log line on the host
+ * and nothing else; one beat puts it on the card, with when the recovery
+ * attempt is due and how old the report is, and in the drawer, and the next
+ * beat without it clears both. It rides on this host rather than joining one
+ * of its own because joins are rate limited per address, and both projects
+ * share one controller.
  */
 test('host usage distinguishes a connected agent from held new starts and recovers', async ({
   page,
@@ -201,10 +208,14 @@ test('host usage distinguishes a connected agent from held new starts and recove
     expect(join.ok()).toBeTruthy();
     const credentials = (await join.json()) as { host_id: string; agent_token: string };
     hostId = credentials.host_id;
-    const heartbeat = async (memory: number) => {
+    const heartbeat = async (memory: number, runtime?: object) => {
       const response = await page.request.post('/api/v1/agent/heartbeat', {
         headers: { Authorization: `Bearer ${credentials.agent_token}` },
-        data: { protocol_version: 1, usage: { cpu_percent: 20, memory_available_mb: memory } },
+        data: {
+          protocol_version: 1,
+          usage: { cpu_percent: 20, memory_available_mb: memory },
+          ...(runtime ? { runtime } : {}),
+        },
       });
       expect(response.ok()).toBeTruthy();
     };
@@ -229,6 +240,35 @@ test('host usage distinguishes a connected agent from held new starts and recove
     await expect(card).toContainText('8.0 GB memory available');
     // Still on its rung: calm has to last before a step is given back.
     await expect(card).toContainText('throttled from 2');
+
+    // retry_in is a Go duration on the wire: nanoseconds.
+    await heartbeat(8192, {
+      failures: 3,
+      kind: 'unavailable',
+      error: 'backend: not available on this host: no socket at /var/run/docker.sock',
+      retry_in: 40_000_000_000,
+    });
+    const recovering = card.getByTestId('host-runtime-recovering');
+    await expect(recovering).toContainText('Runtime recovering: third failure in a row');
+    await expect(recovering).toContainText(/Retrying in \d+s/);
+    await expect(recovering).toContainText(/Reported (just now|\d+s ago)/);
+    await testInfo.attach('host-runtime-recovering', {
+      body: await card.screenshot(),
+      contentType: 'image/png',
+    });
+    const problems = (await page.request.get('/api/v1/problems').then((r) => r.json())) as {
+      items?: { code?: string; target_id?: string; fix?: string; since?: string }[];
+    };
+    const entry = (problems.items ?? []).find(
+      (p) => p.code === 'host.runtime_recovering' && p.target_id === hostId,
+    );
+    expect(entry, 'the drawer carries the runtime cooldown').toBeTruthy();
+    expect(entry?.fix).toContain('systemctl start docker');
+    expect(entry?.since).toBeTruthy();
+
+    // A beat with no report is a runtime that works again.
+    await heartbeat(8192);
+    await expect(recovering).toHaveCount(0);
   } finally {
     if (hostId) await page.request.delete(`/api/v1/hosts/${hostId}?force=true`);
   }

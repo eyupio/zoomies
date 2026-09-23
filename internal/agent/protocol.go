@@ -119,7 +119,37 @@ type HeartbeatRequest struct {
 	Features    []string       `json:"features,omitempty"`
 	Backends    []backend.Info `json:"backends,omitempty"`
 	Runners     []RunnerReport `json:"runners,omitempty"`
+	// Runtime is the container-runtime cooldown this agent is in, absent
+	// when it is in none. It used to be a log line on the host and nothing
+	// else, so a fleet whose daemon kept falling over saw only runners that
+	// were slow to appear. Absent from an agent too old to send it, which the
+	// controller reads the same way as a healthy runtime -- the only thing it
+	// ever knew about such a host -- and an older controller ignores it.
+	Runtime *RuntimeReport `json:"runtime,omitempty"`
 }
+
+// RuntimeReport is the agent's runtime cooldown as it stands at this beat.
+type RuntimeReport struct {
+	// Failures is how many runtime failures in a row, capped at five.
+	Failures int `json:"failures"`
+	// Kind is RuntimeUnavailable or RuntimeTimeout.
+	Kind string `json:"kind"`
+	// Error is the last failure as the backend worded it, which carries the
+	// socket path or the start hint the operator needs.
+	Error string `json:"error,omitempty"`
+	// RetryIn is how long until the one recovery attempt, rather than when:
+	// the controller turns it into a time on its own clock, so a host whose
+	// clock has drifted cannot tell the Hosts page something untrue.
+	RetryIn time.Duration `json:"retry_in"`
+}
+
+// The two kinds of runtime failure that open the cooldown.
+const (
+	// RuntimeUnavailable is a daemon the agent could not reach at all.
+	RuntimeUnavailable = "unavailable"
+	// RuntimeTimeout is a daemon that was reached and did not answer.
+	RuntimeTimeout = "timeout"
+)
 
 // HeartbeatResponse tells the agent whether the controller still recognises it.
 type HeartbeatResponse struct {
