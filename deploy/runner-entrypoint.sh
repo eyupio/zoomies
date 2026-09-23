@@ -24,6 +24,10 @@
 #
 #   ZOOMIES_DOCKER_WAIT    seconds to wait for that daemon (default 120)
 #
+# A host with agent.extra_ca_file mounts that PEM bundle read-only and names it:
+#
+#   ZOOMIES_EXTRA_CA_FILE  a CA to trust as well as the image's own roots
+#
 set -euo pipefail
 
 cd /home/runner
@@ -34,6 +38,70 @@ log() { printf '%s zoomies-runner: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; 
 # wrong variant is otherwise only discovered when a job fails on a missing
 # package, several minutes and one confusing log later.
 log "image: ${ZOOMIES_RUNNER_OS:-unknown} ${ZOOMIES_RUNNER_OS_VERSION:-} on $(uname -m), actions/runner ${ZOOMIES_RUNNER_VERSION:-unknown}"
+
+# Behind a proxy that re-signs TLS, nothing in a job reaches GitHub, a registry
+# or a package mirror until the proxy's CA is trusted -- and the failure is a
+# certificate error in somebody's third step, not here. So it is trusted before
+# the listener starts: in the system store, which git, curl, OpenSSL and the
+# package managers read, and through NODE_EXTRA_CA_CERTS, because the runner
+# and every JavaScript action are Node, which carries its own roots.
+#
+# The store is root's to change. The stock image gives the runner passwordless
+# sudo; a custom image without it, or without the store's tool, still gets the
+# Node half and a warning that says what the rest will not trust.
+apt_anchors=/usr/local/share/ca-certificates
+apt_bundle=/etc/ssl/certs/ca-certificates.crt
+dnf_anchors=/etc/pki/ca-trust/source/anchors
+dnf_bundle=/etc/pki/tls/certs/ca-bundle.crt
+
+trust_extra_ca() {
+  local ca=$1
+  if [ ! -r "$ca" ]; then
+    log "ZOOMIES_EXTRA_CA_FILE names $ca, which this runner cannot read."
+    log "check agent.extra_ca_file on this host: the file must exist and be readable by the container engine."
+    return 78
+  fi
+  export NODE_EXTRA_CA_CERTS="$ca"
+
+  local as_root=()
+  if [ "$(id -u)" -ne 0 ]; then
+    if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+      as_root=(sudo -n)
+    else
+      log "warning: this image gives the runner no way to become root, so the extra CA is trusted by Node only;"
+      log "git, curl and package managers in jobs will not trust it. Add it to your custom image's trust store instead."
+      return 0
+    fi
+  fi
+
+  local bundle
+  if command -v update-ca-certificates >/dev/null 2>&1; then
+    "${as_root[@]}" cp "$ca" "$apt_anchors/zoomies-extra-ca.crt" &&
+      "${as_root[@]}" update-ca-certificates >/dev/null 2>&1 &&
+      bundle=$apt_bundle
+  elif command -v update-ca-trust >/dev/null 2>&1; then
+    "${as_root[@]}" cp "$ca" "$dnf_anchors/zoomies-extra-ca.pem" &&
+      "${as_root[@]}" update-ca-trust extract >/dev/null 2>&1 &&
+      bundle=$dnf_bundle
+  else
+    log "warning: this image has neither update-ca-certificates nor update-ca-trust, so the extra CA is trusted by Node only."
+    return 0
+  fi
+  if [ -z "${bundle:-}" ]; then
+    log "warning: adding the extra CA to the system trust store failed, so it is trusted by Node only."
+    return 0
+  fi
+  # Python's requests carries its own roots and ignores the system store; this
+  # points it, and anything else that honours SSL_CERT_FILE, at the store the
+  # CA was just added to. Both are left alone if a pool already set them.
+  export REQUESTS_CA_BUNDLE="${REQUESTS_CA_BUNDLE:-$bundle}"
+  export SSL_CERT_FILE="${SSL_CERT_FILE:-$bundle}"
+  log "trusting the extra CA from $ca"
+}
+
+if [ -n "${ZOOMIES_EXTRA_CA_FILE:-}" ]; then
+  trust_extra_ca "$ZOOMIES_EXTRA_CA_FILE"
+fi
 
 # The runner treats SIGINT as "finish the current job, then exit", which is
 # exactly what a Zoomies drain means. Forward it rather than letting the shell

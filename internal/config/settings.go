@@ -428,6 +428,11 @@ var registry = buildRegistry([]Setting{
 		Summary:       "Where the process backend fetches runner archives from, for hosts that mirror releases internally. The path below it is the same.",
 		RestartReason: "the process backend is built with it",
 	},
+	{
+		Key: "agent.extra_ca_file", Label: "Extra CA for runners", Env: "ZOOMIES_AGENT_EXTRA_CA_FILE", Kind: KindString, Scope: ScopeInstance,
+		Summary:       "A PEM bundle on this host that container runners and their Docker sidecars trust as well as the image's own, for a network whose proxy re-signs TLS.",
+		RestartReason: "the backend is built with it",
+	},
 	// The transport a standalone agent uses to reach a controller. None of it
 	// can come from the controller's database, because a host that cannot yet
 	// reach the controller is exactly the host that needs these values.

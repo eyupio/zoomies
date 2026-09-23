@@ -508,6 +508,13 @@ type Agent struct {
 	// the place the process backend fetches archives from, for hosts that
 	// mirror releases internally. The path below it is the same.
 	RunnerDownloadURL string `yaml:"runner_download_url"`
+	// ExtraCAFile is a PEM bundle on this host that container runners, and
+	// their Docker sidecars, add to what they trust. It is a host setting and
+	// not a pool one because a TLS-intercepting proxy is a property of the
+	// network the host sits on: every job there needs it, whichever pool it
+	// came from. The process backend ignores it -- a bare runner already uses
+	// the host's own trust store.
+	ExtraCAFile string `yaml:"extra_ca_file"`
 	// FinishedRetention is how long a finished runner's workload -- the exited
 	// container with its output, its sidecar and scratch directory, or the
 	// process backend's runner directory -- stays on the host after the
