@@ -728,6 +728,11 @@ func (r Runners) DefaultRunnerSize() (cpus float64, memoryMB int64) {
 type Retention struct {
 	Jobs    time.Duration `yaml:"jobs"`
 	Runners time.Duration `yaml:"runners"`
+	// RunnerSessions is how long the usage ledger keeps a gone runner's
+	// session. It is separate from Runners, and far longer, because the row
+	// is what an operator debugs with for a week and the session is what they
+	// reconcile a year's cloud bill against.
+	RunnerSessions time.Duration `yaml:"runner_sessions"`
 	// ScalingEvents is how long scaling decisions are kept. It used to be
 	// called audit, and a file that still says so is honoured -- see Audit.
 	ScalingEvents time.Duration `yaml:"scaling_events"`
@@ -820,12 +825,13 @@ func Default() *Config {
 			GroupsClaim:   "groups",
 		},
 		Retention: Retention{
-			Jobs:          30 * 24 * time.Hour,
-			Runners:       7 * 24 * time.Hour,
-			ScalingEvents: 365 * 24 * time.Hour,
-			Samples:       7 * 24 * time.Hour,
-			Webhooks:      7 * 24 * time.Hour,
-			Machines:      7 * 24 * time.Hour,
+			Jobs:           30 * 24 * time.Hour,
+			Runners:        7 * 24 * time.Hour,
+			RunnerSessions: 365 * 24 * time.Hour,
+			ScalingEvents:  365 * 24 * time.Hour,
+			Samples:        7 * 24 * time.Hour,
+			Webhooks:       7 * 24 * time.Hour,
+			Machines:       7 * 24 * time.Hour,
 		},
 		// Hourly is soon enough that a host picks up a rebuilt image the same
 		// working day, and rare enough that the registry never notices.

@@ -3247,10 +3247,13 @@ export interface components {
             /**
              * @description Where the history each figure is computed from begins, given what
              *     retention has already pruned. Job counts, execution time and
-             *     queue waits come from job rows; allocated runner time and cost
-             *     from runner rows, which are kept for less time by default. A
-             *     report whose `from` is earlier than one of these is complete only
-             *     from that instant on. Null means that history is never pruned.
+             *     queue waits come from job rows. Allocated runner time and cost
+             *     come from the usage ledger — a daily roll-up for the whole UTC
+             *     days it covers, and runner rows and sessions for the rest — so
+             *     `runners` is where the ledger begins rather than where
+             *     retention.runners cuts the rows. A report whose `from` is earlier
+             *     than one of these is complete only from that instant on. Null
+             *     means that history is never pruned.
              */
             history_from: {
                 /** Format: date-time */
@@ -5410,7 +5413,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description CSV export */
+            /** @description CSV export. Every row ends with history_from_jobs and history_from_runners, the RFC 3339 instants the JSON response carries as history_from, blank where that history is never pruned. */
             200: {
                 headers: {
                     [name: string]: unknown;
