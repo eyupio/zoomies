@@ -1,8 +1,20 @@
 name: OpenSSF Scorecard
 
+# Scorecard grades the workflows, the pinned dependencies, the images' base
+# pins and the security policy; a push that changes none of them cannot move
+# the grade. The weekly run re-reads the repository settings, which no push
+# changes.
 on:
   push:
     branches: [main]
+    paths:
+      - ".github/**"
+      - "deploy/**"
+      - "go.mod"
+      - "go.sum"
+      - "web/package.json"
+      - "web/package-lock.json"
+      - "SECURITY.md"
   schedule:
     # Re-evaluate repository and supply-chain posture every week.
     - cron: "23 7 * * 6"

@@ -653,7 +653,8 @@ func resourcesFromLabels(labels map[string]string) store.Resources {
 func nanoCPUs(cpus float64) int64 { return int64(math.Round(cpus * 1e9)) }
 
 // UpdateResources moves a running runner's CPU quota, and its docker-in-docker
-// sidecar's, to res.CPUs. It is how a throttle reaches a job that is already
+// sidecar's, to res.CPUs -- except that a boost of a pair goes to the sidecar,
+// see below. It is how a throttle reaches a job that is already
 // running, and it is idempotent: a container whose quota already matches is
 // not asked to change, so the agent can send the same figure on every beat
 // without a durable record of what it last sent.
@@ -675,26 +676,46 @@ func (b *DockerBackend) UpdateResources(ctx context.Context, h Handle, res store
 		return fmt.Errorf("backend: inspecting container %s before changing its CPU quota: %w", shortID(string(h)), err)
 	}
 	want := nanoCPUs(res.CPUs)
-	if err := b.updateCPUQuota(ctx, string(h), insp.HostConfig, want); err != nil {
-		return err
+	var name string
+	var labels map[string]string
+	if insp.Config != nil {
+		labels = insp.Config.Labels
+		name = labels[LabelName]
+	}
+	var sidecars []ContainerSummary
+	if name != "" {
+		// The sidecar does the build's work under docker_mode dind, so a
+		// throttle that left it alone would slow the runner process and
+		// nothing else. It is found by the name label the runner carries,
+		// which is what its own dind-for label was written from.
+		sidecars, err = b.api.ContainerList(ctx, map[string][]string{
+			"label": {LabelManaged + "=true", LabelDinDFor + "=" + name},
+		})
+		if err != nil {
+			return fmt.Errorf("backend: listing the docker-in-docker sidecar of %s: %w", name, err)
+		}
 	}
 
-	// The sidecar does the build's work under docker_mode dind, so a throttle
-	// that left it alone would slow the runner process and nothing else. It
-	// is found by the name label the runner carries, which is what its own
-	// dind-for label was written from.
-	var name string
-	if insp.Config != nil {
-		name = insp.Config.Labels[LabelName]
+	// A boost is the pair's, and the build that wants it runs in the daemon.
+	// Scaling both halves by the factor gave the runner process cores it had
+	// no use for and the daemon only half the loan, so the runner stays at
+	// its own half and the sidecar is given the rest of the pair's target.
+	// The request still carries the runner's half times the factor, as every
+	// agent has always sent it, so neither side of the protocol changed and a
+	// container without the labels to split by keeps the old behaviour.
+	runnerWant, sidecarWant := want, want
+	runnerHalf := resourcesFromLabels(labels).CPUs
+	if runnerHalf > 0 && res.CPUs > runnerHalf && len(sidecars) == 1 {
+		if sidecarHalf := resourcesFromLabels(sidecars[0].Labels).CPUs; sidecarHalf > 0 {
+			factor := res.CPUs / runnerHalf
+			pair := (runnerHalf + sidecarHalf) * factor
+			runnerWant = nanoCPUs(runnerHalf)
+			sidecarWant = nanoCPUs(math.Floor((pair-runnerHalf)*100+1e-9) / 100)
+		}
 	}
-	if name == "" {
-		return nil
-	}
-	sidecars, err := b.api.ContainerList(ctx, map[string][]string{
-		"label": {LabelManaged + "=true", LabelDinDFor + "=" + name},
-	})
-	if err != nil {
-		return fmt.Errorf("backend: listing the docker-in-docker sidecar of %s: %w", name, err)
+
+	if err := b.updateCPUQuota(ctx, string(h), insp.HostConfig, runnerWant); err != nil {
+		return err
 	}
 	for _, s := range sidecars {
 		sinsp, err := b.api.ContainerInspect(ctx, s.ID)
@@ -705,7 +726,7 @@ func (b *DockerBackend) UpdateResources(ctx context.Context, h Handle, res store
 			}
 			return fmt.Errorf("backend: inspecting the docker-in-docker sidecar of %s: %w", name, err)
 		}
-		if err := b.updateCPUQuota(ctx, s.ID, sinsp.HostConfig, want); err != nil {
+		if err := b.updateCPUQuota(ctx, s.ID, sinsp.HostConfig, sidecarWant); err != nil {
 			return err
 		}
 	}
@@ -1177,6 +1198,7 @@ func (b *DockerBackend) Stats(ctx context.Context, h Handle) (Stats, error) {
 	if err != nil {
 		return Stats{}, err
 	}
+	busiest := halfPercent(out.CPUPercent, insp.Config.Labels)
 	for _, sidecar := range sidecars {
 		sample, err := b.api.ContainerStats(ctx, sidecar.ID)
 		if errors.Is(err, ErrNotFound) {
@@ -1185,9 +1207,21 @@ func (b *DockerBackend) Stats(ctx context.Context, h Handle) (Stats, error) {
 		if err != nil {
 			return Stats{}, err
 		}
+		busiest = max(busiest, halfPercent(sample.CPUPercent, sidecar.Labels))
 		out = addStats(out, Stats(sample))
 	}
+	out.BusiestHalfPercent = busiest
 	return out, nil
+}
+
+// halfPercent is a container's CPU use as a share of the quota it was created
+// with, from the label its create stamped. Zero where there is no label to
+// judge by -- an unlimited container, or one from an older release.
+func halfPercent(cpuPercent float64, labels map[string]string) float64 {
+	if half := resourcesFromLabels(labels).CPUs; half > 0 {
+		return cpuPercent / half
+	}
+	return 0
 }
 
 func addStats(a, b Stats) Stats {
