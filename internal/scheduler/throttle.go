@@ -165,7 +165,10 @@ func hostCalm(h *store.Host) bool {
 	if u.CPUHeld {
 		return false
 	}
-	if u.CPUPercent != nil && *u.CPUPercent >= cpuCalmPercent {
+	// Judged without CPU runners are using because it was lent them: the
+	// throttle withdraws every boost anyway, and counting it here would hold a
+	// host on its rung for doing what the plan asked.
+	if v := u.UnlentCPUPercent(); v != nil && *v >= cpuCalmPercent {
 		return false
 	}
 	if u.LoadAverage1 != nil && h.CPUs > 0 && *u.LoadAverage1 >= LoadPerCPUCalm*float64(h.CPUs) {

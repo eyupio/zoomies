@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -754,7 +755,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	}
 
 	if req.Usage != nil {
-		usage := store.ObserveHostUsage(h.Usage, *req.Usage, h.MemoryMB, now)
+		usage := store.ObserveHostUsage(h.Usage, *req.Usage, c.lentCPUPercent(ctx, h, req.Runners, now), h.MemoryMB, now)
 		if err := c.st.SetHostUsage(ctx, hostID, usage); err != nil {
 			return nil, err
 		}
@@ -1247,9 +1248,12 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 		if rep.GitHubRunnerID != 0 && r.GitHubRunnerID == 0 {
 			_ = c.st.SetRunnerGitHubID(ctx, r.ID, rep.GitHubRunnerID)
 		}
+		cpuMoved := false
 		if rep.Stats.SampledAt != nil || rep.Stats.CPUPercent != 0 || rep.Stats.MemoryBytes != 0 {
 			sample, _ := json.Marshal(rep.Stats)
-			_ = c.st.SetRunnerResourceSample(ctx, r.ID, rep.Stats.CPUPercent, rep.Stats.MemoryBytes, sample)
+			if err := c.st.SetRunnerResourceSample(ctx, r.ID, rep.Stats.CPUPercent, rep.Stats.MemoryBytes, sample); err == nil {
+				cpuMoved = allocationFactorMoved(r.ResourceSample, rep.Stats)
+			}
 		}
 
 		state := rep.State
@@ -1261,6 +1265,14 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 			}
 		}
 		c.applyRunnerState(ctx, r, state, rep.Message, rep.Fault)
+		if cpuMoved {
+			// A boost given, taken back or tightened by a throttle is the
+			// runner's cpu_resource changing, and the UI repaints a runner
+			// only from a runner.updated frame. Without this the Squirrel
+			// spotted status appeared on a reload and never live. The frame
+			// is the runner's GET shape, read after every write above.
+			c.publishRunnerByID(ctx, r.ID)
+		}
 		if rep.HostRemoved && !rep.Phase.Live() && (r.State.Terminal() || state.Terminal()) {
 			if err := c.noteCleanupSucceeded(ctx, r, true); err != nil {
 				errs = append(errs, err)
@@ -1268,6 +1280,23 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// allocationFactorMoved reports whether a new sample changes the CPU
+// allocation factor the previous one recorded, which is the only input to a
+// runner's cpu_resource view that a heartbeat moves. A runner never sampled
+// before counts as at its guarantee.
+func allocationFactorMoved(previous json.RawMessage, current backend.Stats) bool {
+	was := 1.0
+	var prev backend.Stats
+	if len(previous) > 0 && json.Unmarshal(previous, &prev) == nil && prev.CPUAllocationFactor > 0 {
+		was = prev.CPUAllocationFactor
+	}
+	now := current.CPUAllocationFactor
+	if now <= 0 {
+		now = 1
+	}
+	return math.Abs(now-was) > 0.005
 }
 
 // reconcileLateReport settles a runner this controller has already written

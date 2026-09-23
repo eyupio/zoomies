@@ -23,7 +23,10 @@ func HostAdmissionReason(h *store.Host, now time.Time) string {
 }
 
 func hostUnderCPUPressure(h *store.Host, now time.Time) bool {
-	return h.Usage.Fresh(now) && h.Usage.CPUPercent != nil && *h.Usage.CPUPercent >= 85
+	// Lent CPU in use is load the elastic plan chose, and the next plan
+	// takes it back for a start, so it is not pressure.
+	v := h.Usage.UnlentCPUPercent()
+	return h.Usage.Fresh(now) && v != nil && *v >= 85
 }
 
 func (hs *hostSet) pending(h *store.Host, pools []*store.Pool, runners map[string][]*store.Runner) Reservation {

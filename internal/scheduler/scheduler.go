@@ -1144,7 +1144,9 @@ func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*
 				available := *v - pending.MemoryMB
 				l.MemoryMB = min(l.MemoryMB, max(available, 0))
 			}
-			if v := h.Usage.CPUPercent; v != nil {
+			// CPU runners are using because it was lent them is not
+			// taken: the next elastic plan gives it back to a start.
+			if v := h.Usage.UnlentCPUPercent(); v != nil {
 				hs.observedCPU[h.ID] = max(float64(h.CPUs)*(1-*v/100)-h.CPUReserve()-pending.CPUs, 0)
 			}
 		}
