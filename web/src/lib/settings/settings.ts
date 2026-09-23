@@ -8,6 +8,7 @@
  */
 import type { Setting, SettingSource } from '$lib/api/types';
 import type { StatusTone } from '$lib/status';
+import { formatQuantity, parseQuantity, type Quantity } from '$lib/units';
 
 /** A section heading, and one line about what the section is for. */
 export const SECTION_BLURB: Record<string, string> = {
@@ -45,6 +46,13 @@ export function displayValue(setting: Setting): string {
   if (setting.secret) return setting.configured ? 'set, not shown' : 'not set';
   const raw = setting.value;
   if (raw === null || raw === undefined) return 'not set';
+  const quantity = settingQuantity(setting);
+  if (quantity && typeof raw === 'number') return formatQuantity(raw, quantity);
+  if (quantity === 'ms' && typeof raw === 'string') {
+    // The controller writes Go's spelling -- 720h -- and people read days.
+    const parsed = parseQuantity(raw, 'ms');
+    if (parsed.ok && parsed.value !== null) return formatQuantity(parsed.value, 'ms');
+  }
   if (typeof raw === 'boolean') return raw ? 'on' : 'off';
   if (Array.isArray(raw)) return raw.length > 0 ? raw.join(', ') : 'none';
   if (typeof raw === 'object') {
@@ -52,6 +60,23 @@ export function displayValue(setting: Setting): string {
     return entries.length > 0 ? entries.map(([k, v]) => `${k}=${String(v)}`).join(' ') : 'none';
   }
   return String(raw) === '' ? 'not set' : String(raw);
+}
+
+/**
+ * What a numeric or duration setting measures, so it can be shown and edited
+ * the way people think of it. A duration is a length of time, shown as "7d"
+ * rather than 168h. A number is a size where its key names the unit -- `_mb`
+ * and `_gb` are sizes, a key ending in `cpus` is cores -- and a count
+ * otherwise. Every one of them is edited with a slider and a field that reads
+ * what people write: 4g, 1.5, 2 weeks.
+ */
+export function settingQuantity(setting: Pick<Setting, 'key' | 'kind'>): Quantity | null {
+  if (setting.kind === 'duration') return 'ms';
+  if (setting.kind !== 'int' && setting.kind !== 'float') return null;
+  if (setting.key.endsWith('_mb')) return 'mb';
+  if (setting.key.endsWith('_gb')) return 'gb';
+  if (setting.key.endsWith('cpus')) return 'cpus';
+  return setting.kind === 'int' ? 'count' : null;
 }
 
 /** Whether to render the value in the muted, italic "nothing here" style. */

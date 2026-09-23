@@ -1,4 +1,5 @@
 ---
+title: Prometheus metrics for your runner fleet
 description: >-
   Every Prometheus metric Zoomies exposes, what it measures and what to alert
   on: fleet gauges, job counters and startup histograms.

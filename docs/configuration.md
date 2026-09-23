@@ -1,4 +1,5 @@
 ---
+title: "Configuration reference: every setting and default"
 description: >-
   Where Zoomies keeps its settings — the fleet's database, a small file, and the
   ZOOMIES_* environment — with every key, its default, and the startup warnings
@@ -184,6 +185,7 @@ security:
   session_ttl: 168h                         # ZOOMIES_SESSION_TTL
   cookie_secure: null                       # ZOOMIES_COOKIE_SECURE (derived when unset)
   disable_auth: false                       # ZOOMIES_DISABLE_AUTH
+  allow_private_egress: false               # ZOOMIES_ALLOW_PRIVATE_EGRESS (let the URLs it dials be private addresses)
   docker_in_docker_expected: false          # ZOOMIES_DOCKER_IN_DOCKER_EXPECTED
   rate_limit_logins: 10                     # ZOOMIES_RATE_LIMIT_LOGINS (per address per minute, and 5x that per account
                                             #   over 15m); 0 disables it and is warned about
@@ -569,6 +571,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
 | `security.cookie_secure` | `ZOOMIES_COOKIE_SECURE` | next restart | Secure session cookies — Force the Secure attribute on session cookies. Unset derives it from the external URL and the TLS mode, which is right unless a proxy in front makes it wrong. |
+| `security.allow_private_egress` | `ZOOMIES_ALLOW_PRIVATE_EGRESS` | live | Allow private outbound addresses — Let the URLs this controller dials — the OIDC issuer, the GitHub API, the capacity-demand destination, the runner download mirror, a backup remote and a provider — name this machine, a link-local address or a private network. Off, writing one through the API is refused and one in the file or environment is warned about, as `egress.private_target`. Turn it on when one of them really lives on a network you own. |
 | `security.disable_auth` | `ZOOMIES_DISABLE_AUTH` | next restart | Disable authentication — Remove all authentication. It exists for local development, and it is refused wherever this controller looks reachable. |
 | `security.docker_in_docker_expected` | `ZOOMIES_DOCKER_IN_DOCKER_EXPECTED` | live | Docker-in-Docker is expected here — Stop a pool that gives its jobs their own Docker daemon being listed as a dangerous setting. The daemon still runs in a privileged container; this is a fleet saying it knows, so that the settings still worth a second look are not buried under one it has already decided. The host socket and persistent runners keep warning. |
 | `security.encryption_key` | `ZOOMIES_ENCRYPTION_KEY` | file or environment only | Encryption key — The 32-byte key, base64 or hex, that seals GitHub App private keys, webhook secrets and the stored credentials below. Prefer the key file or the environment variable: a key written into zoomies.yaml is a key in your configuration management system. |

@@ -276,3 +276,320 @@ test('the sign-in page fits a phone too', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   await expectPhoneSafe(page, 'the sign-in page');
 });
+
+/*
+ * Two audiences for one instance.
+ *
+ * The bootstrap account above holds the platform role: it is whoever runs the
+ * process. Everybody after it -- viewer, operator, administrator -- is the
+ * fleet, and must not be shown where the process listens, where it keeps its
+ * database and key, or what its heap and goroutines are doing: not on a page,
+ * not in a response the page makes, not in a frame of the event stream. The
+ * API tests pin each route; these pin the whole of what a browser signed in as
+ * each role receives, which is where a route nobody thought to test shows up.
+ * The audit frame and the bootstrap keys were both found that way.
+ *
+ * They run here, after the bootstrap, because only this server has
+ * authentication on and an account with the platform role. The needles are
+ * read from the platform's own settings rather than written down, so a
+ * fixture that moves its temporary directory is still scanned for.
+ */
+
+type Page = import('@playwright/test').Page;
+type ApiContext = import('@playwright/test').APIRequestContext;
+type ApiResponse = import('@playwright/test').APIResponse;
+
+const FLEET_ROLES = ['viewer', 'operator', 'admin'] as const;
+const PASSWORD = ADMIN.password;
+/** Set by the platform while each role watches, so the stream has a frame to carry. */
+const BACKUP_DIRECTORY = '/srv/zoomies-platform-backups';
+
+/** What the platform is told and nobody else is. */
+interface PlatformFacts {
+  bind: string;
+  keyFile: string;
+  /** The database's directory: the key and the runners' work directory sit under it too. */
+  stateDir: string;
+  databasePath: string;
+}
+
+/** A signed-in API client. Same-origin, because a session cookie is refused without it. */
+async function apiAs(
+  request: typeof import('@playwright/test').request,
+  baseURL: string,
+  username: string,
+): Promise<ApiContext> {
+  const api = await request.newContext({
+    baseURL,
+    extraHTTPHeaders: { Origin: baseURL },
+  });
+  const login = await api.post('/api/v1/auth/login', { data: { username, password: PASSWORD } });
+  expect(login.status(), `signing ${username} in`).toBe(200);
+  return api;
+}
+
+async function platformFacts(platform: ApiContext): Promise<PlatformFacts> {
+  const res = await platform.get('/api/v1/settings');
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  const databasePath = String(body.database_path);
+  const facts: PlatformFacts = {
+    bind: body.config.server.bind,
+    keyFile: body.config.security.encryption_key_file,
+    stateDir: databasePath.replace(/\/[^/]+$/, ''),
+    databasePath,
+  };
+  // An empty needle is in every string and so proves nothing.
+  for (const [name, value] of Object.entries(facts)) {
+    expect(value, `the platform's settings name no ${name}`).toMatch(/\S{4,}/);
+  }
+  return facts;
+}
+
+/**
+ * What in `text` the fleet must not see, named for the failure message.
+ *
+ * The state directory stands for every path under it, so a new path setting
+ * is caught without a new needle. The process figures are matched as non-zero
+ * values, because a fleet's bundle keeps those fields and zeroes them.
+ */
+function leaks(text: string, facts: PlatformFacts): string[] {
+  const found: string[] = [];
+  if (text.includes(facts.bind)) found.push(`the bind address ${facts.bind}`);
+  if (text.includes(facts.stateDir)) found.push(`a path under ${facts.stateDir}`);
+  if (text.includes(facts.keyFile)) found.push(`the key file ${facts.keyFile}`);
+  if (text.includes(BACKUP_DIRECTORY)) found.push(`the backup directory ${BACKUP_DIRECTORY}`);
+  for (const figure of ['goroutines', 'heap_in_use_bytes', 'event_subscribers']) {
+    if (new RegExp(`"${figure}"\\s*:\\s*[1-9]`).test(text)) found.push(`the process's ${figure}`);
+  }
+  return found;
+}
+
+/** Every /api/ response a page receives, kept as text for the scan. */
+function recordResponses(page: Page): Array<{ url: string; body: string }> {
+  const seen: Array<{ url: string; body: string }> = [];
+  page.on('response', async (res) => {
+    const url = res.url();
+    if (!url.includes('/api/')) return;
+    // A stream never finishes, so its body never arrives; streamWhile reads it.
+    if ((res.headers()['content-type'] ?? '').includes('text/event-stream')) return;
+    try {
+      seen.push({ url, body: await res.text() });
+    } catch {
+      /* a response the page navigated away from has no body left to read */
+    }
+  });
+  return seen;
+}
+
+/**
+ * Hold the event stream open in the page while `during` runs, and return what
+ * it carried. In the page rather than from Node, so the frames are the ones
+ * this browser's session is sent.
+ */
+async function streamWhile(page: Page, during: () => Promise<void>): Promise<string> {
+  const reading = page.evaluate(async () => {
+    const res = await fetch('/api/v1/events');
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    const until = Date.now() + 4_000;
+    while (Date.now() < until) {
+      const next = await Promise.race([
+        reader.read(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), until - Date.now())),
+      ]);
+      if (!next || next.done) break;
+      text += decoder.decode(next.value);
+    }
+    await reader.cancel();
+    return text;
+  });
+  // Long enough for the page's request to have subscribed before anything moves.
+  await page.waitForTimeout(500);
+  await during();
+  return reading;
+}
+
+async function signInAs(page: Page, username: string): Promise<void> {
+  await page.goto('/login');
+  await page.fill('input[name="username"]', username);
+  await page.fill('input[name="password"]', PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Overview', level: 1 })).toBeVisible();
+}
+
+/** Every page a role might look for the machine on, then the problems drawer. */
+async function tour(page: Page, facts: PlatformFacts, who: string): Promise<void> {
+  for (const path of [
+    '/',
+    '/hosts',
+    '/settings/configuration',
+    '/settings/tokens',
+    '/settings/backups',
+    '/settings/about',
+    '/audit',
+  ]) {
+    await page.goto(path);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    expect(leaks(await page.locator('body').innerText(), facts), `${who} on ${path}`).toEqual([]);
+  }
+  await page.getByRole('button', { name: /^Problems\./ }).click();
+  const drawer = page.getByRole('dialog', { name: 'Problems' });
+  await expect(drawer).toBeVisible();
+  expect(leaks(await drawer.innerText(), facts), `${who} in the problems drawer`).toEqual([]);
+  await page.keyboard.press('Escape');
+}
+
+test.describe('what each role is shown', () => {
+  // Each walks seven pages and holds a stream open; the default is for one page.
+  test.describe.configure({ timeout: 60_000 });
+  let platform: ApiContext;
+  let facts: PlatformFacts;
+  /** A token the platform owns, so there is one for the fleet not to be listed. */
+  let platformToken: string;
+
+  test.beforeAll(async ({ playwright }, info) => {
+    platform = await apiAs(playwright.request, info.project.use.baseURL!, ADMIN.username);
+    // The premise: the account that bootstrapped the instance runs it.
+    expect((await (await platform.get('/api/v1/auth/session')).json()).role).toBe('platform');
+    facts = await platformFacts(platform);
+    for (const role of FLEET_ROLES) {
+      const made = await platform.post('/api/v1/users', {
+        data: { username: `fleet-${role}`, password: PASSWORD, role },
+      });
+      expect(made.status(), `creating the ${role}`).toBe(201);
+    }
+    const token = await platform.post('/api/v1/tokens', {
+      data: { name: 'the platform’s automation', role: 'platform' },
+    });
+    expect(token.status()).toBe(201);
+    platformToken = (await token.json()).id;
+  });
+
+  test.afterAll(async () => {
+    await platform?.dispose();
+  });
+
+  for (const role of FLEET_ROLES) {
+    test(`a fleet ${role} is shown nothing of the machine the process runs on`, async ({
+      page,
+      playwright,
+    }, info) => {
+      const username = `fleet-${role}`;
+      const responses = recordResponses(page);
+      await signInAs(page, username);
+
+      // A platform setting changed while this role watches: the frame that
+      // records the change is the one most likely to carry the value along.
+      const frames = await streamWhile(page, async () => {
+        const changed = await platform.patch('/api/v1/settings', {
+          data: { 'backup.directory': `${BACKUP_DIRECTORY}-${role}` },
+        });
+        expect(changed.status()).toBe(200);
+      });
+      expect(frames, 'the stream carried the audit frame for that change').toContain(
+        'event: audit',
+      );
+      expect(leaks(frames, facts), `${role}'s event stream`).toEqual([]);
+
+      await tour(page, facts, role);
+      expect(responses.length, 'the pages made requests to scan').toBeGreaterThan(5);
+      for (const { url, body } of responses) {
+        expect(leaks(body, facts), `${role} was sent this by ${url}`).toEqual([]);
+      }
+
+      // The platform's page is listed, locked, with the reason -- not hidden.
+      await page.goto('/settings/backups');
+      await expect(
+        page.getByText('Backups needs the platform role', { exact: true }),
+      ).toBeVisible();
+      await expect(page.getByText(/belongs to whoever runs this controller/)).toBeVisible();
+
+      // And every platform-only act is refused by the API, not only the page.
+      const api = await apiAs(playwright.request, info.project.use.baseURL!, username);
+      try {
+        const refused: Array<[string, () => Promise<ApiResponse>]> = [
+          [
+            'change a platform-scoped key',
+            () => api.patch('/api/v1/settings', { data: { 'backup.keep': 3 } }),
+          ],
+          ['lift the fence', () => api.post('/api/v1/recovery/unfence')],
+          ['list the backups', () => api.get('/api/v1/backups')],
+          ['run a restore', () => api.post('/api/v1/backups/bak_nonexistent/restore')],
+          [
+            'make a platform account',
+            () =>
+              api.post('/api/v1/users', {
+                data: { username: `${role}-shadow`, password: PASSWORD, role: 'platform' },
+              }),
+          ],
+        ];
+        for (const [what, act] of refused) {
+          // An administrator's refusal of a platform key is a 422 that says
+          // whose key it is; everything else never reaches its handler.
+          expect([403, 422], `a ${role} may not ${what}`).toContain((await act()).status());
+        }
+
+        const bundle = await api.get('/api/v1/diagnostics/bundle');
+        const tokens = await api.get('/api/v1/tokens');
+        if (role === 'admin') {
+          // An administrator takes the fleet's half of the bundle, and is
+          // not listed the platform's own tokens.
+          expect(bundle.status()).toBe(200);
+          expect(leaks(await bundle.text(), facts), 'the administrator’s bundle').toEqual([]);
+          expect(tokens.status()).toBe(200);
+          expect(await tokens.text()).not.toContain(platformToken);
+        } else {
+          expect(bundle.status()).toBe(403);
+          expect(tokens.status()).toBe(403);
+        }
+      } finally {
+        await api.dispose();
+      }
+    });
+  }
+
+  // The other side of the line. A scan that passed because every page was
+  // blank would prove nothing, so the platform is shown, through the same
+  // helpers, each thing the fleet was not -- and may do each thing it may not.
+  test('the platform is shown the machine, and may do what the fleet may not', async ({ page }) => {
+    const responses = recordResponses(page);
+    await signInAs(page, ADMIN.username);
+
+    const frames = await streamWhile(page, async () => {
+      const changed = await platform.patch('/api/v1/settings', {
+        data: { 'backup.directory': `${BACKUP_DIRECTORY}-platform` },
+      });
+      expect(changed.status()).toBe(200);
+    });
+    expect(leaks(frames, facts)).toContain(`the backup directory ${BACKUP_DIRECTORY}`);
+
+    await page.goto('/settings/configuration');
+    await expect(page.getByText(facts.databasePath).first()).toBeVisible();
+    await page.goto('/settings/backups');
+    await expect(page.getByRole('heading', { name: 'Backups', level: 1 })).toBeVisible();
+    await expect(page.getByText('Backups needs the platform role', { exact: true })).toHaveCount(0);
+    await page.waitForLoadState('networkidle');
+    expect(leaks(responses.map((r) => r.body).join('\n'), facts)).toEqual(
+      expect.arrayContaining([`the bind address ${facts.bind}`, `a path under ${facts.stateDir}`]),
+    );
+
+    const bundle = await platform.get('/api/v1/diagnostics/bundle');
+    expect(bundle.status()).toBe(200);
+    expect(leaks(await bundle.text(), facts)).toEqual(
+      expect.arrayContaining(["the process's goroutines", "the process's heap_in_use_bytes"]),
+    );
+    expect(await (await platform.get('/api/v1/tokens')).text()).toContain(platformToken);
+    expect((await platform.get('/api/v1/backups')).status()).toBe(200);
+    expect(
+      (await platform.patch('/api/v1/settings', { data: { 'backup.keep': 8 } })).status(),
+    ).toBe(200);
+    // Nothing is fenced and there is no such backup, so neither of these has
+    // anything to do -- but each is answered for what it names, not refused
+    // for who asked.
+    expect((await platform.post('/api/v1/recovery/unfence')).status()).not.toBe(403);
+    expect((await platform.post('/api/v1/backups/bak_nonexistent/restore')).status()).not.toBe(403);
+  });
+});

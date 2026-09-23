@@ -29,7 +29,10 @@ const (
 	// The database layer raises its own findings -- about the rows rather than
 	// about what any one setting says -- and they reach the same two places as
 	// the validator's, so they need the same row here.
-	databaseSource   = "../config/database.go"
+	databaseSource = "../config/database.go"
+	// The outbound address guard builds its one finding itself, because the
+	// API raises it about rows the validator never sees.
+	egressSource     = "../config/egress.go"
 	controllerSource = "../controller/problems.go"
 	viewsSource      = "../controller/views.go"
 	reference        = "../../docs/problem-codes.md"
@@ -88,7 +91,7 @@ func goFilesIn(t *testing.T, root string) []string {
 // problemSources is every file a code an operator can be shown may come from.
 func problemSources(t *testing.T) []string {
 	t.Helper()
-	sources := append([]string{validatorSource, databaseSource}, controllerSources(t)...)
+	sources := append([]string{validatorSource, databaseSource, egressSource}, controllerSources(t)...)
 	return append(sources, providerSources(t)...)
 }
 

@@ -31,6 +31,8 @@
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import Slider from '$lib/components/Slider.svelte';
+  import QuantityField from '$lib/components/QuantityField.svelte';
+  import { withValue } from '$lib/pools/sizing';
   import { Sparkles, TriangleAlert } from '@lucide/svelte';
   import {
     capacityCeiling,
@@ -160,7 +162,8 @@
       marks.push({ value: top, label: `${top} of ${shape.cpus}` });
     return marks;
   });
-  const mbNotches = $derived(memoryNotches(shape.memoryMb));
+  /* A figure typed off the notches joins them, so the slider holds it. */
+  const mbNotches = $derived(withValue(memoryNotches(shape.memoryMb), reserveMb));
   const mbMarks = $derived.by(() => {
     const marks: { value: number; label: string; recommended?: boolean }[] = [
       { value: 0, label: 'none' },
@@ -171,7 +174,7 @@
     if (top > 0 && top !== recMb) marks.push({ value: top, label: memoryLabel(top) });
     return marks;
   });
-  const diskNotchList = $derived(diskNotches(diskTotalMb));
+  const diskNotchList = $derived(withValue(diskNotches(diskTotalMb), reserveDiskMb));
   const diskMarks = $derived.by(() => {
     const marks: { value: number; label: string; recommended?: boolean }[] = [
       { value: 0, label: 'none' },
@@ -373,15 +376,19 @@
             error={errors.reserve_cpus ?? ''}
           >
             {#snippet children({ id, describedBy })}
-              <Slider
+              <QuantityField
                 {id}
+                quantity="cpus"
+                whole
                 values={coreNotches}
-                bind:value={reserveCores}
+                value={reserveCores}
                 label="Cores held back"
                 valuetext={(v) => (v === 0 ? 'None' : pluralise(v, 'core'))}
                 marks={coreMarks}
                 tone={aboveCores ? 'warning' : 'accent'}
+                empty={{ value: 0, placeholder: 'none' }}
                 {describedBy}
+                onchange={(v) => (reserveCores = v ?? 0)}
               />
             {/snippet}
           </Field>
@@ -408,15 +415,18 @@
             error={errors.reserve_memory_mb ?? ''}
           >
             {#snippet children({ id, describedBy })}
-              <Slider
+              <QuantityField
                 {id}
+                quantity="mb"
                 values={mbNotches}
-                bind:value={reserveMb}
+                value={reserveMb}
                 label="Memory held back"
                 valuetext={(v) => (v === 0 ? 'None' : memoryLabel(v))}
                 marks={mbMarks}
                 tone={aboveMb ? 'warning' : 'accent'}
+                empty={{ value: 0, placeholder: 'none' }}
                 {describedBy}
+                onchange={(v) => (reserveMb = v ?? 0)}
               />
             {/snippet}
           </Field>
@@ -450,15 +460,18 @@
             error={errors.reserve_disk_mb ?? ''}
           >
             {#snippet children({ id, describedBy })}
-              <Slider
+              <QuantityField
                 {id}
+                quantity="mb"
                 values={diskNotchList}
-                bind:value={reserveDiskMb}
+                value={reserveDiskMb}
                 label="Disk held back"
                 valuetext={(v) => (v === 0 ? 'None' : memoryLabel(v))}
                 marks={diskMarks}
                 tone={aboveDisk ? 'warning' : 'accent'}
+                empty={{ value: 0, placeholder: 'none' }}
                 {describedBy}
+                onchange={(v) => (reserveDiskMb = v ?? 0)}
               />
             {/snippet}
           </Field>

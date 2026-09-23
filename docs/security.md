@@ -1,4 +1,5 @@
 ---
+title: Security of self-hosted GitHub Actions runners
 description: >-
   The Zoomies threat model, what a self-hosted runner exposes, and what each
   setting that weakens the safe defaults actually costs.
@@ -266,7 +267,10 @@ The mapping from every individual API action to its minimum role is a table in
 `internal/auth/rbac.go`, and a test walks the full action list — so a new
 endpoint cannot be added without deciding who may call it.
 
-The API refuses to remove or demote the last enabled admin.
+The API refuses to remove or demote the last enabled admin. Nobody may grant a
+role above their own, or change, disable, delete or reset the password of an
+account that outranks them — so an administrator cannot make a platform
+account, or become one.
 
 ### How one request is authorised
 
@@ -538,6 +542,55 @@ writes to the bucket afterwards — which includes replacing a backup with one o
 their own choosing, for somebody to restore later. Loopback and a network you
 own end to end are the only endpoints this is reasonable for, which is why the
 warning (`backup.remote_insecure`) excludes loopback and nothing else.
+
+### `security.allow_private_egress: true`
+
+Six settings make the controller send a request to a URL an administrator
+typed: `oidc.issuer`, `github.api_base_url`, `capacity_demand.destination_url`,
+`agent.runner_download_url`, a backup remote's endpoint and a provider's. Left
+unchecked, each is a way to aim this process at its own neighbourhood — the
+cloud metadata service at `169.254.169.254`, an admin port bound to loopback, a
+service on the LAN that trusts anything inside it — and read the answer back
+out of an error message. Those are the platform's resources, not the fleet's,
+so by default each of them is refused when it is written through the API
+— `PATCH /settings`, a settings import, a backup remote, a direct provider or
+an installation's own API base URL — if it names loopback, an unspecified address, link-local (IPv4 and `fe80::/10`),
+RFC 1918, carrier-grade NAT (`100.64.0.0/10`), IPv6 unique-local
+(`fc00::/7`), the deprecated site-local and IPv4-compatible ranges, reserved,
+broadcast and multicast addresses, an IPv4 address carried inside IPv6
+(`::ffff:10.0.0.1`, NAT64, 6to4), `localhost` and anything under
+`.localhost`, or an address in a spelling other parsers read as IPv4
+(`2130706433`, `0x7f000001`, `127.1`).
+
+The same value in `zoomies.yaml` or a `ZOOMIES_*` variable is only a warning
+(`egress.private_target`), and never stops the controller starting. The file
+and the environment belong to whoever runs the process, who is already trusted
+with everything this guard protects; the person the guard is for is somebody
+with settings rights typing a URL into a form. And an upgrade must not stop an
+install that has been talking to a LAN Enterprise Server or identity provider
+for a year: it starts, warns, and names the key.
+
+The switch is platform-scoped: it changes what the process may dial from its
+own machine, so on an instance one team runs for another the fleet's
+administrators cannot turn it on. On a single-team instance whose identity
+provider, Enterprise Server or Proxmox cluster is on the LAN, or whose backups
+go to a MinIO beside the controller, turning it on is the expected answer, and
+the refusal names it.
+
+Know its limits. The check reads the address it is given and **resolves
+nothing**: a validator cannot answer DNS honestly, because the answer at
+startup need not be the answer at the next request, and a name somebody else
+controls can be pointed at `10.0.0.1` afterwards. Any host name other than the
+local ones above is admitted on trust, and the clients that dial these URLs do
+not re-check the address they connect to. The refusal happens where a value
+is written, so a destination saved in the database before this check existed
+is not refused until it is next edited. A provider
+reached through a [Tailcat gateway](#tailcat-private-connections) is not
+checked, because its endpoint is dialled from the gateway's network, which is
+the private network it was installed to reach. Where the controller runs
+somewhere with a metadata service worth protecting, a host firewall rule that
+drops its traffic to `169.254.169.254` is the complement that also covers
+names.
 
 ### `provider.insecure_skip_verify: true`
 
