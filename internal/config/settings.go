@@ -655,6 +655,10 @@ var registry = buildRegistry([]Setting{
 		Summary: "How long finished runners are kept.",
 	},
 	{
+		Key: "retention.runner_sessions", Label: "Keep runner sessions for", Env: "ZOOMIES_RETENTION_RUNNER_SESSIONS", Kind: KindDuration, Scope: ScopePlatform, Live: true,
+		Summary: "How long the usage ledger keeps each finished runner's session -- who it ran for, where, and for how long -- after the runner's own row has been pruned.",
+	},
+	{
 		Key: "retention.scaling_events", Label: "Keep scaling history for", Env: "ZOOMIES_RETENTION_SCALING_EVENTS", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How long scaling decisions are kept. Audit rows are not covered by this, or by anything: they are never deleted.",
 	},
