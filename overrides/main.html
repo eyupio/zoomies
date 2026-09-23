@@ -26,6 +26,22 @@
   <style>:root{--md-text-font:"InterVariable";--md-code-font:"JetBrains Mono"}</style>
 {% endblock %}
 
+{#
+  The home page's title in a search result. Its heading is the tagline, written
+  to be read under the logo, and Material would put that in the tab and the
+  result too -- "Give your GitHub Actions runners the Zoomies." says nothing to
+  someone searching for self-hosted runners. The social_title already says what
+  Zoomies is, so the result uses it as well. Every other page keeps Material's
+  rule: its own title, then the site's name.
+#}
+{% block htmltitle %}
+  {% if page and page.is_homepage and page.meta and page.meta.social_title %}
+    <title>{{ page.meta.social_title }}</title>
+  {% else %}
+    {{ super() }}
+  {% endif %}
+{% endblock %}
+
 {% block extrahead %}
   {#
     The page's own title, not the abbreviation the sidebar uses: a navigation
@@ -60,10 +76,13 @@
     characters a search engine otherwise truncates to, and a large preview
     image rather than a thumbnail.
 
-    The exception is the 404 template, which has no page behind it and is
-    rendered at a different address every time it is served.
+    The exceptions are the 404 template, which has no page behind it and is
+    rendered at a different address every time it is served, and a page whose
+    front matter says `noindex: true` -- notes written for contributors, which
+    are published so links to them work but are not an answer to anything
+    someone searches for. overrides/sitemap.xml leaves those out too.
   #}
-  {% if page %}
+  {% if page and not (page.meta and page.meta.noindex) %}
   <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
   {% else %}
   <meta name="robots" content="noindex, follow" />

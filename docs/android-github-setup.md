@@ -1,3 +1,9 @@
+---
+# Written for contributors, not for someone choosing a runner controller:
+# published so links to it work, kept out of search results and the sitemap.
+noindex: true
+---
+
 # Android GitHub setup validation
 
 The dashboard submits the App manifest directly to GitHub with a native POST

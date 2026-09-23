@@ -1,4 +1,5 @@
 ---
+title: "Configuration reference: every setting and default"
 description: >-
   Where Zoomies keeps its settings — the fleet's database, a small file, and the
   ZOOMIES_* environment — with every key, its default, and the startup warnings
