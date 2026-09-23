@@ -264,6 +264,17 @@ func (c *Controller) prune(ctx context.Context) {
 	now := c.Now()
 	r := c.cfg().Retention
 
+	// The roll-up goes first: it is computed from the sessions, and the
+	// sessions prune below refuses to delete any it has not absorbed, so a
+	// pass that ran them the other way round would only prune less. Running it
+	// with every retention off costs one small transaction a pass and means
+	// switching a retention on later loses nothing.
+	if n, err := c.st.RollUpUsage(ctx, now); err != nil {
+		c.log.Warn("could not roll up usage", "error", err)
+	} else if n > 0 {
+		c.log.Debug("rolled up usage", "days", n)
+	}
+
 	type job struct {
 		what   string
 		window time.Duration
@@ -278,6 +289,7 @@ func (c *Controller) prune(ctx context.Context) {
 			c.publishRunnersDeleted(ids)
 			return int64(len(ids)), err
 		}},
+		{"runner sessions", r.RunnerSessions, c.st.PruneRunnerSessions},
 		{"fleet samples", r.Samples, c.st.PruneSamples},
 		{"host samples", r.Samples, c.st.PruneHostSamples},
 		{"webhook deliveries", r.Webhooks, c.st.PruneDeliveries},

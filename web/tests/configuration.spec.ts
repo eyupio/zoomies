@@ -57,7 +57,8 @@ test('a change to a live setting is applied and kept', async ({ page }) => {
   // and the pruning it drives is not on any spec's path.
   await change(page, 'Keep webhook deliveries for', '96h');
   const target = row(page, 'Keep webhook deliveries for');
-  await expect(target).toContainText('96h');
+  // Shown in the largest whole unit, the way a person would say it.
+  await expect(target).toContainText('4d');
 
   // Kept, not merely applied: the value is in the database, so the row now
   // says where it came from.
@@ -66,7 +67,7 @@ test('a change to a live setting is applied and kept', async ({ page }) => {
   // A reload reads it back from the server rather than from anything the page
   // is still holding.
   await page.reload();
-  await expect(row(page, 'Keep webhook deliveries for')).toContainText('96h');
+  await expect(row(page, 'Keep webhook deliveries for')).toContainText('4d');
 
   // Put it back, so the next spec sees the fixture it expects.
   await row(page, 'Keep webhook deliveries for').getByRole('button', { name: 'Reset' }).click();
@@ -106,8 +107,8 @@ test('a value that will not parse is refused under the field that was typed in',
   // reading it -- and saying what shape was wanted, not only that this one was
   // wrong.
   const failure = target.getByRole('alert');
-  await expect(failure).toContainText('is not a duration');
-  await expect(failure).toContainText('30s, 5m, 2h');
+  await expect(failure).toContainText('Write a length of time');
+  await expect(failure).toContainText('30s, 5m, 1h30m or 7d');
 
   await target.getByRole('button', { name: /^Cancel editing / }).click();
 });

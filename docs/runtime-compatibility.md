@@ -1,3 +1,11 @@
+---
+title: "Runtime compatibility: Docker, Podman and cgroups"
+description: >-
+  Which Docker and Podman setups Zoomies supports, rootful or rootless, on
+  cgroup v1 or v2, what each can enforce, and how to read a runner's resource
+  measurements.
+---
+
 # Runtime compatibility and startup diagnostics
 
 Zoomies uses Docker API **v1.41** for Docker and Podman's compatibility service.

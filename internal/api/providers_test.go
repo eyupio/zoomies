@@ -414,7 +414,9 @@ func (h *harness) lastMachine(providerID string) *store.Machine {
 // different question and must not read as a way round this one -- the
 // credential on this row can create and destroy machines.
 func TestAnEndpointThatWouldSendTheCredentialInTheClearIsRefused(t *testing.T) {
-	h := newHarness(t)
+	// Allowed, so that the loopback half below asks only about plain HTTP;
+	// the address guard has its own test.
+	h := newHarness(t, allowPrivateEgress)
 	admin, _ := h.user("admin", store.RoleAdmin)
 	cookie := h.session(admin)
 
@@ -635,5 +637,46 @@ func TestProviderKindsCarryAGuideAndAnEndpointExample(t *testing.T) {
 	kinds.mustStatus(t, http.StatusOK, "list provider kinds")
 	if !strings.Contains(string(kinds.body), `"guide":[`) {
 		t.Errorf("the guide is missing or null rather than a list: %s", string(kinds.body))
+	}
+}
+
+// A provider's credential can create and destroy machines, so an endpoint on
+// this machine or its network is refused unless the platform allows it.
+func TestADirectProviderOnAPrivateAddressIsRefusedUntilThePlatformAllowsIt(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		endpoint string
+		allow    bool
+		refused  bool
+	}{
+		{"a LAN hypervisor by default", "https://10.0.0.5:8006", false, true},
+		{"the metadata address by default", "https://169.254.169.254", false, true},
+		{"a LAN hypervisor once allowed", "https://10.0.0.5:8006", true, false},
+		{"a public hypervisor", "https://pve.example.com:8006", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, func(c *config.Config) { c.Security.AllowPrivateEgress = tc.allow })
+			admin, _ := h.user("admin", store.RoleAdmin)
+			cookie := h.session(admin)
+			resp := h.do(request{method: http.MethodPost, path: "/api/v1/providers/validate", cookie: cookie, body: map[string]any{
+				"kind": "fake", "name": "draft", "endpoint": tc.endpoint,
+				"settings": map[string]string{"zone": "zone-a"},
+			}})
+			resp.mustStatus(t, http.StatusOK, "validate a draft")
+			var out validateProviderResponse
+			resp.into(t, &out)
+			var got string
+			for _, e := range out.Errors {
+				if e.Field == "endpoint" {
+					got = e.Message
+				}
+			}
+			switch {
+			case tc.refused && !strings.Contains(got, "security.allow_private_egress"):
+				t.Errorf("%s was not refused by a message naming the setting: %q", tc.endpoint, got)
+			case !tc.refused && got != "":
+				t.Errorf("%s was refused: %s", tc.endpoint, got)
+			}
+		})
 	}
 }

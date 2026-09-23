@@ -159,3 +159,30 @@ func TestTheFleetsBundleIdentifiesTheBuildAndNotTheMachine(t *testing.T) {
 		t.Error("the platform's own bundle lost the machine it is about")
 	}
 }
+
+// The bundle's problems are the drawer's, split the same way. A failed
+// scheduled backup names the directory it could not write, so a bundle that
+// carried the undivided list handed the fleet the machine's paths inside a
+// document built to leave them out.
+func TestTheFleetsBundleCarriesOnlyTheFleetsProblems(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("bundle-admin", store.RoleAdmin)
+
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/diagnostics/bundle", cookie: h.session(admin)})
+	if resp.status != http.StatusOK {
+		t.Fatalf("the fleet cannot collect a bundle: %d %s", resp.status, resp.body)
+	}
+	var doc struct {
+		Problems problemsBody `json:"problems"`
+	}
+	if err := json.Unmarshal(resp.body, &doc); err != nil {
+		t.Fatalf("decoding the bundle: %v", err)
+	}
+	// The harness runs with authentication off, which raises a platform
+	// finding, so an unfiltered list would carry at least that one.
+	for _, p := range doc.Problems.Items {
+		if p.Audience == "platform" {
+			t.Errorf("the fleet's bundle carries %q, which is the platform's", p.Code)
+		}
+	}
+}

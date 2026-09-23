@@ -451,7 +451,7 @@ func TestSecretsAreNeverInAResponse(t *testing.T) {
 // by more people than the API is, shipped to wherever logs are shipped, and
 // outlives the request that produced it.
 func TestSecretsAreNeverInAFailure(t *testing.T) {
-	h := newHarness(t)
+	h := newHarness(t, allowPrivateEgress)
 	admin, _ := h.user("root", store.RoleAdmin)
 	cookie := h.session(admin)
 

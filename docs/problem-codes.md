@@ -121,6 +121,7 @@ than about what any one setting says.
 | `oidc.insecure_issuer` | warning | `oidc.issuer` | The token exchange happens in the clear. |
 | `oidc.link_by_username` | warning | `oidc.link_by_username` | A first single sign-on login can take over an existing password account with the same name. |
 | `oidc.open_signup` | warning | `oidc.allow_signup` | Anyone your identity provider authenticates gets an account here. Narrow it at the provider, or turn signup off and create accounts yourself. |
+| `egress.private_target` | warning | the URL's own key | A URL the controller dials — `oidc.issuer` (when OIDC is on), `github.api_base_url`, `capacity_demand.destination_url`, `agent.runner_download_url` or a backup remote's endpoint in the file — names this machine, a link-local address such as the cloud metadata service at `169.254.169.254`, or a private range (RFC 1918, carrier-grade NAT, IPv6 unique-local), in any spelling that reaches one. At startup it is a warning and never stops the controller: that value came from whoever runs the process, and an upgrade must not stop an install that works. Written through the API instead — `PATCH /settings`, a settings import (the preview marks the row), a backup remote, a direct provider or an installation's own API base URL — the same sentence is a 422 on that field. Use the service's public address, or, when it really lives on a network you own, set `security.allow_private_egress`. See [security](security.md#securityallow_private_egress-true). |
 
 ## Configuration: the agent
 
