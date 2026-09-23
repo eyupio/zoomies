@@ -50,8 +50,8 @@ has three ways to get one, and they are not equally safe.
 
 Zoomies calls these `docker_mode: none`, `dind` and `host-socket`, set per pool.
 `none` is the default and `dind` is the one to prefer when a pool builds
-images; `dind` and `host-socket` are both named at startup and in the UI's
-problems drawer.
+images; a pool on `dind` or `host-socket` raises a `pool.dangerous` warning in
+the UI's problems drawer, and `zoomies pools create` and `pools edit` print it too.
 [Security](security.md#6-the-dangerous-toggles) says what each costs in full,
 and [Jobs that build container images](configuration.md#jobs-that-build-container-images)
 covers the runner image a pool is switched to when it asks for a daemon.
@@ -68,7 +68,7 @@ runner containers.
 | Credential in the container | A token or App key in its environment | A single-use just-in-time registration, unset before the job starts |
 | Scaling with the queue | By hand | From `workflow_job` webhooks, down to zero |
 | Several hosts | Each managed on its own | One controller, any number of agents, which dial out |
-| Docker for jobs | However you mount it | `none`, `dind` or `host-socket`, per pool, with the risky two named at startup |
+| Docker for jobs | However you mount it | `none`, `dind` or `host-socket`, per pool, with the risky two raised as problems |
 | Seeing what is happening | `docker logs` | A live [web UI](ui.md), [metrics](metrics.md) and an audit log |
 
 It runs on the same Docker you already have, and on
