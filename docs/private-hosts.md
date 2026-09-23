@@ -35,6 +35,13 @@ matching Zoomies binary already installed can use the shorter command under
 the existing-binary instructions The install command selects the controller's published
 channel; unpublished builds must be distributed to agents manually.
 
+Before you run it, read
+[what the agent owns on a host](security.md#what-the-agent-owns-on-a-host):
+its service and user, its work directory, the containers carrying its labels,
+its per-pool cache, and the one daemon-wide thing it does — pruning unused
+Docker builder cache — with the setting that turns that off on a shared
+daemon.
+
 The runtime must permit network-interface discovery (including netlink on
 Linux); sandboxes that block it cannot initialise Tailcat. No root privilege
 or TUN device is needed for the tunnel itself.
@@ -55,6 +62,10 @@ Direct agents already connect outbound and work behind NAT. Tailcat extends
 that model to controllers without an agent-facing public endpoint, and adds
 WireGuard encryption, NAT traversal and relay fallback without making you
 build and manage an overlay network first.
+
+A controller with a public agent endpoint needs a private connection only for
+the hosts that cannot reach that endpoint; every host that can should join
+directly.
 
 ## How it works
 
@@ -106,7 +117,11 @@ from a compromised machine remains necessary.
 
 Private enrolment is enabled by default but makes no Tailcat network connection
 until the first private host is requested. Once an identity exists, the
-controller resumes its listener on startup. It requires normal Zoomies
+controller resumes its listener on startup; if no relay answers then, the
+controller starts anyway, raises
+[`tailcat.unavailable`](problem-codes.md#runtime-hosts-and-installations) and
+keeps retrying — its sealed relay first — so the listener comes back without a
+restart once a relay does. It requires normal Zoomies
 authentication and a usable controller encryption key; it is unavailable in
 auth-disabled demo mode.
 
@@ -114,7 +129,7 @@ auth-disabled demo mode.
 | --- | --- |
 | `zoomies agent` fails to start naming a missing private connection address | `agent.json` in the agent's work directory has a host ID and agent token but no `tailcat_address` -- it was edited, truncated, or restored from a backup taken before this host enrolled. The address cannot be recovered locally; mint a fresh enrolment command from **Hosts → Add a host → Private connection** and run it on the host. |
 | Private connection is unavailable | Enable authentication, check the controller encryption key, and ensure `server.tailcat_enabled` is true; restart after changing these settings. |
-| Cannot reach a Tailcat relay | Both sides need outbound access to Tailcat's relay infrastructure; retry after correcting firewall or internet connectivity. No token is minted if setup fails. |
+| Cannot reach a Tailcat relay | Both sides need outbound access to Tailcat's relay infrastructure; retry after correcting firewall or internet connectivity. No token is minted if setup fails. For a listener that already exists this shows as `tailcat.unavailable` in the problems list, which clears by itself once a relay answers. |
 | Command expired before the host joined | Use **Mint another token** on the waiting page. Capacity and labels are retained. |
 | A Tailcat host is offline | Check the Zoomies agent service and outbound internet access. The agent retries transient connection failures; existing jobs are not deliberately killed by a tunnel interruption. Prolonged loss follows the normal host-health and recovery rules. |
 | Host has no matching pool | Set host labels and pool selectors to match, and check runtime/platform compatibility and capacity. The tunnel does not change scheduling rules. |

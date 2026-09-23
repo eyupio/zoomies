@@ -247,6 +247,9 @@ type Controller struct {
 	// one. It is never cleared -- the operator has to look.
 	lease     *store.ControllerLease
 	leaseLost atomic.Pointer[store.ControllerLease]
+	// privateFault is the private-connection listener's state, set by the API
+	// server that owns it; see SetPrivateConnectionFault.
+	privateFault atomic.Pointer[PrivateConnectionFault]
 	// runnerGroups remembers the pools whose runner group could not be
 	// resolved, so that the fallback to GitHub's Default group is a standing
 	// warning rather than a log line nobody reads. Keyed by pool ID.

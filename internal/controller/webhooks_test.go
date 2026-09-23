@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -645,7 +646,7 @@ func TestAFloodOfProbesStopsBeingWrittenDown(t *testing.T) {
 // installation's secret is the expensive part of the endpoint, and the
 // endpoint is public: a probe used to get all of that for free, and a large
 // unsigned body was answered as too large rather than as unsigned, which told
-// the prober something and cost the controller five megabytes to say it.
+// the prober something and cost the controller the whole body cap to say it.
 func TestAnUnsignedDeliveryIsRefusedBeforeItsBodyIsRead(t *testing.T) {
 	h := newHarness(t)
 	h.fleet()
@@ -664,5 +665,38 @@ func TestAnUnsignedDeliveryIsRefusedBeforeItsBodyIsRead(t *testing.T) {
 	}
 	if ds[0].Repo != "" {
 		t.Fatalf("the body was parsed for a delivery that could never verify: repo = %q", ds[0].Repo)
+	}
+}
+
+// A signed delivery larger than the cap is refused as too large, and one of
+// the size GitHub really sends is not. The cap is what one request on the
+// public endpoint costs before its signature can be checked, so it is kept to
+// a megabyte -- and a cap set below a real workflow_job would stop the fleet
+// hearing about work, which is the failure on the other side of this line.
+func TestADeliveryOverTheBodyCapIsRefusedAndARealOneIsNot(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+
+	if maxWebhookBody > 1<<20 {
+		t.Fatalf("the webhook body cap is %d bytes; a workflow_job is tens of kilobytes, and a megabyte is already twenty times that", maxWebhookBody)
+	}
+
+	over := make([]byte, maxWebhookBody+1)
+	if rec := h.deliver("workflow_job", over, testWebhookSecret); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("a %d-byte signed delivery: status = %d, want %d", len(over), rec.Code, http.StatusRequestEntityTooLarge)
+	}
+
+	// A real delivery padded well past what GitHub sends: the steps array of a
+	// long job is the part that grows, and it is still nowhere near the cap.
+	steps := make([]map[string]any, 500)
+	for i := range steps {
+		steps[i] = map[string]any{"number": i + 1, "name": fmt.Sprintf("Step %d of a very long job with a descriptive name", i+1), "status": "completed", "conclusion": "success"}
+	}
+	long := jobEvent{Action: "completed", JobID: 1001, RunID: 77, Labels: []string{"self-hosted", "linux"}, Conclusion: "success", Steps: steps}
+	if n := len(long.body()); n > maxWebhookBody/4 {
+		t.Fatalf("the fixture is %d bytes; it is meant to be a long job, well inside the cap", n)
+	}
+	if rec := h.deliverJob(long); rec.Code == http.StatusRequestEntityTooLarge || rec.Code >= 500 {
+		t.Fatalf("a real workflow_job delivery for a 500-step job: status = %d; it must be accepted, not refused as too large", rec.Code)
 	}
 }

@@ -122,6 +122,10 @@ var problemAudience = map[string]Audience{
 	"controller.loop_panicked":                AudiencePlatform,
 	"controller.update_available":             AudiencePlatform,
 	"crypto.key_mismatch":                     AudiencePlatform,
+	// The private-connection listener is the process's: it is one per
+	// instance, it dials out from the controller's network, and the fix is that
+	// network's egress, which a fleet cannot change.
+	"tailcat.unavailable": AudiencePlatform,
 	// The credential-minting limit is scheduler.registration_concurrency,
 	// which only the platform can change. A fleet told its runners are being
 	// held back at a number it cannot reach would go looking for hosts, which
@@ -138,10 +142,12 @@ var problemAudience = map[string]Audience{
 	// fleet is the person who can act on every one of these.
 	"host.cordoned_with_work":                       AudienceFleet,
 	"host.duplicate_agent":                          AudienceFleet,
+	"host.image_pull_failed":                        AudienceFleet,
 	"host.limits_unenforceable":                     AudienceFleet,
 	"host.limits_unverified":                        AudienceFleet,
 	"host.overprovisioned":                          AudienceFleet,
 	"host.resources_unknown":                        AudienceFleet,
+	"host.runtime_recovering":                       AudienceFleet,
 	"host.throttled":                                AudienceFleet,
 	"host.unhealthy":                                AudienceFleet,
 	"host.version_behind":                           AudienceFleet,
@@ -317,6 +323,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("the encryption key", c.keyProblems)
 	gather("host versions", c.hostSkewProblems)
 	gather("host resources", c.hostResourceProblems)
+	gather("host incidents", c.hostIncidentProblems)
 	out = append(out, c.fenceProblems()...)
 	gather("webhook deliveries", c.webhookProblems)
 	gather("jobs", c.jobProblems)
@@ -333,6 +340,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("stuck runners", c.notProgressingProblems)
 	gather("capacity-demand deliveries", c.capacityDeliveryProblems)
 	gather("infrastructure providers", c.machineProblems)
+	gather("the private connection", c.privateConnectionProblems)
 
 	// An incomplete list says so, at the top, in the same shape as everything
 	// else on it. A list that quietly drops a section is worse than an error,

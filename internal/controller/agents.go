@@ -764,6 +764,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		h.Usage = usage
 		c.Nudge()
 	}
+	c.noteRuntime(ctx, h, req.Runtime, now)
 	// The ladder runs on the measurements just recorded, and on every beat
 	// rather than only the ones that carry a sample: a host whose agent has
 	// stopped measuring is lifted here after StaleThrottleReset, not left on a
@@ -1044,6 +1045,7 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 		if !res.OK {
 			state = "failed"
 		}
+		c.noteImagePull(ctx, hostID, task.PoolID, task.Image, "prewarm", res.OK, res.Fault, res.Error)
 		return c.st.SetPoolPrewarm(ctx, task.PoolID, hostID, task.Image, state, res.Digest, res.Error)
 	}
 	kind := res.Kind
@@ -1086,6 +1088,14 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 	}
 	if res.Digest != "" {
 		_ = c.st.SetRunnerImageDigest(ctx, r.ID, res.Digest)
+	}
+
+	if kind == agent.TaskCreateRunner {
+		image := ""
+		if known && task.Spec != nil {
+			image = task.Spec.Image
+		}
+		c.noteImagePull(ctx, hostID, r.PoolID, image, "start", res.OK, res.Fault, res.Error)
 	}
 
 	state := res.State
