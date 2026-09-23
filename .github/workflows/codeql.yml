@@ -1,9 +1,34 @@
 name: CodeQL
 
+# Only a change to code either analysis reads: Go for one, the UI and any other
+# JavaScript, TypeScript or HTML for the other. A change to prose or to the
+# install script gave CodeQL nothing new to find and held a fleet slot for
+# twenty minutes finding it. The weekly run still covers main in full, which is
+# what catches a query that learnt something new about unchanged code.
 on:
   push:
     branches: [main]
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "web/**"
+      - "**.js"
+      - "**.mjs"
+      - "**.ts"
+      - "**.html"
+      - ".github/workflows/codeql.yml"
   pull_request:
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "web/**"
+      - "**.js"
+      - "**.mjs"
+      - "**.ts"
+      - "**.html"
+      - ".github/workflows/codeql.yml"
   schedule:
     - cron: "11 5 * * 2"
   workflow_dispatch:

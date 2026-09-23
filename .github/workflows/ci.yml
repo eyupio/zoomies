@@ -32,13 +32,23 @@ env:
 # Pin the pool to an already published runner image digest; advance that pin
 # separately after validating new images so builds do not require their output.
 jobs:
-  # Which jobs a pull request needs. A docs-only change used to run the whole
-  # suite: an hour of the Go packages under the race detector, the Playwright
-  # suite, five cross-compiles and the image builds, every one of them on a
-  # fleet slot another pull request was queueing for. Now a pull request runs
-  # what its files can affect. Main and a manual dispatch run everything: main
-  # publishes the dev channel and is the record the pull requests are compared
-  # against, so it keeps the full evidence.
+  # Which jobs a change needs. A docs-only change used to run the whole suite:
+  # an hour of the Go packages under the race detector, the Playwright suite,
+  # five cross-compiles and the image builds, every one of them on a fleet
+  # slot another pull request was queueing for. Now a change runs what its
+  # files can affect -- on main as well as on a pull request. Main used to run
+  # everything on every merge, so a README edit rebuilt and republished every
+  # binary and image on the dev channel with nothing in them different.
+  #
+  # Main still publishes, but only a commit that changes something shipped:
+  # Go, the UI the binary embeds, or what the images are made of. A commit that
+  # changes only prose, the install script or the workflows leaves the dev
+  # channel where it was, which keeps its promise -- every binary and image on
+  # it names one commit -- because none of them moves. CI still starts for
+  # every commit on main, and finishes in the time the first job takes when
+  # there is nothing to do, because the dev watchdog reads a commit with no
+  # finished CI run as one the fleet is starving. A manual dispatch runs
+  # everything, because it is the recovery path.
   #
   # This is a shell case statement rather than an action so that it stays a
   # single read: what a path triggers is written next to the path, and an
@@ -53,33 +63,44 @@ jobs:
       web: ${{ steps.filter.outputs.web }}
       deploy: ${{ steps.filter.outputs.deploy }}
       installer: ${{ steps.filter.outputs.installer }}
+      publish: ${{ steps.filter.outputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: filter
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
+          REF: ${{ github.ref }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -eu
+          # Main publishes the dev channel from any commit that changes what
+          # is shipped. Nothing else publishes from CI.
+          on_main=false
+          if [ "$EVENT" != "pull_request" ] && [ "$REF" = "refs/heads/main" ]; then
+            on_main=true
+          fi
           everything() {
             {
               echo "go=true"; echo "web=true"; echo "deploy=true"; echo "installer=true"
               echo 'shards=["controller","api","store","rest"]'
+              echo "publish=$on_main"
             } >> "$GITHUB_OUTPUT"
             exit 0
           }
-          if [ "$EVENT" != "pull_request" ]; then
+          if [ "$EVENT" = "workflow_dispatch" ]; then
             everything
           fi
-          # The checkout is the merge of the pull request into its base, so
-          # its diff against the base commit is exactly what the pull request
-          # changes. A base that cannot be fetched -- a force push, a base
-          # branch that moved on -- says nothing about what changed, so run
+          # A pull request's checkout is the merge into its base, so its diff
+          # against the base commit is exactly what it changes; a push's is
+          # the diff against the commit main was at before. A base that cannot
+          # be fetched -- a force push, a new branch's all-zero "before", a
+          # base that moved on -- says nothing about what changed, so run
           # everything rather than guess.
+          case "$BASE" in ''|0000000000000000000000000000000000000000) everything ;; esac
           if ! git fetch --no-tags --depth=1 origin "$BASE" 2>/dev/null; then
             everything
           fi
-          go=false; web=false; deploy=false; installer=false; rest=false
+          go=false; web=false; deploy=false; installer=false; rest=false; docs=false
           for f in $(git diff --name-only "$BASE" HEAD); do
             case "$f" in
               # The build and the tests themselves: every job is downstream.
@@ -89,18 +110,28 @@ jobs:
               api/openapi.yaml) go=true; web=true ;;
               # The controller image runs npm ci, so its inputs are the
               # image's too.
-              web/package.json|web/package-lock.json) web=true; deploy=true ;;
-              web/*) web=true ;;
+              web/package.json|web/package-lock.json) web=true; deploy=true; docs=true ;;
+              # internal/docs reads the UI's source for the pages it names.
+              web/*) web=true; docs=true ;;
               # What the images are made of. The runner scripts are also read
               # by the installer job's shell checks, and every deploy/ file by
-              # a test in internal/docs, which is in the rest shard.
+              # tests in internal/backend, internal/installer and internal/docs,
+              # which are in the rest shard.
               deploy/runner-*.sh) deploy=true; installer=true; rest=true ;;
               deploy/*|docker-compose.yml|.dockerignore) deploy=true; rest=true ;;
-              install.sh|test/install/*|test/upgrade/*) installer=true; rest=true ;;
-              # Prose. internal/docs tests the problem-code table, the
-              # workflows and the roadmap against the code, so the rest shard
-              # runs; nothing heavier does.
-              docs/*|roadmap/*|overrides/*|hooks/*|mkdocs.yml|*.md|.github/*) rest=true ;;
+              # The script people curl is checked by the install.sh job and
+              # exercised by the upgrade test. No Go test reads it, and no
+              # binary or image carries it: the site serves it, and the site's
+              # own workflow rebuilds when it changes.
+              install.sh|test/install/*|test/upgrade/*) installer=true ;;
+              # Prose, and the workflows. internal/docs tests the problem-code
+              # table, the README, the workflows and the roadmap against the
+              # code, and internal/naming the image table; those two packages
+              # are the docs shard, a minute rather than the hour the rest of
+              # the suite takes. Nothing heavier runs.
+              docs/*|roadmap/*|overrides/*|hooks/*|mkdocs.yml|*.md|.github/*) docs=true ;;
+              # Files that neither ship nor are read by a test.
+              .gitignore|.gitattributes|.editorconfig|LICENSE|NOTICE|.claude/*|.devcontainer/*|nixpacks.toml) ;;
               # Everything else is Go, or something Go embeds.
               *) go=true ;;
             esac
@@ -109,14 +140,23 @@ jobs:
             shards='["controller","api","store","rest"]'
           elif [ "$rest" = true ]; then
             shards='["rest"]'
+          elif [ "$docs" = true ]; then
+            shards='["docs"]'
           else
             shards='[]'
           fi
+          # A binary carries Go and the UI; the images carry the binary and
+          # what deploy/ says. Any of the three changes what the dev channel
+          # would ship.
+          publish=false
+          if [ "$on_main" = true ] && { [ "$go" = true ] || [ "$web" = true ] || [ "$deploy" = true ]; }; then
+            publish=true
+          fi
           {
             echo "go=$go"; echo "web=$web"; echo "deploy=$deploy"; echo "installer=$installer"
-            echo "shards=$shards"
+            echo "shards=$shards"; echo "publish=$publish"
           } >> "$GITHUB_OUTPUT"
-          echo "go=$go web=$web deploy=$deploy installer=$installer shards=$shards"
+          echo "go=$go web=$web deploy=$deploy installer=$installer shards=$shards publish=$publish"
 
   # The Go suite, split by package across runners. Three packages are most of
   # it -- on the fleet the controller has taken 45 minutes, the API 29 and the
@@ -154,7 +194,10 @@ jobs:
           cache: true
 
       # go:embed needs the directory to exist even when the UI is not built.
+      # The docs shard tests two packages that import nothing of ours, so it
+      # has no embedded UI to stub and no binary to build.
       - name: Stub the embedded UI
+        if: matrix.shard != 'docs'
         run: make build-nogui
 
       # The checks that read the whole tree run once, in the shard that is
@@ -188,12 +231,20 @@ jobs:
             api) pkgs=./internal/api/ ;;
             store) pkgs=./internal/store/ ;;
             rest) pkgs=$(go list ./... | grep -vE '/internal/(controller|api|store)$' | tr '\n' ' ') ;;
+            # Only a change to prose, the workflows or the UI's source: the two
+            # packages that read those files against the code. The rest shard
+            # carries them too, so they never run twice.
+            docs) pkgs="./internal/docs/ ./internal/naming/" ;;
             *) echo "::error::unknown shard $SHARD"; exit 1 ;;
           esac
           echo "list=$pkgs" >> "$GITHUB_OUTPUT"
 
+      # Coverage is main's record of the whole suite, so it is measured only
+      # when the whole suite runs. A shard run for a deploy or docs change on
+      # main is tested the way a pull request is, and uploads nothing that
+      # would read as the project's coverage falling to one package's.
       - name: Test
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || needs.changes.outputs.go != 'true'
         # The timeout is per package, not per test. The API and controller
         # suites repeatedly migrate pure-Go SQLite under race instrumentation
         # and exceed Go's default ten-minute budget many times over on the
@@ -202,11 +253,11 @@ jobs:
         run: make test TEST_PKGS="${{ steps.pkgs.outputs.list }}"
 
       - name: Test with coverage
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && needs.changes.outputs.go == 'true'
         run: make cover-shard TEST_PKGS="${{ steps.pkgs.outputs.list }}" COVERDIR="$RUNNER_TEMP/covdata"
 
       - name: Preserve the shard's coverage
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && needs.changes.outputs.go == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: covdata-${{ matrix.shard }}
@@ -221,7 +272,7 @@ jobs:
   coverage:
     name: Coverage
     needs: [changes, go]
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && needs.changes.outputs.go == 'true'
     permissions:
       contents: read
       id-token: write # Codecov authenticates uploads without a stored secret.
@@ -647,8 +698,12 @@ jobs:
   # successful push to main.
   dev-binaries:
     name: Publish dev binaries
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
-    needs: [go, ui, installer]
+    # Only a commit on main that changes what ships (see changes). The jobs it
+    # waits on are skipped when their inputs did not change, and a skipped job
+    # is not a failed one, so the condition says "none failed" rather than
+    # leaving GitHub to skip this one because a job it waits on did not run.
+    if: ${{ !cancelled() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) && needs.changes.outputs.publish == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    needs: [changes, go, ui, installer]
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     permissions:
       contents: write
@@ -828,7 +883,11 @@ jobs:
     # Pull requests and checks on other branches do not publish dev binaries,
     # and only build the images when something that goes into them changed:
     # the binary and the UI inside are built and tested by their own jobs.
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.ref != 'refs/heads/main' || needs.dev-binaries.result == 'success') && needs.changes.outputs.deploy == 'true' }}
+    # A pull request builds the images when their inputs change. Main builds
+    # them whenever it publishes binaries, whatever changed: a Go-only commit
+    # still changes the binary inside the controller image, and the dev
+    # channel's binaries and images must name the same commit.
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.ref != 'refs/heads/main' || needs.dev-binaries.result == 'success') && (needs.changes.outputs.deploy == 'true' || needs.changes.outputs.publish == 'true') }}
     # Publishing needs to write packages; everything else here only reads.
     permissions:
       contents: read
