@@ -592,10 +592,10 @@ test('the activity matrix heads the page, and every square says what it holds', 
     '[role="gridcell"][data-kind="failing"], [role="gridcell"][data-kind="healthy"]',
   );
   await expect(busy.first()).toBeVisible();
-  await expect(busy.last()).toHaveAttribute('aria-label', /\d+ jobs finished.*succeeded.*failed/);
+  await expect(busy.last()).toHaveAttribute('aria-label', /\d+ jobs? finished.*succeeded.*failed/);
 
   // The header sums the squares on screen, and the seed has failures.
-  await expect(matrix).toContainText(/\d+ jobs finished/);
+  await expect(matrix).toContainText(/\d+ jobs? finished/);
   await expect(matrix.locator('.badge')).toHaveText(/^\s*\d+ failed$/);
 
   // The band never widens the page: it is cut to the width it has.
@@ -793,7 +793,7 @@ test('the matrix spends the width on squares and figures, with the key beneath',
   await expect(grid).toBeVisible();
   await expect(aside).toContainText('Failure rate');
   await expect(aside).toContainText('Busiest hour');
-  await expect(aside).toContainText(/\d[\d,]* jobs finished/);
+  await expect(aside).toContainText(/\d[\d,]* jobs? finished/);
 
   const viewport = page.viewportSize();
   if ((viewport?.width ?? 0) < 900) {
