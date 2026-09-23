@@ -117,7 +117,9 @@ to carry `docker` itself, as is a digest or a tag from a build that may never
 have published the variant — and a pool left on one of those says so, with
 `pool.docker_client_missing`, rather than failing its jobs one at a time. See
 [Jobs that build container
-images](configuration.md#jobs-that-build-container-images).
+images](configuration.md#jobs-that-build-container-images), and
+[self-hosted runners in Docker](docker.md) for how the three ways of giving a
+job Docker compare.
 
 ## Which platforms does it run on?
 
