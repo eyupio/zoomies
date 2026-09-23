@@ -8,6 +8,7 @@
  */
 import type { Setting, SettingSource } from '$lib/api/types';
 import type { StatusTone } from '$lib/status';
+import { formatQuantity, type Quantity } from '$lib/units';
 
 /** A section heading, and one line about what the section is for. */
 export const SECTION_BLURB: Record<string, string> = {
@@ -45,6 +46,8 @@ export function displayValue(setting: Setting): string {
   if (setting.secret) return setting.configured ? 'set, not shown' : 'not set';
   const raw = setting.value;
   if (raw === null || raw === undefined) return 'not set';
+  const quantity = settingQuantity(setting);
+  if (quantity && typeof raw === 'number') return formatQuantity(raw, quantity);
   if (typeof raw === 'boolean') return raw ? 'on' : 'off';
   if (Array.isArray(raw)) return raw.length > 0 ? raw.join(', ') : 'none';
   if (typeof raw === 'object') {
@@ -52,6 +55,21 @@ export function displayValue(setting: Setting): string {
     return entries.length > 0 ? entries.map(([k, v]) => `${k}=${String(v)}`).join(' ') : 'none';
   }
   return String(raw) === '' ? 'not set' : String(raw);
+}
+
+/**
+ * The unit a numeric setting is a size in, read from its key: `_mb` and `_gb`
+ * are sizes, and a key ending in `cpus` is cores. Such a setting is shown as
+ * "4 GB" rather than 4096 and edited with a slider and a field that reads
+ * 4g, 4096mb or 1.5, the same control a pool's size uses -- the key already
+ * names the unit, so there is nothing for the server to add to say so.
+ */
+export function settingQuantity(setting: Pick<Setting, 'key' | 'kind'>): Quantity | null {
+  if (setting.kind !== 'int' && setting.kind !== 'float') return null;
+  if (setting.key.endsWith('_mb')) return 'mb';
+  if (setting.key.endsWith('_gb')) return 'gb';
+  if (setting.key.endsWith('cpus')) return 'cpus';
+  return null;
 }
 
 /** Whether to render the value in the muted, italic "nothing here" style. */

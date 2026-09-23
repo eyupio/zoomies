@@ -30,7 +30,9 @@
   import Switch from '$lib/components/Switch.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import LabelInput from '$lib/pools/LabelInput.svelte';
-  import { describeSource, displayValue, isUnset } from './settings';
+  import QuantityField from '$lib/components/QuantityField.svelte';
+  import { CPU_NOTCHES, withValue } from '$lib/pools/sizing';
+  import { describeSource, displayValue, isUnset, settingQuantity } from './settings';
 
   interface Props {
     setting: Setting;
@@ -79,6 +81,23 @@
   let flag = $state(false);
   let list = $state<string[]>([]);
   let pairs = $state<string[]>([]);
+  let amount = $state<number | null>(null);
+
+  /* A size is edited as one: a slider for choosing and a field that reads
+     4g, 4096mb or 1.5, written back as 4 GB. */
+  const quantity = $derived(settingQuantity(setting));
+  const amountNotches = $derived.by(() => {
+    const base =
+      quantity === 'cpus'
+        ? CPU_NOTCHES
+        : quantity === 'gb'
+          ? [1, 2, 5, 10, 20, 50, 100, 200, 500, 1024]
+          : [512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072];
+    /* Zero joins the notches only where it is already an answer this
+       setting gives -- the build cache target's "leave the daemon alone". */
+    const withZero = setting.default === 0 || setting.value === 0 ? [0, ...base] : [...base];
+    return withValue(withZero, amount ?? 0);
+  });
 
   function start(): void {
     failure = '';
@@ -98,6 +117,7 @@
         break;
       default:
         text = value === null || value === undefined ? '' : String(value);
+        amount = typeof value === 'number' ? value : null;
     }
     editing = true;
   }
@@ -125,6 +145,7 @@
       }
       case 'int':
       case 'float': {
+        if (quantity) return amount;
         const n = Number(text.trim());
         return Number.isFinite(n) ? n : text.trim();
       }
@@ -192,7 +213,10 @@
   </div>
 
   {#if editing}
-    <div class="editor" class:wide={setting.kind === 'strings' || setting.kind === 'labels'}>
+    <div
+      class="editor"
+      class:wide={setting.kind === 'strings' || setting.kind === 'labels' || quantity !== null}
+    >
       {#if setting.kind === 'bool' || setting.kind === 'optional_bool'}
         <Switch bind:checked={flag} label="New value for {setting.key}" hideLabel />
         <span class="hint">{flag ? 'on' : 'off'}</span>
@@ -207,6 +231,17 @@
         <LabelInput bind:value={list} placeholder="Type a value, then press Enter" />
       {:else if setting.kind === 'labels'}
         <LabelInput bind:value={pairs} placeholder={labelPlaceholder} />
+      {:else if quantity}
+        <div class="amount">
+          <QuantityField
+            bind:value={amount}
+            {quantity}
+            whole={setting.kind === 'int' && quantity === 'cpus'}
+            values={amountNotches}
+            label="New value for {setting.key}"
+            fieldLabel="New value for {setting.key}"
+          />
+        </div>
       {:else}
         <Input
           bind:value={text}
@@ -395,6 +430,10 @@
   }
   .editor.wide {
     align-items: flex-start;
+  }
+  .amount {
+    flex: 1;
+    min-width: 0;
   }
   .shown {
     font-size: var(--z-text-sm);
