@@ -4280,6 +4280,61 @@ export interface components {
             /** @description Which measurement took the last step up */
             reason?: string;
         };
+        /** @description A host's container-runtime cooldown as its agent last reported it: the runtime failed, new starts are held, and one recovery attempt is due. Kept on the host row, so it survives a controller restart; cleared by the first heartbeat that reports none. */
+        RuntimeIncident: {
+            /** @description Runtime failures in a row. The agent counts no higher than five. */
+            failures: number;
+            /**
+             * @description unavailable: the daemon could not be reached; timeout: it was reached and did not answer in time.
+             * @enum {string}
+             */
+            kind: "unavailable" | "timeout";
+            /** @description The last failure as the backend worded it */
+            error?: string;
+            /**
+             * Format: date-time
+             * @description When the agent's one recovery attempt is due
+             */
+            retry_at: string;
+            /**
+             * Format: date-time
+             * @description When the controller first heard of this episode.
+             */
+            since: string;
+            /**
+             * Format: date-time
+             * @description When the controller last heard anything new about it.
+             */
+            observed_at: string;
+        };
+        /** @description The last runner start or prewarm on a host that failed because its pool's image could not be made ready. Cleared by the next start or prewarm of the same pool that succeeds on the host. */
+        ImagePullIncident: {
+            pool_id: string;
+            /** @description The pool's name when the failure was recorded. */
+            pool: string;
+            image: string;
+            /**
+             * @description The registry the image is pulled from: docker.io for a bare name, otherwise the reference's host, with its port.
+             * @example ghcr.io
+             */
+            registry: string;
+            /**
+             * @description Which of the agent's results said so.
+             * @enum {string}
+             */
+            source: "start" | "prewarm";
+            error?: string;
+            /**
+             * Format: date-time
+             * @description When this pool's image was first recorded failing here.
+             */
+            since: string;
+            /**
+             * Format: date-time
+             * @description When the latest failure was recorded.
+             */
+            observed_at: string;
+        };
         BackendInfo: {
             kind?: components["schemas"]["BackendKind"];
             available?: boolean;
@@ -4310,6 +4365,15 @@ export interface components {
             admission_reason?: string;
             /** @description The throttle the controller has this host on. Absent when it is on none. */
             throttle?: components["schemas"]["HostThrottle"];
+            /** @description The container-runtime cooldown the agent last reported. Absent when there is none. */
+            runtime_recovering?: components["schemas"]["RuntimeIncident"];
+            /**
+             * @description The host card's sentence for the runtime cooldown, without its times: the card renders the retry and the report's age against the viewer's clock. Absent when there is none.
+             * @example Runtime recovering: third failure in a row, the container runtime could not be reached. New starts here are held until one recovery attempt; running jobs continue.
+             */
+            runtime_reason?: string;
+            /** @description The last start or prewarm here whose image could not be made ready. Absent when there is none. */
+            image_pull_failed?: components["schemas"]["ImagePullIncident"];
             /**
              * @description The operator sentence for the throttle: what it took, why, what it is doing to the jobs already running, and how it ends. Empty when the host is not throttled.
              * @example throttled to 2 of 4 slots (step 2 of 3) after sustained pressure: the 1-minute load average is 30.0, at least twice the host's 8 CPUs; running jobs continue, the 1 runner with a CPU limit at 50% of it, and the throttle lifts one step after 5m of calm
