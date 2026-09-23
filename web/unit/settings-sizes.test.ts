@@ -15,11 +15,19 @@ test('a size setting is shown in the largest unit that says it exactly', () => {
   assert.equal(displayValue(setting('runners.default_cpus', 'float', 1.5)), '1.5 cores');
 });
 
-test('only numeric keys named for a unit are treated as sizes', () => {
+test('a number is a size where its key names the unit, and a count otherwise', () => {
   assert.equal(settingQuantity(setting('runners.default_memory_mb', 'int', 0)), 'mb');
   assert.equal(settingQuantity(setting('runners.default_cpus', 'float', 0)), 'cpus');
-  assert.equal(settingQuantity(setting('security.rate_limit_logins', 'int', 0)), null);
+  assert.equal(settingQuantity(setting('security.rate_limit_logins', 'int', 0)), 'count');
+  assert.equal(settingQuantity(setting('retention.jobs', 'duration', '720h')), 'ms');
   // A string that happens to end in _mb is not a number to reformat.
   assert.equal(settingQuantity(setting('something.named_mb', 'string', '')), null);
   assert.equal(displayValue(setting('security.rate_limit_logins', 'int', 10)), '10');
+});
+
+// Go writes a retention period in hours; the person reading it counts days.
+test('a duration setting is shown in the largest units that say it exactly', () => {
+  assert.equal(displayValue(setting('retention.jobs', 'duration', '720h')), '30d');
+  assert.equal(displayValue(setting('scheduler.interval', 'duration', '10s')), '10s');
+  assert.equal(displayValue(setting('scheduler.provision_timeout', 'duration', '1h30m')), '1h 30m');
 });

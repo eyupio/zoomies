@@ -33,6 +33,49 @@
   import QuantityField from '$lib/components/QuantityField.svelte';
   import { CPU_NOTCHES, withValue } from '$lib/pools/sizing';
   import { describeSource, displayValue, isUnset, settingQuantity } from './settings';
+  import { goDuration, parseQuantity, type Quantity } from '$lib/units';
+
+  const SECOND = 1000;
+  const MINUTE = 60 * SECOND;
+  const HOUR = 60 * MINUTE;
+  const DAY = 24 * HOUR;
+  /* The notches a setting's slider moves between, by what it measures. The
+     field beside it takes any figure, and one off the notches joins them. */
+  const NOTCHES: Record<Quantity, readonly number[]> = {
+    cpus: CPU_NOTCHES,
+    mb: [512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072],
+    gb: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1024],
+    count: [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 25, 30, 40, 50, 75, 100, 200, 500, 1000],
+    ms: [
+      SECOND,
+      2 * SECOND,
+      5 * SECOND,
+      10 * SECOND,
+      15 * SECOND,
+      30 * SECOND,
+      MINUTE,
+      2 * MINUTE,
+      5 * MINUTE,
+      10 * MINUTE,
+      15 * MINUTE,
+      30 * MINUTE,
+      HOUR,
+      2 * HOUR,
+      3 * HOUR,
+      6 * HOUR,
+      12 * HOUR,
+      DAY,
+      2 * DAY,
+      3 * DAY,
+      7 * DAY,
+      14 * DAY,
+      30 * DAY,
+      60 * DAY,
+      90 * DAY,
+      180 * DAY,
+      365 * DAY,
+    ],
+  };
 
   interface Props {
     setting: Setting;
@@ -87,16 +130,13 @@
      4g, 4096mb or 1.5, written back as 4 GB. */
   const quantity = $derived(settingQuantity(setting));
   const amountNotches = $derived.by(() => {
-    const base =
-      quantity === 'cpus'
-        ? CPU_NOTCHES
-        : quantity === 'gb'
-          ? [1, 2, 5, 10, 20, 50, 100, 200, 500, 1024]
-          : [512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072];
+    const base = quantity ? NOTCHES[quantity] : [];
     /* Zero joins the notches only where it is already an answer this
-       setting gives -- the build cache target's "leave the daemon alone". */
-    const withZero = setting.default === 0 || setting.value === 0 ? [0, ...base] : [...base];
-    return withValue(withZero, amount ?? 0);
+       setting gives -- the build cache target's "leave the daemon alone", a
+       lifetime of 0s that means none. A count starts at it anyway. */
+    const zero =
+      quantity === 'count' || [setting.default, setting.value].some((v) => v === 0 || v === '0s');
+    return withValue(zero ? [0, ...base] : [...base], amount ?? 0);
   });
 
   function start(): void {
@@ -117,7 +157,11 @@
         break;
       default:
         text = value === null || value === undefined ? '' : String(value);
-        amount = typeof value === 'number' ? value : null;
+        if (typeof value === 'number') amount = value;
+        else if (typeof value === 'string' && quantity === 'ms') {
+          const parsed = parseQuantity(value, 'ms');
+          amount = parsed.ok ? parsed.value : null;
+        } else amount = null;
     }
     editing = true;
   }
@@ -143,6 +187,9 @@
         }
         return out;
       }
+      case 'duration':
+        // Go's spelling, which is what the controller reads: 7d goes as 168h.
+        return amount === null ? text.trim() : goDuration(amount);
       case 'int':
       case 'float': {
         if (quantity) return amount;
@@ -236,7 +283,7 @@
           <QuantityField
             bind:value={amount}
             {quantity}
-            whole={setting.kind === 'int' && quantity === 'cpus'}
+            whole={setting.kind === 'int'}
             values={amountNotches}
             label="New value for {setting.key}"
             fieldLabel="New value for {setting.key}"

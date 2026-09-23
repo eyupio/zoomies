@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatQuantity, parseQuantity } from '../src/lib/units.ts';
+import { formatQuantity, goDuration, parseQuantity } from '../src/lib/units.ts';
 
 function value(text: string, quantity: Parameters<typeof parseQuantity>[1]): number | null {
   const parsed = parseQuantity(text, quantity);
@@ -88,4 +88,51 @@ test('what the field writes back reads back as the same value', () => {
   for (const cpus of [0.25, 1, 1.5, 12]) {
     assert.equal(value(formatQuantity(cpus, 'cpus'), 'cpus'), cpus);
   }
+});
+
+// A retention period is a number of days to the person setting it and a
+// number of hours to Go. The field takes either, and anything between.
+test('a duration reads Go spelling and the one people say', () => {
+  const hour = 3600 * 1000;
+  assert.equal(value('168h', 'ms'), 168 * hour);
+  assert.equal(value('7d', 'ms'), 168 * hour);
+  assert.equal(value('7 days', 'ms'), 168 * hour);
+  assert.equal(value('1 week', 'ms'), 168 * hour);
+  assert.equal(value('1h30m', 'ms'), 1.5 * hour);
+  assert.equal(value('1h 30m', 'ms'), 1.5 * hour);
+  assert.equal(value('1.5h', 'ms'), 1.5 * hour);
+  assert.equal(value('90 seconds', 'ms'), 90 * 1000);
+  assert.equal(value('500ms', 'ms'), 500);
+  // A bare number is seconds, as runners.docker_wait always meant it.
+  assert.equal(value('120', 'ms'), 120 * 1000);
+  for (const text of ['soon', '5 fortnights', '1h and 5m', 'h']) {
+    assert.equal(parseQuantity(text, 'ms').ok, false, text);
+  }
+});
+
+test('a duration is written back in the largest units that say it exactly', () => {
+  assert.equal(formatQuantity(90 * 1000, 'ms'), '1m 30s');
+  assert.equal(formatQuantity(3600 * 1000, 'ms'), '1h');
+  assert.equal(formatQuantity(36 * 3600 * 1000, 'ms'), '1d 12h');
+  assert.equal(formatQuantity(720 * 3600 * 1000, 'ms'), '30d');
+  assert.equal(formatQuantity(500, 'ms'), '500ms');
+  assert.equal(formatQuantity(0, 'ms'), '0s');
+  for (const ms of [500, 90_000, 5_400_000, 129_600_000, 2_592_000_000]) {
+    assert.equal(value(formatQuantity(ms, 'ms'), 'ms'), ms);
+  }
+});
+
+// The controller reads Go's spelling, which has no day.
+test('a duration is sent in the spelling Go reads', () => {
+  assert.equal(goDuration(720 * 3600 * 1000), '720h');
+  assert.equal(goDuration(90 * 1000), '1m30s');
+  assert.equal(goDuration(1500), '1s500ms');
+  assert.equal(goDuration(0), '0s');
+});
+
+test('a count is a whole number and nothing else', () => {
+  assert.equal(value('10', 'count'), 10);
+  assert.equal(value('1,000', 'count'), 1000);
+  assert.equal(parseQuantity('1.5', 'count').ok, false);
+  assert.equal(formatQuantity(12, 'count'), '12');
 });

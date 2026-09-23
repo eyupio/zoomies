@@ -15,8 +15,11 @@
  * gigabyte beside it would make "4 GB" mean two different limits on one page.
  */
 
-/** A quantity a size field can hold, named by the unit the API carries it in. */
-export type Quantity = 'cpus' | 'mb' | 'gb';
+/**
+ * A quantity a field can hold, named by the unit it is carried in: cores,
+ * megabytes, gigabytes, a plain count, or a length of time in milliseconds.
+ */
+export type Quantity = 'cpus' | 'mb' | 'gb' | 'count' | 'ms';
 
 /** What a parse makes of some text: a value, nothing (the field was cleared), or why not. */
 export type Parsed = { ok: true; value: number | null } | { ok: false; error: string };
@@ -59,10 +62,54 @@ function parseCpus(text: string): number | undefined {
   return m ? Number(m[1]) : undefined;
 }
 
+/** Milliseconds in each unit a duration can be written in, largest first. */
+const MS_PER: [string, number][] = [
+  ['w', 7 * 24 * 3600 * 1000],
+  ['d', 24 * 3600 * 1000],
+  ['h', 3600 * 1000],
+  ['m', 60 * 1000],
+  ['s', 1000],
+  ['ms', 1],
+];
+
+/** Every spelling of a duration unit, to the short one `MS_PER` names. */
+function durationUnit(word: string): string | undefined {
+  const w = word.toLowerCase();
+  if (w === 'ms' || /^millis(econds?)?$/.test(w)) return 'ms';
+  if (/^(s|secs?|seconds?)$/.test(w)) return 's';
+  if (/^(m|mins?|minutes?)$/.test(w)) return 'm';
+  if (/^(h|hrs?|hours?)$/.test(w)) return 'h';
+  if (/^(d|days?)$/.test(w)) return 'd';
+  if (/^(w|wks?|weeks?)$/.test(w)) return 'w';
+  return undefined;
+}
+
+/**
+ * Reads a length of time into milliseconds: Go's own spelling ("1h30m",
+ * "168h", "500ms"), the one a person says ("7 days", "2 weeks", "90 seconds"),
+ * and anything between ("1d 12h", "1.5h"). A bare number is seconds, which is
+ * what the one setting that ever took a bare number meant by it.
+ */
+function parseDuration(text: string): number | undefined {
+  if (/^\d+(?:\.\d+)?$/.test(text)) return Number(text) * 1000;
+  const part = /(\d+(?:\.\d+)?|\.\d+)\s*([a-z]+)\s*/giy;
+  let total = 0;
+  let at = 0;
+  for (let m = part.exec(text); m; m = part.exec(text)) {
+    const unit = durationUnit(m[2] ?? '');
+    if (!unit) return undefined;
+    total += Number(m[1]) * (MS_PER.find(([u]) => u === unit)?.[1] ?? NaN);
+    at = part.lastIndex;
+  }
+  return at === text.length && at > 0 ? total : undefined;
+}
+
 const EXAMPLES: Record<Quantity, string> = {
   cpus: 'a number of cores, such as 2 or 1.5',
   mb: 'a size such as 4 GB, 4096 MB or 4g',
   gb: 'a size such as 40 GB, 1.5 TB or 500g',
+  count: 'a whole number, such as 10',
+  ms: 'a length of time, such as 30s, 5m, 1h30m or 7d',
 };
 
 /**
@@ -84,6 +131,11 @@ export function parseQuantity(input: string, quantity: Quantity): Parsed {
   if (quantity === 'cpus') {
     const cpus = parseCpus(text);
     value = cpus === undefined ? undefined : Math.round(cpus * 100) / 100;
+  } else if (quantity === 'count') {
+    value = /^\d+$/.test(text) ? Number(text) : undefined;
+  } else if (quantity === 'ms') {
+    const ms = parseDuration(text);
+    value = ms === undefined ? undefined : Math.round(ms);
   } else {
     const mb = parseBytes(text, quantity);
     if (mb !== undefined) value = quantity === 'gb' ? Math.round(mb / 1024) : Math.round(mb);
@@ -104,6 +156,8 @@ const BYTE_UNITS = ['MB', 'GB', 'TB', 'PB'] as const;
 export function formatQuantity(value: number, quantity: Quantity): string {
   if (!Number.isFinite(value)) return '';
   if (quantity === 'cpus') return `${trim(value)} ${value === 1 ? 'core' : 'cores'}`;
+  if (quantity === 'count') return String(value);
+  if (quantity === 'ms') return formatDuration(value);
   let at = quantity === 'gb' ? 1 : 0;
   let n = value;
   while (at < BYTE_UNITS.length - 1 && n >= 1024 && exact(n / 1024)) {
@@ -120,4 +174,49 @@ function exact(n: number): boolean {
 
 function trim(n: number): string {
   return String(Math.round(n * 100) / 100);
+}
+
+/**
+ * Writes a length of time in the largest units that say it exactly, largest
+ * first: 3600000 is "1h", 5400000 is "1h 30m", 604800000 is "7d". Weeks are
+ * read but not written, because "30d" says a retention period plainly and
+ * "4w 2d" does not.
+ */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms)) return '';
+  if (ms === 0) return '0s';
+  let left = Math.round(ms);
+  const parts: string[] = [];
+  for (const [unit, size] of MS_PER) {
+    if (unit === 'w') continue;
+    const n = Math.floor(left / size);
+    if (n > 0) {
+      parts.push(`${n}${unit}`);
+      left -= n * size;
+    }
+  }
+  return parts.join(' ');
+}
+
+/**
+ * The same length of time in Go's spelling, which is what the controller's
+ * settings API reads: days become hours, because Go has no day.
+ */
+export function goDuration(ms: number): string {
+  let left = Math.round(ms);
+  if (left === 0) return '0s';
+  const out: string[] = [];
+  for (const [unit, size] of [
+    ['h', 3600 * 1000],
+    ['m', 60 * 1000],
+    ['s', 1000],
+    ['ms', 1],
+  ] as const) {
+    const n = Math.floor(left / size);
+    if (n > 0) {
+      out.push(`${n}${unit}`);
+      left -= n * size;
+    }
+  }
+  return out.join('');
 }
