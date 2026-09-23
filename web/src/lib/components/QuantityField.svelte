@@ -48,6 +48,9 @@
     invalid?: boolean;
     disabled?: boolean;
     onchange?: (value: number | null) => void;
+    /** What the field could not read, so a form can refuse to submit the
+        last good value in place of what was typed. */
+    error?: string;
   }
 
   let {
@@ -66,6 +69,7 @@
     invalid = false,
     disabled = false,
     onchange,
+    error = $bindable(''),
   }: Props = $props();
 
   const spell = (v: number | null): string => {
@@ -74,7 +78,6 @@
   };
 
   let text = $state('');
-  let error = $state('');
   let editing = $state(false);
 
   /* The field follows the value while nobody is typing in it, so a slider
