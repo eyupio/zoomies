@@ -218,6 +218,7 @@ something it is not doing.
 | `installation.unhealthy` | error | The GitHub App installation is not usable — the App was uninstalled, its key was rotated, or its permissions were changed. Nothing can register until it is fixed. An App that is merely not subscribed to `workflow_job` is *not* this: the fleet works on the fallback poller, more slowly, and `webhook.never_received` is the entry for it. |
 | `webhook.rejected` | warning | Deliveries arrived and were refused, almost always a signing-secret mismatch. |
 | `webhook.never_received` | warning | No webhook has ever arrived, so scaling is running entirely on the poller. |
+| `tailcat.unavailable` | warning | The controller's private-connection listener has no Tailcat relay it can reach, so hosts enrolled with a [private connection](private-hosts.md) cannot heartbeat or take work; direct hosts are unaffected. The entry carries the last attempt's reason. It is the platform's, because the fix is the controller's own outbound access. Nothing needs restarting: the controller retries every twenty seconds, tries the relay its identity was sealed with first and another only while that one does not answer, and the entry clears once one does. A listener that cannot start no longer stops the controller starting. |
 
 ## Runtime: pools, jobs and runners
 
