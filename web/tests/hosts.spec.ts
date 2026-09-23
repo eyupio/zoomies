@@ -105,6 +105,13 @@ test('the page comes filled in and hands over a command carrying the token', asy
   await expect(command).toContainText(`--controller '${origin}'`);
   await expect(command).toContainText('--version dev');
   await expect(page.getByText('Host install channel').locator('..')).toContainText(':dev');
+  // What the agent will own on that machine is one click from the command
+  // that hands it over, before anybody runs it.
+  await expect(
+    page
+      .getByRole('region', { name: 'Run this on the new host' })
+      .getByRole('link', { name: 'written down in the security guide' }),
+  ).toHaveAttribute('href', 'https://zoomies.sh/security/#what-the-agent-owns-on-a-host');
   // The page has other live regions -- the connection, the problems count --
   // so the waiting view is reached inside the panel that holds it.
   await expect(
