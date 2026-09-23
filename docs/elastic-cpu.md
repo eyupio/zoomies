@@ -37,12 +37,17 @@ The design starts from what it must never do, because a scheduler that lends
 CPU carelessly is a scheduler that starves a job it never noticed.
 
 * **Every runner keeps its guarantee.** A runner's share of the host is what it
-  was created with, and elasticity only ever adds to it. A quiet runner beside
-  a busy one loses nothing: its guarantee is charged in full before a single
-  hundredth of a core is lent to anyone.
+  was created with, and elasticity only ever adds to it. A busy or starting
+  runner's guarantee is charged in full before a single hundredth of a core is
+  lent to anyone. Idle runners — warm capacity waiting for a job — are charged
+  one guarantee between them, the largest, because only one of them can be
+  handed a job before the next plan; the rest of what they are not using is
+  lent. [Idle runners](#idle-runners) says what that costs.
 * **The next job keeps its room.** When a job is queued that this host could
   run, one runner's worth of CPU is held back before any is lent, so a burst of
-  fast jobs cannot crowd the next one off the machine.
+  fast jobs cannot crowd the next one off the machine. A job whose runner is
+  already starting on the host is not held back for twice: that runner's
+  guarantee is already charged.
 * **The host's own reserve is untouched.** The agent, the container daemon and
   the operator's `reserve_cpus` come first, as they do for placement. Only what
   is left after all three — the guarantees, the imminent start and the reserve
@@ -68,7 +73,7 @@ heartbeat the controller makes one host-wide plan.
 flowchart TD
     hb["a fresh heartbeat<br/>from the host's agent"]
     guard{"host healthy?<br/>CPU under 85%, load sane,<br/>memory above reserve,<br/>no hold, no throttle"}
-    ledger["charge every live runner<br/>its guarantee"]
+    ledger["charge every busy or starting runner<br/>its guarantee, and the idle<br/>runners one between them"]
     next["hold back one share<br/>for a compatible queued job"]
     spare["spare = allocatable<br/>− guarantees − held share"]
     demand{"which busy runners<br/>are demanding?"}
@@ -90,6 +95,12 @@ was allowed. Once a runner has been lent CPU and is using it, it keeps the
 boost while it stays above 60% of its guarantee: separate thresholds for
 entering and leaving stop a job that hovers around the line from having its
 quota moved on every heartbeat.
+
+Only runners that will actually be boosted — an `automatic` pool on an agent
+that can move a quota — share the spare the agent is sent. An `observe` runner
+beside them keeps its guarantee in that plan, because a share it was handed
+would be CPU nobody used and nobody else was lent. What `observe` reports is
+worked out separately, as the share it *would* have had.
 
 The spare is shared by **max-min fairness**, filled like water rather than
 divided once. Two demanding runners split it evenly; if one of them has a
@@ -116,7 +127,7 @@ which leaves 7.5 allocatable, and gives each runner a guarantee of 1.87 CPUs.
 | Two busy runners, nothing queued | 3.75 CPUs | 2.0× | Squirrel spotted — maximum zoomies |
 | Two busy runners, one compatible job queued | 2.81 CPUs | 1.5× | Rabbit spotted — extra zoomies |
 | Two busy runners, ceiling of 3 CPUs on the pool | 3 CPUs | 1.6× | Rabbit spotted — extra zoomies |
-| Two busy and two idle runners, nothing queued | 1.87 CPUs | 1.0× | Steady paws — guaranteed pace |
+| Two busy and two idle runners, nothing queued | 2.81 CPUs | 1.5× | Rabbit spotted — extra zoomies |
 | Host at 90% CPU from other work | 1.87 CPUs | 1.0× | Steady paws — guaranteed pace |
 | Host throttled one rung | 1.40 CPUs | 0.75× | Leash tightened — host under pressure |
 
@@ -129,12 +140,29 @@ the host fell quiet, and the one after lent it again — every other heartbeat,
 for as long as the job ran. Outside work, a runner with no limit, or the
 daemon still count in full, and still stop a boost.
 
-The fourth row is the one that surprises people: the two idle runners are
-charged their guarantees even though they are using nothing, because their
-guarantee is a promise the fleet has already made. Elasticity lends only what
-nobody has been promised. If that is the shape of your fleet — pools with
-`min_runners` above zero holding warm capacity — the boost is smaller, and that
-is the design working rather than failing.
+The same holds for the host's start hold and throttle. A host above 95% CPU
+for 30 seconds holds new starts, and a host that is not calm stays on its
+throttle rung; both are judged on the host's CPU less the lent CPU in use, and
+the host records that figure as `lent_cpu_percent` beside the raw
+`cpu_percent`. A boost that is working is never what holds a start.
+
+### Idle runners
+
+The fourth row is the one warm capacity decides. The two idle runners are
+charged one guarantee between them rather than one each: only one of them can
+be handed a job before the next heartbeat, and CPU they are not using is the
+whole point of lending. Charging each in full left a fleet with `min_runners`
+above zero — sixteen CPUs, four slots, one busy job and three warm runners —
+with nothing to lend at all.
+
+The cost is a bounded oversubscription. If a second idle runner is handed a
+job before the next plan, it and the boost compete for the host until that
+plan arrives. It does: the plan is recomputed on every heartbeat, a runner
+that has turned busy is charged in full in it, and the agent replaces its whole
+set of boosts from each plan, so the lent CPU comes back within one heartbeat
+interval and a quota update. Nobody's quota is ever cut below its guarantee in
+that window; the newly busy runner competes for cores with a boosted
+neighbour, briefly, and then has them.
 
 ## The three modes
 
@@ -165,6 +193,10 @@ job that can use everything it is given. Set a ceiling for a pool whose jobs do
 not scale — a test suite that runs single-threaded gains nothing past two
 cores, and a ceiling leaves the rest for a runner that can use it — or when you
 want the machine shared more evenly than fairness alone would.
+
+The ceiling is also never above the core count the host's container daemon
+reports. A Docker Desktop or VM daemon can be smaller than the machine the
+agent measured, and refuses a quota above its own cores outright.
 
 A ceiling cannot take a runner below its guarantee. A pool edited to a ceiling
 under a running runner's share keeps that runner at its guarantee, and the
@@ -296,10 +328,17 @@ it.
 
 ## Docker-in-Docker and the process backend
 
-A `dind` pool's runner and its sidecar are **one logical runner** throughout.
-The demand sample covers both, because the build's work happens in the daemon;
-the ceiling covers both; and a quota change reaches both, so the daemon that is
-doing the compiling is the one that gets the cores.
+A `dind` pool's runner and its sidecar are **one logical runner** throughout:
+the guarantee and the ceiling cover both, and the boost is the pair's. It is
+given to the sidecar, because the build's work happens in the daemon — the
+runner container stays at its own half, and the sidecar gets the rest of the
+pair's target. A throttle still reaches both.
+
+Demand is judged on the pair's sum and on its busier half. A daemon compiling
+flat out on its half of the slot while the runner beside it waits reads as a
+pair about half busy, so the agent reports how much of its own quota the busier
+container is using, and a pair is demanding when that is at 80% or more. An
+agent too old to report it is judged on the sum, as before.
 
 The `process` backend stays static. It starts a runner as a plain process with
 no cgroup, which is why a pool on it cannot be elastic and why the wizard does

@@ -22,6 +22,24 @@ type HostUsage struct {
 	SampledAt    time.Time  `json:"sampled_at,omitempty"`
 	CPUHighSince *time.Time `json:"cpu_high_since,omitempty"`
 	CPUHeld      bool       `json:"cpu_held,omitempty"`
+	// LentCPUPercent is the part of CPUPercent that runners were using out of
+	// CPU elastic CPU lent them, as a share of the whole host. The controller
+	// works it out from the same heartbeat's runner samples; whatever an agent
+	// put here is replaced. A boost doing its job is load the plan chose, and
+	// judging admission and the throttle on it would have a boost trip the
+	// very hold that then withdraws it.
+	LentCPUPercent float64 `json:"lent_cpu_percent,omitempty"`
+}
+
+// UnlentCPUPercent is the host's CPU less what runners were using of CPU lent
+// to them: the load the plan did not account for. Nil where CPU was not
+// measured.
+func (u HostUsage) UnlentCPUPercent() *float64 {
+	if u.CPUPercent == nil {
+		return nil
+	}
+	v := max(*u.CPUPercent-max(u.LentCPUPercent, 0), 0)
+	return &v
 }
 
 const HostUsageMaxAge = 90 * time.Second
@@ -40,11 +58,19 @@ func (u HostUsage) Fresh(now time.Time) bool {
 // forged timestamp cannot keep a reading fresh, or shorten a pressure hold.
 // Sustained CPU pressure pauses admission after 30 seconds above 95%; a
 // reading below 85% releases it. Busy runners are never changed by this state.
-func ObserveHostUsage(previous, measured HostUsage, memoryMB int64, now time.Time) HostUsage {
+//
+// lentPercent is the controller's own figure for the share of the host that
+// runners were using out of lent CPU, and both thresholds are judged without
+// it. The recorded CPUPercent stays the raw measurement.
+func ObserveHostUsage(previous, measured HostUsage, lentPercent float64, memoryMB int64, now time.Time) HostUsage {
 	u := HostUsage{SampledAt: now}
 	if v := measured.CPUPercent; v != nil && !math.IsNaN(*v) && !math.IsInf(*v, 0) && *v >= 0 && *v <= 100 {
-		value := *v
-		u.CPUPercent = &value
+		raw := *v
+		u.CPUPercent = &raw
+		if !math.IsNaN(lentPercent) && lentPercent > 0 {
+			u.LentCPUPercent = min(lentPercent, raw)
+		}
+		value := *u.UnlentCPUPercent()
 		if previous.Fresh(now) && previous.CPUPercent != nil {
 			u.CPUHeld = previous.CPUHeld && value >= 85
 		}

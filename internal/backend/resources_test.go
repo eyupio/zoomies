@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -123,6 +124,13 @@ type updateEngine struct {
 
 func newUpdateEngine(t *testing.T, runnerNanos, sidecarNanos int64, withSidecar bool) *updateEngine {
 	t.Helper()
+	return newHalvedUpdateEngine(t, runnerNanos, sidecarNanos, withSidecar, 0)
+}
+
+// newHalvedUpdateEngine is newUpdateEngine with each container labelled as
+// created with half CPUs, which is what a boost of the pair is split by.
+func newHalvedUpdateEngine(t *testing.T, runnerNanos, sidecarNanos int64, withSidecar bool, half float64) *updateEngine {
+	t.Helper()
 	u := &updateEngine{updates: map[string][]map[string]any{}}
 	inspect := func(id string, nanos int64, labels map[string]string) *ContainerInspect {
 		return &ContainerInspect{
@@ -134,6 +142,10 @@ func newUpdateEngine(t *testing.T, runnerNanos, sidecarNanos int64, withSidecar 
 	}
 	runnerLabels := map[string]string{LabelRole: roleRunner, LabelName: "runner-1", LabelRunnerID: "run_1"}
 	sidecarLabels := map[string]string{LabelRole: roleDinD, LabelName: "runner-1-dind", LabelDinDFor: "runner-1", LabelRunnerID: "run_1"}
+	if half > 0 {
+		runnerLabels[LabelCPUs] = strconv.FormatFloat(half, 'f', -1, 64)
+		sidecarLabels[LabelCPUs] = strconv.FormatFloat(half, 'f', -1, 64)
+	}
 	u.fakeEngine = newFakeEngine(t, map[string]http.HandlerFunc{
 		"GET " + v + "/containers/{id}/json": func(w http.ResponseWriter, r *http.Request) {
 			switch r.PathValue("id") {
@@ -310,5 +322,81 @@ func TestAnOOMKillSaysWhatToChangeForEachSourceOfTheLimit(t *testing.T) {
 				t.Errorf("%s: message %q should not say %q", c.name, st.Message, w)
 			}
 		}
+	}
+}
+
+// A boost of a docker-in-docker pair is for the build, and the build runs in
+// the daemon. Lent to both halves alike, the runner process was given cores it
+// never used and the daemon only half the loan; the runner keeps its half and
+// the sidecar is given the rest of the pair's target. The agent sends what it
+// always has -- the runner's half times the factor -- so neither side of the
+// protocol changed.
+func TestUpdateResourcesLendsADinDBoostToTheSidecar(t *testing.T) {
+	// Two halves of 2 CPUs, boosted 2x: the pair is to have 8.
+	u := newHalvedUpdateEngine(t, 2_000_000_000, 2_000_000_000, true, 2)
+	b := dockerBackendFor(t, u.fakeEngine, DockerOptions{})
+	if err := b.UpdateResources(context.Background(), "c1", store.Resources{CPUs: 4}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if got := u.sent("c1"); len(got) != 0 {
+		t.Fatalf("runner updates = %v, want none: it stays at its own half", got)
+	}
+	if got := u.sent("d1"); len(got) != 1 || got[0]["NanoCpus"] != float64(6_000_000_000) {
+		t.Fatalf("sidecar updates = %v, want one to 6 CPUs, the pair's 8 less the runner's 2", got)
+	}
+
+	// Restored, both go back to their own halves.
+	u = newHalvedUpdateEngine(t, 2_000_000_000, 6_000_000_000, true, 2)
+	b = dockerBackendFor(t, u.fakeEngine, DockerOptions{})
+	if err := b.UpdateResources(context.Background(), "c1", store.Resources{CPUs: 2}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if got := u.sent("d1"); len(got) != 1 || got[0]["NanoCpus"] != float64(2_000_000_000) {
+		t.Fatalf("sidecar updates = %v, want one back to its 2 CPU half", got)
+	}
+
+	// A pair from a release that stamped no halves has nothing to split by,
+	// and keeps the old behaviour rather than a guess.
+	u = newHalvedUpdateEngine(t, 2_000_000_000, 2_000_000_000, true, 0)
+	b = dockerBackendFor(t, u.fakeEngine, DockerOptions{})
+	if err := b.UpdateResources(context.Background(), "c1", store.Resources{CPUs: 4}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	for _, id := range []string{"c1", "d1"} {
+		if got := u.sent(id); len(got) != 1 || got[0]["NanoCpus"] != float64(4_000_000_000) {
+			t.Fatalf("%s updates = %v, want the unlabelled pair moved together to 4 CPUs", id, got)
+		}
+	}
+}
+
+// The daemon saturating its half while the runner idles reads as a pair half
+// busy; the stats say how busy the busier half is, against its own quota, so
+// the controller can see a build waiting on its CPU.
+func TestDinDStatsSayHowBusyTheBusierHalfIs(t *testing.T) {
+	stats := func(total uint64) map[string]any {
+		return map[string]any{"cpu_stats": map[string]any{
+			"cpu_usage": map[string]any{"total_usage": total}, "system_cpu_usage": 100, "online_cpus": 4,
+		}}
+	}
+	runnerLabels := map[string]string{LabelName: "runner-1", LabelDockerMode: string(store.DockerDinD), LabelCPUs: "2"}
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/c1/stats": func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, stats(10)) },
+		"GET " + v + "/containers/d1/stats": func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, stats(48)) },
+		"GET " + v + "/containers/c1/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, &ContainerInspect{ID: "c1", Config: &ContainerConfig{Labels: runnerLabels}})
+		},
+		"GET " + v + "/containers/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, []ContainerSummary{{ID: "d1", Labels: map[string]string{LabelDinDFor: "runner-1", LabelCPUs: "2"}}})
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+	got, err := b.Stats(context.Background(), "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 40% and 192% of a core: the pair uses 58% of its 4 CPUs, and the
+	// daemon 96% of its own 2.
+	if got.CPUPercent != 232 || got.BusiestHalfPercent != 96 {
+		t.Fatalf("stats = %+v, want 232%% for the pair and 96%% for its busier half", got)
 	}
 }

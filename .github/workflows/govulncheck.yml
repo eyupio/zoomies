@@ -2,7 +2,7 @@ name: govulncheck
 
 # A module that was clean when it was merged can be found vulnerable later,
 # and nothing in CI would run again to say so. This scans the Go modules on
-# every change and once a week against main, and it lives outside ci.yml so
+# every change to Go or its modules and once a week against main, and it lives outside ci.yml so
 # the weekly run is this one job rather than the whole pipeline. govulncheck
 # reports a vulnerability only when the code can reach it, which is what makes
 # it quiet enough to block a pull request on.
@@ -10,7 +10,17 @@ name: govulncheck
 on:
   push:
     branches: [main]
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/govulncheck.yml"
   pull_request:
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/govulncheck.yml"
   schedule:
     - cron: "37 6 * * 1"
   workflow_dispatch:
