@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -41,7 +42,9 @@ func TestExportSendsThePassphraseFromItsFileAndWritesTheArchive(t *testing.T) {
 	if err != nil || !strings.Contains(string(body), "zoomies-installation") {
 		t.Fatalf("the archive was not written: %q, %v", body, err)
 	}
-	if st, _ := os.Stat(dest); st.Mode().Perm() != 0o600 {
+	// Windows has no mode bits to check; the directory's ACL is what keeps
+	// the archive private there, as for the backup's copied key.
+	if st, _ := os.Stat(dest); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("the archive is mode %v, want 0600", st.Mode().Perm())
 	}
 	if !strings.Contains(out, "sealed under the passphrase") {
