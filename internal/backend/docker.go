@@ -36,7 +36,9 @@ import (
 //	otherwise                     -> ./config.sh --unattended --url "$ZOOMIES_RUNNER_URL"
 //	                                   --token "$ZOOMIES_RUNNER_TOKEN" --name "$ZOOMIES_RUNNER_NAME"
 //	                                   --labels "$ZOOMIES_RUNNER_LABELS" --runnergroup "$ZOOMIES_RUNNER_GROUP"
-//	                                   [--ephemeral if ZOOMIES_EPHEMERAL=true] --disableupdate
+//	                                   [--ephemeral if ZOOMIES_EPHEMERAL=true]
+//	                                   [--no-default-labels if ZOOMIES_RUNNER_NO_DEFAULT_LABELS=true]
+//	                                   --disableupdate
 //	                                 then exec ./run.sh
 const (
 	// EnvJITConfig carries the base64 just-in-time configuration. When it is
@@ -54,6 +56,9 @@ const (
 	EnvRunnerGroup = "ZOOMIES_RUNNER_GROUP"
 	// EnvEphemeral is "true" when the runner must exit after one job.
 	EnvEphemeral = "ZOOMIES_EPHEMERAL"
+	// EnvNoDefaultLabels is "true" when config.sh must register the runner
+	// with its custom labels only.
+	EnvNoDefaultLabels = "ZOOMIES_RUNNER_NO_DEFAULT_LABELS"
 
 	// EnvUpstreamJITConfig is the name actions/runner itself understands. It is
 	// set alongside EnvJITConfig so that an operator can point a pool at a
@@ -375,6 +380,10 @@ type containerOptions struct {
 	WorkDirOwned bool
 	// DinDImage is only used when building a sidecar config.
 	DinDImage string
+	// ProxyEnv is the agent's proxy variables the pool did not set itself,
+	// as KEY=value pairs. The caller resolves it once per create, so that
+	// building a config stays a pure function of its inputs.
+	ProxyEnv []string
 }
 
 // buildRunnerConfig assembles the container config for one runner.
@@ -519,12 +528,16 @@ func runnerEnv(spec Spec, o containerOptions) []string {
 			EnvRunnerLabels+"="+strings.Join(spec.Credentials.Labels, ","),
 			EnvRunnerGroup+"="+spec.Credentials.RunnerGroup,
 		)
+		if spec.Credentials.NoDefaultLabels {
+			env = append(env, EnvNoDefaultLabels+"=true")
+		}
 	}
 	if o.DockerHost != "" {
 		// DOCKER_TLS_CERTDIR is emptied to match the sidecar, which listens in
 		// the clear inside the network namespace the two containers share.
 		env = append(env, "DOCKER_HOST="+o.DockerHost, "DOCKER_TLS_CERTDIR=")
 	}
+	env = append(env, o.ProxyEnv...)
 
 	keys := make([]string, 0, len(spec.Env))
 	for k := range spec.Env {
@@ -533,6 +546,25 @@ func runnerEnv(spec Spec, o containerOptions) []string {
 	sort.Strings(keys)
 	for _, k := range keys {
 		env = append(env, k+"="+spec.Env[k])
+	}
+	return env
+}
+
+// dindEnv is the sidecar's environment. The daemon pulls every image a job's
+// builds and services name, so behind a proxy it needs the same proxy the
+// runner has -- the agent's, or the pool's where the pool sets one. Nothing
+// else from the pool's env reaches the daemon: those are the job's variables,
+// not the daemon's.
+//
+// The runner reaches this daemon on 127.0.0.1, which proxy-aware clients
+// already exempt from the proxy, so NO_PROXY needs nothing added for it.
+func dindEnv(spec Spec, o containerOptions) []string {
+	env := []string{"DOCKER_TLS_CERTDIR="}
+	env = append(env, o.ProxyEnv...)
+	for _, k := range proxyEnvKeys {
+		if v, ok := spec.Env[k]; ok {
+			env = append(env, k+"="+v)
+		}
 	}
 	return env
 }
@@ -561,10 +593,8 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 		Hostname: sanitizeHostname(dindName(spec.Name)),
 		Labels:   labels,
 		Tty:      false,
-		Env: []string{
-			"DOCKER_TLS_CERTDIR=",
-		},
-		Cmd: []string{"dockerd", "--host=tcp://127.0.0.1:2375", "--host=unix:///var/run/docker.sock"},
+		Env:      dindEnv(spec, o),
+		Cmd:      []string{"dockerd", "--host=tcp://127.0.0.1:2375", "--host=unix:///var/run/docker.sock"},
 		HostConfig: &HostConfig{
 			LogConfig: runnerLogConfig(fl),
 			// A nested daemon needs real privileges; this is the cost of the
@@ -788,7 +818,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	spec.Image = createRef
 	createStarted := time.Now()
 
-	opts := containerOptions{Now: time.Now(), DinDImage: b.dind}
+	opts := containerOptions{Now: time.Now(), DinDImage: b.dind, ProxyEnv: inheritedProxyEnv(os.LookupEnv, spec.Env)}
 	network := firstNonEmpty(strings.TrimSpace(spec.Network), b.network)
 	if network != "" {
 		if err := b.ensureNetwork(ctx, network); err != nil {
