@@ -133,13 +133,25 @@ Some suites intentionally require more setup:
 You do not need to run an unrelated privileged or credential-dependent suite.
 State exactly what you ran and what you could not run in the pull request.
 
-CI runs what a pull request's files can affect, decided by the `changes` job
-at the top of `.github/workflows/ci.yml`: a documentation change runs the
-`internal/docs` checks and nothing heavier, a `web/` change runs the UI and
-Playwright jobs, and a Go change runs the whole set. The Go suite is split by
-package across four runners; `make test TEST_PKGS=./internal/store/` runs one
-shard the way CI does. Coverage is measured on `main`, not on pull requests.
-A push to `main` runs everything.
+CI runs what a change's files can affect, decided by the `changes` job at the
+top of `.github/workflows/ci.yml`, on a pull request and on `main` alike:
+
+| A change to | Runs |
+| --- | --- |
+| Markdown, `docs/`, the site, the workflows | the `internal/docs` and `internal/naming` checks, which hold the prose to the code — about a minute |
+| `install.sh` | the `install.sh` checks and the upgrade test; no binaries or images |
+| `web/` | the UI and Playwright jobs, and the docs checks |
+| `deploy/` | the image builds and the tests that read those files |
+| Go, or anything not listed | the whole set |
+| `ci.yml`, the `Makefile`, `go.mod` | everything |
+
+The Go suite is split by package across four runners; `make test
+TEST_PKGS=./internal/store/` runs one shard the way CI does. Coverage is
+measured on `main`, when the whole Go suite ran. `main` publishes the dev
+channel's binaries and images only from a commit that changes what ships — Go,
+the UI or `deploy/` — so a documentation merge leaves `--version dev` where it
+was. A manual dispatch runs everything. CodeQL, govulncheck, the fuzz targets
+and Scorecard run only when their own inputs change, and weekly regardless.
 
 ## Commit and open a pull request
 

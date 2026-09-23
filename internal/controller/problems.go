@@ -122,6 +122,10 @@ var problemAudience = map[string]Audience{
 	"controller.loop_panicked":                AudiencePlatform,
 	"controller.update_available":             AudiencePlatform,
 	"crypto.key_mismatch":                     AudiencePlatform,
+	// The private-connection listener is the process's: it is one per
+	// instance, it dials out from the controller's network, and the fix is that
+	// network's egress, which a fleet cannot change.
+	"tailcat.unavailable": AudiencePlatform,
 	// The credential-minting limit is scheduler.registration_concurrency,
 	// which only the platform can change. A fleet told its runners are being
 	// held back at a number it cannot reach would go looking for hosts, which
@@ -336,6 +340,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("stuck runners", c.notProgressingProblems)
 	gather("capacity-demand deliveries", c.capacityDeliveryProblems)
 	gather("infrastructure providers", c.machineProblems)
+	gather("the private connection", c.privateConnectionProblems)
 
 	// An incomplete list says so, at the top, in the same shape as everything
 	// else on it. A list that quietly drops a section is worse than an error,

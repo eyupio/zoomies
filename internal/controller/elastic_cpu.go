@@ -19,9 +19,17 @@ const (
 )
 
 // elasticCPUTargets makes one host-wide decision from one coherent heartbeat.
-// Every live runner is charged its guarantee before any spare CPU is lent, and
-// one compatible queued start is protected so a fast job cannot starve the
-// next job out of the machine.
+// Every busy or starting runner is charged its guarantee before any spare CPU
+// is lent, the idle runners one guarantee between them, and one compatible
+// queued start is protected so a fast job cannot starve the next job out of
+// the machine.
+//
+// Charging idle runners only one guarantee lets a busy runner borrow what warm
+// capacity is not using, at the cost of a bounded oversubscription: if a
+// second idle runner is handed a job, it may compete with a boost until the
+// next heartbeat, whose plan charges it in full. The agent replaces its whole
+// set of boosts from every plan, so the lent CPU is back within one heartbeat
+// interval and a quota update, and a runner is never below its own quota.
 func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req agent.HeartbeatRequest, now time.Time) []agent.ElasticCPUDirective {
 	// Nothing measured is no decision at all: there is nothing to judge the
 	// host by, so nothing is recorded as if there were.
@@ -58,8 +66,20 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		reports[rep.RunnerID] = rep
 	}
 
-	workloads := make([]scheduler.ElasticCPUWorkload, 0, len(runners))
+	supported := slices.Contains(req.Features, agent.FeatureElasticCPU)
+
+	// Two ledgers of the same runners. applied is the plan the agent is sent:
+	// only a runner that will actually be boosted -- an automatic pool on an
+	// agent that can move a quota -- may take part in its water-fill. An
+	// observe runner, or one on an agent too old to boost it, is held at its
+	// guarantee there, because a share the plan hands it is a share nobody
+	// uses and nobody else is lent. hypothetical lets every observing runner
+	// compete, and answers only the question observe mode asks: what would a
+	// boost have been?
+	applied := make([]scheduler.ElasticCPUWorkload, 0, len(runners))
+	hypothetical := make([]scheduler.ElasticCPUWorkload, 0, len(runners))
 	poolByRunner := make(map[string]*store.Pool, len(runners))
+	starting := make(map[string]int)
 	lent := 0.0
 	for _, r := range runners {
 		if r == nil || !r.State.Live() {
@@ -69,33 +89,32 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		if p == nil {
 			continue
 		}
-		base := scheduler.Reserve(p, h).CPUs
-		if p.Automatic() && r.AllocatedCPUs > 0 {
-			// An automatic runner keeps the host share it was actually launched
-			// with. Recomputing it after a host-capacity edit would corrupt both
-			// the committed ledger and any factor sent to the agent.
-			base = r.AllocatedCPUs
+		if r.State == store.RunnerProvisioning || r.State == store.RunnerRegistering {
+			starting[p.ID]++
 		}
+		base := elasticBase(p, h, r)
 		poolByRunner[r.ID] = p
 		if rep, ok := reports[r.ID]; ok {
 			lent += lentInUse(rep.Stats, base, now)
 		}
 		eligible := p.Automatic() && p.CPUBurst.Observes() && (p.Backend == store.BackendDocker || p.Backend == store.BackendPodman) && r.State == store.RunnerBusy && r.AllocatedCPUs > 0
-		w := scheduler.ElasticCPUWorkload{ID: r.ID, BaseCPUs: base, MaxCPUs: base}
+		w := scheduler.ElasticCPUWorkload{ID: r.ID, BaseCPUs: base, MaxCPUs: base, Idle: r.State == store.RunnerIdle}
+		a := w
 		if eligible && base > 0 {
-			w.MaxCPUs = p.CPUBurst.MaxCPUs
-			if w.MaxCPUs <= 0 || w.MaxCPUs > alloc.CPUs {
-				w.MaxCPUs = alloc.CPUs
-			}
+			w.MaxCPUs = elasticCeiling(p, h, alloc.CPUs)
 			if rep, ok := reports[r.ID]; ok {
 				w.Demanding = elasticCPUDemanding(r, rep.Stats, base, now)
 			}
+			if p.CPUBurst.Enforces() && supported {
+				a = w
+			}
 		}
-		workloads = append(workloads, w)
+		hypothetical = append(hypothetical, w)
+		applied = append(applied, a)
 	}
 
 	elastic, demanding := false, false
-	for _, w := range workloads {
+	for _, w := range hypothetical {
 		if p := poolByRunner[w.ID]; p != nil && p.CPUBurst.Observes() && w.BaseCPUs > 0 && w.MaxCPUs > w.BaseCPUs {
 			elastic = true
 			demanding = demanding || w.Demanding
@@ -105,13 +124,12 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		return nil
 	}
 
-	supported := slices.Contains(req.Features, agent.FeatureElasticCPU)
 	if elasticHostBusy(h, lent) {
 		// A host too busy to lend is still a decision, and it is recorded as
 		// one. Observe mode exists so an operator can read how often a boost
 		// would happen before switching one on; a busy heartbeat that left no
 		// trace would count only the calm ones, and overstate the answer.
-		for _, w := range workloads {
+		for _, w := range hypothetical {
 			p := poolByRunner[w.ID]
 			if p == nil || !p.CPUBurst.Observes() || w.BaseCPUs <= 0 || w.MaxCPUs <= w.BaseCPUs {
 				continue
@@ -127,16 +145,24 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 	// is, so the fleet-wide read of queued jobs it needs is skipped.
 	reserve := 0.0
 	if demanding {
-		reserve = c.elasticStartReserve(ctx, h, poolByID)
+		reserve = c.elasticStartReserve(ctx, h, poolByID, starting)
 	}
-	targets := scheduler.ElasticCPUPlan(alloc.CPUs, reserve, workloads)
-	directives := make([]agent.ElasticCPUDirective, 0, len(workloads))
-	for _, w := range workloads {
+	targets := scheduler.ElasticCPUPlan(alloc.CPUs, reserve, applied)
+	would := targets
+	if !slices.Equal(applied, hypothetical) {
+		would = scheduler.ElasticCPUPlan(alloc.CPUs, reserve, hypothetical)
+	}
+	directives := make([]agent.ElasticCPUDirective, 0, len(hypothetical))
+	for _, w := range hypothetical {
 		p := poolByRunner[w.ID]
 		if p == nil || !p.CPUBurst.Observes() || w.BaseCPUs <= 0 || w.MaxCPUs <= w.BaseCPUs {
 			continue
 		}
-		target := targets[w.ID]
+		enforced := p.CPUBurst.Enforces() && supported
+		target := would[w.ID]
+		if enforced {
+			target = targets[w.ID]
+		}
 		outcome := "base"
 		if target > w.BaseCPUs+0.01 {
 			outcome = "burst"
@@ -146,10 +172,7 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		}
 		c.metrics.elasticCPUDecisions.WithLabelValues(p.Name, string(p.CPUBurst.Mode), outcome).Inc()
 		c.metrics.elasticCPUFactor.WithLabelValues(p.Name, string(p.CPUBurst.Mode)).Observe(target / w.BaseCPUs)
-		if !p.CPUBurst.Enforces() || !supported {
-			continue
-		}
-		if target <= w.BaseCPUs+0.01 {
+		if !enforced || target <= w.BaseCPUs+0.01 {
 			continue
 		}
 		directives = append(directives, agent.ElasticCPUDirective{
@@ -158,6 +181,75 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		})
 	}
 	return directives
+}
+
+// elasticBase is the guarantee a runner is lent CPU on top of.
+func elasticBase(p *store.Pool, h *store.Host, r *store.Runner) float64 {
+	if p.Automatic() && r.AllocatedCPUs > 0 {
+		// An automatic runner keeps the host share it was actually launched
+		// with. Recomputing it after a host-capacity edit would corrupt both
+		// the committed ledger and any factor sent to the agent.
+		return r.AllocatedCPUs
+	}
+	return scheduler.Reserve(p, h).CPUs
+}
+
+// elasticCeiling is the most one runner of p may be lent up to on h: the
+// pool's own ceiling, the host's allocatable CPU, and the daemon's core count,
+// whichever is least. The last is the one easily forgotten: a Docker Desktop
+// or VM daemon is smaller than the machine the agent measured, and refuses a
+// quota above its own cores outright ("range of CPUs is from 0.01 to N"), so a
+// boost past it would be no boost at all and a warning on every heartbeat.
+func elasticCeiling(p *store.Pool, h *store.Host, allocatable float64) float64 {
+	ceiling := p.CPUBurst.MaxCPUs
+	if ceiling <= 0 || ceiling > allocatable {
+		ceiling = allocatable
+	}
+	if info, ok := h.BackendInfo.Find(p.Backend); ok && info.CPUs > 0 {
+		ceiling = min(ceiling, float64(info.CPUs))
+	}
+	return ceiling
+}
+
+// lentCPUPercent is the share of the host, in percent, that its runners were
+// using out of CPU lent to them in this heartbeat. The host's admission hold
+// and throttle are judged without it (see store.ObserveHostUsage).
+//
+// It reads the fleet only when some runner reports a boost, which is the only
+// time the answer can be anything but zero.
+func (c *Controller) lentCPUPercent(ctx context.Context, h *store.Host, reports []agent.RunnerReport, now time.Time) float64 {
+	if h == nil || h.CPUs <= 0 || !slices.ContainsFunc(reports, func(rep agent.RunnerReport) bool { return rep.Stats.CPUAllocationFactor > 1 }) {
+		return 0
+	}
+	runners, err := c.st.ListRunnersForHost(ctx, h.ID)
+	if err != nil {
+		return 0
+	}
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return 0
+	}
+	poolByID := make(map[string]*store.Pool, len(pools))
+	for _, p := range pools {
+		poolByID[p.ID] = p
+	}
+	byID := make(map[string]*store.Runner, len(runners))
+	for _, r := range runners {
+		if r != nil {
+			byID[r.ID] = r
+		}
+	}
+	lent := 0.0
+	for _, rep := range reports {
+		r := byID[rep.RunnerID]
+		if r == nil || !r.State.Live() {
+			continue
+		}
+		if p := poolByID[r.PoolID]; p != nil {
+			lent += lentInUse(rep.Stats, elasticBase(p, h, r), now)
+		}
+	}
+	return lent / float64(h.CPUs) * 100
 }
 
 // elasticHostBusy reports whether the host is too busy to lend CPU: throttled,
@@ -207,6 +299,13 @@ func elasticCPUDemanding(r *store.Runner, current backend.Stats, base float64, n
 	if current.CPUPercent >= base*elasticDemandPercent {
 		return true
 	}
+	// A docker-in-docker pair is judged by its busier half as well. The build
+	// runs in the daemon, which saturates its own half of the slot while the
+	// pair together reads barely half busy -- judged on the sum alone, a
+	// build waited most of its run before it was lent anything.
+	if current.BusiestHalfPercent >= elasticDemandPercent {
+		return true
+	}
 	var previous backend.Stats
 	if len(r.ResourceSample) == 0 || json.Unmarshal(r.ResourceSample, &previous) != nil {
 		return false
@@ -214,7 +313,7 @@ func elasticCPUDemanding(r *store.Runner, current backend.Stats, base float64, n
 	// Once lent CPU is doing useful work, keep it until usage falls below a
 	// lower threshold. Separate enter/leave thresholds stop quota flapping on
 	// jobs that hover around the demand boundary.
-	if previous.CPUAllocationFactor > 1 && current.CPUPercent >= base*elasticHoldPercent {
+	if previous.CPUAllocationFactor > 1 && (current.CPUPercent >= base*elasticHoldPercent || current.BusiestHalfPercent >= elasticHoldPercent) {
 		return true
 	}
 	if previous.CPUThrottling == nil || current.CPUThrottling == nil {
@@ -224,15 +323,27 @@ func elasticCPUDemanding(r *store.Runner, current backend.Stats, base float64, n
 		current.CPUThrottling.ThrottledNanoseconds > previous.CPUThrottling.ThrottledNanoseconds
 }
 
-func (c *Controller) elasticStartReserve(ctx context.Context, h *store.Host, pools map[string]*store.Pool) float64 {
+// elasticStartReserve is the one share held back for a compatible queued job.
+//
+// starting counts this host's runners of each pool that are already on their
+// way up. Each of those is charged its guarantee in the plan's ledger, and is
+// the runner a queued job of its pool is about to land on; holding a second
+// share back for the same job shrank every boost by one share during every
+// start. Only a pool with more jobs queued than runners starting for it here
+// still needs room kept.
+func (c *Controller) elasticStartReserve(ctx context.Context, h *store.Host, pools map[string]*store.Pool, starting map[string]int) float64 {
 	queued, err := c.st.ListQueuedJobs(ctx)
 	if err != nil {
 		return 0
 	}
-	reserve := 0.0
+	waiting := make(map[string]int)
 	for _, job := range queued {
-		p := pools[job.PoolID]
-		if p == nil || !scheduler.HostCouldRun(h, p) {
+		waiting[job.PoolID]++
+	}
+	reserve := 0.0
+	for id, n := range waiting {
+		p := pools[id]
+		if p == nil || n <= starting[id] || !scheduler.HostCouldRun(h, p) {
 			continue
 		}
 		reserve = math.Max(reserve, scheduler.Reserve(p, h).CPUs)

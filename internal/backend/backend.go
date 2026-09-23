@@ -96,6 +96,13 @@ type Stats struct {
 	// CPUAllocationFactor is filled by the agent. One is the creation quota;
 	// above one is elastic CPU and below one is host-pressure throttling.
 	CPUAllocationFactor float64 `json:"cpu_allocation_factor,omitempty"`
+	// BusiestHalfPercent is, for a docker-in-docker pair, how much of its own
+	// creation quota the busier of the two containers is using, in percent.
+	// The pair's sum hides the case that matters: the daemon running a build
+	// flat out on its half while the runner beside it idles reads as a pair
+	// half busy. Zero for a single container, and from an agent that predates
+	// it, which a controller reads as "judge the sum", as it always did.
+	BusiestHalfPercent float64 `json:"busiest_half_percent,omitempty"`
 }
 
 // Info describes a backend's capabilities on this particular host. The agent
