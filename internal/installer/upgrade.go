@@ -108,6 +108,11 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 		return nil
 	}
 	beforeImage := p.localImageID(ctx)
+	// The tag can have been pulled already -- by an earlier `docker pull`, a
+	// check, or an upgrade whose restart failed -- while the service still
+	// runs something older. Comparing the tag alone then says nothing changed
+	// on an upgrade that moved the service and migrated its database.
+	beforeRunning := p.runningImageID(ctx)
 	fmt.Fprintln(opts.Out, "Keeping this host's configuration, credentials, identity and data.")
 	if err := p.pullRunnerImages(ctx); err != nil {
 		return err
@@ -133,16 +138,7 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	}
 	if p.record.Deployment.Containerised() {
 		afterImage := p.localImageID(ctx)
-		switch {
-		case beforeImage != "" && afterImage == beforeImage:
-			fmt.Fprintf(opts.Out, "Image channel did not advance: %s still resolves to %s. The service was recreated from the same published image.\n", p.image, shortImageID(afterImage))
-		case afterImage != "" && beforeImage != "":
-			fmt.Fprintf(opts.Out, "Image channel advanced: %s now resolves to %s (was %s).\n", p.image, shortImageID(afterImage), shortImageID(beforeImage))
-		case afterImage != "":
-			fmt.Fprintf(opts.Out, "Pulled %s at %s.\n", p.image, shortImageID(afterImage))
-		default:
-			fmt.Fprintf(opts.Out, "Recreated the service from %s. Confirm its reported build; moving tags advance only after a successful publish.\n", p.image)
-		}
+		reportImage(opts.Out, p.image, beforeImage, afterImage, beforeRunning, p.runningImageID(ctx))
 	}
 	fmt.Fprintln(opts.Out, "Upgrade complete. Check the Hosts page for the agent's next heartbeat.")
 	return nil
@@ -239,6 +235,41 @@ func (p *upgradePlan) localImageID(ctx context.Context) string {
 		return ""
 	}
 	return strings.TrimSpace(out)
+}
+
+// runningImageID is the image the service's container was created from, which
+// is what an upgrade actually changes; the tag is only what it will be
+// created from next.
+func (p *upgradePlan) runningImageID(ctx context.Context) string {
+	if !p.record.Deployment.Containerised() {
+		return ""
+	}
+	out, err := p.docker(ctx, "inspect", "--format", "{{.Image}}", containerOr(p.record))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// reportImage says what the upgrade did to the image the service runs, and
+// separately whether the channel it follows moved, because those differ
+// whenever the tag was pulled before the service was recreated from it.
+func reportImage(out io.Writer, image, tagBefore, tagAfter, runBefore, runAfter string) {
+	moved := runBefore != "" && runAfter != "" && runBefore != runAfter
+	switch {
+	case moved && tagBefore != "" && tagAfter == tagBefore:
+		fmt.Fprintf(out, "The service moved from %s to %s. %s already resolved to %s on this host before this upgrade, so nothing new was downloaded.\n", shortImageID(runBefore), shortImageID(runAfter), image, shortImageID(tagAfter))
+	case moved:
+		fmt.Fprintf(out, "Image channel advanced: the service moved from %s to %s, which %s now resolves to.\n", shortImageID(runBefore), shortImageID(runAfter), image)
+	case tagBefore != "" && tagAfter == tagBefore:
+		fmt.Fprintf(out, "Image channel did not advance: %s still resolves to %s. The service was recreated from the same published image.\n", image, shortImageID(tagAfter))
+	case tagAfter != "" && tagBefore != "":
+		fmt.Fprintf(out, "Image channel advanced: %s now resolves to %s (was %s).\n", image, shortImageID(tagAfter), shortImageID(tagBefore))
+	case tagAfter != "":
+		fmt.Fprintf(out, "Pulled %s at %s.\n", image, shortImageID(tagAfter))
+	default:
+		fmt.Fprintf(out, "Recreated the service from %s. Confirm its reported build; moving tags advance only after a successful publish.\n", image)
+	}
 }
 
 func shortImageID(id string) string {

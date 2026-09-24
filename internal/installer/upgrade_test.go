@@ -15,19 +15,25 @@ import (
 
 func TestUpgradeSaysWhetherAMovingImageAdvanced(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		before string
-		after  string
-		want   string
+		name      string
+		before    string
+		after     string
+		runBefore string
+		runAfter  string
+		want      string
 	}{
-		{"same image", "sha256:aaaaaaaaaaaaaaaa", "sha256:aaaaaaaaaaaaaaaa", "Image channel did not advance"},
-		{"new image", "sha256:aaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbb", "Image channel advanced"},
+		{"same image", "sha256:aaaaaaaaaaaaaaaa", "sha256:aaaaaaaaaaaaaaaa", "sha256:aaaaaaaaaaaaaaaa", "sha256:aaaaaaaaaaaaaaaa", "Image channel did not advance"},
+		{"new image", "sha256:aaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbb", "sha256:aaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbb", "Image channel advanced"},
+		// The tag was pulled before the upgrade while the service still ran
+		// an older image. Saying "did not advance" there hid an upgrade that
+		// recreated the service onto a new build and migrated its database.
+		{"tag pulled earlier", "sha256:bbbbbbbbbbbbbbbb", "sha256:bbbbbbbbbbbbbbbb", "sha256:aaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbb", "The service moved from aaaaaaaaaaaa to bbbbbbbbbbbb"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts, _ := upgradeFixture(t, DeploymentCompose)
 			var out bytes.Buffer
 			opts.Out = &out
-			inspects := 0
+			inspects, running := 0, 0
 			opts.run = func(_ context.Context, name string, args ...string) (string, error) {
 				line := name + " " + strings.Join(args, " ")
 				switch {
@@ -39,6 +45,12 @@ func TestUpgradeSaysWhetherAMovingImageAdvanced(t *testing.T) {
 						return tc.before, nil
 					}
 					return tc.after, nil
+				case strings.Contains(line, "{{.Image}}"):
+					running++
+					if running == 1 {
+						return tc.runBefore, nil
+					}
+					return tc.runAfter, nil
 				case name == "docker" && len(args) > 0 && args[0] == "inspect":
 					return "true", nil
 				default:
@@ -47,6 +59,9 @@ func TestUpgradeSaysWhetherAMovingImageAdvanced(t *testing.T) {
 			}
 			if err := Upgrade(context.Background(), opts); err != nil {
 				t.Fatal(err)
+			}
+			if tc.runBefore != tc.runAfter && strings.Contains(out.String(), "did not advance") {
+				t.Fatalf("output = %q, says nothing changed on an upgrade that moved the service", out.String())
 			}
 			if !strings.Contains(out.String(), tc.want) || !strings.Contains(out.String(), opts.Image) {
 				t.Fatalf("output = %q, want %q and image", out.String(), tc.want)
