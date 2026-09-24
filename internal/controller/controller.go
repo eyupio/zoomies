@@ -192,6 +192,9 @@ type Controller struct {
 	// the rejected path consults it: a delivery that verifies came from
 	// GitHub, and GitHub is never throttled here.
 	webhookProbes *auth.RateLimiter
+	// agentCalls is each host's budget for heartbeats, results and reports;
+	// see AllowAgentCall.
+	agentCalls agentLimiter
 	// lastPollAt is when a poller sweep last finished, as UnixNano, or zero if
 	// none has. It is what says the safety net is still there: a poller that
 	// has stopped sweeping looks exactly like a poller with nothing to do, and

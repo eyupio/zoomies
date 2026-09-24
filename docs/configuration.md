@@ -220,6 +220,7 @@ agent:
   allow_unverified_runner_download: false   # ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD -- warned about
   runner_download_url: ""       # ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL -- an internal mirror of the actions/runner releases
   registry_auth: ""             # ZOOMIES_REGISTRY_AUTH -- credentials for a private image registry
+  extra_ca_file: ""             # ZOOMIES_AGENT_EXTRA_CA_FILE -- a PEM root CA container runners trust, for a TLS-intercepting proxy
   # Standalone agents only:
   controller_url: ""            # ZOOMIES_CONTROLLER_URL
   join_token: ""                # ZOOMIES_JOIN_TOKEN
@@ -372,6 +373,7 @@ settings page reports rather than refusing the edit.
 | `agent.controller_url` | `ZOOMIES_CONTROLLER_URL` | on the agent's own host | Controller URL — The controller a standalone agent connects to. It is configured on that agent's own host. |
 | `agent.docker_build_cache_mb` | `ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB` | next restart | Docker build cache target — The target size for unused Docker builder cache. 0 leaves a shared or externally managed daemon alone. |
 | `agent.docker_host` | `ZOOMIES_DOCKER_HOST` | next restart | Docker socket — The Docker or Podman socket. Empty finds one, preferring a rootless socket over the root one. |
+| `agent.extra_ca_file` | `ZOOMIES_AGENT_EXTRA_CA_FILE` | next restart | Extra CA for runners — A PEM bundle on this host that container runners and their Docker sidecars trust as well as the image's own, for a network whose proxy re-signs TLS. |
 | `agent.embedded` | `ZOOMIES_AGENT_EMBEDDED` | next restart | Run an agent in this controller — Run an agent inside this controller, so a single machine needs one process. Off makes a controller that schedules runners onto other hosts and starts none itself. |
 | `agent.prewarm_timeout` | `ZOOMIES_AGENT_PREWARM_TIMEOUT` | next restart | Background image preparation budget; default 5m, range 1s–15m. Foreground create budgets are independent. |
 | `agent.prewarm_jitter` | `ZOOMIES_AGENT_PREWARM_JITTER` | next restart | Random delay before background preparation; default 30s, range 0s–5m. Foreground work can pass during the delay. |
@@ -842,8 +844,8 @@ Existing saved `:latest` values are treated as explicit overrides; clear the
 pool image and remove any fallback setting to restore automatic selection.
 
 Both runner images are also published with one tag per operating system —
-`ubuntu-2404`, `ubuntu-2204`, `debian-12`, `fedora-42`, `rocky-9`, each built
-for amd64 and arm64 — plus `<os>-<version>-dev`, `<os>-<version>-main` and
+`ubuntu-2404`, `ubuntu-2604`, `ubuntu-2204`, `debian-12`, `debian-13`,
+`fedora-42`, `rocky-9`, each built for amd64 and arm64 — plus `<os>-<version>-dev`, `<os>-<version>-main` and
 `<os>-<version>-<tag>` for
 pinning one operating system without pinning the controller. `latest` is the
 `ubuntu-2404` variant. Set this key to a specific variant to change what an
@@ -1373,6 +1375,49 @@ figures are their own — and the recommended capacity on the Hosts page follows
 whichever is larger: what the enabled pools ask for, or this.
 [How big a runner is](hosts-and-pools.md#how-big-a-runner-is-and-how-many-there-are)
 has what the wizard does with them, and what it checks the answer against.
+
+### `agent.extra_ca_file` — behind a proxy that re-signs TLS
+
+```yaml
+agent:
+  extra_ca_file: /etc/zoomies/acme-root-ca.pem
+```
+
+A network whose proxy intercepts TLS presents its own certificate for every
+site, signed by the organisation's root CA. Until a runner trusts that CA,
+nothing in a job reaches GitHub, a registry or a package mirror. This names a
+PEM file on the agent's host holding that CA — it is a host setting, not a
+pool one, because the proxy belongs to the network the host sits on.
+
+When it is set, the Docker and Podman backends mount the file read-only into
+every runner, and the runner image's entrypoint adds it to the system trust
+store before the runner starts listening: `update-ca-certificates` on Ubuntu
+and Debian images, `update-ca-trust` on the DNF family, using the passwordless
+`sudo` the image already gives the runner user. That covers git, curl, OpenSSL
+and the package managers. The entrypoint also sets `NODE_EXTRA_CA_CERTS` — the
+runner and every JavaScript action are Node, which carries its own roots — and
+points `REQUESTS_CA_BUNDLE` and `SSL_CERT_FILE` at the updated system bundle
+unless a pool already set them. A docker-in-docker sidecar, which is what
+pulls a dind job's images, gets the same mount and trusts it through
+`SSL_CERT_DIR`, keeping its own roots too.
+
+A custom image with no `sudo`, or without either trust store tool, still gets
+`NODE_EXTRA_CA_CERTS` and logs a warning that the rest of the job will not
+trust the CA; add it to that image's trust store when you build it.
+
+The validator refuses a path that is relative, unreadable or holds no PEM
+certificate (`agent.extra_ca_invalid`), and a good one is reported once as
+information (`agent.extra_ca`), because every job on the host now trusts
+whatever that CA signs. The process backend ignores the setting: a bare
+runner is a process on the host and already uses the host's own trust store,
+so add the CA there.
+
+The setting is about runners. The controller and agent processes themselves
+are Go, and reach GitHub through the proxy by trusting its CA the standard Go
+way — `SSL_CERT_FILE=/etc/zoomies/acme-root-ca.pem` replaces the system roots,
+`SSL_CERT_DIR` adds a directory to them — or simply through the host's trust
+store, which Go reads by default. The runner image's settings are not needed
+for that and do not provide it.
 
 ### `runners.docker_wait` and `runners.env` — what every runner starts with
 

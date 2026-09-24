@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"net/url"
@@ -716,6 +718,18 @@ func (c *Config) Validate() Findings {
 				Fix:    "pin the release with github.runner_version and give its digest in agent.runner_sha256 (it is in the actions/runner release notes), then turn this off.",
 			})
 		}
+		if p := strings.TrimSpace(c.Agent.ExtraCAFile); p != "" {
+			if f, ok := checkExtraCA(p); !ok {
+				add(f)
+			} else {
+				add(Finding{
+					Code: "agent.extra_ca", Severity: SeverityInfo, Setting: "agent.extra_ca_file",
+					Title:  "container runners trust an extra certificate authority",
+					Detail: fmt.Sprintf("every job on this host trusts certificates signed by %s as well as the image's own roots, so whoever holds that CA's key can read and alter the jobs' TLS traffic. That is what a TLS-intercepting proxy needs, and it is only right if the CA is your organisation's.", p),
+					Fix:    "nothing, if the CA is your proxy's; otherwise clear agent.extra_ca_file.",
+				})
+			}
+		}
 		if c.Agent.WorkDir == "" {
 			add(Finding{
 				Code: "agent.workdir", Severity: SeverityError, Setting: "agent.work_dir",
@@ -1381,4 +1395,48 @@ func ValidRemoteName(name string) bool {
 		}
 	}
 	return true
+}
+
+// checkExtraCA refuses an agent.extra_ca_file the runners could not use. The
+// file is bind-mounted into every container runner, so a relative path, a
+// missing file or one that is not a certificate would otherwise surface as
+// every create failing, or as every job failing TLS with nothing to say why
+// -- which, behind the proxy this setting exists for, is exactly the symptom
+// the operator was trying to fix.
+func checkExtraCA(p string) (Finding, bool) {
+	refuse := func(title, detail string) (Finding, bool) {
+		return Finding{
+			Code: "agent.extra_ca_invalid", Severity: SeverityError, Setting: "agent.extra_ca_file",
+			Title: title, Detail: detail,
+			Fix: "set agent.extra_ca_file to the absolute path of a PEM file on this host holding your organisation's root CA certificate, or clear it.",
+		}, false
+	}
+	if !filepath.IsAbs(p) {
+		return refuse(fmt.Sprintf("agent.extra_ca_file %q is not an absolute path", p),
+			"the file is bind-mounted into each runner container, and the container engine only mounts an absolute host path.")
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return refuse(fmt.Sprintf("cannot read agent.extra_ca_file %s", p), err.Error())
+	}
+	var n int
+	for rest := b; ; {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+			return refuse(fmt.Sprintf("agent.extra_ca_file %s holds a certificate that does not parse", p), err.Error())
+		}
+		n++
+	}
+	if n == 0 {
+		return refuse(fmt.Sprintf("agent.extra_ca_file %s holds no PEM certificate", p),
+			"the file needs at least one -----BEGIN CERTIFICATE----- block; a DER file converts with `openssl x509 -inform der -in ca.der -out ca.pem`.")
+	}
+	return Finding{}, true
 }
