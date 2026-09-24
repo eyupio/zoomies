@@ -1922,22 +1922,24 @@ cache:
 It is kept in each host's [shared folder](#the-shared-folder), under
 `cache/tools`, in a folder named for the pool — and the repository, for a
 repository-scoped cache — so it is shared with exactly the runners the pool
-cache is. It is mounted at `/opt/zoomies-tools` and the runner is pointed at
-it. That is its own folder rather than the image's `/opt/hostedtoolcache`, so an
-image that ships toolchains, such as
-[`zoomies-runner-full`](#the-full-image), keeps them: a tool the kept cache
-lacks is downloaded into it the first time, and a pool on the full image rarely
-needs this at all. A pool whose `env` sets `AGENT_TOOLSDIRECTORY` itself keeps
-its own.
+cache is. It is mounted read-only at `/opt/zoomies-tools-shared`, and each
+runner is pointed at a folder of its own, `/opt/zoomies-tools`, holding a link
+to every version in the kept cache whose install finished. That is its own
+folder rather than the image's `/opt/hostedtoolcache`, so an image that ships
+toolchains, such as [`zoomies-runner-full`](#the-full-image), keeps them. A pool
+whose `env` sets `AGENT_TOOLSDIRECTORY` itself keeps its own.
+
+Only the [fill](#filling-the-tool-cache) writes to the kept cache. A job that
+asks for a version it does not have yet downloads it into the runner's own
+folder, which is removed with the runner, so two jobs never unpack into the same
+folder at once and neither sees the other's half-written copy. The next scan
+puts that version in the kept cache for the jobs after it.
 
 This shares more than a build cache does. What is in a tool cache is run, not
-just read: a job that can write to it can replace the `python` or `node` that
-the next job on the pool executes. Only turn it on for a pool whose
+just read. A job cannot change the kept cache, but whatever the fill put there
+is what every job on the pool runs, so only turn it on for a pool whose
 repositories already trust one another, and prefer `scope: repository` when
-they do not. Two runners that ask for a version the cache does not yet have may
-unpack it into the same folder at once, and the setup actions take no lock
-against that; letting one job fill it before the pool is busy keeps them from
-racing.
+they do not.
 
 It needs the cache on and a container backend: a process runner uses the host's
 own tool cache already. A host whose shared folder cannot be created starts the
