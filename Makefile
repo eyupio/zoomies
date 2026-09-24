@@ -255,12 +255,14 @@ RUNNER_IMAGE   ?= ghcr.io/eyupio/zoomies-runner
 RUNNER_VARIANT ?= $(RUNNER_VARIANT_DEFAULT)
 
 # zoomies:catalogue-begin
-RUNNER_VARIANTS := ubuntu-2404 ubuntu-2204 debian-12 fedora-42 rocky-9
+RUNNER_VARIANTS := ubuntu-2404 ubuntu-2604 ubuntu-2204 debian-13 debian-12 fedora-42 rocky-9
 RUNNER_VARIANT_DEFAULT := ubuntu-2404
 
 # base | family | os | version
 variant.ubuntu-2404 := ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254 apt ubuntu 24.04
+variant.ubuntu-2604 := ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78 apt ubuntu 26.04
 variant.ubuntu-2204 := ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7 apt ubuntu 22.04
+variant.debian-13   := debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a apt debian 13
 variant.debian-12   := debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 apt debian 12
 variant.fedora-42   := fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814 dnf fedora 42
 variant.rocky-9     := rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f dnf rocky 9
@@ -281,8 +283,8 @@ check-variant:
 	fi
 
 .PHONY: image-runner
-image-runner: check-variant ## Build one runner variant for the host architecture (RUNNER_VARIANT=debian-12)
-	docker build -f deploy/Dockerfile.runner \
+image-runner: check-variant ## Build one runner variant for the host architecture (RUNNER_VARIANT=debian-12, RUNNER_TARGET=runner-docker for the Docker one)
+	docker build -f deploy/Dockerfile.runner --target $(or $(RUNNER_TARGET),runner) \
 		--build-arg RUNNER_VERSION=$(RUNNER_VERSION) \
 		$(call variant-args,$(RUNNER_VARIANT)) \
 		-t $(RUNNER_IMAGE):$(RUNNER_VARIANT) .
@@ -293,6 +295,11 @@ images-runner: ## Build every runner variant for the host architecture
 		echo "  building $(RUNNER_IMAGE):$$v"; \
 		$(MAKE) --no-print-directory image-runner RUNNER_VARIANT=$$v; \
 	done
+
+.PHONY: check-image-runner
+check-image-runner: check-variant ## Check a locally built runner variant has what Zoomies relies on (RUNNER_VARIANT=debian-12 RUNNER_TARGET=runner-docker)
+	RUNNER_VERSION=$(RUNNER_VERSION) test/runner-image/check.sh $(RUNNER_IMAGE):$(RUNNER_VARIANT) \
+		$(word 3,$(variant.$(RUNNER_VARIANT))) $(word 4,$(variant.$(RUNNER_VARIANT))) $(or $(RUNNER_TARGET),runner)
 
 .PHONY: image-runner-multiarch
 image-runner-multiarch: check-variant ## Build one runner variant for amd64 and arm64 (needs buildx)

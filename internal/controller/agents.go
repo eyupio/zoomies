@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
@@ -130,6 +131,12 @@ type taskQueue struct {
 	// wake carries a single token so a poll that is blocked returns as soon as
 	// a task is enqueued, without the enqueuer ever blocking.
 	wake chan struct{}
+	// polling is set while one of this host's task polls is held. A second
+	// poll is answered at once and empty: a host has one agent, and an agent
+	// polls one at a time, so a second held poll is a bug or an abuse, and
+	// either way it would count against the fleet-wide threshold every other
+	// host's polls are shed against.
+	polling atomic.Bool
 }
 
 type leasedTask struct {
@@ -647,6 +654,9 @@ func (c *Controller) provesHost(h *store.Host, token string) bool {
 // Heartbeat records that a host is alive, merges anything its agent observed,
 // and tells the agent whether the controller still recognises it.
 func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.HeartbeatRequest) (*agent.HeartbeatResponse, error) {
+	if err := c.checkReportSize(len(req.Runners)); err != nil {
+		return nil, err
+	}
 	h, err := c.st.GetHost(ctx, hostID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -946,6 +956,11 @@ func (c *Controller) PollTasks(ctx context.Context, hostID string, wait time.Dur
 		wait = agent.DefaultPollWait
 	}
 	q := c.queues.get(hostID)
+	if !q.polling.CompareAndSwap(false, true) {
+		c.metrics.agentLimited.WithLabelValues(limitPoll).Inc()
+		return &agent.TaskBatch{}, nil
+	}
+	defer q.polling.Store(false)
 
 	c.pollsInFlight.Add(1)
 	defer c.pollsInFlight.Add(-1)
@@ -1211,6 +1226,9 @@ func (c *Controller) noteCleanupSucceeded(ctx context.Context, r *store.Runner, 
 func (c *Controller) ReportRunners(ctx context.Context, hostID string, reports []agent.RunnerReport) error {
 	if hostID == "" {
 		return errors.New("a runner report carried no host ID; the agent must send the identity it was given at join")
+	}
+	if err := c.checkReportSize(len(reports)); err != nil {
+		return err
 	}
 	return c.applyReports(ctx, hostID, reports)
 }
