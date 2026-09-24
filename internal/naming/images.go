@@ -78,7 +78,6 @@ const (
 // is a runner that will not start rather than a validation error.
 var (
 	bothArches = []string{ArchAMD64, ArchARM64}
-	amd64Only  = []string{ArchAMD64}
 )
 
 // runnerImages is the catalogue, and the one place an operating system is added
@@ -94,17 +93,7 @@ var (
 var runnerImages = []Image{
 	{OS: OSUbuntu, Version: "24.04", Base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254", Family: FamilyAPT, Arches: bothArches, Default: true},
 	{OS: OSUbuntu, Version: "26.04", Base: "ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78", Family: FamilyAPT, Arches: bothArches},
-	// amd64 only, and not by choice. This variant is the one that cannot be
-	// cross-built: QEMU's aarch64 emulation segfaults in ldconfig on 22.04's
-	// glibc, so the build dies in the middle of a package install with
-	// "uncaught target signal 11" and dpkg exit 139. The emulator belongs to
-	// the build service rather than to this repository, so there is nothing
-	// here to fix -- and publishing an arm64 tag we cannot build would give a
-	// pool an image reference that resolves to nothing. Saying amd64 makes the
-	// pool validator refuse an arm64 Ubuntu 22.04 pool with a sentence naming
-	// the reason, which is the honest failure. Flip it back to bothArches and
-	// run `make generate` when the emulator can do it.
-	{OS: OSUbuntu, Version: "22.04", Base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7", Family: FamilyAPT, Arches: amd64Only},
+	{OS: OSUbuntu, Version: "22.04", Base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7", Family: FamilyAPT, Arches: bothArches},
 	{OS: OSDebian, Version: "13", Base: "debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a", Family: FamilyAPT, Arches: bothArches},
 	{OS: OSDebian, Version: "12", Base: "debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171", Family: FamilyAPT, Arches: bothArches},
 	{OS: OSFedora, Version: "42", Base: "fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814", Family: FamilyDNF, Arches: bothArches},

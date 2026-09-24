@@ -121,8 +121,14 @@ func makefileBlock(images []naming.Image) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-// matrixBlock renders the `strategy.matrix` both workflows build from. The rows
-// are column-aligned because they are read as a table, not as YAML.
+// matrixBlock renders the `strategy.matrix` both workflows build from: one row
+// per variant and architecture, because each architecture is built on a
+// machine of its own kind and the rows are then merged into one manifest. The
+// arm64 images used to be cross-built under QEMU on an x64 builder, and its
+// aarch64 emulation segfaulted in ldconfig on Ubuntu 22.04's glibc; a native
+// arm64 builder has no emulator to fail. `platforms` stays the variant's whole
+// set on every row, since it is what the manifest has to cover. The rows are
+// column-aligned because they are read as a table, not as YAML.
 func matrixBlock(images []naming.Image) string {
 	tagWidth, baseWidth, osWidth, versionWidth := 0, 0, 0, 0
 	for _, img := range images {
@@ -134,14 +140,17 @@ func matrixBlock(images []naming.Image) string {
 	var b strings.Builder
 	b.WriteString("        include:\n")
 	for _, img := range images {
-		fmt.Fprintf(&b, "          - { tag: %-*s base: %-*s family: %s, os: %-*s version: %-*s platforms: %s%s }\n",
-			tagWidth+1, img.Tag()+",",
-			baseWidth, quote(img.Base)+",",
-			img.Family,
-			osWidth, img.OS+",",
-			versionWidth, quote(img.Version)+",",
-			quote(platforms(img)),
-			defaultField(img))
+		for _, arch := range img.Arches {
+			fmt.Fprintf(&b, "          - { tag: %-*s arch: %-6s base: %-*s family: %s, os: %-*s version: %-*s platforms: %s%s }\n",
+				tagWidth+1, img.Tag()+",",
+				arch+",",
+				baseWidth, quote(img.Base)+",",
+				img.Family,
+				osWidth, img.OS+",",
+				versionWidth, quote(img.Version)+",",
+				quote(platforms(img)),
+				defaultField(img))
+		}
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }

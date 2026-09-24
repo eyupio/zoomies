@@ -203,3 +203,37 @@ func TestPruningKeepsEveryMachineThatMayStillHaveAResource(t *testing.T) {
 		t.Errorf("a failed machine that still names a resource was pruned: %v", err)
 	}
 }
+
+// The prune pass is what rolls usage up. Without it the roll-up never moves,
+// the report falls back to rows a week's retention has already taken, and last
+// month's runner-hours quietly disappear.
+func TestPruningRollsUsageUpSoARunnerOutlivesItsRow(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := &store.Runner{PoolID: pool.ID, HostID: host.ID, Name: "rolled-up"}
+	if err := h.st.CreateRunner(h.ctx, r); err != nil {
+		t.Fatalf("CreateRunner: %v", err)
+	}
+	for _, to := range []store.RunnerState{store.RunnerRegistering, store.RunnerRemoved} {
+		if _, err := h.st.TransitionRunner(h.ctx, r.ID, to, ""); err != nil {
+			t.Fatalf("TransitionRunner(%s): %v", to, err)
+		}
+	}
+	for _, side := range []bool{true, false} {
+		if _, err := h.st.ConfirmRunnerCleanup(h.ctx, r.ID, side); err != nil {
+			t.Fatalf("ConfirmRunnerCleanup: %v", err)
+		}
+	}
+
+	h.advance(10 * 24 * time.Hour)
+	h.c.UpdateConfig(func(c *config.Config) { c.Retention = config.Retention{Runners: 7 * 24 * time.Hour} })
+	h.c.prune(h.ctx)
+
+	if _, err := h.st.GetRunner(h.ctx, r.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a runner ten days gone survived a seven-day window: %v", err)
+	}
+	_, until, ok, err := h.st.UsageRollupRange(h.ctx)
+	if err != nil || !ok || until.Before(h.c.Now().Add(-24*time.Hour)) {
+		t.Fatalf("the prune did not roll usage up to today: until %v, ok %v, %v", until, ok, err)
+	}
+}

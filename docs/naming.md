@@ -142,7 +142,7 @@ and the tag is the same `<os>-<version>` that appears in a pool name.
 | --- | --- | --- |
 | `ubuntu-2404` | `ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254` | amd64, arm64 |
 | `ubuntu-2604` | `ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78` | amd64, arm64 |
-| `ubuntu-2204` | `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | amd64 |
+| `ubuntu-2204` | `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | amd64, arm64 |
 | `debian-13` | `debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a` | amd64, arm64 |
 | `debian-12` | `debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171` | amd64, arm64 |
 | `fedora-42` | `fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814` | amd64, arm64 |
@@ -153,13 +153,13 @@ and the tag is the same `<os>-<version>` that appears in a pool name.
 gets. Each release also publishes `<tag>-<version>` for pinning one operating
 system without pinning the controller.
 
-Ubuntu 22.04 is amd64 only, and not by choice. The arm64 images are cross-built
-under emulation, and QEMU's aarch64 emulation segfaults inside `ldconfig` on
-22.04's glibc — the build dies mid package install with `uncaught target signal
-11`. The emulator belongs to the build service rather than to this repository,
-so a pool asking for Ubuntu 22.04 on arm64 is refused with that as its reason
-rather than being handed a tag that resolves to nothing. Every other variant is
-built for both.
+Every variant is built for both architectures, and each architecture on a
+machine of its own kind: the amd64 images on an x86-64 builder, the arm64 images
+on an arm64 one, and the two merged into a single multi-architecture tag, so a
+host pulls the same reference whatever it runs on. The arm64 images used to be
+cross-built under QEMU, whose aarch64 emulation segfaults inside `ldconfig` on
+Ubuntu 22.04's glibc; that is why 22.04 was once amd64 only, and why nothing is
+emulated now.
 
 Every variant is published twice: as `zoomies-runner` and as
 `zoomies-runner-docker`, the same image plus a Docker CLI, which a pool is
