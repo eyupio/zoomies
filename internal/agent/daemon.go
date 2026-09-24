@@ -172,6 +172,9 @@ type Agent struct {
 	// and DinD startup, which can overwhelm an otherwise healthy daemon.
 	startup startupQueue
 	warmed  map[warmKey]warmResult
+	// fill runs tool cache fills one at a time: two pools' fills at once are
+	// twice the bandwidth for the same finishing time.
+	fill sync.Mutex
 
 	// Runtime failures hold the next admission briefly without stopping jobs.
 	runtimeFailures int
@@ -519,7 +522,7 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 		DiskTotalMB:     total,
 		DiskFreeMB:      free,
 		Version:         version.Version,
-		Features:        []string{FeatureElasticCPU},
+		Features:        []string{FeatureElasticCPU, FeatureToolCacheFill},
 		Labels:          a.opts.Labels,
 		Backends:        infos,
 		// A host that has joined before proves it is itself with the token it
@@ -755,7 +758,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	resp, err := a.tr.Heartbeat(hctx, HeartbeatRequest{
 		Usage:           a.hostUsage(infos, cpus, memoryMB),
 		ProtocolVersion: ProtocolVersion,
-		Features:        []string{FeatureElasticCPU},
+		Features:        []string{FeatureElasticCPU, FeatureToolCacheFill},
 		Capacity:        a.opts.Capacity,
 		Version:         version.Version,
 		CPUs:            cpus,
@@ -1090,6 +1093,16 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 			a.runLogTask(ctx, task)
 		}()
 		return
+	case TaskFillToolCache:
+		// Nor is a fill, which is minutes of downloading: in a lifecycle slot
+		// or the startup queue it would hold back the very runners it exists
+		// to speed up. Fills run one at a time instead, beside everything.
+		a.tasks.Add(1)
+		go func() {
+			defer a.tasks.Done()
+			a.handleToolFill(ctx, task)
+		}()
+		return
 	}
 
 	// The claim serialises work on one runner, so it says something only about
@@ -1254,6 +1267,13 @@ func validateTask(task Task) error {
 	case TaskPrewarmImage:
 		if task.PoolID == "" || task.Image == "" || !task.PullPolicy.Valid() {
 			return errors.New("prewarm_image task needs a pool, image, and valid pull policy")
+		}
+	case TaskFillToolCache:
+		if task.Spec == nil || task.Spec.PoolID == "" || task.Spec.Image == "" {
+			return errors.New("fill_tool_cache task needs a spec naming the pool and its image")
+		}
+		if len(task.Tools) == 0 {
+			return errors.New("fill_tool_cache task names no toolchains to fill")
 		}
 	default:
 		return fmt.Errorf("unknown task kind %q; this agent speaks protocol version %d, so upgrade it to match the controller", task.Kind, ProtocolVersion)

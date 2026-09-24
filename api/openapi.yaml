@@ -1316,7 +1316,9 @@ paths:
         Starts a scan in the background and answers at once; GET /toolchains
         says when it has finished. A scan reads every workflow file every
         installation can see, which spends the GitHub quota the scheduler
-        shares.
+        shares. When it finishes, every pool that keeps a tool cache is filled
+        with the versions it found, on each host that can run the pool;
+        GET /toolchains reports each fill under `fills`.
       x-zoomies-role: operator
       responses:
         "202":
@@ -5099,9 +5101,39 @@ components:
           additionalProperties: { type: string }
           description: Repositories whose workflows GitHub would not return, and why.
 
+    ToolFill:
+      type: object
+      description: What a tool cache fill did with one requested version.
+      required: [tool, request, outcome]
+      properties:
+        tool: { type: string, enum: [python, node, go, java, dotnet] }
+        request: { type: string, description: The version as the workflows asked for it, such as 3.12 or lts/*. }
+        outcome:
+          type: string
+          enum: [installed, present, skipped, failed]
+          description: present means it was already in the cache; skipped is a request a fill cannot serve, with the reason.
+        version: { type: string, description: The release the request resolved to, for installed and present. }
+        reason: { type: string, description: Why, for skipped and failed. }
+    ToolCacheFill:
+      type: object
+      description: One pool's tool cache fill on one host, the latest there has been.
+      required: [host_id, host_name, state, requested, tools, queued_at]
+      properties:
+        host_id: { type: string }
+        host_name: { type: string }
+        state:
+          type: string
+          enum: [pending, succeeded, failed]
+          description: A fill that succeeded may still have skipped or failed requests; tools says which.
+        requested: { type: integer }
+        tools: { type: array, items: { $ref: "#/components/schemas/ToolFill" } }
+        error: { type: string }
+        queued_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+
     ToolchainScan:
       type: object
-      required: [running, pools, unmatched, installations]
+      required: [running, pools, unmatched, installations, fills]
       properties:
         running: { type: boolean }
         started_at: { type: string, format: date-time }
@@ -5119,6 +5151,12 @@ components:
         installations:
           type: array
           items: { $ref: "#/components/schemas/ToolchainScanInstallation" }
+        fills:
+          type: object
+          description: Pool ID to its tool cache's latest fill on each host, for the pools that keep a tool cache.
+          additionalProperties:
+            type: array
+            items: { $ref: "#/components/schemas/ToolCacheFill" }
 
     PoolPrewarm:
       type: object
@@ -7156,7 +7194,7 @@ components:
         busiest_half_percent: { type: number, format: double, description: For a docker-in-docker pair, how much of its own creation quota the busier container is using, in percent. Absent for a single container. }
     AgentTaskKind:
       type: string
-      enum: [create_runner, stop_runner, remove_runner, stream_logs, cancel_logs, prewarm_image]
+      enum: [create_runner, stop_runner, remove_runner, stream_logs, cancel_logs, prewarm_image, fill_tool_cache]
     AgentTask:
       type: object
       description: One unit of work for an agent. Tasks are idempotent; the controller may redeliver one after a restart.
@@ -7173,6 +7211,16 @@ components:
         stop_timeout: { type: integer, format: int64, description: Nanoseconds. Bounds a graceful stop. }
         stream_id: { type: string, description: The log relay a stream_logs or cancel_logs task concerns. }
         log_options: { $ref: "#/components/schemas/LogOptions" }
+        tools:
+          type: array
+          description: What a fill_tool_cache task puts in the tool cache of the pool its spec names.
+          items:
+            type: object
+            required: [tool, version]
+            properties:
+              tool: { type: string }
+              version: { type: string }
+              distribution: { type: string }
         issued_at: { type: string, format: date-time }
         attempt: { type: integer, description: "Deliveries of this task so far, from 1. A create that cannot tell whether its runner already exists fails a first delivery promptly and leaves a redelivery for the lease. Absent from older controllers." }
     RunnerSpec:
@@ -7234,6 +7282,7 @@ components:
         container_started_at: { type: string, format: date-time }
         digest: { type: string }
         state: { $ref: "#/components/schemas/RunnerState" }
+        tool_fills: { type: array, items: { $ref: "#/components/schemas/ToolFill" }, description: What a fill_tool_cache task did with each request. }
         completed_at: { type: string, format: date-time }
     AgentTaskBatch:
       type: object

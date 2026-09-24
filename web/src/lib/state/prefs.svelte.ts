@@ -10,7 +10,12 @@
 
 import { getOwnPreferences, replaceOwnPreferences } from '../api/client';
 import type { TableLayoutPreference } from '../api/types';
-import { isStatusStyle, resolveStatusStyle, type StatusStyle } from './status-style';
+import {
+  DEFAULT_STATUS_STYLE,
+  isStatusStyle,
+  resolveStatusStyle,
+  type StatusStyle,
+} from './status-style';
 
 const PREFS_KEY = 'zoomies.prefs';
 const PREFS_ACCOUNT_KEY = 'zoomies.prefs.account';
@@ -143,11 +148,15 @@ interface StoredPrefs {
   /**
    * Whether runner and job status use the fleet's own dog-park vocabulary and
    * the animated avatar, rather than plain state names and a standard icon.
-   * On by default, because it is what the product has always shown; an
-   * operator who finds it too much turns it off once, here.
+   * Still written, derived from `statusStyle`, so an older build opened in
+   * the same browser keeps what this one chose; read only when `statusStyle`
+   * is missing.
    */
   quirkyStatus?: boolean;
-  /** Persisted replacement for the legacy vocabulary switch. */
+  /**
+   * The vocabulary and illustration status is drawn with. Off -- plain words
+   * and icons -- until an operator chooses otherwise in Appearance.
+   */
   statusStyle?: StatusStyle;
 }
 
@@ -203,7 +212,7 @@ class Prefs {
   #activityRange = $state<ActivityRangeKey>('1d');
   #gridView = $state<GridView>(DEFAULT_GRID_VIEW);
   #feed = $state<Record<string, boolean>>({});
-  #statusStyle = $state<StatusStyle>('cute');
+  #statusStyle = $state<StatusStyle>(DEFAULT_STATUS_STYLE);
   #accountSync = false;
   #accountSave: ReturnType<typeof setTimeout> | null = null;
 

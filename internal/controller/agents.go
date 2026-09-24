@@ -41,6 +41,9 @@ const (
 	// on that host again -- not by the hourly refresh, not by editing the pool,
 	// and not by asking for one.
 	prewarmLease = 20 * time.Minute
+	// toolFillLease outlasts the agent's own bound on a fill, so a fill is
+	// only offered again when its agent went away, not while it downloads.
+	toolFillLease = 50 * time.Minute
 	// maxTaskAttempts stops a task from being redelivered forever to a host
 	// whose agent is gone. After this the runner's provision timeout is what
 	// notices, and it says so on the Runners page.
@@ -153,6 +156,12 @@ func taskKey(t agent.Task) string {
 	if t.Kind == agent.TaskPrewarmImage {
 		return string(t.Kind) + ":" + t.PoolID + ":" + t.Image
 	}
+	// One fill per pool per host: a scan that finishes while the last fill
+	// is still downloading leaves that one to finish rather than queueing a
+	// second behind it.
+	if t.Kind == agent.TaskFillToolCache {
+		return string(t.Kind) + ":" + t.PoolID
+	}
 	if t.StreamID != "" {
 		return string(t.Kind) + "|stream:" + t.StreamID
 	}
@@ -171,6 +180,8 @@ func requeueAfter(kind agent.TaskKind) time.Duration {
 		return removeLease
 	case agent.TaskPrewarmImage:
 		return prewarmLease
+	case agent.TaskFillToolCache:
+		return toolFillLease
 	default:
 		// Log relays are tied to a browser that has since gone away, so
 		// redelivering one would open a stream nobody is reading.
@@ -1049,6 +1060,10 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 		// honest answer for a host that never stays up long enough.
 	}
 	task, known := c.queues.get(hostID).complete(res.TaskID)
+	if known && task.Kind == agent.TaskFillToolCache {
+		c.recordToolFill(hostID, task, res)
+		return nil
+	}
 	if known && task.Kind == agent.TaskPrewarmImage {
 		outcome := "failed"
 		if res.OK {

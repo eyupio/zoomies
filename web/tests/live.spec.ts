@@ -280,16 +280,18 @@ test('a runner lent spare CPU says so in the feed, in the dog park’s own words
     window.dispatchEvent(new Event('online'));
   });
 
-  // The controller's own label, verbatim: translating it into "CPU allocation
-  // factor 1.9" would describe a different system from the one on the runner's
-  // own page.
-  const row = feed.getByRole('listitem').filter({ hasText: 'Squirrel spotted' });
+  // The state's own name, as the runner's page says it: translating it into
+  // "CPU allocation factor 1.9" would describe a different system from the one
+  // on the runner's own page. Plain, because this browser has not chosen the
+  // kennel's words -- the controller's label carries those, and is only shown
+  // to a browser that has.
+  const row = feed.getByRole('listitem').filter({ hasText: 'Maximum boost' });
   await expect(row).toHaveCount(1, { timeout: 10_000 });
   await expect(row, 'and what it actually got').toContainText(
     '3.8 CPUs now against a guarantee of 2',
   );
   // The state it was already in when the tab opened is not a line of its own.
-  await expect(feed.getByRole('listitem').filter({ hasText: 'Sit and stay' })).toHaveCount(0);
+  await expect(feed.getByRole('listitem').filter({ hasText: 'Held at its share' })).toHaveCount(0);
   await expectNoReload(page);
 });
 

@@ -682,6 +682,29 @@ func (c *APIClient) ContainerKill(ctx context.Context, id, signal string) error 
 	return err
 }
 
+// ContainerWait blocks until a container stops and returns its exit code. The
+// caller's context is the only bound: a fill that is still downloading after a
+// minute is working, not hung, so the default call deadline must not apply.
+func (c *APIClient) ContainerWait(ctx context.Context, id string) (int, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		return 0, errors.New("docker api: waiting on a container needs a deadline; without one a stuck container holds the caller for ever")
+	}
+	var out struct {
+		StatusCode int `json:"StatusCode"`
+		Error      *struct {
+			Message string `json:"Message"`
+		} `json:"Error"`
+	}
+	q := url.Values{"condition": {"not-running"}}
+	if err := c.do(ctx, http.MethodPost, "/containers/"+id+"/wait", q, nil, &out); err != nil {
+		return 0, err
+	}
+	if out.Error != nil && out.Error.Message != "" {
+		return out.StatusCode, fmt.Errorf("docker api: waiting on %s: %s", id, out.Error.Message)
+	}
+	return out.StatusCode, nil
+}
+
 // ContainerRemove deletes a container and its anonymous volumes.
 func (c *APIClient) ContainerRemove(ctx context.Context, id string, force bool) error {
 	q := url.Values{"v": {"1"}}

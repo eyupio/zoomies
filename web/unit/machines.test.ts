@@ -94,6 +94,28 @@ test('elastic CPU states keep their Zoomies vocabulary and distinct brand icons'
   assert.equal(sitting.key, 'sit_and_stay');
 });
 
+test("with the vocabulary off, the controller's kennel label gives way to a plain one", () => {
+  // The controller names every CPU state in the kennel's words, and the feed
+  // passes that label through; with the vocabulary off it must not reach the
+  // page beside a plain icon.
+  for (const [state, controller, plain] of [
+    ['maximum_zoomies', 'Squirrel spotted — maximum zoomies', 'Maximum boost'],
+    ['zoomies', 'Rabbit spotted — extra zoomies', 'Extra boost'],
+    ['throttled', 'Leash tightened — host under pressure', 'Throttled'],
+    ['observing', 'Nose to the wind — watching spare CPU', 'Observing spare CPU'],
+    ['sit_and_stay', 'Sit and stay — CPU held at its share', 'Held at its share'],
+    ['guaranteed', 'Steady paws — guaranteed pace', 'Guaranteed pace'],
+  ] as const) {
+    assert.equal(cpuResourceStatus(state, controller, false).label, plain);
+    assert.equal(cpuResourceStatus(state, controller).label, controller);
+  }
+});
+
+test('a machine carrying work is not drawn with a Play button', () => {
+  assert.equal(machineStatus('ready', true).icon.name, 'Activity');
+  assert.notEqual(machineStatus('ready', false).icon.name, machineStatus('ready', true).icon.name);
+});
+
 /** The six status hues. Nothing a machine is doing may invent a seventh. */
 const TONES = ['idle', 'busy', 'pending', 'draining', 'danger', 'neutral'];
 

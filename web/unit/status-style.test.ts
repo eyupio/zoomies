@@ -1,14 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveStatusStyle } from '../src/lib/state/status-style';
+import { DEFAULT_STATUS_STYLE, resolveStatusStyle } from '../src/lib/state/status-style';
 import { standardMotion } from '../src/lib/runners/standard-motion';
 
-test('upgrading preserves vocabulary opt-out and the existing Cute default', () => {
-  assert.equal(resolveStatusStyle({}), 'cute');
+test('a browser that has never chosen starts on Off, new or reset', () => {
+  // Nothing stored is a new install and a browser whose preferences were
+  // cleared alike; a value this build does not recognise is the same thing.
+  assert.equal(DEFAULT_STATUS_STYLE, 'off');
+  assert.equal(resolveStatusStyle({}), 'off');
+  assert.equal(resolveStatusStyle({ statusStyle: null }), 'off');
+  assert.equal(resolveStatusStyle({ statusStyle: 'unexpected' }), 'off');
+});
+
+test('upgrading keeps what the old vocabulary switch was showing', () => {
+  // Changing the default is about browsers that have not chosen; an operator
+  // who was looking at the kennel words yesterday still is today.
   assert.equal(resolveStatusStyle({ quirkyStatus: true }), 'cute');
   assert.equal(resolveStatusStyle({ quirkyStatus: false }), 'off');
+  assert.equal(resolveStatusStyle({ statusStyle: 'unexpected', quirkyStatus: true }), 'cute');
   assert.equal(resolveStatusStyle({ statusStyle: 'unexpected', quirkyStatus: false }), 'off');
-  assert.equal(resolveStatusStyle({ statusStyle: null }), 'cute');
 });
 
 test('an explicit style wins over the legacy boolean on reload', () => {
