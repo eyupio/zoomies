@@ -332,7 +332,35 @@ func TestProcessRegistrationTokenPath(t *testing.T) {
 	if strings.Contains(string(args), "--ephemeral") {
 		t.Error("a non-ephemeral pool must not be configured as ephemeral")
 	}
+	if strings.Contains(string(args), "--no-default-labels") {
+		t.Error("a pool that keeps the default labels must not drop them")
+	}
 	waitForPhase(t, b, h, PhaseRunning, 5*time.Second)
+}
+
+func TestProcessRegistrationCanLeaveOutTheDefaultLabels(t *testing.T) {
+	requireUnix(t)
+	b, _ := newStubProcessBackend(t)
+	spec := processSpec()
+	spec.Ephemeral = false
+	spec.Credentials = Credentials{
+		RegistrationToken: "AABBCC",
+		URL:               "https://github.com/acme",
+		Labels:            []string{"gpu"},
+		NoDefaultLabels:   true,
+	}
+	h, err := b.Create(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Remove(context.Background(), h) })
+	args, err := os.ReadFile(filepath.Join(string(h), "config-args.txt"))
+	if err != nil {
+		t.Fatalf("config.sh did not run: %v", err)
+	}
+	if !strings.Contains(string(args), "--no-default-labels") {
+		t.Fatalf("config.sh was not told to leave out the default labels: %q", args)
+	}
 }
 
 func TestProcessRegistrationFailureIsExplained(t *testing.T) {

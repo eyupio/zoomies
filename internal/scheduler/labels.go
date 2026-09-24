@@ -35,13 +35,24 @@ const (
 // that declares its own os or arch: that is a promise about the machine, so a
 // job asking for a different one must not land there.
 func Matches(poolLabels, jobLabels []string) bool {
-	return matches(store.NormalizeLabels(poolLabels), store.NormalizeLabels(jobLabels))
+	return matches(store.NormalizeLabels(poolLabels), store.NormalizeLabels(jobLabels), true)
 }
 
-// matches is Matches over already-normalised label sets.
-func matches(pool, job []string) bool {
+// PoolMatches is Matches for a whole pool, which knows whether its runners
+// advertise the implicit labels at all. A pool registered with
+// --no-default-labels carries exactly the labels it lists, so a job asking
+// for self-hosted or linux must find those among them: GitHub would never
+// offer that job to such a runner, and a runner started for it would sit
+// idle while the job waited.
+func PoolMatches(p *store.Pool, jobLabels []string) bool {
+	return matches(store.NormalizeLabels(p.Labels), store.NormalizeLabels(jobLabels), !p.NoDefaultLabels)
+}
+
+// matches is Matches over already-normalised label sets. implicit says
+// whether the pool's runners advertise store.ImplicitLabels.
+func matches(pool, job []string, implicit bool) bool {
 	for _, l := range job {
-		if store.ImplicitLabels[l] {
+		if implicit && store.ImplicitLabels[l] {
 			continue
 		}
 		if !slices.Contains(pool, l) {
@@ -72,9 +83,14 @@ func contradicts(pool, job []string, dim map[string]bool) bool {
 // job never asked for. Preferring the smallest surplus keeps a specialised
 // pool (say gpu + cuda12) free for the jobs that actually need it.
 func Score(poolLabels, jobLabels []string) int {
+	return score(poolLabels, jobLabels, true)
+}
+
+// score is Score for a pool that may not advertise the implicit labels.
+func score(poolLabels, jobLabels []string, implicit bool) int {
 	pool := store.NormalizeLabels(poolLabels)
 	job := store.NormalizeLabels(jobLabels)
-	if !matches(pool, job) {
+	if !matches(pool, job, implicit) {
 		return noMatch
 	}
 	surplus := 0
@@ -106,7 +122,7 @@ func Eligible(p *store.Pool, j *store.Job) (bool, string) {
 		return false, "no GitHub App installation here covers that repository"
 	case p.InstallationID != j.InstallationID:
 		return false, "the pool belongs to another GitHub App installation"
-	case !Matches(p.Labels, j.Labels):
+	case !PoolMatches(p, j.Labels):
 		return false, "the pool does not advertise those labels"
 	}
 	return true, ""
@@ -145,13 +161,13 @@ func bestPool(pools []*store.Pool, j *store.Job, targets map[string]string) (*st
 			// A pool that would take the job but for its installation is the
 			// near miss worth reporting. Ties break the same way matches do,
 			// so the sentence does not change between passes.
-			if p.Enabled && Matches(p.Labels, j.Labels) &&
+			if p.Enabled && PoolMatches(p, j.Labels) &&
 				(elsewhere == nil || lessPool(p, elsewhere)) {
 				elsewhere = p
 			}
 			continue
 		}
-		s := Score(p.Labels, j.Labels)
+		s := score(p.Labels, j.Labels, !p.NoDefaultLabels)
 		if s < 0 {
 			continue
 		}

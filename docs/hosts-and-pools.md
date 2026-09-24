@@ -401,6 +401,28 @@ a runner in this fleet asks for — the largest ask across the enabled pools, or
 the fleet's default where no pool has said — so the two screens describe one
 fleet rather than two.
 
+### Leaving out the default labels
+
+Every self-hosted runner advertises `self-hosted`, its operating system and its
+architecture as well as the labels its pool gives it, and Zoomies matches jobs
+the same way GitHub does: a job asking for `[self-hosted, linux, x64]` is not
+asking for any pool in particular. `no_default_labels` registers a pool's
+runners with its own labels only, as the runner's `config.sh
+--no-default-labels` does — useful when a workflow written as `runs-on:
+self-hosted` must never land on this pool.
+
+The scheduler follows the runners: once a pool leaves the default labels out, a
+job whose `runs-on` names `self-hosted`, `linux`, `x64` or the like matches the
+pool only if the pool lists that label itself. A job naming only the pool's own
+labels matches as before.
+
+Only a pool with `ephemeral` off can do this. An ephemeral runner registers with
+a just-in-time configuration, and GitHub adds `self-hosted`, the operating
+system and the architecture to every one of those itself — the request has no
+way to ask otherwise — so the API refuses the combination rather than keep a
+pool whose runners advertise labels the scheduler thinks they do not. Existing
+pools keep the default labels; the setting is off until you turn it on.
+
 ### A pool belongs to one installation
 
 `--installation` is not bookkeeping. A pool's runners are registered into that

@@ -5022,6 +5022,7 @@ components:
             proxy credential ends up and setting one is an operator action.
             The same applies to the pool.created and pool.updated events.
         run_as_root: { type: boolean }
+        no_default_labels: { type: boolean, description: "Register runners with only the pool's own labels, without self-hosted, the operating system and the architecture (config.sh --no-default-labels). Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. A job asking for self-hosted no longer matches the pool unless the pool lists it." }
         enabled: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -5118,6 +5119,7 @@ components:
         host_selector: { type: object, additionalProperties: { type: string } }
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean, default: false }
+        no_default_labels: { type: boolean, default: false, description: "Register runners with only the pool's own labels, without self-hosted, the operating system and the architecture (config.sh --no-default-labels). Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. A job asking for self-hosted no longer matches the pool unless the pool lists it." }
         enabled: { type: boolean, default: true }
 
     # A PATCH body: every field is optional, and only the ones present are
@@ -5159,6 +5161,7 @@ components:
         host_selector: { type: object, additionalProperties: { type: string } }
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean }
+        no_default_labels: { type: boolean, description: "Register runners with only the pool's own labels, without self-hosted, the operating system and the architecture (config.sh --no-default-labels). Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. A job asking for self-hosted no longer matches the pool unless the pool lists it." }
         enabled: { type: boolean }
 
     # --- runners ----------------------------------------------------------
@@ -6917,6 +6920,7 @@ components:
             url: { type: string, description: The organisation or repository URL the runner registers against. }
             runner_group: { type: string }
             labels: { type: array, items: { type: string } }
+            no_default_labels: { type: boolean, description: Pass --no-default-labels to config.sh on the registration-token path. }
         env: { type: object, additionalProperties: { type: string } }
         ephemeral: { type: boolean }
         resources: { $ref: "#/components/schemas/Resources" }
