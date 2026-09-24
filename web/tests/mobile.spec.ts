@@ -90,6 +90,11 @@ test('migration labels and job exceptions stay readable', async ({ page }) => {
 });
 
 test('the navigation is a bar at the bottom, aligned and reaching every page', async ({ page }) => {
+  // Ten sections, each reached from a fresh Overview and most through the sheet
+  // twice, is a few dozen navigations in one test. Every step passes on a
+  // loaded two-core CI runner, but together they overran the default 30s and
+  // failed whichever click happened to be under way when the budget ran out.
+  test.slow();
   // The reported clipping was on a portrait tablet at the inclusive edge of
   // the compact-shell breakpoint, not on the narrower phone profile.
   await page.setViewportSize({ width: 768, height: 1024 });

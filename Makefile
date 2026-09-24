@@ -283,8 +283,8 @@ check-variant:
 	fi
 
 .PHONY: image-runner
-image-runner: check-variant ## Build one runner variant for the host architecture (RUNNER_VARIANT=debian-12)
-	docker build -f deploy/Dockerfile.runner \
+image-runner: check-variant ## Build one runner variant for the host architecture (RUNNER_VARIANT=debian-12, RUNNER_TARGET=runner-docker for the Docker one)
+	docker build -f deploy/Dockerfile.runner --target $(or $(RUNNER_TARGET),runner) \
 		--build-arg RUNNER_VERSION=$(RUNNER_VERSION) \
 		$(call variant-args,$(RUNNER_VARIANT)) \
 		-t $(RUNNER_IMAGE):$(RUNNER_VARIANT) .
@@ -295,6 +295,11 @@ images-runner: ## Build every runner variant for the host architecture
 		echo "  building $(RUNNER_IMAGE):$$v"; \
 		$(MAKE) --no-print-directory image-runner RUNNER_VARIANT=$$v; \
 	done
+
+.PHONY: check-image-runner
+check-image-runner: check-variant ## Check a locally built runner variant has what Zoomies relies on (RUNNER_VARIANT=debian-12 RUNNER_TARGET=runner-docker)
+	RUNNER_VERSION=$(RUNNER_VERSION) test/runner-image/check.sh $(RUNNER_IMAGE):$(RUNNER_VARIANT) \
+		$(word 3,$(variant.$(RUNNER_VARIANT))) $(word 4,$(variant.$(RUNNER_VARIANT))) $(or $(RUNNER_TARGET),runner)
 
 .PHONY: image-runner-multiarch
 image-runner-multiarch: check-variant ## Build one runner variant for amd64 and arm64 (needs buildx)
