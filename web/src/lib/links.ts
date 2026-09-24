@@ -27,6 +27,8 @@ export const QUICKSTART_URL = `${SITE_URL}/quickstart/`;
 export const CONFIGURATION_URL = `${SITE_URL}/configuration/`;
 export const API_SURFACE_URL = `${SITE_URL}/api-surface/`;
 export const SECURITY_URL = `${SITE_URL}/security/`;
+/** Where every figure of the installation report is defined. */
+export const INSTALLATION_REPORT_URL = `${SITE_URL}/metrics/#per-installation-report`;
 /** What an enrolled agent owns on its host, linked from the enrolment command. */
 export const AGENT_OWNS_URL = `${SECURITY_URL}#what-the-agent-owns-on-a-host`;
 
