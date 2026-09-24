@@ -145,6 +145,24 @@ RUN set -eux; \
     chmod 0440 /etc/sudoers.d/runner; \
     visudo -cf /etc/sudoers.d/runner
 
+# Two directories the runner must own before anything is mounted over them.
+#
+# /opt/hostedtoolcache is the tool cache: where setup-python, setup-node,
+# setup-go and the rest unpack what they download, named for the path GitHub's
+# own runners use. Left to its default, the runner puts it under _work/_tool,
+# which an ephemeral runner throws away with every job; here it is a fixed
+# place that an image built FROM this one can fill ahead of time, so those
+# steps find the version already there rather than downloading it again.
+#
+# /opt/zoomies-cache is where a pool's cache is mounted. A fresh named volume
+# takes its ownership from the directory it is mounted over, and with no such
+# directory in the image it came up owned by root: the pool cache existed, and
+# the runner could not write a byte to it without sudo. Owned by the runner
+# here, a new volume is the runner's too.
+RUN set -eux; \
+    install -d -o runner -g runner -m 0755 /opt/hostedtoolcache /opt/zoomies-cache
+ENV AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache
+
 # The archive is checked against the digest GitHub published before it is
 # unpacked: this image runs whatever is inside it, on every job, and a mirror
 # or a proxy between the build and github.com is a place to substitute it.

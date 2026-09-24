@@ -85,6 +85,21 @@ runs() { # runs <description> <command...>
 [ "$(id -g)" = 1001 ] && pass "gid 1001" || fail "gid is $(id -g), not 1001"
 runs "passwordless sudo" sudo -n true
 [ "${RUNNER_ALLOW_RUNASROOT:-}" = 0 ] && pass "RUNNER_ALLOW_RUNASROOT=0" || fail "RUNNER_ALLOW_RUNASROOT is '${RUNNER_ALLOW_RUNASROOT:-}'"
+# The proxy the agent hands a runner (proxyEnvKeys in internal/backend/proxy.go)
+# has to survive sudo, or a job's `sudo apt-get install` loses it. The two
+# spellings are checked because the Dockerfile's env_keep lists each by name.
+kept="$(HTTPS_PROXY=http://proxy.invalid:3128 no_proxy=.invalid sudo -n env 2>/dev/null)"
+for v in HTTPS_PROXY=http://proxy.invalid:3128 no_proxy=.invalid; do
+  printf '%s\n' "${kept}" | grep -qx "$v" && pass "sudo keeps ${v%%=*}" || fail "sudo drops ${v%%=*}"
+done
+
+# The tool cache the Dockerfile names, which the setup-* actions unpack into,
+# and the mount point of a pool's cache (RunnerCacheMount in
+# internal/backend/docker.go), whose owner a fresh named volume inherits.
+[ "${AGENT_TOOLSDIRECTORY:-}" = /opt/hostedtoolcache ] && pass "AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache" || fail "AGENT_TOOLSDIRECTORY is '${AGENT_TOOLSDIRECTORY:-}'"
+for d in /opt/hostedtoolcache /opt/zoomies-cache; do
+  [ -d "$d" ] && [ -w "$d" ] && pass "$d is writable" || fail "$d is missing or not writable by the runner"
+done
 
 # What the entrypoint execs (deploy/runner-entrypoint.sh cds to /home/runner and
 # runs ./config.sh and ./run.sh) and the work directory it and the backend name

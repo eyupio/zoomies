@@ -932,6 +932,22 @@ If you want something leaner, point the pool at an image of your own; Zoomies
 only requires that it can run the entrypoint contract described in
 `deploy/runner-entrypoint.sh`.
 
+#### The tool cache
+
+`setup-python`, `setup-node`, `setup-go` and the other setup actions unpack
+what they download into the runner's tool cache. Both images set
+`AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache` — the path GitHub's own runners
+use — and give that directory to the runner account. Left to its default, the
+cache would sit under `_work/_tool` and go with the runner at the end of every
+job.
+
+That makes the tool cache something you can fill ahead of time. An image built
+`FROM` one of ours that installs the versions your workflows ask for into
+`/opt/hostedtoolcache` turns each of those setup steps into a lookup rather
+than a download; the pool's image prewarm puts that image on the host before
+any job needs it. To share one cache between runners instead, see
+[the pool cache](#the-pool-cache).
+
 ### `updates.check_interval` — knowing the controller is behind
 
 ```yaml
@@ -1754,6 +1770,38 @@ Only a directory can be measured, so a non-zero `size_limit` requires `source`
 to be an absolute host path. On a named volume the bytes are the daemon's, on a
 filesystem the agent may not even share, and a limit there would be a number in
 a form that controlled nothing — so it is refused rather than accepted.
+
+#### The pool cache as a tool cache
+
+A pool can keep its runners' tool cache in the pool cache, so the first job to
+ask for a version downloads it and the rest find it there. Set the variable in
+the pool's `env`:
+
+```yaml
+env:
+  AGENT_TOOLSDIRECTORY: /opt/zoomies-cache/toolcache
+cache:
+  enabled: true
+  scope: pool
+```
+
+The runner reads `RUNNER_TOOL_CACHE` first, then `RUNNER_TOOLSDIRECTORY`, then
+`AGENT_TOOLSDIRECTORY`, so a pool that sets either of the first two gets the
+directory it named instead.
+
+This shares more than a build cache does. What is in a tool cache is run, not
+just read: a job that can write to it can replace the `python` or `node` that
+the next job on the pool executes. Only do this on a pool whose repositories
+already trust one another, and prefer `scope: repository` when they do not.
+Two runners that ask for a version the cache does not yet have may unpack it
+into the same directory at once, and the setup actions take no lock against
+that. Letting one job fill the cache before the pool is busy — or baking the
+versions into an image, as above — keeps them from racing.
+
+The stock images own `/opt/zoomies-cache`, so a new named volume mounted there
+belongs to the runner. A cache on an absolute host path is a directory of
+yours, and the runner — uid 1001 in the stock images — needs to be able to
+write to it.
 
 ### Jobs that build container images
 
