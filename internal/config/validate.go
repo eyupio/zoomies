@@ -951,6 +951,21 @@ func (c *Config) Validate() Findings {
 	}
 
 	// --- Runner images ----------------------------------------------------
+	if c.GitHub.ToolchainScanInterval < 0 {
+		add(Finding{
+			Code: "github.toolchain_scan_negative", Severity: SeverityError, Setting: "github.toolchain_scan_interval",
+			Title: "github.toolchain_scan_interval cannot be negative",
+			Fix:   "use a duration such as 24h, or 0 to scan only when asked.",
+		})
+	}
+	if c.GitHub.ToolchainScanInterval > 0 && c.GitHub.ToolchainScanInterval < time.Hour {
+		add(Finding{
+			Code: "github.toolchain_scan_too_fast", Severity: SeverityWarning, Setting: "github.toolchain_scan_interval",
+			Title:  fmt.Sprintf("every workflow in every repository is read every %s", c.GitHub.ToolchainScanInterval),
+			Detail: "each scan spends GitHub API calls from the quota the scheduler uses to find queued jobs, and workflows change far less often than that.",
+			Fix:    "use 24h, or scan by hand after changing workflows.",
+		})
+	}
 	if c.Images.RefreshInterval < 0 {
 		add(Finding{
 			Code: "images.refresh_negative", Severity: SeverityError, Setting: "images.refresh_interval",

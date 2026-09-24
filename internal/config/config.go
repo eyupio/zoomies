@@ -507,6 +507,12 @@ type GitHub struct {
 	// workflow run that owns a Zoomies job. It is on by default; operators who
 	// want a read-only Actions grant can explicitly disable it.
 	AllowWorkflowCancellation bool `yaml:"allow_workflow_cancellation"`
+	// ToolchainScanInterval is how often every workflow every installation
+	// can see is read for the toolchains its jobs install; 0 scans only when
+	// asked. Off by default, because a scan reads every workflow file in
+	// every repository -- thousands of calls on a large organisation, from
+	// the quota the scheduler needs to find queued jobs.
+	ToolchainScanInterval time.Duration `yaml:"toolchain_scan_interval"`
 	// RunnerImage is the default container image for new pools.
 	RunnerImage string `yaml:"runner_image"`
 	// RunnerVersion pins the actions/runner release; empty tracks the image.

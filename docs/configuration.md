@@ -472,6 +472,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 | `github.allow_workflow_cancellation` | `ZOOMIES_ALLOW_WORKFLOW_CANCELLATION` | at once | Allow cancelling workflow runs — Let operators ask GitHub to cancel the workflow run that owns a job. Turning it off is what a read-only Actions grant wants. |
 | `github.api_base_url` | `ZOOMIES_GITHUB_API_BASE_URL` | at once | GitHub API base URL — https://api.github.com for github.com, or your Enterprise Server's /api/v3. It is the default for a new installation; each existing one keeps the base it was added with. |
 | `github.poll_fallback` | `ZOOMIES_POLL_FALLBACK` | next restart | Poll for queued jobs — List queued jobs on a timer as well as waiting for webhooks. On by default: a controller that silently stops scaling because a webhook was misconfigured is worse than a few extra API calls. |
+| `github.toolchain_scan_interval` | `ZOOMIES_TOOLCHAIN_SCAN_INTERVAL` | at once | Toolchain scan interval — How often every workflow is read for the toolchain versions each pool's jobs install. 0, the default, scans only when asked: a scan reads every workflow file in every repository, from the GitHub quota the scheduler shares. |
 | `github.poll_interval` | `ZOOMIES_POLL_INTERVAL` | at once | Poll interval — How often the fallback poller looks for queued jobs. |
 | `github.runner_image` | `ZOOMIES_RUNNER_IMAGE` | at once | Default runner image — The container image a new pool runs when it names neither an image nor an operating system. |
 | `github.runner_version` | `ZOOMIES_RUNNER_VERSION` | at once | Pinned runner release — Pin the actions/runner release. Empty tracks whatever the image carries. |
@@ -776,6 +777,44 @@ github:
 
 A bare hostname is accepted and `/api/v3` appended. Everything else — App auth,
 JIT configs, webhooks, runner groups — works the same.
+
+### `github.toolchain_scan_interval` — what each pool's jobs install
+
+```yaml
+github:
+  toolchain_scan_interval: 24h   # 0, the default, scans only when asked
+```
+
+A toolchain scan reads every workflow every installation can see and records,
+per pool, which `setup-python`, `setup-node`, `setup-go`, `setup-java` and
+`setup-dotnet` versions its jobs ask for, how many jobs ask, and in which
+repositories. Each job is counted against the pool the scheduler would give it
+on its labels, so the answer is about the pool that really runs it. It is what
+tells you what to bake into a pool's image or keep in its
+[cache](#the-pool-cache), rather than finding out one download at a time.
+
+Read the result with `GET /api/v1/toolchains`, and start a scan by hand with
+`POST /api/v1/toolchains/scan`. A version the workflow does not state is listed
+with the reason: `go-version-file: go.mod` reads a file this does not fetch, and
+`${{ inputs.python }}` is only known when the run starts. A matrix is expanded
+the way GitHub expands it, so `python-version: ${{ matrix.python }}` over
+`["3.12", "3.13"]` is two versions. Jobs on GitHub-hosted labels, or labels no
+pool carries, are listed as unmatched rather than guessed onto a pool.
+
+It needs the App's **Contents: read** permission, which the migration wizard
+already asks for. GitHub answers an App without it exactly as it answers a
+repository with no workflows, so the scan asks first, and says so, rather than
+reporting an organisation that needs nothing.
+
+It is off by default because of what it costs. A scan lists every repository
+and reads every workflow file in each: on an organisation with hundreds of
+repositories that is thousands of API calls, from the same hourly quota the
+scheduler uses to find queued jobs. It reads four repositories at a time, and
+skips an installation GitHub is already rate-limiting, but it does not ration
+itself beyond that: a daily scan, or one by hand after workflows change, is
+plenty, because workflows do not change by the hour.
+The result is kept in memory, not in the database: it is a reading the next
+scan replaces, and a restart loses nothing a scan cannot rebuild.
 
 ### `github.allow_workflow_cancellation` — cancel runs from Zoomies
 

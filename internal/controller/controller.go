@@ -132,6 +132,8 @@ type Controller struct {
 	clients *clientCache
 	queues  *taskQueues
 	relay   *logRelay
+	// toolchains is the latest workflow toolchain scan; see toolchains.go.
+	toolchains toolchainScans
 	// providers is what this build can build, and machines is everything the
 	// machine loop owns: its mutex, its cursor, its provider cache and the
 	// notes the problems drawer reads. They are a sub-struct for the reason

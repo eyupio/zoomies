@@ -316,6 +316,10 @@ var registry = buildRegistry([]Setting{
 		RestartReason: "the route is mounted once, when the router is built",
 	},
 	{
+		Key: "github.toolchain_scan_interval", Label: "Toolchain scan interval", Env: "ZOOMIES_TOOLCHAIN_SCAN_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Summary: "How often every workflow is read for the toolchain versions each pool's jobs install. 0, the default, scans only when asked: a scan reads every workflow file in every repository, from the GitHub quota the scheduler shares.",
+	},
+	{
 		Key: "github.poll_interval", Label: "Poll interval", Env: "ZOOMIES_POLL_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
 		Floor:   time.Second,
 		Summary: "How often the fallback poller looks for queued jobs.",

@@ -164,6 +164,8 @@ than about what any one setting says.
 | `runners.env_reserved` | error | `runners.env` | It names a variable the controller writes for each runner individually — its JIT configuration, name, labels, group or credentials. One value for the whole fleet is wrong for every runner in it; remove it. |
 | `updates.interval_negative` | error | `updates.check_interval` | Must not be negative. Use a duration, or 0 to never ask. |
 | `updates.interval_too_fast` | warning | `updates.check_interval` | Releases are published far less often than this, and the check is unauthenticated. |
+| `github.toolchain_scan_negative` | error | `github.toolchain_scan_interval` | Must not be negative. Use a duration such as `24h`, or 0 to scan only when asked. |
+| `github.toolchain_scan_too_fast` | warning | `github.toolchain_scan_interval` | Every workflow in every repository is read more often than hourly. Each scan spends calls from the GitHub quota the scheduler uses to find queued jobs, and workflows change far less often than that. |
 | `images.refresh_negative` | error | `images.refresh_interval` | Must not be negative. Use a duration, or 0 to leave images alone. |
 | `images.refresh_too_fast` | warning | `images.refresh_interval` | Every pool's image is checked on every host far more often than an image is built. |
 | `images.refresh_off` | info | `images.refresh_interval` | Nothing refreshes runner images, so a pool naming a moving tag keeps whatever its hosts pulled first. Expected on an air-gapped fleet, or one that pins every pool to a digest. |

@@ -110,6 +110,8 @@ Conventions:
 | DELETE | `/api/v1/pools/{id}` | operator | `?drain=true` (default) drains runners first; `?force=true` removes them immediately, interrupting their jobs. Deleting a pool deletes its runners' records with it, so it answers `409` while any of them is still finishing — the refusal has already asked them to stop, so call it again once they have gone. A pool whose runners are idle goes in one call, because an idle runner is removed outright rather than drained. The response says how many runners were affected. |
 | POST | `/api/v1/pools/{id}/prewarm` | operator | Queues an image pull on every host the pool could be placed on, so the first job does not pay for it. `202` with the per-host state. |
 | POST | `/api/v1/pools/{id}/enable` | operator | |
+| GET | `/api/v1/toolchains` | viewer | The latest workflow scan: for each pool id, every `setup-python`, `setup-node`, `setup-go`, `setup-java` and `setup-dotnet` version its jobs ask for, with how many jobs and which repositories. A job counts against the pool the scheduler would give it. A version the workflow does not state is listed with `unresolved` saying why, rather than guessed. `unmatched` is what no pool would run, and `installations` says how each was read. Empty until a scan has finished; `running` says whether one is under way. |
+| POST | `/api/v1/toolchains/scan` | operator | Starts a scan in the background and answers `202` at once. `409` while one is already running. It reads every workflow file every installation can see, from the GitHub quota the scheduler shares. Audited as `toolchains.scan`. |
 | POST | `/api/v1/pools/{id}/disable` | operator | Existing runners drain; no new ones are made. |
 
 A pool's `cache` is disposable build acceleration mounted at

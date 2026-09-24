@@ -41,7 +41,7 @@ func (c *Controller) backgroundLoop(ctx context.Context) {
 // housekeeping remembers when each of the slower jobs last ran, so that one
 // ticker can pace work that wants a minute, an hour and a day apart.
 type housekeeping struct {
-	sample, prune, imageRefresh, updateCheck time.Time
+	sample, prune, imageRefresh, updateCheck, toolchainScan time.Time
 }
 
 // housekeep is one pass of the background loop, pulled out of the ticker so
@@ -86,6 +86,16 @@ func (c *Controller) housekeep(ctx context.Context, last *housekeeping) {
 	if d := c.cfg().Updates.CheckInterval; d > 0 && now.Sub(last.updateCheck) >= d {
 		last.updateCheck = now
 		c.checkForRelease(ctx)
+	}
+	// In the background, on the loop's own context so shutdown stops it: a
+	// scan takes minutes on a large organisation, and this pass must not.
+	// One already running -- started by hand -- is the answer, and this tick
+	// is not retried.
+	if d := c.cfg().GitHub.ToolchainScanInterval; d > 0 && now.Sub(last.toolchainScan) >= d {
+		last.toolchainScan = now
+		if err := c.startToolchainScan(ctx, false); err != nil && !errors.Is(err, ErrToolchainScanRunning) {
+			c.log.Warn("could not start the scheduled toolchain scan", "error", err)
+		}
 	}
 }
 
