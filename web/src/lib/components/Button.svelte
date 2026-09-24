@@ -12,7 +12,8 @@
 
   interface Props {
     variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
-    size?: 'sm' | 'md';
+    /** lg belongs to the one form that is the whole page: sign-in. */
+    size?: 'sm' | 'md' | 'lg';
     type?: 'button' | 'submit' | 'reset';
     /**
      * The id of the form this button submits.
@@ -76,7 +77,7 @@
     children,
   }: Props = $props();
 
-  const iconSize = $derived(size === 'sm' ? 13 : 14);
+  const iconSize = $derived(size === 'sm' ? 13 : size === 'lg' ? 16 : 14);
   /**
    * Whether this must not be activated: told to be off, or busy with the last
    * activation. A button gets `disabled` for the first and refuses the click
@@ -198,6 +199,16 @@
     height: var(--z-space-6);
     padding: 0 var(--z-space-2);
     font-size: var(--z-text-xs);
+  }
+  .lg {
+    height: var(--z-space-10);
+    padding: 0 var(--z-space-4);
+    font-size: var(--z-text-base);
+  }
+  @media (pointer: coarse) {
+    .lg {
+      height: var(--z-control-touch);
+    }
   }
   .btn:disabled,
   .btn[aria-disabled='true'] {

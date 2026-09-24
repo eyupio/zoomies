@@ -132,13 +132,37 @@ one: a badge in different colours on different READMEs is not a brand.
 ## Using the system in the product
 
 The full primary logo appears on the sign-in, first-run, boot and connection
-failure screens. It is the identity, and on those screens it is the only thing
-on the page, so it is given room: about 300px on the sign-in and first-run
-screens, 250px on the two transient ones, and never below the 220px minimum. The
-holding shape is Zoomies Black, and it is capped at the width of whatever
-contains it, so a phone shrinks the lockup rather than overflowing. The artwork
-carries its own clear space, so the shape is deliberately larger than the dog
-inside it -- that padding is part of the supplied file and is not cropped away.
+failure screens — the screens that open the product — and it is given room on
+them: 260px on the sign-in page, about 300px on the first-run screen, 250px on
+the two transient ones, and never below the 220px minimum. The holding shape is
+Zoomies Black, and it is capped at the width of whatever contains it, so a phone
+shrinks the lockup rather than overflowing. The artwork carries its own clear
+space, so the shape is deliberately larger than the dog inside it — that padding
+is part of the supplied file and is not cropped away.
+
+![The sign-in page: a Zoomies Black panel on the left holding the lockup, a one-line description, three facts and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-dark.webp#only-dark){ .zoomies-shot }
+![The sign-in page: a Zoomies Black panel on the left holding the lockup, a one-line description, three facts and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-light.webp#only-light){ .zoomies-shot }
+
+The sign-in page is the one screen where the brand gets a panel rather than a
+shape. It is the page met by people who did not install the controller —
+somebody sent its address by the colleague who did — so the left of it is
+Zoomies Black in both themes and says what they are looking at: the lockup, a
+one-line description, three facts true of every installation, and links to
+[zoomies.sh](https://zoomies.sh), the source on GitHub and
+[EyUp.io](https://eyup.io). The panel *is* the holding shape, so the lockup sits
+straight on it, pulled out by exactly its artwork's padding so the dog lines up
+with the text beneath it; the clear space moves with the artwork and nothing
+enters it. The faint rings in the panel's far corner are the circular motion
+path, drawn out past the edge so only an arc of it shows, with one stroke of
+Runner Blue — decoration on the ground, well away from the artwork, which
+carries no texture of its own. The text on the panel uses the fixed
+`--z-panel-*` tokens rather than the theme's, because the panel does not change
+with the theme and the light theme's greys fail on black.
+
+On a phone the panel comes apart: the lockup becomes a band above the form at
+its 220px minimum, and the links move below the form in the theme's own
+colours. The first-run screen stays a card. Only the person who has just
+installed the controller ever sees it, and they already know what it is.
 
 The original circular dog carries Settings → About at 128px, its minimum size —
 the one identity slot in the signed-in product with room for the primary mark,
@@ -280,9 +304,10 @@ colleague installed, or a link pasted into a chat window. Two places carry the
 identity outwards, and both are part of the brand rather than an afterthought.
 
 **A controller's own page.** `web/index.html` carries Open Graph and Twitter
-card tags, `brand/social-card.png` as the card image, and one hairline link to
-[zoomies.sh](https://zoomies.sh) in the sign-in colophon and the footer of every
-signed-in page, beside the credit *Developed by [EyUp.io](https://eyup.io)*.
+card tags, `brand/social-card.png` as the card image, and a link to
+[zoomies.sh](https://zoomies.sh) on the sign-in page's brand panel — beside the
+source on GitHub — and in the footer of every signed-in page, each beside the
+credit *Developed by [EyUp.io](https://eyup.io)*.
 Both addresses come from `web/src/lib/links.ts`, and the site's footer prints
 the same credit from `extra.developer` in `mkdocs.yml`, so the product and the
 site say the same thing about where they came from. `og:url` and `og:image` have to be absolute for a preview to

@@ -195,17 +195,22 @@ test('signing out and back in reports the three kinds of failure differently', a
   await page.goto('/login');
 
   await expect(page.getByRole('heading', { name: 'Sign in', level: 1 })).toBeVisible();
-  // The colophon under the card is where somebody who did not install this
-  // controller learns what it is and who makes it. Both links leave the page
-  // for another site, so both open a new tab.
+  // The brand panel is where somebody who did not install this controller
+  // learns what it is, where its source lives and who makes it. Every link
+  // leaves the page for another site, so every one opens a new tab and says
+  // so to a screen reader -- hence the names are matched from the start rather
+  // than exactly, the way the shell footer's are.
+  const about = page.getByRole('navigation', { name: 'About Zoomies' });
   for (const [name, href] of [
-    ['zoomies.sh', 'https://zoomies.sh'],
-    ['EyUp.io', 'https://eyup.io'],
+    [/^zoomies\.sh\b/, 'https://zoomies.sh'],
+    [/^GitHub\b/, 'https://github.com/eyupio/zoomies'],
+    [/^EyUp\.io\b/, 'https://eyup.io'],
   ] as const) {
-    const link = page.getByRole('link', { name, exact: true });
+    const link = about.getByRole('link', { name });
     await expect(link).toHaveAttribute('href', href);
     await expect(link).toHaveAttribute('target', '_blank');
     await expect(link).toHaveAttribute('rel', /noopener/);
+    await expect(link).toHaveAccessibleName(/\(opens in a new tab\)$/);
   }
   await expect(page.getByText(/Developed by/)).toBeVisible();
 
@@ -270,11 +275,78 @@ test('the page behind the connect dialog is inert while it is open', async ({ pa
   expect(await navInert()).toBe(false);
 });
 
+test('the sign-in form comes before the brand panel for a keyboard', async ({ page }) => {
+  await page.goto('/login');
+  const username = page.locator('input[name="username"]');
+  await expect(username).toBeFocused();
+
+  // The panel is drawn on the left, but its links are read after the form: a
+  // keyboard going backwards from the first field meets the skip link, not
+  // three links to other websites, and going forwards meets the password.
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.getByRole('link', { name: 'Skip to the main content' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(username).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('input[name="password"]')).toBeFocused();
+});
+
+test('the brand panel is Zoomies Black in both themes', async ({ page }) => {
+  // The panel is the brand's own ground, not a surface, so the theme does not
+  // reach it -- and neither may it reach the text on it. A panel that followed
+  // the light theme's muted grey would be 3:1 on black; one that followed the
+  // surface colour would put white text on white.
+  const read = () =>
+    page.getByText('GitHub Actions runners on machines you own.').evaluate((tagline) => {
+      let ground: Element | null = tagline;
+      while (ground && getComputedStyle(ground).backgroundColor === 'rgba(0, 0, 0, 0)') {
+        ground = ground.parentElement;
+      }
+      return {
+        text: getComputedStyle(tagline).color,
+        ground: ground ? getComputedStyle(ground).backgroundColor : '',
+      };
+    });
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await page.goto('/login');
+    expect(await read(), `the panel in the ${colorScheme} theme`).toEqual({
+      text: 'rgb(255, 255, 255)',
+      ground: 'rgb(8, 8, 8)',
+    });
+  }
+  // The lockup is on the panel and named, and the decoration is not.
+  await expect(page.getByRole('img', { name: 'Zoomies' })).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      Array.from(document.querySelectorAll('svg.rings')).every(
+        (svg) => svg.getAttribute('aria-hidden') === 'true',
+      ),
+    ),
+  ).toBe(true);
+  // Which instance this is, as the browser reached it.
+  await expect(page.getByText(new URL(page.url()).host, { exact: true })).toBeVisible();
+});
+
 test('the sign-in page fits a phone too', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 780 });
   await page.goto('/login');
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   await expectPhoneSafe(page, 'the sign-in page');
+
+  // The panel comes apart on a phone: the lockup stays above the form, at the
+  // brand's minimum, and the links move below it rather than being dropped --
+  // they are the page's only answer to "what is this".
+  const lockup = await page.getByRole('img', { name: 'Zoomies' }).boundingBox();
+  const heading = await page.getByRole('heading', { level: 1 }).boundingBox();
+  expect(lockup?.width, 'the lockup is under the brand minimum').toBeGreaterThanOrEqual(220);
+  expect((lockup?.y ?? 0) < (heading?.y ?? 0), 'the lockup is above the form').toBe(true);
+  expect(heading && heading.y + heading.height, 'the heading is below the fold').toBeLessThan(780);
+  const about = page.getByRole('navigation', { name: 'About Zoomies' });
+  for (const name of [/^zoomies\.sh\b/, /^GitHub\b/, /^EyUp\.io\b/]) {
+    await expect(about.getByRole('link', { name })).toBeVisible();
+  }
+  await expect(page.getByText('GitHub Actions runners on machines you own.')).toBeHidden();
 });
 
 /*

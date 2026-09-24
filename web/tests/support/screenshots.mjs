@@ -64,7 +64,8 @@ const FIXTURE = {
  * `clip` names a region to photograph instead of the whole page; `device`
  * gives the shot a browser context of its own -- a phone, or a desktop whose
  * `prepare` changes a per-operator preference that must not follow the shots
- * captured after it.
+ * captured after it; `signedOut` keeps the session cookie out of that
+ * context, for the one page that is only shown to nobody.
  */
 const SHOTS = [
   { name: 'overview', path: '/', heading: 'Overview' },
@@ -214,12 +215,16 @@ const SHOTS = [
       await page.getByRole('radio', { name: /Private connection/ }).check();
     },
   },
-  // Sign-in is deliberately not here. This runner bootstraps an administrator
-  // so that every other page has a session, and a signed-in browser cannot
-  // photograph the sign-in card. Capturing it would need the first-run fixture
-  // and a second controller, which is more machinery than one screenshot of a
-  // form with two fields is worth.
-  //
+  // Sign-in, as anyone arriving at the address meets it. The shot has a
+  // context of its own that is never handed the administrator's cookie, so the
+  // controller that serves every other page answers this one signed out.
+  {
+    name: 'sign-in',
+    path: '/login',
+    heading: 'Sign in',
+    signedOut: true,
+    device: { viewport: DESKTOP, deviceScaleFactor: SCALE },
+  },
   // Read-only monitoring on a phone is a stated requirement, so it is shown.
   { name: 'overview-phone', path: '/', heading: 'Overview', device: devices['Pixel 7'] },
 ];
@@ -406,7 +411,7 @@ async function capture(browser, scheme, pngDir) {
       let context = desktop;
       if (shot.device) {
         context = await browser.newContext({ ...shot.device, ...common });
-        await context.addCookies(cookies);
+        if (!shot.signedOut) await context.addCookies(cookies);
       }
       const page = await context.newPage();
       await page.goto(shot.path, { waitUntil: 'domcontentloaded' });

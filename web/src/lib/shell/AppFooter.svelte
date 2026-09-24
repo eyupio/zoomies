@@ -133,7 +133,7 @@
   .credit a:focus-visible {
     color: var(--z-text-muted);
     text-decoration: underline;
-    text-underline-offset: 0.15em;
+    text-underline-offset: var(--z-underline-offset);
   }
   .credit {
     flex: none;
