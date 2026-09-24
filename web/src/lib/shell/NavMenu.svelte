@@ -28,6 +28,7 @@
   import Logo from '../components/Logo.svelte';
   import Segmented from '../components/Segmented.svelte';
   import { SECTIONS, isCurrentSection } from './sections';
+  import BuildTag from './BuildTag.svelte';
   import { signOut } from './signout';
 
   interface Props {
@@ -135,6 +136,7 @@
         >
           Sign out
         </Button>
+        <BuildTag />
       </div>
     </div>
   </div>
@@ -295,7 +297,9 @@
   }
   .foot {
     display: flex;
-    justify-content: flex-start;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-3);
     padding-top: var(--z-space-2);
     border-top: var(--z-border-width) solid var(--z-border);
   }

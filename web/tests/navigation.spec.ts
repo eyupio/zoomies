@@ -331,3 +331,22 @@ test('an upgrade under an open tab reloads even just after another failure', asy
     identity,
   );
 });
+
+// A bug report needs the build, and the sidebar -- or on a phone, the More
+// sheet -- is the chrome that never scrolls away, so the build is said there on
+// every page: a release by its tag, a build from main by its commit.
+test('the navigation says which build of Zoomies is running', async ({ page }) => {
+  await goto(page, '/', 'Overview');
+  const meta = await page.request.get('/api/v1/meta').then((r) => r.json());
+  if (test.info().project.use.isMobile) {
+    await page.getByRole('button', { name: 'More' }).click();
+  }
+  const build = page.locator('p.build');
+  await expect(build).toBeVisible();
+  await expect(build).toHaveText(/^(Release|Dev|Local build)\s+\S+/);
+  if (meta.commit) {
+    await expect(build).toContainText(
+      meta.version_channel?.startsWith('v') ? meta.version_channel : meta.commit.slice(0, 7),
+    );
+  }
+});

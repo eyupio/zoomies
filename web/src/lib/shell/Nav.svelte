@@ -12,6 +12,11 @@
   the neighbourhoods stay where they were. The `g` shortcut letter is shown
   beside each entry so the keyboard route is discoverable rather than folklore.
 
+  Expanded, the foot also says which controller build the page is talking to --
+  the release tag, or the commit for a build from main -- because a bug report
+  needs it and this is the one piece of chrome that never scrolls away.
+  Collapsed, it stays in the toggle's tooltip rather than being dropped.
+
   Expanded, the foot also carries the same two outbound links AppFooter.svelte
   puts below the page -- documentation and source -- because that footer
   scrolls out of view with a tall page and this is the one piece of chrome
@@ -36,6 +41,9 @@
   import IconButton from '../components/IconButton.svelte';
   import Logo from '../components/Logo.svelte';
   import { NAV_GROUPS, SECTIONS, isCurrentSection } from './sections';
+  import { buildLabel } from './build';
+  import { session } from '../state/session.svelte';
+  import BuildTag from './BuildTag.svelte';
   import type { NavItem } from './sections';
 
   interface Props {
@@ -49,6 +57,7 @@
   const phone = $derived(viewport.phone);
   const collapsed = $derived(prefs.navCollapsed && !phone);
   const primary = SECTIONS.filter((item) => item.primary);
+  const build = $derived(buildLabel(session.meta));
 
   function isCurrent(path: string): boolean {
     return isCurrentSection(path, router.pathname);
@@ -138,6 +147,9 @@
       {/each}
     </div>
 
+    {#if !collapsed}
+      <div class="build"><BuildTag /></div>
+    {/if}
     <div class="foot">
       {#if !collapsed}
         <div class="foot-links">
@@ -147,7 +159,9 @@
       {/if}
       <IconButton
         icon={collapsed ? PanelLeftOpen : PanelLeftClose}
-        label={collapsed ? 'Expand the navigation' : 'Collapse the navigation'}
+        label={collapsed
+          ? `Expand the navigation${build ? ` (${build.kind} ${build.name})` : ''}`
+          : 'Collapse the navigation'}
         size="sm"
         onclick={() => prefs.toggleNav()}
       />
@@ -311,6 +325,9 @@
   a:hover kbd,
   a:focus-visible kbd {
     opacity: 1;
+  }
+  .build {
+    padding: var(--z-space-2) var(--z-space-2) 0;
   }
   .foot {
     display: flex;
