@@ -5814,8 +5814,8 @@ export interface operations {
                 /** @description Optional exact group key filter. */
                 key?: string;
                 group_by?: "installation" | "repository" | "workflow" | "pool" | "host";
-                /** @description The width of one history bucket. Left out, it is an hour for a range of two days or less and a day beyond. Hourly buckets may be asked for over at most 14 days. */
-                interval?: "hour" | "day";
+                /** @description The width of one history bucket: an hour, a day, or a whole number of hours a day divides into, so a day is always a whole number of buckets. Left out, it is an hour for a range of two days or less and a day beyond. Buckets narrower than a day are bounded to 336 a row -- 14 days of hours, 56 of 4h, 112 of 8h. */
+                interval?: "hour" | "2h" | "3h" | "4h" | "6h" | "8h" | "12h" | "day";
             };
             header?: never;
             path?: never;
@@ -5842,8 +5842,8 @@ export interface operations {
                 /** @description Optional exact group key filter. */
                 key?: string;
                 group_by?: "installation" | "repository" | "workflow" | "pool" | "host";
-                /** @description The width of one history bucket. Left out, it is an hour for a range of two days or less and a day beyond. Hourly buckets may be asked for over at most 14 days. */
-                interval?: "hour" | "day";
+                /** @description The width of one history bucket: an hour, a day, or a whole number of hours a day divides into, so a day is always a whole number of buckets. Left out, it is an hour for a range of two days or less and a day beyond. Buckets narrower than a day are bounded to 336 a row -- 14 days of hours, 56 of 4h, 112 of 8h. */
+                interval?: "hour" | "2h" | "3h" | "4h" | "6h" | "8h" | "12h" | "day";
             };
             header?: never;
             path?: never;

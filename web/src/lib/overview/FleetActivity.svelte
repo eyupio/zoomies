@@ -4,13 +4,14 @@
 
   The series comes from GET /usage grouped by pool -- the one grouping that
   carries capacity telemetry -- and is summed back into a fleet total here.
-  A year is asked for once and cut to the width on screen, so a window being
-  dragged wider costs no request; a shorter range is a different window and a
-  different width of square, and is fetched afresh. The stream keeps today
-  moving: every `job.updated` frame is folded into the square its moment
-  belongs to, the way the metric tiles fold `stats` frames into their
-  sparklines, and a reconnect ends in one reconciling fetch for the same
-  reason it does everywhere else -- the replay buffer is finite.
+  Every range is drawn whole, whatever the width: its squares shrink to fit
+  rather than weeks being cut from the front, so a window being dragged wider
+  costs no request and a year is always twelve months. A different range is
+  a different window and a different width of square, and is fetched afresh.
+  The stream keeps today moving: every `job.updated` frame is folded into the
+  square its moment belongs to, the way the metric tiles fold `stats` frames
+  into their sparklines, and a reconnect ends in one reconciling fetch for the
+  same reason it does everywhere else -- the replay buffer is finite.
 
   Two things a fetch-once panel would otherwise get wrong. A tab left open
   past midnight would have no square for the new day and would count nothing
@@ -60,17 +61,26 @@
   /**
    * The quick ranges. A day and a week are drawn by the hour -- a row of
    * twenty-four squares, and seven of them, which is the punch card that
-   * shows when the fleet is busy -- and the rest by the day. The year is
-   * fifty-one whole weeks and the days of this one, which is the most the
-   * API's ceiling of 366 days allows, laid out as a contribution graph is;
-   * what the fleet retains is usually less, and the squares before that are
-   * simply quiet, as a graph's are before the first commit.
+   * shows when the fleet is busy -- and the rest as a calendar, laid out as
+   * a contribution graph is.
+   *
+   * A month and a quarter cut each of their days into squares, because as
+   * whole days they are five and thirteen week columns: a stub at the left
+   * of a band with the rest of it white. Six four-hour squares to a day and
+   * three eight-hour ones put about as many columns across as the year has,
+   * so every range fills the band the same way, and say something a day
+   * cannot -- whether the queue backs up at night or in the afternoon.
+   *
+   * The year is fifty-one whole weeks and the days of this one, which is the
+   * most the API's ceiling of 366 days allows; what the fleet retains is
+   * usually less, and the squares before that are simply quiet, as a graph's
+   * are before the first commit.
    */
   interface Range {
     label: string;
     name: string;
     interval: Interval;
-    size: 'sm' | 'lg';
+    size: 'sm' | 'md' | 'lg';
     window: () => RangeWindow;
   }
   const RANGES: Record<ActivityRangeKey, Range> = {
@@ -90,17 +100,17 @@
     },
     '30d': {
       label: '30d',
-      name: 'The last 30 days',
-      interval: 'day',
-      size: 'lg',
-      window: () => rangeWindow(30, 'day'),
+      name: 'The last 30 days, in four-hour squares',
+      interval: '4h',
+      size: 'md',
+      window: () => rangeWindow(30, '4h'),
     },
     '90d': {
       label: '90d',
-      name: 'The last 90 days',
-      interval: 'day',
-      size: 'lg',
-      window: () => rangeWindow(90, 'day'),
+      name: 'The last 90 days, in eight-hour squares',
+      interval: '8h',
+      size: 'md',
+      window: () => rangeWindow(90, '8h'),
     },
     '1y': {
       label: '1y',
@@ -274,11 +284,10 @@
         interval={range.interval}
         first={range.from}
         {mode}
-        weeks={prefs.activityRange === '1y' ? 'fit' : 'all'}
         size={chosen.size}
         bind:visible
         bind:selected
-        hourly={range.interval === 'day' ? hourly : undefined}
+        hourly={range.interval === 'hour' ? undefined : hourly}
         {fetchedAt}
         {links}
         subject="this fleet's jobs"

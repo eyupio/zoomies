@@ -67,19 +67,37 @@ const (
 	UsageDaily        UsageInterval = "day"
 )
 
+// usageIntervalHours are the widths a caller may name, in hours: an hour, a
+// day, and every whole number of hours a day divides into. Not five or seven:
+// a calendar cuts each day into equal squares, and a bucket that straddled
+// midnight would put part of one square on the wrong day.
+var usageIntervalHours = map[UsageInterval]int{
+	UsageHourly: 1,
+	"2h":        2,
+	"3h":        3,
+	"4h":        4,
+	"6h":        6,
+	"8h":        8,
+	"12h":       12,
+	UsageDaily:  24,
+}
+
+// Known reports whether the interval is a width a caller may ask for, or the
+// empty one that leaves the choice to the window's length.
+func (i UsageInterval) Known() bool {
+	_, ok := usageIntervalHours[i]
+	return ok || i == UsageAutoInterval
+}
+
 // Width is the bucket this interval cuts from a window.
 func (i UsageInterval) Width(from, to time.Time) time.Duration {
-	switch i {
-	case UsageHourly:
-		return time.Hour
-	case UsageDaily:
-		return 24 * time.Hour
-	default:
-		if to.Sub(from) <= 48*time.Hour {
-			return time.Hour
-		}
-		return 24 * time.Hour
+	if h, ok := usageIntervalHours[i]; ok {
+		return time.Duration(h) * time.Hour
 	}
+	if to.Sub(from) <= 48*time.Hour {
+		return time.Hour
+	}
+	return 24 * time.Hour
 }
 
 // UsageAllocationAttributable reports whether runner allocation, and therefore

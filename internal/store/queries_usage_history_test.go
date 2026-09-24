@@ -118,4 +118,34 @@ func TestUsageHistoryTakesTheIntervalItIsAskedFor(t *testing.T) {
 	if len(rows[0].History) != 1 || rows[0].History[0].Unknown != 1 {
 		t.Fatalf("a day in days: %+v", rows[0].History)
 	}
+
+	// And in eight hours it is three, each starting eight hours after the
+	// last, which is what lets a calendar cut every day into the same squares.
+	rows, err = s.UsageWithInterval(ctx, usageAt(0), usageAt(24*60), UsageByPool, "8h")
+	if err != nil {
+		t.Fatalf("eight-hourly: %v", err)
+	}
+	h := rows[0].History
+	if len(h) != 3 || h[0].Queued != 1 || h[0].Unknown != 1 {
+		t.Fatalf("a day in eight hours: %+v", h)
+	}
+	if !h[1].From.Equal(usageAt(8*60)) || !h[2].From.Equal(usageAt(16*60)) {
+		t.Fatalf("eight-hour buckets start at %v and %v", h[1].From, h[2].From)
+	}
+}
+
+// Only the widths a day divides into are widths: a five-hour bucket would
+// straddle midnight, and a calendar has nowhere to put the half on the wrong
+// day.
+func TestOnlyTheWidthsADayDividesIntoAreKnown(t *testing.T) {
+	for _, known := range []UsageInterval{UsageAutoInterval, UsageHourly, "2h", "3h", "4h", "6h", "8h", "12h", UsageDaily} {
+		if !known.Known() {
+			t.Errorf("%q is not known", known)
+		}
+	}
+	for _, unknown := range []UsageInterval{"5h", "24h", "1h", "minute", "week"} {
+		if unknown.Known() {
+			t.Errorf("%q is known", unknown)
+		}
+	}
 }

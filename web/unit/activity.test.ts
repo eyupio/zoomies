@@ -12,12 +12,17 @@ import {
   foldJob,
   headline,
   hourGrid,
+  intervalName,
+  intervalNoun,
+  intervalWidth,
   level,
   mergeHistories,
+  monthLabels,
   newSeen,
   paint,
   rangeWindow,
   scaleOf,
+  slicesPerDay,
   summarise,
   type ActivityBucket,
 } from '../src/lib/insights/activity.ts';
@@ -357,4 +362,81 @@ test('a quick range is the last N days, today included, in the width asked for',
   assert.equal(month.count, 30);
   assert.equal(month.from.getMonth(), 7, 'starts in August');
   assert.equal(month.from.getDate(), 11);
+});
+
+test('a month and a quarter cut every day into the same squares', () => {
+  const now = new Date(2026, 8, 9, 15, 30);
+  const month = rangeWindow(30, '4h', now);
+  assert.equal(month.count, 30 * 6, 'six four-hour squares a day');
+  assert.equal(month.from.getDate(), 11, 'from the same midnight as a month of days');
+  assert.equal(month.to.getTime() - month.from.getTime(), 30 * 86_400_000);
+  const quarter = rangeWindow(90, '8h', now);
+  assert.equal(quarter.count, 90 * 3, 'three eight-hour squares a day');
+  assert.equal(intervalWidth('8h'), 8 * 3_600_000);
+  assert.equal(slicesPerDay('day'), 1);
+  assert.equal(slicesPerDay('4h'), 6);
+  assert.equal(slicesPerDay('hour'), 24);
+});
+
+test("a sliced calendar puts a day's squares side by side in its weekday's row", () => {
+  // Wednesday 9 September, in eight-hour squares, so the window's first two
+  // weekdays are blank and every day is three squares.
+  const first = new Date(2026, 8, 9);
+  const series = fillWindow(
+    [bucket(new Date(2026, 8, 10, 8).toISOString(), { succeeded: 2 })],
+    first,
+    5 * 3,
+    '8h',
+  );
+  const columns = calendar(series, first, 3);
+  assert.equal(columns.length, 1);
+  const cells = columns[0]!.cells;
+  assert.equal(cells.length, 7 * 3, 'seven days of three');
+  assert.deepEqual(
+    cells.slice(0, 6),
+    [null, null, null, null, null, null],
+    'Monday and Tuesday are before the window',
+  );
+  // Thursday is row 3; its middle square is bucket 4, eight in the morning.
+  const thursday = cells.slice(3 * 3, 4 * 3);
+  assert.deepEqual(
+    thursday.map((c) => c?.index),
+    [3, 4, 5],
+  );
+  assert.equal(thursday[1]?.bucket.succeeded, 2);
+  assert.equal(thursday[1]?.date.getHours(), 8, 'a slice starts at its hour on the local clock');
+  assert.equal(thursday[1]?.date.getDate(), 10);
+  assert.equal(thursday[2]?.date.getHours(), 16);
+  // Month labels read the first square of a column, whatever the slices.
+  assert.ok(columns[0]?.label?.startsWith('Sep'));
+});
+
+test('a slice says the stretch of the day it is, weekday and all', () => {
+  const at = new Date(2026, 8, 10, 16);
+  const name = intervalName(at, '8h');
+  const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
+  // The last slice of a day ends at midnight on the clock.
+  assert.ok(name.endsWith(`${clock.format(at)} to ${clock.format(new Date(2026, 8, 11))}`), name);
+  const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(at);
+  assert.ok(name.includes(weekday), `${name} names its weekday`);
+  assert.equal(intervalNoun('8h'), 'hours');
+  assert.equal(intervalNoun('day'), 'day');
+  assert.equal(intervalNoun('hour'), 'hour');
+});
+
+test('a calendar too cramped for month names gets their initials', () => {
+  const first = new Date(2026, 0, 5); // a Monday
+  const columns = calendar(fillWindow([], first, 10 * 7, 'day'), first);
+  const initials = new Intl.DateTimeFormat(undefined, { month: 'narrow' });
+  const narrow = monthLabels(columns, 'narrow').filter(Boolean);
+  assert.deepEqual(narrow, [
+    initials.format(new Date(2026, 0, 1)),
+    initials.format(new Date(2026, 1, 1)),
+    initials.format(new Date(2026, 2, 1)),
+  ]);
+  // The same columns, and the same columns labelled, as the short names.
+  assert.deepEqual(
+    monthLabels(columns, 'narrow').map((l) => l !== null),
+    monthLabels(columns).map((l) => l !== null),
+  );
 });

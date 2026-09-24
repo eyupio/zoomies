@@ -550,20 +550,26 @@ The one page that has to earn the second monitor.
   square's accessible name is the whole sentence its tooltip shows. The grid
   is one tab stop walked with the arrow keys; selecting a square opens the
   day's hours and its links beneath the grid rather than in an overlay. Quick
-  ranges cut the window -- a day and a week are drawn by the hour, the rest by
-  the day -- and the choice, the day it starts on aside, is a per-operator
-  preference. It is cut to the
-  width of the screen rather than scrolled, so the newest week is always on
-  it, and it is compact on purpose: every line it spends is a line the
+  ranges cut the window — a day and a week are drawn by the hour, a month and a
+  quarter as the calendar with each day cut into four- or eight-hour squares
+  side by side, and the year by the day — and the choice, the day it starts on
+  aside, is a per-operator preference. Slicing the days is what gives the
+  shorter calendars about as many columns as the year, so every range fills
+  the band the same way. Every range is drawn whole, never cut to the width or
+  scrolled: its square shrinks until the window fits, so the newest week is
+  always on screen and a year is twelve months on a phone, and the month
+  names shorten to initials where the columns are too close for them. It is
+  compact on purpose: every line it spends is a line the
   numbers under it lose. The band spends its width as well as its height: a
   grid with at least as many columns as rows grows its square until it fills
   the room beside the figures, one too narrow for that keeps its size and
   hands the width over, and the figures — what the squares on screen come to,
   so the window reads without hovering every square — take whatever is left.
   On a phone the band cannot hold both, so the one that would use the width
-  gets it: a week of hours grows across the whole band with the figures under
-  it, a month keeps them beside it instead of leaving that width white. Which
-  of the two it is comes out of the measurement, not a second breakpoint.
+  gets it: a week of hours or a month of sliced days grows across the whole
+  band with the figures under it, a few weeks of whole days keeps them beside
+  it instead of leaving that width white. Which of the two it is comes out of
+  the measurement, not a second breakpoint.
   The key runs under both, where it explains the squares rather than floating
   at the right with the white space in front of it. The component lives in
   `lib/insights/` because the Usage page draws its range with the same one.

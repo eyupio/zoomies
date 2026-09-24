@@ -16,8 +16,12 @@ export { outcomeOf };
 /** One interval of the usage history, exactly as `GET /usage` reports it. */
 export type ActivityBucket = NonNullable<UsageRow['history']>[number];
 
-/** The API's two interval widths: hourly up to 48 hours, daily beyond. */
-export type Interval = 'hour' | 'day';
+/**
+ * The API's interval widths: an hour, a day, and every whole number of hours a
+ * day divides into. The route's own rule is hourly up to 48 hours and daily
+ * beyond; the rest are asked for, by the ranges that cut a day into squares.
+ */
+export type Interval = 'hour' | '2h' | '3h' | '4h' | '6h' | '8h' | '12h' | 'day';
 
 /**
  * What the squares are coloured by. Outcomes is the default and the one the
@@ -59,7 +63,14 @@ export const DAY_MS = 24 * HOUR_MS;
 
 /** The width of one bucket, in milliseconds. */
 export function intervalWidth(interval: Interval): number {
-  return interval === 'day' ? DAY_MS : HOUR_MS;
+  if (interval === 'day') return DAY_MS;
+  if (interval === 'hour') return HOUR_MS;
+  return parseInt(interval, 10) * HOUR_MS;
+}
+
+/** How many buckets of this width a day is cut into: one, three for eight hours, 24 for an hour. */
+export function slicesPerDay(interval: Interval): number {
+  return Math.round(DAY_MS / intervalWidth(interval));
 }
 
 export function emptyBucket(from: string): ActivityBucket {
@@ -204,18 +215,19 @@ export interface RangeWindow {
 /**
  * The window of the last `days` days, today included, cut into buckets of
  * the given width. A day of hours is a row of twenty-four squares; a week of
- * them is the punch card that shows when the fleet is busy.
+ * them is the punch card that shows when the fleet is busy; a month of
+ * four-hour buckets is a calendar with six squares to the day.
  */
 export function rangeWindow(days: number, interval: Interval, now: Date = new Date()): RangeWindow {
   const from = addDays(startOfLocalDay(now), -(days - 1));
-  const count = interval === 'day' ? days : days * 24;
+  const count = days * slicesPerDay(interval);
   return { from, to: new Date(from.getTime() + count * intervalWidth(interval)), count, interval };
 }
 
 export interface CalendarCell {
   /** Index into the series this cell was cut from. */
   index: number;
-  /** The local calendar day. */
+  /** When the cell begins on the local clock: the calendar day, or the hour a slice of it starts at. */
   date: Date;
   bucket: ActivityBucket;
 }
@@ -223,29 +235,56 @@ export interface CalendarCell {
 export interface CalendarColumn {
   /** The month's short name, on the column where a month begins. */
   label: string | null;
-  /** Seven slots, Monday first; null where the window has no such day. */
+  /**
+   * Seven days, Monday first, each `slices` cells long and in order through
+   * the day -- so weekday `r`'s slice `k` is `cells[r * slices + k]`. Null
+   * where the window has no such day.
+   */
   cells: Array<CalendarCell | null>;
 }
 
-const MONTH = new Intl.DateTimeFormat(undefined, { month: 'short' });
+const MONTH = {
+  short: new Intl.DateTimeFormat(undefined, { month: 'short' }),
+  narrow: new Intl.DateTimeFormat(undefined, { month: 'narrow' }),
+};
 
 /**
- * Daily buckets laid out as a contribution graph: a column per week, a row
- * per weekday. `first` is the local day of bucket 0; each later bucket is the
- * next calendar day, which is what the window above guarantees.
+ * Buckets laid out as a contribution graph: a column per week, a row per
+ * weekday. `first` is the local day of bucket 0.
+ *
+ * A day is `slices` buckets, one after another -- one for daily buckets,
+ * three for eight-hour ones -- so bucket `i` is slice `i % slices` of day
+ * `i / slices`, and each day of the week holds that many cells side by side.
+ * A range that could only draw a month as five columns of squares draws it
+ * as five columns of six instead, and the band has something to fill itself
+ * with that is not white.
+ *
+ * Placed by index rather than by the time a bucket starts, which is what the
+ * window above guarantees: the API cuts elapsed buckets from `from`, so after
+ * a daylight-saving change a slice is an hour adrift of the clock it is
+ * labelled with -- an hour out within the day, never a day out.
  */
-export function calendar(buckets: readonly ActivityBucket[], first: Date): CalendarColumn[] {
+export function calendar(
+  buckets: readonly ActivityBucket[],
+  first: Date,
+  slices = 1,
+): CalendarColumn[] {
   const columns: CalendarColumn[] = [];
   const offset = weekday(first);
+  const hours = 24 / slices;
   buckets.forEach((bucket, index) => {
-    const column = Math.floor((index + offset) / 7);
-    const row = (index + offset) % 7;
+    const day = Math.floor(index / slices);
+    const slice = index % slices;
+    const column = Math.floor((day + offset) / 7);
+    const row = (day + offset) % 7;
     let col = columns[column];
     if (!col) {
-      col = { label: null, cells: Array.from({ length: 7 }, () => null) };
+      col = { label: null, cells: Array.from({ length: 7 * slices }, () => null) };
       columns[column] = col;
     }
-    col.cells[row] = { index, date: addDays(first, index), bucket };
+    const date = addDays(first, day);
+    if (slice > 0) date.setHours(slice * hours);
+    col.cells[row * slices + slice] = { index, date, bucket };
   });
   monthLabels(columns).forEach((label, c) => {
     columns[c]!.label = label;
@@ -255,19 +294,25 @@ export function calendar(buckets: readonly ActivityBucket[], first: Date): Calen
 
 /**
  * A month's name above the week it begins in, for whichever columns are on
- * screen -- a calendar cut to the width of a phone is labelled for the weeks
- * it shows, not the weeks it was cut from. Two adjacent labels would overlap
- * at this width, so the earlier gives way, which is the first column when the
- * window happens to start in the last days of a month.
+ * screen. Two adjacent labels would overlap at this width, so the earlier
+ * gives way, which is the first column when the window happens to start in
+ * the last days of a month.
+ *
+ * A year on a phone is columns a few pixels across, and "May" and "Jun" four
+ * of them apart run into each other; there the caller asks for the one-letter
+ * names instead, which the row of them still reads as a year.
  */
-export function monthLabels(columns: readonly CalendarColumn[]): Array<string | null> {
+export function monthLabels(
+  columns: readonly CalendarColumn[],
+  width: 'short' | 'narrow' = 'short',
+): Array<string | null> {
   const labels: Array<string | null> = columns.map(() => null);
   let previous = -1;
   columns.forEach((col, c) => {
     const start = col.cells.find((cell) => cell !== null);
     if (!start) return;
     const month = start.date.getMonth() + 12 * start.date.getFullYear();
-    if (month !== previous) labels[c] = MONTH.format(start.date);
+    if (month !== previous) labels[c] = MONTH[width].format(start.date);
     previous = month;
   });
   for (let c = 0; c + 1 < labels.length; c++) {
@@ -410,13 +455,40 @@ const DAY_LONG = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
 });
 const DAY_SHORT = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
+const DAY_WEEKDAY = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+});
 const CLOCK = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 
-/** "Tuesday 9 September 2026", or "9 Sep, 14:00 to 15:00". */
+/**
+ * "Tuesday 9 September 2026", "9 Sep, 14:00 to 15:00", or "Tue 9 Sep, 08:00
+ * to 16:00". A slice of a day names its weekday, because in the calendar it
+ * sits in that weekday's row; an hour is a week at most and its row says the
+ * date.
+ */
 export function intervalName(at: Date, interval: Interval): string {
   if (interval === 'day') return DAY_LONG.format(at);
-  const end = new Date(at.getTime() + HOUR_MS);
-  return `${DAY_SHORT.format(at)}, ${CLOCK.format(at)} to ${CLOCK.format(end)}`;
+  if (interval === 'hour') {
+    const end = new Date(at.getTime() + HOUR_MS);
+    return `${DAY_SHORT.format(at)}, ${CLOCK.format(at)} to ${CLOCK.format(end)}`;
+  }
+  // The wall clock rather than elapsed time: a slice is the stretch of the
+  // day its square stands for, so the last one ends at midnight even on the
+  // day the clocks change.
+  const end = new Date(at);
+  end.setHours(at.getHours() + intervalWidth(interval) / HOUR_MS);
+  return `${DAY_WEEKDAY.format(at)}, ${CLOCK.format(at)} to ${CLOCK.format(end)}`;
+}
+
+/**
+ * What a square is, as a noun for the words around it: "the selected day",
+ * "the selected hour", and for a slice of a day, "the selected hours".
+ */
+export function intervalNoun(interval: Interval): 'day' | 'hour' | 'hours' {
+  if (interval === 'day') return 'day';
+  return interval === 'hour' ? 'hour' : 'hours';
 }
 
 /** Seconds as the hours an invoice is written in: "6.4 h". */

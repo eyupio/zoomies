@@ -53,10 +53,15 @@ runner time or how often a pool was blocked on capacity, so a queue that
 backs up every Monday is a shape rather than a table, and the quick ranges
 — 1d, 7d, 30d, 90d, 1y — cut the window: today and the last week are drawn by
 the hour, a row of twenty-four squares per day, which is the punch card that
-shows when the fleet is busy. It opens on today, and the range you choose
-instead is remembered. The band is
-cut to the width of the screen and the grid is one tab stop: the arrow keys
-walk it, Enter selects.
+shows when the fleet is busy. The last 30 and 90 days are the calendar with
+each day cut into squares side by side — six of four hours, or three of eight
+— so a month fills the band rather than sitting in five columns at the left of
+it, and shows whether the work lands in the morning or overnight. Select one
+of those and its day opens hour by hour with the square's own hours picked
+out. It opens on today, and the range you choose instead is remembered. Every
+range is drawn whole at the width of the screen, its squares sized to fit — a
+year is twelve months on a phone too — and the grid is one tab stop: the arrow
+keys walk it, Enter selects.
 
 Under it, four numbers with an hour of shape behind them — queued jobs,
 running jobs, live runners, and the median queue wait with its p95 — then how
