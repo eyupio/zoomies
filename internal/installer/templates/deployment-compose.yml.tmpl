@@ -1,7 +1,11 @@
 # Zoomies, deployed with Docker Compose.
 #
 # Written by `zoomies init`. Every value this reads is in the .env file beside
-# it, already filled in -- there is nothing to edit here before it will run:
+# it, already filled in -- there is nothing to edit here before it will run.
+{{- if ne .Command "agent" }}
+# The controller's settings are in its database, and change on its settings
+# page; this file and .env only start it:
+{{- end }}
 #
 #     docker compose up -d
 #
@@ -44,39 +48,8 @@ services:
       # Set explicitly because this container's hostname is the same on every
       # machine that runs this file, and the name is derived from it.
       ZOOMIES_AGENT_NAME: ${ZOOMIES_AGENT_NAME:?set this in .env}
-{{- else }}
-      # How GitHub and your browser reach this controller. Webhooks are
-      # delivered to $ZOOMIES_EXTERNAL_URL/webhooks/github, and the https there
-      # is what makes Zoomies mark its session cookie Secure.
-      ZOOMIES_EXTERNAL_URL: ${ZOOMIES_EXTERNAL_URL:?set this in .env}
 
-      # 32 bytes, base64. Everything secret in the database is sealed with it.
-      # Back it up: without it the stored GitHub App key cannot be decrypted.
-      ZOOMIES_ENCRYPTION_KEY: ${ZOOMIES_ENCRYPTION_KEY:?set this in .env}
-
-      # Inside the container Zoomies binds every interface; the published port
-      # below is what actually controls exposure.
-      ZOOMIES_BIND: ${ZOOMIES_BIND}
-      ZOOMIES_TLS_MODE: ${ZOOMIES_TLS_MODE}
-{{- if .TLSCertFile }}
-      ZOOMIES_TLS_CERT_FILE: ${ZOOMIES_TLS_CERT_FILE}
-      ZOOMIES_TLS_KEY_FILE: ${ZOOMIES_TLS_KEY_FILE}
-{{- end }}
-
-      # Without this every audit row and every login rate-limit decision sees
-      # your proxy's address instead of the real client's, so the whole
-      # internet is throttled as one caller and the audit log is useless.
-      ZOOMIES_TRUSTED_PROXIES: ${ZOOMIES_TRUSTED_PROXIES}
-
-      ZOOMIES_GITHUB_API_BASE_URL: ${ZOOMIES_GITHUB_API_BASE_URL}
-      # The queued-job poller: what keeps scaling working when a webhook
-      # delivery is lost or misconfigured.
-      ZOOMIES_POLL_FALLBACK: ${ZOOMIES_POLL_FALLBACK}
-      # Optional: lets operators cancel an entire GitHub workflow run from a job.
-      ZOOMIES_ALLOW_WORKFLOW_CANCELLATION: ${ZOOMIES_ALLOW_WORKFLOW_CANCELLATION}
-{{- end }}
-
-      ZOOMIES_AGENT_EMBEDDED: ${ZOOMIES_AGENT_EMBEDDED}
+      # An agent has no database, so its settings are these.
       ZOOMIES_AGENT_BACKEND: ${ZOOMIES_AGENT_BACKEND}
       ZOOMIES_DOCKER_HOST: ${ZOOMIES_DOCKER_HOST}
       ZOOMIES_AGENT_CAPACITY: ${ZOOMIES_AGENT_CAPACITY}
@@ -85,13 +58,21 @@ services:
       # bridge.
       ZOOMIES_AGENT_NETWORK: ${ZOOMIES_AGENT_NETWORK}
       ZOOMIES_WORK_DIR: ${ZOOMIES_WORK_DIR}
+      ZOOMIES_LOG_FORMAT: ${ZOOMIES_LOG_FORMAT}
+      ZOOMIES_LOG_LEVEL: ${ZOOMIES_LOG_LEVEL}
+{{- else }}
+      # 32 bytes, base64. Everything secret in the database is sealed with it.
+      # Back it up: without it the stored GitHub App key cannot be decrypted.
+      ZOOMIES_ENCRYPTION_KEY: ${ZOOMIES_ENCRYPTION_KEY:?set this in .env}
+      # Every other setting -- the external URL, TLS, the embedded agent --
+      # lives in the database, where the settings page changes it. One named
+      # here would override it there, and the page would show it as locked.
+{{- end }}
 
       # Generated run-time data -- a self-signed certificate above all -- goes
       # into the volume, so replacing the container does not change it.
       ZOOMIES_STATE_DIR: ${ZOOMIES_STATE_DIR}
       ZOOMIES_DB_PATH: ${ZOOMIES_DB_PATH}
-      ZOOMIES_LOG_FORMAT: ${ZOOMIES_LOG_FORMAT}
-      ZOOMIES_LOG_LEVEL: ${ZOOMIES_LOG_LEVEL}
 {{- if .GroupAdd }}
 
       # The gid group_add below is given, echoed in so that if it is ever
@@ -124,9 +105,9 @@ services:
 {{- end }}
 {{- if .TLSCertFile }}
       # The certificate and key are mounted at the same paths they have on this
-      # host, which is why ZOOMIES_TLS_CERT_FILE can name them directly.
-      - ${ZOOMIES_TLS_CERT_FILE}:${ZOOMIES_TLS_CERT_FILE}:ro
-      - ${ZOOMIES_TLS_KEY_FILE}:${ZOOMIES_TLS_KEY_FILE}:ro
+      # host, which is why the TLS settings can name them directly.
+      - {{.TLSCertFile}}:{{.TLSCertFile}}:ro
+      - {{.TLSKeyFile}}:{{.TLSKeyFile}}:ro
 {{- end }}
 {{- if .GroupAdd }}
     # The image runs as uid 65532; that user must be able to use the socket.

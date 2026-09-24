@@ -89,15 +89,12 @@ func TestParseDeployment(t *testing.T) {
 	}
 }
 
-func TestRenderEnvCarriesEveryVariableWithAComment(t *testing.T) {
+// A controller's settings live in its database, so its .env holds only what
+// is read before the database can be opened and what Compose reads itself.
+// A setting written here would override the database, and the settings page
+// would show it locked -- which is what this file used to do to every one.
+func TestAControllersEnvFileHoldsOnlyWhatOpensItsDatabase(t *testing.T) {
 	spec := controllerEnvSpec()
-	// Files mode so that the certificate paths are in the file too; they are
-	// the only two variables that are conditional on an answer.
-	dir := t.TempDir()
-	spec.TLSMode = config.TLSFiles
-	spec.TLSCertFile = writeFile(t, dir, "fullchain.pem", "not really a certificate")
-	spec.TLSKeyFile = writeFile(t, dir, "privkey.pem", "nor is this")
-
 	body, err := RenderEnv(spec)
 	if err != nil {
 		t.Fatalf("RenderEnv: %v", err)
@@ -105,8 +102,54 @@ func TestRenderEnvCarriesEveryVariableWithAComment(t *testing.T) {
 	values, comments := parseEnv(t, body)
 
 	want := map[string]string{
+		"ZOOMIES_ENCRYPTION_KEY": spec.EncryptionKey,
+		"ZOOMIES_STATE_DIR":      ContainerStateDir,
+		"ZOOMIES_DB_PATH":        ContainerDBPath,
+		"ZOOMIES_IMAGE":          spec.Image,
+		"ZOOMIES_PUBLISHED_ADDR": "127.0.0.1",
+		"ZOOMIES_PUBLISHED_PORT": "8080",
+		"DOCKER_GID":             "998",
+	}
+	for key, wantValue := range want {
+		if got, ok := values[key]; !ok || got != wantValue {
+			t.Errorf("%s = %q (present %v), want %q", key, got, ok, wantValue)
+		}
+		// An operator reading this file six months from now should not have
+		// to go and find the documentation.
+		if comments[key] == "" {
+			t.Errorf("%s was written with no comment saying what it is for", key)
+		}
+	}
+	for key := range values {
+		if _, stored := config.SettingForEnv(key); stored {
+			t.Errorf("%s is in the file, where it would override the database", key)
+		}
+	}
+	if !strings.Contains(body, "settings live in its database") {
+		t.Errorf("the file does not say where the settings went:\n%s", body)
+	}
+}
+
+// The other half: every answer the installer took is handed to the database.
+func TestSettingsEnvCarriesEveryAnswerForTheDatabase(t *testing.T) {
+	spec := controllerEnvSpec()
+	// The installer stores the settings before WriteEnv has generated the
+	// key, which is not one of them.
+	spec.EncryptionKey = ""
+	// Files mode so that the certificate paths are there too; they are the
+	// only two settings that are conditional on an answer.
+	dir := t.TempDir()
+	spec.TLSMode = config.TLSFiles
+	spec.TLSCertFile = writeFile(t, dir, "fullchain.pem", "not really a certificate")
+	spec.TLSKeyFile = writeFile(t, dir, "privkey.pem", "nor is this")
+
+	body, err := SettingsEnv(spec)
+	if err != nil {
+		t.Fatalf("SettingsEnv: %v", err)
+	}
+	values, _ := parseEnv(t, body)
+	want := map[string]string{
 		"ZOOMIES_EXTERNAL_URL":                spec.ExternalURL,
-		"ZOOMIES_ENCRYPTION_KEY":              spec.EncryptionKey,
 		"ZOOMIES_BIND":                        spec.Bind,
 		"ZOOMIES_TLS_MODE":                    string(config.TLSFiles),
 		"ZOOMIES_TLS_CERT_FILE":               spec.TLSCertFile,
@@ -118,37 +161,35 @@ func TestRenderEnvCarriesEveryVariableWithAComment(t *testing.T) {
 		"ZOOMIES_AGENT_CAPACITY":              "4",
 		"ZOOMIES_AGENT_NETWORK":               "zoomies",
 		"ZOOMIES_WORK_DIR":                    ContainerWorkDir,
-		"ZOOMIES_STATE_DIR":                   ContainerStateDir,
-		"ZOOMIES_DB_PATH":                     ContainerDBPath,
 		"ZOOMIES_LOG_FORMAT":                  "json",
 		"ZOOMIES_LOG_LEVEL":                   "info",
 		"ZOOMIES_POLL_FALLBACK":               "true",
 		"ZOOMIES_ALLOW_WORKFLOW_CANCELLATION": "true",
 		"ZOOMIES_GITHUB_API_BASE_URL":         spec.GitHubAPIBaseURL,
-		"ZOOMIES_IMAGE":                       spec.Image,
-		"ZOOMIES_PUBLISHED_ADDR":              "127.0.0.1",
-		"ZOOMIES_PUBLISHED_PORT":              "8080",
-		"DOCKER_GID":                          "998",
 	}
 	for key, wantValue := range want {
-		got, ok := values[key]
-		if !ok {
-			t.Errorf("%s is not in the generated file", key)
-			continue
-		}
-		if got != wantValue {
+		if got := values[key]; got != wantValue {
 			t.Errorf("%s = %q, want %q", key, got, wantValue)
 		}
-		// An operator reading this file six months from now should not have to
-		// go and find the documentation.
-		if comments[key] == "" {
-			t.Errorf("%s was written with no comment saying what it is for", key)
-		}
 	}
-	for key, value := range values {
-		if value == "" && key != "DOCKER_GID" {
-			t.Errorf("%s was left blank, which is the placeholder this generator exists to abolish", key)
-		}
+	if len(values) != len(want) {
+		t.Errorf("SettingsEnv carries %d variables, want %d:\n%s", len(values), len(want), body)
+	}
+	// Each of them parses as the controller will read it from the database.
+	vars, err := ParseEnv(strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, imported, left, err := config.ImportEnvironment(vars, nil); err != nil || len(left) != 0 || len(imported) != len(want) {
+		t.Errorf("ImportEnvironment = %d imported, left %v, %v", len(imported), left, err)
+	}
+
+	agent := controllerEnvSpec()
+	agent.Mode = ModeAgent
+	agent.ControllerURL = "https://zoomies.example.com"
+	agent.JoinToken = "zjt_x"
+	if body, err := SettingsEnv(agent); err != nil || body != "" {
+		t.Errorf("an agent has no database, so nothing moves: %q, %v", body, err)
 	}
 }
 
@@ -279,9 +320,9 @@ func TestRenderEnvQuotesWhatNeedsIt(t *testing.T) {
 	spec.TLSCertFile = `/etc/ssl/Application Support/full "chain".pem`
 	spec.TLSKeyFile = "/etc/ssl/plain.pem"
 
-	body, err := RenderEnv(spec)
+	body, err := SettingsEnv(spec)
 	if err != nil {
-		t.Fatalf("RenderEnv: %v", err)
+		t.Fatalf("SettingsEnv: %v", err)
 	}
 	if !strings.Contains(body, `ZOOMIES_TLS_CERT_FILE="`) {
 		t.Errorf("a value with a space in it must be quoted:\n%s", body)
@@ -334,8 +375,8 @@ func TestWriteEnvIsPrivateAndReadsBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseEnvFile: %v", err)
 	}
-	if on["ZOOMIES_EXTERNAL_URL"] != "https://zoomies.example.com" {
-		t.Errorf("external URL did not survive the round trip: %q", on["ZOOMIES_EXTERNAL_URL"])
+	if on["ZOOMIES_ENCRYPTION_KEY"] != controllerEnvSpec().EncryptionKey {
+		t.Errorf("the encryption key did not survive the round trip: %q", on["ZOOMIES_ENCRYPTION_KEY"])
 	}
 }
 
@@ -368,8 +409,7 @@ func TestWriteEnvKeepsTheEncryptionKeyOnARerun(t *testing.T) {
 
 	// A second run, with different answers and no key of its own: exactly what
 	// `zoomies init` does on an upgrade.
-	spec.Capacity = 9
-	spec.ExternalURL = "https://zoomies.example.com:8443"
+	spec.Image = "ghcr.io/eyupio/zoomies:v1.2.4"
 	second, err := WriteEnv(path, spec)
 	if err != nil {
 		t.Fatalf("second WriteEnv: %v", err)
@@ -384,8 +424,8 @@ func TestWriteEnvKeepsTheEncryptionKeyOnARerun(t *testing.T) {
 	if after["ZOOMIES_ENCRYPTION_KEY"] != key {
 		t.Fatalf("the encryption key was replaced on a re-run:\n before %q\n after  %q", key, after["ZOOMIES_ENCRYPTION_KEY"])
 	}
-	if after["ZOOMIES_AGENT_CAPACITY"] != "9" {
-		t.Errorf("the rest of the file must still be rewritten; capacity = %q", after["ZOOMIES_AGENT_CAPACITY"])
+	if after["ZOOMIES_IMAGE"] != spec.Image {
+		t.Errorf("the rest of the file must still be rewritten; image = %q", after["ZOOMIES_IMAGE"])
 	}
 
 	// The previous file is kept, because an operator may have edited it.
@@ -399,8 +439,8 @@ func TestWriteEnvKeepsTheEncryptionKeyOnARerun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if backed["ZOOMIES_AGENT_CAPACITY"] != "4" {
-		t.Errorf("the backup should hold the previous answers, got capacity %q", backed["ZOOMIES_AGENT_CAPACITY"])
+	if backed["ZOOMIES_IMAGE"] != "ghcr.io/eyupio/zoomies:v1.2.3" {
+		t.Errorf("the backup should hold the previous answers, got image %q", backed["ZOOMIES_IMAGE"])
 	}
 }
 

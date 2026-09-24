@@ -208,3 +208,27 @@ func (r *ContainerReplacement) AddGroup(group string) error {
 	r.body["HostConfig"], err = json.Marshal(host)
 	return err
 }
+
+// Env is the environment the replacement will be created with: its
+// predecessor's, as `docker inspect` shows it.
+func (r *ContainerReplacement) Env() []string {
+	var env []string
+	_ = json.Unmarshal(r.body["Env"], &env)
+	return env
+}
+
+// RemoveEnv drops the named variables from the replacement's environment,
+// which is how an upgrade stops a container pinning a setting its database
+// now holds. Everything else the predecessor was created with is kept.
+func (r *ContainerReplacement) RemoveEnv(names map[string]bool) error {
+	kept := []string{}
+	for _, kv := range r.Env() {
+		name, _, _ := strings.Cut(kv, "=")
+		if !names[name] {
+			kept = append(kept, kv)
+		}
+	}
+	var err error
+	r.body["Env"], err = json.Marshal(kept)
+	return err
+}

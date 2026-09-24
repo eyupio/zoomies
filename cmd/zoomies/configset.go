@@ -10,6 +10,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
+	"github.com/eyupio/zoomies/internal/installer"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -317,4 +318,74 @@ func displayFor(s config.Setting, value any) string {
 		return "empty"
 	}
 	return text
+}
+
+// runConfigImportEnv stores every setting an environment file sets, in one
+// write.
+//
+// It is how a container deployment's settings leave its .env: the installer
+// runs it in a one-off container of the new image, against the deployment's
+// volume, with the variables on standard input -- never as arguments, which
+// any process on the host can read. It is also the command an operator runs
+// by hand on an .env of their own. Anything in the file that cannot live in
+// the database -- the encryption key, the database path, Compose's own
+// variables -- is left alone and named, so nothing is silently dropped.
+func runConfigImportEnv(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies config import-env [file] [--config path]",
+		"Store the settings an environment file sets in this fleet's database. Reads standard input when no file, or -, is given. The controller must be stopped.")
+	cfgPath := fs.String("config", "", "path to zoomies.yaml (default: "+config.DefaultConfigFile()+")")
+	fs.example("zoomies config import-env /opt/zoomies/.env", "zoomies config import-env < .env")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	rest := fs.Args()
+	if len(rest) > 1 {
+		return usagef("config import-env", "takes at most one file")
+	}
+	var vars map[string]string
+	var err error
+	if len(rest) == 0 || rest[0] == "-" {
+		if e.in == nil {
+			return usagef("config import-env", "give a file, or the variables on standard input")
+		}
+		vars, err = installer.ParseEnv(e.in)
+	} else {
+		vars, err = installer.ParseEnvFile(rest[0])
+	}
+	if err != nil {
+		return err
+	}
+
+	_, st, encKey, done, err := openForSettings(ctx, *cfgPath)
+	if err != nil {
+		return err
+	}
+	defer done()
+
+	rows, imported, left, err := config.ImportEnvironment(vars, encKey)
+	if err != nil {
+		return err
+	}
+	if len(rows) > 0 {
+		if err := st.PutInstanceSettings(ctx, "zoomies config import-env", rows); err != nil {
+			return err
+		}
+	}
+	for _, im := range imported {
+		value := im.Text
+		switch {
+		case im.Setting.Secret:
+			value = secretPlaceholder
+		case value == "":
+			value = "empty"
+		}
+		fmt.Fprintf(e.out, "%s is now %s (from %s)\n", im.Setting.Key, value, im.Env)
+	}
+	for _, name := range left {
+		fmt.Fprintf(e.err, "left %s where it is: it is not a setting this fleet stores\n", name)
+	}
+	if len(imported) == 0 {
+		fmt.Fprintln(e.out, "Nothing to store: the file sets no setting that lives in the database.")
+	}
+	return nil
 }

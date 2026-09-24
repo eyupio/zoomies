@@ -18,7 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// runConfig is `zoomies config check|print|list|get|set|unset`.
+// runConfig is `zoomies config check|print|list|get|set|unset|import-env`.
 func runConfig(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "config", "Look at this fleet's configuration, and change it without a browser.", []*subcommand{
 		{"check", "", "Validate a file: warnings on stderr, a non-zero exit on any error", runConfigCheck},
@@ -27,6 +27,7 @@ func runConfig(ctx context.Context, e *env, args []string) error {
 		{"get", "<key>", "Print one setting's effective value and where it came from", runConfigGet},
 		{"set", "<key> <value>", "Store one setting in the database", runConfigSet},
 		{"unset", "<key>", "Forget a stored setting, so the file or the default decides again", runConfigUnset},
+		{"import-env", "[file]", "Store the settings an environment file sets, so it no longer has to", runConfigImportEnv},
 	}, args)
 }
 

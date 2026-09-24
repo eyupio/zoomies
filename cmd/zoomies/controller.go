@@ -64,6 +64,7 @@ func runController(ctx context.Context, e *env, args []string) error {
 	// because that is a fault in the one layer this early step does read.
 
 	log, level := setupLogging(cfg)
+	startFormat := cfg.Log.Format
 
 	// One controller per database, checked before the store opens.
 	//
@@ -131,6 +132,12 @@ func runController(ctx context.Context, e *env, args []string) error {
 		return err
 	}
 	applyLogLevel(level, cfg)
+	if cfg.Log.Format != startFormat {
+		// The format is chosen before the database is open, so one stored
+		// there -- where a container deployment keeps it -- takes over here,
+		// from the first line that says what the configuration is.
+		log, level = setupLogging(cfg)
+	}
 
 	log.Info("configuration assembled",
 		"file", configSource(cfg), "stored", len(stored), "pinned_by_environment", len(cfg.PinnedByEnvironment()))

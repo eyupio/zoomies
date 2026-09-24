@@ -185,3 +185,52 @@ func TestConfigSetRefusesACredentialWithNoKeyToSealItWith(t *testing.T) {
 		t.Errorf("the refusal does not name what is missing: %v", err)
 	}
 }
+
+// The upgrade hands a deployment's variables to a one-off container on
+// standard input, and this is what stores them. Every setting lands in the
+// database; the variables that cannot live there are named and left.
+func TestConfigImportEnvStoresWhatAnEnvFileSets(t *testing.T) {
+	path := settingsHost(t, "database:\n  path: "+filepath.Join(t.TempDir(), "z.db")+"\n")
+	ctx := context.Background()
+
+	e, out, errOut := newTestEnv(t)
+	e.in = strings.NewReader("ZOOMIES_BIND=0.0.0.0:8080\nZOOMIES_AGENT_CAPACITY=6\nZOOMIES_IMAGE=ghcr.io/eyupio/zoomies:v1\nDOCKER_GID=998\n")
+	if err := runConfigImportEnv(ctx, e, []string{"--config", path}); err != nil {
+		t.Fatalf("config import-env: %v", err)
+	}
+	for _, want := range []string{"server.bind is now 0.0.0.0:8080 (from ZOOMIES_BIND)", "agent.capacity is now 6 (from ZOOMIES_AGENT_CAPACITY)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output does not say %q:\n%s", want, out.String())
+		}
+	}
+	if !strings.Contains(errOut.String(), "left ZOOMIES_IMAGE") || strings.Contains(errOut.String(), "DOCKER_GID") {
+		t.Errorf("stderr = %q, want ZOOMIES_IMAGE named and Compose's own variables not", errOut.String())
+	}
+
+	e, out, _ = newTestEnv(t)
+	if err := runConfigGet(ctx, e, []string{"agent.capacity", "--config", path}); err != nil {
+		t.Fatalf("config get: %v", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "6" {
+		t.Errorf("agent.capacity = %q after the import, want 6", got)
+	}
+}
+
+// One value the controller could not run with stores nothing at all.
+func TestConfigImportEnvStoresNothingWhenAValueIsWrong(t *testing.T) {
+	path := settingsHost(t, "database:\n  path: "+filepath.Join(t.TempDir(), "z.db")+"\n")
+	ctx := context.Background()
+
+	e, _, _ := newTestEnv(t)
+	e.in = strings.NewReader("ZOOMIES_BIND=0.0.0.0:8080\nZOOMIES_AGENT_CAPACITY=lots\n")
+	if err := runConfigImportEnv(ctx, e, []string{"--config", path}); err == nil || !strings.Contains(err.Error(), "ZOOMIES_AGENT_CAPACITY") {
+		t.Fatalf("err = %v, want a refusal naming the variable", err)
+	}
+	e, out, _ := newTestEnv(t)
+	if err := runConfigList(ctx, e, []string{"--config", path}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "server.bind") {
+		t.Errorf("server.bind was stored although the import was refused:\n%s", out.String())
+	}
+}
