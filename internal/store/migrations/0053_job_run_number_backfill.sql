@@ -4,6 +4,14 @@
 -- one job of a run and nothing beside the rest. Copy it from a sibling that
 -- has it. Idempotent, touches only rows still at 0, and a controller rolled
 -- back past this release reads the same column it always did.
+--
+-- The index comes first. Without it each job still at 0 scans every job of
+-- its repository twice, so the backfill grows with the square of the jobs
+-- table: seconds on a small fleet, many minutes on a busy one, all of it
+-- before the controller serves anything. IF NOT EXISTS because 0054 creates
+-- it too, for a database that took this file before the line was here.
+CREATE INDEX IF NOT EXISTS idx_jobs_run ON jobs(github_run_id, repo);
+
 UPDATE jobs SET run_number = (
     SELECT s.run_number FROM jobs s
     WHERE s.github_run_id = jobs.github_run_id AND s.repo = jobs.repo AND s.run_number != 0

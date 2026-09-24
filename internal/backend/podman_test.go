@@ -72,6 +72,14 @@ func TestPodmanFlavorDiffersFromDocker(t *testing.T) {
 
 func TestPodmanProbe(t *testing.T) {
 	t.Run("unavailable explains the socket unit", func(t *testing.T) {
+		// On a host, that is. Inside a container a missing socket is a
+		// missing mount and says so instead -- see
+		// TestAMissingSocketInAContainerIsAMissingMount -- and CI's own jobs
+		// run in containers: left to the machine it ran on, this failed on
+		// exactly the runners Zoomies provides.
+		was := runningInContainer
+		runningInContainer = func() bool { return false }
+		t.Cleanup(func() { runningInContainer = was })
 		b, err := NewPodman(DockerOptions{Host: "unix:///nonexistent/zoomies/podman.sock", Logger: quietLogger()})
 		if err != nil {
 			t.Fatalf("NewPodman: %v", err)
