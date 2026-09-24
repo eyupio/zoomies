@@ -97,8 +97,10 @@ done
 [ -w /home/runner ] && pass "/home/runner is writable (config.sh writes .runner there)" || fail "/home/runner is not writable by the runner"
 
 # The runner release the Dockerfile pinned, asked of the binary itself rather
-# than of a label that could have been stamped without it.
-got="$(cd /home/runner && ./bin/Runner.Listener --version 2>/dev/null | tr -d '\r' | tail -n 1)"
+# than of a label that could have been stamped without it. The listener prints
+# its version and then a log line of its own ("Runner execution has finished
+# with return code 0"), so the version is the line shaped like one, not the last.
+got="$(cd /home/runner && ./bin/Runner.Listener --version 2>/dev/null | tr -d '\r' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | tail -n 1)"
 [ "${got}" = "${WANT_RUNNER}" ] && pass "actions/runner ${got}" || fail "actions/runner reports '${got}', want '${WANT_RUNNER}'"
 
 # The platform: /etc/os-release is what the distribution says, the environment
