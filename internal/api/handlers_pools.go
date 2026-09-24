@@ -895,6 +895,10 @@ type validatePoolResponse struct {
 	// contradicting itself two clicks later.
 	SelectedHosts int                        `json:"selected_hosts"`
 	ExcludedHosts []controller.HostExclusion `json:"excluded_hosts"`
+	// ReducedHosts can run the pool, and are counted in MatchingHosts, but
+	// give its runners less than a larger machine would: the pool's minimum
+	// at work. It is information, not a warning.
+	ReducedHosts []controller.HostExclusion `json:"reduced_hosts"`
 	// Image is the image the pool would actually run, which is not always the
 	// one the request named: a pool that gives its jobs a daemon runs the
 	// stock image's Docker variant, and the review step should show that
@@ -948,6 +952,10 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 	if excluded == nil {
 		excluded = []controller.HostExclusion{}
 	}
+	reduced := fit.Reduced
+	if reduced == nil {
+		reduced = []controller.HostExclusion{}
+	}
 	// The installation is part of what a warning is about; when it does not
 	// exist, validatePool has already said so in the errors.
 	var inst *store.Installation
@@ -985,6 +993,7 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		MatchingHosts:  fit.Count,
 		SelectedHosts:  fit.Selected,
 		ExcludedHosts:  excluded,
+		ReducedHosts:   reduced,
 		Image:          p.Image,
 		EffectiveImage: s.ctrl.RunnerImage(p),
 		Room:           room,

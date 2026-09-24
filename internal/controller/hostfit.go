@@ -42,6 +42,11 @@ type HostFit struct {
 	// terms. It is what turns "2 hosts match" followed by "1 host can run
 	// this pool" from a contradiction into an explanation.
 	Excluded []HostExclusion
+	// Reduced are hosts that can run the pool, counted in Count, where its
+	// runners get less than they would on a larger machine: the pool's
+	// minimum is doing its job there. It is information for the wizard to
+	// show as such -- a host listed here is not a problem with the pool.
+	Reduced []HostExclusion
 }
 
 // HostExclusion is one host a pool's selector reaches that could not run it,
@@ -66,6 +71,8 @@ const (
 	ExcludedBackend     = "backend"
 	ExcludedPlatform    = "platform"
 	ExcludedSize        = "size"
+	// ReducedSize is not an exclusion: it marks a host in HostFit.Reduced.
+	ReducedSize = "reduced"
 )
 
 // HostFit counts the hosts that could run a pool, using the scheduler's own
@@ -121,6 +128,9 @@ func (c *Controller) HostFit(ctx context.Context, p *store.Pool) (HostFit, error
 			continue
 		}
 		fit.Count++
+		if note := scheduler.HostReduction(h, p); note != "" {
+			fit.Reduced = append(fit.Reduced, HostExclusion{Host: h.Name, Code: ReducedSize, Reason: note})
+		}
 	}
 	for _, kind := range []store.BackendKind{store.BackendDocker, store.BackendPodman, store.BackendProcess} {
 		if offered[string(kind)] > 0 {

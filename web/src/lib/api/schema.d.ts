@@ -2733,7 +2733,7 @@ export interface components {
              * @description Which placement rule turned this host down.
              * @enum {string}
              */
-            code: "unavailable" | "backend" | "platform" | "size";
+            code: "unavailable" | "backend" | "platform" | "size" | "reduced";
             /**
              * @description A sentence about the host with its name left out, so a caller can put the name where its own layout wants it.
              * @example it has 12 CPU to place on, and one runner of this pool is charged 16, twice what it asks for, because a docker-in-docker runner is charged for its sidecar too
@@ -6934,6 +6934,8 @@ export interface operations {
                         selected_hosts?: number;
                         /** @description Every host the selector reaches that the fleet could not run this pool on, with the reason. It is what turns "2 hosts match" followed by "1 host can run this pool" from a contradiction into an explanation. */
                         excluded_hosts?: components["schemas"]["HostExclusion"][];
+                        /** @description Hosts that can run this pool, and are counted in matching_hosts, but give its runners less than a larger machine would — the pool's minimum at work, with code `reduced` and a sentence saying how much. Information, not a warning. */
+                        reduced_hosts?: components["schemas"]["HostExclusion"][];
                         /** @description The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. Empty for a pool that names no image, where nothing is stored — `effective_image` is the answer there. */
                         image?: string;
                         /** @description The image a pool that names none would boot — the variant its platform picks, or the fleet's default, with the Docker swap applied. It is what the wizard's automatic path shows on its review step, where the pool being described has no image of its own. */
