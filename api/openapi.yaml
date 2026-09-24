@@ -138,9 +138,15 @@ paths:
       responses:
         "200":
           description: >-
-            CSV export. Every row ends with history_from_jobs and
+            CSV export. Every row carries history_from_jobs and
             history_from_runners, the RFC 3339 instants the JSON response
             carries as history_from, blank where that history is never pruned.
+            Grouped by installation, each row ends with the installation
+            report's counts (jobs_observed, jobs_eligible, jobs_created_for,
+            jobs_ran_here, jobs_ran_elsewhere, jobs_fleet_fault,
+            cleanup_pending, cleanup_converged) over the UTC days the range
+            touches, and counts_from, the instant they are complete from; any
+            other grouping leaves those nine columns blank.
           content: { text/csv: { schema: { type: string } } }
   # ==========================================================================
   # Meta
@@ -625,6 +631,33 @@ paths:
                   limit: { type: integer }
                   remaining: { type: integer }
                   reset_at: { type: string, format: date-time }
+
+  /installations/{id}/report:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getInstallationReport
+      tags: [installations]
+      summary: How the fleet served one installation over a window
+      description: |
+        The counts and exact timings of the per-installation report, each
+        defined in docs/metrics.md under "Per-installation report". The
+        window is moved back to the UTC midnight it begins in, so every day
+        the daily roll-up answers is whole. Days past the row retention are
+        counted from the roll-up; the timings are read from runner sessions
+        only, and `unavailable` says where either stops. The body names no
+        repository, and the installation's target only to a caller who may
+        read it.
+      x-zoomies-role: viewer
+      parameters:
+        - name: window
+          in: query
+          description: How far back the report reaches from now, as a duration. At most 8784h.
+          schema: { type: string, default: "720h", examples: ["720h", "168h"] }
+      responses:
+        "200":
+          description: OK
+          content: { application/json: { schema: { $ref: "#/components/schemas/InstallationReport" } } }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /installations/manifest:
     post:
@@ -4687,6 +4720,55 @@ components:
           examples: [ubuntu]
         os_version: { type: string, examples: ["24.04"] }
         arch: { type: string, enum: [amd64, arm64], examples: [arm64] }
+    ReportPercentiles:
+      type: object
+      description: Exact nearest-rank percentiles of one interval's stored samples.
+      required: [samples, p50_seconds, p95_seconds]
+      properties:
+        samples: { type: integer, description: How many intervals had both ends recorded. }
+        p50_seconds: { type: [number, "null"], description: Null when there are no samples. }
+        p95_seconds: { type: [number, "null"], description: Null when there are no samples. }
+    InstallationReport:
+      type: object
+      required: [installation, window, installation_id, from, to, counts, timings, counts_from, timings_from, unavailable]
+      properties:
+        installation:
+          type: object
+          required: [id]
+          properties:
+            id: { type: string }
+            target: { type: string, description: Only to a caller who may read installations and, for a repository target, jobs. }
+            target_type: { type: string, enum: [org, repo] }
+        window: { type: string, description: The window asked for, echoed back. }
+        installation_id: { type: string }
+        from: { type: string, format: date-time, description: The start of the window, at UTC midnight. }
+        to: { type: string, format: date-time }
+        counts:
+          type: object
+          required: [observed, eligible, created_for, ran_here, ran_elsewhere, fleet_fault, cleanup_pending, cleanup_converged]
+          properties:
+            observed: { type: integer }
+            eligible: { type: integer }
+            created_for: { type: integer }
+            ran_here: { type: integer }
+            ran_elsewhere: { type: integer }
+            fleet_fault: { type: integer }
+            cleanup_pending: { type: integer }
+            cleanup_converged: { type: integer }
+        timings:
+          type: object
+          required: [scheduling, registration, cleanup]
+          properties:
+            scheduling: { $ref: "#/components/schemas/ReportPercentiles" }
+            registration: { $ref: "#/components/schemas/ReportPercentiles" }
+            cleanup: { $ref: "#/components/schemas/ReportPercentiles" }
+        counts_from: { type: string, format: date-time, description: Where the counts are complete from; later than from when part of the window is unavailable. }
+        timings_from: { type: string, format: date-time, description: Where the timings are complete from. }
+        rolled_until: { type: string, format: date-time, description: Where the daily roll-up hands over to the rows, when any of the window came from it. }
+        unavailable:
+          type: array
+          items: { type: string }
+          description: Each part of the window a figure does not cover, and why, in words.
     UsageResponse:
       type: object
       required: [from, to, group_by, items, costs_are_estimates, allocation_attributable, history_from]
