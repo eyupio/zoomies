@@ -189,6 +189,22 @@ type Action struct {
 	HostID string `json:"host_id,omitempty"`
 	// Reason is operator-facing, e.g. "3 jobs queued > 30s".
 	Reason string `json:"reason"`
+	// Size is set on an ActionCreate that no host had room for at the pool's
+	// standard size: what the runner is created with instead, at or above the
+	// pool's minimum. Nil means the standard.
+	Size *store.Resources `json:"size,omitempty"`
+}
+
+// sizePhrase says a runner size the way the reason for a create does.
+func sizePhrase(cpus float64, memoryMB int64) string {
+	parts := []string{}
+	if cpus > 0 {
+		parts = append(parts, formatCPUs(cpus)+" CPU")
+	}
+	if memoryMB > 0 {
+		parts = append(parts, formatMB(memoryMB))
+	}
+	return strings.Join(parts, " and ")
 }
 
 // PoolPlan is the decision for one pool.
@@ -813,8 +829,8 @@ func creates(actions []Action) int {
 }
 
 func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, queued []*store.Job) bool {
-	hosts := t.hosts.placeAvoiding(p, 1, recentBusyHosts(runners, t.now))
-	if len(hosts) == 0 {
+	placed := t.hosts.placeAvoiding(p, 1, recentBusyHosts(runners, t.now))
+	if len(placed) == 0 {
 		b := t.hosts.why(p)
 		plan.Reason = cannotScale(p.Name, plan.Current+creates(plan.Actions), plan.Desired, sentence(b.what, b.fix))
 		plan.Blocked, plan.BlockedFix = b.what, b.fix
@@ -848,7 +864,14 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 		reason += fmt.Sprintf(" (%s deferred by the repository limit for %s)",
 			plural(plan.QuotaDeferredJobs, "job"), strings.Join(plan.QuotaDeferredRepositories, ", "))
 	}
-	action := Action{Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: hosts[0], Reason: reason}
+	if size := placed[0].size; size != nil {
+		// Said in the reason as well as carried, so the Runners page and the
+		// scaling history both show that this runner is smaller than its pool
+		// asks for, and why.
+		reason += fmt.Sprintf(" (reduced to %s: no host had room for the standard %s)",
+			sizePhrase(size.CPUs, size.MemoryMB), sizePhrase(p.Resources.CPUs, p.Resources.MemoryMB))
+	}
+	action := Action{Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: placed[0].hostID, Reason: reason, Size: placed[0].size}
 	plan.Actions = append(plan.Actions, action)
 	t.creates = append(t.creates, action)
 	t.budget--
@@ -1157,10 +1180,22 @@ func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*
 	return hs
 }
 
+// placement is one runner placed by a pass: the host it goes on and, where no
+// host had room for the pool's standard size, the smaller size it was given.
+type placement struct {
+	hostID string
+	// size is nil for a runner at the pool's standard size.
+	size *store.Resources
+}
+
 // place reserves up to n slots for the pool and returns the chosen host IDs.
 // It may return fewer than n, or none at all, when the fleet is out of room.
 func (hs *hostSet) place(p *store.Pool, n int) []string {
-	return hs.placeAvoiding(p, n, nil)
+	var ids []string
+	for _, pl := range hs.placeAvoiding(p, n, nil) {
+		ids = append(ids, pl.hostID)
+	}
+	return ids
 }
 
 // placeAvoiding is place steered away from a set of hosts where another
@@ -1173,16 +1208,29 @@ func (hs *hostSet) place(p *store.Pool, n int) []string {
 // rather than refuse the placement once it is the only one left, because a
 // host that failed one create a few minutes ago is still better than no host
 // at all.
-func (hs *hostSet) placeAvoiding(p *store.Pool, n int, avoid map[string]bool) []string {
-	out := make([]string, 0, n)
+//
+// A runner goes at the pool's standard size wherever any host has room for
+// it. Only when none has does a pool with a minimum fall back to a reduced
+// size on the host that can spare the most -- so a minimum never shrinks a
+// runner the fleet could have given the full size to.
+func (hs *hostSet) placeAvoiding(p *store.Pool, n int, avoid map[string]bool) []placement {
+	out := make([]placement, 0, n)
 	for len(out) < n {
+		var size *store.Resources
 		h := hs.pick(p, avoid)
-		if h == nil {
-			break
+		res := Reservation{}
+		if h != nil {
+			res = Reserve(p, h)
+		} else {
+			var grant store.Resources
+			h, res, grant = hs.pickReduced(p, avoid)
+			if h == nil {
+				break
+			}
+			size = &grant
 		}
 		hs.free[h.ID]--
 		hs.warming[h.ID]++
-		res := Reserve(p, h)
 		l := hs.left[h.ID]
 		l.CPUs -= res.CPUs
 		l.MemoryMB -= res.MemoryMB
@@ -1193,9 +1241,60 @@ func (hs *hostSet) placeAvoiding(p *store.Pool, n int, avoid map[string]bool) []
 		if cpu, ok := hs.observedCPU[h.ID]; ok {
 			hs.observedCPU[h.ID] = max(cpu-res.CPUs, 0)
 		}
-		out = append(out, h.ID)
+		out = append(out, placement{hostID: h.ID, size: size})
 	}
 	return out
+}
+
+// pickReduced is pick for a runner below its standard size: the host, among
+// those that could take one otherwise, that can give it the most. It returns
+// the host, the charge against it and the size to create the runner at, or a
+// nil host when not even the minimum fits anywhere.
+func (hs *hostSet) pickReduced(p *store.Pool, avoid map[string]bool) (*store.Host, Reservation, store.Resources) {
+	if !p.Resources.Reducible() {
+		return nil, Reservation{}, store.Resources{}
+	}
+	type option struct {
+		h      *store.Host
+		charge Reservation
+		grant  store.Resources
+		worth  float64
+	}
+	var best, bestAvoided *option
+	for _, h := range hs.hosts {
+		if hs.free[h.ID] <= 0 || !HostCanRun(h, p, hs.now) ||
+			(hostUnderCPUPressure(h, hs.now) && hs.warming[h.ID] > 0) {
+			continue
+		}
+		charge, grant, ok := ReducedSize(p, h, hs.leftFor(h, p), hs.alloc[h.ID])
+		if !ok {
+			continue
+		}
+		// How much of the standard this host can give, as a share of it: the
+		// bigger the runner, the better the job goes.
+		worth := 0.0
+		if p.Resources.CPUs > 0 {
+			worth += grant.CPUs / p.Resources.CPUs
+		}
+		if p.Resources.MemoryMB > 0 {
+			worth += float64(grant.MemoryMB) / float64(p.Resources.MemoryMB)
+		}
+		o := &option{h: h, charge: charge, grant: grant, worth: worth}
+		slot := &best
+		if avoid[h.ID] {
+			slot = &bestAvoided
+		}
+		if *slot == nil || o.worth > (*slot).worth || (o.worth == (*slot).worth && h.ID < (*slot).h.ID) {
+			*slot = o
+		}
+	}
+	if best == nil {
+		best = bestAvoided
+	}
+	if best == nil {
+		return nil, Reservation{}, store.Resources{}
+	}
+	return best.h, best.charge, best.grant
 }
 
 // pick prefers the host with the most proportional headroom after placing

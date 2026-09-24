@@ -3218,6 +3218,18 @@ export interface components {
              * @description The container's pids cgroup limit. Zero is no limit.
              */
             pids_limit?: number;
+            /**
+             * Format: double
+             * @description The least CPU a runner may be given when no host has room for `cpus`: a host a little short of the standard size then runs the job with as much as it can spare, never less than this, instead of leaving it queued. The standard is still what the fleet places at wherever it can. Needs `cpus`, and must be below it; zero is no minimum.
+             * @example 1.5
+             */
+            min_cpus?: number;
+            /**
+             * Format: int64
+             * @description The least memory, in megabytes, a runner may be given when no host has room for `memory_mb`, as `min_cpus` is for CPU. Needs `memory_mb`, must be below it, and is held to the same 512 MB floor; zero is no minimum.
+             * @example 3072
+             */
+            min_memory_mb?: number;
         };
         /** @description Whether an automatically-sized Docker or Podman pool only observes, or may use, CPU left over after every live runner's guaranteed host share and one imminent start have been protected. Memory never changes while a job runs. Existing pools default to off; new pools default to observe. */
         CPUBurstPolicy: {
@@ -3826,10 +3838,10 @@ export interface components {
              */
             allocated_memory_mb?: number;
             /**
-             * @description Where the allocation came from: `pool` for the pool's own limits, `host` for one slot's share of the host it landed on (the default when the pool sets none). Omitted when the runner was created with no limit at all.
+             * @description Where the allocation came from: `pool` for the pool's own limits, `host` for one slot's share of the host it landed on (the default when the pool sets none), and `reduced` for a runner no host had room for at the pool's standard size, given what one could spare at or above the pool's minimum. Omitted when the runner was created with no limit at all.
              * @enum {string}
              */
-            allocation_source?: "pool" | "host" | "";
+            allocation_source?: "pool" | "host" | "reduced" | "";
             cpu_resource?: components["schemas"]["CPUResourceState"];
             /** Format: date-time */
             created_at?: string;
