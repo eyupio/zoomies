@@ -396,7 +396,7 @@ func (i *Installer) askGitHubTarget(ctx context.Context, p *Plan) error {
 		api = "https://api.github.com"
 	}
 	if err := i.input(ctx, "GitHub API base URL",
-		"Leave this for github.com. For Enterprise Server it is https://your-host/api/v3.",
+		"Leave this for github.com. For Enterprise Server it is https://your-host/api/v3; for GHE.com, your tenant's address.",
 		api, &api, func(s string) error {
 			if _, err := github.NormalizeAPIBaseURL(s); err != nil {
 				return err

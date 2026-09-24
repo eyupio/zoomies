@@ -1320,8 +1320,9 @@ func (c *Config) normalize() {
 
 // NormalizeGitHubAPIBaseURL turns whatever an operator wrote for a GitHub API
 // base into the form the client needs: github.com in any spelling becomes
-// https://api.github.com/, and an Enterprise Server host gains https:// and
-// /api/v3 when it lacks them. The result always ends in a slash.
+// https://api.github.com/, a GHE.com tenant becomes its api. host, and an
+// Enterprise Server host gains https:// and /api/v3 when it lacks them. The
+// result always ends in a slash.
 func NormalizeGitHubAPIBaseURL(raw string) (string, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" || s == "https://github.com" || s == "https://api.github.com" {
@@ -1331,11 +1332,56 @@ func NormalizeGitHubAPIBaseURL(raw string) (string, error) {
 		s = "https://" + s
 	}
 	s = strings.TrimRight(s, "/")
+	if tenant, ok := gheComTenant(s); ok {
+		return tenant, nil
+	}
 	if !strings.HasSuffix(s, "/api/v3") && !strings.HasSuffix(s, "/api/uploads") &&
 		!strings.Contains(s, "api.github.com") {
 		s += "/api/v3"
 	}
 	return s + "/", nil
+}
+
+// gheComSuffix is the domain GitHub Enterprise Cloud with data residency
+// serves every tenant from.
+const gheComSuffix = ".ghe.com"
+
+// gheComTenant recognises a GHE.com tenant and returns its API base.
+//
+// GHE.com is laid out like github.com rather than like Enterprise Server: the
+// REST API is its own host, api.<tenant>.ghe.com, at the root. Treated as an
+// Enterprise Server it gained /api/v3, and every request -- the App's token,
+// every JIT config -- came back 404, which reads as a wrong App ID rather than
+// a wrong URL. So the tenant's web address, the api. host, and either with a
+// stray /api/v3 all arrive at the one base that works. Any other host under
+// the domain -- uploads.<tenant>.ghe.com for upload_base_url -- keeps its name
+// and loses only the path.
+func gheComTenant(s string) (string, bool) {
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+	host := strings.ToLower(u.Hostname())
+	labels, ok := strings.CutSuffix(host, gheComSuffix)
+	if !ok || labels == "" {
+		return "", false
+	}
+	if !strings.Contains(labels, ".") {
+		host = "api." + host
+	}
+	if port := u.Port(); port != "" {
+		host += ":" + port
+	}
+	return "https://" + host + "/", true
+}
+
+// IsGHECom reports whether an API base URL belongs to a GHE.com tenant.
+func IsGHECom(apiBaseURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(apiBaseURL))
+	if err != nil {
+		return false
+	}
+	return strings.HasSuffix(strings.ToLower(u.Hostname()), gheComSuffix)
 }
 
 // WebhookURL returns the URL GitHub should deliver to, or "" if the external

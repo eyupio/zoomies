@@ -126,12 +126,24 @@ ENV LANG=en_US.UTF-8
 # uid 1001 rather than 1000: Fedora and Rocky leave 1000 free but Ubuntu's
 # cloud images take it, and a fixed uid is what lets a host bind-mount a work
 # directory the runner can actually write to.
+#
+# sudo resets the environment by default, and the proxy variables the agent
+# hands every runner on a host behind a proxy went with it: `curl` in a step
+# reached the internet and `sudo apt-get install` in the next one timed out,
+# which reads as a broken mirror rather than a dropped proxy. env_keep carries
+# exactly the six names internal/backend/proxy.go passes on, and a test there
+# holds the two lists together. visudo checks the file, because sudo refuses
+# to run at all over a sudoers.d entry it cannot parse.
 RUN set -eux; \
     groupadd -g 1001 runner 2>/dev/null || true; \
     useradd -m -s /bin/bash -u 1001 -g 1001 runner; \
     mkdir -p /etc/sudoers.d; \
-    echo "runner ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/runner; \
-    chmod 0440 /etc/sudoers.d/runner
+    { \
+      echo 'Defaults:runner env_keep += "HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy"'; \
+      echo "runner ALL=(ALL) NOPASSWD: ALL"; \
+    } > /etc/sudoers.d/runner; \
+    chmod 0440 /etc/sudoers.d/runner; \
+    visudo -cf /etc/sudoers.d/runner
 
 # The archive is checked against the digest GitHub published before it is
 # unpacked: this image runs whatever is inside it, on every job, and a mirror

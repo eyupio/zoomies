@@ -470,7 +470,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
 | `github.allow_workflow_cancellation` | `ZOOMIES_ALLOW_WORKFLOW_CANCELLATION` | at once | Allow cancelling workflow runs — Let operators ask GitHub to cancel the workflow run that owns a job. Turning it off is what a read-only Actions grant wants. |
-| `github.api_base_url` | `ZOOMIES_GITHUB_API_BASE_URL` | at once | GitHub API base URL — https://api.github.com for github.com, or your Enterprise Server's /api/v3. It is the default for a new installation; each existing one keeps the base it was added with. |
+| `github.api_base_url` | `ZOOMIES_GITHUB_API_BASE_URL` | at once | GitHub API base URL — https://api.github.com for github.com, your Enterprise Server's /api/v3, or a GHE.com tenant's address. It is the default for a new installation; each existing one keeps the base it was added with. |
 | `github.poll_fallback` | `ZOOMIES_POLL_FALLBACK` | next restart | Poll for queued jobs — List queued jobs on a timer as well as waiting for webhooks. On by default: a controller that silently stops scaling because a webhook was misconfigured is worse than a few extra API calls. |
 | `github.poll_interval` | `ZOOMIES_POLL_INTERVAL` | at once | Poll interval — How often the fallback poller looks for queued jobs. |
 | `github.runner_image` | `ZOOMIES_RUNNER_IMAGE` | at once | Default runner image — The container image a new pool runs when it names neither an image nor an operating system. |
@@ -774,6 +774,19 @@ github:
 
 A bare hostname is accepted and `/api/v3` appended. Everything else — App auth,
 JIT configs, webhooks, runner groups — works the same.
+
+GitHub Enterprise Cloud with data residency (GHE.com) is laid out like
+github.com rather than like Enterprise Server: the API is the root of its own
+`api.` host, with no `/api/v3`. Give the tenant's address in any of its forms —
+`octocorp.ghe.com`, `https://octocorp.ghe.com` or
+`https://api.octocorp.ghe.com` — and Zoomies uses
+`https://api.octocorp.ghe.com/` for the API and `https://octocorp.ghe.com` for
+runner registration and the links it shows.
+
+```yaml
+github:
+  api_base_url: octocorp.ghe.com
+```
 
 ### `github.allow_workflow_cancellation` — cancel runs from Zoomies
 
