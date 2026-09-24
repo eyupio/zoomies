@@ -138,15 +138,15 @@ change the pool's platform to one you have
 and the tag is the same `<os>-<version>` that appears in a pool name.
 
 <!-- zoomies:catalogue-begin -->
-| Tag | Base | Architectures |
-| --- | --- | --- |
-| `ubuntu-2404` | `ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254` | amd64, arm64 |
-| `ubuntu-2604` | `ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78` | amd64, arm64 |
-| `ubuntu-2204` | `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | amd64, arm64 |
-| `debian-13` | `debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a` | amd64, arm64 |
-| `debian-12` | `debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171` | amd64, arm64 |
-| `fedora-42` | `fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814` | amd64, arm64 |
-| `rocky-9` | `rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f` | amd64, arm64 |
+| Tag | Base | Architectures | `zoomies-runner-full` |
+| --- | --- | --- | --- |
+| `ubuntu-2404` | `ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254` | amd64, arm64 | yes |
+| `ubuntu-2604` | `ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78` | amd64, arm64 | yes |
+| `ubuntu-2204` | `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | amd64, arm64 | yes |
+| `debian-13` | `debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a` | amd64, arm64 | — |
+| `debian-12` | `debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171` | amd64, arm64 | — |
+| `fedora-42` | `fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814` | amd64, arm64 | — |
+| `rocky-9` | `rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f` | amd64, arm64 | — |
 <!-- zoomies:catalogue-end -->
 
 `:latest` points at `ubuntu-2404`, which is what a pool that names no platform
@@ -163,7 +163,10 @@ emulated now.
 
 Every variant is published twice: as `zoomies-runner` and as
 `zoomies-runner-docker`, the same image plus a Docker CLI, which a pool is
-switched to when its `docker_mode` gives jobs a daemon. Both are targets of one
+switched to when its `docker_mode` gives jobs a daemon. The Ubuntu variants are
+published a third time, as `zoomies-runner-full`: the Docker image plus the
+language toolchains the `setup-*` actions install, which a pool opts into by
+naming it — the table above says which. All three are targets of one
 `deploy/Dockerfile.runner`.
 
 That file takes the base image and the package family (`apt` or `dnf`) as build

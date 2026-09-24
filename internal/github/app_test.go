@@ -642,6 +642,16 @@ func TestNormalizeAPIBaseURL(t *testing.T) {
 		{"https://ghes.example.com/", "https://ghes.example.com/api/v3/"},
 		{"https://ghes.example.com/api/v3", "https://ghes.example.com/api/v3/"},
 		{"https://ghes.example.com/api/v3/", "https://ghes.example.com/api/v3/"},
+		// GHE.com serves its API at the root of its own api. host. Whichever
+		// of the tenant's addresses an operator pastes, it must not gain
+		// /api/v3: that path 404s there, on every call.
+		{"octocorp.ghe.com", "https://api.octocorp.ghe.com/"},
+		{"https://octocorp.ghe.com", "https://api.octocorp.ghe.com/"},
+		{"https://api.octocorp.ghe.com", "https://api.octocorp.ghe.com/"},
+		{"https://api.octocorp.ghe.com/", "https://api.octocorp.ghe.com/"},
+		{"https://api.octocorp.ghe.com/api/v3", "https://api.octocorp.ghe.com/"},
+		{"https://OctoCorp.GHE.com", "https://api.octocorp.ghe.com/"},
+		{"https://uploads.octocorp.ghe.com", "https://uploads.octocorp.ghe.com/"},
 	}
 	for _, tc := range tests {
 		got, err := NormalizeAPIBaseURL(tc.in)
@@ -666,6 +676,28 @@ func TestEnterpriseDetection(t *testing.T) {
 	}
 	if got := WebURLForAPI("https://ghes.example.com/api/v3/"); got != "https://ghes.example.com" {
 		t.Errorf("WebURLForAPI = %q", got)
+	}
+	if got := WebURLForAPI("https://api.octocorp.ghe.com/"); got != "https://octocorp.ghe.com" {
+		t.Errorf("WebURLForAPI = %q", got)
+	}
+}
+
+// The web URL is what a registration-token runner hands config.sh and what
+// the App-creation link opens, and neither exists on a GHE.com tenant's api.
+// host.
+func TestAppFactoryWebURLForGHECom(t *testing.T) {
+	f := newFake(t)
+	factory := NewAppFactory(f.Server().Client())
+	c, err := factory.For(context.Background(),
+		installationFor(f, "https://octocorp.ghe.com", store.TargetOrg, "acme"), testKey())
+	if err != nil {
+		t.Fatalf("For: %v", err)
+	}
+	if want := "https://octocorp.ghe.com/acme"; c.WebURL() != want {
+		t.Fatalf("WebURL = %q, want %q", c.WebURL(), want)
+	}
+	if want := "https://octocorp.ghe.com/organizations/acme/settings/apps/new"; ManifestURL("https://api.octocorp.ghe.com/", "acme") != want {
+		t.Fatalf("ManifestURL = %q, want %q", ManifestURL("https://api.octocorp.ghe.com/", "acme"), want)
 	}
 }
 

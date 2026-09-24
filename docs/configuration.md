@@ -470,7 +470,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
 | `github.allow_workflow_cancellation` | `ZOOMIES_ALLOW_WORKFLOW_CANCELLATION` | at once | Allow cancelling workflow runs — Let operators ask GitHub to cancel the workflow run that owns a job. Turning it off is what a read-only Actions grant wants. |
-| `github.api_base_url` | `ZOOMIES_GITHUB_API_BASE_URL` | at once | GitHub API base URL — https://api.github.com for github.com, or your Enterprise Server's /api/v3. It is the default for a new installation; each existing one keeps the base it was added with. |
+| `github.api_base_url` | `ZOOMIES_GITHUB_API_BASE_URL` | at once | GitHub API base URL — https://api.github.com for github.com, your Enterprise Server's /api/v3, or a GHE.com tenant's address. It is the default for a new installation; each existing one keeps the base it was added with. |
 | `github.poll_fallback` | `ZOOMIES_POLL_FALLBACK` | next restart | Poll for queued jobs — List queued jobs on a timer as well as waiting for webhooks. On by default: a controller that silently stops scaling because a webhook was misconfigured is worse than a few extra API calls. |
 | `github.poll_interval` | `ZOOMIES_POLL_INTERVAL` | at once | Poll interval — How often the fallback poller looks for queued jobs. |
 | `github.runner_image` | `ZOOMIES_RUNNER_IMAGE` | at once | Default runner image — The container image a new pool runs when it names neither an image nor an operating system. |
@@ -777,6 +777,19 @@ github:
 A bare hostname is accepted and `/api/v3` appended. Everything else — App auth,
 JIT configs, webhooks, runner groups — works the same.
 
+GitHub Enterprise Cloud with data residency (GHE.com) is laid out like
+github.com rather than like Enterprise Server: the API is the root of its own
+`api.` host, with no `/api/v3`. Give the tenant's address in any of its forms —
+`octocorp.ghe.com`, `https://octocorp.ghe.com` or
+`https://api.octocorp.ghe.com` — and Zoomies uses
+`https://api.octocorp.ghe.com/` for the API and `https://octocorp.ghe.com` for
+runner registration and the links it shows.
+
+```yaml
+github:
+  api_base_url: octocorp.ghe.com
+```
+
 ### `github.allow_workflow_cancellation` — cancel runs from Zoomies
 
 ```yaml
@@ -813,7 +826,7 @@ lands on, a pool whose `docker_mode` gives jobs a daemon then gets that image's
 Docker variant. See [Naming and platforms](naming.md) for the catalogue and how
 a pool picks from it.
 
-Four images are published to GHCR:
+Five images are published to GHCR:
 
 | Image | What it is |
 | --- | --- |
@@ -821,6 +834,7 @@ Four images are published to GHCR:
 | `ghcr.io/eyupio/zoomies-agent` | an agent, for a host that runs one in a container |
 | `ghcr.io/eyupio/zoomies-runner` | the runner a pool starts |
 | `ghcr.io/eyupio/zoomies-runner-docker` | the same, plus a Docker CLI — a pool is switched to it when its `docker_mode` gives jobs a daemon, see [Jobs that build container images](#jobs-that-build-container-images) |
+| `ghcr.io/eyupio/zoomies-runner-full` | `zoomies-runner-docker` plus the language toolchains the `setup-*` actions would otherwise download, for the Ubuntu variants — a pool opts in by naming it, see [The full image](#the-full-image) |
 
 They share their tag names and release/development channels.
 
@@ -920,6 +934,67 @@ is disk on the host.
 If you want something leaner, point the pool at an image of your own; Zoomies
 only requires that it can run the entrypoint contract described in
 `deploy/runner-entrypoint.sh`.
+
+#### The tool cache
+
+`setup-python`, `setup-node`, `setup-go` and the other setup actions unpack
+what they download into the runner's tool cache. Both images set
+`AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache` — the path GitHub's own runners
+use — and give that directory to the runner account. Left to its default, the
+cache would sit under `_work/_tool` and go with the runner at the end of every
+job.
+
+That makes the tool cache something you can fill ahead of time. An image built
+`FROM` one of ours that installs the versions your workflows ask for into
+`/opt/hostedtoolcache` turns each of those setup steps into a lookup rather
+than a download; the pool's image prewarm puts that image on the host before
+any job needs it. To share one cache between runners instead, see
+[the pool cache](#the-pool-cache).
+
+#### The full image
+
+`ghcr.io/eyupio/zoomies-runner-full` is that image built for you: the Docker
+variant with the toolchains most builds reach for already in place, so the
+first step of a job is its own work rather than a download.
+
+| Toolchain | Versions | Where a job finds it |
+| --- | --- | --- |
+| Python | 3.10 to 3.14 | the tool cache, for `setup-python` |
+| Node.js | 22 and 24 | the tool cache, for `setup-node` |
+| Go | the two supported releases | the tool cache, for `setup-go` |
+| Java (Eclipse Temurin) | 17, 21 and 25; 17 is `JAVA_HOME` | the tool cache, for `setup-java` |
+| .NET SDK | 8 and 10 | `/usr/share/dotnet`, where `setup-dotnet` installs |
+| Maven and Gradle | the current release of each | `mvn` and `gradle` on `PATH` |
+| Rust | stable, with `rustfmt` and `clippy` | `rustup`, `cargo` and `rustc` on `PATH` |
+
+Each is laid out exactly as its setup action leaves what it downloads, so a
+step asking for a version the image carries is answered from disk. Asking for
+one it does not carry still works; that step downloads as it would anywhere
+else. A version range such as `3.12` or `22` is matched against what the tool
+cache holds, and the newest patch there wins. `setup-dotnet` still asks the
+network which patch is current before it finds the SDK already installed, so
+.NET saves the download, not the round trip.
+
+It is published for the Ubuntu variants — 24.04, 26.04 and 22.04 — on both
+architectures, under the same tags as `zoomies-runner`. The Python builds
+`setup-python` installs are made for Ubuntu and nothing else, and an image
+without them would be missing the toolchain most jobs ask for first. Point a
+pool at it by name:
+
+```yaml
+image: ghcr.io/eyupio/zoomies-runner-full:ubuntu-2404
+```
+
+The versions are the newest release of each line when the image was built,
+pinned by digest in `deploy/toolcache.lock`, and a weekly workflow moves them
+forward. Each archive is checked against that digest before it is unpacked.
+Most publishers state the digest; `actions/python-versions` does not, so a
+Python archive's digest is the one recorded when it was first pinned, and an
+archive that changes after that fails the build.
+
+It is several gigabytes larger than `zoomies-runner`. That is disk on each host
+that runs the pool, not queue time: the image is prewarmed on those hosts before
+a job needs it, like any other pool image.
 
 ### `updates.check_interval` — knowing the controller is behind
 
@@ -1774,6 +1849,38 @@ Only a directory can be measured, so a non-zero `size_limit` requires `source`
 to be an absolute host path. On a named volume the bytes are the daemon's, on a
 filesystem the agent may not even share, and a limit there would be a number in
 a form that controlled nothing — so it is refused rather than accepted.
+
+#### The pool cache as a tool cache
+
+A pool can keep its runners' tool cache in the pool cache, so the first job to
+ask for a version downloads it and the rest find it there. Set the variable in
+the pool's `env`:
+
+```yaml
+env:
+  AGENT_TOOLSDIRECTORY: /opt/zoomies-cache/toolcache
+cache:
+  enabled: true
+  scope: pool
+```
+
+The runner reads `RUNNER_TOOL_CACHE` first, then `RUNNER_TOOLSDIRECTORY`, then
+`AGENT_TOOLSDIRECTORY`, so a pool that sets either of the first two gets the
+directory it named instead.
+
+This shares more than a build cache does. What is in a tool cache is run, not
+just read: a job that can write to it can replace the `python` or `node` that
+the next job on the pool executes. Only do this on a pool whose repositories
+already trust one another, and prefer `scope: repository` when they do not.
+Two runners that ask for a version the cache does not yet have may unpack it
+into the same directory at once, and the setup actions take no lock against
+that. Letting one job fill the cache before the pool is busy — or baking the
+versions into an image, as above — keeps them from racing.
+
+The stock images own `/opt/zoomies-cache`, so a new named volume mounted there
+belongs to the runner. A cache on an absolute host path is a directory of
+yours, and the runner — uid 1001 in the stock images — needs to be able to
+write to it.
 
 ### Jobs that build container images
 

@@ -185,6 +185,25 @@ func TestABareEnterpriseHostnameIsNormalisedNotRefused(t *testing.T) {
 	}
 }
 
+// GHE.com is not an Enterprise Server: its API is the root of its own api.
+// host. Normalised like one, it gained /api/v3 and every call 404ed.
+func TestAGHEComTenantIsNotGivenTheEnterpriseServerPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "zoomies.yaml")
+	if err := os.WriteFile(path, []byte("github:\n  api_base_url: octocorp.ghe.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.GitHub.APIBaseURL != "https://api.octocorp.ghe.com" {
+		t.Fatalf("api_base_url = %q, want https://api.octocorp.ghe.com", c.GitHub.APIBaseURL)
+	}
+	if hasCode(c.Validate(), "github.api_base_malformed") {
+		t.Fatal("a GHE.com tenant was refused by the validator")
+	}
+}
+
 // Each of these is a value that quietly weakens the default posture, which is
 // exactly what the validator exists to name, and none of them used to draw a
 // finding. They are warnings: every one has a legitimate use somewhere, and

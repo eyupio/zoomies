@@ -962,7 +962,7 @@
 
             <Field
               label="API base URL"
-              hint="Optional. Leave empty for github.com; set it for GitHub Enterprise Server."
+              hint="Optional. Leave empty for github.com; set it for GitHub Enterprise Server or a GHE.com tenant."
               error={errors.api_base_url}
             >
               {#snippet children({ id, describedBy, invalid })}

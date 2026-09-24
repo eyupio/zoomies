@@ -304,7 +304,7 @@ var registry = buildRegistry([]Setting{
 	// ---------------------------------------------------------------------
 	{
 		Key: "github.api_base_url", Label: "GitHub API base URL", Env: "ZOOMIES_GITHUB_API_BASE_URL", Kind: KindString, Scope: ScopeInstance, Live: true,
-		Summary: "https://api.github.com for github.com, or your Enterprise Server's /api/v3. It is the default for a new installation; each existing one keeps the base it was added with.",
+		Summary: "https://api.github.com for github.com, your Enterprise Server's /api/v3, or a GHE.com tenant's address. It is the default for a new installation; each existing one keeps the base it was added with.",
 	},
 	{
 		Key: "github.upload_base_url", Label: "GitHub upload base URL", Env: "ZOOMIES_GITHUB_UPLOAD_BASE_URL", Kind: KindString, Scope: ScopeInstance, Live: true,
