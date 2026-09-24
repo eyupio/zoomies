@@ -24,6 +24,11 @@ const ProtocolVersion = 1
 // claiming a live quota moved when that agent could not understand the order.
 const FeatureElasticCPU = "elastic-cpu"
 
+// FeatureToolCacheFill is advertised by an agent that understands
+// TaskFillToolCache. An older agent refuses a kind it does not know, which is
+// safe but would read on the controller as a fill that failed on every host.
+const FeatureToolCacheFill = "tool-cache-fill"
+
 // JoinRequest redeems a short-lived join token and enrols a new host.
 type JoinRequest struct {
 	Connection      string `json:"-"`
@@ -261,6 +266,9 @@ const (
 	// TaskCancelLogs closes one.
 	TaskCancelLogs   TaskKind = "cancel_logs"
 	TaskPrewarmImage TaskKind = "prewarm_image"
+	// TaskFillToolCache puts the toolchain versions a pool's jobs ask for in
+	// its kept tool cache on this host, ahead of the jobs.
+	TaskFillToolCache TaskKind = "fill_tool_cache"
 )
 
 // Task is one unit of work handed to an agent. Tasks are idempotent: the
@@ -287,7 +295,9 @@ type Task struct {
 	StreamID string `json:"stream_id,omitempty"`
 	// LogOptions configures a log relay.
 	LogOptions *backend.LogOptions `json:"log_options,omitempty"`
-	IssuedAt   time.Time           `json:"issued_at"`
+	// Tools is what a TaskFillToolCache installs; its Spec names the pool.
+	Tools    []backend.ToolRequest `json:"tools,omitempty"`
+	IssuedAt time.Time             `json:"issued_at"`
 	// Attempt counts deliveries of this task, from 1. A create that cannot
 	// establish whether its runner already exists reads it to tell the first
 	// delivery -- when no workload of that runner's can exist yet, so failing
@@ -306,7 +316,10 @@ type TaskResult struct {
 	// rather than silently calling every one a refresh.
 	PrewarmCached   *bool          `json:"prewarm_cached,omitempty"`
 	PrewarmDuration *time.Duration `json:"prewarm_duration,omitempty"`
-	TaskID          string         `json:"task_id"`
+	// ToolFills is what a TaskFillToolCache did with each request, including
+	// when the fill as a whole failed part way.
+	ToolFills []backend.ToolFill `json:"tool_fills,omitempty"`
+	TaskID    string             `json:"task_id"`
 	// Kind is the kind of the task this answers. The controller uses it to
 	// tell a lifecycle task that failed -- which leaves the runner unusable --
 	// from a log relay that could not be opened, which leaves it exactly as it
