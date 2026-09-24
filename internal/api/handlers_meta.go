@@ -154,6 +154,21 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if n := len(applied); n > 0 {
 		body["schema"] = map[string]any{"applied": n, "latest": applied[n-1].Name}
 	}
+	// Whether anybody can sign in yet, so a provisioner asks one endpoint "can
+	// I use this" rather than polling /readyz and /api/v1/meta in turn. It is
+	// reported and does not make the probe fail: an instance with no accounts
+	// is serving exactly what it should -- the first-run page -- and taking it
+	// out of a load balancer would hide that page from the person who needs it.
+	need, err := s.auth.NeedsBootstrap(ctx)
+	if err != nil {
+		s.logger(r).Warn("readiness probe could not count accounts", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"ok":      false,
+			"message": "the database is not answering; the cause is in the controller's log",
+		})
+		return
+	}
+	body["bootstrap_required"] = need
 	// A fenced fleet is not ready, and saying so is the point: it is serving,
 	// it is deciding, and it is doing none of it, which from outside looks
 	// exactly like a healthy fleet with nothing queued. A load balancer taking
