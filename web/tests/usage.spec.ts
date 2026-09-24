@@ -200,6 +200,41 @@ test('analytics supports keyboard inspection, group focus and matching CSV expor
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+/**
+ * The Usage page's matrix is drawn the way the Overview draws a window as
+ * long, not in the report's own days: a month of days was five columns in
+ * the corner of the panel. Its squares are then narrower than the chart's, so
+ * choosing one has to find the chart's interval it falls in -- the day, not
+ * the square's index -- or the crosshair would land a month out.
+ */
+test('a month is drawn in four-hour squares, and a square moves the crosshair to its day', async ({
+  page,
+}) => {
+  const day = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const since = day(new Date(Date.now() - 29 * 86_400_000));
+  await goto(page, `/usage?since=${since}`, 'Usage');
+  const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
+  const grid = matrix.getByRole('grid');
+  await expect(grid).toHaveAccessibleName(/^\d weeks of every pool, one square per 4 hours$/);
+  await expect(grid.getByRole('gridcell')).toHaveCount(30 * 6);
+  const fits = await matrix
+    .locator('.frame')
+    .evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+  expect(fits, 'the whole month fits the panel').toBe(true);
+
+  // A square three days back, in the afternoon: the chart is a day to a
+  // point, so its crosshair goes to the 27th of the month's 30 days.
+  const chart = page.getByRole('region', { name: 'Usage over time', exact: true });
+  const square = grid.locator(`[role="gridcell"][data-index="${27 * 6 + 3}"]`);
+  await square.click();
+  await expect(matrix.getByRole('region', { name: 'Selected hours' })).toBeVisible();
+  await expect(chart.getByRole('slider', { name: 'Inspect an interval' })).toHaveValue('27');
+  await chart.getByRole('button', { name: 'Back to the latest' }).click();
+  await expect(matrix.getByRole('region', { name: 'Selected hours' })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test('one installation opens its report, with every figure defined in the docs', async ({
   page,
 }) => {

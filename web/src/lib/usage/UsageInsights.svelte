@@ -23,14 +23,24 @@
   and a finger dragged across a month would otherwise ask for thirty of them.
   A square chosen in the matrix does move the crosshair here, which is the
   direction that costs nothing.
+
+  The matrix is drawn in the squares the Overview would draw the same length
+  of window in -- hours for a week, six squares a day for a month, three for a
+  quarter -- rather than in the report's own days, which for a month were five
+  columns in the corner of the panel. Where those squares are narrower than
+  the report's, the matrix asks for its own series, in the report's grouping
+  and focus; the chart keeps the report's, and a square chosen in the matrix
+  moves the crosshair to the interval it falls in.
 -->
 <script lang="ts">
   import { getUsage } from '$lib/api/client';
   import type { UsageRow, UsageGrouping } from '$lib/api/types';
   import MetricGrid from '$lib/components/MetricGrid.svelte';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
+  import ErrorState from '$lib/components/ErrorState.svelte';
   import Segmented from '$lib/components/Segmented.svelte';
   import Select from '$lib/components/Select.svelte';
+  import Skeleton from '$lib/components/Skeleton.svelte';
   import ActivityMatrix, { type ActivityRange } from '$lib/insights/ActivityMatrix.svelte';
   import FigureChips from '$lib/insights/FigureChips.svelte';
   import FigureRows from '$lib/insights/FigureRows.svelte';
@@ -51,12 +61,15 @@
   } from '$lib/insights/usageSeries';
   import {
     addDays,
+    bucketIndex,
     fillWindow,
     hasCapacity,
     intervalWidth,
     localDate,
+    matrixInterval,
     mergeHistories,
     MODES,
+    slicesPerDay,
     startOfLocalDay,
     type ActivityBucket,
     type ActivityMode,
@@ -147,6 +160,65 @@
     return fillWindow(mergeHistories(rows), from, count, interval);
   });
   const modes = $derived(MODES.filter((m) => m.value !== 'capacity' || hasCapacity(buckets)));
+
+  /* -- the matrix's own squares ---------------------------------------------- */
+
+  /** The window's length, elapsed, which is what the API bounds its buckets by. */
+  const span = $derived((toMillis(range.to) ?? 0) - (toMillis(range.from) ?? 0));
+  /** The square the matrix draws in, which the Overview would use for a window this long. */
+  const squares = $derived(matrixInterval(span));
+  /** How big a square would like to be: the Overview's size for the same squares. */
+  const size = $derived(squares === 'hour' ? 'lg' : squares === 'day' ? 'sm' : 'md');
+  /** Whether the matrix needs a series of its own, or can draw the report's. */
+  const own = $derived(squares !== interval);
+  /**
+   * The request the matrix's own series answers, as a string: a series is
+   * drawn only under the request it came from, so a report narrowed or
+   * refreshed never shows the squares of the one before it.
+   */
+  const request = $derived(
+    own ? [grouping, entity, range.from, range.to, squares, fetchedAt].join('|') : '',
+  );
+  let fetched = $state.raw<{ request: string; buckets: Bucket[] } | null>(null);
+  let failed = $state<{ request: string; cause: unknown } | null>(null);
+  let attempt = $state(0);
+
+  $effect(() => {
+    void attempt;
+    const asked = request;
+    if (!asked) return;
+    const width = squares;
+    const from = new Date(toMillis(range.from) ?? 0);
+    const count = Math.max(1, Math.ceil(span / intervalWidth(width)));
+    const controller = new AbortController();
+    failed = null;
+    getUsage(
+      {
+        from: range.from,
+        to: range.to,
+        group_by: grouping,
+        key: entity || undefined,
+        interval: width,
+      },
+      controller.signal,
+    )
+      .then((report) => {
+        fetched = {
+          request: asked,
+          buckets: fillWindow(mergeHistories(report.items ?? []), from, count, width),
+        };
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted) failed = { request: asked, cause };
+      });
+    return () => controller.abort();
+  });
+
+  /** What the matrix draws, or null while its own series is on its way. */
+  const squaresDrawn = $derived(
+    own ? (fetched?.request === request ? fetched.buckets : null) : buckets,
+  );
+  const squaresFailed = $derived(own && failed?.request === request ? failed.cause : null);
 
   /** A day's hours for the detail, in the report's own grouping and focus. */
   async function hourly(day: Date): Promise<Bucket[]> {
@@ -278,7 +350,19 @@
   // a day fetches that day's hours and a drag across a month would fetch a
   // month of them.
   let hover = $state<number | null>(null);
-  let cursor = $derived(selected);
+  /**
+   * The chart's interval a chosen square falls in. The same index where the
+   * two draw the same series; a moment looked up where the matrix cuts the
+   * report's days into narrower squares.
+   */
+  let cursor = $derived.by(() => {
+    if (selected === null) return null;
+    if (!own) return selected;
+    const moment = toMillis(squaresDrawn?.[selected]?.from);
+    if (moment === null) return null;
+    const i = bucketIndex(buckets, moment, interval);
+    return i < 0 ? null : i;
+  });
   $effect(() => {
     void buckets;
     selected = null;
@@ -526,9 +610,11 @@
 </div>
 <ChartPanel
   title="Activity matrix"
-  description={interval === 'day'
+  description={squares === 'day'
     ? 'Each square is one day of the range, laid out as a calendar. Greener as more jobs finish, red when any fail; hover a square for its figures and select it for its hours and its jobs.'
-    : 'Each square is one hour of the range. Greener as more jobs finish, red when any fail; hover a square for its figures and select it for its jobs.'}
+    : squares === 'hour'
+      ? 'Each square is one hour of the range. Greener as more jobs finish, red when any fail; hover a square for its figures and select it for its jobs.'
+      : `Each day of the range is ${slicesPerDay(squares)} squares of ${intervalWidth(squares) / intervalWidth('hour')} hours, laid out as a calendar. Greener as more jobs finish, red when any fail; hover a square for its figures and select it for its day's hours and its jobs.`}
 >
   {#snippet actions()}<Select
       ariaLabel="Colour the matrix by"
@@ -537,18 +623,33 @@
       options={modes}
       onchange={(v) => (mode = v as ActivityMode)}
     />{/snippet}
-  <ActivityMatrix
-    {buckets}
-    {interval}
-    {first}
-    {mode}
-    weeks={buckets.length}
-    bind:selected
-    {fetchedAt}
-    hourly={interval === 'day' ? hourly : undefined}
-    {links}
-    subject={entity ? label(entity) : `every ${grouping}`}
-  />
+  {#if squaresFailed}
+    <ErrorState
+      error={squaresFailed}
+      compact
+      title="The activity matrix could not be loaded"
+      onretry={() => (attempt += 1)}
+    />
+  {:else if !squaresDrawn}
+    <p class="sr-only">Loading the activity matrix.</p>
+    <div class="placeholder" aria-hidden="true">
+      <Skeleton width="100%" height="var(--z-space-10)" />
+      <Skeleton width="100%" height="var(--z-space-10)" />
+    </div>
+  {:else}
+    <ActivityMatrix
+      buckets={squaresDrawn}
+      interval={squares}
+      {first}
+      {mode}
+      {size}
+      bind:selected
+      {fetchedAt}
+      hourly={squares === 'hour' ? undefined : hourly}
+      {links}
+      subject={entity ? label(entity) : `every ${grouping}`}
+    />
+  {/if}
   <p class="muted">
     {#if grouping === 'pool'}Capacity reached counts observed pool-minutes with a host-capacity
       placement block, not incidents or exact duration. Dashed squares have no capacity
@@ -693,6 +794,11 @@
   }
   .muted {
     margin: var(--z-space-4) 0 0;
+  }
+  .placeholder {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
   }
   @media (max-width: 1024px) {
     .insights {

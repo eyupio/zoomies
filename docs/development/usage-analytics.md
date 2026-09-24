@@ -47,9 +47,15 @@ buckets become a calendar, a column per week and a row per weekday; hourly
 buckets become a row per day and a column per hour. Buckets of a few hours —
 the Overview's month in four-hour buckets and quarter in eight — become the
 calendar again, with each day's buckets side by side in its weekday's row, so
-a column is a week of days each several squares wide. On the Usage page which
-layout a range gets is the API's own rule, hourly at 48 hours or less, so the
-page applies the same rule to know what a square is.
+a column is a week of days each several squares wide. The Usage page draws
+whatever range it is given in the squares the Overview uses for a window as
+long — `matrixInterval` in `activity.ts`, the narrowest of hours, four hours
+and eight that the API will cut the whole window into, and days beyond — so a
+month there fills the panel the way the Overview's does. Where those squares
+are narrower than the report's own (hourly up to 48 hours, daily beyond), the
+matrix asks for its own series in the report's grouping and focus, and a
+square chosen in it moves the chart's crosshair to the interval it falls in
+rather than to the same index.
 
 The band beside the grid is the window in words: the totals the caller gives
 it, then the figures the component works out from the squares on screen --

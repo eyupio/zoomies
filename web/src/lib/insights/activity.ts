@@ -73,6 +73,30 @@ export function slicesPerDay(interval: Interval): number {
   return Math.round(DAY_MS / intervalWidth(interval));
 }
 
+/**
+ * The most buckets narrower than a day the API will cut a row into: a
+ * fortnight of hours, or 56 days of four hours, or 112 of eight.
+ */
+export const MAX_SUB_DAILY_BUCKETS = 14 * 24;
+
+/**
+ * The square a window of this length is drawn in: the narrowest of the
+ * widths the Overview's ranges use that the API will cut the whole window
+ * into. A week is the punch card of hours, a month six squares a day, a
+ * quarter three, and anything longer whole days -- so a window chosen on the
+ * Usage page is drawn the way the Overview draws one as long.
+ *
+ * Measured in elapsed time, which is what the API bounds: a fortnight that
+ * takes in a clock change is an hour longer than 336 hours, and gets
+ * four-hour squares rather than a refusal.
+ */
+export function matrixInterval(span: number): Interval {
+  for (const interval of ['hour', '4h', '8h'] as const) {
+    if (span <= MAX_SUB_DAILY_BUCKETS * intervalWidth(interval)) return interval;
+  }
+  return 'day';
+}
+
 export function emptyBucket(from: string): ActivityBucket {
   return {
     from,

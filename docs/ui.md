@@ -314,10 +314,13 @@ happened yet is a gap rather than a zero: a report to the end of today is a
 window with hours still in it.
 
 The same activity matrix as the Overview's draws the
-chosen range — a square per day laid out as a calendar, or a square per hour
-for a range of two days or less — cut to the grouping and the group in
-focus, so a repository's bad week is a red row of squares rather than a
-column of numbers.
+chosen range in the squares the Overview uses for a window that long — a
+square per hour for up to a fortnight, each day cut into six four-hour
+squares up to eight weeks and three eight-hour ones up to sixteen, and a
+square per day laid out as a calendar beyond — cut to the grouping and the
+group in focus, so a repository's bad week is a red row of squares rather
+than a column of numbers. Selecting a square moves the chart's crosshair to
+the interval it falls in.
 
 ![The Usage dashboard: runner-hours, job outcomes and queue wait as tiles, the range drawn as a line per figure with the interval's readings beneath it, the largest consumers of runner time, and the activity matrix, grouped by pool](screenshots/usage-dark.webp#only-dark){ .zoomies-shot }
 ![The Usage dashboard: runner-hours, job outcomes and queue wait as tiles, the range drawn as a line per figure with the interval's readings beneath it, the largest consumers of runner time, and the activity matrix, grouped by pool](screenshots/usage-light.webp#only-light){ .zoomies-shot }
