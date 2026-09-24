@@ -72,6 +72,17 @@ func TestTheDeploymentPackagePinsOneReleaseEverywhere(t *testing.T) {
 	}
 }
 
+// addedAfter names the catalogue rows added since the release the package is
+// pinned to, with that release. Such a row has no published image yet, so
+// there is nothing `make marketplace-lock` could pin. The exemption is keyed
+// to the release rather than open-ended: the release after it publishes the
+// images, and once release.env moves on, the row is checked like any other --
+// so an entry left here cannot hide a missing pin for longer than one release.
+var addedAfter = map[string]string{
+	"ubuntu-2604": "v1.3.0",
+	"debian-13":   "v1.3.0",
+}
+
 // TestEveryPublishedRunnerVariantIsLocked keeps the package honest when the
 // catalogue grows.
 //
@@ -86,6 +97,10 @@ func TestEveryPublishedRunnerVariantIsLocked(t *testing.T) {
 	release := env["ZOOMIES_RELEASE"]
 
 	for _, img := range naming.Images() {
+		if predates, ok := addedAfter[img.Tag()]; ok && predates == release {
+			t.Logf("%s is newer than the pinned release %s, so it has no image to lock yet", img.Tag(), release)
+			continue
+		}
 		for _, repo := range []string{env["ZOOMIES_RUNNER_REPO"], env["ZOOMIES_RUNNER_DOCKER_REPO"]} {
 			ref := repo + ":" + img.Tag() + "-" + release
 			if _, ok := lock[ref]; !ok {
