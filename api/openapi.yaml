@@ -3797,6 +3797,8 @@ paths:
               schema: { $ref: "#/components/schemas/AgentHeartbeatResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { description: The host was deleted. No amount of retrying brings the row back; the agent re-joins. }
+        "413": { description: The report carried more runners than any host runs (agent.MaxRunnersPerReport). The agent is misbehaving. }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /agent/tasks:
     get:
@@ -3804,7 +3806,7 @@ paths:
       tags: [agent]
       x-internal: true
       summary: Long-poll for work
-      description: Blocks until the host has work or the wait elapses, so a task reaches an agent the instant it is queued while an idle agent makes two or three requests a minute.
+      description: Blocks until the host has work or the wait elapses, so a task reaches an agent the instant it is queued while an idle agent makes two or three requests a minute. A host holds one poll at a time; a second, while the first is held, is answered at once with an empty batch.
       security: [{ agentAuth: [] }]
       parameters:
         - name: wait
@@ -3835,6 +3837,7 @@ paths:
         "204": { description: Applied }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /agent/report:
     post:
@@ -3854,6 +3857,8 @@ paths:
       responses:
         "204": { description: Applied }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { description: The report carried more runners than any host runs (agent.MaxRunnersPerReport). The agent is misbehaving. }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /agent/logs/{stream_id}:
     post:
@@ -3865,7 +3870,8 @@ paths:
         The inverted half of log streaming. The controller never dials an agent, so a viewer's
         request makes it queue a stream_logs task, and the agent answers by opening this
         chunked POST, which stays open for as long as the runner produces output. Exempt from
-        the body-size limit for that reason.
+        the body-size limit for that reason; instead each stream has a byte budget, and output
+        over it is read and dropped rather than waited on.
       security: [{ agentAuth: [] }]
       parameters:
         - { name: stream_id, in: path, required: true, schema: { type: string }, description: The stream named by the stream_logs task. }

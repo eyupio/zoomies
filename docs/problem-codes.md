@@ -135,6 +135,8 @@ than about what any one setting says.
 | `agent.insecure_tls` | warning | `agent.insecure_skip_verify` | The agent does not verify the controller's certificate, so anything on the path can impersonate it. |
 | `agent.insecure_http` | warning | `agent.allow_insecure_http` | The agent talks to the controller over plain HTTP, so its token and every runner's credentials cross the network in the clear. |
 | `agent.unverified_runner_download` | warning | `agent.allow_unverified_runner_download` | The process backend may install a runner archive whose checksum it could not confirm. |
+| `agent.extra_ca_invalid` | error | `agent.extra_ca_file` | Not an absolute path to a readable PEM file with at least one certificate. Point it at your organisation's root CA in PEM form, or clear it. |
+| `agent.extra_ca` | info | `agent.extra_ca_file` | Container runners on this host trust an extra CA as well as the image's own roots. Right for your proxy's CA; clear it otherwise. |
 | `agent.docker_build_cache_mb` | error | `agent.docker_build_cache_mb` | Must be between 0 and 1048576 MiB; 0 disables automatic Docker builder-cache cleanup. |
 | `agent.bootstrap_cpu_grace_short` | warning | `agent.bootstrap_cpu_grace` | Less than 2m of normal CPU quota before pressure throttling; registration can slow under load. |
 | `runners.docker_wait_short` | warning | `runners.docker_wait` | Less than the recommended 3m for a loaded DinD daemon to become ready. |
