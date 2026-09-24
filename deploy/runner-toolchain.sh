@@ -42,7 +42,7 @@ case "${family}" in
       libssl-dev zlib1g-dev libffi-dev libyaml-dev libxml2-dev libxslt1-dev \
       libcurl4-openssl-dev libsqlite3-dev libreadline-dev libbz2-dev \
       liblzma-dev libncurses-dev uuid-dev \
-      git-lfs wget gnupg bzip2 zstd lsb-release software-properties-common \
+      git-lfs wget gnupg bzip2 zstd lsb-release '?software-properties-common' \
       netcat-openbsd dnsutils iputils-ping net-tools
     ;;
   dnf)
