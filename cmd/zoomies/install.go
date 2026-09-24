@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"os"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/installer"
 	"github.com/eyupio/zoomies/internal/logging"
+	"golang.org/x/term"
 )
 
 // runInit is `zoomies init`: the interactive setup install.sh hands off to.
@@ -184,7 +186,9 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	image := fs.String("image", "", "replacement image for a custom container deployment")
 	mode := fs.String("mode", "", "agent, controller or single; refuses a different existing deployment")
 	check := fs.Bool("check", false, "check the deployment without changing or restarting anything")
-	fs.example("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade", "zoomies "+name+" --check --mode agent")
+	yes := fs.Bool("yes", false, "add what this release expects and the deployment lacks -- a folder, a mount, a missing Compose file -- without asking")
+	nonInteractive := fs.Bool("non-interactive", false, "never ask; report what this release expects and the deployment lacks, and leave it as it is unless --yes is given too")
+	fs.example("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade", "zoomies "+name+" --check --mode agent", "zoomies "+name+" --yes")
 	if err := fs.parse(args); err != nil {
 		return err
 	}
@@ -195,5 +199,16 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	if err != nil {
 		return err
 	}
-	return installer.Upgrade(ctx, installer.UpgradeOptions{ConfigDir: *configDir, BinaryPath: *binary, DockerHost: *dockerHost, Runtime: *runtime, Image: *image, Mode: parsed, Check: *check, Out: e.out})
+	// install.sh piped into sh has the script itself on stdin, so a prompt
+	// there would read the next line of shell as its answer. Ask only when
+	// stdin is somebody at a terminal.
+	interactive := false
+	if f, ok := e.in.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		interactive = !*nonInteractive
+	}
+	return installer.Upgrade(ctx, installer.UpgradeOptions{
+		ConfigDir: *configDir, BinaryPath: *binary, DockerHost: *dockerHost, Runtime: *runtime, Image: *image,
+		Mode: parsed, Check: *check, Out: e.out,
+		In: e.in, Interactive: interactive, NonInteractive: *nonInteractive, AssumeYes: *yes,
+	})
 }

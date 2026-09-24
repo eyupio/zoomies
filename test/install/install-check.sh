@@ -168,6 +168,23 @@ elif [ "$(wc -l < "$upgrade_log" | tr -d ' ')" != 2 ] || grep -qF "unexpected se
 else
     printf 'ok   upgrade-preflights-and-keeps-existing-enrolment\n'
 fi
+# An unattended upgrade adds nothing the operator did not agree to: the
+# implied --yes of --non-interactive is not passed on, and --yes typed is.
+if ! tail -n 1 "$upgrade_log" | grep -qF -- "--non-interactive" || tail -n 1 "$upgrade_log" | grep -qF -- "--yes"; then
+    printf 'FAIL unattended upgrade was not told to leave missing folders: %s\n' "$(tail -n 1 "$upgrade_log")" >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   unattended-upgrade-adds-nothing-new\n'
+fi
+: > "$upgrade_log"
+if ! out=$(UPGRADE_LOG="$upgrade_log" FAKE_RELEASE="$dev/release" PATH="$dev/bin:$PATH" "$SH" "$SCRIPT_UNDER_TEST" \
+    --prefix "$dev/prefix" --version dev --upgrade --mode agent --yes 2>&1) ||
+   ! tail -n 1 "$upgrade_log" | grep -qF -- "--yes"; then
+    printf 'FAIL --yes was not passed to the upgrade: %s\n' "$(cat "$upgrade_log")" >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   upgrade-yes-approves-what-the-release-adds\n'
+fi
 # A refused preflight must not replace the previous binary.
 stub_at "$dev/prefix" "0.1 (old)"
 before=$(sha256sum "$dev/prefix/zoomies")

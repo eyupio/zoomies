@@ -131,3 +131,46 @@ func (c *APIClient) RemoveContainerKeepingVolumes(ctx context.Context, id string
 	}
 	return c.do(ctx, http.MethodDelete, "/containers/"+url.PathEscape(id), q, nil, nil)
 }
+
+// HasBind reports whether the replacement already mounts something at target,
+// by a bind or an explicit mount.
+func (r *ContainerReplacement) HasBind(target string) bool {
+	var host map[string]json.RawMessage
+	if err := json.Unmarshal(r.body["HostConfig"], &host); err != nil {
+		return false
+	}
+	var binds []string
+	_ = json.Unmarshal(host["Binds"], &binds)
+	for _, b := range binds {
+		if parts := strings.Split(b, ":"); len(parts) > 1 && parts[1] == target {
+			return true
+		}
+	}
+	var mounts []struct{ Target string }
+	_ = json.Unmarshal(host["Mounts"], &mounts)
+	for _, m := range mounts {
+		if m.Target == target {
+			return true
+		}
+	}
+	return false
+}
+
+// AddBind adds one bind to the replacement, which is how an upgrade gives a
+// container a mount its predecessor was created without. Everything else the
+// predecessor was created with is kept as it was.
+func (r *ContainerReplacement) AddBind(bind string) error {
+	var host map[string]json.RawMessage
+	if err := json.Unmarshal(r.body["HostConfig"], &host); err != nil {
+		return fmt.Errorf("docker api: the replacement has no host configuration to add %s to: %w", bind, err)
+	}
+	var binds []string
+	_ = json.Unmarshal(host["Binds"], &binds)
+	binds = append(binds, bind)
+	var err error
+	if host["Binds"], err = json.Marshal(binds); err != nil {
+		return err
+	}
+	r.body["HostConfig"], err = json.Marshal(host)
+	return err
+}
