@@ -192,7 +192,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: "${{ needs.setup.outputs.tag }}" }
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       # Two builders, one of which runs. The vendor's is the fast path and the
       # standard one is the escape hatch: a release must not be impossible
@@ -347,21 +346,26 @@ jobs:
           subject-digest: ${{ steps.build-agent.outputs.digest || steps.build-agent-github.outputs.digest }}
           push-to-registry: true
 
-  # One job per operating system in internal/naming's catalogue, each building
-  # both of deploy/Dockerfile.runner's targets. Keep the two lists in step:
-  # a variant published here that the catalogue does not list is an image no
-  # pool can ask for, and a catalogue row with no job here is a pool whose
-  # runners will not start. TestWorkflowMatricesCoverTheCatalogue fails if they
-  # drift apart.
+  # One job per operating system in internal/naming's catalogue and per
+  # architecture, each building both of deploy/Dockerfile.runner's targets.
+  # Keep the two lists in step: a variant published here that the catalogue
+  # does not list is an image no pool can ask for, and a catalogue row with no
+  # job here is a pool whose runners will not start.
+  # TestWorkflowMatricesCoverTheCatalogue fails if they drift apart.
+  #
+  # arm64 builds on GitHub's hosted arm64 runner rather than under QEMU on an
+  # x64 builder: the emulator segfaulted inside ldconfig on Ubuntu 22.04, and
+  # was the slow half of every other variant. Each leg pushes by digest, and
+  # runner-manifests joins them into the tags a pool pulls.
   runner-images:
-    name: Runner image (${{ matrix.tag }})
+    name: Runner image (${{ matrix.tag }}, ${{ matrix.arch }})
     needs: setup
-    runs-on: ${{ needs.setup.outputs.runs-on }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || needs.setup.outputs.runs-on }}
     permissions:
       contents: read
       packages: write
     env:
-      BLACKSMITH: ${{ needs.setup.outputs.runs-on != 'ubuntu-latest' }}
+      BLACKSMITH: ${{ matrix.arch != 'arm64' && needs.setup.outputs.runs-on != 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -369,16 +373,20 @@ jobs:
         # or swapping an operating system is a row there, not here.
         # zoomies:catalogue-begin
         include:
-          - { tag: ubuntu-2404, base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
-          - { tag: ubuntu-2204, base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64" }
-          - { tag: debian-12,   base: "debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171",          family: apt, os: debian, version: "12",    platforms: "linux/amd64,linux/arm64" }
-          - { tag: fedora-42,   base: "fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814",               family: dnf, os: fedora, version: "42",    platforms: "linux/amd64,linux/arm64" }
-          - { tag: rocky-9,     base: "rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f", family: dnf, os: rocky,  version: "9",     platforms: "linux/amd64,linux/arm64" }
+          - { tag: ubuntu-2404, arch: amd64, base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
+          - { tag: ubuntu-2404, arch: arm64, base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
+          - { tag: ubuntu-2204, arch: amd64, base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64,linux/arm64" }
+          - { tag: ubuntu-2204, arch: arm64, base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64,linux/arm64" }
+          - { tag: debian-12,   arch: amd64, base: "debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171",          family: apt, os: debian, version: "12",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: debian-12,   arch: arm64, base: "debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171",          family: apt, os: debian, version: "12",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: fedora-42,   arch: amd64, base: "fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814",               family: dnf, os: fedora, version: "42",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: fedora-42,   arch: arm64, base: "fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814",               family: dnf, os: fedora, version: "42",    platforms: "linux/amd64,linux/arm64" }
+          - { tag: rocky-9,     arch: amd64, base: "rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f", family: dnf, os: rocky,  version: "9",     platforms: "linux/amd64,linux/arm64" }
+          - { tag: rocky-9,     arch: arm64, base: "rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f", family: dnf, os: rocky,  version: "9",     platforms: "linux/amd64,linux/arm64" }
         # zoomies:catalogue-end
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: "${{ needs.setup.outputs.tag }}" }
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Set up the builder (Blacksmith)
         if: env.BLACKSMITH == 'true'
@@ -401,18 +409,27 @@ jobs:
       # Only the default variant carries the unqualified tags. Anything else
       # would mean a pool that named no operating system got whichever variant
       # this matrix happened to finish last.
+      #
+      # Written to a file rather than applied here: this leg holds one
+      # architecture, and a tag pointing at it alone would hand the other
+      # architecture's hosts an image they cannot run. runner-manifests applies
+      # them once every leg has pushed.
       - id: tags
         name: Work out the tags
         env:
           IS_DEFAULT: ${{ matrix.default && 'true' || 'false' }}
           TAG: ${{ matrix.tag }}
+          ARCH: ${{ matrix.arch }}
+          PLATFORMS: ${{ matrix.platforms }}
           REF: ${{ needs.setup.outputs.tag }}
           PRERELEASE: ${{ needs.setup.outputs.prerelease }}
         run: |
           set -eu
+          out="$RUNNER_TEMP/digests/$TAG"
+          mkdir -p "$out"
+          echo "$PLATFORMS" > "$out/platforms"
           for image in zoomies-runner zoomies-runner-docker; do
             {
-              echo "${image}<<EOF"
               echo "ghcr.io/eyupio/$image:$TAG-$REF"
               # The unversioned OS alias follows full releases, never main or
               # a release candidate. Use $TAG-dev to follow main explicitly.
@@ -428,18 +445,18 @@ jobs:
                   echo "ghcr.io/eyupio/$image:latest"
                 fi
               fi
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
+            } > "$out/$ARCH-$image.tags"
           done
 
-      - if: env.BLACKSMITH == 'true'
+      - id: runner
+        if: env.BLACKSMITH == 'true'
         uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
         with:
           context: .
           file: deploy/Dockerfile.runner
           target: runner
-          platforms: ${{ matrix.platforms }}
-          push: true
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=ghcr.io/eyupio/zoomies-runner,push-by-digest=true,name-canonical=true,push=true
           build-args: |
             BASE=${{ matrix.base }}
             OS_FAMILY=${{ matrix.family }}
@@ -448,15 +465,15 @@ jobs:
             VERSION=${{ needs.setup.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
-          tags: ${{ steps.tags.outputs.zoomies-runner }}
-      - if: env.BLACKSMITH != 'true'
+      - id: runner-github
+        if: env.BLACKSMITH != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: deploy/Dockerfile.runner
           target: runner
-          platforms: ${{ matrix.platforms }}
-          push: true
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=ghcr.io/eyupio/zoomies-runner,push-by-digest=true,name-canonical=true,push=true
           build-args: |
             BASE=${{ matrix.base }}
             OS_FAMILY=${{ matrix.family }}
@@ -465,19 +482,19 @@ jobs:
             VERSION=${{ needs.setup.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
-          tags: ${{ steps.tags.outputs.zoomies-runner }}
 
       # The same file's other target: the runner plus a Docker CLI, for pools
       # whose docker_mode gives jobs a daemon to talk to. It shares every layer
       # below the client, so the second build is cheap.
-      - if: env.BLACKSMITH == 'true'
+      - id: runner-docker
+        if: env.BLACKSMITH == 'true'
         uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
         with:
           context: .
           file: deploy/Dockerfile.runner
           target: runner-docker
-          platforms: ${{ matrix.platforms }}
-          push: true
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=ghcr.io/eyupio/zoomies-runner-docker,push-by-digest=true,name-canonical=true,push=true
           build-args: |
             BASE=${{ matrix.base }}
             OS_FAMILY=${{ matrix.family }}
@@ -486,15 +503,15 @@ jobs:
             VERSION=${{ needs.setup.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
-          tags: ${{ steps.tags.outputs.zoomies-runner-docker }}
-      - if: env.BLACKSMITH != 'true'
+      - id: runner-docker-github
+        if: env.BLACKSMITH != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: deploy/Dockerfile.runner
           target: runner-docker
-          platforms: ${{ matrix.platforms }}
-          push: true
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=ghcr.io/eyupio/zoomies-runner-docker,push-by-digest=true,name-canonical=true,push=true
           build-args: |
             BASE=${{ matrix.base }}
             OS_FAMILY=${{ matrix.family }}
@@ -503,4 +520,81 @@ jobs:
             VERSION=${{ needs.setup.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
-          tags: ${{ steps.tags.outputs.zoomies-runner-docker }}
+
+      - name: Record the digests
+        env:
+          TAG: ${{ matrix.tag }}
+          ARCH: ${{ matrix.arch }}
+          RUNNER_DIGEST: ${{ steps.runner.outputs.digest || steps.runner-github.outputs.digest }}
+          RUNNER_DOCKER_DIGEST: ${{ steps.runner-docker.outputs.digest || steps.runner-docker-github.outputs.digest }}
+        run: |
+          set -eu
+          test -n "$RUNNER_DIGEST" && test -n "$RUNNER_DOCKER_DIGEST"
+          echo "$RUNNER_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner.digest"
+          echo "$RUNNER_DOCKER_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner-docker.digest"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runner-digests-${{ matrix.tag }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests
+          if-no-files-found: error
+          retention-days: 1
+
+  # Joins each variant's per-architecture digests into its release tags. A
+  # variant is tagged only when every architecture it is published for pushed:
+  # a release tag missing one would be a runner that cannot start on that
+  # architecture's hosts. One variant failing leaves the others to publish.
+  runner-manifests:
+    name: Runner image manifests
+    needs: [setup, runner-images]
+    if: ${{ !cancelled() && needs.setup.result == 'success' }}
+    runs-on: ${{ needs.setup.outputs.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: runner-digests-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Publish the tags
+        env:
+          DIGESTS: ${{ runner.temp }}/digests
+        run: |
+          set -eu
+          failed=0
+          for dir in "$DIGESTS"/*/; do
+            variant=$(basename "$dir")
+            for image in zoomies-runner zoomies-runner-docker; do
+              refs="" missing=""
+              for platform in $(tr ',' ' ' < "$dir/platforms"); do
+                arch="${platform#linux/}"
+                if [ -s "$dir/$arch-$image.digest" ]; then
+                  refs="$refs ghcr.io/eyupio/$image@$(cat "$dir/$arch-$image.digest")"
+                else
+                  missing="$missing $arch"
+                fi
+              done
+              if [ -n "$missing" ]; then
+                echo "::error::$image for $variant was not published: nothing was built for$missing"
+                failed=1
+                continue
+              fi
+              tags=$(sort -u "$dir"/*-"$image".tags | sed 's/^/-t /' | tr '\n' ' ')
+              # Both lists are split into words on purpose.
+              # shellcheck disable=SC2086
+              docker buildx imagetools create $tags $refs
+            done
+          done
+          exit "$failed"

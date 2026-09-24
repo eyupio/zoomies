@@ -35,14 +35,21 @@ type RunnerSession struct {
 // finished_at falls back to the cleanup stamps and then to recorded_at so a
 // session always has an end: a runner row that never had finished_at set was
 // still gone by the time anyone wrote this.
+//
+// create_task_issued_at and the job's eligible_at are the two ends the
+// installation report's scheduling interval needs once the runner and job rows
+// are gone (migration 0051).
 const insertRunnerSessionSQL = `INSERT INTO runner_sessions (runner_id, pool_id, host_id, installation_id, job_id,
-	started_at, registered_at, finished_at, cleaned_up_at, cost_per_runner_hour, recorded_at)
-SELECT r.id, r.pool_id, COALESCE(r.host_id, ''), COALESCE(p.installation_id, ''),
-	COALESCE(NULLIF(r.current_job_id, ''),
-		(SELECT j.id FROM jobs j WHERE j.runner_id = r.id ORDER BY j.queued_at DESC LIMIT 1), ''),
+	started_at, registered_at, finished_at, cleaned_up_at, cost_per_runner_hour, recorded_at,
+	create_task_issued_at, job_eligible_at)
+SELECT r.id, r.pool_id, COALESCE(r.host_id, ''), COALESCE(p.installation_id, ''), x.job_id,
 	r.created_at, r.registered_at, COALESCE(r.finished_at, r.host_removed_at, r.cleaned_up_at, ?1), r.cleaned_up_at,
-	p.cost_per_runner_hour, ?1
+	p.cost_per_runner_hour, ?1,
+	r.create_task_issued_at, (SELECT j.eligible_at FROM jobs j WHERE j.id = x.job_id)
 FROM runners r LEFT JOIN pools p ON p.id = r.pool_id
+JOIN (SELECT r2.id AS runner_id, COALESCE(NULLIF(r2.current_job_id, ''),
+		(SELECT j.id FROM jobs j WHERE j.runner_id = r2.id ORDER BY j.queued_at DESC LIMIT 1), '') AS job_id
+	FROM runners r2) x ON x.runner_id = r.id
 WHERE `
 
 // recordRunnerSession writes the session of one runner inside the caller's

@@ -590,6 +590,13 @@ export const releaseMachine = (id: string, body: Body<'releaseMachine'>) =>
 export const getUsage = (query: Query<'getUsage'>, signal?: AbortSignal) =>
   api.get<Result<'getUsage'>>('/usage', { query, signal });
 
+export const getInstallationReport = (
+  id: string,
+  query?: Query<'getInstallationReport'>,
+  signal?: AbortSignal,
+) =>
+  api.get<Result<'getInstallationReport'>>(`/installations/${enc(id)}/report`, { query, signal });
+
 /**
  * Where the browser goes for the CSV. A full navigation rather than a fetch,
  * because the point is the browser's own download, not a string in memory.

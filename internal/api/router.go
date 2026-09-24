@@ -137,6 +137,10 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionInstallationsVerify)).Post("/{id}/verify", s.handleVerifyInstallation)
 			r.With(s.require(auth.ActionInstallationsRead)).Get("/{id}/runner-groups", s.handleRunnerGroups)
 			r.With(s.require(auth.ActionInstallationsRead)).Get("/{id}/rate-limit", s.handleRateLimit)
+			// Gated like the usage report it is a section of, not like the
+			// installation: it is a record of how the fleet served the
+			// installation, and names nothing a usage reader may not see.
+			r.With(s.require(auth.ActionUsageRead)).Get("/{id}/report", s.handleInstallationReport)
 		})
 		r.With(s.require(auth.ActionWebhooksRead)).Get("/webhook-deliveries", s.handleWebhookDeliveries)
 		r.With(s.require(auth.ActionWebhooksTest)).Post("/webhook-test", s.handleWebhookTest)
