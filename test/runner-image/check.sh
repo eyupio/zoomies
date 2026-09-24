@@ -112,8 +112,12 @@ done
 [ -w /home/runner ] && pass "/home/runner is writable (config.sh writes .runner there)" || fail "/home/runner is not writable by the runner"
 
 # The runner release the Dockerfile pinned, asked of the binary itself rather
-# than of a label that could have been stamped without it.
-got="$(cd /home/runner && ./bin/Runner.Listener --version 2>/dev/null | tr -d '\r' | tail -n 1)"
+# than of a label that could have been stamped without it. The image sets
+# ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT so a runner's log reaches the container's,
+# and with it set the listener prints its whole log around the version -- the
+# last line is "Runner execution has finished", not the version. Unset for
+# this one question.
+got="$(cd /home/runner && env -u ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT ./bin/Runner.Listener --version 2>/dev/null | tr -d '\r' | tail -n 1)"
 [ "${got}" = "${WANT_RUNNER}" ] && pass "actions/runner ${got}" || fail "actions/runner reports '${got}', want '${WANT_RUNNER}'"
 
 # The platform: /etc/os-release is what the distribution says, the environment
