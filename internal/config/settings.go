@@ -681,6 +681,32 @@ var registry = buildRegistry([]Setting{
 	},
 
 	// ---------------------------------------------------------------------
+	// limits -- fleet-wide ceilings. Platform-scoped, because a ceiling is
+	// how much of the process's machine a fleet may spend, and a fleet that
+	// could raise its own would be taking the protection from its neighbours.
+	// ---------------------------------------------------------------------
+	{
+		Key: "limits.hosts", Label: "Most hosts", Env: "ZOOMIES_LIMITS_HOSTS", Kind: KindInt, Scope: ScopePlatform, Live: true,
+		Summary: "The most hosts that may be enrolled at once; a join beyond it is refused. 0 is unlimited. A host joining again under its own name is not counted twice.",
+	},
+	{
+		Key: "limits.pools", Label: "Most pools", Env: "ZOOMIES_LIMITS_POOLS", Kind: KindInt, Scope: ScopePlatform, Live: true,
+		Summary: "The most pools this instance holds; creating one beyond it is refused. 0 is unlimited.",
+	},
+	{
+		Key: "limits.runners", Label: "Most runners", Env: "ZOOMIES_LIMITS_RUNNERS", Kind: KindInt, Scope: ScopePlatform, Live: true,
+		Summary: "The most live runners across every pool. At the ceiling the scheduler creates no more, and each pool it held back says so in its scaling reason. 0 is unlimited.",
+	},
+	{
+		Key: "limits.join_tokens", Label: "Most outstanding join tokens", Env: "ZOOMIES_LIMITS_JOIN_TOKENS", Kind: KindInt, Scope: ScopePlatform, Live: true,
+		Summary: "The most join tokens that may be outstanding at once, counting those neither used nor expired; minting one beyond it is refused. 0 is unlimited.",
+	},
+	{
+		Key: "limits.event_subscribers", Label: "Most live-update streams", Env: "ZOOMIES_LIMITS_EVENT_SUBSCRIBERS", Kind: KindInt, Scope: ScopePlatform, Live: true,
+		Summary: "The most live-update streams open at once. Every open tab of the UI holds one, so leave room for every operator's browser. 0 is unlimited.",
+	},
+
+	// ---------------------------------------------------------------------
 	// images and updates
 	// ---------------------------------------------------------------------
 	{
@@ -913,7 +939,7 @@ func StoredSettings() []Setting {
 // through the system, rather than alphabetical.
 var SectionOrder = []string{
 	"server", "database", "security", "github", "agent", "runners", "scheduler",
-	"log", "oidc", "metrics", "retention", "backup", "images", "updates", "capacity_demand",
+	"log", "oidc", "metrics", "retention", "limits", "backup", "images", "updates", "capacity_demand",
 	"provider", "ui",
 }
 
