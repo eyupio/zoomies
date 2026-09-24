@@ -327,6 +327,20 @@ func (s *Store) GetPoolByName(ctx context.Context, name string) (*Pool, error) {
 	return p, err
 }
 
+// CountPools counts pools, for limits.pools.
+func (s *Store) CountPools(ctx context.Context) (int, error) {
+	var n int
+	err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM pools`).Scan(&n)
+	return n, err
+}
+
+// CountHosts counts enrolled hosts, for limits.hosts.
+func (s *Store) CountHosts(ctx context.Context) (int, error) {
+	var n int
+	err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM hosts`).Scan(&n)
+	return n, err
+}
+
 // ListPools returns all pools ordered by name.
 func (s *Store) ListPools(ctx context.Context) ([]*Pool, error) {
 	rows, err := s.read.QueryContext(ctx, `SELECT `+poolCols+` FROM pools ORDER BY name`)

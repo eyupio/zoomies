@@ -770,6 +770,7 @@ func (c *Controller) policy() scheduler.Policy {
 		ProvisionTimeout:  c.cfg().Scheduler.ProvisionTimeout,
 		DrainTimeout:      c.cfg().Scheduler.DrainTimeout,
 		MaxCreatesPerTick: c.cfg().Scheduler.MaxCreatesPerTick,
+		MaxRunners:        c.cfg().Limits.Runners,
 		Interval:          c.schedulerInterval(),
 	}
 }

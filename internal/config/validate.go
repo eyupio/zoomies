@@ -1013,6 +1013,38 @@ func (c *Config) Validate() Findings {
 	c.validateBackupRemotes(add)
 
 	// --- Metrics and logging ---------------------------------------------
+	// --- Limits -------------------------------------------------------------
+	// A ceiling guards an instance many people reach against one caller spending what
+	// every other caller needs. On a controller only this machine can reach
+	// there is no other caller, so a ceiling protects nothing and can only
+	// refuse the operator -- which is worth saying before it does.
+	for _, l := range []struct {
+		key   string
+		value int
+	}{
+		{"limits.hosts", c.Limits.Hosts},
+		{"limits.pools", c.Limits.Pools},
+		{"limits.runners", c.Limits.Runners},
+		{"limits.join_tokens", c.Limits.JoinTokens},
+		{"limits.event_subscribers", c.Limits.EventSubscribers},
+	} {
+		switch {
+		case l.value < 0:
+			add(Finding{
+				Code: "limits.negative", Severity: SeverityError, Setting: l.key,
+				Title: fmt.Sprintf("%s is %d, and a ceiling cannot be negative", l.key, l.value),
+				Fix:   fmt.Sprintf("set %s to 0 for no ceiling, or to the most this instance should hold.", l.key),
+			})
+		case l.value > 0 && !c.LikelyReachable():
+			add(Finding{
+				Code: "limits.loopback", Severity: SeverityWarning, Setting: l.key,
+				Title:  fmt.Sprintf("%s is set on a controller only this machine can reach", l.key),
+				Detail: "a ceiling protects an instance many people reach from one caller spending what the others need; with nobody else able to reach this one, it can only refuse you.",
+				Fix:    fmt.Sprintf("set %s back to 0, or leave it if this controller will be reachable once it is behind a proxy or given an external URL.", l.key),
+			})
+		}
+	}
+
 	if c.Metrics.Enabled && c.Metrics.Public {
 		add(Finding{
 			Code: "metrics.public", Severity: SeverityWarning, Setting: "metrics.public",
