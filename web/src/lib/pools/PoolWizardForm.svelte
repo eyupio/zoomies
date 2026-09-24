@@ -287,12 +287,14 @@
     // position so that switching back does not lose what was chosen.
     if (fixed && cpus !== undefined) resources.cpus = cpus;
     if (fixed && memory !== undefined) resources.memory_mb = memory;
-    // A minimum is a floor under a fixed size, so only a fixed pool has one.
-    // An empty field sends nothing, which the API reads as no minimum.
+    // A minimum is a floor under either kind of size: the figures of a fixed
+    // pool, or the host's share for an automatic one, where it is what lets a
+    // runner start on a host with a free slot but less than a share left. An
+    // empty field sends nothing, which the API reads as no minimum.
     const minCpus = toNumber(draft.min_cpus);
     const minMemory = toInteger(draft.min_memory_mb);
-    if (fixed && minCpus !== undefined && minCpus > 0) resources.min_cpus = minCpus;
-    if (fixed && minMemory !== undefined && minMemory > 0) resources.min_memory_mb = minMemory;
+    if (minCpus !== undefined && minCpus > 0) resources.min_cpus = minCpus;
+    if (minMemory !== undefined && minMemory > 0) resources.min_memory_mb = minMemory;
     // Disk and the pids limit are independent of the choice: neither has a
     // share to be given, so a pool may cap its cache's disk and still leave
     // its size to the host.
@@ -425,25 +427,34 @@
         errors['resources.memory_mb'] =
           'A fixed size needs a memory limit. Move the slider to choose one.';
       else if (memory < 512) errors['resources.memory_mb'] = 'A runner needs at least 512 MB.';
-      // The same rules the server keeps, said where the sliders are rather
-      // than on the review step: a minimum sits under the standard and above
-      // what any runner needs.
+      // The same rule the server keeps, said where the sliders are rather
+      // than on the review step: a minimum sits under a stated standard.
       const minCpus = toNumber(draft.min_cpus);
-      if (minCpus !== undefined && minCpus > 0) {
-        if (cpus !== undefined && minCpus > cpus)
-          errors['resources.min_cpus'] = 'The minimum has to be at or below the standard CPU.';
-        else if (minCpus < 0.25)
-          errors['resources.min_cpus'] = 'A runner needs at least a quarter of a core.';
-      }
+      if (minCpus !== undefined && cpus !== undefined && minCpus > cpus)
+        errors['resources.min_cpus'] = 'The minimum has to be at or below the standard CPU.';
       const minMemory = toInteger(draft.min_memory_mb);
-      if (minMemory !== undefined && minMemory > 0) {
-        if (memory !== undefined && minMemory > memory)
-          errors['resources.min_memory_mb'] =
-            'The minimum has to be at or below the standard memory.';
-        else if (minMemory < 512)
-          errors['resources.min_memory_mb'] = 'A runner needs at least 512 MB.';
-      }
+      if (minMemory !== undefined && memory !== undefined && minMemory > memory)
+        errors['resources.min_memory_mb'] =
+          'The minimum has to be at or below the standard memory.';
     }
+    // Under either kind of size a minimum is held to what any runner needs:
+    // it is sent for an automatic pool too, so the floor applies there.
+    const minCpusFloor = toNumber(draft.min_cpus);
+    if (
+      !errors['resources.min_cpus'] &&
+      minCpusFloor !== undefined &&
+      minCpusFloor > 0 &&
+      minCpusFloor < 0.25
+    )
+      errors['resources.min_cpus'] = 'A runner needs at least a quarter of a core.';
+    const minMemoryFloor = toInteger(draft.min_memory_mb);
+    if (
+      !errors['resources.min_memory_mb'] &&
+      minMemoryFloor !== undefined &&
+      minMemoryFloor > 0 &&
+      minMemoryFloor < 512
+    )
+      errors['resources.min_memory_mb'] = 'A runner needs at least 512 MB.';
     if (
       draft.sizing === 'automatic' &&
       (draft.backend === 'docker' || draft.backend === 'podman') &&

@@ -149,7 +149,7 @@ func matrixBlock(images []naming.Image) string {
 				osWidth, img.OS+",",
 				versionWidth, quote(img.Version)+",",
 				quote(platforms(img)),
-				defaultField(img))
+				defaultField(img)+fullField(img))
 		}
 	}
 	return strings.TrimSuffix(b.String(), "\n")
@@ -178,6 +178,15 @@ func defaultField(img naming.Image) string {
 	return ""
 }
 
+// fullField marks a variant that is also built as runner-full, on the same
+// terms as defaultField: only the rows that are carry the key.
+func fullField(img naming.Image) string {
+	if img.Full {
+		return ", full: true"
+	}
+	return ""
+}
+
 // quote renders a YAML scalar that has to stay a string. A version like 24.04
 // is a float to YAML, and an image reference carries a colon.
 func quote(s string) string { return `"` + s + `"` }
@@ -186,10 +195,14 @@ func quote(s string) string { return `"` + s + `"` }
 // for.
 func docsBlock(images []naming.Image) string {
 	var b strings.Builder
-	b.WriteString("| Tag | Base | Architectures |\n")
-	b.WriteString("| --- | --- | --- |\n")
+	b.WriteString("| Tag | Base | Architectures | `zoomies-runner-full` |\n")
+	b.WriteString("| --- | --- | --- | --- |\n")
 	for _, img := range images {
-		fmt.Fprintf(&b, "| `%s` | `%s` | %s |\n", img.Tag(), img.Base, strings.Join(img.Arches, ", "))
+		full := "—"
+		if img.Full {
+			full = "yes"
+		}
+		fmt.Fprintf(&b, "| `%s` | `%s` | %s | %s |\n", img.Tag(), img.Base, strings.Join(img.Arches, ", "), full)
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }

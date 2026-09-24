@@ -520,9 +520,14 @@ type Resources struct {
 }
 
 // Reducible reports whether a runner of these resources may be placed below
-// its standard size: the pool sets a size, and a minimum under it.
+// its standard size: some field has a minimum under its standard. A field the
+// pool leaves to the host has a slot's share of that host as its standard, so
+// any minimum on it counts -- which is what lets an automatic pool run on a
+// host with a free slot but less than a whole share of it left. Whether the
+// minimum is below a particular host's share is the scheduler's to judge.
 func (r Resources) Reducible() bool {
-	return (r.MinCPUs > 0 && r.MinCPUs < r.CPUs) || (r.MinMemoryMB > 0 && r.MinMemoryMB < r.MemoryMB)
+	return (r.MinCPUs > 0 && (r.CPUs <= 0 || r.MinCPUs < r.CPUs)) ||
+		(r.MinMemoryMB > 0 && (r.MemoryMB <= 0 || r.MinMemoryMB < r.MemoryMB))
 }
 
 // CPUBurstMode says what a pool does with CPU that its live runners have not

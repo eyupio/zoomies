@@ -12,6 +12,11 @@ import (
 // the GHCR package page both show the whole catalogue at once.
 const RunnerImageRepo = "ghcr.io/eyupio/zoomies-runner"
 
+// RunnerFullImageRepo is where the runner-full target of the same Dockerfile is
+// published, under the same tags as RunnerImageRepo, for the variants whose
+// catalogue row is Full.
+const RunnerFullImageRepo = "ghcr.io/eyupio/zoomies-runner-full"
+
 // Image is one variant of the runner image: an operating system, the version
 // of it, and the architectures that variant is published for.
 type Image struct {
@@ -31,6 +36,12 @@ type Image struct {
 	// Default marks the variant that :latest points at, and the one a pool
 	// gets when it has not said which operating system it wants.
 	Default bool
+	// Full marks a variant that is also published as RunnerFullImageRepo:
+	// the runner with the language toolchains the setup-* actions would
+	// otherwise download already in its tool cache. Only Ubuntu carries it,
+	// because Python's prebuilt interpreters -- the ones setup-python
+	// installs -- are built for Ubuntu and nothing else.
+	Full bool
 }
 
 // Tag is the image tag this variant is published under, e.g. "ubuntu-2404".
@@ -91,9 +102,9 @@ var (
 // dependencies that musl does not satisfy, so an Alpine variant would build
 // and then fail at the first job, which is worse than not offering it.
 var runnerImages = []Image{
-	{OS: OSUbuntu, Version: "24.04", Base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254", Family: FamilyAPT, Arches: bothArches, Default: true},
-	{OS: OSUbuntu, Version: "26.04", Base: "ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78", Family: FamilyAPT, Arches: bothArches},
-	{OS: OSUbuntu, Version: "22.04", Base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7", Family: FamilyAPT, Arches: bothArches},
+	{OS: OSUbuntu, Version: "24.04", Base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254", Family: FamilyAPT, Arches: bothArches, Default: true, Full: true},
+	{OS: OSUbuntu, Version: "26.04", Base: "ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78", Family: FamilyAPT, Arches: bothArches, Full: true},
+	{OS: OSUbuntu, Version: "22.04", Base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7", Family: FamilyAPT, Arches: bothArches, Full: true},
 	{OS: OSDebian, Version: "13", Base: "debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a", Family: FamilyAPT, Arches: bothArches},
 	{OS: OSDebian, Version: "12", Base: "debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171", Family: FamilyAPT, Arches: bothArches},
 	{OS: OSFedora, Version: "42", Base: "fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814", Family: FamilyDNF, Arches: bothArches},

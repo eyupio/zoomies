@@ -373,12 +373,12 @@ jobs:
         # or swapping an operating system is a row there, not here.
         # zoomies:catalogue-begin
         include:
-          - { tag: ubuntu-2404, arch: amd64, base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
-          - { tag: ubuntu-2404, arch: arm64, base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true }
-          - { tag: ubuntu-2604, arch: amd64, base: "ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78",            family: apt, os: ubuntu, version: "26.04", platforms: "linux/amd64,linux/arm64" }
-          - { tag: ubuntu-2604, arch: arm64, base: "ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78",            family: apt, os: ubuntu, version: "26.04", platforms: "linux/amd64,linux/arm64" }
-          - { tag: ubuntu-2204, arch: amd64, base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64,linux/arm64" }
-          - { tag: ubuntu-2204, arch: arm64, base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64,linux/arm64" }
+          - { tag: ubuntu-2404, arch: amd64, base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true, full: true }
+          - { tag: ubuntu-2404, arch: arm64, base: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",            family: apt, os: ubuntu, version: "24.04", platforms: "linux/amd64,linux/arm64", default: true, full: true }
+          - { tag: ubuntu-2604, arch: amd64, base: "ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78",            family: apt, os: ubuntu, version: "26.04", platforms: "linux/amd64,linux/arm64", full: true }
+          - { tag: ubuntu-2604, arch: arm64, base: "ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78",            family: apt, os: ubuntu, version: "26.04", platforms: "linux/amd64,linux/arm64", full: true }
+          - { tag: ubuntu-2204, arch: amd64, base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64,linux/arm64", full: true }
+          - { tag: ubuntu-2204, arch: arm64, base: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7",            family: apt, os: ubuntu, version: "22.04", platforms: "linux/amd64,linux/arm64", full: true }
           - { tag: debian-13,   arch: amd64, base: "debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a",          family: apt, os: debian, version: "13",    platforms: "linux/amd64,linux/arm64" }
           - { tag: debian-13,   arch: arm64, base: "debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a",          family: apt, os: debian, version: "13",    platforms: "linux/amd64,linux/arm64" }
           - { tag: debian-12,   arch: amd64, base: "debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171",          family: apt, os: debian, version: "12",    platforms: "linux/amd64,linux/arm64" }
@@ -422,6 +422,7 @@ jobs:
         name: Work out the tags
         env:
           IS_DEFAULT: ${{ matrix.default && 'true' || 'false' }}
+          IS_FULL: ${{ matrix.full && 'true' || 'false' }}
           TAG: ${{ matrix.tag }}
           ARCH: ${{ matrix.arch }}
           PLATFORMS: ${{ matrix.platforms }}
@@ -432,7 +433,14 @@ jobs:
           out="$RUNNER_TEMP/digests/$TAG"
           mkdir -p "$out"
           echo "$PLATFORMS" > "$out/platforms"
-          for image in zoomies-runner zoomies-runner-docker; do
+          images="zoomies-runner zoomies-runner-docker"
+          # runner-full exists for the catalogue's Full rows only; the marker
+          # is how runner-manifests knows to publish it for this variant.
+          if [ "$IS_FULL" = "true" ]; then
+            images="$images zoomies-runner-full"
+            touch "$out/full"
+          fi
+          for image in $images; do
             {
               echo "ghcr.io/eyupio/$image:$TAG-$REF"
               # The unversioned OS alias follows full releases, never main or
@@ -525,17 +533,60 @@ jobs:
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
 
+      # runner-docker plus the language toolchains, for the catalogue's Full
+      # rows. Everything beneath the toolchains is the build above.
+      - id: runner-full
+        if: matrix.full && env.BLACKSMITH == 'true'
+        uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
+        with:
+          context: .
+          file: deploy/Dockerfile.runner
+          target: runner-full
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=ghcr.io/eyupio/zoomies-runner-full,push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            BASE=${{ matrix.base }}
+            OS_FAMILY=${{ matrix.family }}
+            OS_ID=${{ matrix.os }}
+            OS_VERSION=${{ matrix.version }}
+            VERSION=${{ needs.setup.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.release.outputs.date }}
+      - id: runner-full-github
+        if: matrix.full && env.BLACKSMITH != 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile.runner
+          target: runner-full
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=ghcr.io/eyupio/zoomies-runner-full,push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            BASE=${{ matrix.base }}
+            OS_FAMILY=${{ matrix.family }}
+            OS_ID=${{ matrix.os }}
+            OS_VERSION=${{ matrix.version }}
+            VERSION=${{ needs.setup.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.release.outputs.date }}
+
       - name: Record the digests
         env:
           TAG: ${{ matrix.tag }}
           ARCH: ${{ matrix.arch }}
+          IS_FULL: ${{ matrix.full && 'true' || 'false' }}
           RUNNER_DIGEST: ${{ steps.runner.outputs.digest || steps.runner-github.outputs.digest }}
           RUNNER_DOCKER_DIGEST: ${{ steps.runner-docker.outputs.digest || steps.runner-docker-github.outputs.digest }}
+          RUNNER_FULL_DIGEST: ${{ steps.runner-full.outputs.digest || steps.runner-full-github.outputs.digest }}
         run: |
           set -eu
           test -n "$RUNNER_DIGEST" && test -n "$RUNNER_DOCKER_DIGEST"
           echo "$RUNNER_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner.digest"
           echo "$RUNNER_DOCKER_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner-docker.digest"
+          if [ "$IS_FULL" = "true" ]; then
+            test -n "$RUNNER_FULL_DIGEST"
+            echo "$RUNNER_FULL_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner-full.digest"
+          fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -580,7 +631,9 @@ jobs:
           failed=0
           for dir in "$DIGESTS"/*/; do
             variant=$(basename "$dir")
-            for image in zoomies-runner zoomies-runner-docker; do
+            images="zoomies-runner zoomies-runner-docker"
+            [ -f "$dir/full" ] && images="$images zoomies-runner-full"
+            for image in $images; do
               refs="" missing=""
               for platform in $(tr ',' ' ' < "$dir/platforms"); do
                 arch="${platform#linux/}"
