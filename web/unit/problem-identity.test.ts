@@ -50,3 +50,15 @@ test('two problems for different pools never collide regardless of code', () => 
   const second = problemKey(problem({ target_id: 'pool_arm64' }));
   assert.notEqual(first, second);
 });
+
+// A snooze of "all like this" has to cover a pool that runs short after the
+// snooze was made, so its key is the code alone -- and it must never be
+// mistaken for one problem's key, or restoring one would lift the other.
+test('every problem of one code shares a type key that no problem key equals', async () => {
+  const { problemTypeKey } = await import('../src/lib/problems/identity.ts');
+  const a = problem({ target_id: 'pool_x64' });
+  const b = problem({ target_id: 'pool_arm64', title: 'another title entirely' });
+  assert.equal(problemTypeKey(a), problemTypeKey(b));
+  assert.notEqual(problemTypeKey(a), problemTypeKey(problem({ code: 'host.unhealthy' })));
+  assert.notEqual(problemTypeKey(a), problemKey(a));
+});

@@ -303,6 +303,27 @@ test('a problem can be snoozed for a fixed while instead of dismissed outright',
   await expect(problems.getByRole('listitem')).toHaveCount(before);
 });
 
+test('a snooze can cover every problem of the same kind, not just the one', async ({ page }) => {
+  const problems = await openProblems(page);
+  const before = await problems.getByRole('listitem').count();
+
+  const entry = problems.getByRole('listitem').filter({ hasText: 'authentication is disabled' });
+  await entry.getByRole('button', { name: /^Dismiss or snooze:/ }).click();
+  // Both scopes, for every duration: a planned outage that makes every pool
+  // short of capacity should be put away once, not once per pool.
+  await expect(page.getByRole('menuitem', { name: 'Snooze for 1 hour' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Snooze all like this for 1 hour' }).click();
+
+  await expect(problems.getByRole('listitem')).toHaveCount(before - 1);
+  await problems.getByRole('button', { name: /Show 1 dismissed problem/ }).click();
+  const snoozed = problems.getByRole('listitem').filter({ hasText: 'authentication is disabled' });
+  await expect(snoozed).toContainText('snoozed with all like it');
+  await expect(snoozed).toContainText(/back in/i);
+
+  await snoozed.getByRole('button', { name: /^Restore:/ }).click();
+  await expect(problems.getByRole('listitem')).toHaveCount(before);
+});
+
 test('dismissing the last problem closes the drawer', async ({ page }) => {
   const problems = await openProblems(page);
 
