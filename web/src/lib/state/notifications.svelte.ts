@@ -17,6 +17,9 @@
  *  * A snooze is a dismissal with an expiry the operator picks -- 15 minutes,
  *    an hour, a day -- rather than "until resolved". It returns to the active
  *    list on its own once the clock passes that time, with no further click.
+ *    A snooze can cover the one problem or every problem of its kind, so a
+ *    planned outage that makes every pool short of capacity is put away once
+ *    -- including a pool that runs short after the snooze was made.
  *
  * Dismissals are per-operator preference, not fleet state, so they are stored
  * beside the other preferences rather than on the server. Nothing here changes
@@ -24,7 +27,7 @@
  */
 import type { Problem, Severity } from '../api/types';
 import { onClockTick } from '../format';
-import { problemKey } from '../problems/identity';
+import { problemKey, problemTypeKey } from '../problems/identity';
 import { fleet } from './fleet.svelte';
 import { storage } from './prefs.svelte';
 
@@ -175,21 +178,24 @@ class Notifications {
   }
 
   isDismissed(problem: Problem): boolean {
-    const record = this.#dismissals[problemKey(problem)];
-    if (!record) return false;
-    if (record.until !== undefined && new Date(record.until).getTime() <= this.#now) return false;
-    // A warning that has since become an error was never read as an error.
-    return rank(severity(problem)) >= rank(record.severity);
+    return this.#covering(problem) !== undefined;
   }
 
   dismissedAt(problem: Problem): string | undefined {
-    return this.#dismissals[problemKey(problem)]?.at;
+    return this.#covering(problem)?.at;
   }
 
   /** When a snoozed problem comes back on its own, or undefined when it was
    * dismissed outright rather than snoozed. */
   snoozedUntil(problem: Problem): string | undefined {
-    return this.#dismissals[problemKey(problem)]?.until;
+    return this.#covering(problem)?.until;
+  }
+
+  /** Whether what is holding this problem back is a snooze of its whole kind,
+   * so the drawer can say that restoring it brings the rest back too. */
+  snoozedByType(problem: Problem): boolean {
+    const own = this.#live(this.#dismissals[problemKey(problem)], problem);
+    return !own && this.#live(this.#dismissals[problemTypeKey(problem)], problem);
   }
 
   /* -- the drawer ---------------------------------------------------------- */
@@ -238,6 +244,22 @@ class Notifications {
     this.#closeIfClear();
   }
 
+  /** Put every problem of this one's kind away for a fixed while, including
+   * any raised after the snooze was made. */
+  snoozeType(problem: Problem, ms: number): void {
+    const now = new Date();
+    this.#dismissals = {
+      ...this.#dismissals,
+      [problemTypeKey(problem)]: {
+        severity: severity(problem),
+        at: now.toISOString(),
+        until: new Date(now.getTime() + ms).toISOString(),
+      },
+    };
+    this.#persist();
+    this.#closeIfClear();
+  }
+
   /** Put away everything currently listed. The drawer's one bulk action. */
   dismissAll(): void {
     const next = { ...this.#dismissals };
@@ -250,11 +272,16 @@ class Notifications {
     this.#closeIfClear();
   }
 
+  /** Bring a problem back, lifting whichever decision was holding it: its
+   * own, and a snooze of its kind, which brings the rest of that kind back
+   * too -- a restore that left the problem hidden would be no restore. */
   restore(problem: Problem): void {
-    const key = problemKey(problem);
-    if (!(key in this.#dismissals)) return;
+    const keys = [problemKey(problem), problemTypeKey(problem)].filter(
+      (key) => key in this.#dismissals,
+    );
+    if (keys.length === 0) return;
     const next = { ...this.#dismissals };
-    delete next[key];
+    for (const key of keys) delete next[key];
     this.#dismissals = next;
     this.#persist();
   }
@@ -274,10 +301,27 @@ class Notifications {
     if (this.#open && this.active.length === 0) this.open = false;
   }
 
+  /** The live dismissal covering a problem -- its own, or a snooze of its
+   * kind -- or undefined when neither does. */
+  #covering(problem: Problem): Dismissal | undefined {
+    for (const key of [problemKey(problem), problemTypeKey(problem)]) {
+      const record = this.#dismissals[key];
+      if (this.#live(record, problem)) return record;
+    }
+    return undefined;
+  }
+
+  #live(record: Dismissal | undefined, problem: Problem): record is Dismissal {
+    if (!record) return false;
+    if (record.until !== undefined && new Date(record.until).getTime() <= this.#now) return false;
+    // A warning that has since become an error was never read as an error.
+    return rank(severity(problem)) >= rank(record.severity);
+  }
+
   /** Drops a dismissal once the problem it covered stops being reported, or
    * once its snooze has run out -- the two ways a dismissal is spent. */
   #sweep(problems: readonly Problem[], now: number): void {
-    const live = new Set(problems.map(problemKey));
+    const live = new Set([...problems.map(problemKey), ...problems.map(problemTypeKey)]);
     const next = { ...this.#dismissals };
     let changed = false;
     for (const [key, record] of Object.entries(next)) {

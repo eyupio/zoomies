@@ -41,3 +41,15 @@ export function problemKey(problem: Problem): string {
     CODES_DISTINGUISHED_BY_TITLE.has(problem.code) ? (problem.title ?? '') : '',
   ].join('|');
 }
+
+/**
+ * The identity of every problem of one kind, whatever it is about: what a
+ * snooze of "all like this" is kept under. An operator who knows every pool
+ * will be short of capacity through a planned outage wants to put that away
+ * once, not once per pool -- and a pool that runs short during the outage is
+ * covered too, which a per-problem snooze could never do. It is prefixed so
+ * it can never equal a problemKey.
+ */
+export function problemTypeKey(problem: Problem): string {
+  return `type:${problem.code}`;
+}

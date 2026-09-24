@@ -21,6 +21,8 @@
     ondismiss?: (problem: Problem) => void;
     /** Put this one away for a fixed while: `ms` is one of `SNOOZE_OPTIONS`. */
     onsnooze?: (problem: Problem, ms: number) => void;
+    /** Put every problem of this one's kind away for a fixed while. */
+    onsnoozetype?: (problem: Problem, ms: number) => void;
     /** Bring a dismissed or snoozed one back. */
     onrestore?: (problem: Problem) => void;
     /** When it was dismissed, so a decision can be dated before it is undone. */
@@ -28,6 +30,9 @@
     /** When a snooze expires and the problem returns on its own, if it was
      * snoozed rather than dismissed outright. */
     snoozedUntil?: string;
+    /** The snooze covers every problem of this kind, so restoring this one
+     * brings them all back. */
+    snoozedByType?: boolean;
     class?: string;
   }
 
@@ -35,9 +40,11 @@
     problem,
     ondismiss,
     onsnooze,
+    onsnoozetype,
     onrestore,
     dismissedAt,
     snoozedUntil,
+    snoozedByType = false,
     class: className = '',
   }: Props = $props();
 
@@ -50,6 +57,15 @@
       icon: Clock,
       onSelect: () => onsnooze?.(problem, option.ms),
     })),
+    ...(onsnoozetype
+      ? SNOOZE_OPTIONS.map((option, i) => ({
+          id: `snooze-type-${option.id}`,
+          label: `Snooze all like this for ${option.label}`,
+          icon: Clock,
+          separated: i === 0,
+          onSelect: () => onsnoozetype(problem, option.ms),
+        }))
+      : []),
     {
       id: 'dismiss',
       label: 'Dismiss until resolved',
@@ -174,6 +190,7 @@
       {#if problem.since}<RelativeTime value={problem.since} prefix="since " />{/if}
       {#if dismissedAt}<RelativeTime value={dismissedAt} prefix="dismissed " />{/if}
       {#if snoozedUntil}<RelativeTime value={snoozedUntil} prefix="back " />{/if}
+      {#if snoozedByType}<span>snoozed with all like it</span>{/if}
       {#if link}
         <a href={link.href} onclick={() => (notifications.open = false)}>{link.label}</a>
       {/if}
