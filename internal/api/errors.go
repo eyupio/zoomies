@@ -37,6 +37,7 @@ const (
 	codeUnprocessable = "unprocessable"
 	codeTooLarge      = "too_large"
 	codeRateLimited   = "rate_limited"
+	codeLimitReached  = "limit_reached"
 	codeInternal      = "internal"
 )
 
@@ -151,6 +152,27 @@ func notFound(w http.ResponseWriter, message string) {
 
 func conflict(w http.ResponseWriter, message string) {
 	writeError(w, http.StatusConflict, errorEnvelope{Error: errorBody{Code: codeConflict, Message: message}})
+}
+
+// limitReached is the refusal from one of the limits.* ceilings. It is a 409
+// with a code of its own rather than a plain conflict because a client can do
+// something different about it -- nothing it resends will help until somebody
+// removes a resource or raises the setting the message names -- and the
+// setting travels in field so a script need not parse the sentence.
+func limitReached(w http.ResponseWriter, err *controller.LimitError) {
+	writeError(w, http.StatusConflict, errorEnvelope{Error: errorBody{
+		Code: codeLimitReached, Message: err.Error(), Field: err.Setting,
+	}})
+}
+
+// asLimit reports whether err is a limits.* refusal, and answers it if so.
+func asLimit(w http.ResponseWriter, err error) bool {
+	var le *controller.LimitError
+	if errors.As(err, &le) {
+		limitReached(w, le)
+		return true
+	}
+	return false
 }
 
 // unprocessable is the validation failure: the request was understood and is

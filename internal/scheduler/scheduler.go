@@ -117,6 +117,11 @@ type Policy struct {
 	// thundering herd of queued jobs cannot fill every host at once. Pools are
 	// shared fairly among pools at the same priority; zero means no cap.
 	MaxCreatesPerTick int
+	// MaxRunners is limits.runners: the most live runners the whole fleet may
+	// hold, across every pool. Zero means no ceiling. Unlike the per-tick
+	// budget it does not refill on the next pass -- only a runner ending makes
+	// room -- so a pool it holds back says which setting did it.
+	MaxRunners int
 	// Interval is how often the reconcile loop runs. A lower-priority pool
 	// whose oldest queued job has waited at least this long is owed one
 	// create before a higher tier spends the rest of the budget, so a deep
@@ -334,6 +339,18 @@ func Decide(s Snapshot) Plan {
 		pp := t.decidePool(p, s.Runners[p.ID], demand[p.ID])
 		plan.Pools = append(plan.Pools, pp)
 	}
+	if limit := s.Policy.MaxRunners; limit > 0 {
+		// Counted after the reap, from what each pool still holds, so a runner
+		// this pass is failing or removing does not keep its place under the
+		// ceiling for one pass longer than it keeps its host slot.
+		live := 0
+		for _, pp := range plan.Pools {
+			live += pp.Current
+		}
+		if room := max(limit-live, 0); room < t.budget {
+			t.budget, t.atCeiling = room, true
+		}
+	}
 	t.allocate(pools, plan.Pools, s.Runners, demand)
 	// Finish cleanup before starting replacements, then preserve the exact
 	// allocation order when registration admission admits only part of a plan.
@@ -351,11 +368,14 @@ func Decide(s Snapshot) Plan {
 // tick is the mutable state of a single Decide call: capacity handed out so
 // far, and the create budget left for the pools that have not been served yet.
 type tick struct {
-	creates            []Action
-	now                time.Time
-	policy             Policy
-	hosts              *hostSet
-	budget             int
+	creates []Action
+	now     time.Time
+	policy  Policy
+	hosts   *hostSet
+	budget  int
+	// atCeiling says the budget was cut to what limits.runners leaves, so a
+	// pool left short is told that rather than blamed on the tick.
+	atCeiling          bool
 	activeByRepository map[string]int
 	poolCount          int
 	jitter             map[string]float64
@@ -728,7 +748,12 @@ func (t *tick) allocate(pools []*store.Pool, plans []PoolPlan, runners map[strin
 			continue
 		}
 		why := fmt.Sprintf("this tick's global limit of %s is exhausted; the next pass will continue", plural(t.policy.MaxCreatesPerTick, "new runner"))
-		if shared > 0 && p.Priority > floor {
+		// The runner ceiling is the binding reason when it holds: no share
+		// across priorities makes room it does not have.
+		if t.atCeiling {
+			why = fmt.Sprintf("the fleet holds the %s limits.runners allows; a runner ending makes room, or raise limits.runners",
+				plural(t.policy.MaxRunners, "live runner"))
+		} else if shared > 0 && p.Priority > floor {
 			why = fmt.Sprintf("deferred for fairness across priorities: %s of this tick's global limit of %s went to lower-priority pools whose jobs had waited a full scheduling interval; the next pass will continue",
 				plural(shared, "create"), plural(t.policy.MaxCreatesPerTick, "new runner"))
 		}

@@ -825,6 +825,14 @@ func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 		unprocessable(w, "this pool cannot be created as described", errs)
 		return
 	}
+	// After validation, so a pool that could never be created is told what is
+	// wrong with it rather than that there is no room for it.
+	if err := s.ctrl.AdmitPool(r.Context()); err != nil {
+		if !asLimit(w, err) {
+			s.internal(w, r, "checking limits.pools", err)
+		}
+		return
+	}
 
 	if err := s.ctrl.Store().CreatePool(r.Context(), p); err != nil {
 		s.fail(w, r, "creating the pool", err)
