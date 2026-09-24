@@ -1178,6 +1178,20 @@ func DefaultConfigFile() string { return filepath.Join(ConfigDir(), "zoomies.yam
 // `zoomies controller` with only environment variables gets working defaults.
 func Load(path string) (*Config, error) {
 	cfg := Default()
+	if err := cfg.readFile(path); err != nil {
+		return nil, err
+	}
+	if err := cfg.applyEnv(); err != nil {
+		return nil, err
+	}
+	cfg.normalize()
+	return cfg, nil
+}
+
+// readFile decodes a config file over c. An empty path is the default file,
+// which may be missing; a path named explicitly may not.
+func (c *Config) readFile(path string) error {
+	cfg := c
 	explicit := path != ""
 	if path == "" {
 		path = DefaultConfigFile()
@@ -1192,7 +1206,7 @@ func Load(path string) (*Config, error) {
 		dec.KnownFields(true)
 		// An empty file is an empty configuration, not a parse error.
 		if err := dec.Decode(cfg); err != nil && !errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return fmt.Errorf("%s: %w", path, err)
 		}
 		cfg.path = path
 		cfg.keyInFile = cfg.Security.EncryptionKey != ""
@@ -1202,14 +1216,9 @@ func Load(path string) (*Config, error) {
 	case os.IsNotExist(err) && !explicit:
 		// Defaults plus environment.
 	default:
-		return nil, fmt.Errorf("reading %s: %w", path, err)
+		return fmt.Errorf("reading %s: %w", path, err)
 	}
-
-	if err := cfg.applyEnv(); err != nil {
-		return nil, err
-	}
-	cfg.normalize()
-	return cfg, nil
+	return nil
 }
 
 // LoadOrDefault is Load, but a config file that fails to parse is fatal while a
@@ -1535,11 +1544,17 @@ func (c *Config) ExternalURLIsLocal() bool {
 	return loopbackHost(u.Hostname())
 }
 
-// applyEnv overlays ZOOMIES_* environment variables.
-func (c *Config) applyEnv() error {
+// applyEnv overlays this process's ZOOMIES_* environment variables.
+func (c *Config) applyEnv() error { return c.applyEnvFrom(os.LookupEnv) }
+
+// applyEnvFrom overlays the ZOOMIES_* variables of an environment, which is
+// this process's for everything but a caller working out another process's
+// configuration -- see Effective.
+func (c *Config) applyEnvFrom(lookup func(string) (string, bool)) error {
+	getenv := func(k string) string { v, _ := lookup(k); return v }
 	var errs []string
 	for _, s := range Settings() {
-		raw, ok := os.LookupEnv(s.Env)
+		raw, ok := lookup(s.Env)
 		if !ok {
 			continue
 		}
@@ -1561,7 +1576,7 @@ func (c *Config) applyEnv() error {
 	// retention.audit has no registry row -- it is the old spelling of
 	// retention.scaling_events rather than a setting of its own -- but a
 	// deployment still setting the variable is honoured, and normalize says so.
-	if v, ok := os.LookupEnv("ZOOMIES_RETENTION_AUDIT"); ok {
+	if v, ok := lookup("ZOOMIES_RETENTION_AUDIT"); ok {
 		d, err := time.ParseDuration(strings.TrimSpace(v))
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("ZOOMIES_RETENTION_AUDIT=%q is not a duration (try 30s, 5m, 2h)", v))
@@ -1575,16 +1590,16 @@ func (c *Config) applyEnv() error {
 	// so their environment is read here. A container deployment keeps the
 	// bucket in the file and the secret key in the environment, which is the
 	// whole reason this exists.
-	if err := c.applyRemoteEnv(); err != nil {
+	if err := c.applyRemoteEnv(lookup); err != nil {
 		errs = append(errs, err.Error())
 	}
 
 	// The bootstrap identity has no registry row either: it is an instruction
 	// to an empty database, not a setting -- see Bootstrap.
 	c.Bootstrap = Bootstrap{
-		Admin:        strings.TrimSpace(os.Getenv("ZOOMIES_BOOTSTRAP_ADMIN")),
-		PasswordFile: strings.TrimSpace(os.Getenv("ZOOMIES_BOOTSTRAP_PASSWORD_FILE")),
-		TokenFile:    strings.TrimSpace(os.Getenv("ZOOMIES_BOOTSTRAP_TOKEN_FILE")),
+		Admin:        strings.TrimSpace(getenv("ZOOMIES_BOOTSTRAP_ADMIN")),
+		PasswordFile: strings.TrimSpace(getenv("ZOOMIES_BOOTSTRAP_PASSWORD_FILE")),
+		TokenFile:    strings.TrimSpace(getenv("ZOOMIES_BOOTSTRAP_TOKEN_FILE")),
 	}
 
 	// Docker's own variable is honoured only when Zoomies' is not set. The
@@ -1592,8 +1607,8 @@ func (c *Config) applyEnv() error {
 	// whose daemon is rootless or remote keeps DOCKER_HOST in that file for
 	// docker and compose themselves; read second, it would silently override
 	// the socket the compose file names explicitly.
-	if _, explicit := os.LookupEnv("ZOOMIES_DOCKER_HOST"); !explicit {
-		if v, ok := os.LookupEnv("DOCKER_HOST"); ok {
+	if _, explicit := lookup("ZOOMIES_DOCKER_HOST"); !explicit {
+		if v, ok := lookup("DOCKER_HOST"); ok {
 			c.Agent.DockerHost = v
 			c.note("agent.docker_host", SourceEnvironment)
 		}
@@ -1617,7 +1632,7 @@ const backupRemoteEnvMax = 9
 // that names a remote past the end of the list appends it. So a compose file
 // can hand over only the secret key of a bucket zoomies.yaml describes, or
 // describe the whole destination with no file at all.
-func (c *Config) applyRemoteEnv() error {
+func (c *Config) applyRemoteEnv(lookup func(string) (string, bool)) error {
 	var errs []string
 	touched := false
 	for i := 1; i <= backupRemoteEnvMax; i++ {
@@ -1636,7 +1651,7 @@ func (c *Config) applyRemoteEnv() error {
 				"ACCESS_KEY_ID", "SECRET_ACCESS_KEY", "PASSPHRASE",
 				"PATH_STYLE", "KEEP", "DISABLED",
 			} {
-				if v, ok := os.LookupEnv(prefix + name); ok {
+				if v, ok := lookup(prefix + name); ok {
 					// The numbered spelling is read first and wins, so a file
 					// that sets both is not ambiguous about which it meant.
 					if _, already := fields[name]; !already {

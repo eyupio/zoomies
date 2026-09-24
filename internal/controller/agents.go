@@ -1689,6 +1689,7 @@ func hostBackends(infos []backend.Info) store.HostBackends {
 			CPUs:         i.CPUs,
 			MemoryMB:     i.MemoryMB,
 			Limits:       i.Limits,
+			SharedFolder: i.SharedFolder,
 		})
 	}
 	slices.SortFunc(out, func(a, b store.HostBackend) int {

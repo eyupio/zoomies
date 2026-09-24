@@ -138,6 +138,10 @@ type Info struct {
 	// before it gives a runner a default limit; Known is false from a backend
 	// that has not asked, which the controller reads as "default nothing".
 	Limits store.LimitSupport `json:"limits"`
+	// SharedFolder says what is wrong with this host's shared folder, the
+	// one runners' caches are bound from, and is empty when nothing is:
+	// see SharedFolderProblem.
+	SharedFolder string `json:"shared_folder,omitempty"`
 }
 
 // Credentials carry whatever the runner needs to attach itself to GitHub.
