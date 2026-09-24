@@ -475,13 +475,15 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 //
 // workflow_job never carries it; only a workflow_run lookup does. Checking
 // the store first means only the first job of a run ever pays for that
-// lookup: ApplyJob keeps whatever run_number a row already has, so every
-// sibling job's delivery finds it already recorded. Best-effort throughout --
-// a failed lookup leaves the job to try again on its next delivery, same as
-// any other webhook enrichment here.
+// lookup, and whatever is found is written to the whole run. It used to be
+// written only to the job that asked: a sibling that found it already
+// recorded used it for that one delivery and never saved it, so the Runners
+// page showed "#1114" beside one job of a run and nothing beside the rest.
+// Best-effort throughout -- a failed lookup leaves the job to try again on
+// its next delivery, same as any other webhook enrichment here.
 func (c *Controller) attachRunNumber(ctx context.Context, saved *store.Job) {
 	if n, err := c.st.RunNumberForRun(ctx, saved.GitHubRunID); err == nil {
-		saved.RunNumber = n
+		c.recordRunNumber(ctx, saved, n)
 		return
 	} else if !errors.Is(err, store.ErrNotFound) {
 		c.log.Warn("could not look up a run number already recorded for this workflow run",
@@ -503,13 +505,17 @@ func (c *Controller) attachRunNumber(ctx context.Context, saved *store.Job) {
 	if run.RunNumber == 0 {
 		return
 	}
-	updated, err := c.st.SetJobRunNumber(ctx, saved.ID, run.RunNumber)
-	if err != nil {
-		c.log.Warn("could not record a job's workflow run number",
+	c.recordRunNumber(ctx, saved, run.RunNumber)
+}
+
+// recordRunNumber writes a run's number to every job of the run that lacks
+// one, the job in hand included.
+func (c *Controller) recordRunNumber(ctx context.Context, saved *store.Job, n int64) {
+	saved.RunNumber = n
+	if err := c.st.SetRunNumberForRun(ctx, saved.Repo, saved.GitHubRunID, n); err != nil {
+		c.log.Warn("could not record a workflow run's number on its jobs",
 			"job", saved.ID, "run", saved.GitHubRunID, "error", err)
-		return
 	}
-	saved.RunNumber = updated.RunNumber
 }
 
 // observeJobCompletion feeds the histograms the Overview's percentiles and the

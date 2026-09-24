@@ -330,24 +330,19 @@ func (s *Store) RunNumberForRun(ctx context.Context, runID int64) (int64, error)
 	return n, err
 }
 
-// SetJobRunNumber records a job's workflow run number once a caller has
-// fetched it from GitHub. It never overwrites a number already recorded, so
-// two lookups racing for the same job cannot disagree with each other.
-func (s *Store) SetJobRunNumber(ctx context.Context, jobID string, number int64) (*Job, error) {
-	var out *Job
-	err := s.tx(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE jobs SET run_number=? WHERE id=? AND run_number=0`, number, jobID); err != nil {
-			return err
-		}
-		j, err := scanJob(tx.QueryRowContext(ctx, `SELECT `+jobCols+` FROM jobs WHERE id = ?`, jobID))
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("job %s: %w", jobID, ErrNotFound)
-		}
-		out = j
+// SetRunNumberForRun records a workflow run's number on every job of it that
+// does not have one yet. A run's jobs arrive as separate deliveries, often
+// before the one lookup of the run's number has come back, so the number is
+// written to the whole run rather than only to the job that asked.
+func (s *Store) SetRunNumberForRun(ctx context.Context, repo string, runID, number int64) error {
+	if runID == 0 || number == 0 {
+		return nil
+	}
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`UPDATE jobs SET run_number=? WHERE repo=? AND github_run_id=? AND run_number=0`, number, repo, runID)
 		return err
 	})
-	return out, err
 }
 
 // ListJobsForRun returns every locally known job in one repository workflow

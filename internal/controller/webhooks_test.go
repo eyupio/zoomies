@@ -700,3 +700,32 @@ func TestADeliveryOverTheBodyCapIsRefusedAndARealOneIsNot(t *testing.T) {
 		t.Fatalf("a real workflow_job delivery for a 500-step job: status = %d; it must be accepted, not refused as too large", rec.Code)
 	}
 }
+
+// A run's number was saved only on the job that looked it up: a sibling that
+// found it already recorded used it for one delivery and never wrote it down,
+// so the Runners page showed "#1114" beside one job of a run and nothing
+// beside the rest. Every job of the run now carries it.
+func TestEveryJobOfARunKeepsTheRunsNumber(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 7101, RunID: 7100, Name: "lint", Workflow: "CI", Labels: labels})
+	first, err := h.st.GetJobByGitHubID(h.ctx, 7101)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What the one lookup of GitHub for the run's number records.
+	if err := h.st.SetRunNumberForRun(h.ctx, first.Repo, 7100, 1114); err != nil {
+		t.Fatal(err)
+	}
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 7102, RunID: 7100, Name: "test", Workflow: "CI", Labels: labels})
+	second, err := h.st.GetJobByGitHubID(h.ctx, 7102)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.RunNumber != 1114 {
+		t.Fatalf("second job's stored run number = %d, want 1114 from its sibling", second.RunNumber)
+	}
+}

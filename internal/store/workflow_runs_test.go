@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -335,6 +336,32 @@ func TestWorkflowRunsCountWhatAnOperatorDidToTheirQueuedJobs(t *testing.T) {
 	for _, sel := range ids {
 		if sel == id(63) {
 			t.Fatalf("selection %v includes the removed job", ids)
+		}
+	}
+}
+
+// A run's jobs arrive as separate deliveries, often before the lookup of the
+// run's number has come back, so the number is written to the whole run --
+// and never over a number a job already has.
+func TestARunsNumberIsRecordedOnEveryJobOfTheRun(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for i, id := range []int64{8101, 8102} {
+		if _, _, err := s.ApplyJob(ctx, &Job{GitHubJobID: id, GitHubRunID: 8100, Repo: "acme/widgets",
+			JobName: fmt.Sprintf("job-%d", i), State: JobQueued}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetRunNumberForRun(ctx, "acme/widgets", 8100, 42); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{8101, 8102} {
+		j, err := s.GetJobByGitHubID(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if j.RunNumber != 42 {
+			t.Errorf("job %d run number = %d, want 42", id, j.RunNumber)
 		}
 	}
 }
