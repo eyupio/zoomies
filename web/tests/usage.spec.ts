@@ -199,3 +199,35 @@ test('analytics supports keyboard inspection, group focus and matching CSV expor
   ).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test('one installation opens its report, with every figure defined in the docs', async ({
+  page,
+}) => {
+  await goto(page, '/usage?group_by=installation', 'Usage');
+  // Grouped by installation with none chosen, the page says where the report is.
+  await expect(page.getByTestId('installation-report-hint')).toBeVisible();
+
+  await goto(page, `/usage?group_by=installation&entity=${FIXTURE.installationId}`, 'Usage');
+  const report = page.getByRole('region', { name: 'Installation report', exact: true });
+  await expect(report).toBeVisible();
+  for (const figure of ['Observed', 'Eligible', 'Created for', 'Ran here', 'Fleet fault']) {
+    await expect(report.getByText(figure, { exact: true })).toBeVisible();
+  }
+  await expect(
+    report.getByRole('rowheader', { name: 'Eligible to first create task' }),
+  ).toBeVisible();
+  await expect(report.getByRole('link', { name: 'How each figure is defined' })).toHaveAttribute(
+    'href',
+    /metrics\/#per-installation-report$/,
+  );
+  // It is per installation, so no repository appears in it.
+  for (const repo of FIXTURE.repos) {
+    await expect(report.getByText(repo)).toHaveCount(0);
+  }
+
+  // Its window is its own, and changing it asks again.
+  const asked = page.waitForRequest((r) => r.url().includes('/report?window=168h'));
+  await report.getByLabel('Report window').selectOption('168h');
+  await asked;
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
