@@ -15,10 +15,35 @@
     const ms = new Date(`${date}T23:59:59.999`).getTime();
     return Number.isNaN(ms) ? undefined : new Date(ms).toISOString();
   }
+
+  /**
+   * The same two for a bound that may carry a time of day, `YYYY-MM-DDTHH:MM`
+   * as a `datetime-local` input writes it, or be a bare date as an older link
+   * does. An end at a minute takes the whole of that minute, as an end on a
+   * day takes the whole of that day, so "until 17:00" includes the job that
+   * finished at 17:00:40.
+   */
+  export function startOfMoment(value: string): string | undefined {
+    if (!value.includes('T')) return startOfDay(value);
+    const ms = new Date(value).getTime();
+    return Number.isNaN(ms) ? undefined : new Date(ms).toISOString();
+  }
+
+  export function endOfMoment(value: string): string | undefined {
+    if (!value.includes('T')) return endOfDay(value);
+    const ms = new Date(value).getTime();
+    return Number.isNaN(ms) ? undefined : new Date(ms + 59_999).toISOString();
+  }
+
+  /** An instant as a `datetime-local` input shows it, on the operator's own clock. */
+  export function localMoment(at: Date): string {
+    const local = new Date(at.getTime() - at.getTimezoneOffset() * 60_000);
+    return local.toISOString().slice(0, 16);
+  }
 </script>
 
 <!--
-  A from/to pair of dates.
+  A from/to pair of dates, or of dates and times of day with `withTime`.
 
   Native date inputs rather than a hand-rolled calendar: they are keyboard
   operable, localised and understood by every assistive technology already,
@@ -27,16 +52,21 @@
 -->
 <script lang="ts">
   interface Props {
-    /** ISO calendar dates, `YYYY-MM-DD`, or empty for no bound. */
+    /**
+     * ISO calendar dates, `YYYY-MM-DD`, or empty for no bound. With `withTime`
+     * they are `YYYY-MM-DDTHH:MM` on the operator's clock.
+     */
     since: string;
     until: string;
+    /** Pick a time of day as well as a date, for a range shorter than a day. */
+    withTime?: boolean;
     /** Names the pair: "Jobs queued". */
     label: string;
     onchange: (next: { since: string; until: string }) => void;
     class?: string;
   }
 
-  let { since, until, label, onchange, class: className = '' }: Props = $props();
+  let { since, until, label, withTime = false, onchange, class: className = '' }: Props = $props();
 
   const uid = $props.id();
   const sinceId = `from-${uid}`;
@@ -50,7 +80,7 @@
   <label class="leg" for={sinceId}>From</label>
   <input
     id={sinceId}
-    type="date"
+    type={withTime ? 'datetime-local' : 'date'}
     value={since}
     max={until || undefined}
     aria-invalid={backwards}
@@ -60,7 +90,7 @@
   <label class="leg" for={untilId}>to</label>
   <input
     id={untilId}
-    type="date"
+    type={withTime ? 'datetime-local' : 'date'}
     value={until}
     min={since || undefined}
     aria-invalid={backwards}
@@ -68,7 +98,7 @@
     onchange={(event) => onchange({ since, until: event.currentTarget.value })}
   />
   {#if backwards}
-    <p class="error" id={errorId}>The end date is before the start date, so nothing can match.</p>
+    <p class="error" id={errorId}>The end is before the start, so nothing can match.</p>
   {/if}
 </div>
 
