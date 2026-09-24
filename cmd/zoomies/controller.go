@@ -212,6 +212,12 @@ func runController(ctx context.Context, e *env, args []string) error {
 	}
 
 	printBanner(e.out, cfg, backends)
+	// The environment's first account is made before the setup token is
+	// considered, so an instance that bootstrapped itself never prints a
+	// token nobody needs.
+	if err := ctrl.BootstrapFromEnvironment(ctx); err != nil {
+		return err
+	}
 	printSetupToken(ctx, e.out, ctrl, log)
 
 	// The settings page can ask this process to stop so that its service

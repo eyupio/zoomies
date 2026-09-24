@@ -48,6 +48,10 @@ type Config struct {
 	UI             UI             `yaml:"ui"`
 	Backup         Backup         `yaml:"backup"`
 
+	// Bootstrap is the first identity an unattended install asks for. It is
+	// read from the environment only -- see Bootstrap.
+	Bootstrap Bootstrap `yaml:"-"`
+
 	// path records where this config was read from, for error messages.
 	path string `yaml:"-"`
 	// keyInFile records that the encryption key was written in that file, as
@@ -60,6 +64,51 @@ type Config struct {
 	// database or the environment, and therefore whether changing it here will
 	// survive a restart.
 	sources map[string]Source `yaml:"-"`
+}
+
+// Bootstrap names the first identity a controller creates for itself when
+// its database has no accounts, so an instance a compose file or a Terraform
+// module brought up is usable with nobody at a browser and nobody reading the
+// setup token out of the log -- a compose file has nobody watching.
+//
+// It is environment only: never a key in zoomies.yaml nor a row in the
+// settings table. It is a one-shot instruction rather than a setting -- it
+// acts once, on an empty database, and is ignored ever after -- so storing it
+// would keep a value that means nothing in a place that implies it does. The
+// secrets are named by path rather than carried in the variables, because a
+// process's environment is readable by more things than a 0600 file is:
+// `docker inspect`, /proc, a crash report.
+type Bootstrap struct {
+	// Admin is the username of the first account.
+	Admin string
+	// PasswordFile holds that account's password.
+	PasswordFile string
+	// TokenFile holds an API token the provisioner generated. The controller
+	// registers it as a platform token for the account and prints nothing:
+	// the secret is chosen by whoever already holds it, so there is no second
+	// copy to scrape out of a log.
+	TokenFile string
+}
+
+// Requested reports whether any of the bootstrap variables is set.
+func (b Bootstrap) Requested() bool {
+	return b.Admin != "" || b.PasswordFile != "" || b.TokenFile != ""
+}
+
+// Variables names the bootstrap variables that are set, for a message that
+// has to tell an operator which ones to remove.
+func (b Bootstrap) Variables() []string {
+	var out []string
+	if b.Admin != "" {
+		out = append(out, "ZOOMIES_BOOTSTRAP_ADMIN")
+	}
+	if b.PasswordFile != "" {
+		out = append(out, "ZOOMIES_BOOTSTRAP_PASSWORD_FILE")
+	}
+	if b.TokenFile != "" {
+		out = append(out, "ZOOMIES_BOOTSTRAP_TOKEN_FILE")
+	}
+	return out
 }
 
 // Images controls how the fleet keeps the images its pools run up to date.
@@ -1436,6 +1485,14 @@ func (c *Config) applyEnv() error {
 	// whole reason this exists.
 	if err := c.applyRemoteEnv(); err != nil {
 		errs = append(errs, err.Error())
+	}
+
+	// The bootstrap identity has no registry row either: it is an instruction
+	// to an empty database, not a setting -- see Bootstrap.
+	c.Bootstrap = Bootstrap{
+		Admin:        strings.TrimSpace(os.Getenv("ZOOMIES_BOOTSTRAP_ADMIN")),
+		PasswordFile: strings.TrimSpace(os.Getenv("ZOOMIES_BOOTSTRAP_PASSWORD_FILE")),
+		TokenFile:    strings.TrimSpace(os.Getenv("ZOOMIES_BOOTSTRAP_TOKEN_FILE")),
 	}
 
 	// Docker's own variable is honoured only when Zoomies' is not set. The

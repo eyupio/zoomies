@@ -704,7 +704,36 @@ docker compose logs zoomies | grep 'setup token'
 It is minted per process and held only in memory, so restarting the controller
 prints a new one, and the line stops appearing for good once an account exists.
 `zoomies init` and the installer create the first account on the console
-and never need it.
+and never need it. The token is for a person at a browser; an unattended
+deployment should not scrape it out of the log, and uses the variables below.
+
+### The first account, from the environment
+
+A compose file or a Terraform module has nobody watching, so there is nobody to
+read the setup token. These three variables create the first account instead,
+once, at startup, on a database with no accounts. They are read from the
+environment only: they are not keys in `zoomies.yaml` and not settings in the
+database, because they are an instruction to an empty database rather than
+something the controller keeps doing.
+
+| Environment | What it is |
+| --- | --- |
+| `ZOOMIES_BOOTSTRAP_ADMIN` | The username of the first account. It holds the `platform` role, as the one the first-run page makes does. |
+| `ZOOMIES_BOOTSTRAP_PASSWORD_FILE` | A file holding that account's password, at least 12 characters. A trailing newline is ignored. |
+| `ZOOMIES_BOOTSTRAP_TOKEN_FILE` | A file holding an API token you generated — at least 32 characters, no whitespace, for example `openssl rand -hex 32`. The controller registers it as a `platform` API token named `bootstrap` for the account, and prints nothing: the secret is the one you already hold. The account has no password, so it is automation's identity and cannot sign in to the UI; create people their own accounts with it. |
+
+Set the username and exactly one of the two files; anything else is
+`bootstrap.incomplete` and the controller does not start. Each file must be
+mode 0600 or tighter — a file group or other can read is refused, as the
+encryption key file is. Docker's `secrets:` mounts files 0444 unless the long
+syntax sets `mode: 0400`.
+
+The account is recorded in the audit log as `auth.bootstrap` with the system as
+the actor and the method it came by; the first-run page, the installer and an
+answer file's `admin` keys write the same row with their own method. Once any
+account exists the variables are ignored, and `bootstrap.ignored` names them
+until they are removed. `/readyz` reports `bootstrap_required`, so a provisioner
+waits on one endpoint for the instance to be usable.
 
 ### `server.allow_indexing`
 
