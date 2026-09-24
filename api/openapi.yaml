@@ -1139,6 +1139,10 @@ paths:
                     type: array
                     description: Every host the selector reaches that the fleet could not run this pool on, with the reason. It is what turns "2 hosts match" followed by "1 host can run this pool" from a contradiction into an explanation.
                     items: { $ref: "#/components/schemas/HostExclusion" }
+                  reduced_hosts:
+                    type: array
+                    description: Hosts that can run this pool, and are counted in matching_hosts, but give its runners less than a larger machine would — the pool's minimum at work, with code `reduced` and a sentence saying how much. Information, not a warning.
+                    items: { $ref: "#/components/schemas/HostExclusion" }
                   image:
                     type: string
                     description: The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. Empty for a pool that names no image, where nothing is stored — `effective_image` is the answer there.
@@ -4192,7 +4196,7 @@ components:
         code:
           type: string
           description: Which placement rule turned this host down.
-          enum: [unavailable, backend, platform, size]
+          enum: [unavailable, backend, platform, size, reduced]
         reason:
           type: string
           description: A sentence about the host with its name left out, so a caller can put the name where its own layout wants it.
@@ -6371,6 +6375,12 @@ components:
             cpu: { type: boolean, description: A CPU quota. A daemon that cannot apply one refuses the container. }
             memory: { type: boolean, description: A memory limit. A daemon that cannot apply one starts the container without it. }
             pids: { type: boolean, description: A pids limit. A daemon that cannot apply one ignores it. }
+        shared_folder:
+          type: string
+          description: >-
+            What is wrong with the host's shared folder, the one runners' caches are bound from:
+            a containerised agent whose container does not mount it from the host, which keeps
+            no tool cache there. Empty when nothing is. See host.shared_folder_unmounted.
 
     Host:
       type: object

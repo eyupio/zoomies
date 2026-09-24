@@ -436,3 +436,41 @@ func TestACacheFolderIsCreatedWritableByTheRunner(t *testing.T) {
 		t.Errorf("an existing folder's mode was changed to %v", fi.Mode().Perm())
 	}
 }
+
+// A tool cache folder the runner cannot write to is worse than none: every
+// setup action that downloads fails with EACCES instead of downloading. It is
+// what a host's daemon leaves, root's, when the agent's container does not
+// mount the shared folder -- and it outlives the mount being fixed, because a
+// folder that exists is left as its owner made it. The runner starts without
+// it, and the host says why.
+func TestAToolCacheTheRunnerCannotWriteIsLeftOut(t *testing.T) {
+	requirePOSIX(t)
+	shared := t.TempDir()
+	spec := Spec{Name: "r", PoolID: "pool_1", Cache: store.CacheConfig{Enabled: true, Tools: true, Scope: store.CacheScopePool}}
+	dir := filepath.Join(shared, "cache", "tools", "pool-1")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b := &DockerBackend{sharedDir: shared, log: quietLogger()}
+
+	var opts containerOptions
+	b.prepareCacheDirs(spec, &opts)
+	if os.Getuid() != stockRunnerUID {
+		if opts.ToolCacheDir != "" {
+			t.Fatalf("a folder the runner cannot write to was bound: %s", opts.ToolCacheDir)
+		}
+		if p := b.lastToolCacheProblem(); !strings.Contains(p, "chmod 0777") {
+			t.Errorf("problem = %q, want one naming the fix", p)
+		}
+	}
+
+	// Opened up, it is used again and the problem clears.
+	if err := os.Chmod(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	opts = containerOptions{}
+	b.prepareCacheDirs(spec, &opts)
+	if opts.ToolCacheDir != dir || b.lastToolCacheProblem() != "" {
+		t.Errorf("dir = %q, problem = %q; want the folder bound and no problem", opts.ToolCacheDir, b.lastToolCacheProblem())
+	}
+}

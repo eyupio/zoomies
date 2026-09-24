@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { browserOverride, goto } from './support/fixtures';
+import { browserOverride, clearStoredPreferences, goto, reload } from './support/fixtures';
 
 test.use(browserOverride);
 
@@ -12,7 +12,9 @@ const pages = [
 test('Appearance persists the style across runners, workflows and queue', async ({ page }) => {
   await goto(page, '/settings/appearance', 'Appearance');
   const choice = page.getByRole('group', { name: 'Zoomies vocabulary' });
-  await expect(choice.getByRole('button', { name: /^Cute/ })).toHaveAttribute(
+  // A browser with nothing saved -- a new install, or preferences cleared --
+  // starts on plain words and icons.
+  await expect(choice.getByRole('button', { name: /^Off/ })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
@@ -66,6 +68,26 @@ test('a saved vocabulary opt-out stays off after the upgrade', async ({ page }) 
   await expect(
     page.getByRole('group', { name: 'Zoomies vocabulary' }).getByRole('button', { name: /^Off/ }),
   ).toHaveAttribute('aria-pressed', 'true');
+  await goto(page, '/runners', 'Runners');
+  await expect(page.locator('svg[data-style]')).toHaveCount(0);
+});
+
+test('clearing saved preferences puts the style back to Off', async ({ page }) => {
+  await goto(page, '/settings/appearance', 'Appearance');
+  const choice = page.getByRole('group', { name: 'Zoomies vocabulary' });
+  await choice.getByRole('button', { name: /^Cute/ }).click();
+  await reload(page, 'Appearance');
+  await expect(choice.getByRole('button', { name: /^Cute/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+
+  await clearStoredPreferences(page);
+  await reload(page, 'Appearance');
+  await expect(choice.getByRole('button', { name: /^Off/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await goto(page, '/runners', 'Runners');
   await expect(page.locator('svg[data-style]')).toHaveCount(0);
 });

@@ -50,6 +50,9 @@ type BackendInfoView struct {
 	// host.limits_unenforceable reasons about; the API carries it so a
 	// reader of the problem can see the fact behind it.
 	Limits store.LimitSupport `json:"limits"`
+	// SharedFolder is what is wrong with the host's shared folder, as the
+	// agent said; see host.shared_folder_unmounted.
+	SharedFolder string `json:"shared_folder,omitempty"`
 }
 
 // HostView is one agent host and the room it has left.
@@ -276,14 +279,15 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		out.BackendInfo = make([]BackendInfoView, 0, len(h.BackendInfo))
 		for _, b := range h.BackendInfo {
 			out.BackendInfo = append(out.BackendInfo, BackendInfoView{
-				Kind:      b.Kind,
-				Available: b.Available,
-				Version:   b.Version,
-				Rootless:  b.Rootless,
-				Endpoint:  b.Endpoint,
-				Detail:    b.Detail,
-				DinD:      b.SupportsDinD,
-				Limits:    b.Limits,
+				Kind:         b.Kind,
+				Available:    b.Available,
+				Version:      b.Version,
+				Rootless:     b.Rootless,
+				Endpoint:     b.Endpoint,
+				Detail:       b.Detail,
+				DinD:         b.SupportsDinD,
+				Limits:       b.Limits,
+				SharedFolder: b.SharedFolder,
 			})
 		}
 		return out

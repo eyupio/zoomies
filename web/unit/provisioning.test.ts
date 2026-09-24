@@ -13,14 +13,22 @@ import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 
 const LUCIDE = 'zoomies-test:lucide-stub';
-const iconNames = (
-  /import\s*\{([^}]*)\}\s*from\s*'@lucide\/svelte'/.exec(
-    readFileSync(new URL('../src/lib/status.ts', import.meta.url), 'utf8'),
-  )?.[1] ?? ''
-)
-  .split(',')
-  .map((name) => name.trim())
-  .filter((name) => name !== '');
+// Both files' icons: the actions' glyphs are the buttons' own, and the state
+// map deliberately shares none of them, so neither list covers the other.
+const iconNames = [
+  ...new Set(
+    ['../src/lib/status.ts', '../src/lib/jobs/provisioning.ts'].flatMap((file) =>
+      (
+        /import\s*\{([^}]*)\}\s*from\s*'@lucide\/svelte'/.exec(
+          readFileSync(new URL(file, import.meta.url), 'utf8'),
+        )?.[1] ?? ''
+      )
+        .split(',')
+        .map((name) => name.trim())
+        .filter((name) => name !== ''),
+    ),
+  ),
+];
 
 registerHooks({
   resolve(specifier, context, next) {

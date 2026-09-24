@@ -93,24 +93,38 @@ func TestAnAutomaticPoolDoesNotGoBelowItsMinimum(t *testing.T) {
 	}
 }
 
-// A docker-in-docker slot is split between the runner and its daemon, so it is
-// never cut below what that split needs, whatever the minimum says.
-func TestAnAutomaticDinDSlotIsNotCutBelowWhatItsPairNeeds(t *testing.T) {
+// A docker-in-docker slot is split between the runner and its daemon, and the
+// pool's minimum is per container, so the slot is never cut below twice the
+// minimum -- and no further than that: the operator's minimum, not the
+// comfortable figure a pool nobody sized is held to, is what the pair needs.
+func TestAnAutomaticDinDSlotIsNotCutBelowTwiceItsMinimum(t *testing.T) {
 	p := automatic("auto", 0.5, 1024)
 	p.DockerMode = store.DockerDinD
 	floor := ShareFloor(p)
-
-	h := sized("h", 2, 8, hostFor(16*1024), 100000)
-	h.ActiveRunners = 1
-	big := limited("big", 6.5, 13*1024)
-	r := &store.Runner{ID: "r1", PoolID: big.ID, HostID: h.ID, State: store.RunnerBusy}
-	hs := newHostSet([]*store.Host{h}, []*store.Pool{big, p}, map[string][]*store.Runner{big.ID: {r}}, now)
-	left := hs.leftFor(h, p)
-	if left.CPUs >= floor.CPUs {
-		t.Fatalf("test setup: %g cores left is not under the pair's %g", left.CPUs, floor.CPUs)
+	if floor.CPUs != 1 || floor.MemoryMB != 2048 {
+		t.Fatalf("ShareFloor = %+v, want twice the minimum: 1 core and 2 GB", floor)
 	}
-	if got := hs.placeAvoiding(p, 1, nil); len(got) != 0 {
-		t.Fatalf("placed %+v on %g cores, under the %g a runner and its daemon need", got, left.CPUs, floor.CPUs)
+
+	for _, tc := range []struct {
+		name   string
+		used   float64
+		placed bool
+	}{
+		{"exactly twice the minimum left", 6.5, true},
+		{"less than twice the minimum left", 6.6, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := sized("h", 2, 8, hostFor(16*1024), 100000)
+			h.ActiveRunners = 1
+			big := limited("big", tc.used, 13*1024)
+			r := &store.Runner{ID: "r1", PoolID: big.ID, HostID: h.ID, State: store.RunnerBusy}
+			hs := newHostSet([]*store.Host{h}, []*store.Pool{big, p}, map[string][]*store.Runner{big.ID: {r}}, now)
+			left := hs.leftFor(h, p)
+			got := hs.placeAvoiding(p, 1, nil)
+			if (len(got) == 1) != tc.placed {
+				t.Fatalf("with %g cores left, placed %+v; want placed=%v against the pair's %g", left.CPUs, got, tc.placed, floor.CPUs)
+			}
+		})
 	}
 }
 
@@ -164,5 +178,40 @@ func TestAQueuedJobOnAnAutomaticPoolIsCreatedReduced(t *testing.T) {
 	}
 	if !strings.Contains(creates[0].Reason, "reduced to 2.5 CPU and 6 GB") || strings.Contains(creates[0].Reason, "standard") {
 		t.Errorf("reason = %q, want the reduced size and no standard the pool never set", creates[0].Reason)
+	}
+}
+
+// The report behind this: an automatic docker-in-docker pool with a minimum,
+// and a 4-core, 3 GB machine set to one slot. Its share is 2.8 GB, under the
+// 4 GB a pair nobody sized is held to and over twice the minimum the operator
+// typed, so it runs the pool -- at that share -- and saying so is information,
+// not a reason it cannot. Without a minimum it still cannot, and with one above
+// the share the refusal names the minimum as the operator's to lower.
+func TestAnAutomaticDinDPoolRunsAtItsMinimumOnASmallHostAndSaysSoAsInformation(t *testing.T) {
+	h := sized("small", 1, 4, hostFor(2867), 100000)
+	withMin := automatic("auto", 0, 1024)
+	withMin.DockerMode = store.DockerDinD
+
+	if !HostFits(h, withMin) {
+		t.Fatalf("a 2.8 GB share was refused for a pool whose pair needs 2 GB: %s", HostShortfall(h, withMin))
+	}
+	if s := HostShortfall(h, withMin); s != "" {
+		t.Errorf("shortfall = %q, want none", s)
+	}
+	note := HostReduction(h, withMin)
+	if !strings.Contains(note, "2.8 GB") || !strings.Contains(note, "4 GB") || !strings.Contains(note, "minimum") {
+		t.Errorf("reduction = %q, want the share, the comfortable size and the minimum", note)
+	}
+
+	noMin := automatic("plain", 0, 0)
+	noMin.DockerMode = store.DockerDinD
+	if HostFits(h, noMin) || !strings.Contains(HostShortfall(h, noMin), "a runner is killed before it takes a job below 4 GB") {
+		t.Errorf("a pool nobody sized was placed on a thin slot: %q", HostShortfall(h, noMin))
+	}
+
+	high := automatic("high", 0, 2048)
+	high.DockerMode = store.DockerDinD
+	if got := HostShortfall(h, high); !strings.Contains(got, "less than this pool's minimum of 2 GB a container") {
+		t.Errorf("shortfall = %q, want it to name the pool's own minimum", got)
 	}
 }
