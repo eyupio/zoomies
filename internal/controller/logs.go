@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/backend"
@@ -19,6 +20,14 @@ import (
 const (
 	logSubscriberQueue = 512
 	logReadChunk       = 32 << 10
+	// logStreamBytesPerSecond and logStreamBurst are one stream's byte budget.
+	// The subscriber queue bounds what is held for a slow reader; this bounds
+	// what one agent can push through the relay at all, which is otherwise as
+	// fast as it can write and is copied once per viewer. A megabyte a second
+	// is more than any runner's output a person can read, and the burst
+	// covers the backlog a stream opened with --tail sends at once.
+	logStreamBytesPerSecond = 1 << 20
+	logStreamBurst          = 8 << 20
 )
 
 // ErrStreamUnknown is returned when an agent posts a log stream nobody is
@@ -49,6 +58,29 @@ type logStream struct {
 	subs   map[int]chan []byte
 	nextID int
 	closed bool
+
+	// budget is the stream's remaining byte allowance and budgetAt when it
+	// was last topped up. Only AcceptLogStream touches them, from the one
+	// goroutine reading the agent's POST, so they need no lock.
+	budget   float64
+	budgetAt time.Time
+}
+
+// spend reports whether n bytes fit in the stream's budget at now, and takes
+// them if they do. A chunk that does not fit is dropped whole rather than cut:
+// half a line is worse than a gap.
+func (s *logStream) spend(n int, now time.Time) bool {
+	if s.budgetAt.IsZero() {
+		s.budget = logStreamBurst
+	} else if d := now.Sub(s.budgetAt); d > 0 {
+		s.budget = min(logStreamBurst, s.budget+d.Seconds()*logStreamBytesPerSecond)
+	}
+	s.budgetAt = now
+	if float64(n) > s.budget {
+		return false
+	}
+	s.budget -= float64(n)
+	return true
 }
 
 func newLogRelay(c *Controller) *logRelay {
@@ -201,6 +233,18 @@ func (c *Controller) AcceptLogStream(hostID, streamID string, r io.Reader) error
 	buf := make([]byte, logReadChunk)
 	for {
 		n, err := r.Read(buf)
+		if n > 0 && !s.spend(n, c.Now()) {
+			// Over budget: the bytes are read and dropped, never waited on.
+			// Blocking would hold the agent's POST open and push the backlog
+			// back into the agent's memory, which is the same wedge the
+			// subscriber queue exists to avoid, one hop earlier.
+			c.metrics.logRelayDropped.Add(float64(n))
+			n = 0
+			if s.isClosed() {
+				// Nobody is left to drop it for; send would have said so.
+				return nil
+			}
+		}
 		if n > 0 {
 			// The buffer is reused, so each subscriber gets its own copy.
 			chunk := make([]byte, n)
