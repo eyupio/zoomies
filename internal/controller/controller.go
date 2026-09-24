@@ -984,6 +984,30 @@ func (c *Controller) DeleteInstallation(ctx context.Context, id string) error {
 	return nil
 }
 
+// PurgeInstallation is DeleteInstallation that also takes the history: the
+// installation's jobs, deliveries, scaling events, sessions, usage days and
+// the audit rows that name any of them. It announces what the page shows the
+// same way the delete does; history rows have no live view to retract.
+func (c *Controller) PurgeInstallation(ctx context.Context, id string) error {
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing the installation's pools: %w", err)
+	}
+	runners, err := c.st.PurgeInstallation(ctx, id)
+	if err != nil {
+		return err
+	}
+	c.Forget(id)
+	c.publishRunnersDeleted(runners)
+	for _, p := range pools {
+		if p.InstallationID == id {
+			c.PublishPoolDeleted(p.ID)
+		}
+	}
+	c.PublishInstallationDeleted(id)
+	return nil
+}
+
 // PublishHost announces a host an operator changed: its capacity, its labels,
 // or whether it is cordoned.
 func (c *Controller) PublishHost(h *store.Host) { c.publishHost(h) }

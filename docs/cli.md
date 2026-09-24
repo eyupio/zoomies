@@ -168,6 +168,18 @@ never any key material. `installations verify <installation-id>` asks GitHub
 whether the credentials and permissions are still what Zoomies needs, which is
 the first thing to run when registration starts failing.
 
+### `zoomies export` and `zoomies import`
+
+`export --installation <installation-id>` writes everything about one
+installation — its pools, runners, jobs, deliveries, scaling events, runner
+sessions and the audit rows that name them — as one archive (`--out`, by
+default `zoomies-installation-<id>.json`, mode 0600). With
+`--passphrase-file` the App's private key and webhook secret are sealed under
+that passphrase, so the archive can be imported on another instance without
+this one's key. `import <archive> --passphrase-file FILE` writes it onto this
+instance, all of it or none. See
+[moving one installation](backup-and-restore.md#moving-one-installation-or-removing-its-history).
+
 ### `zoomies audit`
 
 `audit list` is who did what, newest first, filtered by `--actor`, `--action`,

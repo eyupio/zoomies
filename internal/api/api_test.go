@@ -698,6 +698,8 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "PATCH", path: "/api/v1/installations/" + ids.installation, role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionInstallationsWrite},
 		{method: "DELETE", path: "/api/v1/installations/missing", role: store.RoleAdmin, action: auth.ActionInstallationsDelete},
 		{method: "POST", path: "/api/v1/installations/" + ids.installation + "/verify", role: store.RoleOperator, action: auth.ActionInstallationsVerify},
+		{method: "POST", path: "/api/v1/installations/" + ids.installation + "/export", role: store.RoleAdmin, action: auth.ActionInstallationsExport},
+		{method: "POST", path: "/api/v1/installations/import", role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionInstallationsWrite},
 		{method: "GET", path: "/api/v1/installations/" + ids.installation + "/runner-groups", role: store.RoleViewer, action: auth.ActionInstallationsRead},
 		{method: "GET", path: "/api/v1/installations/" + ids.installation + "/rate-limit", role: store.RoleViewer, action: auth.ActionInstallationsRead},
 		{method: "GET", path: "/api/v1/installations/" + ids.installation + "/report", role: store.RoleViewer, action: auth.ActionUsageRead},

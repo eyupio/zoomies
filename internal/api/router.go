@@ -75,6 +75,9 @@ func (s *Server) routes() http.Handler {
 		r.Use(s.csrf)
 		r.Use(s.authenticate)
 		r.With(s.require(auth.ActionBackupsWrite)).Post("/api/v1/backups/upload", s.handleUploadBackup)
+		// An installation archive is history rather than a request, and the
+		// handler bounds it itself for the same reason.
+		r.With(s.require(auth.ActionInstallationsWrite)).Post("/api/v1/installations/import", s.handleImportInstallation)
 	})
 	r.Mount("/api/v1", s.apiRoutes())
 
@@ -135,6 +138,7 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionInstallationsWrite)).Patch("/{id}", s.handleUpdateInstallation)
 			r.With(s.require(auth.ActionInstallationsDelete)).Delete("/{id}", s.handleDeleteInstallation)
 			r.With(s.require(auth.ActionInstallationsVerify)).Post("/{id}/verify", s.handleVerifyInstallation)
+			r.With(s.require(auth.ActionInstallationsExport)).Post("/{id}/export", s.handleExportInstallation)
 			r.With(s.require(auth.ActionInstallationsRead)).Get("/{id}/runner-groups", s.handleRunnerGroups)
 			r.With(s.require(auth.ActionInstallationsRead)).Get("/{id}/rate-limit", s.handleRateLimit)
 			// Gated like the usage report it is a section of, not like the

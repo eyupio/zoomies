@@ -560,8 +560,14 @@ paths:
         running: a runner has to be deregistered from GitHub while the installation's
         credentials still exist, which is before the row goes, so there is no drain here.
         Drain the pools first with `DELETE /pools/{id}` if the running jobs matter. The
-        response says how many pools and runners went with it.
+        response says how many pools and runners went with it. Jobs, deliveries, scaling
+        events and usage are left behind unless `purge=true`, which removes the same set
+        `POST /installations/{id}/export` writes -- and only that set, never another
+        installation's rows -- and wants `confirm` set to the installation's target.
       x-zoomies-role: admin
+      parameters:
+        - { name: purge, in: query, schema: { type: boolean, default: false } }
+        - { name: confirm, in: query, description: "The installation's target, typed, when purge is true.", schema: { type: string } }
       responses:
         "200":
           description: Removed
@@ -572,7 +578,77 @@ paths:
                 properties:
                   pools_deleted: { type: integer }
                   runners_affected: { type: integer }
+                  purged: { type: boolean }
         "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /installations/{id}/export:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: exportInstallation
+      tags: [installations]
+      summary: Everything about one installation, as one archive
+      description: >-
+        Its pools, runners, jobs and their events, deliveries, scaling events, runner
+        sessions, usage days and capacity samples, and the audit rows that name any of
+        them. The App's private key and webhook secret leave only when a passphrase is
+        given, sealed under it (argon2id and AES-256-GCM), so the archive can be imported
+        on another instance without this one's key. Audited.
+      x-zoomies-role: admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                passphrase: { type: string }
+      responses:
+        "200":
+          description: The archive
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstallationArchive" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /installations/import:
+    post:
+      operationId: importInstallation
+      tags: [installations]
+      summary: Write an exported installation onto this instance
+      description: >-
+        All of it or none. Rows keep their IDs; runner rows and pre-pull records are left
+        out, because they name hosts only the exporting instance has, and the runners'
+        history arrives as their sessions. The credentials are opened with the passphrase
+        and sealed under this instance's key. A 409 means a row in the archive is already
+        here. Audited.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [archive]
+              properties:
+                archive: { $ref: "#/components/schemas/InstallationArchive" }
+                passphrase: { type: string }
+      responses:
+        "201":
+          description: Imported
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [installation, rows, skipped]
+                properties:
+                  installation: { $ref: "#/components/schemas/Installation" }
+                  rows: { type: object, additionalProperties: { type: integer } }
+                  skipped: { type: object, additionalProperties: { type: integer } }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
 
   /installations/{id}/verify:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
@@ -4332,6 +4408,35 @@ components:
         created_at: { type: string, format: date-time }
 
     # --- installations ----------------------------------------------------
+    InstallationArchive:
+      type: object
+      required: [kind, archive_version, exported_at, version, installation_id, target, tables]
+      properties:
+        kind: { type: string, enum: [zoomies-installation] }
+        archive_version: { type: integer }
+        exported_at: { type: string, format: date-time }
+        exported_from: { type: string }
+        version: { type: string }
+        installation_id: { type: string }
+        target: { type: string }
+        secrets:
+          type: object
+          description: Passphrase-sealed, base64. Absent when the export had no passphrase.
+          properties:
+            private_key: { type: string, format: byte }
+            webhook_secret: { type: string, format: byte }
+        tables:
+          type: array
+          items:
+            type: object
+            required: [table, columns, rows]
+            properties:
+              table: { type: string }
+              columns: { type: array, items: { type: string } }
+              rows:
+                type: array
+                description: One array per row, in column order. A blob is an object with a base64 field.
+                items: { type: array, items: {} }
     Installation:
       type: object
       properties:

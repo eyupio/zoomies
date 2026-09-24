@@ -101,6 +101,8 @@ func commands() []*command {
 		{"hosts", groupFleet, "Agents, their capacity, and enrolment", runHosts},
 		{"providers", groupFleet, "Where machines are rented from, and the machines themselves", runProviders},
 		{"installations", groupFleet, "GitHub App installations", runInstallations},
+		{"export", groupFleet, "Write one installation's whole history as an archive another instance can import", runExport},
+		{"import", groupFleet, "Write an exported installation onto this instance", runImport},
 		{"audit", groupFleet, "Who did what", runAudit},
 		{"diagnostics", groupFleet, "Collect a support bundle for a bug report", runDiagnostics},
 		{"users", groupFleet, "User accounts", runUsers},
