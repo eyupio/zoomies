@@ -401,19 +401,26 @@ func (s *Store) poolUpdate(p *Pool) (string, []any, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	return `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
+	// The arguments are built apart from the query rather than as a literal
+	// opened on the raw string's closing line: two builds of gofmt 1.27.1
+	// indent that literal differently, so whichever one formatted it, the
+	// other -- CI's or a contributor's -- reported the file as unformatted.
+	args := []any{
+		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
+		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
+		string(p.PullPolicy),
+		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
+		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
+		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.RepositoryScaleUpLimit,
+		p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels), p.ID,
+	}
+	query := `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
 		backend=?, os=?, os_version=?, arch=?, image=?, pull_policy=?, runner_version=?,
 		min_runners=?, max_runners=?, priority=?, idle_timeout_ms=?, ephemeral=?,
 		docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
 		enabled=?, updated_at=?, repository_scale_up_limit=?, cost_per_runner_hour=?,
-		runner_settings=?, cpu_burst=?, no_default_labels=? WHERE id=?`, []any{
-			p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
-			p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
-			string(p.PullPolicy),
-			p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
-			boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
-			boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.RepositoryScaleUpLimit,
-			p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels), p.ID}, nil
+		runner_settings=?, cpu_burst=?, no_default_labels=? WHERE id=?`
+	return query, args, nil
 }
 
 // ApplyPools creates and updates pools as one transaction: every row is

@@ -575,8 +575,10 @@ the validator says so with `limits.loopback`.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `runners.default_cpus` | `ZOOMIES_RUNNER_DEFAULT_CPUS` | at once | Default CPUs per runner — Where a pool's CPU slider opens when somebody chooses to set a fixed size, in cores; fractions are allowed. It is not what a pool with no size becomes: such a pool is given one slot's share of whichever host each runner lands on. 0 means nothing has been said and the built-in 2 cores answers. |
-| `runners.default_memory_mb` | `ZOOMIES_RUNNER_DEFAULT_MEMORY_MB` | at once | Default memory per runner — How much memory one runner gets on a pool that has not said otherwise, in megabytes. It is the figure a new pool opens on, and the one a host's recommended capacity is worked out from. 0 means nothing has been said and the built-in 4096 answers. |
+| `runners.default_cpus` | `ZOOMIES_RUNNER_DEFAULT_CPUS` | at once | Standard CPUs per runner — Where a pool's CPU slider opens when somebody chooses to set a fixed size, in cores; fractions are allowed. It is not what a pool with no size becomes: such a pool is given one slot's share of whichever host each runner lands on. 0 means nothing has been said and the built-in 2 cores answers. |
+| `runners.default_memory_mb` | `ZOOMIES_RUNNER_DEFAULT_MEMORY_MB` | at once | Standard memory per runner — How much memory one runner gets on a pool that has not said otherwise, in megabytes. It is the figure a new pool opens on, and the one a host's recommended capacity is worked out from. 0 means nothing has been said and the built-in 4096 answers. |
+| `runners.minimum_cpus` | `ZOOMIES_RUNNER_MINIMUM_CPUS` | at once | Minimum CPUs per runner — Where a pool's minimum CPU slider opens, in cores: the least a runner of a fixed-size pool may be given when no host has room for its standard size, so a host a little short still runs the job. 0 is no minimum, and a pool's own minimum is what placement reads. |
+| `runners.minimum_memory_mb` | `ZOOMIES_RUNNER_MINIMUM_MEMORY_MB` | at once | Minimum memory per runner — Where a pool's minimum memory slider opens, in megabytes: the least a runner of a fixed-size pool may be given when no host has room for its standard size. 0 is no minimum; anything set is held to 512. |
 | `runners.docker_wait` | `ZOOMIES_DOCKER_WAIT` | at once | Docker daemon wait — How long DinD provisioning waits for a healthy daemon, and a Docker runner waits before registering. Default 3m. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool. |
 | `runners.env` | `ZOOMIES_RUNNER_ENV` | at once | Runner environment — Key=value variables every runner starts with, such as a proxy or a package mirror. A pool's own env wins where the two name the same variable. Every job can read these, so a credential does not belong here: give it to the pool, or to the workflow as a GitHub secret. |
 
@@ -1431,6 +1433,37 @@ of compilers is entitled to say otherwise once here rather than on every pool
 it creates. Changing them does not touch the pools that already exist — their
 figures are their own — and the recommended capacity on the Hosts page follows
 whichever is larger: what the enabled pools ask for, or this.
+
+### `runners.minimum_cpus` and `runners.minimum_memory_mb` — the least a runner will take
+
+```yaml
+runners:
+  default_cpus: 8
+  default_memory_mb: 32768
+  minimum_cpus: 4
+  minimum_memory_mb: 24576
+```
+
+A fixed size is a standard, and machines are rarely exactly the size a
+standard was chosen for. A pool that asks for 32 GB has nowhere to run on a
+30 GB host, and its jobs wait for a machine that is never coming. A **minimum**
+is the size the pool will still accept: when no host has room for the standard,
+the runner goes on the host that can spare the most, and is given as much of the
+standard as that host can spare — never less than the minimum. On the 30 GB host
+above it gets 30 GB, not 24.
+
+The standard still wins wherever it fits. A minimum never shrinks a runner the
+fleet could have given the full size to; it only turns "no host has room" into a
+job that runs. Such a runner is recorded as *reduced* — the Runners page says
+what it was given against what its pool asks for, and its create's reason says
+why — and its host is charged what it was given, not the standard.
+
+These two settings are where a new pool's minimum sliders open. A pool's own
+minimum, set on its size step or as `resources.min_cpus` and
+`resources.min_memory_mb`, is what placement reads, so changing them does not
+touch the pools that already exist. Zero is no minimum, which is what every pool
+was before minimums existed. A minimum is held to the same floor any runner is:
+a quarter of a core and 512 MB.
 [How big a runner is](hosts-and-pools.md#how-big-a-runner-is-and-how-many-there-are)
 has what the wizard does with them, and what it checks the answer against.
 

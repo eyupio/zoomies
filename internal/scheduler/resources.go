@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -106,6 +107,92 @@ func Reserve(p *store.Pool, h *store.Host) Reservation {
 	return res
 }
 
+// RunnerCharge is what one live runner is charged on its host: what its row
+// says it was given, where it was given less than its pool's standard size,
+// and the pool's own charge otherwise.
+//
+// The row is the only place a reduced runner's size is written down. Charging
+// it the standard instead would have the fleet believe a host it had filled
+// with reduced runners was over-committed, and refuse the next one it had room
+// for; charging the standard is right for every other runner, because that is
+// what it was given.
+func RunnerCharge(p *store.Pool, h *store.Host, r *store.Runner) Reservation {
+	res := Reserve(p, h)
+	if r == nil || r.AllocationSource != store.AllocationReduced {
+		return res
+	}
+	factor := pairFactor(p)
+	if r.AllocatedCPUs > 0 {
+		res.CPUs = r.AllocatedCPUs * factor
+	}
+	if r.AllocatedMemoryMB > 0 {
+		res.MemoryMB = r.AllocatedMemoryMB * int64(factor)
+	}
+	return res
+}
+
+// pairFactor is how many containers a runner of p is given its size for: two
+// for a docker-in-docker runner whose size was typed, because the daemon is
+// given the same limits, and one otherwise.
+func pairFactor(p *store.Pool) float64 {
+	if p.DockerMode == store.DockerDinD && !p.Automatic() {
+		return 2
+	}
+	return 1
+}
+
+// MinimumReserve is the least one runner of p may be charged on h: the pool's
+// minimum on each field that has one below its standard, and the standard on
+// every other field. It is Reserve for a pool with no minimum.
+func MinimumReserve(p *store.Pool, h *store.Host) Reservation {
+	res := Reserve(p, h)
+	if !p.Resources.Reducible() {
+		return res
+	}
+	factor := pairFactor(p)
+	if m := p.Resources.MinCPUs; m > 0 && m < p.Resources.CPUs {
+		res.CPUs = m * factor
+	}
+	if m := p.Resources.MinMemoryMB; m > 0 && m < p.Resources.MemoryMB {
+		res.MemoryMB = m * int64(factor)
+	}
+	return res
+}
+
+// ReducedSize is what a runner of p is given on a host with only left to
+// spare, where that is less than the pool's standard: as much of the standard
+// as there is, never below the minimum. It returns the charge against the host
+// and the limits each container is created with, and false when even the
+// minimum does not fit.
+//
+// It gives the most the host can spare rather than the minimum, because the
+// minimum is a floor the operator will accept, not a size they asked for: a
+// 30 GB machine under a 32 GB pool with a 24 GB minimum should run the job
+// with 30, not 24. CPU is rounded down to a hundredth of a core, so the charge
+// never exceeds what is left.
+func ReducedSize(p *store.Pool, h *store.Host, left Reservation, known store.HostAllocation) (Reservation, store.Resources, bool) {
+	if !p.Resources.Reducible() || !fits(left, MinimumReserve(p, h), known) {
+		return Reservation{}, store.Resources{}, false
+	}
+	charge := Reserve(p, h)
+	factor := pairFactor(p)
+	grant := p.Resources
+	grant.MinCPUs, grant.MinMemoryMB = 0, 0
+	if known.CPUsKnown && left.CPUs+cpuEpsilon < charge.CPUs && p.Resources.MinCPUs > 0 {
+		each := math.Floor(left.CPUs/factor*100+cpuEpsilon) / 100
+		grant.CPUs = max(each, p.Resources.MinCPUs)
+		charge.CPUs = grant.CPUs * factor
+	}
+	if known.MemoryKnown && left.MemoryMB < charge.MemoryMB && p.Resources.MinMemoryMB > 0 {
+		grant.MemoryMB = max(left.MemoryMB/int64(factor), p.Resources.MinMemoryMB)
+		charge.MemoryMB = grant.MemoryMB * int64(factor)
+	}
+	if !fits(left, charge, known) {
+		return Reservation{}, store.Resources{}, false
+	}
+	return charge, grant, true
+}
+
 // share is one slot's worth of a host-wide figure.
 func share(total float64, capacity int) float64 {
 	if capacity < 1 || total <= 0 {
@@ -138,11 +225,11 @@ func Reserved(h *store.Host, pools []*store.Pool, runners map[string][]*store.Ru
 		if p == nil {
 			continue
 		}
-		res := Reserve(p, h)
 		for _, r := range runners[p.ID] {
 			if r == nil || r.HostID != h.ID || !r.State.Live() {
 				continue
 			}
+			res := RunnerCharge(p, h, r)
 			out.CPUs += res.CPUs
 			out.MemoryMB += res.MemoryMB
 		}
@@ -162,7 +249,9 @@ func HostFits(h *store.Host, p *store.Pool) bool {
 	}
 	alloc := h.Allocatable()
 	whole := Reservation{CPUs: alloc.CPUs, MemoryMB: alloc.MemoryMB, DiskMB: alloc.DiskMB}
-	return fits(whole, Reserve(p, h), alloc)
+	// A machine too small for the standard size can still take a runner at
+	// the pool's minimum, which is what a minimum is for.
+	return fits(whole, MinimumReserve(p, h), alloc)
 }
 
 // ShareTooSmall names the field whose slot share is below what a runner needs
@@ -289,7 +378,7 @@ func HostShortfall(h *store.Host, p *store.Pool) string {
 	}
 	alloc := h.Allocatable()
 	left := Reservation{CPUs: alloc.CPUs, MemoryMB: alloc.MemoryMB, DiskMB: alloc.DiskMB}
-	want := Reserve(p, h)
+	want := MinimumReserve(p, h)
 	if fits(left, want, alloc) {
 		return ""
 	}
@@ -397,6 +486,21 @@ func HostRoomFor(h *store.Host, p *store.Pool) HostRoom {
 	}
 	alloc := h.Allocatable()
 	want := Reserve(p, h)
+	// A machine with no room for the standard size is counted in runners at
+	// the minimum, because that is what the pass will place on it; counting
+	// the standard would call a host the pool runs on one it cannot use.
+	if floor := MinimumReserve(p, h); floor != want {
+		standard := true
+		if alloc.CPUsKnown && want.CPUs > 0 && alloc.CPUs+cpuEpsilon < want.CPUs {
+			standard = false
+		}
+		if alloc.MemoryKnown && want.MemoryMB > 0 && alloc.MemoryMB < want.MemoryMB {
+			standard = false
+		}
+		if !standard {
+			want = floor
+		}
+	}
 
 	fits := -1
 	limit := ""

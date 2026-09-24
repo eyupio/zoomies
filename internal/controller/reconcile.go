@@ -350,6 +350,15 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 		}
 	}()
 	resources, source := scheduler.Allocation(pool, host, c.cfg().Scheduler.DefaultRunnerLimits)
+	if a.Size != nil {
+		// No host had room for the pool's standard size, and the pass placed
+		// this one smaller, at or above the pool's minimum. The row carries
+		// what it was given, because that is what its host is charged for it
+		// and what an operator reading a slow job needs to know.
+		resources.CPUs, resources.MemoryMB = a.Size.CPUs, a.Size.MemoryMB
+		source = store.AllocationReduced
+	}
+	resources.MinCPUs, resources.MinMemoryMB = 0, 0
 	name := github.RunnerName(pool)
 	r := &store.Runner{
 		PoolID:            pool.ID,

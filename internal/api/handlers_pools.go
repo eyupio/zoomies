@@ -284,8 +284,18 @@ func defaultNewPoolBurst(in *poolInput, p *store.Pool) {
 // (scheduler.Allocation) -- so "no limit" is not what an unsized pool means,
 // and has not been since default runner limits existed.
 func (s *Server) defaultResources() store.Resources {
-	cpus, memoryMB := s.cfg().Runners.DefaultRunnerSize()
-	return store.Resources{CPUs: cpus, MemoryMB: memoryMB}
+	r := s.cfg().Runners
+	cpus, memoryMB := r.DefaultRunnerSize()
+	out := store.Resources{CPUs: cpus, MemoryMB: memoryMB}
+	// A minimum only opens the slider where it sits under the standard; one
+	// at or above it would be refused the moment the pool was saved.
+	if r.MinimumCPUs > 0 && r.MinimumCPUs < cpus {
+		out.MinCPUs = r.MinimumCPUs
+	}
+	if r.MinimumMemoryMB > 0 && r.MinimumMemoryMB < memoryMB {
+		out.MinMemoryMB = r.MinimumMemoryMB
+	}
+	return out
 }
 
 // apply folds the request into a pool, returning the field errors it could not.
@@ -666,6 +676,29 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 		add("resources.memory_mb", "a memory limit cannot be negative")
 	case p.Resources.MemoryMB > 0 && p.Resources.MemoryMB < store.MinRunnerMemoryMB:
 		add("resources.memory_mb", "a runner needs at least 512 MB; below that the runner binary is killed before it takes a job")
+	}
+	// A minimum is a floor under a size the pool states, so it needs that size
+	// to sit under, has to be below it to say anything, and is held to the
+	// same floor any runner is.
+	switch {
+	case p.Resources.MinCPUs < 0:
+		add("resources.min_cpus", "a minimum CPU cannot be negative; use 0 for no minimum")
+	case p.Resources.MinCPUs > 0 && p.Resources.CPUs <= 0:
+		add("resources.min_cpus", "a minimum needs a standard CPU size to sit under; set the CPU per runner, or clear the minimum")
+	case p.Resources.MinCPUs > p.Resources.CPUs:
+		add("resources.min_cpus", fmt.Sprintf("the minimum (%g cores) is above the standard size (%g); a runner is never given less than the minimum, so it has to be the smaller of the two", p.Resources.MinCPUs, p.Resources.CPUs))
+	case p.Resources.MinCPUs > 0 && p.Resources.MinCPUs < store.MinRunnerCPUs:
+		add("resources.min_cpus", "a runner needs at least a quarter of a core, however short its host is")
+	}
+	switch {
+	case p.Resources.MinMemoryMB < 0:
+		add("resources.min_memory_mb", "a minimum memory cannot be negative; use 0 for no minimum")
+	case p.Resources.MinMemoryMB > 0 && p.Resources.MemoryMB <= 0:
+		add("resources.min_memory_mb", "a minimum needs a standard memory size to sit under; set the memory per runner, or clear the minimum")
+	case p.Resources.MinMemoryMB > p.Resources.MemoryMB:
+		add("resources.min_memory_mb", fmt.Sprintf("the minimum (%d MB) is above the standard size (%d MB); a runner is never given less than the minimum, so it has to be the smaller of the two", p.Resources.MinMemoryMB, p.Resources.MemoryMB))
+	case p.Resources.MinMemoryMB > 0 && p.Resources.MinMemoryMB < store.MinRunnerMemoryMB:
+		add("resources.min_memory_mb", "a runner needs at least 512 MB, however short its host is; below that the runner binary is killed before it takes a job")
 	}
 	if p.Resources.DiskGB < 0 {
 		add("resources.disk_gb", "a disk limit cannot be negative; use 0 for no limit")

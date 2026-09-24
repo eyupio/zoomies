@@ -507,6 +507,22 @@ type Resources struct {
 	MemoryMB  int64   `json:"memory_mb,omitempty"`  // e.g. 4096
 	DiskGB    int64   `json:"disk_gb,omitempty"`    // advisory; enforced where the backend can
 	PidsLimit int64   `json:"pids_limit,omitempty"` // container pids cgroup limit
+	// MinCPUs and MinMemoryMB are the least a runner of a fixed-size pool may
+	// be given when no host has room for the full size above. CPUs and
+	// MemoryMB stay the standard the fleet places at wherever it can; the
+	// minimum is what lets a host a little short of that -- a 30 GB machine
+	// under a 32 GB pool -- run the job anyway instead of leaving it queued.
+	// Such a runner is given as much of the standard as the host can spare,
+	// never less than this. Zero is no minimum: the standard is the only size,
+	// which is what every pool was before this existed.
+	MinCPUs     float64 `json:"min_cpus,omitempty"`
+	MinMemoryMB int64   `json:"min_memory_mb,omitempty"`
+}
+
+// Reducible reports whether a runner of these resources may be placed below
+// its standard size: the pool sets a size, and a minimum under it.
+func (r Resources) Reducible() bool {
+	return (r.MinCPUs > 0 && r.MinCPUs < r.CPUs) || (r.MinMemoryMB > 0 && r.MinMemoryMB < r.MemoryMB)
 }
 
 // CPUBurstMode says what a pool does with CPU that its live runners have not
@@ -1060,6 +1076,11 @@ const (
 	// AllocationFromHost means the pool left the limit unset and the runner
 	// was given one slot's share of the host it was placed on.
 	AllocationFromHost = "host"
+	// AllocationReduced means no host had room for the pool's standard size,
+	// and the runner was given what one could spare, at or above the pool's
+	// minimum. The figures on the row are what it was given, and what its
+	// host is charged for it.
+	AllocationReduced = "reduced"
 )
 
 // Runner is one runner instance: a row that the controller creates in

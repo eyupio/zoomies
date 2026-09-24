@@ -733,6 +733,14 @@ type Runners struct {
 	// DefaultRunnerSize answers with the built-in figures.
 	DefaultCPUs     float64 `yaml:"default_cpus"`
 	DefaultMemoryMB int64   `yaml:"default_memory_mb"`
+	// MinimumCPUs and MinimumMemoryMB are where a pool's minimum sliders open:
+	// the least a runner of a fixed-size pool may be given when no host has
+	// room for the standard size above. Zero is no minimum, which is what a
+	// pool was before minimums existed, so an upgrade changes nothing. Like
+	// the standard figures they are an opening value for a new pool; a pool's
+	// own minimum is what the scheduler reads.
+	MinimumCPUs     float64 `yaml:"minimum_cpus"`
+	MinimumMemoryMB int64   `yaml:"minimum_memory_mb"`
 }
 
 // The size a runner gets where nothing else says: two cores and four
