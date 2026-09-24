@@ -76,8 +76,11 @@ type ComposeFileSpec struct {
 	Container string
 	Volume    string
 	Network   string
-	// SharedDir is the host's shared folder, mounted at the same path.
-	SharedDir string
+	// MountShared mounts the host's shared folder, SharedDir, at the same
+	// path. Only a host that runs runners has any use for it: the folder is
+	// what the daemon binds runners' caches from.
+	MountShared bool
+	SharedDir   string
 }
 
 // defaults fills what a caller may leave empty.
@@ -137,6 +140,7 @@ func ComposeFileSpecFor(p Plan) ComposeFileSpec {
 		TLSCertFile:   p.TLSCertFile,
 		TLSKeyFile:    p.TLSKeyFile,
 		Healthcheck:   p.Mode != ModeAgent,
+		MountShared:   p.runsRunners(),
 	}
 }
 
@@ -363,6 +367,8 @@ type DockerRunSpec struct {
 	// MountSocket and SocketPath give the embedded agent its runtime.
 	MountSocket bool
 	SocketPath  string
+	// MountShared mounts the shared folder, for a host that runs runners.
+	MountShared bool
 	// DockerGID is added as a supplementary group, which is how the image's
 	// unprivileged user reaches a root-owned socket.
 	DockerGID int
@@ -415,8 +421,10 @@ func DockerRunArgs(s DockerRunSpec) []string {
 		args = append(args, "--publish", published)
 	}
 	args = append(args, "--volume", s.Volume+":"+ContainerStateDir)
-	// The shared folder, at the path it has on the host; see SharedHostDir.
-	args = append(args, "--volume", SharedHostDir+":"+SharedHostDir)
+	if s.MountShared {
+		// The shared folder, at the path it has on the host; see SharedHostDir.
+		args = append(args, "--volume", SharedHostDir+":"+SharedHostDir)
+	}
 	if s.MountSocket && s.SocketPath != "" {
 		// The socket is mounted at the path it has on the host, so that
 		// ZOOMIES_DOCKER_HOST means the same thing on both sides.
@@ -461,6 +469,7 @@ func DockerRunSpecFor(p Plan, envFile string) DockerRunSpec {
 		ContainerPort:  ContainerPort,
 		MountSocket:    mountSocket,
 		SocketPath:     socketPath(p.DockerHost),
+		MountShared:    p.runsRunners(),
 		DockerGID:      p.DockerGID,
 		ReadOnlyMounts: mounts,
 	}
@@ -492,19 +501,22 @@ func (i *Installer) runContainer(ctx context.Context, p Plan) error {
 	}
 	// Before the container, which mounts it: a bind to a path that is not
 	// there is created by the daemon owned by root, and the image's account
-	// could then never add to it.
-	created, err := PrepareSharedDir(SharedHostDir, ImageUID, ImageUID)
-	if err != nil {
-		return err
-	}
-	if len(created) > 0 {
-		i.wrote(fmt.Sprintf("created %s for runners' caches, owned by uid %d so later releases can add to it", SharedHostDir, ImageUID))
-	}
-	if problems := SharedDirProblems(SharedHostDir, ImageUID); len(problems) > 0 {
-		for _, pr := range problems {
-			i.ui.warn(pr)
+	// could then never add to it. A controller that runs no runners has no
+	// use for it and is not given one.
+	if p.runsRunners() {
+		created, err := PrepareSharedDir(SharedHostDir, ImageUID, ImageUID)
+		if err != nil {
+			return err
 		}
-		i.ui.note(fmt.Sprintf("run: sudo chown -R %d:%d %s", ImageUID, ImageUID, SharedHostDir))
+		if len(created) > 0 {
+			i.wrote(fmt.Sprintf("created %s for runners' caches, owned by uid %d so later releases can add to it", SharedHostDir, ImageUID))
+		}
+		if problems := SharedDirProblems(SharedHostDir, ImageUID); len(problems) > 0 {
+			for _, pr := range problems {
+				i.ui.warn(pr)
+			}
+			i.ui.note(fmt.Sprintf("run: sudo chown -R %d:%d %s", ImageUID, ImageUID, SharedHostDir))
+		}
 	}
 
 	envPath := filepath.Join(p.DeployDir, EnvFileFor(p.Deployment))

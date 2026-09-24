@@ -93,3 +93,17 @@ func TestSharedDirProblemsNamesWhatIsMissing(t *testing.T) {
 		}
 	}
 }
+
+// A controller whose runners all run on other hosts keeps no caches, so it is
+// given neither the folder nor the mount -- nor the question at upgrade.
+func TestAControllerWithoutRunnersIsNotGivenTheSharedFolder(t *testing.T) {
+	p := containerPlan(t)
+	p.Mode, p.Embedded = ModeController, false
+	body, err := RenderComposeFile(ComposeFileSpecFor(p))
+	if err != nil {
+		t.Fatalf("RenderComposeFile: %v", err)
+	}
+	if strings.Contains(body, SharedHostDir+":"+SharedHostDir) {
+		t.Errorf("a controller that runs no runners mounts the shared folder:\n%s", body)
+	}
+}

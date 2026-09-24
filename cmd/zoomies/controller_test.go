@@ -328,6 +328,7 @@ func TestControllerShutdownOutlastsEmbeddedAgent(t *testing.T) {
 // folder to config.SharedLayout has it on every host by the next start, and a
 // pool's tool cache has somewhere to live.
 func TestBuildBackendsLaysOutTheSharedFolder(t *testing.T) {
+	notInAContainer(t)
 	state := t.TempDir()
 	t.Setenv("ZOOMIES_STATE_DIR", state)
 	cfg := config.Default()
@@ -339,5 +340,39 @@ func TestBuildBackendsLaysOutTheSharedFolder(t *testing.T) {
 		if fi, err := os.Stat(filepath.Join(state, "shared", filepath.FromSlash(sub))); err != nil || !fi.IsDir() {
 			t.Errorf("shared/%s was not created: %v", sub, err)
 		}
+	}
+}
+
+// notInAContainer makes this process describe a host that is not a container,
+// whatever the machine running the tests is.
+func notInAContainer(t *testing.T) {
+	t.Helper()
+	was := inContainer
+	inContainer = func() bool { return false }
+	t.Cleanup(func() { inContainer = was })
+}
+
+// A containerised agent whose container does not mount the shared folder from
+// the host would create it inside its own data volume, and hand runners a path
+// the host's daemon resolves to an empty folder of root's. It leaves the tool
+// cache off instead, creates nothing, and says how to mount it.
+func TestAContainerWithoutTheSharedMountKeepsNoToolCache(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("ZOOMIES_STATE_DIR", state)
+	dir, problem := sharedDirIn(discardLogger(), true, func(string) bool { return false })
+	if dir != "" {
+		t.Errorf("dir = %q, want none", dir)
+	}
+	if !strings.Contains(problem, "not mounted into this container") || !strings.Contains(problem, "zoomies upgrade --yes") {
+		t.Errorf("problem = %q, want one saying it is not mounted and how to mount it", problem)
+	}
+	if _, err := os.Stat(filepath.Join(state, "shared")); !os.IsNotExist(err) {
+		t.Error("the folder was created inside the container anyway")
+	}
+
+	// Mounted from the host, it is used.
+	dir, problem = sharedDirIn(discardLogger(), true, func(string) bool { return true })
+	if dir == "" || problem != "" {
+		t.Errorf("a mounted folder was refused: %q, %q", dir, problem)
 	}
 }

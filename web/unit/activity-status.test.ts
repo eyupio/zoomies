@@ -31,6 +31,7 @@ registerHooks({
 });
 
 const { queuedActivity, workflowActivity } = await import('../src/lib/jobs/activity-status.ts');
+const { jobEventStatus } = await import('../src/lib/status.ts');
 
 test('queue cancellation overrides priority and pause without claiming work is running', () => {
   for (const provisioning of ['ready', 'paused', 'expedited', 'deleted'] as const) {
@@ -124,4 +125,40 @@ test('turning the kennel vocabulary off gives the plain status word instead, mot
     workflowActivity({ state: 'in_progress' }, false).motion,
     workflowActivity({ state: 'in_progress' }).motion,
   );
+});
+
+/*
+ * The Queue's and the Workflows page's row actions: Run now, Pause, Resume,
+ * Delete from queue and Re-run. A status drawn with one of them reads as that
+ * action -- a paused job with a Pause glyph beside it looked like a button to
+ * pause it.
+ */
+const ACTION_ICONS = ['Zap', 'Pause', 'Play', 'Trash2', 'RotateCcw'];
+
+test('with the vocabulary off, no queue or workflow status is drawn with an action icon', () => {
+  const drawn = [
+    ...(['ready', 'paused', 'deleted', 'expedited'] as const).map(
+      (provisioning) => queuedActivity({ provisioning }, false).status,
+    ),
+    queuedActivity({ cancel_requested_at: '2026-09-20T12:00:00Z' }, false).status,
+    ...(['queued', 'waiting', 'in_progress'] as const).map(
+      (state) => workflowActivity({ state }, false).status,
+    ),
+    ...['success', 'failure', 'cancelled', 'timed_out', 'skipped'].map(
+      (conclusion) => workflowActivity({ state: 'completed', conclusion }, false).status,
+    ),
+    jobEventStatus('rerun_requested'),
+  ];
+  for (const status of drawn) {
+    assert.ok(!ACTION_ICONS.includes(status.icon.name), `${status.key} is ${status.icon.name}`);
+  }
+});
+
+test('a job somebody pressed Run now on is not drawn like the ready rows around it', () => {
+  assert.notEqual(
+    queuedActivity({ provisioning: 'expedited' }, false).status.icon,
+    queuedActivity({}, false).status.icon,
+  );
+  // Still queued, though: the tone says nothing is running yet.
+  assert.equal(queuedActivity({ provisioning: 'expedited' }, false).status.tone, 'pending');
 });

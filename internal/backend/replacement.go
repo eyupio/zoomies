@@ -174,3 +174,37 @@ func (r *ContainerReplacement) AddBind(bind string) error {
 	r.body["HostConfig"], err = json.Marshal(host)
 	return err
 }
+
+// HasGroup reports whether the replacement already adds group.
+func (r *ContainerReplacement) HasGroup(group string) bool {
+	var host map[string]json.RawMessage
+	if err := json.Unmarshal(r.body["HostConfig"], &host); err != nil {
+		return false
+	}
+	var groups []string
+	_ = json.Unmarshal(host["GroupAdd"], &groups)
+	for _, g := range groups {
+		if g == group {
+			return true
+		}
+	}
+	return false
+}
+
+// AddGroup adds a supplementary group to the replacement: the one that owns
+// the runtime's socket, for a container created before it was given one.
+func (r *ContainerReplacement) AddGroup(group string) error {
+	var host map[string]json.RawMessage
+	if err := json.Unmarshal(r.body["HostConfig"], &host); err != nil {
+		return fmt.Errorf("docker api: the replacement has no host configuration to add group %s to: %w", group, err)
+	}
+	var groups []string
+	_ = json.Unmarshal(host["GroupAdd"], &groups)
+	groups = append(groups, group)
+	var err error
+	if host["GroupAdd"], err = json.Marshal(groups); err != nil {
+		return err
+	}
+	r.body["HostConfig"], err = json.Marshal(host)
+	return err
+}

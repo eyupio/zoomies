@@ -102,6 +102,31 @@ func ensureRunnerWritableDir(dir string) error {
 	return os.Chmod(dir, 0o777)
 }
 
+// stockRunnerUID is the runner account of the stock images, and the one owner
+// besides "everyone" a tool cache folder can be writable to.
+const stockRunnerUID = 1001
+
+// runnerCannotWrite says why the runner could not write to dir, or "" when
+// it can: the folder is open to everyone, or belongs to the stock images'
+// runner. A pool's own image may run as another account; one that does and
+// finds a folder of 1001's is the operator's own arrangement.
+func runnerCannotWrite(dir string) string {
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return "cannot be read (" + err.Error() + ")"
+	}
+	if fi.Mode().Perm()&0o002 != 0 {
+		return ""
+	}
+	if uid, _, ok := fileOwner(fi); ok {
+		if uid == stockRunnerUID && fi.Mode().Perm()&0o200 != 0 {
+			return ""
+		}
+		return fmt.Sprintf("belongs to uid %d with mode %#o, which the runner (uid %d) cannot write to", uid, fi.Mode().Perm(), stockRunnerUID)
+	}
+	return ""
+}
+
 // cacheDirectory returns the host directory a cache lives in, and whether there
 // is one at all. A named daemon volume has no path this agent can measure: its
 // bytes are the daemon's business, on a filesystem the agent may not even

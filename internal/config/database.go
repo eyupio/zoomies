@@ -166,6 +166,33 @@ func (c *Config) Rebuild(rows []store.InstanceSetting, key *cryptox.Key) (Findin
 	return findings, nil
 }
 
+// Effective is the configuration a deployment runs with, worked out the way
+// its controller works it out at start -- the file, then the database, then
+// the environment -- for a caller that is not that controller: the installer,
+// upgrading it, which has to know whether the deployment runs runners before
+// it can say which mounts it needs.
+//
+// The database is the answer to that, as it is to every setting; asking the
+// deployment's .env instead would miss everything set on the settings page.
+// env is the deployment's own environment, never this process's, which is the
+// upgrade's and says nothing about the service. file is empty for a container
+// deployment, which keeps no zoomies.yaml.
+func Effective(file string, rows []store.InstanceSetting, key *cryptox.Key, env map[string]string) (*Config, Findings, error) {
+	cfg := Default()
+	if file != "" {
+		if err := cfg.readFile(file); err != nil {
+			return nil, nil, err
+		}
+	}
+	findings := ApplyStored(cfg, rows, key)
+	lookup := func(k string) (string, bool) { v, ok := env[k]; return v, ok }
+	if err := cfg.applyEnvFrom(lookup); err != nil {
+		return nil, findings, err
+	}
+	cfg.normalize()
+	return cfg, findings, nil
+}
+
 // PendingRestart lists the settings whose stored value is not what this process
 // is running, because it was stored after this process started and needs a
 // restart to take effect.

@@ -554,16 +554,35 @@ func buildProviders() (*provider.Registry, error) {
 }
 
 // sharedDirFor creates this host's shared folder and the layout this release
-// keeps in it, and returns the folder -- or "" when it cannot be made, which
-// leaves every pool's tool cache off on this host rather than stopping it.
-func sharedDirFor(log *slog.Logger) string {
+// keeps in it, and returns the folder -- or "" and the reason when it cannot be
+// used, which leaves every pool's tool cache off on this host rather than
+// stopping it.
+func sharedDirFor(log *slog.Logger) (string, string) {
+	return sharedDirIn(log, inContainer(), backend.IsMountPoint)
+}
+
+// inContainer is backend.InContainer, a variable so that a test run inside a
+// container can still describe a host that is not one.
+var inContainer = backend.InContainer
+
+// sharedDirIn is sharedDirFor with the questions about the host passed in,
+// which is what lets a test ask them of a host that is not the one it runs on.
+func sharedDirIn(log *slog.Logger, inContainer bool, isMount func(string) bool) (string, string) {
+	dir := config.SharedDir()
+	// Checked before anything is created: in a container that does not mount
+	// it, the folder would be made inside the data volume, where the host's
+	// daemon -- which binds it for runners by this path -- cannot see it.
+	if problem := backend.SharedFolderProblem(dir, inContainer, isMount); problem != "" {
+		log.Warn("the shared folder is not mounted from the host; pools' tool caches are off on this host", "dir", dir, "fix", problem)
+		return "", problem
+	}
 	if err := config.EnsureSharedDir(); err != nil {
 		log.Warn("could not create the shared folder; pools' tool caches are off on this host until it exists and is writable",
-			"dir", config.SharedDir(), "error", err,
+			"dir", dir, "error", err,
 			"fix", "create it and give it to the user Zoomies runs as, or run zoomies upgrade, which offers to")
-		return ""
+		return "", fmt.Sprintf("the shared folder %s could not be created (%v); give it to the account Zoomies runs as, or run `zoomies upgrade --yes`, which does", dir, err)
 	}
-	return config.SharedDir()
+	return dir, ""
 }
 
 // buildBackends prepares the runner backends this host can use.
@@ -578,9 +597,9 @@ func buildBackends(ctx context.Context, cfg *config.Config, log *slog.Logger) (*
 		WorkDir:      cfg.Agent.WorkDir,
 		RegistryAuth: cfg.Agent.RegistryAuth,
 		ExtraCAFile:  cfg.Agent.ExtraCAFile,
-		SharedDir:    sharedDirFor(log),
 		Logger:       log,
 	}
+	opts.SharedDir, opts.SharedDirProblem = sharedDirFor(log)
 	// An explicit agent.docker_host belongs to the backend it was configured
 	// for; the other container backend keeps autodetecting its own socket.
 	// Handing one socket to both made the Hosts page report the same denial

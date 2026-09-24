@@ -6375,6 +6375,12 @@ components:
             cpu: { type: boolean, description: A CPU quota. A daemon that cannot apply one refuses the container. }
             memory: { type: boolean, description: A memory limit. A daemon that cannot apply one starts the container without it. }
             pids: { type: boolean, description: A pids limit. A daemon that cannot apply one ignores it. }
+        shared_folder:
+          type: string
+          description: >-
+            What is wrong with the host's shared folder, the one runners' caches are bound from:
+            a containerised agent whose container does not mount it from the host, which keeps
+            no tool cache there. Empty when nothing is. See host.shared_folder_unmounted.
 
     Host:
       type: object

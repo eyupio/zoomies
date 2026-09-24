@@ -1,12 +1,49 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { browserOverride, goto, grid, waitForRows } from './support/fixtures';
 
 test.use(browserOverride);
 
-test('one live status keeps details accessible without clipping in rows or cards', async ({
-  page,
-  isMobile,
-}, testInfo) => {
+/*
+ * The words each style draws the same two moments with. Off is what a browser
+ * that has never chosen shows; Cute is here because its 44px avatar is the
+ * harder thing to fit in a narrow column, and the no-clipping check below is
+ * worth most against it.
+ */
+const STYLES = [
+  {
+    style: 'off',
+    boosted: 'Boost active',
+    lifecycle: 'Busy',
+    boost: 'Maximum boost',
+    throttled: 'Throttled',
+  },
+  {
+    style: 'cute',
+    boosted: 'Squirrel spotted',
+    lifecycle: 'Walking!',
+    boost: 'Maximum zoomies',
+    throttled: 'Leash tightened',
+  },
+] as const;
+
+for (const words of STYLES)
+  test(`one live status keeps details accessible without clipping in rows or cards (${words.style})`, async ({
+    page,
+    isMobile,
+  }, testInfo) => {
+    await page.addInitScript((style) => {
+      if (!localStorage.getItem('zoomies.prefs'))
+        localStorage.setItem('zoomies.prefs', JSON.stringify({ statusStyle: style }));
+    }, words.style);
+    await runStatusChecks(page, isMobile, testInfo, words);
+  });
+
+async function runStatusChecks(
+  page: Page,
+  isMobile: boolean,
+  testInfo: TestInfo,
+  words: (typeof STYLES)[number],
+): Promise<void> {
   let cpuState = 'maximum_zoomies';
   let runner: Record<string, unknown> | undefined;
   const withCPU = (row: Record<string, unknown>) => ({
@@ -44,20 +81,23 @@ test('one live status keeps details accessible without clipping in rows or cards
   await expect(table.getByRole('columnheader', { name: /Status/ })).toBeVisible();
   await expect(table.getByRole('columnheader', { name: /Zoomies/ })).toHaveCount(0);
   const status = table
-    .getByRole('button', { name: 'Squirrel spotted: show status details' })
+    .getByRole('button', { name: `${words.boosted}: show status details` })
     .first();
   await status.scrollIntoViewIfNeeded();
   if (isMobile) await status.tap();
   else await status.click();
   const tip = page.locator('.runner-status-tip .bubble:popover-open');
   await expect(tip).toBeVisible();
-  await expect(tip).toContainText('Walking!');
-  await expect(tip).toContainText('Maximum zoomies');
+  await expect(tip).toContainText(words.lifecycle);
+  await expect(tip).toContainText(words.boost);
   await expect(tip).toContainText('3.8');
   const bounds = (await tip.boundingBox())!;
   expect(bounds.x).toBeGreaterThanOrEqual(0);
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(page.viewportSize()!.width);
-  await page.screenshot({ path: testInfo.outputPath('unified-status.png'), fullPage: true });
+  await page.screenshot({
+    path: testInfo.outputPath(`unified-status-${words.style}.png`),
+    fullPage: true,
+  });
   await page.keyboard.press('Escape');
   await expect(tip).toHaveCount(0);
 
@@ -67,7 +107,9 @@ test('one live status keeps details accessible without clipping in rows or cards
     window.dispatchEvent(new Event('offline'));
     window.dispatchEvent(new Event('online'));
   });
-  const leash = table.getByRole('button', { name: 'Leash tightened: show status details' }).first();
+  const leash = table
+    .getByRole('button', { name: `${words.throttled}: show status details` })
+    .first();
   await expect(leash).toBeVisible();
   // Existing saved/narrow widths must wrap, never ellipsize the status.
   await table.locator('th[data-table-column="state"]').evaluate((node) => {
@@ -101,6 +143,9 @@ test('one live status keeps details accessible without clipping in rows or cards
     await expect(leash).toBeVisible();
     await leash.tap();
     await expect(tip).toContainText('Host pressure protection');
-    await page.screenshot({ path: testInfo.outputPath('status-card.png'), fullPage: true });
+    await page.screenshot({
+      path: testInfo.outputPath(`status-card-${words.style}.png`),
+      fullPage: true,
+    });
   }
-});
+}

@@ -113,3 +113,24 @@ func TestAReplacementGainsABindAndKeepsItsOthers(t *testing.T) {
 		t.Errorf("lost host options: %v", host)
 	}
 }
+
+// The group that owns the runtime's socket is how the image's account reaches
+// it; a container created without it is given it, and keeps its other groups.
+func TestAReplacementGainsAGroupAndKeepsItsOthers(t *testing.T) {
+	r := &ContainerReplacement{body: map[string]json.RawMessage{
+		"HostConfig": json.RawMessage(`{"GroupAdd":["100"],"CustomFutureOption":true}`),
+	}}
+	if !r.HasGroup("100") || r.HasGroup("998") {
+		t.Fatal("HasGroup misread the existing groups")
+	}
+	if err := r.AddGroup("998"); err != nil {
+		t.Fatal(err)
+	}
+	var host map[string]any
+	if err := json.Unmarshal(r.body["HostConfig"], &host); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(host["GroupAdd"], []any{"100", "998"}) || host["CustomFutureOption"] != true {
+		t.Errorf("host config = %v", host)
+	}
+}
