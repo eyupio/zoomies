@@ -29,7 +29,20 @@ type UpgradeOptions struct {
 	Mode       Mode
 	Check      bool
 	Out        io.Writer
-	run        commandRunner
+	// In is where an answer to "add them now?" is read from, and Interactive
+	// says somebody is there to give one. AssumeYes is --yes: approval given
+	// in advance. With neither, what this release expects and the deployment
+	// lacks is reported and left alone. NonInteractive says nobody will be
+	// there on the real run either, which lets --check refuse an upgrade that
+	// could only stop half way.
+	In             io.Reader
+	Interactive    bool
+	NonInteractive bool
+	AssumeYes      bool
+	run            commandRunner
+	// shared stands in for the host's shared folder and the account it
+	// belongs to, so a test does not reach for /var/lib/zoomies.
+	shared *sharedTarget
 }
 
 type upgradePlan struct {
@@ -72,6 +85,11 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	}
 	p, err := prepareUpgrade(ctx, opts)
 	if err != nil {
+		return err
+	}
+	// Before anything is pulled or restarted, so that what is added -- a
+	// mount above all -- is there when the upgraded service starts.
+	if err := p.settleLayout(ctx); err != nil {
 		return err
 	}
 	if opts.Check {
@@ -117,6 +135,88 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	}
 	fmt.Fprintln(opts.Out, "Upgrade complete. Check the Hosts page for the agent's next heartbeat.")
 	return nil
+}
+
+// settleLayout says what this release expects that the deployment lacks, and
+// adds it when the operator approves: --yes, or an answer at the terminal.
+// Unattended, it adds nothing and says how to; see layout.go.
+func (p *upgradePlan) settleLayout(ctx context.Context) error {
+	changes, err := p.layoutChanges()
+	if err != nil || len(changes) == 0 {
+		return err
+	}
+	out := p.opts.Out
+	fmt.Fprintln(out, "This release expects what this deployment does not have yet:")
+	required := ""
+	for _, c := range changes {
+		fmt.Fprintln(out, "  - "+c.what)
+		if c.required && required == "" {
+			required = c.what
+		}
+	}
+	refuse := func() error {
+		return fmt.Errorf("installer: the upgrade cannot go on without this: %s; run `zoomies upgrade --yes` to add it, or `zoomies init` to set the deployment up again", required)
+	}
+	approved := false
+	switch {
+	case p.opts.Check:
+		// install.sh replaces the binary between the check and the real
+		// run, so a run that is bound to stop has to stop here, while the
+		// old binary is still the installed one.
+		if required != "" && p.opts.NonInteractive && !p.opts.AssumeYes {
+			return refuse()
+		}
+		fmt.Fprintln(out, "The upgrade will offer to add them, and adds nothing without your approval.")
+		return nil
+	case p.opts.AssumeYes:
+		approved = true
+	case p.opts.Interactive && p.opts.In != nil:
+		approved = askApproval(p.opts.In, out, "Add them now? [Y/n] ")
+	}
+	if !approved {
+		if required != "" {
+			return refuse()
+		}
+		fmt.Fprintln(out, "Left as they are: nothing on this host changes without approval, and the upgrade goes on without them.")
+		fmt.Fprintln(out, "To add them, run: zoomies upgrade --yes  (as root, as the upgrade itself is)")
+		return nil
+	}
+	for _, c := range changes {
+		if err := c.apply(ctx); err != nil {
+			return fmt.Errorf("installer: could not %s: %w", c.what, err)
+		}
+	}
+	fmt.Fprintf(out, "Added %d change(s) this release expects.\n", len(changes))
+	return nil
+}
+
+// askApproval reads one answer. An empty line is yes, as the [Y/n] says; an
+// input that ends before anything is typed is no, because nobody said yes.
+func askApproval(in io.Reader, out io.Writer, question string) bool {
+	fmt.Fprint(out, question)
+	var line strings.Builder
+	buf := make([]byte, 1)
+	for {
+		n, err := in.Read(buf)
+		if n == 1 {
+			if buf[0] == '\n' {
+				break
+			}
+			line.WriteByte(buf[0])
+		}
+		if err != nil {
+			if line.Len() == 0 {
+				fmt.Fprintln(out)
+				return false
+			}
+			break
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(line.String())) {
+	case "", "y", "yes":
+		return true
+	}
+	return false
 }
 
 func (p *upgradePlan) localImageID(ctx context.Context) string {
@@ -172,6 +272,12 @@ func prepareUpgrade(ctx context.Context, opts UpgradeOptions) (*upgradePlan, err
 		return nil, err
 	}
 	if p.record.Deployment == DeploymentCompose {
+		// A missing Compose file is one the upgrade offers to write again
+		// (see layout.go), and a file it writes uses ZOOMIES_IMAGE by
+		// construction; there is nothing to ask Compose about yet.
+		if _, err := os.Stat(p.record.ComposeFile()); os.IsNotExist(err) {
+			return p, nil
+		}
 		// Do not claim an upgrade if the operator has replaced the image
 		// variable with a fixed reference in the compose file.
 		images, err := p.compose(ctx, "config", "--images")

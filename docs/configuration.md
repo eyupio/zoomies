@@ -1866,8 +1866,10 @@ container images. The installer creates it that way.
 A container deployment mounts the host's `/var/lib/zoomies/shared` at the same
 path inside the controller's container. The host's Docker daemon binds a
 runner's cache folders from it, and a folder the controller named by any other
-path would be one the daemon cannot see. For a Compose file you maintain by
-hand, create it before starting:
+path would be one the daemon cannot see. An installation made before the shared
+folder existed has neither the folder nor the mount; `zoomies upgrade` and
+`install.sh --upgrade` [offer to add both](upgrading.md#what-a-release-adds-to-the-host).
+For a Compose file you maintain by hand, create it before starting:
 
 ```sh
 sudo mkdir -p /var/lib/zoomies/shared && sudo chown 65532:65532 /var/lib/zoomies/shared

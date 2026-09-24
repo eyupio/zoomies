@@ -75,6 +75,9 @@ PREFIX_GIVEN=0
 CONFIG_DIR=""
 UPGRADE_IMAGE=""
 ASSUME_YES=0
+# YES_GIVEN is --yes typed, as opposed to implied: an unattended upgrade adds
+# nothing new to the host -- a folder, a mount -- unless somebody said so.
+YES_GIVEN=0
 ALLOW_UNVERIFIED=0
 # Motion -- off until init_motion says otherwise. It is a courtesy, never the
 # interface: every value that could make an animated line the wrong thing to
@@ -435,6 +438,11 @@ Options:
   --upgrade             Upgrade the existing deployment, keeping its configuration
                         and credentials. Refresh stock runner images, pull the
                         matching service image and restart the service/container.
+                        Anything this release expects that the deployment
+                        lacks -- the shared folder, its mount, a deleted
+                        docker-compose.yml -- is listed and added once you
+                        agree; --yes adds it without asking, and
+                        --non-interactive leaves it and says how to add it.
   --config-dir <dir>    Existing configuration directory (for a custom install).
   --image <ref>         With --upgrade: replacement for a custom container image.
   --no-init             Install the binary only; do not run `zoomies init`.
@@ -538,7 +546,7 @@ while [ $# -gt 0 ]; do
         --image=*)     UPGRADE_IMAGE="${1#*=}"; shift ;;
         --no-init)     RUN_INIT=0; BINARY_ONLY=1; shift ;;
         --uninstall)   DO_UNINSTALL=1; shift ;;
-        -y|--yes)      ASSUME_YES=1; shift ;;
+        -y|--yes)      ASSUME_YES=1; YES_GIVEN=1; shift ;;
         --allow-unverified) ALLOW_UNVERIFIED=1; shift ;;
         --no-animation) NO_ANIM=1; shift ;;
         --preview)     PREVIEW=1; shift ;;
@@ -1269,10 +1277,32 @@ upgrade_with() {
     [ -n "$UPGRADE_IMAGE" ] && set -- "$@" --image "$UPGRADE_IMAGE"
     [ -n "$RUNTIME_SOCKET" ] && set -- "$@" --docker-host "unix://$RUNTIME_SOCKET"
     case "$RUNTIME" in docker|podman) set -- "$@" --runtime "$RUNTIME" ;; esac
-    if [ -n "$ELEVATE" ] && [ "$OS" = linux ]; then
-        run_privileged "$upgrade_binary" "$@"
+    [ "$YES_GIVEN" -eq 1 ] && set -- "$@" --yes
+    [ "$NON_INTERACTIVE" -eq 1 ] && set -- "$@" --non-interactive
+    # The upgrade asks before it adds anything the deployment lacks, and this
+    # script usually arrives through a pipe, so stdin is the rest of the
+    # script. The terminal the setup interview uses carries the question; the
+    # read-only --check never asks, so it keeps whatever stdin it has.
+    upgrade_tty=0
+    case " $* " in *" --check "*) ;; *)
+        if [ "$NON_INTERACTIVE" -eq 0 ] && [ "$YES_GIVEN" -eq 0 ] && [ ! -t 0 ] && have_tty; then
+            upgrade_tty=1
+        fi ;;
+    esac
+    if [ "$upgrade_tty" -eq 1 ]; then
+        upgrade_run "$upgrade_binary" "$@" </dev/tty
     else
-        "$upgrade_binary" "$@"
+        upgrade_run "$upgrade_binary" "$@"
+    fi
+}
+
+upgrade_run() {
+    upgrade_run_binary="$1"
+    shift
+    if [ -n "$ELEVATE" ] && [ "$OS" = linux ]; then
+        run_privileged "$upgrade_run_binary" "$@"
+    else
+        "$upgrade_run_binary" "$@"
     fi
 }
 
