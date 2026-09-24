@@ -370,13 +370,56 @@ export interface paths {
         post?: never;
         /**
          * Remove an installation
-         * @description Cascades to its pools, and removes their runners now, interrupting any job they are running: a runner has to be deregistered from GitHub while the installation's credentials still exist, which is before the row goes, so there is no drain here. Drain the pools first with `DELETE /pools/{id}` if the running jobs matter. The response says how many pools and runners went with it.
+         * @description Cascades to its pools, and removes their runners now, interrupting any job they are running: a runner has to be deregistered from GitHub while the installation's credentials still exist, which is before the row goes, so there is no drain here. Drain the pools first with `DELETE /pools/{id}` if the running jobs matter. The response says how many pools and runners went with it. Jobs, deliveries, scaling events and usage are left behind unless `purge=true`, which removes the same set `POST /installations/{id}/export` writes -- and only that set, never another installation's rows -- and wants `confirm` set to the installation's target.
          */
         delete: operations["deleteInstallation"];
         options?: never;
         head?: never;
         /** Update an installation */
         patch: operations["updateInstallation"];
+        trace?: never;
+    };
+    "/installations/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Everything about one installation, as one archive
+         * @description Its pools, runners, jobs and their events, deliveries, scaling events, runner sessions, usage days and capacity samples, and the audit rows that name any of them. The App's private key and webhook secret leave only when a passphrase is given, sealed under it (argon2id and AES-256-GCM), so the archive can be imported on another instance without this one's key. Audited.
+         */
+        post: operations["exportInstallation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/installations/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write an exported installation onto this instance
+         * @description All of it or none. Rows keep their IDs; runner rows and pre-pull records are left out, because they name hosts only the exporting instance has, and the runners' history arrives as their sessions. The credentials are opened with the passphrase and sealed under this instance's key. A 409 means a row in the archive is already here. Audited.
+         */
+        post: operations["importInstallation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/installations/{id}/verify": {
@@ -2833,6 +2876,30 @@ export interface components {
             reason?: string;
             /** Format: date-time */
             created_at?: string;
+        };
+        InstallationArchive: {
+            /** @enum {string} */
+            kind: "zoomies-installation";
+            archive_version: number;
+            /** Format: date-time */
+            exported_at: string;
+            exported_from?: string;
+            version: string;
+            installation_id: string;
+            target: string;
+            /** @description Passphrase-sealed, base64. Absent when the export had no passphrase. */
+            secrets?: {
+                /** Format: byte */
+                private_key?: string;
+                /** Format: byte */
+                webhook_secret?: string;
+            };
+            tables: {
+                table: string;
+                columns: string[];
+                /** @description One array per row, in column order. A blob is an object with a base64 field. */
+                rows: unknown[][];
+            }[];
         };
         Installation: {
             id?: string;
@@ -5974,7 +6041,11 @@ export interface operations {
     };
     deleteInstallation: {
         parameters: {
-            query?: never;
+            query?: {
+                purge?: boolean;
+                /** @description The installation's target, typed, when purge is true. */
+                confirm?: string;
+            };
             header?: never;
             path: {
                 /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
@@ -5993,10 +6064,12 @@ export interface operations {
                     "application/json": {
                         pools_deleted?: number;
                         runners_affected?: number;
+                        purged?: boolean;
                     };
                 };
             };
             404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     updateInstallation: {
@@ -6025,6 +6098,73 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    exportInstallation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    passphrase?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The archive */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallationArchive"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    importInstallation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    archive: components["schemas"]["InstallationArchive"];
+                    passphrase?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Imported */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        installation: components["schemas"]["Installation"];
+                        rows: {
+                            [key: string]: number;
+                        };
+                        skipped: {
+                            [key: string]: number;
+                        };
+                    };
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     verifyInstallation: {
