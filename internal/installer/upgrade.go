@@ -40,6 +40,7 @@ type UpgradeOptions struct {
 	NonInteractive bool
 	AssumeYes      bool
 	run            commandRunner
+	runInput       inputRunner
 	// shared stands in for the host's shared folder and the account it
 	// belongs to, so a test does not reach for /var/lib/zoomies.
 	shared *sharedTarget
@@ -56,6 +57,9 @@ type upgradePlan struct {
 	launchd     bool
 	client      *backend.APIClient
 	replacement *backend.ContainerReplacement
+	// move is the settings the operator agreed to take out of the
+	// container's environment and into its database; see envsettings.go.
+	move []movedSetting
 }
 
 // Upgrade applies the binary already downloaded by install.sh to the running
@@ -72,6 +76,9 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	}
 	if opts.run == nil {
 		opts.run = runCommand
+	}
+	if opts.runInput == nil {
+		opts.runInput = runCommandInput
 	}
 	if opts.BinaryPath == "" {
 		opts.BinaryPath, _ = os.Executable()
@@ -95,6 +102,7 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	if err := p.settleLayout(ctx); err != nil {
 		return err
 	}
+	p.settleSettings(ctx)
 	if opts.Check {
 		fmt.Fprintln(opts.Out, "The existing deployment can be upgraded without running setup again.")
 		return nil
@@ -396,19 +404,29 @@ func (p *upgradePlan) prepareNative(ctx context.Context) error {
 }
 
 func (p *upgradePlan) docker(ctx context.Context, args ...string) (string, error) {
+	name, argv := p.dockerArgv(args...)
+	return p.opts.run(ctx, name, argv...)
+}
+
+func (p *upgradePlan) dockerArgv(args ...string) (string, []string) {
 	if p.opts.Runtime == "podman" {
 		if p.opts.DockerHost != "" {
 			args = append([]string{"--remote", "--url", p.opts.DockerHost}, args...)
 		}
-		return p.opts.run(ctx, "podman", args...)
+		return "podman", args
 	}
 	if p.opts.DockerHost != "" {
 		args = append([]string{"--host", p.opts.DockerHost}, args...)
 	}
-	return p.opts.run(ctx, "docker", args...)
+	return "docker", args
 }
 
 func (p *upgradePlan) compose(ctx context.Context, args ...string) (string, error) {
+	name, argv := p.composeArgv(args...)
+	return p.opts.run(ctx, name, argv...)
+}
+
+func (p *upgradePlan) composeArgv(args ...string) (string, []string) {
 	name, command := ComposeArgs(p.record.ComposeCommand, p.record.ComposeFile(), args...)
 	prefix := []string{"ZOOMIES_IMAGE=" + p.image}
 	if p.opts.DockerHost != "" {
@@ -419,7 +437,7 @@ func (p *upgradePlan) compose(ctx context.Context, args ...string) (string, erro
 			command[n+1] = p.record.EnvFile
 		}
 	}
-	return p.opts.run(ctx, "env", append(append(prefix, name), command...)...)
+	return "env", append(append(prefix, name), command...)
 }
 
 func (p *upgradePlan) pullRunnerImages(ctx context.Context) error {
@@ -490,6 +508,10 @@ func (p *upgradePlan) upgradeCompose(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var unmove func() error
+	if len(p.move) > 0 {
+		unmove = p.moveComposeSettings(ctx)
+	}
 	old, mode, err := replaceEnvImage(p.record.EnvFile, p.image)
 	if err != nil {
 		return err
@@ -503,7 +525,15 @@ func (p *upgradePlan) upgradeCompose(ctx context.Context) error {
 		}
 	}
 	if err != nil {
-		restore := writeFileAtomic(p.record.EnvFile, old, mode)
+		// The files go back as they were before the move as well: the image
+		// being rolled back to may predate the settings it would now find
+		// only in the database.
+		var restore error
+		if unmove != nil {
+			restore = unmove()
+		} else {
+			restore = writeFileAtomic(p.record.EnvFile, old, mode)
+		}
 		if restore == nil {
 			rollback, cancel := context.WithTimeout(context.WithoutCancel(ctx), serviceStopTimeout+time.Minute)
 			defer cancel()
@@ -529,6 +559,7 @@ func (p *upgradePlan) upgradeDocker(ctx context.Context) error {
 	if err := p.client.ContainerStop(ctx, old.ID, serviceStopTimeout); err != nil {
 		return err
 	}
+	moved := len(p.move) > 0 && p.moveDockerSettings(ctx)
 	backup := old.Name + "-before-upgrade"
 	if err := p.client.ContainerRename(ctx, old.ID, backup); err != nil {
 		if old.Running {
@@ -564,6 +595,9 @@ func (p *upgradePlan) upgradeDocker(ctx context.Context) error {
 	}
 	if _, _, err := replaceEnvImage(p.record.EnvFile, p.image); err != nil {
 		return fmt.Errorf("new container is running but its environment file could not be updated: %w", err)
+	}
+	if moved {
+		p.commentDockerEnvFile()
 	}
 	p.record.Image = p.image
 	if _, err := WriteDeploymentRecord(p.opts.ConfigDir, p.record); err != nil {

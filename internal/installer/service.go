@@ -326,6 +326,32 @@ func DetectServiceKind(d Detection) ServiceKind {
 // that tests can watch what would have been run without running it.
 type commandRunner func(ctx context.Context, name string, args ...string) (string, error)
 
+// inputRunner is a commandRunner that also hands the command its standard
+// input: how a secret reaches a one-off container without appearing in an
+// argument list any process on the host can read.
+type inputRunner func(ctx context.Context, input, name string, args ...string) (string, error)
+
+func runCommandInput(ctx context.Context, input, name string, args ...string) (string, error) {
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return "", fmt.Errorf("installer: %s is not on PATH, so this step cannot run here: %w", name, err)
+	}
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Stdin = strings.NewReader(input)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err = cmd.Run()
+	text := strings.TrimSpace(out.String())
+	if err != nil {
+		if text != "" {
+			return text, fmt.Errorf("installer: %s %s failed: %w: %s", name, strings.Join(args, " "), err, text)
+		}
+		return text, fmt.Errorf("installer: %s %s failed: %w", name, strings.Join(args, " "), err)
+	}
+	return text, nil
+}
+
 func runCommand(ctx context.Context, name string, args ...string) (string, error) {
 	path, err := exec.LookPath(name)
 	if err != nil {

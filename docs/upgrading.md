@@ -129,6 +129,52 @@ The parts of that worth knowing before you do it are what happens to work in
 flight, how far the pieces may drift apart, and the one direction you cannot
 go back in.
 
+## Settings that were in `.env`
+
+A controller's settings live in its database, where the Settings page changes
+them. A container deployment installed by an older release carries them in its
+`.env` instead — the external URL, bind address, TLS, trusted proxies, the
+embedded agent's backend, socket and capacity, log settings — and a `ZOOMIES_*`
+variable wins over the database, so each one shows on the Settings page as
+locked, and a change made there never takes effect.
+
+An upgrade finds them — in the running container's own environment, which is
+what the controller reads, whether it came from `.env`, from a literal in the
+Compose file or from a `docker run` long ago — lists them with the setting
+each one sets, and with the same approval as above moves them:
+
+1. It pulls the new image and stops the controller, which holds the database's
+   lock.
+2. A one-off container of the new image, on the deployment's own volume, runs
+   `zoomies config import-env` and stores every value in the database in one
+   write. The values reach it on standard input, never as arguments. A value
+   the controller could not run with stores nothing at all.
+3. Each line in `.env` is commented out, with a line above it naming the
+   setting it moved to; a credential's value is not kept in the comment. On a
+   Compose deployment the variables leave the service's `environment:` too,
+   and anywhere else the file used them — an older file mounted the
+   certificate as `${ZOOMIES_TLS_CERT_FILE}` — gets the value written in. The
+   Compose file is copied to `docker-compose.yml.bak.<time>` first. On a
+   `docker` deployment the replacement container is created without them.
+4. The controller comes back up on the same values, from the database.
+
+If the new image cannot store them, nothing is edited and the upgrade goes on
+with the settings where they were. If the recreate fails, `.env` and the
+Compose file are put back as they were before the move, because the image
+being rolled back to may predate reading them from the database.
+
+What stays in `.env` is what is needed before the database can be opened — the
+encryption key, the database path, the state directory — and what Compose or
+`docker run` reads itself: the image, the published address and port, the
+docker group. An agent keeps its whole environment: it has no database.
+
+`docker compose pull && docker compose up -d` upgrades the image and moves
+nothing. For a Compose file you wrote yourself, such as the repository's
+[`docker-compose.yml`](compose.md), stop the controller, run
+`docker compose run --rm --no-deps -T zoomies config import-env < .env`, take
+the lines it stored out of `.env` and the file's `environment:`, and bring it
+up again.
+
 ## Host usage during a rolling upgrade
 
 Resource-aware allocation adds migration `0028_host_usage.sql` and an optional

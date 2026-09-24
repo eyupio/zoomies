@@ -326,3 +326,84 @@ func SeedFinding(path string, n int) Finding {
 		Fix: "Nothing. The file can stay as it is; a value changed on the settings page takes precedence over it from now on.",
 	}
 }
+
+// SettingForEnv is the stored setting a ZOOMIES_* variable sets, if it sets
+// one. Bootstrap and local settings are not returned: they cannot live in the
+// database, so a variable naming one is not a setting to move there.
+func SettingForEnv(name string) (Setting, bool) {
+	for _, s := range registry {
+		if s.Env == name && s.Stored() {
+			return s, true
+		}
+	}
+	return Setting{}, false
+}
+
+// EnvImport is one variable ImportEnvironment turned into a row.
+type EnvImport struct {
+	Env     string
+	Setting Setting
+	// Text is the value as the settings page shows it; empty for a secret.
+	Text string
+}
+
+// ImportEnvironment turns the ZOOMIES_* variables a deployment was started
+// with into the rows that hold the same settings in its database.
+//
+// It is how a container deployment's settings leave its .env. Every variable
+// is parsed as the controller would parse it, and one that does not parse
+// stops the whole import: storing the rest would leave the deployment half in
+// the database and half in its environment, with the half that failed the
+// one nobody notices. Variables that are not stored settings -- the
+// encryption key, the database path, Compose's own -- are returned in left,
+// so a caller can say they stay where they are.
+func ImportEnvironment(vars map[string]string, key *cryptox.Key) (rows []store.InstanceSetting, imported []EnvImport, left []string, err error) {
+	names := make([]string, 0, len(vars))
+	for name := range vars {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var problems []string
+	for _, name := range names {
+		s, ok := SettingForEnv(name)
+		if !ok {
+			if strings.HasPrefix(name, "ZOOMIES_") {
+				left = append(left, name)
+			}
+			continue
+		}
+		candidate := Default()
+		if _, err := candidate.SetValueString(s.Key, vars[name]); err != nil {
+			var se *SettingError
+			if errors.As(err, &se) {
+				problems = append(problems, fmt.Sprintf("%s: %s", name, se.Reason))
+			} else {
+				problems = append(problems, fmt.Sprintf("%s: %s", name, err))
+			}
+			continue
+		}
+		value, err := candidate.Value(s.Key)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %s", name, err))
+			continue
+		}
+		row, err := EncodeStored(s, value, key)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %s", name, err))
+			continue
+		}
+		rows = append(rows, row)
+		text := ""
+		if !s.Secret {
+			text = Text(s, value)
+		}
+		imported = append(imported, EnvImport{Env: name, Setting: s, Text: text})
+	}
+	if len(problems) > 0 {
+		return nil, nil, left, fmt.Errorf("nothing was stored, because these would not be what the controller runs with:\n  - %s",
+			strings.Join(problems, "\n  - "))
+	}
+	sort.Slice(rows, func(i, j int) bool { return CompareKeys(rows[i].Key, rows[j].Key) < 0 })
+	return rows, imported, left, nil
+}

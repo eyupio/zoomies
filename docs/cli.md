@@ -233,10 +233,11 @@ It needs an admin token, because the document contains the settings section.
 | `zoomies config get <key>` | One setting's effective value, and whether it came from the defaults, the file, the database or the environment. |
 | `zoomies config set <key> <value>` | Store one setting in the fleet's database — the same thing the settings page does, for when the settings page is the thing that is broken. |
 | `zoomies config unset <key>` | Forget a stored setting, so the configuration file or the built-in default decides it again. |
+| `zoomies config import-env [file]` | Store every setting an environment file sets — standard input when no file is given — in one write, and name the variables that cannot live in the database. The installer runs it in a one-off container to put a controller's settings in its database; see [Settings that were in `.env`](upgrading.md#settings-that-were-in-env). |
 | `zoomies healthcheck --url <url>` | Probe a controller's `/healthz`. Exit 0 when it answers. This is what the container image's `HEALTHCHECK` runs. |
 | `zoomies version` | The version this binary was built from. `--short` or `--json`. |
 
-`config set` and `config unset` need the controller stopped: it holds the
+`config set`, `config unset` and `config import-env` need the controller stopped: it holds the
 database lock, and writing settings under a process that has already read them
 would leave the two disagreeing with no way for either to find out. Everything
 else in this group reads only.

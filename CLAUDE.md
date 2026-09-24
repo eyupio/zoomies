@@ -148,6 +148,16 @@ any such read outside `internal/config`; do not add to its allowlist to get a
 change through. The one real exception is a remote agent, which has no
 database: its own instance settings come from its file and environment.
 
+The same goes for what the installer writes. A container controller's `.env`
+and Compose file carry only what opens the database and what Compose reads
+itself; `zoomies init` stores every answer in the database first
+(`SettingsEnv`, then `zoomies config import-env` in a one-off container), and
+`zoomies upgrade` moves an older deployment's out of its environment
+(`internal/installer/envsettings.go`). Never add a stored setting's variable
+to the `.env` template or the controller's `environment:` block --
+`TestAControllersComposeFileHandsItNoSetting` and
+`TestAControllersEnvFileHoldsOnlyWhatOpensItsDatabase` fail if you do.
+
 Every setting is a row in the registry in `internal/config/settings.go`, which
 gives it its `zoomies.yaml` key, its `ZOOMIES_*` override and its place on the
 Settings page. Adding a setting means adding the row, plus a row in

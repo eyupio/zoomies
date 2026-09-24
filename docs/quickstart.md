@@ -84,11 +84,13 @@ instead, with agents joined from machines that have a container runtime. See
     closing summary prints all three with their exact addresses, and the
     Overview repeats them as a checklist that ticks itself off as you go.
 
-Whichever you choose, the containerised deployments write a **fully populated
-`.env`** -- no placeholders to go back and fill in. Every variable carries a
-one-line comment saying what it is for, the file is `0600` because it holds your
-encryption key, and it is written atomically so an interrupted install never
-leaves a half-written file that compose would then read.
+Whichever you choose, the containerised deployments leave nothing to fill in.
+A controller's answers are stored in its database before it first starts, where
+the Settings page changes them; the `.env` holds only what opens that database
+and what Compose reads itself. Every variable in it carries a one-line comment
+saying what it is for, the file is `0600` because it holds your encryption key,
+and it is written atomically so an interrupted install never leaves a
+half-written file that compose would then read.
 
 Re-running the installer over an existing deployment is an upgrade, not a
 reinstall: it **keeps the existing encryption key** (minting a new one would

@@ -1088,12 +1088,19 @@ deploys the controller from the source. It has no Docker socket, so it runs no
 runners itself and agents join it from elsewhere -- [Deploying on a
 PaaS](paas.md) is the whole of it.
 
-The generated `.env` is complete: external URL, a freshly generated encryption
-key, bind address, TLS mode, trusted proxies, backend, capacity, work and
-database paths, log settings, the image tag, the published port, and the host's
-real docker group id. Every variable carries a comment. It is `0600`, written
-atomically, and a re-run **reuses the existing encryption key** rather than
-minting a new one -- which would render every stored secret undecryptable.
+A controller's settings go into its database, not the generated `.env`:
+before the container first starts, the installer stores the external URL, bind
+address, TLS mode, trusted proxies, backend, capacity, work directory and log
+settings through `zoomies config import-env` in a one-off container of the same
+image, so the Settings page can change every one of them. The `.env` holds only
+what opens the database — a freshly generated encryption key, the database and
+state paths — and what Compose or `docker run` reads itself: the image tag, the
+published port and the host's real docker group id. An agent, which has no
+database, keeps its settings in its `.env`. Every variable carries a comment.
+The file is `0600`, written atomically, and a re-run **reuses the existing
+encryption key** rather than minting a new one — which would render every
+stored secret undecryptable. A deployment an older release wrote them into
+`.env` for has them moved by [`zoomies upgrade`](upgrading.md#settings-that-were-in-env).
 
 `zoomies uninstall` reads back which deployment was used and tears down the
 right thing: `<compose> down` for a compose install (offering `-v`, and saying

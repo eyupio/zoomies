@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -187,10 +188,12 @@ func (s EnvSpec) defaults() EnvSpec {
 
 // Config renders the configuration the container will actually run with.
 //
-// A container deployment writes no zoomies.yaml: the environment file is the
-// configuration. This is what lets a test put the generated .env through
-// config.Validate and assert that each deployment produces a controller that
-// starts, and produces exactly the warnings that deployment deserves.
+// A container deployment writes no zoomies.yaml: its configuration is the
+// environment file and, for a controller, the settings stored in its database
+// before it first starts (SettingsEnv). This is both of them together, which
+// is what lets a test put a generated deployment through config.Validate and
+// assert that each one produces a controller that starts, and produces
+// exactly the warnings that deployment deserves.
 func (s EnvSpec) Config() *config.Config {
 	s = s.defaults()
 	cfg := config.Default()
@@ -240,7 +243,10 @@ func (s EnvSpec) Config() *config.Config {
 // handed a half-finished install and told it is done. Refusing here means the
 // failure lands during setup, where it can be fixed, rather than at first
 // start.
-func (s EnvSpec) required() []string {
+//
+// settingsOnly is SettingsEnv's check: the encryption key is not one of the
+// settings, and the installer stores them before WriteEnv has generated it.
+func (s EnvSpec) required(settingsOnly bool) []string {
 	var missing []string
 	if s.Mode == ModeAgent {
 		if s.ControllerURL == "" {
@@ -254,7 +260,7 @@ func (s EnvSpec) required() []string {
 	if s.ExternalURL == "" {
 		missing = append(missing, "ZOOMIES_EXTERNAL_URL (the URL GitHub and your browser use)")
 	}
-	if s.EncryptionKey == "" {
+	if s.EncryptionKey == "" && !settingsOnly {
 		missing = append(missing, "ZOOMIES_ENCRYPTION_KEY (32 bytes, base64; WriteEnv generates one when there is none to keep)")
 	}
 	if s.TLSMode == config.TLSFiles && (s.TLSCertFile == "" || s.TLSKeyFile == "") {
@@ -274,12 +280,36 @@ func (s EnvSpec) required() []string {
 // It is a pure function so that the file can be asserted on in a test rather
 // than only observed after an install.
 func RenderEnv(spec EnvSpec) (string, error) {
+	body, _, err := renderEnv(spec, false)
+	return body, err
+}
+
+// SettingsEnv is the other half of RenderEnv for a controller: the settings it
+// keeps in its database, as the lines `zoomies config import-env` stores. An
+// agent keeps none -- it has no database -- so its half is empty.
+func SettingsEnv(spec EnvSpec) (string, error) {
+	_, vars, err := renderEnv(spec, true)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, v := range vars {
+		quoted, err := quoteEnvValue(v.key, v.value)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(v.key + "=" + quoted + "\n")
+	}
+	return b.String(), nil
+}
+
+func renderEnv(spec EnvSpec, settingsOnly bool) (string, []envVar, error) {
 	s := spec.defaults()
-	if missing := s.required(); len(missing) > 0 {
-		return "", fmt.Errorf("installer: the environment file would be written with nothing in:\n  - %s",
+	if missing := s.required(settingsOnly); len(missing) > 0 {
+		return "", nil, fmt.Errorf("installer: the environment file would be written with nothing in:\n  - %s",
 			strings.Join(missing, "\n  - "))
 	}
-	w := &envWriter{}
+	w := &envWriter{database: s.Mode != ModeAgent}
 
 	w.header(s)
 
@@ -349,7 +379,8 @@ func RenderEnv(spec EnvSpec) (string, error) {
 		"The port on this host that maps to the container's listener.")
 	w.set("DOCKER_GID", dockerGIDValue(s.DockerGID), dockerGIDComment(s.DockerGID))
 
-	return w.result()
+	body, err := w.result()
+	return body, w.settings, err
 }
 
 // composeOrDocker names whichever tool reads the deployment-only variables, so
@@ -392,6 +423,14 @@ func dockerGIDComment(gid int) string {
 type envWriter struct {
 	b   strings.Builder
 	err error
+	// database sends every setting that lives in the database to settings
+	// instead of the file: a controller keeps its settings there, and a
+	// variable in this file would pin each one over the settings page.
+	database bool
+	settings []envVar
+	// pending is a section heading not yet written, because a section whose
+	// every variable went to the database has nothing under it.
+	pending string
 	// keys guards against a variable being written twice, which would leave
 	// the second value silently winning.
 	keys map[string]bool
@@ -407,13 +446,25 @@ func (w *envWriter) header(s EnvSpec) {
 # stored secret is sealed with. Do not commit it, and back that key up
 # somewhere that is not the same backup as the database.
 #
-# Any of these can also be set in the environment, which wins over this file.
 `, s.Deployment)
+	if w.database {
+		w.b.WriteString(`# This controller's settings live in its database, not here: change them on
+# the settings page, or with ` + "`zoomies config set`" + ` while it is stopped. What is
+# left in this file is what has to be known before the database can be opened,
+# and what ` + composeOrDocker(s.Deployment) + ` reads itself. A ZOOMIES_* setting added here would
+# override the database, and the settings page would show it as locked.
+`)
+		return
+	}
+	w.b.WriteString("# Any of these can also be set in the environment, which wins over this file.\n")
 }
 
 func (w *envWriter) section(title string) {
-	fmt.Fprintf(&w.b, "\n# --- %s %s\n", title, strings.Repeat("-", max(3, 68-len(title))))
+	w.pending = title
 }
+
+// envVar is one variable and its value.
+type envVar struct{ key, value string }
 
 // set writes one variable with the comment that says what it is for. A
 // variable without a comment is a bug, not a style choice, so it is refused.
@@ -438,6 +489,14 @@ func (w *envWriter) set(key, value, comment string) {
 	if err != nil {
 		w.err = err
 		return
+	}
+	if _, stored := config.SettingForEnv(key); w.database && stored {
+		w.settings = append(w.settings, envVar{key, value})
+		return
+	}
+	if w.pending != "" {
+		fmt.Fprintf(&w.b, "\n# --- %s %s\n", w.pending, strings.Repeat("-", max(3, 68-len(w.pending))))
+		w.pending = ""
 	}
 	w.b.WriteString("\n")
 	for _, line := range wrapComment(comment, 74) {
@@ -516,9 +575,19 @@ func ParseEnvFile(path string) (map[string]string, error) {
 		return nil, err
 	}
 	defer f.Close()
+	out, err := ParseEnv(f)
+	if err != nil {
+		return nil, fmt.Errorf("installer: reading %s: %w", path, err)
+	}
+	return out, nil
+}
 
+// ParseEnv is ParseEnvFile over a stream: what `zoomies config import-env`
+// reads a deployment's variables from, when the upgrade hands them over on
+// standard input rather than as arguments any process on the host could read.
+func ParseEnv(r io.Reader) (map[string]string, error) {
 	out := map[string]string{}
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -533,7 +602,7 @@ func ParseEnvFile(path string) (map[string]string, error) {
 		out[strings.TrimSpace(key)] = unquoteEnvValue(strings.TrimSpace(value))
 	}
 	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("installer: reading %s: %w", path, err)
+		return nil, err
 	}
 	return out, nil
 }

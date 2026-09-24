@@ -66,8 +66,9 @@ type ComposeFileSpec struct {
 	// read at all.
 	GroupAdd bool
 	// TLSCertFile and TLSKeyFile are mounted read-only at the same paths they
-	// have on the host, which is why the environment file can name them
-	// directly.
+	// have on the host, which is why the TLS settings can name them directly.
+	// They are written into the file rather than read from .env, which holds
+	// no settings for a controller.
 	TLSCertFile string
 	TLSKeyFile  string
 	// Healthcheck is off for an agent, which serves nothing to check.
@@ -673,12 +674,21 @@ func (i *Installer) checkContainerSocketAccess(p Plan) {
 		i.ui.note(fmt.Sprintf("recreate the container with --group-add %d, which is the gid that owns the socket on this host.", facts.gid))
 	case socketRootGroup:
 		i.ui.warn(socket + " belongs to group root, so the only gid that would reach it is 0")
-		i.ui.note("Zoomies will not put a container in the root group. Give the socket a group of its own -- `sudo groupadd docker`, then restart the daemon so it takes the group -- or run a rootless daemon and point ZOOMIES_DOCKER_HOST at its socket.")
+		i.ui.note("Zoomies will not put a container in the root group. Give the socket a group of its own -- `sudo groupadd docker`, then restart the daemon so it takes the group -- or run a rootless daemon and point " + dockerHostSetting(p) + " at its socket.")
 	case socketNoGroupBits:
 		i.ui.warn(fmt.Sprintf("%s is mode %04o, which grants nothing to its group, so no gid added to the container can open it",
 			socket, facts.mode.Perm()))
-		i.ui.note("run a rootless daemon and point ZOOMIES_DOCKER_HOST at its socket, or change the socket's own permissions.")
+		i.ui.note("run a rootless daemon and point " + dockerHostSetting(p) + " at its socket, or change the socket's own permissions.")
 	}
+}
+
+// dockerHostSetting names where the socket is set for this deployment: an
+// agent's environment, or a controller's settings, which live in its database.
+func dockerHostSetting(p Plan) string {
+	if p.Mode == ModeAgent {
+		return "ZOOMIES_DOCKER_HOST"
+	}
+	return "the Docker socket setting (agent.docker_host)"
 }
 
 func (i *Installer) warnAboutRootlessSocket(p Plan) {
@@ -686,7 +696,7 @@ func (i *Installer) warnAboutRootlessSocket(p Plan) {
 		return
 	}
 	i.ui.warn("the socket at " + p.DockerHost + " belongs to your user, and the image runs as uid 65532.")
-	i.ui.note("if runners fail to start, point ZOOMIES_DOCKER_HOST at the system socket, or run the")
+	i.ui.note("if runners fail to start, point " + dockerHostSetting(p) + " at the system socket, or run the")
 	if p.Deployment == DeploymentCompose {
 		i.ui.note("container as yourself by adding  user: \"$(id -u):$(id -g)\"  to the service in")
 		i.ui.note(filepath.Join(p.DeployDir, ComposeFileName) + ".")
@@ -715,6 +725,22 @@ func (i *Installer) upCompose(ctx context.Context, p Plan, rerun bool) error {
 		if err := i.stream(ctx, p.DeployDir, name, args...); err != nil {
 			i.ui.warn("could not pull a newer image: " + err.Error())
 			i.ui.note("carrying on with the image already on this host.")
+		}
+	}
+
+	if p.Mode != ModeAgent {
+		if rerun {
+			// The settings are stored with the controller stopped: a running
+			// one holds the database's lock, and has already read what this
+			// would change.
+			name, args := ComposeArgs(p.ComposeCommand, file, "stop", "zoomies")
+			if err := i.stream(ctx, p.DeployDir, name, args...); err != nil {
+				return fmt.Errorf("installer: stopping the controller to store its settings: %w", err)
+			}
+		}
+		name, args := ComposeArgs(p.ComposeCommand, file, "run", "--rm", "--no-deps", "-T", "zoomies", "config", "import-env")
+		if err := i.storeSettings(ctx, p, name, args); err != nil {
+			return err
 		}
 	}
 
@@ -758,6 +784,16 @@ func (i *Installer) upDocker(ctx context.Context, p Plan, envPath string, rerun 
 		i.ui.ok("created the " + NetworkName + " network")
 	}
 
+	if p.Mode != ModeAgent {
+		// A one-off container of the same image, on the same volume, with
+		// nothing published and no network: it stores the settings and goes.
+		importArgs := []string{"run", "--rm", "-i", "--network", "none", "--env-file", envPath,
+			"--volume", VolumeName + ":" + ContainerStateDir, p.Image, "config", "import-env"}
+		if err := i.storeSettings(ctx, p, "docker", importArgs); err != nil {
+			return err
+		}
+	}
+
 	args := DockerRunArgs(DockerRunSpecFor(p, envPath))
 	i.ui.step("Starting the container")
 	i.ui.note(DockerCommandLine(args))
@@ -767,6 +803,35 @@ func (i *Installer) upDocker(ctx context.Context, p Plan, envPath string, rerun 
 	}
 	i.ui.blank()
 	i.ui.ok("the " + ContainerName + " container is running")
+	return nil
+}
+
+// storeSettings puts the controller's settings in its database before it
+// first starts, through `zoomies config import-env` in a one-off container of
+// the image being deployed. The .env holds only what opens the database, so a
+// controller started without them would come up on the defaults -- listening
+// on the container's loopback, where the published port cannot reach it.
+//
+// The image's own binary writes its own database, which is why this is a
+// container and not this process: the volume may be somewhere this host
+// cannot open, and the schema is the image's to create. The variables go in on
+// standard input, where no other process can read them.
+func (i *Installer) storeSettings(ctx context.Context, p Plan, name string, args []string) error {
+	input, err := SettingsEnv(EnvSpecFor(p))
+	if err != nil {
+		return err
+	}
+	if input == "" {
+		return nil
+	}
+	i.ui.step("Storing the controller's settings in its database")
+	i.ui.blank()
+	if err := i.streamInput(ctx, p.DeployDir, input, name, args...); err != nil {
+		return fmt.Errorf("installer: storing the controller's settings: %w\n      "+
+			"the image must be of this release or later, which has `zoomies config import-env`", err)
+	}
+	i.ui.blank()
+	i.ui.ok("stored them; change them on the settings page from now on")
 	return nil
 }
 
@@ -787,6 +852,23 @@ func (i *Installer) stream(ctx context.Context, dir, name string, args ...string
 	}
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = dir
+	cmd.Stdout = i.out
+	cmd.Stderr = i.out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s %s failed: %w", name, strings.Join(args, " "), err)
+	}
+	return nil
+}
+
+// streamInput is stream with input on the command's standard input.
+func (i *Installer) streamInput(ctx context.Context, dir, input, name string, args ...string) error {
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return fmt.Errorf("%s is not on PATH, so this deployment cannot be brought up here: %w", name, err)
+	}
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Dir = dir
+	cmd.Stdin = strings.NewReader(input)
 	cmd.Stdout = i.out
 	cmd.Stderr = i.out
 	if err := cmd.Run(); err != nil {
