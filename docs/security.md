@@ -649,6 +649,21 @@ The agent does not verify the controller's TLS certificate. Anything on the
 network path can impersonate the controller and hand the agent arbitrary
 containers to run. Pin the CA with `agent.ca_file` instead.
 
+### `agent.extra_ca_file`
+
+**What it does.** Mounts a PEM root CA read-only into every container runner
+on the host, and into its docker-in-docker sidecar, and adds it to what they
+trust, so jobs work behind a proxy that re-signs TLS.
+
+**What it costs.** Whoever holds that CA's private key can read and alter every
+TLS connection a job makes, including its traffic to GitHub. Behind an
+intercepting proxy that is already true of the network, and this only makes
+the runners agree to it; with any other CA it is an interception you have
+invited. It is reported as information (`agent.extra_ca`) rather than warned
+about, because on the networks that need it there is no safer alternative.
+[The configuration page](configuration.md#agentextra_ca_file-behind-a-proxy-that-re-signs-tls)
+has the mechanics.
+
 ---
 
 ## 7. What is tested

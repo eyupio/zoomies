@@ -232,6 +232,18 @@ wire types.
 | POST | `/api/v1/agent/report` | Out-of-band runner state reports. |
 | POST | `/api/v1/agent/logs/{stream_id}` | Chunked outbound log relay for a UI viewer. |
 
+Each host has limits sized so a working agent never meets them, because one
+host's misbehaving agent must not slow every other host's. Heartbeats, results
+and reports share a per-host budget derived from `agent.heartbeat_interval`
+(twenty calls a second of it, never fewer than two hundred an interval), and a
+call over it is a 429 with `Retry-After`. A host holds one task poll at a time:
+a second is answered at once with an empty batch. A heartbeat or report may
+carry at most a thousand runners, and more is a 413. A log relay stream may
+send a megabyte a second after an eight-megabyte burst, and anything over that
+is read and dropped rather than waited on. Every refusal is counted in
+`zoomies_agent_requests_limited_total` or
+`zoomies_log_relay_dropped_bytes_total`.
+
 ## Providers and machines
 
 A provider is one place machines can be rented from. Its credential goes in

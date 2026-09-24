@@ -296,6 +296,11 @@ func TestNoMetricDeclaresAnUnboundedLabel(t *testing.T) {
 		// the setting -- and both are constants in the source. What it must
 		// never become is who asked, which would grow with the people.
 		"trigger": true,
+		// "limit" is the three per-host agent limits -- rate, poll and
+		// runners -- constants in the source. The host that met one is in the
+		// log line instead, because refusals are exactly where an unbounded
+		// label would do its damage.
+		"limit": true,
 	}
 
 	descs := make(chan *prometheus.Desc, 256)

@@ -164,6 +164,17 @@ what a stopped daemon looks like from the outside, and that half is honest
 here; the recovery half belongs on the reference host the roadmap asks the
 owner for.
 
+`TestAHostHammeringTheAgentRoutesDoesNotDelayAnotherHostsTasks` joins a
+second host from the test process — one that offers no backend, so nothing is
+placed on it — and has it hammer its heartbeat and its task poll from dozens of
+goroutines at once, which is what a broken retry loop or a stolen agent token
+looks like. While it does, a job is queued for the drill's own agent, and the
+drill **asserts** that the job becomes a workload on that host within one poll
+interval, that the host stays healthy, and that the controller's scrape counts
+the noisy host's refusals under both the `rate` and `poll` limits. The limits
+are per host so that one host's misbehaviour is its own problem; this is the
+drill that says so of the built binary rather than of a struct.
+
 The restart drills watch the runner for a few seconds after the fault rather
 than checking it once. A death that follows its parent's arrives a beat later, and the stub's
 marker file outlives the process that wrote it -- so the check is the pid file

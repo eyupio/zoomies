@@ -2467,7 +2467,7 @@ export interface paths {
         };
         /**
          * Long-poll for work
-         * @description Blocks until the host has work or the wait elapses, so a task reaches an agent the instant it is queued while an idle agent makes two or three requests a minute.
+         * @description Blocks until the host has work or the wait elapses, so a task reaches an agent the instant it is queued while an idle agent makes two or three requests a minute. A host holds one poll at a time; a second, while the first is held, is answered at once with an empty batch.
          */
         get: operations["agentPollTasks"];
         put?: never;
@@ -2526,7 +2526,7 @@ export interface paths {
         put?: never;
         /**
          * Relay a runner's output to a viewer
-         * @description The inverted half of log streaming. The controller never dials an agent, so a viewer's request makes it queue a stream_logs task, and the agent answers by opening this chunked POST, which stays open for as long as the runner produces output. Exempt from the body-size limit for that reason.
+         * @description The inverted half of log streaming. The controller never dials an agent, so a viewer's request makes it queue a stream_logs task, and the agent answers by opening this chunked POST, which stays open for as long as the runner produces output. Exempt from the body-size limit for that reason; instead each stream has a byte budget, and output over it is read and dropped rather than waited on.
          */
         post: operations["agentRelayLogs"];
         delete?: never;
@@ -9332,6 +9332,14 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The report carried more runners than any host runs (agent.MaxRunnersPerReport). The agent is misbehaving. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["RateLimited"];
         };
     };
     agentPollTasks: {
@@ -9380,6 +9388,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     agentReportRunners: {
@@ -9403,6 +9412,14 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["Unauthorized"];
+            /** @description The report carried more runners than any host runs (agent.MaxRunnersPerReport). The agent is misbehaving. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["RateLimited"];
         };
     };
     agentRelayLogs: {

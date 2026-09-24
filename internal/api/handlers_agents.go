@@ -19,6 +19,36 @@ func agentHost(r *http.Request) *store.Host {
 	return h
 }
 
+// agentBudget spends one call from the authenticated host's budget for
+// heartbeats, results and reports, and answers 429 when it is gone.
+//
+// It runs before the body is read, so a host over its budget costs a header
+// parse and nothing else -- no decode, and above all no write queued behind
+// the single writer every other host's heartbeat is waiting on.
+func (s *Server) agentBudget(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := agentHost(r)
+		if ok, retry := s.ctrl.AllowAgentCall(host.ID); !ok {
+			s.logger(r).Warn("agent rate limit hit", "host", host.ID, "path", r.URL.Path)
+			rateLimited(w, "this host is calling the controller far more often than an agent does; "+
+				"it is being slowed down, and if it keeps happening check the agent's log and version", retry)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// failReport answers a heartbeat or report the controller refused, naming the
+// cap when that was the reason.
+func (s *Server) failReport(w http.ResponseWriter, r *http.Request, err error) bool {
+	if errors.Is(err, controller.ErrReportTooLarge) {
+		s.logger(r).Warn("refused an oversized agent report", "host", agentHost(r).ID, "error", err)
+		payloadTooLarge(w, err.Error())
+		return true
+	}
+	return false
+}
+
 // handleAgentJoin redeems a join token and enrols a host.
 //
 // It is the one anonymous agent route, because it is the call that mints the
@@ -74,6 +104,9 @@ func (s *Server) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := s.ctrl.Heartbeat(r.Context(), host.ID, req)
 	if err != nil {
+		if s.failReport(w, r, err) {
+			return
+		}
 		if errors.Is(err, agent.ErrHostGone) || errors.Is(err, store.ErrNotFound) {
 			notFound(w, err.Error())
 			return
@@ -149,6 +182,9 @@ func (s *Server) handleAgentReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.ctrl.ReportRunners(r.Context(), host.ID, reports); err != nil {
+		if s.failReport(w, r, err) {
+			return
+		}
 		s.fail(w, r, "applying runner reports", err)
 		return
 	}

@@ -564,6 +564,7 @@ func buildBackends(ctx context.Context, cfg *config.Config, log *slog.Logger) (*
 		Network:      cfg.Agent.Network,
 		WorkDir:      cfg.Agent.WorkDir,
 		RegistryAuth: cfg.Agent.RegistryAuth,
+		ExtraCAFile:  cfg.Agent.ExtraCAFile,
 		Logger:       log,
 	}
 	// An explicit agent.docker_host belongs to the backend it was configured
