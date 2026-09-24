@@ -33,6 +33,7 @@ jobs:
           - zoomies-agent
           - zoomies-runner
           - zoomies-runner-docker
+          - zoomies-runner-full
     steps:
       - name: Delete old untagged versions
         uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5

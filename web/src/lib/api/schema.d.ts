@@ -3220,13 +3220,13 @@ export interface components {
             pids_limit?: number;
             /**
              * Format: double
-             * @description The least CPU a runner may be given when no host has room for `cpus`: a host a little short of the standard size then runs the job with as much as it can spare, never less than this, instead of leaving it queued. The standard is still what the fleet places at wherever it can. Needs `cpus`, and must be below it; zero is no minimum.
+             * @description The least CPU a runner may be given when no host has room for its standard: `cpus`, or -- where `cpus` is left to the host -- a whole slot's share of it. A host a little short of the standard then runs the job with as much as it can spare, never less than this, instead of leaving it queued. The standard is still what the fleet places at wherever it can. Must be below `cpus` when `cpus` is set, and at least a quarter of a core; zero is no minimum.
              * @example 1.5
              */
             min_cpus?: number;
             /**
              * Format: int64
-             * @description The least memory, in megabytes, a runner may be given when no host has room for `memory_mb`, as `min_cpus` is for CPU. Needs `memory_mb`, must be below it, and is held to the same 512 MB floor; zero is no minimum.
+             * @description The least memory, in megabytes, a runner may be given when no host has room for `memory_mb` or a whole slot's share, as `min_cpus` is for CPU. Must be below `memory_mb` when that is set, and is held to the same 512 MB floor; zero is no minimum.
              * @example 3072
              */
             min_memory_mb?: number;

@@ -1,0 +1,72 @@
+name: Check the runner-full toolchains
+# deploy/toolcache.lock pins every toolchain the runner-full image carries to
+# one release and its digest. Python, Node.js, Go, Java and .NET all ship
+# security fixes as patch releases, and an image that never moved would carry
+# the day-one patch of each for ever. This reruns the generator every week
+# and opens a pull request when any line has moved; the pull request's CI
+# builds the image from it, which is what proves the new archives install.
+on:
+  schedule:
+    - cron: "41 6 * * 2"
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Where to run. github is the recovery path."
+        type: choice
+        default: zoomies
+        options: [zoomies, github]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ${{ inputs.runner == 'github' && 'ubuntu-latest' || 'zoomies-linux-x64' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.1"
+
+      # A row whose archive is unchanged keeps the digest the lock already
+      # holds, so a quiet week downloads nothing but the publishers' indexes,
+      # and a Python patch downloads the six archives it moved.
+      - name: Regenerate the lock
+        run: go run deploy/gen_toolcache_lock.go
+
+      - id: diff
+        name: See what moved
+        run: |
+          set -eu
+          if git diff --quiet -- deploy/toolcache.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Every toolchain is on its newest release." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "summary<<EOF"
+            # tool and version of every row that is new, one per line, once.
+            git diff -U0 -- deploy/toolcache.lock | sed -n 's/^+\([a-z]*\) \([^ ]*\) .*/- \1 \2/p' | sort -u
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open a pull request
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          branch: chore/toolcache
+          title: "Move the runner-full toolchains to their newest releases"
+          body: |
+            `go run deploy/gen_toolcache_lock.go` moved these rows of
+            `deploy/toolcache.lock`:
+
+            ${{ steps.diff.outputs.summary }}
+
+            The image build in this pull request's CI installs each archive
+            against its digest and checks every toolchain answers.
+          commit-message: "Move the runner-full toolchains to their newest releases"
