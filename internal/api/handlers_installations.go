@@ -286,17 +286,32 @@ func (s *Server) handleUpdateInstallation(w http.ResponseWriter, r *http.Request
 }
 
 type deleteInstallationResponse struct {
-	PoolsDeleted    int `json:"pools_deleted"`
-	RunnersAffected int `json:"runners_affected"`
+	PoolsDeleted    int  `json:"pools_deleted"`
+	RunnersAffected int  `json:"runners_affected"`
+	Purged          bool `json:"purged,omitempty"`
 }
 
 // handleDeleteInstallation removes an installation and everything that depended
 // on it, and says how much that was.
+//
+// With purge=true it also removes the installation's history -- jobs,
+// deliveries, scaling events, sessions, usage days and the audit rows naming
+// any of them -- which cannot be undone, so it wants confirm set to the
+// installation's target, typed, the way releasing a machine wants its name.
+// Without purge the route is exactly what it always was.
 func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request) {
 	id := chiURLParam(r, "id")
 	inst, err := s.ctrl.Store().GetInstallation(r.Context(), id)
 	if err != nil {
 		s.fail(w, r, "reading the installation", err)
+		return
+	}
+	purge := queryBool(r, "purge", false)
+	if purge && strings.TrimSpace(r.URL.Query().Get("confirm")) != inst.Target {
+		unprocessable(w, fmt.Sprintf("purging removes %s's history as well as the installation -- its jobs, deliveries, "+
+			"usage and the audit rows that name it -- and cannot be undone. Export it first if it may be wanted, "+
+			"then send confirm=%s to say that is what you mean", inst.Target, inst.Target),
+			[]fieldError{{"confirm", fmt.Sprintf("type %s to confirm", inst.Target)}})
 		return
 	}
 
@@ -335,13 +350,26 @@ func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request
 	// The controller announces everything that went, runners first, then the
 	// pools, then the installation, so a page that drops them in that order
 	// has nothing left to explain at each step.
-	if err := s.ctrl.DeleteInstallation(r.Context(), id); err != nil {
-		s.fail(w, r, "deleting the installation", err)
-		return
+	if purge {
+		if err := s.ctrl.PurgeInstallation(r.Context(), id); err != nil {
+			s.fail(w, r, "purging the installation", err)
+			return
+		}
+		// This row is written after the purge on purpose: it is the one thing
+		// left that says the installation existed, and that somebody chose to
+		// remove every other trace of it.
+		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "installation.purge", "installation", id, map[string]any{
+			"target": inst.Target, "app_id": inst.AppID, "pools": len(deleted),
+		})
+	} else {
+		if err := s.ctrl.DeleteInstallation(r.Context(), id); err != nil {
+			s.fail(w, r, "deleting the installation", err)
+			return
+		}
+		s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "installation", id, inst)
 	}
-	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "installation", id, inst)
 	s.ctrl.Nudge()
-	writeJSON(w, http.StatusOK, deleteInstallationResponse{PoolsDeleted: len(deleted), RunnersAffected: affected})
+	writeJSON(w, http.StatusOK, deleteInstallationResponse{PoolsDeleted: len(deleted), RunnersAffected: affected, Purged: purge})
 }
 
 // installationHealthResponse is what a credential probe found.

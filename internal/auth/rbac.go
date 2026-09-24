@@ -63,6 +63,11 @@ const (
 	ActionInstallationsWrite  Action = "installations.write"
 	ActionInstallationsDelete Action = "installations.delete"
 	ActionInstallationsVerify Action = "installations.verify"
+	// ActionInstallationsExport takes an installation's whole history away,
+	// and with a passphrase its private key too. It is admin, as changing the
+	// key is, because the archive is the credential once it is sealed for
+	// somewhere else.
+	ActionInstallationsExport Action = "installations.export"
 )
 
 // Provider and machine actions. A provider's credential reaches a hypervisor,
@@ -178,6 +183,7 @@ var actionRoles = map[Action]store.Role{
 	ActionInstallationsWrite:  store.RoleAdmin,
 	ActionInstallationsDelete: store.RoleAdmin,
 	ActionInstallationsVerify: store.RoleOperator,
+	ActionInstallationsExport: store.RoleAdmin,
 
 	ActionWebhooksRead: store.RoleViewer,
 	ActionWebhooksTest: store.RoleOperator,
