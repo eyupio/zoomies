@@ -2,6 +2,7 @@ import type { Job, WorkflowRun } from '$lib/api/types';
 import {
   CANCELLING,
   jobStatus,
+  QUEUE_EXPEDITED,
   QUEUE_PAUSED,
   QUEUE_REMOVED,
   RUN_FAILING,
@@ -53,7 +54,15 @@ export function queuedActivity(
       detail: QUEUE_REMOVED.hint!,
     };
   if (state === 'expedited') {
-    const status = { ...jobStatus('queued'), key: state, label: 'Run now' };
+    // Still the queued tone -- nothing is running yet -- but the priority
+    // glyph rather than the queued clock, or a job somebody pressed Run now
+    // on is drawn exactly like the Ready rows around it.
+    const status = {
+      ...jobStatus('queued'),
+      key: state,
+      label: 'Run now',
+      icon: QUEUE_EXPEDITED.icon,
+    };
     return {
       status,
       label: quirky ? 'First walkies' : status.label,

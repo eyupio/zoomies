@@ -23,15 +23,40 @@ Appearance → **Zoomies vocabulary** offers three choices:
 
 | Choice | Status words | Illustration |
 | --- | --- | --- |
-| Off | Plain state names | Standard Lucide status icon |
+| Off (default) | Plain state names | Standard Lucide status icon |
 | Cute | Zoomies dog-park vocabulary | Original animated avatar |
 | Standard | Zoomies dog-park vocabulary | Black-and-white cocker spaniel with grey details |
 
-The choice stays in this browser. Existing users keep Cute when their old
-vocabulary switch was on, and Off when it was off. The validated
-`prefs.statusStyle` is the saved choice; `prefs.quirkyStatus` is its derived
-boolean for state maps, filters and activity text. Those maps still accept a
-`quirky` argument so they remain importable as plain TypeScript.
+The choice stays in this browser. A browser that has never chosen — a new
+install, or one whose saved preferences were cleared — starts on Off. Existing
+users keep Cute when their old vocabulary switch was on, and Off when it was
+off. The validated `prefs.statusStyle` is the saved choice; `prefs.quirkyStatus`
+is its derived boolean for state maps, filters and activity text. Those maps
+still accept a `quirky` argument so they remain importable as plain TypeScript.
+
+Off draws each state with a Lucide icon from the state map in
+`web/src/lib/status.ts`. **An icon names a state, never an action**: the
+Queue's Run now, Pause, Resume and Delete carry Zap, Pause, Play and the bin,
+Re-run a turning arrow, and the Runners page's Drain the slashed circle, so a
+status drawn with one of them beside those buttons reads as something to press.
+One glyph also means one thing wherever it appears:
+
+| Icon | Means | Used for |
+| --- | --- | --- |
+| `LoaderCircle` | being set up | provisioning runner; machine creating, starting, bootstrapping |
+| `Handshake` | being accepted | registering runner; enrolling machine |
+| `CircleDot` | ready, waiting for work | idle runner; ready machine |
+| `Activity` | work executing | busy runner; running job or step; machine with runners |
+| `Hourglass` | finishing, then leaving | draining runner |
+| `CircleX` | failed | failed runner; failed job |
+| `CircleMinus` | gone | removed runner; job removed from the queue |
+| `Clock` | queued | queued or waiting job; a Ready queue row |
+| `ChevronsUp` | prioritised | a job somebody pressed Run now on |
+| `OctagonPause` | held by an operator | a paused job |
+| `CircleSlash` | stopped taking work | cancelling job or run; cordoned host; disabled pool |
+| `TimerOff` | ran out of time | timed-out job |
+| `IterationCcw` | another attempt asked for | a re-run requested on a job's timeline |
+| `Zap`, `TrendingUp`, `TrendingDown` | CPU lent at maximum, lent, taken back | elastic CPU on a busy or idle runner |
 
 Standard uses the approved logo-inspired face, long ears and solid monochrome
 shapes. Busy runners run on four separately animated legs; extra zoomies is

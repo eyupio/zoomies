@@ -78,9 +78,9 @@
     <div class="text">
       <p class="label">Zoomies vocabulary</p>
       <p class="description">
-        Off uses plain status names and icons. Cute keeps the original animated dog. Standard uses
-        the black-and-white cocker spaniel. Both dog styles use Zoomies words on runners, workflows
-        and the queue.
+        Off, the default, uses plain status names and icons. Cute keeps the original animated dog.
+        Standard uses the black-and-white cocker spaniel. Both dog styles use Zoomies words on
+        runners, workflows and the queue.
       </p>
     </div>
     <Segmented

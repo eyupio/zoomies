@@ -9,29 +9,46 @@
  *   tone   which status token pair to use (`--z-busy`, `--z-busy-subtle`, ...)
  *   shape  the glyph StatusDot draws -- filled, hollow, dashed, slash, triangle, square
  *   icon   the Lucide icon Badge and the detail pages use
+ *
+ * An icon names a state, never an action. The Queue's Run now, Pause, Resume
+ * and Delete are Zap, Pause, Play and a bin, Re-run is a turning arrow, and the
+ * Runners page's Drain is the slashed circle; a status drawn with one of them
+ * beside those buttons reads as something to press -- a column of busy
+ * runners, each with a Play glyph, looked like runners waiting to be started.
+ * One glyph also means one thing across the whole map: Activity is work
+ * executing, whoever is doing it, and LoaderCircle is something still being
+ * set up.
  */
 import {
+  Activity,
   Ban,
+  ChevronsUp,
   Circle,
-  CircleStop,
   CircleCheck,
   CircleDashed,
+  CircleDot,
   CircleMinus,
+  CircleQuestionMark,
   CircleSlash,
   CircleX,
   Clock,
   Cloud,
   Eye,
+  Handshake,
+  Hourglass,
   Info,
+  LoaderCircle,
   Lock,
   Minus,
   Dog,
-  Pause,
+  OctagonPause,
   PawPrint,
-  Play,
   Rabbit,
+  IterationCcw,
   Squirrel,
-  Trash2,
+  TimerOff,
+  TrendingDown,
+  TrendingUp,
   TriangleAlert,
   Zap,
 } from '@lucide/svelte';
@@ -102,13 +119,19 @@ function meta(
 
 /* -- runners -------------------------------------------------------------- */
 
+/*
+ * The two pending states were one dashed ring, and a runner stuck registering
+ * looked exactly like one still being built -- which are different faults on
+ * different machines. Draining was the slashed circle the Drain button itself
+ * carries.
+ */
 const RUNNER: Record<RunnerState, StatusMeta> = {
   provisioning: meta(
     'provisioning',
     'Walkies!',
     'pending',
     'dashed',
-    CircleDashed,
+    LoaderCircle,
     'The host is creating the container.',
   ),
   registering: meta(
@@ -116,17 +139,17 @@ const RUNNER: Record<RunnerState, StatusMeta> = {
     'Putting lead on',
     'pending',
     'dashed',
-    CircleDashed,
+    Handshake,
     'Waiting for GitHub to accept the runner.',
   ),
-  idle: meta('idle', 'Resting', 'idle', 'hollow', Circle, 'Registered and waiting for a job.'),
-  busy: meta('busy', 'Walking!', 'busy', 'filled', Play, 'Running a job right now.'),
+  idle: meta('idle', 'Resting', 'idle', 'hollow', CircleDot, 'Registered and waiting for a job.'),
+  busy: meta('busy', 'Walking!', 'busy', 'filled', Activity, 'Running a job right now.'),
   draining: meta(
     'draining',
     'Nearly home',
     'draining',
     'slash',
-    CircleSlash,
+    Hourglass,
     'Finishing its current job, then exiting. No new work is sent to it.',
   ),
   failed: meta(
@@ -134,7 +157,7 @@ const RUNNER: Record<RunnerState, StatusMeta> = {
     'Slipped the lead',
     'danger',
     'triangle',
-    TriangleAlert,
+    CircleX,
     'The runner stopped unexpectedly. Its message says why.',
   ),
   removed: meta(
@@ -147,7 +170,7 @@ const RUNNER: Record<RunnerState, StatusMeta> = {
   ),
 };
 
-const UNKNOWN = meta('unknown', 'Unknown', 'neutral', 'square', CircleMinus);
+const UNKNOWN = meta('unknown', 'Unknown', 'neutral', 'square', CircleQuestionMark);
 
 /**
  * The same seven states, said plainly. Read instead of `RUNNER`'s label when
@@ -193,35 +216,46 @@ export function runnerStatuses(quirky = true): StatusMeta[] {
  * Elastic CPU has its own dog-park vocabulary, backed by stable API states --
  * unless the operator has turned it off in Settings, when the same states get
  * a plain label and a standard Lucide icon instead of an animal one.
+ *
+ * `label` is the controller's, and the controller speaks the kennel's words,
+ * so it is only taken when they are wanted. With them off, an Overview feed
+ * line read "Squirrel spotted" beside a plain icon on a page where everything
+ * else said "Maximum boost".
+ *
+ * The plain icons are a set: the two boosts rise and the throttle falls, so
+ * which way a runner's CPU went is readable before the label is. Both boosts
+ * say "Boost active" in the Runners grid, and the icon is what tells them
+ * apart there.
  */
 export function cpuResourceStatus(
   state: string | undefined,
   label?: string,
   quirky = true,
 ): StatusMeta {
+  const said = quirky ? label : undefined;
   switch (state) {
     case 'maximum_zoomies':
       return quirky
-        ? meta(state, label ?? 'Squirrel spotted — maximum zoomies', 'busy', 'filled', Squirrel)
-        : meta(state, label ?? 'Maximum boost', 'busy', 'filled', Zap);
+        ? meta(state, said ?? 'Squirrel spotted — maximum zoomies', 'busy', 'filled', Squirrel)
+        : meta(state, 'Maximum boost', 'busy', 'filled', Zap);
     case 'zoomies':
       return quirky
-        ? meta(state, label ?? 'Rabbit spotted — extra zoomies', 'busy', 'filled', Rabbit)
-        : meta(state, label ?? 'Extra boost', 'busy', 'filled', Zap);
+        ? meta(state, said ?? 'Rabbit spotted — extra zoomies', 'busy', 'filled', Rabbit)
+        : meta(state, 'Extra boost', 'busy', 'filled', TrendingUp);
     case 'throttled':
       return quirky
-        ? meta(state, label ?? 'Leash tightened — host under pressure', 'draining', 'slash', Dog)
-        : meta(state, label ?? 'Throttled', 'draining', 'slash', CircleSlash);
+        ? meta(state, said ?? 'Leash tightened — host under pressure', 'draining', 'slash', Dog)
+        : meta(state, 'Throttled', 'draining', 'slash', TrendingDown);
     case 'observing':
       return quirky
         ? meta(
             state,
-            label ?? 'Nose to the wind — watching spare CPU',
+            said ?? 'Nose to the wind — watching spare CPU',
             'pending',
             'dashed',
             PawPrint,
           )
-        : meta(state, label ?? 'Observing spare CPU', 'pending', 'dashed', Eye);
+        : meta(state, 'Observing spare CPU', 'pending', 'dashed', Eye);
     case 'sit_and_stay': {
       // A pool with elastic CPU off: the runner is held at exactly its share,
       // not moving and doing as it was told. Neutral rather than idle, because
@@ -232,18 +266,18 @@ export function cpuResourceStatus(
       return quirky
         ? meta(
             state,
-            label ?? 'Sit and stay — CPU held at its share',
+            said ?? 'Sit and stay — CPU held at its share',
             'neutral',
             'hollow',
             DogSitting,
             hint,
           )
-        : meta(state, label ?? 'Held at its share', 'neutral', 'hollow', Lock, hint);
+        : meta(state, 'Held at its share', 'neutral', 'hollow', Lock, hint);
     }
     default:
       return quirky
-        ? meta('guaranteed', label ?? 'Steady paws — guaranteed pace', 'idle', 'hollow', Circle)
-        : meta('guaranteed', label ?? 'Guaranteed pace', 'idle', 'hollow', Circle);
+        ? meta('guaranteed', said ?? 'Steady paws — guaranteed pace', 'idle', 'hollow', Circle)
+        : meta('guaranteed', 'Guaranteed pace', 'idle', 'hollow', Circle);
   }
 }
 
@@ -269,7 +303,7 @@ const JOB_QUEUED = meta(
   Clock,
   'Waiting for a runner that answers its labels.',
 );
-const JOB_RUNNING = meta('in_progress', 'Running', 'busy', 'filled', Play);
+const JOB_RUNNING = meta('in_progress', 'Running', 'busy', 'filled', Activity);
 const JOB_WAITING = meta(
   'waiting',
   'Waiting',
@@ -284,7 +318,7 @@ const CONCLUSIONS: Record<string, StatusMeta> = {
   failure: meta('failure', 'Failure', 'danger', 'triangle', CircleX),
   cancelled: meta('cancelled', 'Cancelled', 'neutral', 'square', Ban),
   skipped: meta('skipped', 'Skipped', 'neutral', 'hollow', Minus),
-  timed_out: meta('timed_out', 'Timed out', 'danger', 'triangle', Clock),
+  timed_out: meta('timed_out', 'Timed out', 'danger', 'triangle', TimerOff),
   startup_failure: meta('startup_failure', 'Startup failure', 'danger', 'triangle', CircleX),
   action_required: meta('action_required', 'Action required', 'pending', 'triangle', TriangleAlert),
   neutral: meta('neutral', 'Neutral', 'neutral', 'hollow', Minus),
@@ -384,7 +418,7 @@ export const QUEUE_PAUSED: StatusMeta = meta(
   'Paused',
   'draining',
   'hollow',
-  Pause,
+  OctagonPause,
   'An operator put this job\u2019s provisioning demand on hold. It is still waiting, and no new runner will be created for it until it is resumed.',
 );
 
@@ -399,7 +433,7 @@ export const QUEUE_EXPEDITED: StatusMeta = meta(
   'Run now',
   'pending',
   'filled',
-  Zap,
+  ChevronsUp,
   'An operator asked for this job to run now. It is prioritised within its pool\u2019s priority tier and skips the scale-up delay; it is still waiting for a runner, and pool and host limits still apply.',
 );
 
@@ -408,7 +442,7 @@ export const QUEUE_REMOVED: StatusMeta = meta(
   'Removed',
   'neutral',
   'square',
-  Trash2,
+  CircleMinus,
   'An operator removed this job from the queue, so it no longer counts as work this fleet is waiting on. Restore it from the Queue page\u2019s Removed view.',
 );
 
@@ -431,7 +465,7 @@ export const CANCELLING: StatusMeta = meta(
   'Cancelling',
   'neutral',
   'square',
-  CircleStop,
+  CircleSlash,
   'Its workflow run was cancelled and GitHub has accepted the request. The fleet has already stopped work on it; the conclusion follows when GitHub reports it.',
 );
 
@@ -587,7 +621,7 @@ const JOB_EVENTS: Record<JobEventKind, StatusMeta> = {
     'Re-run requested',
     'pending',
     'dashed',
-    Play,
+    IterationCcw,
     "Zoomies asked GitHub to run this run's failed jobs again. They arrive as a new run attempt, so GitHub remains authoritative about what happens next.",
   ),
 };
@@ -676,9 +710,12 @@ export function hostStatus(host: Pick<Host, 'healthy' | 'cordoned' | 'throttle'>
  * The tones are the fixed mapping every other page uses, and deliberately the
  * same ones a runner gets for the same idea: a machine being built reads as
  * pending exactly as a runner being provisioned does, so an operator learns one
- * vocabulary rather than two. `hasRunners` is what separates a machine that has
- * arrived from one that is carrying work -- the row itself cannot say, because
- * a ready machine and a busy one are the same state.
+ * vocabulary rather than two. The icons follow the same rule: a machine being
+ * built takes a provisioning runner's glyph, one enrolling a registering
+ * runner's, and one carrying work is drawn as a busy runner is. `hasRunners`
+ * is what separates a machine that has arrived from one that is carrying work
+ * -- the row itself cannot say, because a ready machine and a busy one are the
+ * same state.
  */
 export function machineStatus(state: MachineState | undefined, hasRunners = false): StatusMeta {
   switch (state) {
@@ -697,7 +734,7 @@ export function machineStatus(state: MachineState | undefined, hasRunners = fals
         'Creating',
         'pending',
         'dashed',
-        CircleDashed,
+        LoaderCircle,
         'The provider is building the machine.',
       );
     case 'starting':
@@ -706,7 +743,7 @@ export function machineStatus(state: MachineState | undefined, hasRunners = fals
         'Starting',
         'pending',
         'dashed',
-        CircleDashed,
+        LoaderCircle,
         'The machine exists and is being powered on.',
       );
     case 'bootstrapping':
@@ -715,7 +752,7 @@ export function machineStatus(state: MachineState | undefined, hasRunners = fals
         'Bootstrapping',
         'pending',
         'dashed',
-        CircleDashed,
+        LoaderCircle,
         'The guest is up and the agent is being installed.',
       );
     case 'enrolling':
@@ -724,13 +761,13 @@ export function machineStatus(state: MachineState | undefined, hasRunners = fals
         'Enrolling',
         'pending',
         'dashed',
-        CircleDashed,
+        Handshake,
         'The agent has its credential and has not joined yet.',
       );
     case 'ready':
       return hasRunners
-        ? meta('busy', 'Running work', 'busy', 'filled', Play, 'A host, with runners on it.')
-        : meta('ready', 'Ready', 'idle', 'hollow', Circle, 'A host, waiting for work.');
+        ? meta('busy', 'Running work', 'busy', 'filled', Activity, 'A host, with runners on it.')
+        : meta('ready', 'Ready', 'idle', 'hollow', CircleDot, 'A host, waiting for work.');
     case 'draining':
       return meta(
         'draining',
