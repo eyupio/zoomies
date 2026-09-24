@@ -442,6 +442,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/installations/{id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * How the fleet served one installation over a window
+         * @description The counts and exact timings of the per-installation report, each
+         *     defined in docs/metrics.md under "Per-installation report". The
+         *     window is moved back to the UTC midnight it begins in, so every day
+         *     the daily roll-up answers is whole. Days past the row retention are
+         *     counted from the roll-up; the timings are read from runner sessions
+         *     only, and `unavailable` says where either stops. The body names no
+         *     repository, and the installation's target only to a caller who may
+         *     read it.
+         */
+        get: operations["getInstallationReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/installations/manifest": {
         parameters: {
             query?: never;
@@ -3227,6 +3257,66 @@ export interface components {
              */
             arch?: "amd64" | "arm64";
         };
+        /** @description Exact nearest-rank percentiles of one interval's stored samples. */
+        ReportPercentiles: {
+            /** @description How many intervals had both ends recorded. */
+            samples: number;
+            /** @description Null when there are no samples. */
+            p50_seconds: number | null;
+            /** @description Null when there are no samples. */
+            p95_seconds: number | null;
+        };
+        InstallationReport: {
+            installation: {
+                id: string;
+                /** @description Only to a caller who may read installations and */
+                target?: string;
+                /** @enum {string} */
+                target_type?: "org" | "repo";
+            };
+            /** @description The window asked for */
+            window: string;
+            installation_id: string;
+            /**
+             * Format: date-time
+             * @description The start of the window
+             */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            counts: {
+                observed: number;
+                eligible: number;
+                created_for: number;
+                ran_here: number;
+                ran_elsewhere: number;
+                fleet_fault: number;
+                cleanup_pending: number;
+                cleanup_converged: number;
+            };
+            timings: {
+                scheduling: components["schemas"]["ReportPercentiles"];
+                registration: components["schemas"]["ReportPercentiles"];
+                cleanup: components["schemas"]["ReportPercentiles"];
+            };
+            /**
+             * Format: date-time
+             * @description Where the counts are complete from; later than from when part of the window is unavailable.
+             */
+            counts_from: string;
+            /**
+             * Format: date-time
+             * @description Where the timings are complete from.
+             */
+            timings_from: string;
+            /**
+             * Format: date-time
+             * @description Where the daily roll-up hands over to the rows
+             */
+            rolled_until?: string;
+            /** @description Each part of the window a figure does not cover, and why, in words. */
+            unavailable: string[];
+        };
         UsageResponse: {
             /** Format: date-time */
             from: string;
@@ -5413,7 +5503,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description CSV export. Every row ends with history_from_jobs and history_from_runners, the RFC 3339 instants the JSON response carries as history_from, blank where that history is never pruned. */
+            /** @description CSV export. Every row carries history_from_jobs and history_from_runners, the RFC 3339 instants the JSON response carries as history_from, blank where that history is never pruned. Grouped by installation, each row ends with the installation report's counts (jobs_observed, jobs_eligible, jobs_created_for, jobs_ran_here, jobs_ran_elsewhere, jobs_fleet_fault, cleanup_pending, cleanup_converged) over the UTC days the range touches, and counts_from, the instant they are complete from; any other grouping leaves those nine columns blank. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6006,6 +6096,33 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    getInstallationReport: {
+        parameters: {
+            query?: {
+                /** @description How far back the report reaches from now, as a duration. At most 8784h. */
+                window?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallationReport"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     createAppManifest: {

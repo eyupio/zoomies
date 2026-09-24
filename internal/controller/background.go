@@ -274,6 +274,37 @@ func (c *Controller) prune(ctx context.Context) {
 	} else if n > 0 {
 		c.log.Debug("rolled up usage", "days", n)
 	}
+	// The installation report's counts are rolled up the same way, before
+	// the job and session rows they are counted from can go. A job still
+	// unfinished when the jobs prune would take it no longer holds its day
+	// open: it is counted as what it was, because it is about to be deleted.
+	var settled time.Time
+	if r.Jobs > 0 {
+		settled = now.Add(-r.Jobs)
+	}
+	if n, err := c.st.RollUpInstallations(ctx, now, settled); err != nil {
+		c.log.Warn("could not roll up the installation report", "error", err)
+	} else if n > 0 {
+		c.log.Debug("rolled up the installation report", "days", n)
+	}
+	// Neither the jobs nor the sessions a day is counted from are pruned
+	// before that day is in the roll-up. A failed roll-up above therefore
+	// prunes less this pass, never loses a count.
+	counted, countedErr := c.st.InstallationRollupUntil(ctx)
+	if countedErr != nil {
+		c.log.Warn("could not read the installation roll-up", "error", countedErr)
+	}
+	heldBack := func(fn func(context.Context, time.Time) (int64, error)) func(context.Context, time.Time) (int64, error) {
+		return func(ctx context.Context, before time.Time) (int64, error) {
+			if countedErr != nil {
+				return 0, nil
+			}
+			if counted.Before(before) {
+				before = counted
+			}
+			return fn(ctx, before)
+		}
+	}
 
 	type job struct {
 		what   string
@@ -281,7 +312,7 @@ func (c *Controller) prune(ctx context.Context) {
 		fn     func(context.Context, time.Time) (int64, error)
 	}
 	for _, j := range []job{
-		{"jobs", r.Jobs, c.st.PruneJobs},
+		{"jobs", r.Jobs, heldBack(c.st.PruneJobs)},
 		{"runners", r.Runners, func(ctx context.Context, before time.Time) (int64, error) {
 			// Each pruned row is announced, or the Runners page keeps showing
 			// runners that no longer exist until it is reloaded.
@@ -289,7 +320,7 @@ func (c *Controller) prune(ctx context.Context) {
 			c.publishRunnersDeleted(ids)
 			return int64(len(ids)), err
 		}},
-		{"runner sessions", r.RunnerSessions, c.st.PruneRunnerSessions},
+		{"runner sessions", r.RunnerSessions, heldBack(c.st.PruneRunnerSessions)},
 		{"fleet samples", r.Samples, c.st.PruneSamples},
 		{"host samples", r.Samples, c.st.PruneHostSamples},
 		{"webhook deliveries", r.Webhooks, c.st.PruneDeliveries},
