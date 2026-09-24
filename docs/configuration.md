@@ -826,7 +826,7 @@ lands on, a pool whose `docker_mode` gives jobs a daemon then gets that image's
 Docker variant. See [Naming and platforms](naming.md) for the catalogue and how
 a pool picks from it.
 
-Four images are published to GHCR:
+Five images are published to GHCR:
 
 | Image | What it is |
 | --- | --- |
@@ -834,6 +834,7 @@ Four images are published to GHCR:
 | `ghcr.io/eyupio/zoomies-agent` | an agent, for a host that runs one in a container |
 | `ghcr.io/eyupio/zoomies-runner` | the runner a pool starts |
 | `ghcr.io/eyupio/zoomies-runner-docker` | the same, plus a Docker CLI — a pool is switched to it when its `docker_mode` gives jobs a daemon, see [Jobs that build container images](#jobs-that-build-container-images) |
+| `ghcr.io/eyupio/zoomies-runner-full` | `zoomies-runner-docker` plus the language toolchains the `setup-*` actions would otherwise download, for the Ubuntu variants — a pool opts in by naming it, see [The full image](#the-full-image) |
 
 They share their tag names and release/development channels.
 
@@ -949,6 +950,51 @@ That makes the tool cache something you can fill ahead of time. An image built
 than a download; the pool's image prewarm puts that image on the host before
 any job needs it. To share one cache between runners instead, see
 [the pool cache](#the-pool-cache).
+
+#### The full image
+
+`ghcr.io/eyupio/zoomies-runner-full` is that image built for you: the Docker
+variant with the toolchains most builds reach for already in place, so the
+first step of a job is its own work rather than a download.
+
+| Toolchain | Versions | Where a job finds it |
+| --- | --- | --- |
+| Python | 3.10 to 3.14 | the tool cache, for `setup-python` |
+| Node.js | 22 and 24 | the tool cache, for `setup-node` |
+| Go | the two supported releases | the tool cache, for `setup-go` |
+| Java (Eclipse Temurin) | 17, 21 and 25; 17 is `JAVA_HOME` | the tool cache, for `setup-java` |
+| .NET SDK | 8 and 10 | `/usr/share/dotnet`, where `setup-dotnet` installs |
+| Maven and Gradle | the current release of each | `mvn` and `gradle` on `PATH` |
+| Rust | stable, with `rustfmt` and `clippy` | `rustup`, `cargo` and `rustc` on `PATH` |
+
+Each is laid out exactly as its setup action leaves what it downloads, so a
+step asking for a version the image carries is answered from disk. Asking for
+one it does not carry still works; that step downloads as it would anywhere
+else. A version range such as `3.12` or `22` is matched against what the tool
+cache holds, and the newest patch there wins. `setup-dotnet` still asks the
+network which patch is current before it finds the SDK already installed, so
+.NET saves the download, not the round trip.
+
+It is published for the Ubuntu variants — 24.04, 26.04 and 22.04 — on both
+architectures, under the same tags as `zoomies-runner`. The Python builds
+`setup-python` installs are made for Ubuntu and nothing else, and an image
+without them would be missing the toolchain most jobs ask for first. Point a
+pool at it by name:
+
+```yaml
+image: ghcr.io/eyupio/zoomies-runner-full:ubuntu-2404
+```
+
+The versions are the newest release of each line when the image was built,
+pinned by digest in `deploy/toolcache.lock`, and a weekly workflow moves them
+forward. Each archive is checked against that digest before it is unpacked.
+Most publishers state the digest; `actions/python-versions` does not, so a
+Python archive's digest is the one recorded when it was first pinned, and an
+archive that changes after that fails the build.
+
+It is several gigabytes larger than `zoomies-runner`. That is disk on each host
+that runs the pool, not queue time: the image is prewarmed on those hosts before
+a job needs it, like any other pool image.
 
 ### `updates.check_interval` — knowing the controller is behind
 

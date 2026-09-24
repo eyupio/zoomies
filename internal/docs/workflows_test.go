@@ -335,10 +335,30 @@ func TestOnlyTheReleaseWorkflowPublishesLatest(t *testing.T) {
 	for _, want := range []string{
 		"RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner\n",
 		"RUNNER_DOCKER_IMAGE: ghcr.io/eyupio/zoomies-runner-docker\n",
+		"RUNNER_FULL_IMAGE: ghcr.io/eyupio/zoomies-runner-full\n",
 	} {
 		if !strings.Contains(ci, want) {
 			t.Errorf("ci.yml does not define %q", strings.TrimSuffix(want, "\n"))
 		}
+	}
+
+	// runner-full is published for the catalogue's Full rows only, and both
+	// manifest jobs learn which those are from the marker the build leg
+	// leaves. A job that stopped reading it would build the image on every
+	// release and tag it on none.
+	for name, wf := range map[string]string{"ci.yml": ci, "release.yml": release} {
+		for _, want := range []string{
+			`touch "$out/full"`,
+			`[ -f "$dir/full" ] && images="$images zoomies-runner-full"`,
+			"target: runner-full",
+		} {
+			if !strings.Contains(wf, want) {
+				t.Errorf("%s is missing %q, so zoomies-runner-full is built or tagged by nothing", name, want)
+			}
+		}
+	}
+	if cleanup := workflowFiles(t)["cleanup-packages.yml"]; !strings.Contains(cleanup, "- zoomies-runner-full\n") {
+		t.Error("cleanup-packages.yml does not prune zoomies-runner-full, whose untagged versions are several gigabytes each")
 	}
 
 	// And the gate that keeps a prerelease from becoming what :latest means.

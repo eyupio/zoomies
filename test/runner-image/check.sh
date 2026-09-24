@@ -2,7 +2,7 @@
 #
 # Check that a built runner image contains what Zoomies relies on.
 #
-#   usage: check.sh <image> <os> <version> <runner|runner-docker>
+#   usage: check.sh <image> <os> <version> <runner|runner-docker|runner-full>
 #
 #   e.g.   check.sh ghcr.io/eyupio/zoomies-runner:debian-12 debian 12 runner
 #
@@ -24,14 +24,15 @@
 # shell script is the smallest thing that runs one.
 set -eu
 
-image="${1:?usage: check.sh <image> <os> <version> <runner|runner-docker>}"
-os="${2:?usage: check.sh <image> <os> <version> <runner|runner-docker>}"
-version="${3:?usage: check.sh <image> <os> <version> <runner|runner-docker>}"
-target="${4:?usage: check.sh <image> <os> <version> <runner|runner-docker>}"
+usage="usage: check.sh <image> <os> <version> <runner|runner-docker|runner-full>"
+image="${1:?${usage}}"
+os="${2:?${usage}}"
+version="${3:?${usage}}"
+target="${4:?${usage}}"
 
 case "${target}" in
-  runner|runner-docker) ;;
-  *) echo "check.sh: unknown target '${target}'; expected runner or runner-docker" >&2; exit 64 ;;
+  runner|runner-docker|runner-full) ;;
+  *) echo "check.sh: unknown target '${target}'; expected runner, runner-docker or runner-full" >&2; exit 64 ;;
 esac
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -49,6 +50,29 @@ expect() { # expect <what> <want> <got>
 }
 
 echo "checking ${image} (${os} ${version}, ${target}, actions/runner ${runner_version})"
+
+# What runner-full must carry, read from the lock it was built from rather than
+# repeated here: each tool-cache entry as <Tool>/<version>/<arch>, and the .NET
+# SDKs by version. Only this image's architecture and Ubuntu release apply.
+want_toolcache=""
+want_dotnet=""
+if [ "${target}" = runner-full ]; then
+  image_arch="$(docker image inspect --format '{{.Architecture}}' "${image}")"
+  case "${image_arch}" in amd64) tc_arch=x64 ;; *) tc_arch="${image_arch}" ;; esac
+  while read -r t v plat a _digest _url; do
+    case "${t}" in ''|'#'*) continue ;; esac
+    [ "${plat}" = - ] || [ "${plat}" = "${version}" ] || continue
+    [ "${a}" = - ] || [ "${a}" = "${image_arch}" ] || continue
+    case "${t}" in
+      python) want_toolcache="${want_toolcache} Python/${v}/${tc_arch}" ;;
+      node) want_toolcache="${want_toolcache} node/${v}/${tc_arch}" ;;
+      go) want_toolcache="${want_toolcache} go/${v}/${tc_arch}" ;;
+      java) want_toolcache="${want_toolcache} Java_Temurin-Hotspot_jdk/${v}/${tc_arch}" ;;
+      dotnet) want_dotnet="${want_dotnet} ${v}" ;;
+    esac
+  done < "${root}/deploy/toolcache.lock"
+  [ -n "${want_toolcache}" ] || { echo "check.sh: deploy/toolcache.lock has nothing for ${version} ${image_arch}" >&2; exit 1; }
+fi
 
 # --- image metadata ----------------------------------------------------------
 
@@ -148,8 +172,9 @@ fi
 # The UTF-8 locale LANG names; without it a job's non-ASCII output is mangled.
 if locale -a 2>/dev/null | grep -qi '^en_US\.utf-\?8$'; then pass "en_US.UTF-8 locale"; else fail "en_US.UTF-8 locale is not installed"; fi
 
-# The Docker client is the whole difference between the two targets.
-if [ "${WANT_TARGET}" = runner-docker ]; then
+# The Docker client is the whole difference between the first two targets, and
+# runner-full is built on runner-docker.
+if [ "${WANT_TARGET}" = runner-docker ] || [ "${WANT_TARGET}" = runner-full ]; then
   runs "docker --version" docker --version
   runs "docker buildx version" docker buildx version
   runs "docker compose version" docker compose version
@@ -160,6 +185,26 @@ else
   if command -v docker >/dev/null 2>&1; then fail "docker is on PATH in the plain runner image"; else pass "no docker client, as intended"; fi
 fi
 
+# runner-full: every tool-cache entry the lock names, finished -- a setup-*
+# action ignores a directory without its .complete marker and downloads the
+# version again -- and the toolchains that live outside the tool cache.
+if [ "${WANT_TARGET}" = runner-full ]; then
+  for e in ${WANT_TOOLCACHE}; do
+    if [ -d "${AGENT_TOOLSDIRECTORY}/${e}" ] && [ -f "${AGENT_TOOLSDIRECTORY}/${e}.complete" ]; then
+      pass "tool cache has ${e}"
+    else
+      fail "tool cache is missing ${e}, or its .complete marker"
+    fi
+  done
+  sdks="$(dotnet --list-sdks 2>/dev/null)"
+  for v in ${WANT_DOTNET}; do
+    printf '%s\n' "${sdks}" | grep -q "^${v} " && pass ".NET SDK ${v}" || fail ".NET SDK ${v} is not installed"
+  done
+  for t in java mvn gradle dotnet rustup rustc cargo; do has "$t"; done
+  [ -w /usr/share/dotnet ] && pass "/usr/share/dotnet is writable (setup-dotnet installs there)" || fail "/usr/share/dotnet is not writable by the runner"
+  [ -w "${RUSTUP_HOME:-/nonexistent}" ] && pass "RUSTUP_HOME is writable" || fail "RUSTUP_HOME '${RUSTUP_HOME:-}' is not writable by the runner"
+fi
+
 exit "${failures}"
 EOF
 )
@@ -168,6 +213,7 @@ set +e
 docker run --rm --entrypoint /bin/bash \
   -e WANT_OS="${os}" -e WANT_VERSION="${version}" \
   -e WANT_RUNNER="${runner_version}" -e WANT_TARGET="${target}" \
+  -e WANT_TOOLCACHE="${want_toolcache}" -e WANT_DOTNET="${want_dotnet}" \
   "${image}" -c "${inside}"
 status=$?
 set -e
