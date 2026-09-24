@@ -3260,13 +3260,13 @@ export interface components {
             pids_limit?: number;
             /**
              * Format: double
-             * @description The least CPU a runner may be given when no host has room for its standard: `cpus`, or -- where `cpus` is left to the host -- a whole slot's share of it. A host a little short of the standard then runs the job with as much as it can spare, never less than this, instead of leaving it queued. The standard is still what the fleet places at wherever it can. Must be below `cpus` when `cpus` is set, and at least a quarter of a core; zero is no minimum.
+             * @description The least CPU a runner may be given when no host has room for its standard: `cpus`, or -- where `cpus` is left to the host -- a whole slot's share of it. A host a little short of the standard then runs the job with as much as it can spare, never less than this, instead of leaving it queued. The standard is still what the fleet places at wherever it can. Must be below `cpus` when `cpus` is set, and at least a quarter of a core. On a pool, zero follows the fleet's `runners.minimum_cpus`, read live; `effective_minimum` is the minimum in force.
              * @example 1.5
              */
             min_cpus?: number;
             /**
              * Format: int64
-             * @description The least memory, in megabytes, a runner may be given when no host has room for `memory_mb` or a whole slot's share, as `min_cpus` is for CPU. Must be below `memory_mb` when that is set, and is held to the same 512 MB floor; zero is no minimum.
+             * @description The least memory, in megabytes, a runner may be given when no host has room for `memory_mb` or a whole slot's share, as `min_cpus` is for CPU. Must be below `memory_mb` when that is set, and is held to the same 512 MB floor. On a pool, zero follows the fleet's `runners.minimum_memory_mb`, read live; `effective_minimum` is the minimum in force.
              * @example 3072
              */
             min_memory_mb?: number;
@@ -3662,6 +3662,20 @@ export interface components {
              * @enum {string}
              */
             sizing?: "automatic" | "elastic" | "fixed";
+            /** @description The minimum this pool's runners are held to. Where the pool's own `resources.min_cpus` or `min_memory_mb` is zero, the fleet's `runners.minimum_cpus` / `minimum_memory_mb` applies instead, read live, unless it is at or above the pool's typed standard size. `resources` keeps the pool's own figures, so sending the pool back never makes an inherited minimum its own. */
+            readonly effective_minimum?: {
+                /** @description The minimum in cores; zero is none. */
+                cpus: number;
+                /**
+                 * Format: int64
+                 * @description The minimum in MB; zero is none.
+                 */
+                memory_mb: number;
+                /** @description Whether `cpus` is the fleet's figure rather than the pool's. */
+                cpus_inherited: boolean;
+                /** @description Whether `memory_mb` is the fleet's figure rather than the pool's. */
+                memory_mb_inherited: boolean;
+            };
             runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
             host_selector?: {

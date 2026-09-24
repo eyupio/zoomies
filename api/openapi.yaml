@@ -4803,7 +4803,8 @@ components:
             little short of the standard then runs the job with as much as it can spare, never
             less than this, instead of leaving it queued. The standard is still what the fleet
             places at wherever it can. Must be below `cpus` when `cpus` is set, and at least a
-            quarter of a core; zero is no minimum.
+            quarter of a core. On a pool, zero follows the fleet's `runners.minimum_cpus`,
+            read live; `effective_minimum` is the minimum in force.
         min_memory_mb:
           type: integer
           format: int64
@@ -4811,8 +4812,9 @@ components:
           description: >-
             The least memory, in megabytes, a runner may be given when no host has room for
             `memory_mb` or a whole slot's share, as `min_cpus` is for CPU. Must be below
-            `memory_mb` when that is set, and is held to the same 512 MB floor; zero is no
-            minimum.
+            `memory_mb` when that is set, and is held to the same 512 MB floor. On a pool, zero
+            follows the fleet's `runners.minimum_memory_mb`, read live; `effective_minimum` is
+            the minimum in force.
 
     CPUBurstPolicy:
       type: object
@@ -5218,6 +5220,22 @@ components:
             with no `cpus` and no `memory_mb` means; `elastic` keeps that share
             as its guarantee and may borrow unused CPU; `fixed` is the figures
             in `resources`, the same on every host.
+        effective_minimum:
+          type: object
+          readOnly: true
+          required: [cpus, memory_mb, cpus_inherited, memory_mb_inherited]
+          description: >-
+            The minimum this pool's runners are held to. Where the pool's own
+            `resources.min_cpus` or `min_memory_mb` is zero, the fleet's
+            `runners.minimum_cpus` / `minimum_memory_mb` applies instead, read
+            live, unless it is at or above the pool's typed standard size.
+            `resources` keeps the pool's own figures, so sending the pool back
+            never makes an inherited minimum its own.
+          properties:
+            cpus: { type: number, description: The minimum in cores; zero is none. }
+            memory_mb: { type: integer, format: int64, description: The minimum in MB; zero is none. }
+            cpus_inherited: { type: boolean, description: Whether `cpus` is the fleet's figure rather than the pool's. }
+            memory_mb_inherited: { type: boolean, description: Whether `memory_mb` is the fleet's figure rather than the pool's. }
         runner_settings: { $ref: "#/components/schemas/RunnerSettings" }
         cache: { $ref: "#/components/schemas/CacheConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }

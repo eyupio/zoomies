@@ -214,8 +214,9 @@
   share of whichever host a runner lands on. Either way the minimum is what a
   host short of that may give instead, so the job runs rather than waiting --
   for a machine that is never coming, or for a whole slot on a host that has a
-  free slot and most of one's worth left. Empty is no minimum, which is what a
-  pool was before this existed.
+  free slot and most of one's worth left. Empty follows the fleet's
+  runners.minimum_* live; there is no per-pool "none" -- a pool that wants
+  none of the fleet's gives its own figure instead.
 -->
 {#snippet minimum()}
   <div class="pair">
@@ -223,8 +224,8 @@
       label="Minimum CPU"
       error={errors['resources.min_cpus']}
       hint={automaticSize
-        ? 'Where no host with a free slot has a whole share left, a runner may start with less, down to this. Empty is none.'
-        : 'Where no host has room for the CPU above, a runner may be given less, down to this. Empty is none.'}
+        ? 'Where no host with a free slot has a whole share left, a runner may start with less, down to this. Empty follows the fleet default, if one is set.'
+        : 'Where no host has room for the CPU above, a runner may be given less, down to this. Empty follows the fleet default, if one is set.'}
     >
       {#snippet children({ id, describedBy, invalid })}
         <QuantityField
@@ -233,9 +234,9 @@
           values={minCpuNotches}
           value={minCpus}
           label="Minimum CPU"
-          valuetext={(v) => (v === 0 ? 'no minimum' : cpuLabel(v))}
-          marks={[{ value: 0, label: 'none' }]}
-          empty={{ value: 0, placeholder: 'no minimum' }}
+          valuetext={(v) => (v === 0 ? 'the fleet default' : cpuLabel(v))}
+          marks={[{ value: 0, label: 'fleet' }]}
+          empty={{ value: 0, placeholder: 'fleet default' }}
           {describedBy}
           {invalid}
           onchange={(v) => {
@@ -249,8 +250,8 @@
       label="Minimum memory"
       error={errors['resources.min_memory_mb']}
       hint={automaticSize
-        ? 'Where no host with a free slot has a whole share left, a runner may start with less, down to this. Empty is none.'
-        : 'Where no host has room for the memory above, a runner may be given less, down to this. Empty is none.'}
+        ? 'Where no host with a free slot has a whole share left, a runner may start with less, down to this. Empty follows the fleet default, if one is set.'
+        : 'Where no host has room for the memory above, a runner may be given less, down to this. Empty follows the fleet default, if one is set.'}
     >
       {#snippet children({ id, describedBy, invalid })}
         <QuantityField
@@ -259,9 +260,9 @@
           values={minMemoryNotches}
           value={minMemoryMb}
           label="Minimum memory"
-          valuetext={(v) => (v === 0 ? 'no minimum' : memoryLabel(v))}
-          marks={[{ value: 0, label: 'none' }]}
-          empty={{ value: 0, placeholder: 'no minimum' }}
+          valuetext={(v) => (v === 0 ? 'the fleet default' : memoryLabel(v))}
+          marks={[{ value: 0, label: 'fleet' }]}
+          empty={{ value: 0, placeholder: 'fleet default' }}
           {describedBy}
           {invalid}
           onchange={(v) => {

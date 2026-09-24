@@ -101,6 +101,7 @@ func (r PoolRoom) Overcommitted() []PoolHostRoom {
 // HostFit already says so in its own words. Counting it here would put machine
 // the pool can never reach into the number an operator sets a maximum from.
 func (c *Controller) PoolRoom(ctx context.Context, p *store.Pool) (PoolRoom, error) {
+	p = sizingPool(p, c.cfg().Runners)
 	hosts, err := c.st.ListHosts(ctx)
 	if err != nil {
 		return PoolRoom{}, err

@@ -517,8 +517,10 @@ type Resources struct {
 	// minimum is what lets a host a little short of that -- a 30 GB machine
 	// under a 32 GB pool -- run the job anyway instead of leaving it queued.
 	// Such a runner is given as much of the standard as the host can spare,
-	// never less than this. Zero is no minimum: the standard is the only size,
-	// which is what every pool was before this existed.
+	// never less than this. On a pool, zero is "the fleet's": the controller
+	// reads runners.minimum_* in its place (controller.EffectiveMinimum)
+	// rather than it being copied here, so the stored zero is what keeps the
+	// pool following that setting. Zero with no fleet minimum is none.
 	MinCPUs     float64 `json:"min_cpus,omitempty"`
 	MinMemoryMB int64   `json:"min_memory_mb,omitempty"`
 }

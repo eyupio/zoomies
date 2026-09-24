@@ -434,6 +434,7 @@ func (c *Controller) machineProblems(ctx context.Context, out *[]Problem) error 
 	if err != nil {
 		return fmt.Errorf("listing pools: %w", err)
 	}
+	pools = c.sizingPools(pools)
 	queued, err := c.st.ListQueuedJobs(ctx)
 	if err != nil {
 		return fmt.Errorf("listing queued jobs: %w", err)
@@ -671,6 +672,7 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 	if err != nil {
 		return fmt.Errorf("listing pools: %w", err)
 	}
+	pools = c.sizingPools(pools)
 	poolByID := make(map[string]*store.Pool, len(pools))
 	for _, p := range pools {
 		poolByID[p.ID] = p
@@ -857,6 +859,7 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 	if err != nil {
 		return fmt.Errorf("listing pools: %w", err)
 	}
+	pools = c.sizingPools(pools)
 	defaults := c.cfg().Scheduler.DefaultRunnerLimits
 	var unknown, unverified, throttled []string
 	var throttledID string

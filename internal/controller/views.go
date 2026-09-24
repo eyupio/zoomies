@@ -854,6 +854,12 @@ type PoolView struct {
 	// reading "no CPU limit" has no way to tell "the host decides" from
 	// "nobody has set one", and those used to be the same thing.
 	Sizing string `json:"sizing"`
+	// EffectiveMinimum is the minimum the fleet holds this pool's runners to:
+	// Resources' own minimum where the pool set one, and the fleet's
+	// runners.minimum_* where it did not. Resources keeps the pool's own
+	// figures so that saving the pool never turns an inherited minimum into
+	// one of its own; this is where an operator sees what is inherited.
+	EffectiveMinimum PoolMinimumView `json:"effective_minimum"`
 	// RunnerSettings is what this pool overrides of the fleet's runner
 	// timings. Every field is absent on a pool that follows the fleet, which
 	// is what an unedited pool does.
@@ -941,6 +947,28 @@ func (v *PoolRenderer) image(p *store.Pool) string {
 		v.defaultImage, p.DockerMode.GivesDaemon())
 }
 
+// PoolMinimumView is a pool's minimum in force, and which half of it came
+// from the fleet rather than from the pool.
+type PoolMinimumView struct {
+	CPUs              float64 `json:"cpus"`
+	MemoryMB          int64   `json:"memory_mb"`
+	CPUsInherited     bool    `json:"cpus_inherited"`
+	MemoryMBInherited bool    `json:"memory_mb_inherited"`
+}
+
+func (v *PoolRenderer) minimum(p *store.Pool) PoolMinimumView {
+	var fleet config.Runners
+	if v.cfg != nil {
+		fleet = v.cfg.Runners
+	}
+	cpus, memoryMB := EffectiveMinimum(p.Resources, fleet)
+	return PoolMinimumView{
+		CPUs: cpus, MemoryMB: memoryMB,
+		CPUsInherited:     cpus != p.Resources.MinCPUs,
+		MemoryMBInherited: memoryMB != p.Resources.MinMemoryMB,
+	}
+}
+
 // View renders one pool.
 func (v *PoolRenderer) View(p *store.Pool) PoolView {
 	cnt := v.counts[p.ID]
@@ -973,6 +1001,7 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		Resources:              p.Resources,
 		CPUBurst:               p.CPUBurst,
 		Sizing:                 PoolSizing(p),
+		EffectiveMinimum:       v.minimum(p),
 		RunnerSettings:         p.RunnerSettings,
 		Cache:                  p.Cache,
 		HostSelector:           emptyMap(p.HostSelector),

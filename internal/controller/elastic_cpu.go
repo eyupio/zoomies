@@ -57,6 +57,7 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		c.log.Warn("could not list pools while planning elastic CPU", "host", h.ID, "error", err)
 		return nil
 	}
+	pools = c.sizingPools(pools)
 	poolByID := make(map[string]*store.Pool, len(pools))
 	for _, p := range pools {
 		poolByID[p.ID] = p
@@ -229,6 +230,7 @@ func (c *Controller) lentCPUPercent(ctx context.Context, h *store.Host, reports 
 	if err != nil {
 		return 0
 	}
+	pools = c.sizingPools(pools)
 	poolByID := make(map[string]*store.Pool, len(pools))
 	for _, p := range pools {
 		poolByID[p.ID] = p
