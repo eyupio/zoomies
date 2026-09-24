@@ -1,0 +1,182 @@
+#!/bin/sh
+#
+# Check that a built runner image contains what Zoomies relies on.
+#
+#   usage: check.sh <image> <os> <version> <runner|runner-docker>
+#
+#   e.g.   check.sh ghcr.io/eyupio/zoomies-runner:debian-12 debian 12 runner
+#
+# The build already proves a few tools are on PATH. What it cannot prove is the
+# contract the rest of the system assumes about the finished image: the uid the
+# Docker backend sets a work mount up for, the files the entrypoint execs, the
+# runner release the Dockerfile pinned, and that a variant is the operating
+# system its tag and its catalogue row say it is. Any of those going missing
+# otherwise shows up as a runner that will not start in somebody's pool, which
+# is a worse place to find out than this job.
+#
+# Every expectation below names where it comes from, so a change to that source
+# and a failure here arrive in the same review. <os> and <version> are the
+# catalogue row's (internal/naming/images.go), passed straight from the
+# generated workflow matrix or the Makefile's variant rows, so nothing here
+# repeats the catalogue.
+#
+# No goss or similar: every assertion is one command inside the image, and a
+# shell script is the smallest thing that runs one.
+set -eu
+
+image="${1:?usage: check.sh <image> <os> <version> <runner|runner-docker>}"
+os="${2:?usage: check.sh <image> <os> <version> <runner|runner-docker>}"
+version="${3:?usage: check.sh <image> <os> <version> <runner|runner-docker>}"
+target="${4:?usage: check.sh <image> <os> <version> <runner|runner-docker>}"
+
+case "${target}" in
+  runner|runner-docker) ;;
+  *) echo "check.sh: unknown target '${target}'; expected runner or runner-docker" >&2; exit 64 ;;
+esac
+
+here="$(cd "$(dirname "$0")" && pwd)"
+root="$(cd "${here}/../.." && pwd)"
+
+# The runner release the Dockerfile pins, unless the build overrode it.
+runner_version="${RUNNER_VERSION:-$(sed -n 's/^ARG RUNNER_VERSION=//p' "${root}/deploy/Dockerfile.runner")}"
+[ -n "${runner_version}" ] || { echo "check.sh: cannot read RUNNER_VERSION from deploy/Dockerfile.runner" >&2; exit 1; }
+
+failures=0
+pass() { printf '  ok    %s\n' "$*"; }
+fail() { printf '  FAIL  %s\n' "$*"; failures=$((failures + 1)); }
+expect() { # expect <what> <want> <got>
+  if [ "$2" = "$3" ]; then pass "$1: $3"; else fail "$1: want '$2', got '$3'"; fi
+}
+
+echo "checking ${image} (${os} ${version}, ${target}, actions/runner ${runner_version})"
+
+# --- image metadata ----------------------------------------------------------
+
+inspect() { docker image inspect --format "$1" "${image}"; }
+
+# internal/backend/docker.go runs the container without overriding its user and
+# relies on the image to be uid 1001; the Dockerfile's USER line is what does it.
+expect "image user" "runner" "$(inspect '{{.Config.User}}')"
+expect "image entrypoint" "[/usr/local/bin/entrypoint.sh]" "$(inspect '{{json .Config.Entrypoint}}' | tr -d '"')"
+expect "label io.zoomies.os" "${os}" "$(inspect '{{index .Config.Labels "io.zoomies.os"}}')"
+expect "label io.zoomies.os-version" "${version}" "$(inspect '{{index .Config.Labels "io.zoomies.os-version"}}')"
+expect "label io.zoomies.runner-version" "${runner_version}" "$(inspect '{{index .Config.Labels "io.zoomies.runner-version"}}')"
+
+# --- inside the image --------------------------------------------------------
+#
+# One container for every assertion, so the check costs one start rather than
+# forty. It prints "ok"/"FAIL" lines itself and exits with the failure count.
+
+inside=$(cat <<'EOF'
+failures=0
+pass() { printf '  ok    %s\n' "$*"; }
+fail() { printf '  FAIL  %s\n' "$*"; failures=$((failures + 1)); }
+has() { if command -v "$1" >/dev/null 2>&1; then pass "$1 on PATH"; else fail "$1 is not on PATH"; fi; }
+runs() { # runs <description> <command...>
+  what="$1"; shift
+  if "$@" >/dev/null 2>&1; then pass "${what}"; else fail "${what}: '$*' failed"; fi
+}
+
+# The runner user: uid and gid 1001 (Dockerfile.runner), which the Docker
+# backend's work mount and socket handling assume (internal/backend/docker.go),
+# with the passwordless sudo the Dockerfile promises workflows.
+[ "$(id -un)" = runner ] && pass "running as runner" || fail "running as $(id -un), not runner"
+[ "$(id -u)" = 1001 ] && pass "uid 1001" || fail "uid is $(id -u), not 1001"
+[ "$(id -g)" = 1001 ] && pass "gid 1001" || fail "gid is $(id -g), not 1001"
+runs "passwordless sudo" sudo -n true
+[ "${RUNNER_ALLOW_RUNASROOT:-}" = 0 ] && pass "RUNNER_ALLOW_RUNASROOT=0" || fail "RUNNER_ALLOW_RUNASROOT is '${RUNNER_ALLOW_RUNASROOT:-}'"
+
+# What the entrypoint execs (deploy/runner-entrypoint.sh cds to /home/runner and
+# runs ./config.sh and ./run.sh) and the work directory it and the backend name
+# (RunnerWorkMount in internal/backend/docker.go).
+[ -x /usr/local/bin/entrypoint.sh ] && pass "entrypoint is executable" || fail "/usr/local/bin/entrypoint.sh is missing or not executable"
+for f in config.sh run.sh bin/Runner.Listener bin/Runner.Worker bin/installdependencies.sh; do
+  [ -x "/home/runner/$f" ] && pass "/home/runner/$f" || fail "/home/runner/$f is missing or not executable"
+done
+[ -d /home/runner/_work ] && [ -w /home/runner/_work ] && pass "/home/runner/_work is writable" || fail "/home/runner/_work is missing or not writable by the runner"
+[ -w /home/runner ] && pass "/home/runner is writable (config.sh writes .runner there)" || fail "/home/runner is not writable by the runner"
+
+# The runner release the Dockerfile pinned, asked of the binary itself rather
+# than of a label that could have been stamped without it.
+got="$(cd /home/runner && ./bin/Runner.Listener --version 2>/dev/null | tr -d '\r' | tail -n 1)"
+[ "${got}" = "${WANT_RUNNER}" ] && pass "actions/runner ${got}" || fail "actions/runner reports '${got}', want '${WANT_RUNNER}'"
+
+# The platform: /etc/os-release is what the distribution says, the environment
+# is what the entrypoint's first log line prints. Both must match the row.
+. /etc/os-release
+[ "${ID}" = "${WANT_OS}" ] && pass "os-release ID=${ID}" || fail "os-release ID is '${ID}', want '${WANT_OS}'"
+# Rocky reports 9.6 for a row that says 9; Ubuntu and Debian report the row exactly.
+case "${VERSION_ID}" in
+  "${WANT_VERSION}"|"${WANT_VERSION}".*) pass "os-release VERSION_ID=${VERSION_ID}" ;;
+  *) fail "os-release VERSION_ID is '${VERSION_ID}', want '${WANT_VERSION}'" ;;
+esac
+[ "${ZOOMIES_RUNNER_OS:-}" = "${WANT_OS}" ] && pass "ZOOMIES_RUNNER_OS" || fail "ZOOMIES_RUNNER_OS is '${ZOOMIES_RUNNER_OS:-}'"
+[ "${ZOOMIES_RUNNER_OS_VERSION:-}" = "${WANT_VERSION}" ] && pass "ZOOMIES_RUNNER_OS_VERSION" || fail "ZOOMIES_RUNNER_OS_VERSION is '${ZOOMIES_RUNNER_OS_VERSION:-}'"
+[ "${ZOOMIES_RUNNER_VERSION:-}" = "${WANT_RUNNER}" ] && pass "ZOOMIES_RUNNER_VERSION" || fail "ZOOMIES_RUNNER_VERSION is '${ZOOMIES_RUNNER_VERSION:-}'"
+
+# The baseline from deploy/runner-packages.sh, plus what the entrypoint itself
+# calls (bash, timeout, date, uname, hostname).
+for t in bash git curl jq tar unzip zip gzip xz sudo ssh rsync timeout date uname hostname; do has "$t"; done
+# The toolchain from deploy/runner-toolchain.sh and deploy/runner-gh.sh.
+for t in cc make cmake python3 node npm git-lfs gh; do has "$t"; done
+# ca-certificates: a bundle at either family's path, and one curl can use.
+if [ -s /etc/ssl/certs/ca-certificates.crt ] || [ -s /etc/pki/tls/certs/ca-bundle.crt ]; then
+  pass "CA bundle present"
+else
+  fail "no CA bundle at /etc/ssl/certs/ca-certificates.crt or /etc/pki/tls/certs/ca-bundle.crt"
+fi
+# The UTF-8 locale LANG names; without it a job's non-ASCII output is mangled.
+if locale -a 2>/dev/null | grep -qi '^en_US\.utf-\?8$'; then pass "en_US.UTF-8 locale"; else fail "en_US.UTF-8 locale is not installed"; fi
+
+# The Docker client is the whole difference between the two targets.
+if [ "${WANT_TARGET}" = runner-docker ]; then
+  runs "docker --version" docker --version
+  runs "docker buildx version" docker buildx version
+  runs "docker compose version" docker compose version
+else
+  # The plain image leaves the client out on purpose (Dockerfile.runner), and
+  # the controller's pool.docker_client_missing is written for exactly this
+  # image: one that grew a client would make that problem wrong.
+  if command -v docker >/dev/null 2>&1; then fail "docker is on PATH in the plain runner image"; else pass "no docker client, as intended"; fi
+fi
+
+exit "${failures}"
+EOF
+)
+
+set +e
+docker run --rm --entrypoint /bin/bash \
+  -e WANT_OS="${os}" -e WANT_VERSION="${version}" \
+  -e WANT_RUNNER="${runner_version}" -e WANT_TARGET="${target}" \
+  "${image}" -c "${inside}"
+status=$?
+set -e
+# 125 and above is docker or the shell failing to start at all, not a count.
+if [ "${status}" -ge 125 ]; then
+  fail "could not run /bin/bash in the image (exit ${status})"
+else
+  failures=$((failures + status))
+fi
+
+# --- the entrypoint, end to end ----------------------------------------------
+#
+# With no credentials the entrypoint must refuse with 64 and say why. That is
+# the one run that proves the real ENTRYPOINT starts under the image's own user
+# and gets as far as its credential check -- a missing bash, a wrong shebang or
+# a lost execute bit all fail here rather than at a job.
+set +e
+out="$(docker run --rm "${image}" 2>&1)"
+status=$?
+set -e
+if [ "${status}" = 64 ] && printf '%s' "${out}" | grep -q 'no credentials supplied'; then
+  pass "entrypoint refuses to start without credentials (exit 64)"
+else
+  fail "entrypoint without credentials: want exit 64 and 'no credentials supplied', got exit ${status}:"
+  printf '%s\n' "${out}" | sed 's/^/        /'
+fi
+
+if [ "${failures}" -ne 0 ]; then
+  echo "${image}: ${failures} check(s) failed" >&2
+  exit 1
+fi
+echo "${image}: every check passed"
