@@ -436,3 +436,21 @@ func TestACacheFolderIsCreatedWritableByTheRunner(t *testing.T) {
 		t.Errorf("an existing folder's mode was changed to %v", fi.Mode().Perm())
 	}
 }
+
+// A tool cache folder the daemon made as root before the agent could is not
+// one setup-node can add to, and it fails the job rather than skipping the
+// cache -- which is how this repository's own CI went red. The tool cache is
+// only ever Zoomies' folder, so an existing one is opened up as well.
+func TestAnExistingToolCacheFolderIsOpenedToTheRunner(t *testing.T) {
+	requirePOSIX(t)
+	dir := filepath.Join(t.TempDir(), "cache", "tools", "pool-one")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureToolCacheDir(dir); err != nil {
+		t.Fatalf("ensureToolCacheDir: %v", err)
+	}
+	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o777 {
+		t.Errorf("existing tool cache folder mode = %v, want writable by every user", fi.Mode().Perm())
+	}
+}

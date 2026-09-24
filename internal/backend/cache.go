@@ -102,6 +102,34 @@ func ensureRunnerWritableDir(dir string) error {
 	return os.Chmod(dir, 0o777)
 }
 
+// ensureToolCacheDir makes a pool's tool cache folder one the runner can
+// write to, including a folder that already exists.
+//
+// Unlike a pool cache, whose source an operator may choose, the tool cache
+// lives under the host's shared folder and is only ever Zoomies' own. A
+// folder there that the runner cannot write to is one the daemon made as
+// root for a bind before this agent could, or an older agent made closed, and
+// it does not merely cost the cache: actions/setup-node and setup-go fail the
+// job outright when they cannot add to the tool cache they are pointed at. So
+// an existing folder is opened up too, and one that cannot be is refused, so
+// the runner starts without the cache rather than with a broken one.
+func ensureToolCacheDir(dir string) error {
+	if err := ensureRunnerWritableDir(dir); err != nil {
+		return err
+	}
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if fi.Mode().Perm() == 0o777 {
+		return nil
+	}
+	if err := os.Chmod(dir, 0o777); err != nil {
+		return fmt.Errorf("the tool cache folder %s is not writable by the runner, and opening it failed: %w", dir, err)
+	}
+	return nil
+}
+
 // cacheDirectory returns the host directory a cache lives in, and whether there
 // is one at all. A named daemon volume has no path this agent can measure: its
 // bytes are the daemon's business, on a filesystem the agent may not even

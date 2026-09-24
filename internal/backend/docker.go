@@ -1224,8 +1224,8 @@ func (b *DockerBackend) prepareCacheDirs(spec Spec, opts *containerOptions) {
 	if err != nil || dir == "" {
 		return
 	}
-	if err := ensureRunnerWritableDir(dir); err != nil {
-		b.log.Warn("could not create the tool cache folder; this runner starts without it", "runner", spec.Name, "dir", dir, "error", err)
+	if err := ensureToolCacheDir(dir); err != nil {
+		b.log.Warn("could not prepare the tool cache folder; this runner starts without it", "runner", spec.Name, "dir", dir, "error", err)
 		return
 	}
 	opts.ToolCacheDir = dir
