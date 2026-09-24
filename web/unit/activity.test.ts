@@ -16,6 +16,7 @@ import {
   intervalNoun,
   intervalWidth,
   level,
+  matrixInterval,
   mergeHistories,
   monthLabels,
   newSeen,
@@ -439,4 +440,20 @@ test('a calendar too cramped for month names gets their initials', () => {
     monthLabels(columns, 'narrow').map((l) => l !== null),
     monthLabels(columns).map((l) => l !== null),
   );
+});
+
+test('a window of any length is drawn in the squares the Overview uses for one as long', () => {
+  const days = (n: number) => n * 86_400_000;
+  assert.equal(matrixInterval(days(1)), 'hour', 'a day is a row of hours');
+  assert.equal(matrixInterval(days(7)), 'hour', 'a week is the punch card');
+  assert.equal(matrixInterval(days(14)), 'hour', 'a fortnight is the most hours the API cuts');
+  assert.equal(matrixInterval(days(30)), '4h');
+  assert.equal(matrixInterval(days(56)), '4h');
+  assert.equal(matrixInterval(days(90)), '8h');
+  assert.equal(matrixInterval(days(112)), '8h');
+  assert.equal(matrixInterval(days(113)), 'day');
+  assert.equal(matrixInterval(days(366)), 'day');
+  // A fortnight across a clock change is an hour over what the API cuts into
+  // hours, so it is four-hourly rather than refused.
+  assert.equal(matrixInterval(days(14) + 3_600_000), '4h');
 });
