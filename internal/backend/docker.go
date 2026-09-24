@@ -829,10 +829,15 @@ func (b *DockerBackend) UpdateResources(ctx context.Context, h Handle, res store
 		}
 	}
 
-	// A boost is the pair's, and the build that wants it runs in the daemon.
-	// Scaling both halves by the factor gave the runner process cores it had
-	// no use for and the daemon only half the loan, so the runner stays at
-	// its own half and the sidecar is given the rest of the pair's target.
+	// A boost is the pair's, and it goes to the half doing the work. Scaling
+	// both halves by the factor gave the idle one cores it had no use for and
+	// the busy one only half the loan, so one half keeps its own quota and the
+	// other is given the rest of the pair's target. Which one is measured: a
+	// docker build works in the daemon, but a job whose steps run in the
+	// runner container -- setup-go, go build -- does not, and lending it to
+	// the daemon left that job capped at its half under "Maximum boost". With
+	// no sample to judge by, the daemon has it, as it always did.
+	//
 	// The request still carries the runner's half times the factor, as every
 	// agent has always sent it, so neither side of the protocol changed and a
 	// container without the labels to split by keeps the old behaviour.
@@ -842,13 +847,22 @@ func (b *DockerBackend) UpdateResources(ctx context.Context, h Handle, res store
 		if sidecarHalf := resourcesFromLabels(sidecars[0].Labels).CPUs; sidecarHalf > 0 {
 			factor := res.CPUs / runnerHalf
 			pair := (runnerHalf + sidecarHalf) * factor
-			runnerWant = nanoCPUs(runnerHalf)
-			sidecarWant = nanoCPUs(math.Floor((pair-runnerHalf)*100+1e-9) / 100)
+			runnerWant, sidecarWant = nanoCPUs(runnerHalf), nanoCPUs(sidecarHalf)
+			if b.runnerHalfIsBusier(ctx, string(h), labels, sidecars[0]) {
+				runnerWant = nanoCPUs(math.Floor((pair-sidecarHalf)*100+1e-9) / 100)
+			} else {
+				sidecarWant = nanoCPUs(math.Floor((pair-runnerHalf)*100+1e-9) / 100)
+			}
 		}
 	}
 
-	if err := b.updateCPUQuota(ctx, string(h), insp.HostConfig, runnerWant); err != nil {
-		return err
+	// A loan moving from the daemon to the runner is taken back before it is
+	// lent again, so the pair is never above its target in between.
+	runnerGains := insp.HostConfig != nil && runnerWant > insp.HostConfig.NanoCPUs
+	if !runnerGains {
+		if err := b.updateCPUQuota(ctx, string(h), insp.HostConfig, runnerWant); err != nil {
+			return err
+		}
 	}
 	for _, s := range sidecars {
 		sinsp, err := b.api.ContainerInspect(ctx, s.ID)
@@ -863,7 +877,25 @@ func (b *DockerBackend) UpdateResources(ctx context.Context, h Handle, res store
 			return err
 		}
 	}
+	if runnerGains {
+		return b.updateCPUQuota(ctx, string(h), insp.HostConfig, runnerWant)
+	}
 	return nil
+}
+
+// runnerHalfIsBusier says whether the runner container is using more of its
+// own quota than its docker-in-docker sidecar is of its. False when either
+// cannot be sampled, which leaves a boost where it has always gone.
+func (b *DockerBackend) runnerHalfIsBusier(ctx context.Context, runner string, runnerLabels map[string]string, sidecar ContainerSummary) bool {
+	rs, err := b.api.ContainerStats(ctx, runner)
+	if err != nil {
+		return false
+	}
+	ss, err := b.api.ContainerStats(ctx, sidecar.ID)
+	if err != nil {
+		return false
+	}
+	return halfPercent(rs.CPUPercent, runnerLabels) > halfPercent(ss.CPUPercent, sidecar.Labels)
 }
 
 // updateCPUQuota sends the quota only when the container's differs.
