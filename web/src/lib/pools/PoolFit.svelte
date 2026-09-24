@@ -12,7 +12,7 @@
   can cause it is being edited rather than only at the end.
 -->
 <script lang="ts">
-  import { CircleCheck, ServerCog, ServerOff, TriangleAlert, Wrench } from '@lucide/svelte';
+  import { CircleCheck, Info, ServerCog, ServerOff, TriangleAlert, Wrench } from '@lucide/svelte';
   import type { Problem, Result } from '$lib/api/types';
   import { pluralise } from '$lib/format';
   import RemedyText from '$lib/components/RemedyText.svelte';
@@ -30,6 +30,11 @@
   const matching = $derived(verdict?.matching_hosts);
   const selected = $derived(verdict?.selected_hosts ?? 0);
   const excluded = $derived(verdict?.excluded_hosts ?? []);
+  // Hosts that run the pool at its minimum are counted as running it, because
+  // they do: the minimum is the operator saying what they will accept. They
+  // are listed as information, in the neutral colours, so the smaller runners
+  // there are not a surprise -- never in the warning's amber.
+  const reduced = $derived(verdict?.reduced_hosts ?? []);
   // The server says the same thing as the banner, only with the detail the
   // fleet knows. It is shown inside the banner rather than a second time under
   // it, and only when the per-host list below is empty -- with hosts to name,
@@ -99,6 +104,23 @@
       </ul>
     {:else if matching === 0 && noHost?.detail}
       <p class="body"><RemedyText text={noHost.detail} /></p>
+    {/if}
+
+    {#if matching > 0 && reduced.length > 0}
+      <div class="reduced">
+        <p class="note">
+          <Info size={13} aria-hidden="true" />
+          {pluralise(reduced.length, 'host')} will run it smaller than it runs on a larger machine
+        </p>
+        <ul class="excluded">
+          {#each reduced as host (host.host)}
+            <li>
+              <span class="host">{host.host}</span>
+              <span class="reason">{host.reason}</span>
+            </li>
+          {/each}
+        </ul>
+      </div>
     {/if}
 
     {#if matching === 0 && noHost?.fix}
@@ -191,6 +213,24 @@
   .reason {
     flex: 1 1 20ch;
     color: var(--z-text-muted);
+  }
+  .reduced {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-1);
+    padding: var(--z-space-2) var(--z-space-3);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
+  }
+  .note {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    margin: 0;
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
   }
   .fix {
     display: flex;

@@ -664,7 +664,17 @@ half of a defaulted pair has to clear a full core and 2 GB on its own, the same
 figure a plain runner's slot is judged comfortable against, or the pool does
 not run on that host at all. A host that used to squeeze several thin dind
 pairs onto a small machine now runs fewer of them, each with room for its
-daemon to answer a create — which is the trade this exists to make. The
+daemon to answer a create — which is the trade this exists to make.
+
+A minimum typed on the pool replaces that figure on its field. The
+comfortable size is a judgement made for a pool nobody sized; `min_memory_mb`
+or `min_cpus` is the operator saying what each container may have at least, so
+a slot is held to twice the minimum instead — the runner and its daemon each
+get their share of it — and a host whose share clears that runs the pool at
+its share. The pool wizard counts such a host as running the pool and lists it
+as information, saying the runners there get less than on a larger machine;
+it is not a warning, because the minimum doing its job is the pool working as
+configured. The
 reservation is worked out from the runner rows on every pass; nothing stores
 it, so a restart recovers it and a runner that fails stops being charged for
 as soon as its row says so.

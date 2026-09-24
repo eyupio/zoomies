@@ -1405,3 +1405,48 @@ func TestAPoolKeepsItsToolCacheSetting(t *testing.T) {
 		t.Errorf("stored cache = %+v, want the tool cache in the database", stored.Cache)
 	}
 }
+
+// An automatic docker-in-docker pool with a minimum on a 3 GB machine set to
+// one slot: its 2.8 GB share is under what a pair nobody sized is held to and
+// over twice the minimum, so the host runs the pool. The wizard counts it as
+// running it and lists it as information -- the smaller runners there are the
+// minimum doing its job, not a reason the host is lost.
+func TestTheWizardCountsAHostThatRunsAPoolAtItsMinimumAndSaysSo(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	small := h.host("zoomies-4vcpu-3gb")
+	small.CPUs, small.MemoryMB, small.Capacity = 4, 3*1024, 1
+	small.DiskTotalMB, small.DiskFreeMB = 200_000, 100_000
+	if err := h.st.UpdateHost(h.ctx, small); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	body := poolBody(inst.ID)
+	body["docker_mode"] = "dind"
+	body["resources"] = map[string]any{"min_memory_mb": 1024}
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	resp.into(t, &verdict)
+
+	if verdict.MatchingHosts != 1 || len(verdict.ExcludedHosts) != 0 {
+		t.Fatalf("matching = %d, excluded = %+v; want the host counted", verdict.MatchingHosts, verdict.ExcludedHosts)
+	}
+	if len(verdict.ReducedHosts) != 1 || verdict.ReducedHosts[0].Code != controller.ReducedSize ||
+		!strings.Contains(verdict.ReducedHosts[0].Reason, "minimum") {
+		t.Fatalf("reduced_hosts = %+v, want the host with a sentence about the minimum", verdict.ReducedHosts)
+	}
+
+	// With no minimum the pair is held to the comfortable figure, and the
+	// host is turned down with the reason, as before.
+	body["resources"] = map[string]any{}
+	no := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+	no.mustStatus(t, http.StatusOK, "validate")
+	no.into(t, &verdict)
+	if verdict.MatchingHosts != 0 || len(verdict.ExcludedHosts) != 1 || len(verdict.ReducedHosts) != 0 {
+		t.Errorf("without a minimum: matching = %d, excluded = %+v, reduced = %+v", verdict.MatchingHosts, verdict.ExcludedHosts, verdict.ReducedHosts)
+	}
+}
