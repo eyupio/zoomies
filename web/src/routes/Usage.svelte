@@ -13,6 +13,7 @@
   somebody else as a link rather than as a description of which boxes to tick.
 -->
 <script lang="ts">
+  import InstallationReport from '$lib/usage/InstallationReport.svelte';
   import UsageInsights from '$lib/usage/UsageInsights.svelte';
   import { Download, Receipt } from '@lucide/svelte';
   import { getUsage, usageCsvUrl } from '$lib/api/client';
@@ -302,6 +303,15 @@
   </p>
 {/if}
 
+{#if grouping === 'installation' && entity}
+  <div class="installation-report"><InstallationReport installation={entity} /></div>
+{:else if grouping === 'installation'}
+  <p class="note" data-testid="installation-report-hint">
+    Focus one installation to see its report: how many of its jobs the fleet ran, how long they
+    waited for a runner, how many the fleet broke, and whether its runners were cleaned up.
+  </p>
+{/if}
+
 <LoadingBoundary
   {loading}
   {error}
@@ -416,6 +426,9 @@
 </LoadingBoundary>
 
 <style>
+  .installation-report {
+    margin: 0 0 var(--z-space-5);
+  }
   .presets {
     display: flex;
     gap: var(--z-space-2);

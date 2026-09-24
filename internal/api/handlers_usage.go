@@ -154,10 +154,27 @@ func (s *Server) handleUsageCSV(w http.ResponseWriter, r *http.Request) {
 		return t.UTC().Format(time.RFC3339)
 	}
 	jobsFrom, runnersFrom := instant(history["jobs"]), instant(history["runners"])
+	// Grouped by installation, each row also carries the installation
+	// report's counts over the same range, and where they are complete from.
+	// Any other grouping leaves them blank: the counts are defined per
+	// installation and a share of them per repository would be invented.
+	var counts map[string]store.InstallationCounts
+	countsFrom := ""
+	if q.group == store.UsageByInstallation {
+		var from time.Time
+		counts, from, _, err = s.ctrl.Store().InstallationCountsBetween(r.Context(), q.from, q.to)
+		if err != nil {
+			s.internal(w, r, "counting the installation report", err)
+			return
+		}
+		countsFrom = from.UTC().Format(time.RFC3339)
+	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="zoomies-usage.csv"`)
 	c := csv.NewWriter(w)
-	_ = c.Write([]string{"group", "job_execution_seconds", "allocated_runner_seconds", "jobs_queued", "jobs_started", "jobs_completed", "average_queue_wait_seconds", "peak_concurrency", "estimated_cost", "history_from_jobs", "history_from_runners"})
+	_ = c.Write([]string{"group", "job_execution_seconds", "allocated_runner_seconds", "jobs_queued", "jobs_started", "jobs_completed", "average_queue_wait_seconds", "peak_concurrency", "estimated_cost", "history_from_jobs", "history_from_runners",
+		"jobs_observed", "jobs_eligible", "jobs_created_for", "jobs_ran_here", "jobs_ran_elsewhere", "jobs_fleet_fault",
+		"cleanup_pending", "cleanup_converged", "counts_from"})
 	for _, x := range rows {
 		cost := ""
 		if x.EstimatedCost != nil {
@@ -165,9 +182,18 @@ func (s *Server) handleUsageCSV(w http.ResponseWriter, r *http.Request) {
 		}
 		// A blank cell is the honest rendering of "not calculated for this
 		// grouping"; a spreadsheet would sum a zero.
-		_ = c.Write([]string{csvText(x.Key), fmt.Sprint(x.JobExecutionSeconds), optionalFloat(x.AllocatedRunnerSeconds),
+		report := make([]string, 9)
+		if counts != nil {
+			n := counts[x.Key]
+			for i, v := range []int{n.Observed, n.Eligible, n.CreatedFor, n.RanHere, n.RanElsewhere, n.FleetFault,
+				n.CleanupPending, n.CleanupConverged} {
+				report[i] = strconv.Itoa(v)
+			}
+			report[8] = countsFrom
+		}
+		_ = c.Write(append([]string{csvText(x.Key), fmt.Sprint(x.JobExecutionSeconds), optionalFloat(x.AllocatedRunnerSeconds),
 			strconv.Itoa(x.Jobs), strconv.Itoa(x.JobsStarted), strconv.Itoa(x.JobsCompleted),
-			optionalFloat(x.AverageQueueWaitSeconds), strconv.Itoa(x.PeakConcurrency), cost, jobsFrom, runnersFrom})
+			optionalFloat(x.AverageQueueWaitSeconds), strconv.Itoa(x.PeakConcurrency), cost, jobsFrom, runnersFrom}, report...))
 	}
 	c.Flush()
 }
