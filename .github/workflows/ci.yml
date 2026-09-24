@@ -1304,24 +1304,23 @@ jobs:
       # one this catalogue row names. test/runner-image/check.sh says where
       # each expectation comes from.
       #
-      # The same build arguments as above, so both are cache hits rather than
-      # rebuilds. amd64 only: a multi-platform image cannot be loaded into the
-      # local daemon, and running an arm64 one here would be under QEMU on an
-      # x64 host -- which is also what segfaults Ubuntu 22.04's ldconfig (see
-      # internal/naming/images.go), so a failure there would say more about
-      # the emulator than the image. The arm64 layers come from the same
-      # Dockerfile and package lists; what differs by architecture is the
-      # runner archive, whose digest the build already verifies.
+      # The same build arguments, platform and cache scope as the build above,
+      # so each load is a cache hit rather than a rebuild -- and each leg checks
+      # the image of its own architecture, natively. These steps once named
+      # linux/amd64 outright, from when every leg shared an x64 builder; once
+      # the arm64 legs moved to arm64 runners that meant rebuilding the amd64
+      # image under emulation there, where git-lfs's installer crashes, and
+      # then failing to run it at all (exec format error).
       - name: Load the runner image to check it
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: deploy/Dockerfile.runner
           target: runner
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           push: false
           load: true
-          cache-from: type=gha,version=2,scope=ci-runner-${{ matrix.tag }}
+          cache-from: type=gha,version=2,scope=ci-runner-${{ matrix.tag }}-${{ matrix.arch }}
           build-args: |
             BASE=${{ matrix.base }}
             OS_FAMILY=${{ matrix.family }}
@@ -1341,10 +1340,10 @@ jobs:
           context: .
           file: deploy/Dockerfile.runner
           target: runner-docker
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           push: false
           load: true
-          cache-from: type=gha,version=2,scope=ci-runner-docker-${{ matrix.tag }}
+          cache-from: type=gha,version=2,scope=ci-runner-docker-${{ matrix.tag }}-${{ matrix.arch }}
           build-args: |
             BASE=${{ matrix.base }}
             OS_FAMILY=${{ matrix.family }}

@@ -24,7 +24,13 @@
 # deploy/runner-extra.sh relies on to catch a typo in EXTRA_PACKAGES. It just
 # takes the attempts below to get there.
 #
-#   usage: runner-apt.sh <packages...>
+# A name written ?name is optional: installed where this release carries it,
+# and skipped, with a line saying so, where it does not. It is for the few
+# packages a distribution has dropped -- Debian 13 has no
+# software-properties-common -- and never for a typo, which is why a plain
+# name stays required.
+#
+#   usage: runner-apt.sh <packages...>   (a package written ?name is optional)
 #
 set -eu
 
@@ -32,11 +38,30 @@ set -eu
 
 export DEBIAN_FRONTEND=noninteractive
 
+# wanted is the argument list with each optional package kept only where the
+# index just fetched lists it.
+wanted() {
+  for pkg in "$@"; do
+    case "${pkg}" in
+      \?*)
+        name="${pkg#\?}"
+        if apt-cache show "${name}" >/dev/null 2>&1; then
+          printf '%s\n' "${name}"
+        else
+          echo "runner-apt.sh: ${name} is not in this release; skipping it" >&2
+        fi
+        ;;
+      *) printf '%s\n' "${pkg}" ;;
+    esac
+  done
+}
+
 attempts=3
 attempt=1
 while :; do
+  # shellcheck disable=SC2046 # one package name per line, none with spaces
   if apt-get -o Acquire::Retries=3 update \
-    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends "$@"; then
+    && apt-get -o Acquire::Retries=3 install -y --no-install-recommends $(wanted "$@"); then
     break
   fi
   if [ "${attempt}" -ge "${attempts}" ]; then
