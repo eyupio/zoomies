@@ -311,3 +311,45 @@ func TestACacheWithNoLimitAsksTheDaemonNothing(t *testing.T) {
 		t.Fatal("a cache with no limit was pruned")
 	}
 }
+
+// runnerOwnedDirs returns the directories deploy/Dockerfile.runner creates
+// owned by the runner account, from its `install -d -o runner` line.
+func runnerOwnedDirs(t *testing.T, dockerfile string) []string {
+	t.Helper()
+	for _, line := range strings.Split(dockerfile, "\n") {
+		if _, rest, ok := strings.Cut(line, "install -d -o runner -g runner -m 0755 "); ok {
+			return strings.Fields(rest)
+		}
+	}
+	t.Fatal("deploy/Dockerfile.runner has no `install -d -o runner` line")
+	return nil
+}
+
+// A fresh named volume takes its owner from the directory it is mounted over.
+// With no such directory in the image, the pool cache came up owned by root
+// and the runner -- uid 1001, not root -- could not write to it at all.
+func TestTheRunnerImageOwnsThePoolCacheMountPoint(t *testing.T) {
+	dockerfile := readFile(t, filepath.Join("..", "..", "deploy", "Dockerfile.runner"))
+	if !slices.Contains(runnerOwnedDirs(t, dockerfile), RunnerCacheMount) {
+		t.Errorf("deploy/Dockerfile.runner does not create %s owned by the runner, so a new cache volume is root's", RunnerCacheMount)
+	}
+}
+
+// The tool cache has to be somewhere the runner can write, or the first
+// setup-* step fails; and it has to be the directory the image sets, or an
+// image built on this one fills a cache the runner never looks in.
+func TestTheRunnerImagesToolCacheIsTheRunners(t *testing.T) {
+	dockerfile := readFile(t, filepath.Join("..", "..", "deploy", "Dockerfile.runner"))
+	var toolCache string
+	for _, line := range strings.Split(dockerfile, "\n") {
+		if v, ok := strings.CutPrefix(line, "ENV AGENT_TOOLSDIRECTORY="); ok {
+			toolCache = strings.TrimSpace(v)
+		}
+	}
+	if toolCache == "" {
+		t.Fatal("deploy/Dockerfile.runner sets no AGENT_TOOLSDIRECTORY, so every job's setup-* steps download into _work and lose it")
+	}
+	if !slices.Contains(runnerOwnedDirs(t, dockerfile), toolCache) {
+		t.Errorf("AGENT_TOOLSDIRECTORY is %s, which deploy/Dockerfile.runner does not create owned by the runner", toolCache)
+	}
+}

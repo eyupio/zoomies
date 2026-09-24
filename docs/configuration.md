@@ -470,7 +470,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
 | `github.allow_workflow_cancellation` | `ZOOMIES_ALLOW_WORKFLOW_CANCELLATION` | at once | Allow cancelling workflow runs — Let operators ask GitHub to cancel the workflow run that owns a job. Turning it off is what a read-only Actions grant wants. |
-| `github.api_base_url` | `ZOOMIES_GITHUB_API_BASE_URL` | at once | GitHub API base URL — https://api.github.com for github.com, or your Enterprise Server's /api/v3. It is the default for a new installation; each existing one keeps the base it was added with. |
+| `github.api_base_url` | `ZOOMIES_GITHUB_API_BASE_URL` | at once | GitHub API base URL — https://api.github.com for github.com, your Enterprise Server's /api/v3, or a GHE.com tenant's address. It is the default for a new installation; each existing one keeps the base it was added with. |
 | `github.poll_fallback` | `ZOOMIES_POLL_FALLBACK` | next restart | Poll for queued jobs — List queued jobs on a timer as well as waiting for webhooks. On by default: a controller that silently stops scaling because a webhook was misconfigured is worse than a few extra API calls. |
 | `github.toolchain_scan_interval` | `ZOOMIES_TOOLCHAIN_SCAN_INTERVAL` | at once | Toolchain scan interval — How often every workflow is read for the toolchain versions each pool's jobs install. 0, the default, scans only when asked: a scan reads every workflow file in every repository, from the GitHub quota the scheduler shares. |
 | `github.poll_interval` | `ZOOMIES_POLL_INTERVAL` | at once | Poll interval — How often the fallback poller looks for queued jobs. |
@@ -578,8 +578,8 @@ the validator says so with `limits.loopback`.
 | --- | --- | --- | --- |
 | `runners.default_cpus` | `ZOOMIES_RUNNER_DEFAULT_CPUS` | at once | Standard CPUs per runner — Where a pool's CPU slider opens when somebody chooses to set a fixed size, in cores; fractions are allowed. It is not what a pool with no size becomes: such a pool is given one slot's share of whichever host each runner lands on. 0 means nothing has been said and the built-in 2 cores answers. |
 | `runners.default_memory_mb` | `ZOOMIES_RUNNER_DEFAULT_MEMORY_MB` | at once | Standard memory per runner — How much memory one runner gets on a pool that has not said otherwise, in megabytes. It is the figure a new pool opens on, and the one a host's recommended capacity is worked out from. 0 means nothing has been said and the built-in 4096 answers. |
-| `runners.minimum_cpus` | `ZOOMIES_RUNNER_MINIMUM_CPUS` | at once | Minimum CPUs per runner — Where a pool's minimum CPU slider opens, in cores: the least a runner of a fixed-size pool may be given when no host has room for its standard size, so a host a little short still runs the job. 0 is no minimum, and a pool's own minimum is what placement reads. |
-| `runners.minimum_memory_mb` | `ZOOMIES_RUNNER_MINIMUM_MEMORY_MB` | at once | Minimum memory per runner — Where a pool's minimum memory slider opens, in megabytes: the least a runner of a fixed-size pool may be given when no host has room for its standard size. 0 is no minimum; anything set is held to 512. |
+| `runners.minimum_cpus` | `ZOOMIES_RUNNER_MINIMUM_CPUS` | at once | Minimum CPUs per runner — Where a pool's minimum CPU slider opens, in cores: the least a runner may be given when no host has room for its standard size — a fixed pool's figures, or an automatic pool's whole slot share — so a host a little short still runs the job. 0 is no minimum, and a pool's own minimum is what placement reads. |
+| `runners.minimum_memory_mb` | `ZOOMIES_RUNNER_MINIMUM_MEMORY_MB` | at once | Minimum memory per runner — Where a pool's minimum memory slider opens, in megabytes: the least a runner may be given when no host has room for its standard size, fixed or automatic. 0 is no minimum; anything set is held to 512. |
 | `runners.docker_wait` | `ZOOMIES_DOCKER_WAIT` | at once | Docker daemon wait — How long DinD provisioning waits for a healthy daemon, and a Docker runner waits before registering. Default 3m. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool. |
 | `runners.env` | `ZOOMIES_RUNNER_ENV` | at once | Runner environment — Key=value variables every runner starts with, such as a proxy or a package mirror. A pool's own env wins where the two name the same variable. Every job can read these, so a credential does not belong here: give it to the pool, or to the workflow as a GitHub secret. |
 
@@ -778,6 +778,19 @@ github:
 A bare hostname is accepted and `/api/v3` appended. Everything else — App auth,
 JIT configs, webhooks, runner groups — works the same.
 
+GitHub Enterprise Cloud with data residency (GHE.com) is laid out like
+github.com rather than like Enterprise Server: the API is the root of its own
+`api.` host, with no `/api/v3`. Give the tenant's address in any of its forms —
+`octocorp.ghe.com`, `https://octocorp.ghe.com` or
+`https://api.octocorp.ghe.com` — and Zoomies uses
+`https://api.octocorp.ghe.com/` for the API and `https://octocorp.ghe.com` for
+runner registration and the links it shows.
+
+```yaml
+github:
+  api_base_url: octocorp.ghe.com
+```
+
 ### `github.toolchain_scan_interval` — what each pool's jobs install
 
 ```yaml
@@ -852,7 +865,7 @@ lands on, a pool whose `docker_mode` gives jobs a daemon then gets that image's
 Docker variant. See [Naming and platforms](naming.md) for the catalogue and how
 a pool picks from it.
 
-Four images are published to GHCR:
+Five images are published to GHCR:
 
 | Image | What it is |
 | --- | --- |
@@ -860,6 +873,7 @@ Four images are published to GHCR:
 | `ghcr.io/eyupio/zoomies-agent` | an agent, for a host that runs one in a container |
 | `ghcr.io/eyupio/zoomies-runner` | the runner a pool starts |
 | `ghcr.io/eyupio/zoomies-runner-docker` | the same, plus a Docker CLI — a pool is switched to it when its `docker_mode` gives jobs a daemon, see [Jobs that build container images](#jobs-that-build-container-images) |
+| `ghcr.io/eyupio/zoomies-runner-full` | `zoomies-runner-docker` plus the language toolchains the `setup-*` actions would otherwise download, for the Ubuntu variants — a pool opts in by naming it, see [The full image](#the-full-image) |
 
 They share their tag names and release/development channels.
 
@@ -959,6 +973,67 @@ is disk on the host.
 If you want something leaner, point the pool at an image of your own; Zoomies
 only requires that it can run the entrypoint contract described in
 `deploy/runner-entrypoint.sh`.
+
+#### The tool cache
+
+`setup-python`, `setup-node`, `setup-go` and the other setup actions unpack
+what they download into the runner's tool cache. Both images set
+`AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache` — the path GitHub's own runners
+use — and give that directory to the runner account. Left to its default, the
+cache would sit under `_work/_tool` and go with the runner at the end of every
+job.
+
+That makes the tool cache something you can fill ahead of time. An image built
+`FROM` one of ours that installs the versions your workflows ask for into
+`/opt/hostedtoolcache` turns each of those setup steps into a lookup rather
+than a download; the pool's image prewarm puts that image on the host before
+any job needs it. To share one cache between runners instead, see
+[the pool cache](#the-pool-cache).
+
+#### The full image
+
+`ghcr.io/eyupio/zoomies-runner-full` is that image built for you: the Docker
+variant with the toolchains most builds reach for already in place, so the
+first step of a job is its own work rather than a download.
+
+| Toolchain | Versions | Where a job finds it |
+| --- | --- | --- |
+| Python | 3.10 to 3.14 | the tool cache, for `setup-python` |
+| Node.js | 22 and 24 | the tool cache, for `setup-node` |
+| Go | the two supported releases | the tool cache, for `setup-go` |
+| Java (Eclipse Temurin) | 17, 21 and 25; 17 is `JAVA_HOME` | the tool cache, for `setup-java` |
+| .NET SDK | 8 and 10 | `/usr/share/dotnet`, where `setup-dotnet` installs |
+| Maven and Gradle | the current release of each | `mvn` and `gradle` on `PATH` |
+| Rust | stable, with `rustfmt` and `clippy` | `rustup`, `cargo` and `rustc` on `PATH` |
+
+Each is laid out exactly as its setup action leaves what it downloads, so a
+step asking for a version the image carries is answered from disk. Asking for
+one it does not carry still works; that step downloads as it would anywhere
+else. A version range such as `3.12` or `22` is matched against what the tool
+cache holds, and the newest patch there wins. `setup-dotnet` still asks the
+network which patch is current before it finds the SDK already installed, so
+.NET saves the download, not the round trip.
+
+It is published for the Ubuntu variants — 24.04, 26.04 and 22.04 — on both
+architectures, under the same tags as `zoomies-runner`. The Python builds
+`setup-python` installs are made for Ubuntu and nothing else, and an image
+without them would be missing the toolchain most jobs ask for first. Point a
+pool at it by name:
+
+```yaml
+image: ghcr.io/eyupio/zoomies-runner-full:ubuntu-2404
+```
+
+The versions are the newest release of each line when the image was built,
+pinned by digest in `deploy/toolcache.lock`, and a weekly workflow moves them
+forward. Each archive is checked against that digest before it is unpacked.
+Most publishers state the digest; `actions/python-versions` does not, so a
+Python archive's digest is the one recorded when it was first pinned, and an
+archive that changes after that fails the build.
+
+It is several gigabytes larger than `zoomies-runner`. That is disk on each host
+that runs the pool, not queue time: the image is prewarmed on those hosts before
+a job needs it, like any other pool image.
 
 ### `updates.check_interval` — knowing the controller is behind
 
@@ -1462,6 +1537,16 @@ the runner goes on the host that can spare the most, and is given as much of the
 standard as that host can spare — never less than the minimum. On the 30 GB host
 above it gets 30 GB, not 24.
 
+An **automatic** pool has a standard too: one slot's share of whichever host a
+runner lands on. A host with a free slot but less than a whole share left —
+because other pools' runners hold more than a slot's worth of it — used to leave
+an automatic pool's job queued however much of the machine was idle. With a
+minimum, the runner takes what that host can spare instead, never less than the
+minimum; without one, an automatic pool still waits for a whole share, and the
+pool's page says so and names the minimum as the fix. A minimum above a host's
+share does nothing on that host, and a docker-in-docker slot is never cut below
+what a runner and its daemon need between them.
+
 The standard still wins wherever it fits. A minimum never shrinks a runner the
 fleet could have given the full size to; it only turns "no host has room" into a
 job that runs. Such a runner is recorded as *reduced* — the Runners page says
@@ -1813,6 +1898,38 @@ Only a directory can be measured, so a non-zero `size_limit` requires `source`
 to be an absolute host path. On a named volume the bytes are the daemon's, on a
 filesystem the agent may not even share, and a limit there would be a number in
 a form that controlled nothing — so it is refused rather than accepted.
+
+#### The pool cache as a tool cache
+
+A pool can keep its runners' tool cache in the pool cache, so the first job to
+ask for a version downloads it and the rest find it there. Set the variable in
+the pool's `env`:
+
+```yaml
+env:
+  AGENT_TOOLSDIRECTORY: /opt/zoomies-cache/toolcache
+cache:
+  enabled: true
+  scope: pool
+```
+
+The runner reads `RUNNER_TOOL_CACHE` first, then `RUNNER_TOOLSDIRECTORY`, then
+`AGENT_TOOLSDIRECTORY`, so a pool that sets either of the first two gets the
+directory it named instead.
+
+This shares more than a build cache does. What is in a tool cache is run, not
+just read: a job that can write to it can replace the `python` or `node` that
+the next job on the pool executes. Only do this on a pool whose repositories
+already trust one another, and prefer `scope: repository` when they do not.
+Two runners that ask for a version the cache does not yet have may unpack it
+into the same directory at once, and the setup actions take no lock against
+that. Letting one job fill the cache before the pool is busy — or baking the
+versions into an image, as above — keeps them from racing.
+
+The stock images own `/opt/zoomies-cache`, so a new named volume mounted there
+belongs to the runner. A cache on an absolute host path is a directory of
+yours, and the runner — uid 1001 in the stock images — needs to be able to
+write to it.
 
 ### Jobs that build container images
 

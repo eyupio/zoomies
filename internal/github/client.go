@@ -421,11 +421,18 @@ func IsEnterprise(apiBaseURL string) bool {
 
 // WebURLForAPI derives the browser-facing base URL from an API base URL, which
 // is what the UI links to.
+//
+// It is also the URL a runner registers against, so a GHE.com tenant has to
+// lose its api. prefix here: config.sh pointed at api.<tenant>.ghe.com/<org>
+// fails to register, and the App-creation page there does not exist.
 func WebURLForAPI(apiBaseURL string) string {
 	if !IsEnterprise(apiBaseURL) {
 		return "https://github.com"
 	}
 	s := strings.TrimSuffix(strings.TrimRight(apiBaseURL, "/"), "/api/v3")
+	if config.IsGHECom(s) {
+		s = strings.Replace(s, "://api.", "://", 1)
+	}
 	return s
 }
 

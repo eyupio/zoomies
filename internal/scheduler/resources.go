@@ -121,21 +121,21 @@ func RunnerCharge(p *store.Pool, h *store.Host, r *store.Runner) Reservation {
 	if r == nil || r.AllocationSource != store.AllocationReduced {
 		return res
 	}
-	factor := pairFactor(p)
 	if r.AllocatedCPUs > 0 {
-		res.CPUs = r.AllocatedCPUs * factor
+		res.CPUs = r.AllocatedCPUs * fieldFactor(p, p.Resources.CPUs > 0)
 	}
 	if r.AllocatedMemoryMB > 0 {
-		res.MemoryMB = r.AllocatedMemoryMB * int64(factor)
+		res.MemoryMB = r.AllocatedMemoryMB * int64(fieldFactor(p, p.Resources.MemoryMB > 0))
 	}
 	return res
 }
 
-// pairFactor is how many containers a runner of p is given its size for: two
-// for a docker-in-docker runner whose size was typed, because the daemon is
-// given the same limits, and one otherwise.
-func pairFactor(p *store.Pool) float64 {
-	if p.DockerMode == store.DockerDinD && !p.Automatic() {
+// fieldFactor is how many containers one field of a runner's size is given
+// for: two for a docker-in-docker runner's typed figure, because the daemon is
+// given the same limit, and one for a field taken from the host, which is one
+// slot the pair shares -- the same distinction Reserve draws.
+func fieldFactor(p *store.Pool, typed bool) float64 {
+	if typed && p.DockerMode == store.DockerDinD {
 		return 2
 	}
 	return 1
@@ -144,17 +144,33 @@ func pairFactor(p *store.Pool) float64 {
 // MinimumReserve is the least one runner of p may be charged on h: the pool's
 // minimum on each field that has one below its standard, and the standard on
 // every other field. It is Reserve for a pool with no minimum.
+//
+// A field the pool leaves to the host has this host's slot share as its
+// standard, so a minimum above that share changes nothing: a minimum is only
+// ever a way down. And an automatic docker-in-docker slot is never cut below
+// what it takes to split between a runner and its daemon (ShareFloor), which
+// is the same line ShareTooSmall holds a whole slot to.
 func MinimumReserve(p *store.Pool, h *store.Host) Reservation {
 	res := Reserve(p, h)
 	if !p.Resources.Reducible() {
 		return res
 	}
-	factor := pairFactor(p)
-	if m := p.Resources.MinCPUs; m > 0 && m < p.Resources.CPUs {
-		res.CPUs = m * factor
+	floor := ShareFloor(p)
+	if m := p.Resources.MinCPUs; m > 0 {
+		typed := p.Resources.CPUs > 0
+		v := m * fieldFactor(p, typed)
+		if !typed {
+			v = max(v, floor.CPUs)
+		}
+		res.CPUs = min(res.CPUs, v)
 	}
-	if m := p.Resources.MinMemoryMB; m > 0 && m < p.Resources.MemoryMB {
-		res.MemoryMB = m * int64(factor)
+	if m := p.Resources.MinMemoryMB; m > 0 {
+		typed := p.Resources.MemoryMB > 0
+		v := m * int64(fieldFactor(p, typed))
+		if !typed {
+			v = max(v, floor.MemoryMB)
+		}
+		res.MemoryMB = min(res.MemoryMB, v)
 	}
 	return res
 }
@@ -170,26 +186,32 @@ func MinimumReserve(p *store.Pool, h *store.Host) Reservation {
 // 30 GB machine under a 32 GB pool with a 24 GB minimum should run the job
 // with 30, not 24. CPU is rounded down to a hundredth of a core, so the charge
 // never exceeds what is left.
+//
+// A field the pool leaves to the host is given explicitly here -- the share,
+// or what is left of it -- because the runner is created at exactly what it
+// is charged: a reduced runner's row is the only record of its size.
 func ReducedSize(p *store.Pool, h *store.Host, left Reservation, known store.HostAllocation) (Reservation, store.Resources, bool) {
-	if !p.Resources.Reducible() || !fits(left, MinimumReserve(p, h), known) {
+	floor := MinimumReserve(p, h)
+	if !p.Resources.Reducible() || !fits(left, floor, known) {
 		return Reservation{}, store.Resources{}, false
 	}
 	charge := Reserve(p, h)
-	factor := pairFactor(p)
-	grant := p.Resources
-	grant.MinCPUs, grant.MinMemoryMB = 0, 0
-	if known.CPUsKnown && left.CPUs+cpuEpsilon < charge.CPUs && p.Resources.MinCPUs > 0 {
-		each := math.Floor(left.CPUs/factor*100+cpuEpsilon) / 100
-		grant.CPUs = max(each, p.Resources.MinCPUs)
-		charge.CPUs = grant.CPUs * factor
+	cpuFactor := fieldFactor(p, p.Resources.CPUs > 0)
+	memFactor := int64(fieldFactor(p, p.Resources.MemoryMB > 0))
+	if known.CPUsKnown && left.CPUs+cpuEpsilon < charge.CPUs && floor.CPUs < charge.CPUs {
+		each := math.Floor(left.CPUs/cpuFactor*100+cpuEpsilon) / 100
+		charge.CPUs = max(each*cpuFactor, floor.CPUs)
 	}
-	if known.MemoryKnown && left.MemoryMB < charge.MemoryMB && p.Resources.MinMemoryMB > 0 {
-		grant.MemoryMB = max(left.MemoryMB/int64(factor), p.Resources.MinMemoryMB)
-		charge.MemoryMB = grant.MemoryMB * int64(factor)
+	if known.MemoryKnown && left.MemoryMB < charge.MemoryMB && floor.MemoryMB < charge.MemoryMB {
+		charge.MemoryMB = max(left.MemoryMB/memFactor*memFactor, floor.MemoryMB)
 	}
 	if !fits(left, charge, known) {
 		return Reservation{}, store.Resources{}, false
 	}
+	grant := p.Resources
+	grant.MinCPUs, grant.MinMemoryMB = 0, 0
+	grant.CPUs = charge.CPUs / cpuFactor
+	grant.MemoryMB = charge.MemoryMB / memFactor
 	return charge, grant, true
 }
 

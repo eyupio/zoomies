@@ -38,7 +38,7 @@ func TestWorkflowMatricesCoverTheCatalogue(t *testing.T) {
 				}
 				want[img.Tag()] = matrixEntry{
 					Base: img.Base, Family: img.Family, OS: img.OS, Version: img.Version,
-					Platforms: strings.Join(plats, ","),
+					Platforms: strings.Join(plats, ","), Full: img.Full,
 				}
 			}
 			for tag, w := range want {
@@ -79,6 +79,10 @@ type matrixEntry struct {
 	OS        string `yaml:"os"`
 	Version   string `yaml:"version"`
 	Platforms string `yaml:"platforms"`
+	// Full is whether the row also builds runner-full. A catalogue row that
+	// says so and a matrix that does not is a tag a pool can name and the
+	// registry does not have.
+	Full bool `yaml:"full"`
 }
 
 func runnerMatrix(t *testing.T, file, job string) (map[string]matrixEntry, map[string][]string) {
@@ -184,17 +188,21 @@ func TestDocsListTheCatalogue(t *testing.T) {
 	rows := map[string]string{}
 	for _, line := range strings.Split(string(b), "\n") {
 		cells := strings.Split(strings.Trim(strings.TrimSpace(line), "|"), "|")
-		if len(cells) != 3 {
+		if len(cells) != 4 {
 			continue
 		}
 		tag := strings.Trim(strings.TrimSpace(cells[0]), "`")
 		if _, ok := FindImage(splitTag(tag)); !ok {
 			continue
 		}
-		rows[tag] = strings.Trim(strings.TrimSpace(cells[1]), "`") + " " + strings.TrimSpace(cells[2])
+		rows[tag] = strings.Trim(strings.TrimSpace(cells[1]), "`") + " " + strings.TrimSpace(cells[2]) + " " + strings.TrimSpace(cells[3])
 	}
 	for _, img := range Images() {
-		want := img.Base + " " + strings.Join(img.Arches, ", ")
+		full := "—"
+		if img.Full {
+			full = "yes"
+		}
+		want := img.Base + " " + strings.Join(img.Arches, ", ") + " " + full
 		switch got, ok := rows[img.Tag()]; {
 		case !ok:
 			t.Errorf("the naming page does not list %s, which the catalogue publishes; %s", img.Tag(), regenerate)

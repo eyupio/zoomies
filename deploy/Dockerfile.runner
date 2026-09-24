@@ -42,11 +42,13 @@
 # about this image. Parity with what actions/runner-images ships is the less
 # surprising default, and a pool that wants something leaner can name its own.
 #
-# Two targets come out of this file:
+# Three targets come out of this file:
 #
 #   runner         the image above, published as ghcr.io/eyupio/zoomies-runner
 #   runner-docker  that plus the Docker CLI, published as
 #                  ghcr.io/eyupio/zoomies-runner-docker
+#   runner-full    runner-docker plus the language toolchains, published as
+#                  ghcr.io/eyupio/zoomies-runner-full for the Ubuntu variants
 #
 # The second exists because a pool's docker_mode gives a job a *daemon* and
 # nothing else. Without a client on PATH, `docker/setup-qemu-action` and every
@@ -126,12 +128,42 @@ ENV LANG=en_US.UTF-8
 # uid 1001 rather than 1000: Fedora and Rocky leave 1000 free but Ubuntu's
 # cloud images take it, and a fixed uid is what lets a host bind-mount a work
 # directory the runner can actually write to.
+#
+# sudo resets the environment by default, and the proxy variables the agent
+# hands every runner on a host behind a proxy went with it: `curl` in a step
+# reached the internet and `sudo apt-get install` in the next one timed out,
+# which reads as a broken mirror rather than a dropped proxy. env_keep carries
+# exactly the six names internal/backend/proxy.go passes on, and a test there
+# holds the two lists together. visudo checks the file, because sudo refuses
+# to run at all over a sudoers.d entry it cannot parse.
 RUN set -eux; \
     groupadd -g 1001 runner 2>/dev/null || true; \
     useradd -m -s /bin/bash -u 1001 -g 1001 runner; \
     mkdir -p /etc/sudoers.d; \
-    echo "runner ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/runner; \
-    chmod 0440 /etc/sudoers.d/runner
+    { \
+      echo 'Defaults:runner env_keep += "HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy"'; \
+      echo "runner ALL=(ALL) NOPASSWD: ALL"; \
+    } > /etc/sudoers.d/runner; \
+    chmod 0440 /etc/sudoers.d/runner; \
+    visudo -cf /etc/sudoers.d/runner
+
+# Two directories the runner must own before anything is mounted over them.
+#
+# /opt/hostedtoolcache is the tool cache: where setup-python, setup-node,
+# setup-go and the rest unpack what they download, named for the path GitHub's
+# own runners use. Left to its default, the runner puts it under _work/_tool,
+# which an ephemeral runner throws away with every job; here it is a fixed
+# place that an image built FROM this one can fill ahead of time, so those
+# steps find the version already there rather than downloading it again.
+#
+# /opt/zoomies-cache is where a pool's cache is mounted. A fresh named volume
+# takes its ownership from the directory it is mounted over, and with no such
+# directory in the image it came up owned by root: the pool cache existed, and
+# the runner could not write a byte to it without sudo. Owned by the runner
+# here, a new volume is the runner's too.
+RUN set -eux; \
+    install -d -o runner -g runner -m 0755 /opt/hostedtoolcache /opt/zoomies-cache
+ENV AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache
 
 # The archive is checked against the digest GitHub published before it is
 # unpacked: this image runs whatever is inside it, on every job, and a mirror
@@ -250,6 +282,88 @@ ARG COMMIT=""
 ARG DATE=""
 LABEL org.opencontainers.image.title="zoomies-runner-docker" \
       org.opencontainers.image.description="GitHub Actions runner image for Zoomies, with the Docker CLI" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${DATE}"
+
+
+# --- runner-full --------------------------------------------------------------
+#
+# runner-docker plus the language toolchains the setup-* actions would
+# otherwise download at the start of every job: Python, Node.js, Go and Java in
+# the tool cache, laid out exactly as setup-python, setup-node, setup-go and
+# setup-java look for them, and .NET, Maven, Gradle and Rust where a workflow
+# finds them without a setup action. Which releases is deploy/toolcache.lock,
+# every archive pinned by digest; deploy/runner-toolcache.sh is how each one
+# lands.
+#
+# Published as ghcr.io/eyupio/zoomies-runner-full, for the Ubuntu variants
+# only: the Python builds setup-python installs are made for Ubuntu and nothing
+# else, and a full image without them would be the one toolchain most jobs ask
+# for first. It is built on runner-docker because a pool that wants a build
+# environment wants to build images in it too, and the client is a rounding
+# error beside the rest.
+#
+# One layer per toolchain, so a lock change that moves one Node patch rebuilds
+# that layer and not the other several gigabytes.
+FROM runner-docker AS runner-full
+ARG OS_VERSION
+ARG TARGETARCH
+USER root
+
+# Rust's homes are fixed paths rather than the runner's ~/.cargo, so that the
+# image can put them on PATH; the runner owns them, so rustup can still add a
+# toolchain a workflow asks for.
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo
+
+COPY --chmod=0755 deploy/runner-toolcache.sh /usr/local/lib/zoomies/runner-toolcache.sh
+COPY deploy/toolcache.lock /usr/local/lib/zoomies/toolcache.lock
+RUN /usr/local/lib/zoomies/runner-toolcache.sh /usr/local/lib/zoomies/toolcache.lock "${OS_VERSION}" "${TARGETARCH}" python \
+    && chown -R runner:runner "${AGENT_TOOLSDIRECTORY}/Python"
+RUN /usr/local/lib/zoomies/runner-toolcache.sh /usr/local/lib/zoomies/toolcache.lock "${OS_VERSION}" "${TARGETARCH}" node \
+    && chown -R runner:runner "${AGENT_TOOLSDIRECTORY}/node"
+RUN /usr/local/lib/zoomies/runner-toolcache.sh /usr/local/lib/zoomies/toolcache.lock "${OS_VERSION}" "${TARGETARCH}" go \
+    && chown -R runner:runner "${AGENT_TOOLSDIRECTORY}/go"
+RUN /usr/local/lib/zoomies/runner-toolcache.sh /usr/local/lib/zoomies/toolcache.lock "${OS_VERSION}" "${TARGETARCH}" java \
+    && chown -R runner:runner "${AGENT_TOOLSDIRECTORY}/Java_Temurin-Hotspot_jdk"
+# setup-dotnet installs into /usr/share/dotnet as the runner, so the runner
+# owns it; otherwise asking for an SDK the image lacks fails on permissions.
+RUN /usr/local/lib/zoomies/runner-toolcache.sh /usr/local/lib/zoomies/toolcache.lock "${OS_VERSION}" "${TARGETARCH}" dotnet \
+    && chown -R runner:runner /usr/share/dotnet
+RUN /usr/local/lib/zoomies/runner-toolcache.sh /usr/local/lib/zoomies/toolcache.lock "${OS_VERSION}" "${TARGETARCH}" maven \
+    && /usr/local/lib/zoomies/runner-toolcache.sh /usr/local/lib/zoomies/toolcache.lock "${OS_VERSION}" "${TARGETARCH}" gradle
+RUN /usr/local/lib/zoomies/runner-toolcache.sh /usr/local/lib/zoomies/toolcache.lock "${OS_VERSION}" "${TARGETARCH}" rustup \
+    && chown -R runner:runner "${RUSTUP_HOME}" "${CARGO_HOME}"
+
+# JDK 17 is the default GitHub's Ubuntu runners give a job that does not ask,
+# and the same here; setup-java replaces it for one that does. Maven and Gradle
+# need a JAVA_HOME before either will start.
+ENV JAVA_HOME=/usr/lib/jvm/temurin-17 \
+    PATH=/usr/local/cargo/bin:/usr/lib/jvm/temurin-17/bin:${PATH} \
+    DOTNET_ROOT=/usr/share/dotnet \
+    DOTNET_NOLOGO=1 \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+
+# Prove each toolchain answers from where a job will look for it, as the
+# other targets do for theirs.
+RUN set -eux; \
+    java -version; \
+    mvn --version; \
+    gradle --version --no-daemon; \
+    dotnet --list-sdks; \
+    rustc --version; \
+    cargo --version; \
+    cargo clippy --version; \
+    rustfmt --version
+USER runner
+
+ARG VERSION=dev
+ARG COMMIT=""
+ARG DATE=""
+LABEL org.opencontainers.image.title="zoomies-runner-full" \
+      org.opencontainers.image.description="GitHub Actions runner image for Zoomies, with the Docker CLI and the language toolchains setup-* actions install" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}" \
       org.opencontainers.image.created="${DATE}"

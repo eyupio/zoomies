@@ -171,11 +171,12 @@ func TestASizeTooSmallToRunAJobIsRefused(t *testing.T) {
 	}{
 		{"a tenth of a core", map[string]any{"cpus": 0.1, "memory_mb": 4096}, "resources.cpus"},
 		{"256 MB", map[string]any{"cpus": 2, "memory_mb": 256}, "resources.memory_mb"},
-		// A minimum is a floor under the size: it cannot sit above it, cannot
-		// exist without it, and is held to what any runner needs.
+		// A minimum is a floor under the size: it cannot sit above a size the
+		// pool states, and is held to what any runner needs -- including under
+		// a size left to the host.
 		{"a minimum above the standard", map[string]any{"cpus": 2, "memory_mb": 4096, "min_memory_mb": 8192}, "resources.min_memory_mb"},
-		{"a minimum with no standard", map[string]any{"memory_mb": 4096, "min_cpus": 1}, "resources.min_cpus"},
 		{"a minimum below a runner", map[string]any{"cpus": 2, "memory_mb": 4096, "min_memory_mb": 256}, "resources.min_memory_mb"},
+		{"an automatic minimum below a runner", map[string]any{"min_cpus": 0.1}, "resources.min_cpus"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := poolBody(inst.ID)
@@ -430,6 +431,33 @@ func TestAMinimumUnderTheSizeIsKept(t *testing.T) {
 	}
 	res.into(t, &got)
 	if got.Resources.MinCPUs != 4 || got.Resources.MinMemoryMB != 24576 {
+		t.Fatalf("resources = %+v, want the minimum kept", got.Resources)
+	}
+}
+
+// An automatic pool's standard is a slot's share of whichever host it lands
+// on, and a minimum is how it runs on a host with a free slot but less than a
+// whole share left. It used to be refused for having no standard to sit under,
+// which left such a pool waiting on a host with room for its job.
+func TestAnAutomaticPoolKeepsItsMinimum(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["resources"] = map[string]any{"min_cpus": 1, "min_memory_mb": 2048}
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var got struct {
+		Sizing    string          `json:"sizing"`
+		Resources store.Resources `json:"resources"`
+	}
+	res.into(t, &got)
+	if got.Resources.CPUs != 0 || got.Resources.MemoryMB != 0 {
+		t.Fatalf("resources = %+v, want the size still left to the host", got.Resources)
+	}
+	if got.Resources.MinCPUs != 1 || got.Resources.MinMemoryMB != 2048 {
 		t.Fatalf("resources = %+v, want the minimum kept", got.Resources)
 	}
 }

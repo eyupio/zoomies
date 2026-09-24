@@ -304,7 +304,7 @@ var registry = buildRegistry([]Setting{
 	// ---------------------------------------------------------------------
 	{
 		Key: "github.api_base_url", Label: "GitHub API base URL", Env: "ZOOMIES_GITHUB_API_BASE_URL", Kind: KindString, Scope: ScopeInstance, Live: true,
-		Summary: "https://api.github.com for github.com, or your Enterprise Server's /api/v3. It is the default for a new installation; each existing one keeps the base it was added with.",
+		Summary: "https://api.github.com for github.com, your Enterprise Server's /api/v3, or a GHE.com tenant's address. It is the default for a new installation; each existing one keeps the base it was added with.",
 	},
 	{
 		Key: "github.upload_base_url", Label: "GitHub upload base URL", Env: "ZOOMIES_GITHUB_UPLOAD_BASE_URL", Kind: KindString, Scope: ScopeInstance, Live: true,
@@ -497,11 +497,11 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "runners.minimum_cpus", Label: "Minimum CPUs per runner", Env: "ZOOMIES_RUNNER_MINIMUM_CPUS", Kind: KindFloat, Scope: ScopeInstance, Live: true,
-		Summary: "Where a pool's minimum CPU slider opens, in cores: the least a runner of a fixed-size pool may be given when no host has room for its standard size, so a host a little short still runs the job. 0 is no minimum, and a pool's own minimum is what placement reads.",
+		Summary: "Where a pool's minimum CPU slider opens, in cores: the least a runner may be given when no host has room for its standard size — a fixed pool's figures, or an automatic pool's whole slot share — so a host a little short still runs the job. 0 is no minimum, and a pool's own minimum is what placement reads.",
 	},
 	{
 		Key: "runners.minimum_memory_mb", Label: "Minimum memory per runner", Env: "ZOOMIES_RUNNER_MINIMUM_MEMORY_MB", Kind: KindInt, Scope: ScopeInstance, Live: true,
-		Summary: "Where a pool's minimum memory slider opens, in megabytes: the least a runner of a fixed-size pool may be given when no host has room for its standard size. 0 is no minimum; anything set is held to 512.",
+		Summary: "Where a pool's minimum memory slider opens, in megabytes: the least a runner may be given when no host has room for its standard size, fixed or automatic. 0 is no minimum; anything set is held to 512.",
 	},
 	{
 		Key: "runners.env", Label: "Runner environment", Env: "ZOOMIES_RUNNER_ENV", Kind: KindLabels, Scope: ScopeInstance, Live: true,

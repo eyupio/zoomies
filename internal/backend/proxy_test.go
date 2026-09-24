@@ -1,7 +1,9 @@
 package backend
 
 import (
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -80,5 +82,30 @@ func TestTheDockerSidecarGetsTheProxyAndNothingElseFromThePool(t *testing.T) {
 func TestNoProxyInheritedWhenTheAgentHasNone(t *testing.T) {
 	if got := inheritedProxyEnv(proxyLookup(nil), nil); len(got) != 0 {
 		t.Fatalf("inheritedProxyEnv = %v, want nothing", got)
+	}
+}
+
+// A runner behind a proxy is handed these variables, and the stock image gives
+// it passwordless sudo because real workflows `sudo apt-get install`. sudo's
+// default env_reset dropped every one of them, so the install timed out on a
+// host whose runners could otherwise reach the internet. The image's sudoers
+// entry keeps them; this holds it to the list the agent actually passes on.
+func TestTheRunnerImageKeepsTheProxyThroughSudo(t *testing.T) {
+	dockerfile := readFile(t, filepath.Join("..", "..", "deploy", "Dockerfile.runner"))
+	var keep string
+	for _, line := range strings.Split(dockerfile, "\n") {
+		if _, rest, ok := strings.Cut(line, "Defaults:runner env_keep += \""); ok {
+			keep, _, _ = strings.Cut(rest, "\"")
+			break
+		}
+	}
+	if keep == "" {
+		t.Fatal("deploy/Dockerfile.runner has no Defaults:runner env_keep line, so sudo drops the runner's proxy")
+	}
+	kept := strings.Fields(keep)
+	for _, k := range proxyEnvKeys {
+		if !slices.Contains(kept, k) {
+			t.Errorf("deploy/Dockerfile.runner's env_keep does not carry %s, which the agent passes to every runner", k)
+		}
 	}
 }
