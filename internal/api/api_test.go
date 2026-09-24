@@ -716,6 +716,8 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "POST", path: "/api/v1/pools/validate", role: store.RoleOperator, body: map[string]any{}, action: auth.ActionPoolsWrite},
 		{method: "GET", path: "/api/v1/pools/platforms", role: store.RoleViewer, action: auth.ActionPoolsRead},
 		{method: "GET", path: "/api/v1/pools/defaults", role: store.RoleViewer, action: auth.ActionPoolsRead},
+		{method: "GET", path: "/api/v1/pools/export", role: store.RoleViewer, action: auth.ActionPoolsRead},
+		{method: "POST", path: "/api/v1/pools/import", role: store.RoleOperator, body: map[string]any{"dry_run": true}, action: auth.ActionPoolsWrite},
 		{method: "GET", path: "/api/v1/pools/" + ids.pool, role: store.RoleViewer, action: auth.ActionPoolsRead},
 		{method: "PATCH", path: "/api/v1/pools/" + ids.pool, role: store.RoleOperator, body: map[string]any{}, action: auth.ActionPoolsWrite},
 		{method: "DELETE", path: "/api/v1/pools/missing", role: store.RoleOperator, action: auth.ActionPoolsDelete},
