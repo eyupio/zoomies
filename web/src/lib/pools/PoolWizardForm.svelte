@@ -290,7 +290,9 @@
     // A minimum is a floor under either kind of size: the figures of a fixed
     // pool, or the host's share for an automatic one, where it is what lets a
     // runner start on a host with a free slot but less than a share left. An
-    // empty field sends nothing, which the API reads as no minimum.
+    // empty field sends nothing, which the fleet reads as "follow
+    // runners.minimum_*" -- live, so a later change to that setting moves
+    // this pool too.
     const minCpus = toNumber(draft.min_cpus);
     const minMemory = toInteger(draft.min_memory_mb);
     if (minCpus !== undefined && minCpus > 0) resources.min_cpus = minCpus;
@@ -739,10 +741,10 @@
           if (draft.memory_mb === '' && resources.memory_mb !== undefined) {
             draft.memory_mb = String(resources.memory_mb);
           }
-          if (draft.min_cpus === '' && resources.min_cpus)
-            draft.min_cpus = String(resources.min_cpus);
-          if (draft.min_memory_mb === '' && resources.min_memory_mb)
-            draft.min_memory_mb = String(resources.min_memory_mb);
+          // The minimum is deliberately left empty rather than opened on the
+          // fleet's: an empty minimum already follows runners.minimum_*, and
+          // copying today's figure in would freeze it into the pool, so a
+          // later change to the fleet setting would pass this pool by.
         });
       })
       // A failure here is not worth an error state: the sliders fall back to

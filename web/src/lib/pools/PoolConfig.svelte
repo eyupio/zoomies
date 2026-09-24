@@ -32,6 +32,11 @@
   // it from two absent numbers -- "no CPU limit" alone cannot tell "the host
   // decides" from "nobody set one", and those used to be the same thing.
   const automatic = $derived((pool.sizing ?? (hasSize ? 'fixed' : 'automatic')) !== 'fixed');
+  /* The minimum in force, not the one stored: a pool that set none follows the
+     fleet's runners.minimum_* live, and saying so is the only way an operator
+     learns that editing the fleet setting will move this pool. */
+  const minimum = $derived(pool.effective_minimum);
+  const hasMinimum = $derived((minimum?.cpus ?? 0) > 0 || (minimum?.memory_mb ?? 0) > 0);
 
   /* Only the timings this pool actually overrides. The rest follow the fleet,
      and a row per setting saying "the fleet's" would bury the two that do not. */
@@ -179,6 +184,21 @@
         >{/if}
     </dd>
   </div>
+  {#if minimum && hasMinimum}
+    <div class="pair">
+      <dt>Minimum per runner</dt>
+      <dd class="tabular">
+        {#if minimum.cpus > 0}<span
+            >{formatNumber(minimum.cpus)} CPU{#if minimum.cpus_inherited}
+              <span class="inherited">(fleet default)</span>{/if}</span
+          >{/if}
+        {#if minimum.memory_mb > 0}<span
+            >{formatMegabytes(minimum.memory_mb)}{#if minimum.memory_mb_inherited}
+              <span class="inherited">(fleet default)</span>{/if}</span
+          >{/if}
+      </dd>
+    </div>
+  {/if}
   <!-- What a pool that sets nothing is charged, which is not nothing: it is
        charged one slot's worth of whatever host the runner lands on, and given
        exactly that as a real limit. Saying so here is what stops "no limits"
@@ -319,6 +339,10 @@
   }
 
   .override-name {
+    color: var(--z-text-muted);
+  }
+
+  .inherited {
     color: var(--z-text-muted);
   }
 

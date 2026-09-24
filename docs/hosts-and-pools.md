@@ -308,6 +308,15 @@ sliders open on `runners.default_cpus` and `runners.default_memory_mb` — two
 cores and four gigabytes out of the box — so a fleet of small boxes or of
 compilers says so once rather than on every pool.
 
+A pool's **minimum** — the least a runner will take when no host has room for
+its standard — works the other way. Left empty, it follows the fleet's
+`runners.minimum_cpus` and `runners.minimum_memory_mb` live, so changing those
+moves every pool that set none of its own on the next pass; the pool's page
+marks such a minimum *(fleet default)*. A figure typed on the pool wins on its
+field. There is no per-pool "none" while the fleet sets a minimum: a pool that
+must not be reduced gives its own figure instead. See
+[`runners.minimum_cpus`](configuration.md#runnersminimum_cpus-and-runnersminimum_memory_mb-the-least-a-runner-will-take).
+
 Disk and the process limit are independent of the choice. Neither has a share
 to be given — free disk is a measurement rather than a budget — so a pool may
 cap its cache's disk and still leave its size to the host.
@@ -666,7 +675,8 @@ not run on that host at all. A host that used to squeeze several thin dind
 pairs onto a small machine now runs fewer of them, each with room for its
 daemon to answer a create — which is the trade this exists to make.
 
-A minimum typed on the pool replaces that figure on its field. The
+A minimum on the pool — its own, or the fleet's where it set none — replaces
+that figure on its field. The
 comfortable size is a judgement made for a pool nobody sized; `min_memory_mb`
 or `min_cpus` is the operator saying what each container may have at least, so
 a slot is held to twice the minimum instead — the runner and its daemon each

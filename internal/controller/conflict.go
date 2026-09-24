@@ -59,6 +59,7 @@ func (c *Controller) HostStrandings(ctx context.Context, proposed *store.Host) (
 	if err != nil {
 		return nil, err
 	}
+	pools = c.sizingPools(pools)
 	after := make([]*store.Host, 0, len(hosts))
 	for _, h := range hosts {
 		if h.ID == proposed.ID {
@@ -95,6 +96,8 @@ func (c *Controller) PoolStranding(ctx context.Context, current, proposed *store
 	if !proposed.Enabled {
 		return nil, nil
 	}
+	fleet := c.cfg().Runners
+	current, proposed = sizingPool(current, fleet), sizingPool(proposed, fleet)
 	hosts, err := c.st.ListHosts(ctx)
 	if err != nil {
 		return nil, err

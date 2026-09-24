@@ -112,6 +112,9 @@ func (c *Controller) snapshot(ctx context.Context) (scheduler.Snapshot, error) {
 	if err != nil {
 		return scheduler.Snapshot{}, fmt.Errorf("listing pools: %w", err)
 	}
+	// The scheduler sizes a pool by its minimum, so it is handed the minimum
+	// in force -- the fleet's where the pool set none -- rather than the row.
+	pools = c.sizingPools(pools)
 	runners := make(map[string][]*store.Runner, len(pools))
 	for _, p := range pools {
 		rs, err := c.st.ListRunnersForPool(ctx, p.ID)

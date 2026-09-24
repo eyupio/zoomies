@@ -78,6 +78,7 @@ const (
 // HostFit counts the hosts that could run a pool, using the scheduler's own
 // placement rule so the wizard can never disagree with the fleet.
 func (c *Controller) HostFit(ctx context.Context, p *store.Pool) (HostFit, error) {
+	p = sizingPool(p, c.cfg().Runners)
 	hosts, err := c.st.ListHosts(ctx)
 	if err != nil {
 		return HostFit{}, err

@@ -686,7 +686,7 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	// to the same floor any runner is.
 	switch {
 	case p.Resources.MinCPUs < 0:
-		add("resources.min_cpus", "a minimum CPU cannot be negative; use 0 for no minimum")
+		add("resources.min_cpus", "a minimum CPU cannot be negative; use 0 to follow the fleet's minimum")
 	case p.Resources.CPUs > 0 && p.Resources.MinCPUs > p.Resources.CPUs:
 		add("resources.min_cpus", fmt.Sprintf("the minimum (%g cores) is above the standard size (%g); a runner is never given less than the minimum, so it has to be the smaller of the two", p.Resources.MinCPUs, p.Resources.CPUs))
 	case p.Resources.MinCPUs > 0 && p.Resources.MinCPUs < store.MinRunnerCPUs:
@@ -694,7 +694,7 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	}
 	switch {
 	case p.Resources.MinMemoryMB < 0:
-		add("resources.min_memory_mb", "a minimum memory cannot be negative; use 0 for no minimum")
+		add("resources.min_memory_mb", "a minimum memory cannot be negative; use 0 to follow the fleet's minimum")
 	case p.Resources.MemoryMB > 0 && p.Resources.MinMemoryMB > p.Resources.MemoryMB:
 		add("resources.min_memory_mb", fmt.Sprintf("the minimum (%d MB) is above the standard size (%d MB); a runner is never given less than the minimum, so it has to be the smaller of the two", p.Resources.MinMemoryMB, p.Resources.MemoryMB))
 	case p.Resources.MinMemoryMB > 0 && p.Resources.MinMemoryMB < store.MinRunnerMemoryMB:

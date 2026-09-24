@@ -739,13 +739,14 @@ type Runners struct {
 	// DefaultRunnerSize answers with the built-in figures.
 	DefaultCPUs     float64 `yaml:"default_cpus"`
 	DefaultMemoryMB int64   `yaml:"default_memory_mb"`
-	// MinimumCPUs and MinimumMemoryMB are where a pool's minimum sliders open:
-	// the least a runner may be given when no host has room for its standard
-	// size -- the figures above for a fixed pool, a whole slot's share of the
-	// host for an automatic one. Zero is no minimum, which is what a
-	// pool was before minimums existed, so an upgrade changes nothing. Like
-	// the standard figures they are an opening value for a new pool; a pool's
-	// own minimum is what the scheduler reads.
+	// MinimumCPUs and MinimumMemoryMB are the fleet's minimum: the least a
+	// runner may be given when no host has room for its standard size -- the
+	// figures above for a fixed pool, a whole slot's share of the host for an
+	// automatic one. Unlike the standard figures they are not an opening
+	// value: every pool whose own minimum is zero follows them live
+	// (controller.EffectiveMinimum), so changing them moves those pools with
+	// no row rewritten. Zero is none, which is what every fleet was before
+	// they existed, so an upgrade changes nothing.
 	MinimumCPUs     float64 `yaml:"minimum_cpus"`
 	MinimumMemoryMB int64   `yaml:"minimum_memory_mb"`
 }
