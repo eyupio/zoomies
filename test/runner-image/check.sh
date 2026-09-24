@@ -116,8 +116,9 @@ done
 # ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT so a runner's log reaches the container's,
 # and with it set the listener prints its whole log around the version -- the
 # last line is "Runner execution has finished", not the version. Unset for
-# this one question.
-got="$(cd /home/runner && env -u ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT ./bin/Runner.Listener --version 2>/dev/null | tr -d '\r' | tail -n 1)"
+# this one question, and take the line shaped like a version rather than the
+# last, so a log line the listener adds later cannot stand in for it.
+got="$(cd /home/runner && env -u ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT ./bin/Runner.Listener --version 2>/dev/null | tr -d '\r' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | tail -n 1)"
 [ "${got}" = "${WANT_RUNNER}" ] && pass "actions/runner ${got}" || fail "actions/runner reports '${got}', want '${WANT_RUNNER}'"
 
 # The platform: /etc/os-release is what the distribution says, the environment
