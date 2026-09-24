@@ -40,6 +40,7 @@ type Config struct {
 	OIDC           OIDC           `yaml:"oidc"`
 	Metrics        Metrics        `yaml:"metrics"`
 	Retention      Retention      `yaml:"retention"`
+	Limits         Limits         `yaml:"limits"`
 	Images         Images         `yaml:"images"`
 	Updates        Updates        `yaml:"updates"`
 	CapacityDemand CapacityDemand `yaml:"capacity_demand"`
@@ -718,6 +719,30 @@ func (r Runners) DefaultRunnerSize() (cpus float64, memoryMB int64) {
 		memoryMB = DefaultRunnerMemoryMB
 	}
 	return cpus, memoryMB
+}
+
+// Limits are fleet-wide ceilings on what callers of the API and agents can
+// make the controller hold. Each is zero by default, meaning unlimited.
+//
+// They exist for an instance several teams use, where one team's script
+// minting join tokens in a loop, or a browser left open in forty tabs, spends
+// memory and database rows every other team shares. A limit refuses the
+// request that would cross it, with a message naming the setting, rather than
+// letting the process find out by running out of something.
+type Limits struct {
+	// Hosts caps enrolled hosts. A host that joins again under its own name
+	// replaces its row and is not counted twice.
+	Hosts int `yaml:"hosts"`
+	// Pools caps pools.
+	Pools int `yaml:"pools"`
+	// Runners caps live runners across every pool. The scheduler stops
+	// creating at the ceiling and says so in each pool's scaling reason.
+	Runners int `yaml:"runners"`
+	// JoinTokens caps join tokens that are still outstanding: neither used
+	// nor expired.
+	JoinTokens int `yaml:"join_tokens"`
+	// EventSubscribers caps open live-update streams.
+	EventSubscribers int `yaml:"event_subscribers"`
 }
 
 // Retention bounds how much history the database keeps.

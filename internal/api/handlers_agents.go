@@ -82,6 +82,10 @@ func (s *Server) handleAgentJoin(w http.ResponseWriter, r *http.Request) {
 			unprocessable(w, err.Error(), nil)
 			return
 		}
+		if asLimit(w, err) {
+			s.logger(r).Warn("refused an agent join at limits.hosts", "name", req.Name)
+			return
+		}
 		s.internal(w, r, "enrolling a host", err)
 		return
 	}

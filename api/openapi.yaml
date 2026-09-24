@@ -478,6 +478,7 @@ paths:
           content:
             text/event-stream:
               schema: { type: string }
+        "409": { $ref: "#/components/responses/LimitReached" }
 
   # ==========================================================================
   # Installations
@@ -872,7 +873,13 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Pool" }
-        "409": { $ref: "#/components/responses/Conflict" }
+        "409":
+          description: >-
+            The request conflicts with the current state, or `limits.pools` has been reached --
+            the code is then `limit_reached` and `field` names the setting.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
   /pools/platforms:
@@ -2212,6 +2219,8 @@ paths:
                           Why the command could not be pinned to this instance's build, or
                           absent when it was. Main builds use the rolling dev asset; only local
                           or otherwise unpublished builds have no matching install tag.
+        "409": { $ref: "#/components/responses/LimitReached" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
 
   /join-tokens/{id}:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
@@ -3718,6 +3727,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AgentJoinResponse" }
+        "409": { $ref: "#/components/responses/LimitReached" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
   /agent/heartbeat:
@@ -3893,6 +3903,13 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    LimitReached:
+      description: >-
+        One of the `limits.*` ceilings has been reached. The code is `limit_reached`, and the message and
+        `field` name the setting. Nothing resent will succeed until a resource is removed or the setting is raised.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
     Unprocessable:
       description: The request was understood but is not valid. `errors` names the fields.
       content:
@@ -3980,9 +3997,9 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, internal]
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, limit_reached, internal]
             message: { type: string, description: Written for a person to read, and to act on. }
-            field: { type: string }
+            field: { type: string, description: "The form field at fault, or on a `limit_reached` refusal the `limits.*` setting that refused." }
             detail: { type: string }
 
     FieldError:
