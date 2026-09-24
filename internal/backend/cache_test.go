@@ -409,6 +409,9 @@ func TestAToolCacheNeedsThePoolToAskAndAHostFolder(t *testing.T) {
 // write to its own cache. A new folder is opened to it; one an operator made
 // is left as they made it.
 func TestACacheFolderIsCreatedWritableByTheRunner(t *testing.T) {
+	// The runner is another uid on a Linux host; Windows has no mode bits to
+	// open up, and the Docker backend runs Linux runners.
+	requirePOSIX(t)
 	root := t.TempDir()
 	dir := filepath.Join(root, "cache", "tools", "pool-one")
 	if err := ensureRunnerWritableDir(dir); err != nil {
