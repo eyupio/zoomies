@@ -90,6 +90,20 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
+  /* The pill stays its visual size; a finger gets the touch height the rest
+     of the product's small controls take under a coarse pointer, as an
+     invisible area centred on it rather than a track that balloons. */
+  @media (pointer: coarse) {
+    .track::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: var(--z-control-touch);
+      height: var(--z-control-touch);
+      transform: translate(-50%, -50%);
+    }
+  }
   .thumb {
     position: absolute;
     top: var(--z-nudge-2);
