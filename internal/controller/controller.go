@@ -109,16 +109,20 @@ type Controller struct {
 	// snapshot behind an atomic pointer rather than a struct shared by
 	// reference, because PATCH /settings changes it while every loop in here
 	// is reading it; see config.Live. Read it through cfg().
-	live       *config.Live
-	logLevel   *slog.LevelVar
-	key        *cryptox.Key
-	authsvc    *auth.Service
-	bus        *events.Bus
-	factory    github.Factory
-	backends   *backend.Registry
-	log        *slog.Logger
-	clock      func() time.Time
-	httpClient *http.Client
+	live     *config.Live
+	logLevel *slog.LevelVar
+	key      *cryptox.Key
+	authsvc  *auth.Service
+	// bootstrapIgnored names the ZOOMIES_BOOTSTRAP_* variables this start
+	// found set on a database that already had accounts. It is written once
+	// by BootstrapFromEnvironment and read by every problems pass.
+	bootstrapIgnored atomic.Pointer[[]string]
+	bus              *events.Bus
+	factory          github.Factory
+	backends         *backend.Registry
+	log              *slog.Logger
+	clock            func() time.Time
+	httpClient       *http.Client
 	// providerHTTP is Options.ProviderHTTPClient, nil in production.
 	providerHTTP *http.Client
 	// backupHTTP is Options.BackupRemoteHTTPClient, nil in production.

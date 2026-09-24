@@ -289,11 +289,12 @@ test('the Events page decides what the Overview’s feed carries', async ({ page
 });
 
 test('a size setting reads 8g and writes it back as 8 GB', async ({ page }) => {
-  // The build cache target is a megabyte count in the file, and the row used to
-  // be a number box that took 8192 and nothing else. It is edited and then
+  // A runner's default memory is a megabyte count in the file, and the row used
+  // to be a number box that took 8192 and nothing else. It is edited and then
   // cancelled rather than saved: the database is shared by every spec running
-  // at once, and nothing here is about storing a value.
-  const key = 'agent.docker_build_cache_mb';
+  // at once, and nothing here is about storing a value. Not an agent.* size:
+  // this controller runs no agent, so the page does not list those.
+  const key = 'runners.default_memory_mb';
   await goto(page, `/settings/configuration?setting=${key}`, 'Configuration');
   const row = page.locator(`[id="setting-${key}"]`);
   await row.getByRole('button', { name: 'Change' }).click();

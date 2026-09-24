@@ -427,6 +427,121 @@ func (s *Service) createFirstAdmin(ctx context.Context, username, password strin
 	})
 }
 
+// How the first identity was made, as the auth.bootstrap audit row records
+// it. The row answers "who bootstrapped this instance, and how" on every
+// path, because an unexplained platform account is exactly the thing an
+// operator inheriting an instance needs to be able to account for.
+const (
+	BootstrapSetupToken  = "setup_token"
+	BootstrapAnswerFile  = "answer_file"
+	BootstrapInstaller   = "installer_prompt"
+	BootstrapEnvPassword = "environment_password"
+	BootstrapEnvToken    = "environment_token"
+)
+
+// AuditBootstrap writes the auth.bootstrap row for a first identity. actor is
+// whoever made it: the person at the first-run page, or the system for the
+// installer and the environment, where nobody has signed in to be named.
+func (s *Service) AuditBootstrap(ctx context.Context, actor *Identity, u *store.User, method, tokenID string) {
+	detail := map[string]any{"username": u.Username, "role": u.Role, "method": method}
+	if tokenID != "" {
+		detail["token_id"] = tokenID
+	}
+	_ = s.audit.Record(ctx, actor, "auth.bootstrap", "auth", u.ID, nil, detail)
+}
+
+// MinBootstrapTokenLength is the shortest token ZOOMIES_BOOTSTRAP_TOKEN_FILE
+// may hold. It matches the entropy a minted token carries, so a provisioner's
+// token is no easier to guess than one this service would have made.
+const MinBootstrapTokenLength = 32
+
+// Unattended is the first identity a provisioner asks for through the
+// environment: a username with exactly one of a password or an API token.
+type Unattended struct {
+	Username string
+	Password string
+	Token    string
+}
+
+// CreateUnattendedIdentity makes the first identity on an empty database, as
+// platform, and audits it with the system as the actor.
+//
+// It is the trusted path CreateFirstAdmin is -- whoever sets a process's
+// environment already operates it -- and it takes the same lock and the same
+// "no account exists" check, so it can never add a second platform account to
+// an instance somebody has already claimed. ErrAlreadyBootstrapped is the
+// answer once one exists, which the caller turns into a warning.
+//
+// The token variant registers the token the provisioner supplied rather than
+// minting one. A minted token would have to be printed or written somewhere
+// for the provisioner to find, which is the log scraping this exists to
+// remove; a supplied one is already where the provisioner needs it. The
+// account it belongs to has no password, so it cannot sign in to the UI at
+// all: it is automation's identity, and a person gets their own.
+func (s *Service) CreateUnattendedIdentity(ctx context.Context, in Unattended) (*store.User, *store.APIToken, error) {
+	s.bootstrapMu.Lock()
+	defer s.bootstrapMu.Unlock()
+
+	n, err := s.store.CountUsers(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("counting accounts: %w", err)
+	}
+	if n > 0 {
+		return nil, nil, ErrAlreadyBootstrapped
+	}
+
+	if in.Token == "" {
+		u, err := s.createUser(ctx, NewUser{Username: in.Username, Password: in.Password, Role: store.RolePlatform})
+		if err != nil {
+			return nil, nil, err
+		}
+		s.AuditBootstrap(ctx, SystemIdentity(), u, BootstrapEnvPassword, "")
+		return u, nil, nil
+	}
+
+	token := strings.TrimSpace(in.Token)
+	switch {
+	case len(token) < MinBootstrapTokenLength:
+		return nil, nil, Invalid("the bootstrap token is %d characters; it needs at least %d, for example `openssl rand -hex 32`",
+			len(token), MinBootstrapTokenLength)
+	case strings.ContainsAny(token, " \t\r\n"):
+		return nil, nil, Invalid("the bootstrap token contains whitespace; it is sent in an Authorization header, which cannot carry it")
+	case strings.HasPrefix(token, AgentTokenPrefix), strings.HasPrefix(token, JoinTokenPrefix):
+		// Authentication reads those prefixes as another kind of credential
+		// and refuses them before looking the token up.
+		return nil, nil, Invalid("the bootstrap token starts with an agent or join token prefix and would never be accepted on the API")
+	}
+	username, err := normalizeUsername(in.Username)
+	if err != nil {
+		return nil, nil, err
+	}
+	u := &store.User{Username: username, Role: store.RolePlatform}
+	if err := s.store.CreateUser(ctx, u); err != nil {
+		return nil, nil, fmt.Errorf("creating account %q: %w", username, err)
+	}
+	id := store.NewID(store.PrefixToken)
+	t := &store.APIToken{
+		ID:        id,
+		Name:      "bootstrap",
+		Role:      store.RolePlatform,
+		OwnerRole: store.RolePlatform,
+		UserID:    u.ID,
+		TokenHash: cryptox.HashToken(token),
+		Prefix:    APITokenPrefix + idFragment(id),
+	}
+	if err := s.store.CreateAPIToken(ctx, t); err != nil {
+		// An account with no password and no token is one nobody can ever
+		// use, and it would close bootstrap for good. Take it back out, so
+		// the next start -- or the setup token -- can try again.
+		if derr := s.store.DeleteUser(ctx, u.ID); derr != nil {
+			s.logger.Error("could not remove the half-made bootstrap account", "user_id", u.ID, "error", derr)
+		}
+		return nil, nil, fmt.Errorf("registering the bootstrap token: %w", err)
+	}
+	s.AuditBootstrap(ctx, SystemIdentity(), u, BootstrapEnvToken, t.ID)
+	return u, t, nil
+}
+
 // ---------------------------------------------------------------------------
 // Password login
 // ---------------------------------------------------------------------------

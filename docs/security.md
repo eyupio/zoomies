@@ -233,7 +233,15 @@ says so when it does, and a daemon that already applies limits is left alone.
   freshly deployed controller to whoever loaded the page first; the token is
   proof that the caller can read the controller's log. It is minted per process,
   so a restart prints a new one, and the line stops appearing once an account
-  exists.
+  exists. An unattended deployment creates the account from the environment
+  instead: `ZOOMIES_BOOTSTRAP_ADMIN` with a password or token file, read once
+  at startup on an empty database. Whoever sets a process's environment already
+  operates it, so that path needs no token; the files must not be readable by
+  group or other, a supplied token is stored only as its hash, and once any
+  account exists the variables are ignored — they can never add a platform
+  account to an instance somebody has claimed — and `bootstrap.ignored` says
+  so until they are removed. Every path writes an `auth.bootstrap` audit row
+  naming how the account was made.
 * **OIDC users** — optional. Linked by `sub`, and by username only for an
   account that has no local password: adopting one that does would let whoever
   holds that username at the identity provider take over the local account, so
@@ -730,7 +738,10 @@ score knows what it is measuring:
 1. Create the first account before anyone else can. If you deployed with
    the compose file rather than the installer, the controller is listening the
    moment it starts: read the setup token out of its log
-   (`docker compose logs zoomies`) and finish the first-run page. Keep the
+   (`docker compose logs zoomies`) and finish the first-run page — or, when no
+   person is at the console, have the provisioner create the account from
+   `ZOOMIES_BOOTSTRAP_ADMIN` and a 0600 token or password file, so the
+   instance is never reachable without an owner. Keep the
    origin firewalled to your proxy as well, as the compose file's comments say.
 1. Run the controller as a dedicated unprivileged user
    (`zoomies init` creates one).
