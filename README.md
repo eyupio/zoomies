@@ -101,8 +101,8 @@ flowchart LR
   a misconfigured webhook does not silently stop your fleet.
 * **Multi-host, multi-OS.** One controller, any number of agents. Agents connect
   outbound only, so a host behind NAT needs no inbound rule. Runner images for
-  Ubuntu 24.04, Ubuntu 22.04, Debian 12, Fedora 42 and Rocky Linux 9 — amd64
-  and arm64, except Ubuntu 22.04, which is amd64 only — and a pool is only ever
+  Ubuntu 24.04, Ubuntu 22.04, Debian 12, Fedora 42 and Rocky Linux 9, each for
+  amd64 and arm64 — and a pool is only ever
   placed on a host that matches the one it asked for.
 * **Actually observable.** SQLite for state, Prometheus metrics, structured
   logs, live log streaming, job history with queue waits, and an audit row for
