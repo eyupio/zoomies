@@ -187,6 +187,22 @@ func TestBuildRunnerConfigRegistrationToken(t *testing.T) {
 	if _, ok := env[EnvJITConfig]; ok {
 		t.Error("the JIT variable must not be set on the registration path")
 	}
+	if _, ok := env[EnvNoDefaultLabels]; ok {
+		t.Error("a pool that keeps the default labels must not ask the entrypoint to drop them")
+	}
+}
+
+// The entrypoint turns this variable into config.sh --no-default-labels; it
+// is the only way a container runner can register without self-hosted and
+// its os and arch labels.
+func TestARegistrationTokenRunnerCanLeaveOutTheDefaultLabels(t *testing.T) {
+	spec := jitSpec()
+	spec.Ephemeral = false
+	spec.Credentials = Credentials{RegistrationToken: "AABBCC", URL: "https://github.com/acme", Labels: []string{"gpu"}, NoDefaultLabels: true}
+	env := envMap(buildRunnerConfig(spec, dockerFlavor(), containerOptions{Now: time.Now()}).Env)
+	if env[EnvNoDefaultLabels] != "true" {
+		t.Fatalf("%s = %q, want true", EnvNoDefaultLabels, env[EnvNoDefaultLabels])
+	}
 }
 
 func TestBuildRunnerConfigDockerModes(t *testing.T) {

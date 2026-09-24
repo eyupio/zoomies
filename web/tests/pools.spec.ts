@@ -320,6 +320,14 @@ test('the advanced path walks target, labels, hosts, backend, size, scaling, run
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Scaling' })).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'Maximum runners' })).toBeVisible();
+  // GitHub adds the default labels to every ephemeral runner, so leaving them
+  // out is offered only once the pool reuses its runners.
+  const noDefaults = page.getByRole('checkbox', { name: 'Leave out the default labels' });
+  await expect(noDefaults).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'Destroy each runner after one job' }).uncheck();
+  await expect(noDefaults).toBeVisible();
+  await expect(noDefaults).not.toBeChecked();
+  await page.getByRole('checkbox', { name: 'Destroy each runner after one job' }).check();
 
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Runners' })).toBeVisible();

@@ -53,6 +53,7 @@ type poolItem struct {
 	HostSelector       map[string]string `json:"host_selector"`
 	Env                map[string]string `json:"env"`
 	RunAsRoot          bool              `json:"run_as_root"`
+	NoDefaultLabels    bool              `json:"no_default_labels"`
 	Enabled            bool              `json:"enabled"`
 	CreatedAt          time.Time         `json:"created_at"`
 	UpdatedAt          time.Time         `json:"updated_at"`

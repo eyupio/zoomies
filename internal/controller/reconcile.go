@@ -564,6 +564,7 @@ func (c *Controller) mintCredentials(ctx context.Context, inst *store.Installati
 		URL:               client.WebURL(),
 		RunnerGroup:       pool.RunnerGroup,
 		Labels:            pool.Labels,
+		NoDefaultLabels:   pool.NoDefaultLabels,
 	}, 0, nil
 }
 

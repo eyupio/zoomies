@@ -156,6 +156,9 @@ type Credentials struct {
 	// a JIT config already encodes them.
 	RunnerGroup string   `json:"runner_group,omitempty"`
 	Labels      []string `json:"labels,omitempty"`
+	// NoDefaultLabels passes --no-default-labels to config.sh. Like Labels it
+	// only means anything on the registration-token path.
+	NoDefaultLabels bool `json:"no_default_labels,omitempty"`
 }
 
 // Spec is everything a backend needs to create one runner.

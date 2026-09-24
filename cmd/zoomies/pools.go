@@ -172,6 +172,7 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 		{"ephemeral", p.yesNo(pool.Ephemeral, false)},
 		{"docker mode", pool.DockerMode},
 		{"run as root", p.yesNo(pool.RunAsRoot, true)},
+		{"default labels", p.yesNo(!pool.NoDefaultLabels, false)},
 		{"host selector", dash(kvValue(pool.HostSelector).String())},
 		{"sizing", poolSizing(pool)},
 		{"elastic CPU", poolCPUBurstLabel(pool)},
@@ -249,6 +250,7 @@ type poolSpec struct {
 	priority     *int
 	ephemeral    *bool
 	runAsRoot    *bool
+	noDefault    *bool
 	enabled      *bool
 	cpus         *float64
 	memoryMB     *int64
@@ -305,6 +307,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.ephemeral = fs.Bool("ephemeral", true, "one job per runner; the safe default")
 	spec.dockerMode = fs.String("docker-mode", "none", "none, dind or host-socket (host-socket gives jobs root on the host)")
 	spec.runAsRoot = fs.Bool("run-as-root", false, "run job steps as root inside the runner")
+	spec.noDefault = fs.Bool("no-default-labels", false, "register runners without self-hosted, os and arch labels; needs --ephemeral=false")
 	spec.enabled = fs.Bool("enabled", true, "whether the pool may create runners")
 	fs.Var(spec.hostSelector, "host-selector", "only use hosts that match, e.g. arch=arm64 or os=windows; os and arch need no label")
 	fs.Var(spec.envVars, "env", "environment variables for every job in this pool, e.g. HTTP_PROXY=...")
@@ -352,6 +355,7 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	put("ephemeral", "ephemeral", *spec.ephemeral)
 	put("docker-mode", "docker_mode", *spec.dockerMode)
 	put("run-as-root", "run_as_root", *spec.runAsRoot)
+	put("no-default-labels", "no_default_labels", *spec.noDefault)
 	put("enabled", "enabled", *spec.enabled)
 	if !onlyChanged || fs.changed("cache") || fs.changed("cache-scope") || fs.changed("cache-size") ||
 		fs.changed("cache-source") || fs.changed("cache-repository") {

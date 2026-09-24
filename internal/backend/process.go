@@ -330,6 +330,9 @@ func (b *ProcessBackend) configure(ctx context.Context, dir string, spec Spec, e
 	if spec.Credentials.RunnerGroup != "" {
 		args = append(args, "--runnergroup", spec.Credentials.RunnerGroup)
 	}
+	if spec.Credentials.NoDefaultLabels {
+		args = append(args, "--no-default-labels")
+	}
 	if spec.Ephemeral {
 		args = append(args, "--ephemeral")
 	}
@@ -461,11 +464,12 @@ func (b *ProcessBackend) childEnv(spec Spec, dir string) []string {
 		"RUNNER_ALLOW_RUNASROOT=1",
 	}
 	env = append(env, platformChildEnv(dir)...)
-	for _, k := range []string{"LANG", "LC_ALL", "TZ", "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
+	for _, k := range []string{"LANG", "LC_ALL", "TZ", "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"} {
 		if v, ok := os.LookupEnv(k); ok {
 			env = append(env, k+"="+v)
 		}
 	}
+	env = append(env, inheritedProxyEnv(os.LookupEnv, spec.Env)...)
 
 	keys := make([]string, 0, len(spec.Env))
 	for k := range spec.Env {
