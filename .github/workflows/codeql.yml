@@ -39,7 +39,13 @@ permissions:
 jobs:
   analyze:
     name: CodeQL (${{ matrix.language }})
-    runs-on: zoomies-linux-x64
+    # GitHub's runner, not the fleet's. A fleet slot is a 2-core, 4 GB runner
+    # whose cgroup gives CodeQL under 2 GB, and both analyses outgrew it: the
+    # JavaScript queries stop with "CodeQL is out of memory" and the traced Go
+    # build is killed with exit 137, on changes that touch neither. The rest of
+    # CI stays on the fleet it is testing; this one job needs the memory more
+    # than the dogfooding, and on a public repository it costs nothing.
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
       contents: read
