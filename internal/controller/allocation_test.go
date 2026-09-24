@@ -181,3 +181,60 @@ func TestARunnerOnAShortHostIsGivenWhatItCanSpareAndSaysSo(t *testing.T) {
 		t.Errorf("task spec carries the pool's minimum %+v; the agent is told a size, not a policy", task.Spec.Resources)
 	}
 }
+
+// The report that found this: an automatic pool, a host with a free slot and
+// most of a slot's worth idle, and no runner, because the pool only ever asked
+// for a whole share. With a minimum it runs there, and the row, the task and
+// the host's charge all carry what it was actually given.
+func TestAnAutomaticPoolWithAMinimumRunsOnWhatIsLeftOfAHost(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	// 8 cores and 16 GB over two slots; a fixed pool's runner takes 5 cores
+	// and 10 GB of it first, which is more than a slot's share.
+	host := h.measuredHost("shared", 8, 16384, 2, enforcesEverything)
+	big := h.pool(inst, "big", "big")
+	big.MinRunners = 1
+	big.Resources = store.Resources{CPUs: 5, MemoryMB: 10 * 1024}
+	if err := h.st.UpdatePool(h.ctx, big); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	h.c.lifecycleCalls.Wait()
+
+	auto := h.pool(inst, "auto", "auto")
+	auto.MinRunners = 1
+	auto.Resources = store.Resources{MinCPUs: 1, MinMemoryMB: 2048}
+	if err := h.st.UpdatePool(h.ctx, auto); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	h.c.lifecycleCalls.Wait()
+
+	runners, _, err := h.st.ListRunners(h.ctx, store.RunnerFilter{PoolIDs: []string{auto.ID}}, store.Page{})
+	if err != nil {
+		t.Fatalf("ListRunners: %v", err)
+	}
+	if len(runners) != 1 {
+		t.Fatalf("the automatic pool has %d runners, want 1 on the host's free slot", len(runners))
+	}
+	r := runners[0]
+	if r.AllocationSource != store.AllocationReduced {
+		t.Fatalf("allocation source = %q, want %q", r.AllocationSource, store.AllocationReduced)
+	}
+	if r.AllocatedMemoryMB < 2048 || r.AllocatedMemoryMB >= 8*1024 {
+		t.Errorf("memory = %d MB, want at least the 2 GB minimum and less than a whole 8 GB share", r.AllocatedMemoryMB)
+	}
+	var task *agent.Task
+	for _, tk := range h.tasksFor(host.ID) {
+		if tk.Kind == agent.TaskCreateRunner && tk.RunnerID == r.ID {
+			task = &tk
+		}
+	}
+	if task == nil || task.Spec == nil || task.Spec.Resources.MemoryMB != r.AllocatedMemoryMB || task.Spec.Resources.CPUs != r.AllocatedCPUs {
+		t.Fatalf("task = %+v; the agent would apply something other than what the row records", task)
+	}
+}

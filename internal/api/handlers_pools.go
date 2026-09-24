@@ -677,15 +677,17 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	case p.Resources.MemoryMB > 0 && p.Resources.MemoryMB < store.MinRunnerMemoryMB:
 		add("resources.memory_mb", "a runner needs at least 512 MB; below that the runner binary is killed before it takes a job")
 	}
-	// A minimum is a floor under a size the pool states, so it needs that size
-	// to sit under, has to be below it to say anything, and is held to the
-	// same floor any runner is.
+	// A minimum is a floor under the size a runner is otherwise given: the
+	// size the pool states, or -- where it leaves the field to the host -- a
+	// slot's share of whichever host it lands on. Under a stated size it has
+	// to be below it to say anything; under a share there is nothing to
+	// compare it with here, because every host's share is different, and one
+	// above a host's share simply does not apply there. Either way it is held
+	// to the same floor any runner is.
 	switch {
 	case p.Resources.MinCPUs < 0:
 		add("resources.min_cpus", "a minimum CPU cannot be negative; use 0 for no minimum")
-	case p.Resources.MinCPUs > 0 && p.Resources.CPUs <= 0:
-		add("resources.min_cpus", "a minimum needs a standard CPU size to sit under; set the CPU per runner, or clear the minimum")
-	case p.Resources.MinCPUs > p.Resources.CPUs:
+	case p.Resources.CPUs > 0 && p.Resources.MinCPUs > p.Resources.CPUs:
 		add("resources.min_cpus", fmt.Sprintf("the minimum (%g cores) is above the standard size (%g); a runner is never given less than the minimum, so it has to be the smaller of the two", p.Resources.MinCPUs, p.Resources.CPUs))
 	case p.Resources.MinCPUs > 0 && p.Resources.MinCPUs < store.MinRunnerCPUs:
 		add("resources.min_cpus", "a runner needs at least a quarter of a core, however short its host is")
@@ -693,9 +695,7 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	switch {
 	case p.Resources.MinMemoryMB < 0:
 		add("resources.min_memory_mb", "a minimum memory cannot be negative; use 0 for no minimum")
-	case p.Resources.MinMemoryMB > 0 && p.Resources.MemoryMB <= 0:
-		add("resources.min_memory_mb", "a minimum needs a standard memory size to sit under; set the memory per runner, or clear the minimum")
-	case p.Resources.MinMemoryMB > p.Resources.MemoryMB:
+	case p.Resources.MemoryMB > 0 && p.Resources.MinMemoryMB > p.Resources.MemoryMB:
 		add("resources.min_memory_mb", fmt.Sprintf("the minimum (%d MB) is above the standard size (%d MB); a runner is never given less than the minimum, so it has to be the smaller of the two", p.Resources.MinMemoryMB, p.Resources.MemoryMB))
 	case p.Resources.MinMemoryMB > 0 && p.Resources.MinMemoryMB < store.MinRunnerMemoryMB:
 		add("resources.min_memory_mb", "a runner needs at least 512 MB, however short its host is; below that the runner binary is killed before it takes a job")

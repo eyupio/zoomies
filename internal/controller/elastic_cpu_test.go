@@ -239,3 +239,15 @@ func TestAQueuedJobKeepsItsRoomFromABoost(t *testing.T) {
 		t.Errorf("a runner was lent %.2f CPUs with a job queued for this host and %.2f without; the queued job's share must be held back", withJob, alone)
 	}
 }
+
+// A reduced runner of an automatic docker-in-docker pool was given a smaller
+// slot, and a slot is shared by the pair rather than given to each half, so
+// its guarantee is what the row says -- not twice that.
+func TestAReducedAutomaticDinDRunnerIsNotDoubled(t *testing.T) {
+	p := &store.Pool{DockerMode: store.DockerDinD, Resources: store.Resources{MinCPUs: 1}}
+	r := &store.Runner{AllocatedCPUs: 2.5, AllocationSource: store.AllocationReduced}
+	got := cpuResourceView(r, p, nil)
+	if got == nil || got.GuaranteedCPUs != 2.5 {
+		t.Fatalf("resource view = %+v, want 2.5 guaranteed CPUs", got)
+	}
+}

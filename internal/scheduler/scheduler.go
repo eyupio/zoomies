@@ -868,8 +868,15 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 		// Said in the reason as well as carried, so the Runners page and the
 		// scaling history both show that this runner is smaller than its pool
 		// asks for, and why.
-		reason += fmt.Sprintf(" (reduced to %s: no host had room for the standard %s)",
-			sizePhrase(size.CPUs, size.MemoryMB), sizePhrase(p.Resources.CPUs, p.Resources.MemoryMB))
+		if p.Automatic() {
+			// An automatic pool has no standard of its own to name: its
+			// standard is a slot's share of whichever host it lands on.
+			reason += fmt.Sprintf(" (reduced to %s: no host with a free slot had a whole share of it left)",
+				sizePhrase(size.CPUs, size.MemoryMB))
+		} else {
+			reason += fmt.Sprintf(" (reduced to %s: no host had room for the standard %s)",
+				sizePhrase(size.CPUs, size.MemoryMB), sizePhrase(p.Resources.CPUs, p.Resources.MemoryMB))
+		}
 	}
 	action := Action{Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: placed[0].hostID, Reason: reason, Size: placed[0].size}
 	plan.Actions = append(plan.Actions, action)
@@ -1271,13 +1278,15 @@ func (hs *hostSet) pickReduced(p *store.Pool, avoid map[string]bool) (*store.Hos
 			continue
 		}
 		// How much of the standard this host can give, as a share of it: the
-		// bigger the runner, the better the job goes.
+		// bigger the runner, the better the job goes. The standard is this
+		// host's own, which for a field left to the host is its slot share.
+		standard := Reserve(p, h)
 		worth := 0.0
-		if p.Resources.CPUs > 0 {
-			worth += grant.CPUs / p.Resources.CPUs
+		if standard.CPUs > 0 {
+			worth += charge.CPUs / standard.CPUs
 		}
-		if p.Resources.MemoryMB > 0 {
-			worth += float64(grant.MemoryMB) / float64(p.Resources.MemoryMB)
+		if standard.MemoryMB > 0 {
+			worth += float64(charge.MemoryMB) / float64(standard.MemoryMB)
 		}
 		o := &option{h: h, charge: charge, grant: grant, worth: worth}
 		slot := &best
@@ -1634,7 +1643,17 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 	case tooSmall > 0 && tooSmall+unhealthy+cordoned == len(hs.hosts):
 		b.fix = "lower this pool's CPU or memory limits, or add a host large enough to run one"
 	case shortMemory+shortCPU > 0 && shortMemory+shortCPU+unhealthy+cordoned == len(hs.hosts):
-		b.fix = "wait for a runner to finish, lower this pool's limits, or add a host"
+		switch {
+		case p.Automatic() && !p.Resources.Reducible():
+			// An automatic pool has no limits to lower. What it can be given
+			// is a minimum, which lets a runner start with what is left of a
+			// host's slot rather than waiting for a whole one.
+			b.fix = "wait for a runner to finish, give this pool a minimum CPU and memory so a runner can start with less than a whole share of a host, or add a host"
+		case p.Resources.Reducible():
+			b.fix = "wait for a runner to finish, lower this pool's minimum, or add a host"
+		default:
+			b.fix = "wait for a runner to finish, lower this pool's limits, or add a host"
+		}
 	case incompatible > 0 && incompatible+unhealthy+cordoned == len(hs.hosts):
 		// The one blockage whose fix is a version rather than a resource, and
 		// the one an operator is least likely to guess: nothing is broken, the
