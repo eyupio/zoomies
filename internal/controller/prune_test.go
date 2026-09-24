@@ -237,3 +237,34 @@ func TestPruningRollsUsageUpSoARunnerOutlivesItsRow(t *testing.T) {
 		t.Fatalf("the prune did not roll usage up to today: until %v, ok %v, %v", until, ok, err)
 	}
 }
+
+// A job the jobs retention takes is counted in the installation report's
+// roll-up by the same pass, so a month's report still has it. The pass that
+// could prune it before counting it -- a roll-up that failed, or one that has
+// not reached its day -- prunes nothing instead.
+func TestPruningCountsAJobForTheInstallationReportBeforeDeletingIt(t *testing.T) {
+	h := newHarness(t)
+	inst, pool, _ := h.fleet()
+	queued := h.c.Now()
+	done := queued.Add(time.Minute)
+	if _, err := h.st.UpsertJob(h.ctx, &store.Job{GitHubJobID: 77, Repo: "acme/app", State: store.JobCompleted,
+		Matched: true, InstallationID: inst.ID, PoolID: pool.ID, QueuedAt: queued, StartedAt: &done,
+		CompletedAt: &done, RunnerName: "GitHub Actions 1"}); err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+
+	h.advance(10 * 24 * time.Hour)
+	h.c.UpdateConfig(func(c *config.Config) { c.Retention = config.Retention{Jobs: 7 * 24 * time.Hour} })
+	h.c.prune(h.ctx)
+
+	if _, n, err := h.st.ListJobs(h.ctx, store.JobFilter{}, store.Page{Limit: 10}); err != nil || n != 0 {
+		t.Fatalf("%d jobs left after a seven-day window, %v; want the ten-day-old one pruned", n, err)
+	}
+	rep, err := h.st.InstallationReport(h.ctx, inst.ID, queued, h.c.Now())
+	if err != nil {
+		t.Fatalf("InstallationReport: %v", err)
+	}
+	if rep.Counts.Observed != 1 || rep.Counts.RanElsewhere != 1 {
+		t.Fatalf("after the prune the report counts %+v; want the pruned job, from the roll-up", rep.Counts)
+	}
+}
