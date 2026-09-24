@@ -8,8 +8,8 @@ noindex: true
 
 The Usage page combines summary metrics, activity and runner-hour trends, the
 activity matrix, ranked execution consumption, and the detailed CSV report. Pool, host, repository, workflow and installation groupings share the
-same date range. Selecting a ranked group or the focus selector narrows every
-visual and the CSV export. Range, grouping and focused group are shareable URLs.
+same range, to the minute. Selecting a ranked group or the focus selector narrows every
+visual and the CSV export. Range (a quick `range=` such as `6h` or `30d`, or `since`/`until` typed by hand), grouping and focused group are shareable URLs.
 Hosts also exposes fleet summary metrics and links into a host's usage report.
 
 ## Reporting semantics

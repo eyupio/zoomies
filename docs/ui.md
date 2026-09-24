@@ -298,10 +298,17 @@ wrong.
 
 ## Usage
 
-Runner-hours, jobs and queue waits over a date range — today, until you widen
+Runner-hours, jobs and queue waits over a range — today, until you change
 it — grouped by pool, repository, workflow or installation, with an estimated cost wherever an
 administrator has given a pool a rate. Zoomies embeds no cloud prices. The
 table exports as CSV.
+
+The quick ranges beside the grouping are the last hour, six hours and twelve
+hours up to now, or today and the last seven, thirty and ninety days, with the
+one in force pressed. The From and To fields take a time of day as well as a
+date, so a report can be cut to the hour an incident began; editing either
+lets go of the quick range. Either way the range is in the address, so the
+report is a link.
 
 The range is drawn as a chart with the same hand as the Overview's fleet
 activity: a line per figure, chosen by chip — the jobs queued and how they

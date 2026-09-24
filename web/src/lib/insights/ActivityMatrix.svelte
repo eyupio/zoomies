@@ -1262,10 +1262,19 @@
     color: var(--z-text-muted);
     white-space: nowrap;
   }
+  /* A slot the window does not reach -- the days of the first week before it
+     begins, the rest of this week after today, the hours still to come. It
+     is drawn as a square rather than left as a hole so every row runs the
+     full width and the grid reads as one block; the sunken fill with no edge
+     keeps it quieter than a quiet day, which has one, so it never passes for
+     a day the fleet sat idle. */
   .blank {
+    display: block;
     flex: none;
     width: var(--cell);
     height: var(--cell);
+    border-radius: min(var(--z-nudge-2), var(--cell) / 4);
+    background: var(--z-surface-sunken);
   }
 
   /*

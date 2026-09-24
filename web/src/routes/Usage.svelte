@@ -1,5 +1,5 @@
 <!--
-  What the fleet did, and roughly what it cost, over a bounded range of days.
+  What the fleet did, and roughly what it cost, over a bounded range of days or hours.
 
   This is the one page whose numbers somebody puts in front of a finance team,
   so two things matter more than they do elsewhere. The first is that every
@@ -27,7 +27,8 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Select from '$lib/components/Select.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
-  import DateRange, { endOfDay, startOfDay } from '$lib/jobs/DateRange.svelte';
+  import DateRange, { endOfMoment, localMoment, startOfMoment } from '$lib/jobs/DateRange.svelte';
+  import Segmented from '$lib/components/Segmented.svelte';
   import { tableLayout } from '$lib/actions/tableLayout';
 
   /** The groupings the API offers, in the order an operator narrows through them. */
@@ -48,20 +49,68 @@
     workflow: 'Workflow',
   };
 
-  /** A calendar date, in the operator's own time zone rather than UTC's. */
-  function day(at: Date): string {
-    const local = new Date(at.getTime() - at.getTimezoneOffset() * 60_000);
-    return local.toISOString().slice(0, 10);
-  }
+  /**
+   * The quick ranges. The hours are the last so many hours up to now, as the
+   * Hosts page's windows are, for "what just happened?"; the days are whole
+   * calendar days ending today, since a report somebody takes to a finance
+   * meeting is read in days.
+   */
+  const PRESETS = [
+    { value: '1h', label: '1h', name: 'The last hour', hours: 1 },
+    { value: '6h', label: '6h', name: 'The last 6 hours', hours: 6 },
+    { value: '12h', label: '12h', name: 'The last 12 hours', hours: 12 },
+    { value: '1d', label: '1d', name: 'Today', days: 1 },
+    { value: '7d', label: '7d', name: 'The last 7 days, today included', days: 7 },
+    { value: '30d', label: '30d', name: 'The last 30 days, today included', days: 30 },
+    { value: '90d', label: '90d', name: 'The last 90 days, today included', days: 90 },
+  ] as const;
+  type Preset = (typeof PRESETS)[number];
 
   // A day, like every other range the UI opens on. A wider report is one
   // preset away, and it lands in the address bar where it can be sent on.
-  const DEFAULT_DAYS = 1;
-  const today = day(new Date());
-  const defaultSince = day(new Date(Date.now() - (DEFAULT_DAYS - 1) * 86_400_000));
+  const DEFAULT_PRESET = '1d';
 
-  const since = $derived(router.param('since') || defaultSince);
-  const until = $derived(router.param('until') || today);
+  /**
+   * When "now" is for a quick range. Held rather than read on every render so
+   * the query is stable until somebody asks for it again -- by choosing a
+   * range or refreshing -- and a report does not refetch itself each second.
+   */
+  let now = $state(Date.now());
+
+  /** A range typed by hand wins; otherwise the quick range named, or a day. */
+  const custom = $derived(Boolean(router.param('since') || router.param('until')));
+  const preset = $derived<Preset | null>(
+    custom
+      ? null
+      : (PRESETS.find((p) => p.value === router.param('range')) ??
+          PRESETS.find((p) => p.value === DEFAULT_PRESET)!),
+  );
+
+  /** A preset's bounds, as instants. */
+  function bounds(p: Preset, at: number): { from: Date; to: Date } {
+    if ('hours' in p) return { from: new Date(at - p.hours * 3_600_000), to: new Date(at) };
+    const d = new Date(at);
+    const from = new Date(d.getFullYear(), d.getMonth(), d.getDate() - (p.days - 1));
+    const to = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 0, -1);
+    return { from, to };
+  }
+
+  const today = $derived(localMoment(new Date(now)).slice(0, 10));
+  /**
+   * What the From and To fields show: the preset's bounds when one is in
+   * force, so choosing "6h" and then nudging its start is one edit rather
+   * than typing both ends. A bare date from an older link reads as its day.
+   */
+  const since = $derived.by(() => {
+    if (preset) return localMoment(bounds(preset, now).from);
+    const v = router.param('since') || today;
+    return v.includes('T') ? v : `${v}T00:00`;
+  });
+  const until = $derived.by(() => {
+    if (preset) return localMoment(bounds(preset, now).to);
+    const v = router.param('until') || today;
+    return v.includes('T') ? v : `${v}T23:59`;
+  });
   const grouping = $derived<UsageGrouping>(
     (GROUPINGS.find((g) => g.value === router.param('group_by'))?.value ?? 'pool') as UsageGrouping,
   );
@@ -70,10 +119,15 @@
    * The query both the table and the CSV link are built from, so the file an
    * operator downloads is the report they are looking at.
    */
-  const query = $derived({
-    from: startOfDay(since) ?? '',
-    to: endOfDay(until) ?? '',
-    group_by: grouping,
+  const query = $derived.by(() => {
+    if (preset) {
+      const { from, to } = bounds(preset, now);
+      return { from: from.toISOString(), to: to.toISOString(), group_by: grouping };
+    }
+    // The address's own values, so a bare date keeps its whole day.
+    const s = router.param('since') || today;
+    const u = router.param('until') || today;
+    return { from: startOfMoment(s) ?? '', to: endOfMoment(u) ?? '', group_by: grouping };
   });
 
   let report = $state.raw<Usage | null>(null);
@@ -121,8 +175,13 @@
   function focus(key: string): void {
     router.setQuery({ entity: key || null });
   }
-  function preset(days: number): void {
-    setRange({ since: day(new Date(Date.now() - (days - 1) * 86_400_000)), until: today });
+  function choose(value: string): void {
+    now = Date.now();
+    router.setQuery({
+      range: value === DEFAULT_PRESET ? null : value,
+      since: null,
+      until: null,
+    });
   }
 
   /**
@@ -141,7 +200,7 @@
     'executing',
     ...(attributable ? ['runner-hours', 'busy-share', 'cost'] : []),
   ]);
-  const backwards = $derived(since > until);
+  const backwards = $derived(Boolean(query.from && query.to && query.from > query.to));
 
   /**
    * The instant the report's runner history begins, when the range asked for
@@ -163,7 +222,7 @@
   });
 
   function setRange(next: { since: string; until: string }): void {
-    router.setQuery({ since: next.since || null, until: next.until || null });
+    router.setQuery({ since: next.since || null, until: next.until || null, range: null });
   }
 
   /** Hours, to two places: the unit an invoice is written in. */
@@ -233,8 +292,13 @@
 
 <PageHeader
   title="Usage"
-  subtitle="This fleet's runner capacity and job activity over a range of days. Jobs GitHub ran on its own hosted runners are not counted: they used no runner here."
-  onrefresh={() => load(query)}
+  subtitle="This fleet's runner capacity and job activity over a range of hours or days. Jobs GitHub ran on its own hosted runners are not counted: they used no runner here."
+  onrefresh={() => {
+    // A quick range is "up to now", so a refresh moves it along; the
+    // effect fetches it. A range typed by hand is fetched as it stands.
+    if (preset) now = Date.now();
+    else void load(query);
+  }}
 >
   <Button
     variant="secondary"
@@ -248,7 +312,7 @@
 </PageHeader>
 
 <div class="controls">
-  <DateRange {since} {until} label="Usage between" onchange={setRange} />
+  <DateRange {since} {until} withTime label="Usage between" onchange={setRange} />
   <label class="grouping">
     <span>Group by</span>
     <Select
@@ -267,13 +331,9 @@
     options={entities}
     onchange={focus}
   />
-  <div class="presets" aria-label="Quick date ranges">
-    {#each [1, 7, 30, 90] as days (days)}<Button
-        variant="secondary"
-        size="sm"
-        onclick={() => preset(days)}>{days}d</Button
-      >{/each}
-  </div>
+  <!-- The range in force is the one pressed, the default included; a range
+       typed by hand is none of them, so none is. -->
+  <Segmented options={PRESETS} value={preset?.value ?? ''} label="Quick ranges" onchange={choose} />
 </div>
 
 <p class="note">
@@ -428,10 +488,6 @@
 <style>
   .installation-report {
     margin: 0 0 var(--z-space-5);
-  }
-  .presets {
-    display: flex;
-    gap: var(--z-space-2);
   }
   .detail-heading {
     display: flex;

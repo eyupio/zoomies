@@ -65,8 +65,12 @@ test('the report is a link: the range and the grouping live in the address bar',
   await expect(page.getByLabel('Group by')).toHaveValue('workflow');
   // Exact: the range's second leg is labelled "to", which is a substring of
   // half the accessible names on the page.
-  await expect(page.getByLabel('From', { exact: true })).toHaveValue('2026-08-01');
-  await expect(page.getByLabel('to', { exact: true })).toHaveValue('2026-08-31');
+  // A link from before the fields took a time still means whole days.
+  await expect(page.getByLabel('From', { exact: true })).toHaveValue('2026-08-01T00:00');
+  await expect(page.getByLabel('to', { exact: true })).toHaveValue('2026-08-31T23:59');
+  // A range typed by hand is none of the quick ones.
+  const quick = page.getByRole('group', { name: 'Quick ranges' });
+  await expect(quick.locator('[aria-pressed="true"]')).toHaveCount(0);
 
   // Changing the grouping rewrites the address rather than needing an Apply
   // button, so a reload lands on the same report.
@@ -82,6 +86,40 @@ test('the report is a link: the range and the grouping live in the address bar',
   await expect(csv).toHaveAttribute('href', /to=2026-08-31T/);
 });
 
+/**
+ * The quick ranges go below a day, as the Hosts page's windows do, and the
+ * one in force is pressed -- the default included, so a page opened cold says
+ * which range it is showing rather than leaving the operator to read it off
+ * the fields.
+ */
+test('the quick ranges reach below a day, and the one in force is pressed', async ({ page }) => {
+  await goto(page, '/usage', 'Usage');
+  const quick = page.getByRole('group', { name: 'Quick ranges' });
+  await expect(quick.getByRole('button', { name: /^1d/, pressed: true })).toBeVisible();
+  await expect(quick.locator('[aria-pressed="true"]')).toHaveCount(1);
+
+  const asked = page.waitForRequest(/\/api\/v1\/usage\?/);
+  await quick.getByRole('button', { name: /^6h/ }).click();
+  const url = new URL((await asked).url());
+  await expect(page).toHaveURL(/range=6h/);
+  await expect(quick.getByRole('button', { name: /^6h/, pressed: true })).toBeVisible();
+  await expect(quick.getByRole('button', { name: /^1d/, pressed: true })).toHaveCount(0);
+  const span =
+    new Date(url.searchParams.get('to')!).getTime() -
+    new Date(url.searchParams.get('from')!).getTime();
+  expect(span, 'six hours, up to now').toBe(6 * 3_600_000);
+
+  // The fields show the preset's bounds to the minute, and a time typed into
+  // one lets go of the preset.
+  const from = page.getByLabel('From', { exact: true });
+  await expect(from).toHaveValue(/T\d\d:\d\d$/);
+  await from.fill('2026-08-01T09:30');
+  await from.blur();
+  await expect(page).toHaveURL(/since=2026-08-01T09%3A30|since=2026-08-01T09:30/);
+  await expect(page).not.toHaveURL(/range=/);
+  await expect(quick.locator('[aria-pressed="true"]')).toHaveCount(0);
+});
+
 test('a backwards range switches the CSV link off for the keyboard too', async ({ page }) => {
   await goto(page, '/usage?since=2026-08-31&until=2026-08-01', 'Usage');
 
@@ -95,7 +133,7 @@ test('a backwards range switches the CSV link off for the keyboard too', async (
   await expect(off.locator('xpath=ancestor::a[1]')).not.toHaveAttribute('href', /./);
 
   // And it comes back the moment the range makes sense again.
-  await page.getByLabel('From', { exact: true }).fill('2026-08-01');
+  await page.getByLabel('From', { exact: true }).fill('2026-08-01T00:00');
   await page.getByLabel('From', { exact: true }).blur();
   await expect(page.getByRole('link', { name: 'Export CSV' })).toHaveCount(1);
 });
