@@ -848,6 +848,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/toolchains": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What each pool's jobs install, read from their workflows
+         * @description The latest workflow scan: for each pool, every setup-python, setup-node, setup-go, setup-java and setup-dotnet version its jobs ask for, with how many jobs and which repositories. A job is counted against the pool the scheduler would give it. A version the workflows do not state -- read from a file in the repository, or chosen by an expression -- is listed with the reason rather than guessed. Empty until the first scan finishes.
+         */
+        get: operations["getToolchains"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/toolchains/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Scan every installation's workflows for the toolchains they install
+         * @description Starts a scan in the background and answers at once; GET /toolchains says when it has finished. A scan reads every workflow file every installation can see, which spends the GitHub quota the scheduler shares.
+         */
+        post: operations["scanToolchains"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runners": {
         parameters: {
             query?: never;
@@ -3498,6 +3538,45 @@ export interface components {
             capacity_samples: number;
             /** @description Observed pool minutes containing at least one capacity-blocked placement. Not incident count or exact duration. */
             capacity_reached: number;
+        };
+        ToolchainDemand: {
+            /** @enum {string} */
+            tool: "python" | "node" | "go" | "java" | "dotnet";
+            /** @description The version or range as the workflow writes it. Absent when unresolved is set. */
+            version?: string;
+            /** @description setup-java's distribution; absent for other tools. */
+            distribution?: string;
+            /** @description Why the version is not known from the workflow file. */
+            unresolved?: string;
+            /** @description Workflow jobs asking for it, each matrix combination counted once. */
+            jobs: number;
+            repositories: string[];
+        };
+        ToolchainScanInstallation: {
+            installation_id: string;
+            target: string;
+            repositories: number;
+            workflows: number;
+            /** @description Why this installation was not read, or only partly. */
+            error?: string;
+            /** @description Repositories whose workflows GitHub would not return, and why. */
+            unreadable?: {
+                [key: string]: string;
+            };
+        };
+        ToolchainScan: {
+            running: boolean;
+            /** Format: date-time */
+            started_at?: string;
+            /** Format: date-time */
+            finished_at?: string;
+            /** @description Pool ID to what that pool's jobs ask for. */
+            pools: {
+                [key: string]: components["schemas"]["ToolchainDemand"][];
+            };
+            /** @description What jobs ask for that no pool would run. */
+            unmatched: components["schemas"]["ToolchainDemand"][];
+            installations: components["schemas"]["ToolchainScanInstallation"][];
         };
         PoolPrewarm: {
             pool_id?: string;
@@ -6986,6 +7065,47 @@ export interface operations {
                     "application/json": components["schemas"]["Pool"];
                 };
             };
+        };
+    };
+    getToolchains: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolchainScan"];
+                };
+            };
+        };
+    };
+    scanToolchains: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The scan has started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolchainScan"];
+                };
+            };
+            409: components["responses"]["Conflict"];
         };
     };
     listRunners: {

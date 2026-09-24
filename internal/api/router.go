@@ -175,6 +175,12 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionPoolsWrite)).Post("/{id}/prewarm", s.handlePrewarmPool)
 		})
 
+		// What each pool's jobs install, read from their workflows, and the
+		// scan that reads it. The scan spends GitHub quota and is started by
+		// whoever may change pools; reading its result is a pool read.
+		r.With(s.require(auth.ActionPoolsRead)).Get("/toolchains", s.handleToolchains)
+		r.With(s.require(auth.ActionPoolsWrite)).Post("/toolchains/scan", s.handleScanToolchains)
+
 		// Runners.
 		r.Route("/runners", func(r chi.Router) {
 			r.With(s.require(auth.ActionRunnersRead)).Get("/", s.handleListRunners)

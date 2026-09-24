@@ -1286,6 +1286,46 @@ paths:
   # ==========================================================================
   # Runners
   # ==========================================================================
+  /toolchains:
+    get:
+      operationId: getToolchains
+      tags: [pools]
+      summary: What each pool's jobs install, read from their workflows
+      description: >-
+        The latest workflow scan: for each pool, every setup-python,
+        setup-node, setup-go, setup-java and setup-dotnet version its jobs ask
+        for, with how many jobs and which repositories. A job is counted
+        against the pool the scheduler would give it. A version the workflows
+        do not state -- read from a file in the repository, or chosen by an
+        expression -- is listed with the reason rather than guessed. Empty
+        until the first scan finishes.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ToolchainScan" }
+
+  /toolchains/scan:
+    post:
+      operationId: scanToolchains
+      tags: [pools]
+      summary: Scan every installation's workflows for the toolchains they install
+      description: >-
+        Starts a scan in the background and answers at once; GET /toolchains
+        says when it has finished. A scan reads every workflow file every
+        installation can see, which spends the GitHub quota the scheduler
+        shares.
+      x-zoomies-role: operator
+      responses:
+        "202":
+          description: The scan has started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ToolchainScan" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /runners:
     get:
       operationId: listRunners
@@ -5033,6 +5073,52 @@ components:
         allocated_seconds: { type: number }
         capacity_samples: { type: integer, description: Observed pool minutes; zero means no capacity telemetry. }
         capacity_reached: { type: integer, description: Observed pool minutes containing at least one capacity-blocked placement. Not incident count or exact duration. }
+
+    ToolchainDemand:
+      type: object
+      required: [tool, jobs, repositories]
+      properties:
+        tool: { type: string, enum: [python, node, go, java, dotnet] }
+        version: { type: string, description: "The version or range as the workflow writes it. Absent when unresolved is set." }
+        distribution: { type: string, description: "setup-java's distribution; absent for other tools." }
+        unresolved: { type: string, description: "Why the version is not known from the workflow file." }
+        jobs: { type: integer, description: "Workflow jobs asking for it, each matrix combination counted once." }
+        repositories: { type: array, items: { type: string } }
+
+    ToolchainScanInstallation:
+      type: object
+      required: [installation_id, target, repositories, workflows]
+      properties:
+        installation_id: { type: string }
+        target: { type: string }
+        repositories: { type: integer }
+        workflows: { type: integer }
+        error: { type: string, description: "Why this installation was not read, or only partly." }
+        unreadable:
+          type: object
+          additionalProperties: { type: string }
+          description: Repositories whose workflows GitHub would not return, and why.
+
+    ToolchainScan:
+      type: object
+      required: [running, pools, unmatched, installations]
+      properties:
+        running: { type: boolean }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        pools:
+          type: object
+          description: Pool ID to what that pool's jobs ask for.
+          additionalProperties:
+            type: array
+            items: { $ref: "#/components/schemas/ToolchainDemand" }
+        unmatched:
+          type: array
+          description: What jobs ask for that no pool would run.
+          items: { $ref: "#/components/schemas/ToolchainDemand" }
+        installations:
+          type: array
+          items: { $ref: "#/components/schemas/ToolchainScanInstallation" }
 
     PoolPrewarm:
       type: object
