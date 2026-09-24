@@ -44,9 +44,12 @@ Hosts also exposes fleet summary metrics and links into a host's usage report.
 `lib/insights/ActivityMatrix.svelte` draws a series of usage buckets as a
 contribution graph, and the Overview and the Usage page both use it. Daily
 buckets become a calendar, a column per week and a row per weekday; hourly
-buckets become a row per day and a column per hour. Which one a range gets is
-the API's own rule, hourly at 48 hours or less, so the page applies the same
-rule to know what a square is.
+buckets become a row per day and a column per hour. Buckets of a few hours —
+the Overview's month in four-hour buckets and quarter in eight — become the
+calendar again, with each day's buckets side by side in its weekday's row, so
+a column is a week of days each several squares wide. On the Usage page which
+layout a range gets is the API's own rule, hourly at 48 hours or less, so the
+page applies the same rule to know what a square is.
 
 The band beside the grid is the window in words: the totals the caller gives
 it, then the figures the component works out from the squares on screen --
@@ -55,12 +58,14 @@ capacity share once a ceiling has actually been reached. Which of the two
 takes the width is settled by shape rather than by a breakpoint. A grid with
 at least as many columns as rows grows its square, up to twice the size the
 caller asked for, until it fills the room left once the aside is owed two
-columns of figures; a grid with more rows than columns -- a month, which is
-five week columns whatever the square -- would reach the foot of the panel
-long before the right of it, so it keeps its size and the aside takes the
-width. The year is the exception both ways: it spends the width by cutting
-weeks to fit, which is measured against a single column of figures, because a
-year that does not fit is a year with months missing.
+columns of figures; a grid with more rows than columns — a few weeks of whole
+days, which is five week columns whatever the square — would reach the foot
+of the panel long before the right of it, so it keeps its size and the aside
+takes the width. Any grid that would not fit at the size asked for shrinks instead, to
+the largest square that fits beside a single column of figures, down to a
+floor below which the frame scrolls: a window is never cut to fit, because a
+year that does not fit is a year with months missing. Where the columns end
+up too close for a month's short name, the labels take its initial.
 
 The arithmetic is in `lib/insights/activity.ts` and is tested in Node: how a
 square is painted under each mode, how the darkness steps are cut (quarters of
@@ -79,9 +84,12 @@ rather than instants because that is what the Jobs page filters by.
 
 The Overview's quick ranges ask for the bucket width outright: `interval=hour`
 for today and the last week, so a week is a week of hours and never a week of
-days, and `interval=day` for the rest. The route refuses hourly buckets over
-more than 14 days -- a year of hours, times every repository, is a payload
-nobody wants -- and says so with what to ask for instead.
+days, `interval=4h` for the month, `interval=8h` for the quarter, and
+`interval=day` for the year. The route takes any whole number of hours a day
+divides into, so a day is always a whole number of squares, and refuses more
+than 336 buckets a row narrower than a day — 14 days of hours, 56 of four
+hours, 112 of eight; a year of hours, times every repository, is a payload
+nobody wants — and says so with what to ask for instead.
 
 ## Extending the visual system
 

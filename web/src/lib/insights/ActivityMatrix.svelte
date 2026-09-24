@@ -3,7 +3,11 @@
 
   One square per day, laid out as a calendar -- a column per week, a row per
   weekday, the month named above the week it begins in -- so a year of CI
-  reads at a glance the way a year of commits does. The squares are coloured
+  reads at a glance the way a year of commits does. A shorter window cuts
+  each day into several squares side by side, four-hourly or eight-hourly,
+  so a month is a band of squares rather than five columns of them, and
+  says whether the fleet's work lands in the morning or overnight. The
+  squares are coloured
   by what finished: greener as more jobs finish, red the moment any fail, and
   darker red the larger the share. Three other colourings are a select away,
   because "when does the queue back up?" and "when does the pool hit its
@@ -16,9 +20,10 @@
   stop: the arrow keys walk the squares, Enter selects one, and Escape lets go.
 
   Selecting a square opens the detail beneath the grid: the figures, the day's
-  hour-by-hour breakdown when a loader is given, and links into the pages that
-  list the jobs themselves. The same component draws the Usage page's matrix,
-  where a window of two days or less is laid out an hour per square instead.
+  hour-by-hour breakdown when a loader is given -- the hours of a slice picked
+  out from the rest of its day -- and links into the pages that list the jobs
+  themselves. The same component draws the Usage page's matrix, where a window
+  of two days or less is laid out an hour per square instead.
 
   The hour-by-hour breakdown is itself a shortcut, not only a picture: hovering
   a bar shows the same floating figures a square does, and clicking one asks
@@ -32,8 +37,11 @@
   The band is the grid, the aside beside it, and the key under both. A grid
   with at least as many columns as rows grows its square until it fills the
   room it is given, so a day of hours is a band across the panel rather than a
-  stub at the left; one too narrow for that -- a month, which is five week
-  columns however large the square -- keeps its size and hands the rest over.
+  stub at the left; one too narrow for that -- a few weeks of whole days,
+  which is five week columns however large the square -- keeps its size and
+  hands the rest over. A grid that would not fit at its size shrinks instead,
+  so the whole window is always on screen: a year on a phone is a year of
+  four-pixel squares, not the half of it that fitted at ten.
   The aside is the window in words, what the squares on screen come to, and it
   takes whatever the grid did not: its figures are fluid, so the same markup
   reads as a column beside a wide grid and as a row beside a narrow one. The
@@ -44,7 +52,7 @@
   a grid that would fill the band takes it and the figures go under, a grid
   that would stop short of it keeps them beside. Both stacked was the old rule
   and it was wrong both ways round, a week of hours at ten pixels across half a
-  screen and a month as a stub with the rest of the screen white beside it.
+  screen and a few weeks as a stub with the rest of the screen white beside it.
 -->
 <script lang="ts" module>
   export interface ActivityLink {
@@ -76,10 +84,13 @@
     hourGrid,
     hours,
     intervalName,
+    intervalNoun,
     intervalWidth,
     monthLabels,
     paint,
     scaleOf,
+    slicesPerDay,
+    startOfLocalDay,
     summarise,
     type ActivityBucket,
     type ActivityMode,
@@ -91,22 +102,23 @@
     /** The complete series, one bucket per interval, oldest first. */
     buckets: readonly ActivityBucket[];
     interval: Interval;
-    /** The local day bucket 0 belongs to. Only the daily layout reads it. */
+    /** The local day bucket 0 belongs to. Only the calendar layout reads it. */
     first: Date;
     mode?: ActivityMode;
     /**
-     * Daily layout only: the trailing week columns to show, as many as fit
-     * the width, or all of them. A calendar that scrolls is a calendar whose
-     * newest week is off screen, so a year fits and a quarter, which does,
-     * shows the lot.
+     * Calendar layout only: the trailing week columns to show, or all of them.
+     * Never fewer to make them fit -- a year with months cut off the front is
+     * not a year -- so the square shrinks to the width instead.
      */
-    weeks?: number | 'fit' | 'all';
+    weeks?: number | 'all';
     /**
-     * How big a square is. A year is fifty-three columns and gets the
-     * ten-pixel square a contribution graph taught everyone to read; a month
-     * or a day of hours has room for a larger one. The caller decides from
-     * the range, never from what happens to fit, or a narrow screen would
-     * change the square and the square would change what fits.
+     * How big a square would like to be. A year is fifty-two columns and gets
+     * the ten-pixel square a contribution graph taught everyone to read; a
+     * day of hours has room for a larger one. The caller decides from the
+     * range, never from what happens to fit, or a narrow screen would change
+     * the square and the square would change what fits. The width still has
+     * the last word: a grid that would not fit at this size shrinks until it
+     * does, and one with room to spare grows.
      */
     size?: 'sm' | 'md' | 'lg';
     /** The squares on screen, for a caller summing them up. */
@@ -140,7 +152,7 @@
     interval,
     first,
     mode = 'outcomes',
-    weeks = 'fit',
+    weeks = 'all',
     size = 'sm',
     visible = $bindable([]),
     selected = $bindable(null),
@@ -176,12 +188,22 @@
     h % 6 === 0 ? `${String(h).padStart(2, '0')}:00` : null,
   );
 
-  const allColumns = $derived(interval === 'day' ? calendar(buckets, first) : []);
+  /**
+   * How many squares a day of the calendar is. Hours are the one width drawn
+   * the other way round -- a row per day, a column per hour -- so they are
+   * never sliced.
+   */
+  const slices = $derived(interval === 'hour' ? 1 : slicesPerDay(interval));
+  const allColumns = $derived(interval === 'hour' ? [] : calendar(buckets, first, slices));
 
-  /** How many week columns the frame has room for, once measured. */
-  let fit = $state<number | null>(null);
-  /** The width one column may take if the grid is to fill the band, in pixels. */
+  /** The square the grid grows to if it is to fill the band, in pixels. */
   let room = $state<number | null>(null);
+  /** The largest square at which the whole grid fits the band, in pixels. */
+  let fit = $state<number | null>(null);
+  /** The row headings' track, so the labels above start where the columns do. */
+  let lead = $state<number | null>(null);
+  /** Whether the columns are too close together for a month's short name. */
+  let narrow = $state(false);
   /**
    * Whether a column of figures fits beside the grid at the widest the grid
    * will ever be. Where the band is too narrow for the pair, one of them has
@@ -193,28 +215,36 @@
   let band = $state<HTMLDivElement | null>(null);
   let aside = $state<HTMLDivElement | null>(null);
   let grid = $state<HTMLDivElement | null>(null);
+  let labelRow = $state<HTMLDivElement | null>(null);
   /** A square at its ceiling, so the ceiling can be read back in pixels. */
   let ceiling = $state<HTMLSpanElement | null>(null);
 
   const columns = $derived.by(() => {
-    if (interval !== 'day' || weeks === 'all') return allColumns;
-    const wanted = weeks === 'fit' ? (fit ?? allColumns.length) : weeks;
-    return wanted >= allColumns.length ? allColumns : allColumns.slice(-Math.max(1, wanted));
+    if (interval === 'hour' || weeks === 'all' || weeks >= allColumns.length) return allColumns;
+    return allColumns.slice(-Math.max(1, weeks));
   });
 
-  const layout = $derived.by((): { rows: Row[]; labels: Array<string | null> } => {
-    if (interval === 'day') {
+  /**
+   * The grid as rows of cells, a column of `slices` cells under each label.
+   * A row's cells run left to right through the whole window, so the
+   * keyboard walks a day's slices and then on into the same weekday of the
+   * next week, and the markup groups them back into days.
+   */
+  const layout = $derived.by((): { rows: Row[]; labels: Array<string | null>; slices: number } => {
+    if (interval !== 'hour') {
       return {
-        labels: monthLabels(columns),
+        labels: monthLabels(columns, narrow ? 'narrow' : 'short'),
+        slices,
         rows: weekdays.map((header, r) => ({
           header,
           shown: r % 2 === 0,
-          cells: columns.map((c) => c.cells[r] ?? null),
+          cells: columns.flatMap((c) => c.cells.slice(r * slices, (r + 1) * slices)),
         })),
       };
     }
     return {
       labels: hourLabels,
+      slices: 1,
       rows: hourGrid(buckets).map((row) => ({
         header: DAY_SHORT.format(row.date),
         shown: true,
@@ -222,6 +252,14 @@
       })),
     };
   });
+  /** How many cells wide the grid is: every label's column of slices. */
+  const across = $derived(layout.labels.length * layout.slices);
+
+  /** A row's cells cut back into columns, each one day's slices or one hour. */
+  function slotsOf(cells: Array<CalendarCell | null>): Array<Array<CalendarCell | null>> {
+    const per = layout.slices;
+    return layout.labels.map((_, c) => cells.slice(c * per, (c + 1) * per));
+  }
 
   const cells = $derived(
     layout.rows.flatMap((r) => r.cells).filter((c): c is CalendarCell => c !== null),
@@ -245,38 +283,37 @@
   const scale = $derived(scaleOf(visible));
 
   /*
-    Measured rather than assumed. The pitch of a column is the cell size plus
-    the gap, both tokens, and the row heading is whatever the weekday names
-    come to in the operator's language; reading them off the rendered grid is
-    what keeps this file from repeating the token file's numbers.
+    Measured rather than assumed. The gaps are tokens and the row heading is
+    whatever the weekday names come to in the operator's language; reading
+    them off the rendered grid is what keeps this file from repeating the
+    token file's numbers.
 
-    The heading and the gap are what they are whatever size the square is, so
-    a square this measurement grows does not move them and there is no second
-    pass to settle: the one thing that does depend on the square, the pitch,
-    is read only for the layout that never grows one.
+    None of them depends on the size of the square -- the heading is the
+    track before the first column, and the gaps are the gaps -- so a square
+    this measurement changes moves nothing it measured, and there is no
+    second pass to settle.
   */
   $effect(() => {
     if (!grid || !band || !aside || bandWidth === 0) return;
-    const squares = grid.querySelectorAll<HTMLElement>('[data-index]');
-    const a = squares[0];
-    const b = Array.from(squares).find(
-      (el) => el !== a && el.getBoundingClientRect().top === a?.getBoundingClientRect().top,
-    );
-    if (!a || !b) return;
-    const box = a.getBoundingClientRect();
-    const pitch = Math.abs(b.getBoundingClientRect().left - box.left);
-    const heading = box.left - grid.getBoundingClientRect().left;
-    if (pitch <= 0) return;
-    const gap = pitch - box.width;
+    const slot = grid.querySelector<HTMLElement>('.slot');
+    if (!slot) return;
+    const heading = slot.getBoundingClientRect().left - grid.getBoundingClientRect().left;
+    const gap = parseFloat(getComputedStyle(grid).columnGap) || 0;
+    lead = Math.max(0, heading - gap);
+    const inner = parseFloat(getComputedStyle(slot).columnGap) || 0;
+    const per = layout.slices;
+    const count = Math.max(1, layout.labels.length);
+    /** The square at which `width` holds every column, its slices and its gap. */
+    const square = (width: number) => Math.max(0, (width / count - gap - (per - 1) * inner) / per);
     /*
       The band's width, not the frame's: the frame is a max-content track, so
       measuring it would be measuring the grid that is about to be sized
       against it. What the aside is owed comes off first, and the two ways of
       spending the width owe it different amounts.
 
-      Cutting weeks owes the aside its least width -- one column of figures --
-      because a year that does not fit is a year with months missing, and no
-      figure is worth a missing month. Growing a square owes it twice that,
+      Fitting owes the aside its least width -- one column of figures --
+      because every pixel given to it is taken off squares that are already
+      smaller than they were asked to be. Growing a square owes it twice that,
       the width of two columns: the square is already legible and the gain is
       a nicety, so it stops while the aside can still be short and wide rather
       than narrow and tall. Where the aside is under the grid rather than
@@ -285,7 +322,6 @@
     const least = hasAside ? parseFloat(getComputedStyle(aside).minWidth) || 0 : 0;
     const between = parseFloat(getComputedStyle(band).columnGap) || 0;
     const column = least > 0 ? least + between : 0;
-    const count = Math.max(1, layout.labels.length);
     /*
       Whether the two of them fit. The widest the grid can ever be is every
       square at its ceiling -- read off a square kept at it, because the
@@ -294,8 +330,9 @@
       figures in it keeps them side by side; a band without has to choose, and
       the stylesheet's narrow-band rules do, from this.
     */
+    const top = ceiling?.getBoundingClientRect().width ?? 0;
     const widest = grows
-      ? heading + count * ((ceiling?.getBoundingClientRect().width ?? 0) + gap)
+      ? heading + count * (per * top + (per - 1) * inner + gap)
       : grid.getBoundingClientRect().width;
     roomy = column > 0 && bandWidth - widest >= column;
     /*
@@ -312,42 +349,74 @@
     // One gap of slack for the frame's own padding: a square clipped by a
     // pixel is a square the frame grows a scrollbar for.
     const spare = bandWidth - heading - gap;
-    room = Math.max(0, (spare - 2 * owed) / count - gap);
-    if (weeks !== 'fit' || interval !== 'day') return;
-    // Never fewer than a month, however narrow the screen: below that the
-    // frame scrolls, which is honest, rather than showing a week and calling
-    // it history.
-    fit = Math.max(4, Math.floor((spare - owed + gap) / pitch));
+    room = square(spare - 2 * owed);
+    fit = square(spare - owed);
   });
 
-  /** Whether the grid is at least as wide as it is tall. */
-  const wide = $derived(layout.rows.length <= layout.labels.length);
+  /*
+    The month names, once the squares have settled on a size. Read off the
+    rendered columns rather than worked out, because the size is a clamp of
+    tokens the stylesheet resolves -- and read after the next tick, because
+    this effect runs in the same pass as the one above that sets the size,
+    before the render that applies it. A month is at least four columns, and
+    a short month name is up to three ems -- "Sept" is four letters in some
+    languages -- so columns closer than that take the one-letter names. The
+    names do not move the columns, so there is no second pass.
+  */
+  $effect(() => {
+    void fit;
+    void room;
+    const el = grid;
+    const row = labelRow;
+    if (!el || !row || interval === 'hour') return;
+    let gone = false;
+    void tick().then(() => {
+      if (gone) return;
+      const slots = el.querySelectorAll<HTMLElement>('.slot');
+      const a = slots[0];
+      const b = slots[1];
+      if (!a || !b || a.parentElement !== b.parentElement) return;
+      const pitch = b.getBoundingClientRect().left - a.getBoundingClientRect().left;
+      const em = parseFloat(getComputedStyle(row).fontSize) || 0;
+      narrow = pitch > 0 && 4 * pitch < 3 * em;
+    });
+    return () => {
+      gone = true;
+    };
+  });
+
+  /** Whether the grid is at least as wide as it is tall, in squares. */
+  const wide = $derived(layout.rows.length <= across);
   /**
    * Whether the square grows at all, which is what the width the grid wants
    * turns on. Read lazily, like everything else that asks about the aside:
    * what the aside holds is settled further down, with the words in it.
    */
-  const grows = $derived.by(() => weeks !== 'fit' && (wide || !hasAside));
+  const grows = $derived.by(() => wide || !hasAside);
 
   /*
-    The square grows only where the number of columns is settled, and only
-    where the width is the grid's to take. The year spends the same width the
-    other way, by cutting weeks until they fit, and a layout that did both
-    would chase itself: a wider square fits fewer weeks, and fewer weeks leave
-    room for a wider square. A taller grid than it is wide -- a month, which
-    is five week columns whatever the square -- would reach the foot of the
-    panel long before the right of it, so it keeps its size and the aside
-    takes the width instead. With nothing beside it to take the width, though,
-    even that grid grows: the alternative is a stub of squares and a field of
+    The square grows only where the width is the grid's to take. A taller
+    grid than it is wide -- a few weeks of whole days, which is five week
+    columns whatever the square -- would reach the foot of the panel long
+    before the right of it, so it keeps its size and the aside takes the
+    width instead. With nothing beside it to take the width, though, even
+    that grid grows: the alternative is a stub of squares and a field of
     white, and the ceiling below stops a square becoming a tile.
+
+    Shrinking is the other half, and every grid does it: one that would not
+    fit at the size asked for comes down until it does, so the newest square
+    is on screen without the frame scrolling to it. The floor below stops a
+    square becoming a speck; only past that does the frame scroll.
   */
   const fills = $derived(grows && room !== null);
 
-  const weeksShown = $derived(interval === 'day' ? columns.length : 0);
+  const weeksShown = $derived(interval === 'hour' ? 0 : columns.length);
   const gridLabel = $derived(
-    interval === 'day'
-      ? `${weeksShown} weeks of ${subject}, one square per day`
-      : `${layout.rows.length} ${layout.rows.length === 1 ? 'day' : 'days'} of ${subject}, one square per hour`,
+    interval === 'hour'
+      ? `${layout.rows.length} ${layout.rows.length === 1 ? 'day' : 'days'} of ${subject}, one square per hour`
+      : `${weeksShown} weeks of ${subject}, one square per ${
+          slices === 1 ? 'day' : `${intervalWidth(interval) / intervalWidth('hour')} hours`
+        }`,
   );
 
   /* -- keyboard ------------------------------------------------------------ */
@@ -385,7 +454,7 @@
     for (;;) {
       row += dr;
       col += dc;
-      if (row < 0 || row >= layout.rows.length || col < 0 || col >= layout.labels.length) {
+      if (row < 0 || row >= layout.rows.length || col < 0 || col >= across) {
         return null;
       }
       const next = cellAt(row, col);
@@ -465,7 +534,7 @@
   function rangeOf(cell: CalendarCell): ActivityRange {
     const from = cell.date;
     const to =
-      interval === 'day' ? addDays(from, 1) : new Date(from.getTime() + intervalWidth('hour'));
+      interval === 'day' ? addDays(from, 1) : new Date(from.getTime() + intervalWidth(interval));
     return { from, to, bucket: cell.bucket };
   }
 
@@ -525,8 +594,11 @@
     const loader = hourly;
     const cell = chosen;
     void hoursAttempt;
-    if (!loader || interval !== 'day' || !cell) return;
-    const key = cell.date.getTime();
+    if (!loader || interval === 'hour' || !cell) return;
+    // A slice of a day shows the whole day's hours, with its own picked out:
+    // eight hours drawn alone would be a bar chart with no context.
+    const day = startOfLocalDay(cell.date);
+    const key = day.getTime();
     const cached = hoursCache.get(key);
     if (cached) {
       hoursFor = { key, buckets: cached, failed: false };
@@ -534,7 +606,7 @@
     }
     hoursFor = { key, buckets: null, failed: false };
     let disposed = false;
-    loader(cell.date)
+    loader(day)
       .then((result) => {
         if (disposed) return;
         hoursCache.set(key, result);
@@ -548,7 +620,15 @@
     };
   });
 
-  const hoursShown = $derived(chosen && hoursFor.key === chosen.date.getTime() ? hoursFor : null);
+  const hoursShown = $derived(
+    chosen && hoursFor.key === startOfLocalDay(chosen.date).getTime() ? hoursFor : null,
+  );
+  /** Whether an hour of the day's breakdown falls outside the selected slice of it. */
+  function outside(at: Date): boolean {
+    if (!chosen || slices === 1) return false;
+    const range = rangeOf(chosen);
+    return at.getTime() < range.from.getTime() || at.getTime() >= range.to.getTime();
+  }
   const hourPeak = $derived(
     Math.max(1, ...(hoursShown?.buckets ?? []).map((h) => Math.max(completedIn(h), h.queued))),
   );
@@ -714,21 +794,26 @@
   */
   const summary = $derived.by((): Array<[string, string]> => {
     const totals = summarise(cells.map((c) => c.bucket));
-    let busiest: CalendarCell | null = null;
-    let most = 0;
+    // The busiest day is a day even where a day is several squares: it is
+    // the question an operator asks of a month, and a slice of a day would
+    // answer a narrower one than the label says.
+    const days: Record<number, { date: Date; done: number }> = {};
     let peak = 0;
     let samples = 0;
     let reached = 0;
     for (const cell of cells) {
-      const done = completedIn(cell.bucket);
-      if (done > most) {
-        most = done;
-        busiest = cell;
-      }
+      const key = interval === 'hour' ? cell.date.getTime() : startOfLocalDay(cell.date).getTime();
+      const day = (days[key] ??= { date: cell.date, done: 0 });
+      day.done += completedIn(cell.bucket);
       peak = Math.max(peak, cell.bucket.queued);
       samples += cell.bucket.capacity_samples;
       reached += cell.bucket.capacity_reached;
     }
+    let busiest: { date: Date; done: number } | null = null;
+    for (const day of Object.values(days)) {
+      if (day.done > (busiest?.done ?? 0)) busiest = day;
+    }
+    const most = busiest?.done ?? 0;
     const rows: Array<[string, string]> = [];
     if (totals.completed > 0) {
       rows.push(['Failure rate', formatPercent(totals.failed / totals.completed, 1)]);
@@ -736,8 +821,8 @@
     if (totals.execution_seconds > 0) rows.push(['Executing', hours(totals.execution_seconds)]);
     if (busiest) {
       rows.push([
-        interval === 'day' ? 'Busiest day' : 'Busiest hour',
-        `${(interval === 'day' ? DAY_SHORT : DAY_HOUR).format(busiest.date)} · ${formatNumber(most)}`,
+        interval === 'hour' ? 'Busiest hour' : 'Busiest day',
+        `${(interval === 'hour' ? DAY_HOUR : DAY_SHORT).format(busiest.date)} · ${formatNumber(most)}`,
       ]);
     }
     if (peak > 0) rows.push(['Peak queued', formatNumber(peak)]);
@@ -771,13 +856,21 @@
   data-aside={hasAside}
   data-beside={roomy}
   style:--room={fills && room !== null ? `${room}px` : null}
+  style:--fit={fit !== null ? `${fit}px` : null}
+  style:--lead={lead !== null ? `${lead}px` : null}
+  style:--slices={layout.slices}
 >
   <div class="band" bind:this={band} bind:clientWidth={bandWidth}>
     <div class="frame">
       {#if cells.length === 0}
         <p class="empty">No history in this window yet.</p>
       {:else}
-        <div class="labels" style:--columns={layout.labels.length} aria-hidden="true">
+        <div
+          class="labels"
+          bind:this={labelRow}
+          style:--columns={layout.labels.length}
+          aria-hidden="true"
+        >
           {#each layout.labels as label, c (c)}
             {#if label}<span style:grid-column={c + 2}>{label}</span>{/if}
           {/each}
@@ -797,34 +890,42 @@
               <span role="rowheader" class="rowhead" aria-label={row.header}
                 >{row.shown ? row.header : ''}</span
               >
-              {#each row.cells as cell, c (c)}
-                {#if cell}
-                  {@const look = paint(cell.bucket, mode, scale)}
-                  <div
-                    role="gridcell"
-                    class="sq cell"
-                    tabindex={focusIndex === cell.index ? 0 : -1}
-                    data-index={cell.index}
-                    data-kind={look.kind}
-                    data-tone={look.tone}
-                    data-level={look.level}
-                    aria-label={describe(cell.bucket, cell.date, interval)}
-                    aria-selected={selected === cell.index}
-                    onmouseenter={(e) =>
-                      enter(e.currentTarget, cell.bucket, cell.date, interval, cell.index)}
-                    onmouseleave={(e) => leave(e.currentTarget)}
-                    onfocus={(e) =>
-                      enter(e.currentTarget, cell.bucket, cell.date, interval, cell.index)}
-                    onblur={(e) => blur(e.currentTarget)}
-                    onclick={() => {
-                      focusIndex = cell.index;
-                      select(cell.index);
-                    }}
-                    onkeydown={(e) => onKeydown(e, cell)}
-                  ></div>
-                {:else}
-                  <span class="blank" role="presentation"></span>
-                {/if}
+              <!-- A column's slices of one day, side by side in one track: the
+                   gap between days is the grid's, the one within a day the
+                   slot's, and a day reads as one thing rather than as squares
+                   that happen to be neighbours. -->
+              {#each slotsOf(row.cells) as slot, c (c)}
+                <div class="slot">
+                  {#each slot as cell, k (k)}
+                    {#if cell}
+                      {@const look = paint(cell.bucket, mode, scale)}
+                      <div
+                        role="gridcell"
+                        class="sq cell"
+                        tabindex={focusIndex === cell.index ? 0 : -1}
+                        data-index={cell.index}
+                        data-kind={look.kind}
+                        data-tone={look.tone}
+                        data-level={look.level}
+                        aria-label={describe(cell.bucket, cell.date, interval)}
+                        aria-selected={selected === cell.index}
+                        onmouseenter={(e) =>
+                          enter(e.currentTarget, cell.bucket, cell.date, interval, cell.index)}
+                        onmouseleave={(e) => leave(e.currentTarget)}
+                        onfocus={(e) =>
+                          enter(e.currentTarget, cell.bucket, cell.date, interval, cell.index)}
+                        onblur={(e) => blur(e.currentTarget)}
+                        onclick={() => {
+                          focusIndex = cell.index;
+                          select(cell.index);
+                        }}
+                        onkeydown={(e) => onKeydown(e, cell)}
+                      ></div>
+                    {:else}
+                      <span class="blank" role="presentation"></span>
+                    {/if}
+                  {/each}
+                </div>
               {/each}
             </div>
           {/each}
@@ -886,7 +987,7 @@
   {#if chosen}
     {@const range = rangeOf(chosen)}
     {@const split = OUTCOMES.filter((o) => chosen.bucket[o.key] > 0)}
-    <section class="detail" aria-label="Selected {interval}">
+    <section class="detail" aria-label="Selected {intervalNoun(interval)}">
       <header>
         <div class="heading" aria-live="polite">
           <h3>{intervalName(chosen.date, interval)}</h3>
@@ -894,7 +995,7 @@
         </div>
         <IconButton
           icon={X}
-          label="Close the selected {interval}"
+          label="Close the selected {intervalNoun(interval)}"
           size="sm"
           onclick={() => select(null)}
         />
@@ -928,7 +1029,7 @@
           </div>
         {/each}
       </dl>
-      {#if hourly && interval === 'day'}
+      {#if hourly && interval !== 'hour'}
         <div class="hours-wrap">
           {#if hoursShown?.buckets}
             <div class="hours" role="img" aria-label={hoursSummary}>
@@ -939,6 +1040,7 @@
                 <span
                   class="hour"
                   class:clickable={goesSomewhere}
+                  data-outside={outside(at) || null}
                   role="presentation"
                   title={describe(h, at, 'hour')}
                   onmouseenter={(e) => enter(e.currentTarget, h, at, 'hour')}
@@ -1019,7 +1121,7 @@
         <p class="tip-hint">
           {tip.index !== null && tip.index === selected
             ? 'Selected'
-            : hourly && interval === 'day'
+            : hourly && interval !== 'hour'
               ? 'Select for the hours and the jobs'
               : 'Select for the jobs'}
         </p>
@@ -1046,6 +1148,12 @@
     --cell-max: var(--z-space-5);
     --cell: var(--cell-base);
     --gap: var(--z-nudge-3);
+    /* The floor a square shrinks to so the whole window fits the width, and
+       no further: below it a square is a speck, and the frame scrolls. */
+    --cell-min: var(--z-nudge-3);
+    /* Between the slices of one day: close enough to read as one day, apart
+       enough to read as several squares. */
+    --inner: var(--z-nudge-1);
     min-width: 0;
   }
   .ceiling {
@@ -1067,11 +1175,18 @@
     --gap: var(--z-space-1);
   }
   /* The square grows into the room measured for one column, within the pair
-     above. Redefined on the grid rather than on the matrix so the key's own
-     squares stay the size the key is read at. */
+     above, and where even the size asked for would not fit, comes down to
+     the largest square that does -- never past the floor. Redefined on the
+     grid rather than on the matrix so the key's own squares stay the size the
+     key is read at. A column is a day's slices side by side. */
   .labels,
   .grid {
-    --cell: clamp(var(--cell-base), var(--room, 0px), var(--cell-max));
+    --cell: clamp(
+      var(--cell-min),
+      max(var(--room, 0px), min(var(--cell-base), var(--fit, var(--cell-base)))),
+      var(--cell-max)
+    );
+    --slot: calc(var(--slices, 1) * var(--cell) + (var(--slices, 1) - 1) * var(--inner));
   }
   /*
     The grid, and the aside beside it. Two tracks rather than two flex items,
@@ -1111,11 +1226,15 @@
   .labels,
   .grid {
     display: grid;
-    grid-template-columns: max-content repeat(var(--columns), var(--cell));
+    grid-template-columns: max-content repeat(var(--columns), var(--slot));
     column-gap: var(--gap);
     width: max-content;
   }
+  /* The labels have no row headings of their own, so their first track is
+     the grid's, measured: without it every label sat one heading's width to
+     the left of the column it names. */
   .labels {
+    grid-template-columns: var(--lead, 0px) repeat(var(--columns), var(--slot));
     grid-template-rows: var(--z-leading-2xs);
     margin-bottom: var(--z-nudge-2);
     font-size: var(--z-text-2xs);
@@ -1132,6 +1251,10 @@
   .row {
     display: contents;
   }
+  .slot {
+    display: flex;
+    column-gap: var(--inner);
+  }
   .rowhead {
     padding-right: var(--z-space-2);
     font-size: var(--z-text-2xs);
@@ -1140,6 +1263,7 @@
     white-space: nowrap;
   }
   .blank {
+    flex: none;
     width: var(--cell);
     height: var(--cell);
   }
@@ -1151,9 +1275,12 @@
   */
   .sq {
     display: block;
+    flex: none;
     width: var(--cell);
     height: var(--cell);
-    border-radius: var(--z-nudge-2);
+    /* A corner a quarter of the square at most: a year on a phone is squares
+       a few pixels across, and the desktop's corner would make them dots. */
+    border-radius: min(var(--z-nudge-2), var(--cell) / 4);
     background: var(--z-surface-sunken);
     box-shadow: inset 0 0 0 var(--z-border-width) var(--z-border);
     --tone: var(--z-idle);
@@ -1189,12 +1316,15 @@
     background: var(--fill);
     box-shadow: none;
   }
-  /* A hole in the middle: the one shape a failure has at this size. */
+  /* A hole in the middle: the one shape a failure has at this size. A fifth
+     of the square across at most, so a square shrunk to fit is still mostly
+     red rather than mostly hole. */
   .sq[data-kind='failing'] {
+    --hole: min(var(--z-nudge-2), var(--cell) / 5);
     background: radial-gradient(
       circle,
-      var(--z-surface) 0 var(--z-nudge-2),
-      var(--fill) calc(var(--z-nudge-2) + var(--z-nudge-1))
+      var(--z-surface) 0 var(--hole),
+      var(--fill) calc(var(--hole) + var(--z-nudge-1))
     );
     box-shadow: none;
   }
@@ -1443,6 +1573,11 @@
   }
   .hour.clickable {
     cursor: pointer;
+  }
+  /* The hours of the day around a selected slice of it: there for the
+     shape of the day, stepped back so the slice's own hours lead. */
+  .hour[data-outside] {
+    opacity: 0.4;
   }
   .stack {
     display: flex;

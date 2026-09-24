@@ -800,14 +800,15 @@ test('the matrix spends the width on squares and figures, with the key beneath',
     /*
       A phone is too narrow for both, so one of the two gives way -- and which
       one is the grid's to decide. A week of hours would use every pixel of the
-      band, so it takes it and the figures go underneath; a month is five week
-      columns however large the square, so it stops short and the figures stay
-      beside it rather than leaving the band's own width white. Either way the
-      page never widens: what does not fit scrolls inside the frame.
+      band, so it takes it and the figures go underneath, and so does a month,
+      now that its days are six squares each rather than five week columns of
+      one. A few weeks of whole days -- the Usage page's shape -- would stop
+      short, and there the figures stay beside it rather than leaving the
+      band's own width white. Either way the page never widens.
     */
     for (const [range, spends] of [
       ['The last 7 days, by the hour', true],
-      ['The last 30 days', false],
+      ['The last 30 days', true],
     ] as const) {
       await matrix
         .getByRole('group', { name: 'Range' })
@@ -841,10 +842,9 @@ test('the matrix spends the width on squares and figures, with the key beneath',
   }
 
   // A day of hours has more columns than rows, so its squares grow into the
-  // room; a month is five week columns whatever the square, so they do not and
-  // the aside takes the width instead. Either way nothing is left over: the
-  // two of them, and the one gap between, are the band.
-  for (const range of ['Today, by the hour', 'The last 30 days']) {
+  // room, and so does a month of days cut into squares. Nothing is left over:
+  // the two of them, and the one gap between, are the band.
+  for (const range of ['Today, by the hour', 'The last 30 days', 'The last 90 days']) {
     await matrix.getByRole('group', { name: 'Range' }).getByRole('button', { name: range }).click();
     await expect(grid).toBeVisible();
     const [bandBox, gridBox, asideBox, keyBox] = await Promise.all([
@@ -864,4 +864,60 @@ test('the matrix spends the width on squares and figures, with the key beneath',
     );
     expect(keyBox!.x, `${range}: the key starts under the grid`).toBeLessThan(gridBox!.x + 8);
   }
+});
+
+/**
+ * The longer ranges fill the band with squares.
+ *
+ * A month of whole days was five week columns in the corner of a band with
+ * the rest of it white, and a year was cut to fit a phone -- six months of it,
+ * under a button that says a year. A month and a quarter now cut every day
+ * into squares, and every range is drawn whole with its square sized to the
+ * width, so what the button names is what is on screen.
+ */
+test('a month and a quarter cut their days into squares, and a year is twelve months', async ({
+  page,
+}) => {
+  const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
+  const ranges = matrix.getByRole('group', { name: 'Range' });
+  const grid = matrix.getByRole('grid');
+  const frame = matrix.locator('.frame');
+
+  for (const [range, name, squares] of [
+    [
+      'The last 30 days, in four-hour squares',
+      /^\d weeks of this fleet's jobs, one square per 4 hours$/,
+      30 * 6,
+    ],
+    [
+      'The last 90 days, in eight-hour squares',
+      /^\d+ weeks of this fleet's jobs, one square per 8 hours$/,
+      90 * 3,
+    ],
+    ['The last year', /^52 weeks of this fleet's jobs, one square per day$/, null],
+  ] as const) {
+    await ranges.getByRole('button', { name: range }).click();
+    await expect(grid).toHaveAccessibleName(name);
+    if (squares !== null) await expect(grid.getByRole('gridcell')).toHaveCount(squares);
+    // Every square of it on screen, on every width: the frame does not
+    // scroll to reach the newest, and the page does not widen.
+    const fits = await frame.evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+    expect(fits, `${range}: the whole window fits the band`).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  }
+
+  // Selecting a slice of a day opens that day's hours, and says what it is.
+  await ranges.getByRole('button', { name: 'The last 30 days, in four-hour squares' }).click();
+  const stop = grid.locator('[role="gridcell"][tabindex="0"]');
+  await expect(stop).toHaveAttribute(
+    'aria-label',
+    /^\w+,? .+, \d\d?:\d\d( [AP]M)? to \d\d?:\d\d( [AP]M)?\. \d+ jobs? (finished|queued)/,
+  );
+  await stop.click();
+  const detail = matrix.getByRole('region', { name: 'Selected hours' });
+  await expect(detail).toBeVisible();
+  await expect(detail.getByRole('img', { name: /^Hour by hour:/ })).toBeVisible();
+  await expect(detail.getByRole('link', { name: 'Jobs that day' })).toBeVisible();
 });

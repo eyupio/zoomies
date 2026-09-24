@@ -124,7 +124,10 @@ func TestUsageExactKeyFilterMatchesJSONAndCSV(t *testing.T) {
 // A punch card of a week is 168 squares an hour wide, and the route's own rule
 // would cut that week into seven days. Hourly buckets over a year, times every
 // repository, is a payload nobody wants, so the request is refused past a
-// fortnight with a reason that says what to ask for instead.
+// fortnight with a reason that says what to ask for instead. A wider bucket
+// reaches further for the same count -- the Overview draws a month in
+// four-hour squares and a quarter in eight -- and a width a day does not
+// divide into is no width at all, because a calendar cuts days into squares.
 func TestUsageIntervalCanBeAskedForWithinItsBound(t *testing.T) {
 	h := newHarness(t)
 	u, _ := h.user("viewer", store.RoleViewer)
@@ -183,6 +186,24 @@ func TestUsageIntervalCanBeAskedForWithinItsBound(t *testing.T) {
 	}
 	resp = ask(1, "minute")
 	resp.mustStatus(t, http.StatusBadRequest, "a width that is not a width")
+
+	resp = ask(30, "4h")
+	resp.mustStatus(t, http.StatusOK, "a month in four hours")
+	if n := buckets(resp); n != 30*6 {
+		t.Errorf("a month in four hours has %d buckets, want %d", n, 30*6)
+	}
+	resp = ask(90, "8h")
+	resp.mustStatus(t, http.StatusOK, "a quarter in eight hours")
+	if n := buckets(resp); n != 90*3 {
+		t.Errorf("a quarter in eight hours has %d buckets, want %d", n, 90*3)
+	}
+	resp = ask(57, "4h")
+	resp.mustStatus(t, http.StatusBadRequest, "four hours past the bound")
+	if !strings.Contains(string(resp.body), "4h buckets cover at most 56 days") {
+		t.Errorf("the refusal does not say what the bound is: %s", resp.body)
+	}
+	resp = ask(1, "5h")
+	resp.mustStatus(t, http.StatusBadRequest, "a width a day does not divide into")
 }
 
 // The report is computed from rows the prune loop deletes on two different

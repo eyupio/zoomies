@@ -12,10 +12,13 @@ import (
 
 const maxUsageRange = 366 * 24 * time.Hour
 
-// maxHourlyRange bounds a request for hourly buckets. A fortnight is 336
-// buckets a row, which is a punch card of a week with room to spare; a year
-// of hours would be 8,784 a row, multiplied by every repository.
-const maxHourlyRange = 14 * 24 * time.Hour
+// maxSubDailyBuckets bounds a request for buckets narrower than a day. A
+// fortnight of hours is 336 buckets a row, which is a punch card of a week
+// with room to spare; a year of hours would be 8,784 a row, multiplied by
+// every repository. The bound is on the count rather than on the range, so
+// a wider bucket reaches further back for the same cost: 56 days of four
+// hours, 112 of eight.
+const maxSubDailyBuckets = 14 * 24
 
 // usageQuery is what the two usage routes agree a request means.
 type usageQuery struct {
@@ -51,14 +54,19 @@ func usageParams(r *http.Request) (usageQuery, error) {
 		return q, fmt.Errorf("group_by must be installation, repository, workflow, host, or pool")
 	}
 	interval := store.UsageInterval(r.URL.Query().Get("interval"))
-	switch interval {
-	case store.UsageAutoInterval, store.UsageDaily:
-	case store.UsageHourly:
-		if t.Sub(f) > maxHourlyRange {
-			return q, fmt.Errorf("hourly buckets cover at most 14 days; ask for daily buckets, or a shorter range")
+	if !interval.Known() {
+		return q, fmt.Errorf("interval must be hour, 2h, 3h, 4h, 6h, 8h, 12h or day")
+	}
+	// Left to the rule, a window is hourly only up to two days, well inside.
+	if width := interval.Width(f, t); width < 24*time.Hour {
+		if reach := maxSubDailyBuckets * width; t.Sub(f) > reach {
+			name := "hourly"
+			if width > time.Hour {
+				name = string(interval)
+			}
+			return q, fmt.Errorf("%s buckets cover at most %d days; ask for wider buckets, or a shorter range",
+				name, int(reach/(24*time.Hour)))
 		}
-	default:
-		return q, fmt.Errorf("interval must be hour or day")
 	}
 	return usageQuery{from: f, to: t, group: g, interval: interval}, nil
 }
