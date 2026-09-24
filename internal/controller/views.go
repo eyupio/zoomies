@@ -856,13 +856,16 @@ type PoolView struct {
 	HostSelector   map[string]string    `json:"host_selector"`
 	Env            map[string]string    `json:"env"`
 	RunAsRoot      bool                 `json:"run_as_root"`
-	Enabled        bool                 `json:"enabled"`
-	CreatedAt      time.Time            `json:"created_at"`
-	UpdatedAt      time.Time            `json:"updated_at"`
-	Counts         PoolCountsView       `json:"counts"`
-	QueuedJobs     int                  `json:"queued_jobs"`
-	Utilisation    float64              `json:"utilisation"`
-	Warnings       []Problem            `json:"warnings,omitempty"`
+	// NoDefaultLabels says the pool's runners advertise only Labels, without
+	// self-hosted and the operating-system and architecture labels.
+	NoDefaultLabels bool           `json:"no_default_labels"`
+	Enabled         bool           `json:"enabled"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	Counts          PoolCountsView `json:"counts"`
+	QueuedJobs      int            `json:"queued_jobs"`
+	Utilisation     float64        `json:"utilisation"`
+	Warnings        []Problem      `json:"warnings,omitempty"`
 }
 
 // PoolRenderer is everything needed to render pools without one query per
@@ -969,6 +972,7 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		HostSelector:           emptyMap(p.HostSelector),
 		Env:                    emptyMap(p.Env),
 		RunAsRoot:              p.RunAsRoot,
+		NoDefaultLabels:        p.NoDefaultLabels,
 		Enabled:                p.Enabled,
 		CreatedAt:              p.CreatedAt,
 		UpdatedAt:              p.UpdatedAt,

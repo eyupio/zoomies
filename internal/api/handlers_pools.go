@@ -135,6 +135,7 @@ type poolInput struct {
 	HostSelector           *map[string]string    `json:"host_selector"`
 	Env                    *map[string]string    `json:"env"`
 	RunAsRoot              *bool                 `json:"run_as_root"`
+	NoDefaultLabels        *bool                 `json:"no_default_labels"`
 	Enabled                *bool                 `json:"enabled"`
 }
 
@@ -408,6 +409,9 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	if in.RunAsRoot != nil {
 		p.RunAsRoot = *in.RunAsRoot
 	}
+	if in.NoDefaultLabels != nil {
+		p.NoDefaultLabels = *in.NoDefaultLabels
+	}
 	if in.Enabled != nil {
 		p.Enabled = *in.Enabled
 	}
@@ -639,6 +643,18 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	}
 	if p.MinRunners > p.MaxRunners {
 		add("min_runners", fmt.Sprintf("the minimum (%d) is above the maximum (%d); warm runners cannot exceed the cap", p.MinRunners, p.MaxRunners))
+	}
+	// GitHub adds self-hosted, the operating system and the architecture to
+	// every just-in-time runner itself; the generate-jitconfig request has no
+	// way to ask otherwise. Accepting the setting on an ephemeral pool would
+	// have the scheduler refuse jobs asking for self-hosted that GitHub then
+	// happily offers the runner -- a pool that says one thing and does another.
+	if p.NoDefaultLabels && p.Ephemeral {
+		add("no_default_labels", "GitHub adds the self-hosted, operating-system and architecture labels to every ephemeral (just-in-time) runner, "+
+			"so only a non-ephemeral pool can leave them out; set ephemeral to false, or turn no_default_labels off")
+	}
+	if p.NoDefaultLabels && len(p.Labels) == 0 {
+		add("labels", "a pool without the default labels advertises only the labels listed here; give it at least one")
 	}
 	if p.Ephemeral && p.MinRunners > 0 && p.IdleTimeout.Duration() == 0 {
 		add("idle_timeout", "warm ephemeral runners with no idle timeout are replaced after every job and never reaped; give an idle timeout, or set min_runners to 0")

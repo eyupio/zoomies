@@ -701,8 +701,14 @@ type Pool struct {
 	Name           string      `json:"name"`
 	InstallationID string      `json:"installation_id"`
 	Labels         StringSlice `json:"labels"`
-	RunnerGroup    string      `json:"runner_group,omitempty"`
-	Backend        BackendKind `json:"backend"`
+	// NoDefaultLabels registers runners with only Labels, without the
+	// self-hosted, operating-system and architecture labels actions/runner
+	// adds itself -- config.sh's --no-default-labels. GitHub adds those labels
+	// to every just-in-time runner regardless, so only a non-ephemeral pool
+	// can honour it.
+	NoDefaultLabels bool        `json:"no_default_labels,omitempty"`
+	RunnerGroup     string      `json:"runner_group,omitempty"`
+	Backend         BackendKind `json:"backend"`
 	// Platform is the machine this pool's runners need. It picks the runner
 	// image when the pool names none, and it stops the scheduler placing a
 	// runner on a host that is not that machine.

@@ -290,7 +290,14 @@
       'cache.source',
       'cache.repository',
     ],
-    scaling: ['min_runners', 'max_runners', 'priority', 'idle_timeout', 'ephemeral'],
+    scaling: [
+      'min_runners',
+      'max_runners',
+      'priority',
+      'idle_timeout',
+      'ephemeral',
+      'no_default_labels',
+    ],
     runners: [
       'runner_settings.provision_timeout',
       'runner_settings.drain_timeout',
@@ -381,6 +388,7 @@
     max_runners: 'Maximum runners',
     idle_timeout: 'Idle timeout',
     ephemeral: 'Runner lifetime',
+    no_default_labels: 'Default labels',
     docker_mode: 'Docker in jobs',
     run_as_root: 'Run as root',
     priority: 'Priority',

@@ -12,6 +12,7 @@
 #   ZOOMIES_RUNNER_LABELS  comma-separated labels
 #   ZOOMIES_RUNNER_GROUP   runner group name
 #   ZOOMIES_EPHEMERAL      "true" to pass --ephemeral
+#   ZOOMIES_RUNNER_NO_DEFAULT_LABELS  "true" to pass --no-default-labels
 #
 # The image also bakes in what platform it is, which the startup line prints:
 #
@@ -227,6 +228,7 @@ elif [ -n "${runner_token}" ]; then
   [ -n "${ZOOMIES_RUNNER_LABELS:-}" ] && args+=(--labels "${ZOOMIES_RUNNER_LABELS}")
   [ -n "${ZOOMIES_RUNNER_GROUP:-}" ]  && args+=(--runnergroup "${ZOOMIES_RUNNER_GROUP}")
   [ "${ZOOMIES_EPHEMERAL:-false}" = "true" ] && args+=(--ephemeral)
+  [ "${ZOOMIES_RUNNER_NO_DEFAULT_LABELS:-false}" = "true" ] && args+=(--no-default-labels)
 
   ./config.sh "${args[@]}"
 
