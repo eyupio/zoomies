@@ -83,3 +83,33 @@ func TestAnAutomaticallyRemovedContainerIsRefusedBeforeAnUpgradeCanStopIt(t *tes
 		t.Fatal("accepted a container that would destroy the rollback copy when stopped")
 	}
 }
+
+// An upgrade adds the shared folder to a container that was created before
+// there was one. The bind is added beside what the container already had;
+// losing an operator's own mount on the way would be the worse outcome.
+func TestAReplacementGainsABindAndKeepsItsOthers(t *testing.T) {
+	r := &ContainerReplacement{body: map[string]json.RawMessage{
+		"HostConfig": json.RawMessage(`{"Binds":["/socket:/socket:ro"],"Mounts":[{"Type":"bind","Source":"/data","Target":"/mnt/data"}],"CustomFutureOption":true}`),
+	}}
+	for target, want := range map[string]bool{"/socket": true, "/mnt/data": true, "/var/lib/zoomies/shared": false} {
+		if got := r.HasBind(target); got != want {
+			t.Errorf("HasBind(%s) = %v, want %v", target, got, want)
+		}
+	}
+	if err := r.AddBind("/var/lib/zoomies/shared:/var/lib/zoomies/shared"); err != nil {
+		t.Fatal(err)
+	}
+	if !r.HasBind("/var/lib/zoomies/shared") {
+		t.Error("the added bind is not there")
+	}
+	var host map[string]any
+	if err := json.Unmarshal(r.body["HostConfig"], &host); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(host["Binds"], []any{"/socket:/socket:ro", "/var/lib/zoomies/shared:/var/lib/zoomies/shared"}) {
+		t.Errorf("binds = %v", host["Binds"])
+	}
+	if host["CustomFutureOption"] != true || host["Mounts"] == nil {
+		t.Errorf("lost host options: %v", host)
+	}
+}

@@ -357,9 +357,12 @@
 </div>
 
 <style>
-  /* Deliberately identical to Login.svelte: these two are the same screen at
-     two moments in a controller's life, and a card that changes width, weight
-     or elevation between them reads as two different products. */
+  /* A card, where sign-in is a page with a brand panel beside the form. The
+     panel is for people who did not install the controller and have been sent
+     its address; the only person who ever sees this screen has just installed
+     it, knows what it is, and wants the form and nothing to read on the way to
+     it. The card's width, weight and elevation are the ones the product's
+     dialogs use, so it still reads as the same product. */
   .card {
     position: relative;
     width: 100%;

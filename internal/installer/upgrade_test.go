@@ -63,7 +63,24 @@ func upgradeFixture(t *testing.T, deployment Deployment) (UpgradeOptions, Deploy
 	if _, err := WriteDeploymentRecord(dir, rec); err != nil {
 		t.Fatal(err)
 	}
-	return UpgradeOptions{ConfigDir: dir, Mode: ModeAgent, Image: stockAgentRepository + ":v9.0"}, rec
+	// A deployment this release installed: its Compose file mounts the
+	// shared folder and the folder is laid out, so the upgrade has nothing to
+	// add and these tests see only the upgrade itself.
+	if deployment == DeploymentCompose {
+		rendered, err := RenderComposeFile(composeSpecFromDeployment(rec, nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(rec.ComposeFile(), []byte(rendered), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	shared := filepath.Join(dir, "shared")
+	if _, err := PrepareSharedDir(shared, -1, -1); err != nil {
+		t.Fatal(err)
+	}
+	return UpgradeOptions{ConfigDir: dir, Mode: ModeAgent, Image: stockAgentRepository + ":v9.0",
+		shared: &sharedTarget{dir: shared, uid: -1, gid: -1}}, rec
 }
 
 func TestComposeUpgradeKeepsConfigurationAndPullsBeforeRestarting(t *testing.T) {
@@ -177,7 +194,12 @@ func TestNativeUpgradeRestartsTheExistingAgentAndRefusesTheWrongBinary(t *testin
 	for _, wrong := range []bool{false, true} {
 		t.Run(map[bool]string{false: "matching", true: "wrong path"}[wrong], func(t *testing.T) {
 			var calls []string
-			opts := UpgradeOptions{ConfigDir: t.TempDir(), Mode: ModeAgent, BinaryPath: "/custom/bin/zoomies"}
+			shared := filepath.Join(t.TempDir(), "shared")
+			if _, err := PrepareSharedDir(shared, -1, -1); err != nil {
+				t.Fatal(err)
+			}
+			opts := UpgradeOptions{ConfigDir: t.TempDir(), Mode: ModeAgent, BinaryPath: "/custom/bin/zoomies",
+				shared: &sharedTarget{dir: shared, uid: -1, gid: -1}}
 			opts.run = func(_ context.Context, name string, args ...string) (string, error) {
 				line := name + " " + strings.Join(args, " ")
 				calls = append(calls, line)

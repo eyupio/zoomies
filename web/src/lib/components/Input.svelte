@@ -30,7 +30,12 @@
     ariaLabel?: string;
     /** IDs, labels and durations are monospaced. */
     mono?: boolean;
-    size?: 'sm' | 'md';
+    /**
+     * lg is for a form that is the only thing on the page -- sign-in -- where
+     * the dense operator sizing reads as an afterthought and there is room to
+     * spare. Everything else is md.
+     */
+    size?: 'sm' | 'md' | 'lg';
     icon?: LucideIcon;
     min?: number;
     max?: number;
@@ -170,7 +175,12 @@
     padding: 0 var(--z-space-2);
     font-size: var(--z-text-sm);
   }
-  .has-icon.md input {
+  .lg input {
+    height: var(--z-space-10);
+    padding: 0 var(--z-space-3);
+  }
+  .has-icon.md input,
+  .has-icon.lg input {
     padding-left: var(--z-space-8);
   }
   .has-icon.sm input {
@@ -184,6 +194,9 @@
   }
   .has-trailing.md input {
     padding-right: var(--z-space-8);
+  }
+  .has-trailing.lg input {
+    padding-right: var(--z-space-10);
   }
   .has-trailing.sm input {
     padding-right: var(--z-space-6);
@@ -224,8 +237,16 @@
   @media (max-width: 768px) {
     .sm input,
     .md input,
+    .lg input,
     input.mono {
       font-size: var(--z-control-font-touch);
+    }
+  }
+  /* The one size that is only used where the form is the page, so it can
+     afford the full touch target where the dense ones cannot. */
+  @media (pointer: coarse) {
+    .lg input {
+      height: var(--z-control-touch);
     }
   }
 </style>

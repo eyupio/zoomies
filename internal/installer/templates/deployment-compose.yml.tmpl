@@ -108,6 +108,12 @@ services:
 {{- end }}
     volumes:
       - {{.Volume}}:/var/lib/zoomies
+      # The shared folder: runners' caches, one folder per purpose, and the
+      # place later releases add folders of their own. It is mounted at the
+      # path it has on this host, so a folder the controller hands this host's
+      # daemon for a runner's mount is the same folder on both sides. Owned by
+      # uid 65532, the image's account, so Zoomies can add to it as it runs.
+      - {{.SharedDir}}:{{.SharedDir}}
 {{- if .MountSocket }}
       # The embedded agent needs this socket to create runner containers. This
       # is Zoomies' own access to the runtime -- it is NOT the same thing as

@@ -36,8 +36,8 @@ export const AGENT_OWNS_URL = `${SECURITY_URL}#what-the-agent-owns-on-a-host`;
 export const SITE_HOST = SITE_URL.replace(/^https?:\/\//, '');
 
 /**
- * Who makes Zoomies. The footer of every signed-in page and the sign-in
- * colophon both say "Developed by", and the site's footer says the same from
+ * Who makes Zoomies. The footer of every signed-in page and the sign-in page's
+ * brand panel both say "Developed by", and the site's footer says the same from
  * `extra.developer` in mkdocs.yml, so the credit reads identically wherever
  * the product is met.
  */

@@ -62,6 +62,38 @@ That restores the process, **not a migrated database**; the rollback rules
 below still apply. An interrupted upgrade can leave `upgrade.lock` in its
 configuration directory: remove it only after checking no upgrade is running.
 
+## What a release adds to the host
+
+A release sometimes needs more of the host than the one you installed: a
+folder, a mount, a file the installer wrote and somebody has since removed.
+Before it pulls or restarts anything, an upgrade compares the deployment with
+what this release expects, lists what is missing, and adds it only with your
+approval:
+
+| Missing | What the upgrade offers |
+| --- | --- |
+| The [shared folder](configuration.md#the-shared-folder), or a folder in it | Create it, owned by the account Zoomies runs as — uid 65532 in the container images, the state directory's owner for a native install. A shared folder owned by someone else is given back to that account. |
+| The shared folder's mount, in a Compose file | Add `/var/lib/zoomies/shared:/var/lib/zoomies/shared` to the `zoomies` service. The file is copied to `docker-compose.yml.bak.<time>` first, and edited rather than written again, so your own services, labels and comments stay; blank lines between them do not survive the edit. |
+| The shared folder's mount, on a `docker` deployment | Create the replacement container with that bind as well as everything the old one had. |
+| `docker-compose.yml` itself | Write it again from `deployment.json` and the `.env` beside it. |
+
+How the approval is given depends on how the upgrade runs:
+
+* **At a terminal**, it asks `Add them now? [Y/n]`. `install.sh --upgrade`
+  asks on the terminal even when the script itself arrived through a pipe.
+* **With `--yes`** (`zoomies upgrade --yes`, or `install.sh --upgrade --yes`),
+  it adds them without asking.
+* **Unattended** — `--non-interactive`, or no terminal at all — it adds
+  nothing, finishes the upgrade as before, and ends by listing what is missing
+  and the command that adds it: `zoomies upgrade --yes`. The shared folder is
+  only needed by pools that keep a [tool cache](configuration.md#keeping-a-tool-cache),
+  so a fleet without one loses nothing by waiting.
+
+A missing `docker-compose.yml` is the exception: there is nothing to bring
+the new image up with, so an unattended upgrade stops before it changes
+anything and says so. `--check` lists what the real run will offer and adds
+none of it.
+
 `zoomies upgrade --check` checks the existing deployment without modifying it.
 `zoomies update` is its shorter alias and accepts the same flags. Both commands
 apply an already installed binary; use the shell command above when the binary

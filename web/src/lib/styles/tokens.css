@@ -265,6 +265,9 @@
   --z-tracking-tight: -0.01em;
   --z-tracking-wide: 0.04em;
   --z-tracking-wider: 0.08em;
+  /* How far a hover underline sits below a quiet link, clear of the
+     descenders so "EyUp.io" does not read as a strikethrough. */
+  --z-underline-offset: 0.15em;
 
   /* Breakpoints ----------------------------------------------------------
    * Two, and only two: phone below 768, sidebar above 1180. These are the
@@ -330,11 +333,26 @@
      to the bottom edge remain readable there; notched devices still supply
      their larger native inset. */
   --z-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--z-space-3));
+  /* The top edge has no such floor: only the sign-in page's black band is
+     drawn to the very top, and it wants the status bar's height and no more. */
+  --z-safe-top: env(safe-area-inset-top, 0px);
 
   /* The chip the monochrome mark sits on. The brand sanctions the white
      knockout over dark surfaces, so one asset serves both themes when it is
      drawn on a near-black chip. */
   --z-mark-chip: var(--z-brand-black);
+
+  /* The sign-in page's brand panel, which is Zoomies Black in both themes.
+     What is drawn on it therefore cannot follow the theme -- the light
+     theme's muted grey on black is barely 3:1 -- so these are the dark
+     theme's values, fixed, and only that panel reads them. */
+  --z-panel-bg: var(--z-brand-black);
+  --z-panel-text: var(--z-brand-white);
+  --z-panel-text-muted: var(--z-brand-cool-grey);
+  --z-panel-text-subtle: #868b94;
+  --z-panel-border: #262a31;
+  --z-panel-raised: #121418;
+  --z-panel-ring: rgb(255 255 255 / 0.07);
 
   /* Z-index. Named so that "what is on top of what" is answerable. -------- */
   --z-layer-sticky: 10;
