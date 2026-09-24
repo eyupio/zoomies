@@ -591,6 +591,30 @@ func (c *Config) Validate() Findings {
 				"or set security.cookie_secure to true if TLS is terminated in front of this controller.",
 		})
 	}
+	// Half a bootstrap is refused rather than guessed at. An account with no
+	// credential is one nobody can sign in as, and a credential with no name
+	// is an account nobody asked for; either way the provisioner that set it
+	// is waiting on an instance that will never become usable.
+	if b := c.Bootstrap; b.Requested() {
+		var problem string
+		switch {
+		case b.Admin == "":
+			problem = "ZOOMIES_BOOTSTRAP_ADMIN is not set, so there is no name for the first account"
+		case b.PasswordFile == "" && b.TokenFile == "":
+			problem = "neither ZOOMIES_BOOTSTRAP_PASSWORD_FILE nor ZOOMIES_BOOTSTRAP_TOKEN_FILE is set, so the first account would have no way in"
+		case b.PasswordFile != "" && b.TokenFile != "":
+			problem = "both ZOOMIES_BOOTSTRAP_PASSWORD_FILE and ZOOMIES_BOOTSTRAP_TOKEN_FILE are set, and the first account is made one way or the other"
+		}
+		if problem != "" {
+			add(Finding{
+				Code: "bootstrap.incomplete", Severity: SeverityError,
+				Title:  "the unattended first account is only half described",
+				Detail: problem + ".",
+				Fix: "set ZOOMIES_BOOTSTRAP_ADMIN and exactly one of ZOOMIES_BOOTSTRAP_PASSWORD_FILE or " +
+					"ZOOMIES_BOOTSTRAP_TOKEN_FILE, or unset all three and use the setup token.",
+			})
+		}
+	}
 	if c.Security.RateLimitLogins <= 0 {
 		add(Finding{
 			Code: "auth.no_login_limit", Severity: SeverityWarning, Setting: "security.rate_limit_logins",
