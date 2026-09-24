@@ -56,6 +56,18 @@ For a custom installation, pass `--config-dir <directory>` and, where needed,
 installs and the existing systemd or launchd service for native ones. It
 refuses an unrecognised deployment instead of guessing at a replacement.
 
+After the restart the upgrade waits for the controller to answer before it
+reports success. A controller serves nothing until its migrations finish, and
+on a large database that can take minutes, so the upgrade says it is waiting
+and repeats the controller's latest log line every thirty seconds. A container
+is asked through its own health check, run in it straight away; a native
+service through `/healthz` on the listener its settings name. The wait lasts up
+to thirty minutes. If the controller stops during it, or is still starting at
+the end, the upgrade exits with an error that says which and points at its
+logs. It does **not** roll back then: the new release may already have migrated
+the database, which the old one cannot open. An agent serves nothing to ask, so
+an agent's upgrade does not wait.
+
 A failed image pull stops before a restart. If a replacement container cannot
 start, the upgrade attempts to restore the previous container or Compose image.
 That restores the process, **not a migrated database**; the rollback rules

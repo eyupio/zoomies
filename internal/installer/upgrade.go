@@ -47,6 +47,9 @@ type UpgradeOptions struct {
 	// socketGroup stands in for reading the group that owns the runtime's
 	// socket, which is the test host's own otherwise.
 	socketGroup func(path string) int
+	// serveTimeout, servePoll and progressEvery shorten the wait for the
+	// controller to answer, which is minutes long outside a test.
+	serveTimeout, servePoll, progressEvery time.Duration
 }
 
 type upgradePlan struct {
@@ -113,6 +116,7 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	// runs something older. Comparing the tag alone then says nothing changed
 	// on an upgrade that moved the service and migrated its database.
 	beforeRunning := p.runningImageID(ctx)
+	serving := p.serveCheck(ctx)
 	fmt.Fprintln(opts.Out, "Keeping this host's configuration, credentials, identity and data.")
 	if err := p.pullRunnerImages(ctx); err != nil {
 		return err
@@ -135,6 +139,9 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	}
 	if err != nil {
 		return fmt.Errorf("installer: the upgrade did not finish: %w", err)
+	}
+	if err := p.waitServing(ctx, serving); err != nil {
+		return fmt.Errorf("installer: %w", err)
 	}
 	if p.record.Deployment.Containerised() {
 		afterImage := p.localImageID(ctx)

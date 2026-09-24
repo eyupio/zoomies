@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"runtime"
 	"strings"
@@ -229,26 +231,65 @@ func runHealthcheck(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
-	reqCtx, cancel := context.WithTimeout(ctx, *timeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
+	status, body, err := probeHealthz(ctx, client, url, *timeout)
+	// The container's health check is written as http://127.0.0.1:8080 once,
+	// for every deployment, and a controller serving TLS answers plain HTTP
+	// with a 400 -- so with TLS on, the check could never pass, and the
+	// container read as unhealthy for as long as it ran. On loopback the
+	// listener is this host's own, so the same address over https is the
+	// same controller; the certificate is not checked for the reason the
+	// installer's probe does not check it: it may be self-signed, and the
+	// connection never leaves the host.
+	if err == nil && status == http.StatusBadRequest && strings.Contains(body, "HTTP request to an HTTPS server") {
+		if secure, ok := loopbackHTTPS(url); ok {
+			tlsClient, cerr := httpClient(*caFile, *insecure || *caFile == "", *timeout)
+			if cerr != nil {
+				return cerr
+			}
+			url = secure
+			status, body, err = probeHealthz(ctx, tlsClient, url, *timeout)
+		}
 	}
-	req.Header.Set("User-Agent", "zoomies-healthcheck/"+version.Version)
-
-	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("%s did not answer: %w", url, err)
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s answered %s: %s", url, resp.Status, strings.TrimSpace(string(body)))
+	if status != http.StatusOK {
+		return fmt.Errorf("%s answered %d %s: %s", url, status, http.StatusText(status), strings.TrimSpace(body))
 	}
 	fmt.Fprintf(e.out, "%s is healthy\n", url)
 	return nil
+}
+
+func probeHealthz(ctx context.Context, client *http.Client, url string, timeout time.Duration) (int, string, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, "", err
+	}
+	req.Header.Set("User-Agent", "zoomies-healthcheck/"+version.Version)
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	return resp.StatusCode, string(body), nil
+}
+
+// loopbackHTTPS is an http URL on a loopback address, as https. Anything else
+// is not upgraded: off the host, the plain URL is what the operator asked for.
+func loopbackHTTPS(raw string) (string, bool) {
+	u, err := neturl.Parse(raw)
+	if err != nil || u.Scheme != "http" {
+		return "", false
+	}
+	host := u.Hostname()
+	if ip := net.ParseIP(host); !(host == "localhost" || (ip != nil && ip.IsLoopback())) {
+		return "", false
+	}
+	u.Scheme = "https"
+	return u.String(), true
 }
 
 // httpClient builds a client with the caller's TLS choices. It is shared by the
