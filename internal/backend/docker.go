@@ -103,6 +103,15 @@ const (
 // inside the container.
 const RunnerWorkMount = "/home/runner/_work"
 
+// RunnerToolCacheMount is where a pool's tool cache is mounted in a runner, and
+// what AGENT_TOOLSDIRECTORY is pointed at when the pool keeps one. It is not
+// the image's own /opt/hostedtoolcache: mounting over that would hide the
+// toolchains an image such as zoomies-runner-full was built with.
+const RunnerToolCacheMount = "/opt/zoomies-tools"
+
+// EnvToolsDirectory is the variable actions/runner reads for its tool cache.
+const EnvToolsDirectory = "AGENT_TOOLSDIRECTORY"
+
 // RunnerCacheMount is disposable performance cache space, not persistent
 // workflow storage. Operators may evict its contents at any time.
 const RunnerCacheMount = "/opt/zoomies-cache"
@@ -165,7 +174,10 @@ type DockerOptions struct {
 	// sidecars are to trust, for a network whose proxy re-signs TLS. Empty
 	// changes nothing.
 	ExtraCAFile string
-	Logger      *slog.Logger
+	// SharedDir is this host's shared folder (config.SharedDir), where a
+	// pool's tool cache is kept. Empty keeps none.
+	SharedDir string
+	Logger    *slog.Logger
 }
 
 // ExtraCADir is where the extra CA bundle is mounted inside a runner and its
@@ -224,7 +236,9 @@ type DockerBackend struct {
 	dind    string
 	auth    string
 	extraCA string
-	log     *slog.Logger
+	// sharedDir is DockerOptions.SharedDir.
+	sharedDir string
+	log       *slog.Logger
 	// nameRelease is how long a create waits for the daemon to release a name
 	// whose container has gone. A field rather than the constant so a test can
 	// exercise the wait without spending it.
@@ -290,7 +304,9 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 		dind:    dind,
 		auth:    opts.RegistryAuth,
 		extraCA: strings.TrimSpace(opts.ExtraCAFile),
-		log:     log.With("backend", string(fl.kind)),
+
+		sharedDir: strings.TrimSpace(opts.SharedDir),
+		log:       log.With("backend", string(fl.kind)),
 
 		nameRelease: nameReleaseBudget,
 		nameSettle:  nameSettleBudget,
@@ -407,6 +423,10 @@ type containerOptions struct {
 	// ExtraCAFile is a host PEM bundle to mount read-only at ExtraCAPath in
 	// the runner and its sidecar.
 	ExtraCAFile string
+	// ToolCacheDir is the host folder holding this pool's tool cache, bound
+	// at RunnerToolCacheMount. Create resolves and creates it; empty mounts
+	// nothing and leaves the image's own tool cache in place.
+	ToolCacheDir string
 }
 
 // extraCABind is the read-only mount for the extra CA bundle. The Podman
@@ -531,6 +551,9 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 	if source, err := cacheSource(spec); err == nil && source != "" {
 		hc.Binds = append(hc.Binds, source+":"+RunnerCacheMount+fl.mountSuffix)
 	}
+	if o.ToolCacheDir != "" {
+		hc.Binds = append(hc.Binds, o.ToolCacheDir+":"+RunnerToolCacheMount+fl.mountSuffix)
+	}
 	if o.ExtraCAFile != "" {
 		hc.Binds = append(hc.Binds, extraCABind(fl, o.ExtraCAFile))
 	}
@@ -571,6 +594,11 @@ func runnerEnv(spec Spec, o containerOptions) []string {
 		env = append(env, "DOCKER_HOST="+o.DockerHost, "DOCKER_TLS_CERTDIR=")
 	}
 	env = append(env, o.ProxyEnv...)
+	// Before the pool's own variables, so a pool that names a tool cache of
+	// its own in env keeps it: the daemon keeps the last of a repeated name.
+	if o.ToolCacheDir != "" {
+		env = append(env, EnvToolsDirectory+"="+RunnerToolCacheMount)
+	}
 
 	keys := make([]string, 0, len(spec.Env))
 	for k := range spec.Env {
@@ -867,6 +895,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	createStarted := time.Now()
 
 	opts := containerOptions{Now: time.Now(), DinDImage: b.dind, ProxyEnv: inheritedProxyEnv(os.LookupEnv, spec.Env), ExtraCAFile: b.extraCA}
+	b.prepareCacheDirs(spec, &opts)
 	network := firstNonEmpty(strings.TrimSpace(spec.Network), b.network)
 	if network != "" {
 		if err := b.ensureNetwork(ctx, network); err != nil {
@@ -1175,6 +1204,31 @@ func (b *DockerBackend) ensureWorkDir(spec Spec) (string, bool, error) {
 		return "", false, fmt.Errorf("backend: creating the work directory %s for runner %s: %w", dir, spec.Name, err)
 	}
 	return dir, true, nil
+}
+
+// prepareCacheDirs creates the host folders a runner's caches are bound from,
+// writable by the runner, before the daemon is asked to bind them: a folder
+// the daemon creates for a bind is root's, and the runner cannot write to it.
+//
+// A cache is an accelerator, so a folder that cannot be made does not stop the
+// runner: the pool cache falls back to what the daemon would have done, and
+// the tool cache is left out, which costs the job its downloads and nothing
+// else. Both are logged, because a cache that never warms is otherwise silent.
+func (b *DockerBackend) prepareCacheDirs(spec Spec, opts *containerOptions) {
+	if dir, ok := cacheDirectory(spec); ok {
+		if err := ensureRunnerWritableDir(dir); err != nil {
+			b.log.Warn("could not create the pool cache folder; the daemon will create it, owned by root", "runner", spec.Name, "dir", dir, "error", err)
+		}
+	}
+	dir, err := toolCacheDir(spec, b.sharedDir)
+	if err != nil || dir == "" {
+		return
+	}
+	if err := ensureRunnerWritableDir(dir); err != nil {
+		b.log.Warn("could not create the tool cache folder; this runner starts without it", "runner", spec.Name, "dir", dir, "error", err)
+		return
+	}
+	opts.ToolCacheDir = dir
 }
 
 // removeByName deletes a container by name if it exists, which is how Create

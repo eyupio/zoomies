@@ -1044,6 +1044,27 @@ test('an automatic size can carry a minimum for hosts with less than a share lef
   await expect(page.getByText(/whole slot's share/)).toContainText('2 GB');
 });
 
+test('a container pool can keep its tool cache with its cache', async ({ page }) => {
+  // The tool cache is a setting of the pool, offered beside the cache it is
+  // shared with, rather than an environment variable to remember.
+  await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
+  await nameField(page).fill('e2e-tool-cache');
+  await next(page).click();
+  await addLabel(page, 'tool-cache');
+  await next(page).click();
+  await next(page).click();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
+
+  const tools = page.getByRole('checkbox', { name: 'Keep a tool cache as well' });
+  await expect(tools).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'Keep a cache between runners' }).check();
+  await expect(tools).toBeVisible();
+  await tools.check();
+  await expect(tools).toBeChecked();
+});
+
 test('a fixed size can carry a minimum for hosts a little short of it', async ({ page }) => {
   // A standard a host cannot quite meet used to leave the job queued. The
   // minimum is the size the pool will still accept, and the step says what

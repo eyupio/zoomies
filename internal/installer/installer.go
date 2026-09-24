@@ -2162,6 +2162,18 @@ func (i *Installer) stepUserAndDirs(ctx context.Context, p *Plan) error {
 		i.chown(p, dir)
 	}
 	i.wrote(fmt.Sprintf("%s and %s are mode 0750, owned by %s", p.ConfigDir, p.StateDir, p.ServiceUser))
+	// The shared folder, where runners' caches are kept and later releases
+	// add folders of their own. Owned like the state directory it sits in,
+	// because the service adds to it as it runs.
+	for _, dir := range sharedFolders(filepath.Join(p.StateDir, "shared")) {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return fmt.Errorf("installer: creating %s: %w", dir, err)
+		}
+		if err := os.Chmod(dir, 0o750); err != nil {
+			return fmt.Errorf("installer: setting permissions on %s: %w", dir, err)
+		}
+		i.chown(p, dir)
+	}
 
 	i.ensureSocketAccess(ctx, p)
 	return nil

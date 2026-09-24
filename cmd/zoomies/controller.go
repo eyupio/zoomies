@@ -553,6 +553,19 @@ func buildProviders() (*provider.Registry, error) {
 	return registry, nil
 }
 
+// sharedDirFor creates this host's shared folder and the layout this release
+// keeps in it, and returns the folder -- or "" when it cannot be made, which
+// leaves every pool's tool cache off on this host rather than stopping it.
+func sharedDirFor(log *slog.Logger) string {
+	if err := config.EnsureSharedDir(); err != nil {
+		log.Warn("could not create the shared folder; pools' tool caches are off on this host until it exists and is writable",
+			"dir", config.SharedDir(), "error", err,
+			"fix", "create it and give it to the user Zoomies runs as, or run zoomies upgrade, which offers to")
+		return ""
+	}
+	return config.SharedDir()
+}
+
 // buildBackends prepares the runner backends this host can use.
 //
 // Construction does not contact a daemon -- that is Probe's job -- so a host
@@ -565,6 +578,7 @@ func buildBackends(ctx context.Context, cfg *config.Config, log *slog.Logger) (*
 		WorkDir:      cfg.Agent.WorkDir,
 		RegistryAuth: cfg.Agent.RegistryAuth,
 		ExtraCAFile:  cfg.Agent.ExtraCAFile,
+		SharedDir:    sharedDirFor(log),
 		Logger:       log,
 	}
 	// An explicit agent.docker_host belongs to the backend it was configured

@@ -268,6 +268,7 @@ func TestDockerRunArgs(t *testing.T) {
 				"--env-file", "/etc/zoomies/zoomies.env",
 				"--publish", "127.0.0.1:9090:8080",
 				"--volume", "zoomies-data:/var/lib/zoomies",
+				"--volume", "/var/lib/zoomies/shared:/var/lib/zoomies/shared",
 				"--volume", "/var/run/docker.sock:/var/run/docker.sock",
 				"--group-add", "998",
 				"--network", "zoomies",
