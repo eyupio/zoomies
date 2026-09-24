@@ -114,26 +114,8 @@ func (c *Controller) PoolRoom(ctx context.Context, p *store.Pool) (PoolRoom, err
 		if code, _ := HostRefusal(h, p); code != "" && code != ExcludedSize {
 			continue
 		}
-		room := scheduler.HostRoomFor(h, p)
+		entry := poolHostRoom(h, p)
 		alloc := h.Allocatable()
-		charge := scheduler.Reserve(p, h)
-		entry := PoolHostRoom{
-			HostID:         h.ID,
-			Host:           h.Name,
-			Slots:          room.Slots,
-			Fits:           room.Fits,
-			Room:           room.Room,
-			LimitedBy:      room.LimitedBy,
-			ChargeCPUs:     charge.CPUs,
-			ChargeMemoryMB: charge.MemoryMB,
-			CPUs:           alloc.CPUs,
-			MemoryMB:       alloc.MemoryMB,
-			DiskMB:         alloc.DiskMB,
-			CPUsKnown:      alloc.CPUsKnown,
-			MemoryKnown:    alloc.MemoryKnown,
-			DiskKnown:      alloc.DiskKnown,
-			ElasticCPU:     h.Supports(agent.FeatureElasticCPU),
-		}
 		out.Hosts = append(out.Hosts, entry)
 		out.Runners += entry.Room
 		out.Slots += entry.Slots
@@ -142,6 +124,40 @@ func (c *Controller) PoolRoom(ctx context.Context, p *store.Pool) (PoolRoom, err
 		}
 	}
 	return out, nil
+}
+
+// poolHostRoom is one host's line in PoolRoom.
+//
+// The charge is what a runner there is really given. On a machine too small
+// for the pool's standard size that is the reduced size the pass places --
+// all the host can spare, never below the minimum -- and quoting the standard
+// there would tell an operator the pool is charged a size no runner on that
+// host is ever created at.
+func poolHostRoom(h *store.Host, p *store.Pool) PoolHostRoom {
+	room := scheduler.HostRoomFor(h, p)
+	alloc := h.Allocatable()
+	charge := scheduler.Reserve(p, h)
+	whole := scheduler.Reservation{CPUs: alloc.CPUs, MemoryMB: alloc.MemoryMB, DiskMB: alloc.DiskMB}
+	if reduced, _, ok := scheduler.ReducedSize(p, h, whole, alloc); ok {
+		charge = reduced
+	}
+	return PoolHostRoom{
+		HostID:         h.ID,
+		Host:           h.Name,
+		Slots:          room.Slots,
+		Fits:           room.Fits,
+		Room:           room.Room,
+		LimitedBy:      room.LimitedBy,
+		ChargeCPUs:     charge.CPUs,
+		ChargeMemoryMB: charge.MemoryMB,
+		CPUs:           alloc.CPUs,
+		MemoryMB:       alloc.MemoryMB,
+		DiskMB:         alloc.DiskMB,
+		CPUsKnown:      alloc.CPUsKnown,
+		MemoryKnown:    alloc.MemoryKnown,
+		DiskKnown:      alloc.DiskKnown,
+		ElasticCPU:     h.Supports(agent.FeatureElasticCPU),
+	}
 }
 
 // PoolRoomWarnings is what the room says about the pool's own figures.

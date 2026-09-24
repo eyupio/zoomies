@@ -1457,12 +1457,13 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 	if pair != "" {
 		containers = 2
 	}
+	needCPUs, needMemoryMB := slotNeed(h, pools)
 	fits := math.MaxInt
 	if a.CPUsKnown {
-		fits = min(fits, max(1, int(math.Floor(a.CPUs/float64(containers)))))
+		fits = min(fits, max(1, int(math.Floor(a.CPUs/(needCPUs*float64(containers))+1e-9))))
 	}
 	if a.MemoryKnown {
-		fits = min(fits, max(1, int(a.MemoryMB/(overprovisionedSlotMemoryMB*containers))))
+		fits = min(fits, max(1, int(a.MemoryMB/(needMemoryMB*containers))))
 	}
 	if h.Capacity <= fits {
 		return Problem{}, false
@@ -1496,8 +1497,8 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 	}
 	switch {
 	case len(each) > 0:
-		detail += fmt.Sprintf(", so each runner's default share is %s; a runner with less than a core or under %d MB crawls through a build, and %d of them together are what the machine was already too small for.",
-			strings.Join(each, " and "), overprovisionedSlotMemoryMB, h.Capacity)
+		detail += fmt.Sprintf(", so each runner's default share is %s; a runner with less than %s CPU or under %d MB crawls through a build, and %d of them together are what the machine was already too small for.",
+			strings.Join(each, " and "), scheduler.FormatCPUs(needCPUs), needMemoryMB, h.Capacity)
 	case defaults:
 		detail += fmt.Sprintf(", and its runners are given no default limit here -- its daemon cannot apply one, or its agent has not said whether it can, or it runs only the process backend -- so nothing limits them: each of the %d can take the whole machine at once, which is the shape that stops Docker answering.", h.Capacity)
 	default:
@@ -1526,13 +1527,14 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 		where += " (on the host card, or PATCH /api/v1/hosts/" + h.ID + "; --capacity on a fresh join token applies only at the host's next join)"
 	}
 	where += ", or add a host"
-	tooSmall := (a.CPUsKnown && a.CPUs < float64(containers)) ||
-		(a.MemoryKnown && a.MemoryMB < overprovisionedSlotMemoryMB*containers)
+	tooSmall := (a.CPUsKnown && a.CPUs+1e-9 < needCPUs*float64(containers)) ||
+		(a.MemoryKnown && a.MemoryMB < needMemoryMB*containers)
 	fix := where + "."
 	if tooSmall {
-		wants := fmt.Sprintf("a core and %d MB", overprovisionedSlotMemoryMB)
+		wants := fmt.Sprintf("%s CPU and %d MB", scheduler.FormatCPUs(needCPUs), needMemoryMB)
 		if containers > 1 {
-			wants = fmt.Sprintf("two cores and %d MB between its runner and its sidecar", overprovisionedSlotMemoryMB*containers)
+			wants = fmt.Sprintf("%s CPU and %d MB between its runner and its sidecar",
+				scheduler.FormatCPUs(needCPUs*float64(containers)), needMemoryMB*containers)
 		}
 		fix = fmt.Sprintf("the machine is too small to run a runner well: after its reserve it has %s to give, and one runner wants %s. %s, and give it lighter jobs or replace it with a larger machine.",
 			strings.Join(allocatable, " and "), wants, where)
@@ -1550,6 +1552,47 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 		p.Setting = "agent.capacity"
 	}
 	return p, true
+}
+
+// slotNeed is what one container in a slot on h has to be given for
+// host.overprovisioned to call the slot big enough: a core and
+// overprovisionedSlotMemoryMB, lowered on a field only where every pool that
+// can place on the host has a minimum below it.
+//
+// The core and 2 GB are a judgement made for runners nobody sized. A pool with
+// a minimum has been sized -- its operator said what a runner of it will
+// accept -- and a host whose slots each cover that minimum is a host the pool
+// runs on as configured, not one too small for it. Warning there sent
+// operators to lower a capacity their fleet was using. The largest need among
+// the pools that reach the host is the one that counts, so a pool with no
+// minimum beside one that has keeps the warning its own thin runners earn; a
+// minimum never raises the bar, since it is a floor and not a size.
+func slotNeed(h *store.Host, pools []*store.Pool) (cpus float64, memoryMB int64) {
+	var reached bool
+	for _, p := range pools {
+		if p == nil || !p.Enabled {
+			continue
+		}
+		if !scheduler.HostSelects(h, p) || !scheduler.HostOffers(h, p) || !scheduler.HostIsPlatform(h, p) {
+			continue
+		}
+		c, m := 1.0, overprovisionedSlotMemoryMB
+		if v := p.Resources.MinCPUs; v > 0 {
+			c = min(c, max(v, store.MinRunnerCPUs))
+		}
+		if v := p.Resources.MinMemoryMB; v > 0 {
+			m = min(m, max(v, store.MinRunnerMemoryMB))
+		}
+		if !reached {
+			cpus, memoryMB, reached = c, m, true
+			continue
+		}
+		cpus, memoryMB = max(cpus, c), max(memoryMB, m)
+	}
+	if !reached {
+		return 1, overprovisionedSlotMemoryMB
+	}
+	return cpus, memoryMB
 }
 
 // dindPoolPlacesOn names the first docker-in-docker pool that would place a
