@@ -120,6 +120,9 @@ type updateEngine struct {
 	*fakeEngine
 	mu      sync.Mutex
 	updates map[string][]map[string]any
+	// cpu is each container's CPU use in hundredths of a core, served as a
+	// stats sample; a container without one answers 404, as if unsampled.
+	cpu map[string]uint64
 }
 
 func newUpdateEngine(t *testing.T, runnerNanos, sidecarNanos int64, withSidecar bool) *updateEngine {
@@ -131,7 +134,7 @@ func newUpdateEngine(t *testing.T, runnerNanos, sidecarNanos int64, withSidecar 
 // created with half CPUs, which is what a boost of the pair is split by.
 func newHalvedUpdateEngine(t *testing.T, runnerNanos, sidecarNanos int64, withSidecar bool, half float64) *updateEngine {
 	t.Helper()
-	u := &updateEngine{updates: map[string][]map[string]any{}}
+	u := &updateEngine{updates: map[string][]map[string]any{}, cpu: map[string]uint64{}}
 	inspect := func(id string, nanos int64, labels map[string]string) *ContainerInspect {
 		return &ContainerInspect{
 			ID:         id,
@@ -173,6 +176,18 @@ func newHalvedUpdateEngine(t *testing.T, runnerNanos, sidecarNanos int64, withSi
 				return
 			}
 			writeJSON(w, 200, []ContainerSummary{{ID: "d1", State: "running", Labels: sidecarLabels}})
+		},
+		"GET " + v + "/containers/{id}/stats": func(w http.ResponseWriter, r *http.Request) {
+			u.mu.Lock()
+			total, ok := u.cpu[r.PathValue("id")]
+			u.mu.Unlock()
+			if !ok {
+				writeJSON(w, http.StatusNotFound, map[string]string{"message": "no stats"})
+				return
+			}
+			writeJSON(w, 200, map[string]any{"cpu_stats": map[string]any{
+				"cpu_usage": map[string]any{"total_usage": total}, "system_cpu_usage": 100, "online_cpus": 1,
+			}})
 		},
 		"POST " + v + "/containers/{id}/update": func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]any
@@ -398,5 +413,55 @@ func TestDinDStatsSayHowBusyTheBusierHalfIs(t *testing.T) {
 	// daemon 96% of its own 2.
 	if got.CPUPercent != 232 || got.BusiestHalfPercent != 96 {
 		t.Fatalf("stats = %+v, want 232%% for the pair and 96%% for its busier half", got)
+	}
+}
+
+// A docker-in-docker pair's boost used to go to the daemon whatever the job
+// was doing. A job whose steps run in the runner container -- setup-go and go
+// build, not a docker build -- stayed capped at the runner's own half while
+// the loan sat idle in the daemon: a runner showing "Maximum boost" at 10.4
+// cores and using 1.04 of them. The loan now goes to whichever half is busy.
+func TestUpdateResourcesLendsADinDBoostToTheHalfThatIsBusy(t *testing.T) {
+	// Two halves of 2 CPUs, boosted 2x: the pair is to have 8.
+	u := newHalvedUpdateEngine(t, 2_000_000_000, 2_000_000_000, true, 2)
+	u.cpu["c1"], u.cpu["d1"] = 198, 3 // the runner saturates its half; the daemon idles
+	b := dockerBackendFor(t, u.fakeEngine, DockerOptions{})
+	if err := b.UpdateResources(context.Background(), "c1", store.Resources{CPUs: 4}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if got := u.sent("c1"); len(got) != 1 || got[0]["NanoCpus"] != float64(6_000_000_000) {
+		t.Fatalf("runner updates = %v, want one to 6 CPUs, the pair's 8 less the daemon's 2", got)
+	}
+	if got := u.sent("d1"); len(got) != 0 {
+		t.Fatalf("sidecar updates = %v, want none: an idle daemon keeps its own half", got)
+	}
+
+	// The daemon busier, as in a docker build: the loan goes to it.
+	u = newHalvedUpdateEngine(t, 2_000_000_000, 2_000_000_000, true, 2)
+	u.cpu["c1"], u.cpu["d1"] = 10, 199
+	b = dockerBackendFor(t, u.fakeEngine, DockerOptions{})
+	if err := b.UpdateResources(context.Background(), "c1", store.Resources{CPUs: 4}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if got := u.sent("c1"); len(got) != 0 {
+		t.Fatalf("runner updates = %v, want none", got)
+	}
+	if got := u.sent("d1"); len(got) != 1 || got[0]["NanoCpus"] != float64(6_000_000_000) {
+		t.Fatalf("sidecar updates = %v, want one to 6 CPUs", got)
+	}
+
+	// Moved from one half to the other, the half that had the loan gives it
+	// back in the same update, so the pair never holds more than its target.
+	u = newHalvedUpdateEngine(t, 2_000_000_000, 6_000_000_000, true, 2)
+	u.cpu["c1"], u.cpu["d1"] = 198, 3
+	b = dockerBackendFor(t, u.fakeEngine, DockerOptions{})
+	if err := b.UpdateResources(context.Background(), "c1", store.Resources{CPUs: 4}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if got := u.sent("d1"); len(got) != 1 || got[0]["NanoCpus"] != float64(2_000_000_000) {
+		t.Fatalf("sidecar updates = %v, want it back to its 2 CPU half", got)
+	}
+	if got := u.sent("c1"); len(got) != 1 || got[0]["NanoCpus"] != float64(6_000_000_000) {
+		t.Fatalf("runner updates = %v, want it given the loan", got)
 	}
 }
