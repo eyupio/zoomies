@@ -524,6 +524,18 @@
   />
 
   {#if draft.cache_enabled}
+    {#if draft.backend === 'docker' || draft.backend === 'podman'}
+      <!--
+        The tool cache is the one thing in a cache that a later job runs rather
+        than reads, which is why it is its own choice and why it says so.
+      -->
+      <Checkbox
+        bind:checked={draft.cache_tools}
+        label="Keep a tool cache as well"
+        description="What setup-python, setup-node, setup-go and setup-java download is kept in the host's shared folder for the next runner, within the same boundary. A job that can write to it can replace a tool the next job runs."
+        onchange={() => touch('cache.tools')}
+      />
+    {/if}
     <div class="pair">
       <Field
         label="Isolation scope"

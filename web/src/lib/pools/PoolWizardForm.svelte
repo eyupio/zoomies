@@ -86,6 +86,7 @@
     scale_up_delay: string;
     docker_wait: string;
     cache_enabled: boolean;
+    cache_tools: boolean;
     cache_scope: 'pool' | 'repository';
     cache_size_limit: string;
     cache_source: string;
@@ -144,6 +145,7 @@
       scale_up_delay: '',
       docker_wait: '',
       cache_enabled: false,
+      cache_tools: false,
       cache_scope: 'pool',
       cache_size_limit: '',
       cache_source: '',
@@ -200,6 +202,7 @@
       scale_up_delay: pool.runner_settings?.scale_up_delay ?? '',
       docker_wait: pool.runner_settings?.docker_wait ?? '',
       cache_enabled: pool.cache?.enabled === true,
+      cache_tools: pool.cache?.tools === true,
       cache_scope: pool.cache?.scope ?? 'pool',
       cache_size_limit: fromNumber(pool.cache?.size_limit),
       cache_source: pool.cache?.source ?? '',
@@ -318,6 +321,12 @@
       enabled: draft.enabled,
       cache: {
         enabled: draft.cache_enabled,
+        // Only a container runner has a tool cache to keep, and only with the
+        // cache on; anything else would be refused by the server.
+        tools:
+          draft.cache_enabled &&
+          draft.cache_tools &&
+          (draft.backend === 'docker' || draft.backend === 'podman'),
         scope: draft.cache_scope,
         size_limit: toInteger(draft.cache_size_limit) ?? 0,
         source: draft.cache_source.trim(),

@@ -3598,6 +3598,11 @@ export interface components {
             source?: string;
             /** @description The repository a repository-scoped cache belongs to, as owner/name. Required when the pool's installation targets an organisation, and left empty when it targets a single repository, which supplies it. */
             repository?: string;
+            /**
+             * @description Keep the pool's tool cache -- where setup-python, setup-node, setup-go and setup-java unpack what they download -- between runners, in each host's shared folder (/var/lib/zoomies/shared/cache/tools), shared with the same runners as the cache above. Needs `enabled`, and a container backend. A job that can write to it can replace a tool the next job runs.
+             * @default false
+             */
+            tools: boolean;
         };
         PoolsExport: {
             export_version: number;

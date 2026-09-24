@@ -730,6 +730,15 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 			"the runner image refuses a wait longer than %s and starts no runner at all; keep it to %s or less, or clear it to follow the fleet",
 			config.MaxDockerWait, config.MaxDockerWait))
 	}
+	// The tool cache is kept beside the pool cache and shared with the same
+	// runners, so it needs the cache to be on to have a scope at all; and it
+	// is a folder bound into a container, so a process runner, which uses the
+	// host's own tool cache, has nothing to bind it into.
+	if p.Cache.Tools && !p.Cache.Enabled {
+		add("cache.tools", "a tool cache is kept with the pool cache and shared with the same runners; turn the cache on, or turn the tool cache off")
+	} else if p.Cache.Tools && p.Backend == store.BackendProcess {
+		add("cache.tools", "a process runner uses the host's own tool cache already; a kept tool cache is for container runners")
+	}
 	if p.Cache.Enabled {
 		if !p.Cache.Scope.Valid() {
 			add("cache.scope", "use pool or repository")

@@ -175,6 +175,16 @@ func TestPoolValidationNamesTheField(t *testing.T) {
 		{"size limit on a named volume", func(b map[string]any) {
 			b["cache"] = map[string]any{"enabled": true, "scope": "pool", "size_limit": 1 << 30, "source": "zoomies-cache"}
 		}, "cache.size_limit", "absolute host path"},
+		// The tool cache is shared with the pool cache's runners, so it has
+		// no scope without the cache; and a process runner has no container
+		// to bind it into.
+		{"tool cache without the cache", func(b map[string]any) {
+			b["cache"] = map[string]any{"enabled": false, "scope": "pool", "tools": true}
+		}, "cache.tools", "turn the cache on"},
+		{"tool cache on a process runner", func(b map[string]any) {
+			b["backend"] = "process"
+			b["cache"] = map[string]any{"enabled": true, "scope": "pool", "tools": true}
+		}, "cache.tools", "container runners"},
 	}
 
 	for _, tc := range cases {
@@ -1363,5 +1373,35 @@ func TestAPoolsEnvValuesNeverReachTheAuditLog(t *testing.T) {
 	}
 	if poolRows == 0 {
 		t.Fatal("no pool audit rows at all, so this test proved nothing")
+	}
+}
+
+// The tool cache is a pool setting, kept with the pool, so an edit or a
+// restart keeps it -- it is not an environment variable somebody has to
+// remember on every pool.
+func TestAPoolKeepsItsToolCacheSetting(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["cache"] = map[string]any{"enabled": true, "scope": "pool", "tools": true}
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var got struct {
+		ID    string            `json:"id"`
+		Cache store.CacheConfig `json:"cache"`
+	}
+	res.into(t, &got)
+	if !got.Cache.Tools {
+		t.Fatalf("cache = %+v, want the tool cache kept", got.Cache)
+	}
+	stored, err := h.st.GetPool(h.ctx, got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.Cache.Tools {
+		t.Errorf("stored cache = %+v, want the tool cache in the database", stored.Cache)
 	}
 }

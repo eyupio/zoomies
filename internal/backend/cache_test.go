@@ -353,3 +353,83 @@ func TestTheRunnerImagesToolCacheIsTheRunners(t *testing.T) {
 		t.Errorf("AGENT_TOOLSDIRECTORY is %s, which deploy/Dockerfile.runner does not create owned by the runner", toolCache)
 	}
 }
+
+// A pool that keeps a tool cache has it bound from the host's shared folder,
+// under the same identity as its pool cache, and the runner is pointed at it
+// -- at a folder of its own, so an image's baked-in tool cache is not hidden.
+func TestAToolCacheIsBoundFromTheSharedFolderAndNamedToTheRunner(t *testing.T) {
+	shared := t.TempDir()
+	s := Spec{PoolID: "pool_one", Repository: "acme/one",
+		Cache: store.CacheConfig{Enabled: true, Scope: store.CacheScopeRepository, Tools: true}}
+	dir, err := toolCacheDir(s, shared)
+	if err != nil {
+		t.Fatalf("toolCacheDir: %v", err)
+	}
+	if want := filepath.Join(shared, "cache", "tools", "pool-one-acme-one"); dir != want {
+		t.Fatalf("tool cache = %q, want %q: the pool cache's own identity, under cache/tools", dir, want)
+	}
+	cfg := buildRunnerConfig(s, dockerFlavor(), containerOptions{ToolCacheDir: dir})
+	if !slices.Contains(cfg.HostConfig.Binds, dir+":"+RunnerToolCacheMount) {
+		t.Errorf("binds = %v, want the tool cache at %s", cfg.HostConfig.Binds, RunnerToolCacheMount)
+	}
+	if !slices.Contains(cfg.Env, EnvToolsDirectory+"="+RunnerToolCacheMount) {
+		t.Errorf("env = %v, want %s pointed at the mount", cfg.Env, EnvToolsDirectory)
+	}
+	if RunnerToolCacheMount == "/opt/hostedtoolcache" {
+		t.Error("the tool cache is mounted over the image's own, hiding the toolchains an image was built with")
+	}
+}
+
+// Off unless the pool asks and the host has somewhere to keep it: no mount,
+// no variable, and the image's tool cache is what the runner uses.
+func TestAToolCacheNeedsThePoolToAskAndAHostFolder(t *testing.T) {
+	on := Spec{PoolID: "pool_one", Cache: store.CacheConfig{Enabled: true, Scope: store.CacheScopePool, Tools: true}}
+	for name, tc := range map[string]struct {
+		spec   Spec
+		shared string
+	}{
+		"not asked":        {Spec{PoolID: "pool_one", Cache: store.CacheConfig{Enabled: true, Scope: store.CacheScopePool}}, t.TempDir()},
+		"cache off":        {Spec{PoolID: "pool_one", Cache: store.CacheConfig{Scope: store.CacheScopePool, Tools: true}}, t.TempDir()},
+		"no shared folder": {on, ""},
+	} {
+		if dir, _ := toolCacheDir(tc.spec, tc.shared); dir != "" {
+			t.Errorf("%s: tool cache = %q, want none", name, dir)
+		}
+	}
+	cfg := buildRunnerConfig(on, dockerFlavor(), containerOptions{})
+	for _, e := range cfg.Env {
+		if strings.HasPrefix(e, EnvToolsDirectory+"=") {
+			t.Errorf("env names a tool cache nothing was mounted for: %s", e)
+		}
+	}
+}
+
+// The runner is not the agent. A folder the agent or the daemon creates for a
+// bind is theirs, and the runner -- uid 1001 in the stock images -- could not
+// write to its own cache. A new folder is opened to it; one an operator made
+// is left as they made it.
+func TestACacheFolderIsCreatedWritableByTheRunner(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "cache", "tools", "pool-one")
+	if err := ensureRunnerWritableDir(dir); err != nil {
+		t.Fatalf("ensureRunnerWritableDir: %v", err)
+	}
+	fi, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o777 {
+		t.Errorf("new folder mode = %v, want writable by every user", fi.Mode().Perm())
+	}
+
+	mine := filepath.Join(root, "operators")
+	if err := os.Mkdir(mine, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureRunnerWritableDir(mine); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(mine); fi.Mode().Perm() != 0o700 {
+		t.Errorf("an existing folder's mode was changed to %v", fi.Mode().Perm())
+	}
+}

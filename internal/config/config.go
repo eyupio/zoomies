@@ -1083,6 +1083,45 @@ func StateDir() string {
 	return ".zoomies"
 }
 
+// SharedDir is the folder Zoomies keeps data on the host in that runners, and
+// anything else outside this process, have to reach: /var/lib/zoomies/shared
+// on a Linux host where Zoomies runs as root, and the shared folder under the
+// state directory everywhere else.
+//
+// It is not a setting, because a Compose deployment fixes it: the controller's
+// container mounts the host's /var/lib/zoomies/shared at the same path, so the
+// path the controller hands the host's Docker daemon for a runner's mount
+// means the same folder on both sides. A setting that could move it inside
+// the container without moving the mount would point every runner at a
+// folder the daemon cannot see.
+func SharedDir() string { return filepath.Join(StateDir(), "shared") }
+
+// SharedLayout is every folder this release keeps under SharedDir, one per
+// purpose. Each is created when an agent starts, so a later release adds a
+// purpose by adding a line here and nothing else: the shared folder itself is
+// writable by Zoomies for exactly that reason.
+var SharedLayout = []string{
+	// cache/pools is where a pool cache with an absolute source lives,
+	// when the operator points it here.
+	"cache/pools",
+	// cache/tools holds each pool's tool cache: the Python, Node.js, Go and
+	// Java the setup-* actions unpack, kept between runners.
+	"cache/tools",
+}
+
+// EnsureSharedDir creates SharedDir and every folder in SharedLayout that is
+// missing, and reports the first it could not. It changes nothing that
+// already exists.
+func EnsureSharedDir() error {
+	for _, sub := range append([]string{""}, SharedLayout...) {
+		dir := filepath.Join(SharedDir(), filepath.FromSlash(sub))
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return fmt.Errorf("creating %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
 // ConfigDir is where zoomies.yaml and the encryption key live.
 func ConfigDir() string {
 	if v := os.Getenv("ZOOMIES_CONFIG_DIR"); v != "" {

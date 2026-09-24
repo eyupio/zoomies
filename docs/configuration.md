@@ -947,8 +947,8 @@ That makes the tool cache something you can fill ahead of time. An image built
 `FROM` one of ours that installs the versions your workflows ask for into
 `/opt/hostedtoolcache` turns each of those setup steps into a lookup rather
 than a download; the pool's image prewarm puts that image on the host before
-any job needs it. To share one cache between runners instead, see
-[the pool cache](#the-pool-cache).
+any job needs it. To keep one tool cache between a pool's runners instead, see
+[keeping a tool cache](#keeping-a-tool-cache).
 
 ### `updates.check_interval` — knowing the controller is behind
 
@@ -1761,6 +1761,7 @@ cache:
   size_limit: 0       # bytes; 0 is unlimited
   source: ""          # a named-volume prefix, or an absolute host path
   repository: ""      # owner/name, for a repository cache under an org installation
+  tools: false        # keep the setup-* actions' tool cache too; see below
 ```
 
 `scope` decides who shares it. `pool` gives every runner in the pool the same
@@ -1804,37 +1805,78 @@ to be an absolute host path. On a named volume the bytes are the daemon's, on a
 filesystem the agent may not even share, and a limit there would be a number in
 a form that controlled nothing — so it is refused rather than accepted.
 
-#### The pool cache as a tool cache
+#### Keeping a tool cache
 
-A pool can keep its runners' tool cache in the pool cache, so the first job to
-ask for a version downloads it and the rest find it there. Set the variable in
-the pool's `env`:
+`cache.tools` keeps the pool's tool cache between runners as well: what
+`setup-python`, `setup-node`, `setup-go` and `setup-java` download, so the first
+job to ask for a version downloads it and the rest find it there. It is a
+setting of the pool, stored with it — the **Keep a tool cache as well** box
+under the cache on the pool's size step — and not an environment variable to
+remember.
 
 ```yaml
-env:
-  AGENT_TOOLSDIRECTORY: /opt/zoomies-cache/toolcache
 cache:
   enabled: true
-  scope: pool
+  scope: pool          # or: repository
+  tools: true
 ```
 
-The runner reads `RUNNER_TOOL_CACHE` first, then `RUNNER_TOOLSDIRECTORY`, then
-`AGENT_TOOLSDIRECTORY`, so a pool that sets either of the first two gets the
-directory it named instead.
+It is kept in each host's [shared folder](#the-shared-folder), under
+`cache/tools`, in a folder named for the pool — and the repository, for a
+repository-scoped cache — so it is shared with exactly the runners the pool
+cache is. It is mounted at `/opt/zoomies-tools` and the runner is pointed at
+it. That is its own folder rather than the image's `/opt/hostedtoolcache`, so an
+image that ships toolchains, such as
+[`zoomies-runner-full`](#the-full-image), keeps them: a tool the kept cache
+lacks is downloaded into it the first time, and a pool on the full image rarely
+needs this at all. A pool whose `env` sets `AGENT_TOOLSDIRECTORY` itself keeps
+its own.
 
 This shares more than a build cache does. What is in a tool cache is run, not
 just read: a job that can write to it can replace the `python` or `node` that
-the next job on the pool executes. Only do this on a pool whose repositories
-already trust one another, and prefer `scope: repository` when they do not.
-Two runners that ask for a version the cache does not yet have may unpack it
-into the same directory at once, and the setup actions take no lock against
-that. Letting one job fill the cache before the pool is busy — or baking the
-versions into an image, as above — keeps them from racing.
+the next job on the pool executes. Only turn it on for a pool whose
+repositories already trust one another, and prefer `scope: repository` when
+they do not. Two runners that ask for a version the cache does not yet have may
+unpack it into the same folder at once, and the setup actions take no lock
+against that; letting one job fill it before the pool is busy keeps them from
+racing.
 
-The stock images own `/opt/zoomies-cache`, so a new named volume mounted there
-belongs to the runner. A cache on an absolute host path is a directory of
-yours, and the runner — uid 1001 in the stock images — needs to be able to
-write to it.
+It needs the cache on and a container backend: a process runner uses the host's
+own tool cache already. A host whose shared folder cannot be created starts the
+pool's runners without the kept tool cache and says so in its log, rather than
+not starting them.
+
+#### The shared folder
+
+Every host keeps the data runners have to reach in one folder:
+`/var/lib/zoomies/shared` on a Linux host where Zoomies runs as root, and
+`shared` under the state directory everywhere else. It has one folder per
+purpose:
+
+| Folder | What is in it |
+| --- | --- |
+| `cache/tools` | each pool's [kept tool cache](#keeping-a-tool-cache) |
+| `cache/pools` | pool caches whose `source` is pointed here, as `/var/lib/zoomies/shared/cache/pools` |
+
+The agent creates any of these that are missing each time it starts, which is
+how a later release adds a folder: it needs the shared folder to be writable by
+the account Zoomies runs as — `zoomies` for a native install, uid 65532 in the
+container images. The installer creates it that way.
+
+A container deployment mounts the host's `/var/lib/zoomies/shared` at the same
+path inside the controller's container. The host's Docker daemon binds a
+runner's cache folders from it, and a folder the controller named by any other
+path would be one the daemon cannot see. For a Compose file you maintain by
+hand, create it before starting:
+
+```sh
+sudo mkdir -p /var/lib/zoomies/shared && sudo chown 65532:65532 /var/lib/zoomies/shared
+```
+
+A cache folder Zoomies creates for a runner is writable by every account — the
+runner is uid 1001 in the stock images, and something else in your own — while
+the folders above it keep everyone else out. One that is already there is left
+as you made it.
 
 ### Jobs that build container images
 

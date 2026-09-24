@@ -76,10 +76,15 @@ type ComposeFileSpec struct {
 	Container string
 	Volume    string
 	Network   string
+	// SharedDir is the host's shared folder, mounted at the same path.
+	SharedDir string
 }
 
 // defaults fills what a caller may leave empty.
 func (s ComposeFileSpec) defaults() ComposeFileSpec {
+	if s.SharedDir == "" {
+		s.SharedDir = SharedHostDir
+	}
 	if s.Mode == "" {
 		s.Mode = ModeSingle
 	}
@@ -410,6 +415,8 @@ func DockerRunArgs(s DockerRunSpec) []string {
 		args = append(args, "--publish", published)
 	}
 	args = append(args, "--volume", s.Volume+":"+ContainerStateDir)
+	// The shared folder, at the path it has on the host; see SharedHostDir.
+	args = append(args, "--volume", SharedHostDir+":"+SharedHostDir)
 	if s.MountSocket && s.SocketPath != "" {
 		// The socket is mounted at the path it has on the host, so that
 		// ZOOMIES_DOCKER_HOST means the same thing on both sides.
@@ -482,6 +489,22 @@ func (i *Installer) runContainer(ctx context.Context, p Plan) error {
 	i.ui.step("Writing the deployment into " + p.DeployDir)
 	if err := os.MkdirAll(p.DeployDir, 0o750); err != nil {
 		return fmt.Errorf("installer: creating %s: %w", p.DeployDir, err)
+	}
+	// Before the container, which mounts it: a bind to a path that is not
+	// there is created by the daemon owned by root, and the image's account
+	// could then never add to it.
+	created, err := PrepareSharedDir(SharedHostDir, ImageUID, ImageUID)
+	if err != nil {
+		return err
+	}
+	if len(created) > 0 {
+		i.wrote(fmt.Sprintf("created %s for runners' caches, owned by uid %d so later releases can add to it", SharedHostDir, ImageUID))
+	}
+	if problems := SharedDirProblems(SharedHostDir, ImageUID); len(problems) > 0 {
+		for _, pr := range problems {
+			i.ui.warn(pr)
+		}
+		i.ui.note(fmt.Sprintf("run: sudo chown -R %d:%d %s", ImageUID, ImageUID, SharedHostDir))
 	}
 
 	envPath := filepath.Join(p.DeployDir, EnvFileFor(p.Deployment))

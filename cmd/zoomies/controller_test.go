@@ -130,6 +130,7 @@ func TestBuildBackendsRefusesABackendThisHostCannotProvide(t *testing.T) {
 	cfg.Agent.WorkDir = t.TempDir()
 	cfg.Agent.Backend = "wibble"
 
+	t.Setenv("ZOOMIES_STATE_DIR", t.TempDir())
 	_, err := buildBackends(context.Background(), cfg, discardLogger())
 	if err == nil {
 		t.Fatal("an unknown backend was accepted")
@@ -149,6 +150,7 @@ func TestBuildBackendsGivesTheExplicitSocketOnlyToTheConfiguredBackend(t *testin
 	cfg.Agent.Backend = "docker"
 	cfg.Agent.DockerHost = "unix://" + filepath.Join(t.TempDir(), "docker.sock")
 
+	t.Setenv("ZOOMIES_STATE_DIR", t.TempDir())
 	reg, err := buildBackends(context.Background(), cfg, discardLogger())
 	if err != nil {
 		t.Fatalf("buildBackends: %v", err)
@@ -183,6 +185,7 @@ func TestBuildBackendsLeavesOutBackendsThisHostVisiblyLacks(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 
+	t.Setenv("ZOOMIES_STATE_DIR", t.TempDir())
 	reg, err := buildBackends(context.Background(), cfg, discardLogger())
 	if err != nil {
 		t.Fatalf("buildBackends: %v", err)
@@ -318,5 +321,23 @@ func TestAStoredLogLevelIsInForceAfterTheDatabaseIsRead(t *testing.T) {
 func TestControllerShutdownOutlastsEmbeddedAgent(t *testing.T) {
 	if stopGrace <= agent.ShutdownTimeout {
 		t.Fatalf("controller grace %s must exceed agent shutdown %s", stopGrace, agent.ShutdownTimeout)
+	}
+}
+
+// An agent lays out the shared folder when it starts, so a release that adds a
+// folder to config.SharedLayout has it on every host by the next start, and a
+// pool's tool cache has somewhere to live.
+func TestBuildBackendsLaysOutTheSharedFolder(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("ZOOMIES_STATE_DIR", state)
+	cfg := config.Default()
+	cfg.Agent.WorkDir = t.TempDir()
+	if _, err := buildBackends(context.Background(), cfg, discardLogger()); err != nil {
+		t.Fatalf("buildBackends: %v", err)
+	}
+	for _, sub := range config.SharedLayout {
+		if fi, err := os.Stat(filepath.Join(state, "shared", filepath.FromSlash(sub))); err != nil || !fi.IsDir() {
+			t.Errorf("shared/%s was not created: %v", sub, err)
+		}
 	}
 }

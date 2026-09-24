@@ -19,6 +19,32 @@ func cacheSource(spec Spec) (string, error) {
 	if !c.Enabled {
 		return "", nil
 	}
+	safe, err := cacheIdentity(spec)
+	if err != nil {
+		return "", err
+	}
+	prefix := strings.TrimSpace(c.Source)
+	if strings.Contains(prefix, "..") {
+		return "", fmt.Errorf("backend: unsafe cache source %q: path traversal is not allowed", prefix)
+	}
+	if prefix == "" {
+		prefix = "zoomies-cache"
+	}
+	if filepath.IsAbs(prefix) {
+		return filepath.Join(prefix, safe), nil
+	}
+	if strings.ContainsAny(prefix, `/\\:`) {
+		return "", fmt.Errorf("backend: unsafe cache volume prefix %q", prefix)
+	}
+	return prefix + "-" + safe, nil
+}
+
+// cacheIdentity is the one name a pool's caches are kept under: the pool, or
+// the pool and its repository for a repository-scoped cache. The pool cache
+// and the tool cache share it, so the two are always shared with the same
+// runners.
+func cacheIdentity(spec Spec) (string, error) {
+	c := spec.Cache
 	if !c.Scope.Valid() {
 		return "", fmt.Errorf("backend: %q is not a cache scope", c.Scope)
 	}
@@ -38,20 +64,42 @@ func cacheSource(spec Spec) (string, error) {
 	if safe == "" || safe == "." || safe == ".." {
 		return "", fmt.Errorf("backend: unsafe cache identity")
 	}
-	prefix := strings.TrimSpace(c.Source)
-	if strings.Contains(prefix, "..") {
-		return "", fmt.Errorf("backend: unsafe cache source %q: path traversal is not allowed", prefix)
+	return safe, nil
+}
+
+// toolCacheDir is the host folder a pool's tool cache is kept in, under the
+// host's shared folder: "" when the pool keeps none or the host has no shared
+// folder to keep it in.
+func toolCacheDir(spec Spec, sharedDir string) (string, error) {
+	if !spec.Cache.Enabled || !spec.Cache.Tools || sharedDir == "" {
+		return "", nil
 	}
-	if prefix == "" {
-		prefix = "zoomies-cache"
+	safe, err := cacheIdentity(spec)
+	if err != nil {
+		return "", err
 	}
-	if filepath.IsAbs(prefix) {
-		return filepath.Join(prefix, safe), nil
+	return filepath.Join(sharedDir, "cache", "tools", safe), nil
+}
+
+// ensureRunnerWritableDir creates a host folder a runner is going to write to
+// through a bind mount, open to every user when it is new.
+//
+// The runner is not the agent: in the stock images it is uid 1001, in a
+// pool's own image whatever that image says, and the agent may be root or
+// the controller container's 65532. A folder the daemon creates for a bind is
+// root's, and a folder the agent creates is the agent's, and either leaves the
+// runner unable to write a byte to its own cache. So a folder this creates is
+// made writable by all; its parents stay as they are, and they are what keep
+// anyone who is not the runner out. A folder that already exists is left
+// exactly as its owner made it.
+func ensureRunnerWritableDir(dir string) error {
+	if _, err := os.Stat(dir); err == nil {
+		return nil
 	}
-	if strings.ContainsAny(prefix, `/\\:`) {
-		return "", fmt.Errorf("backend: unsafe cache volume prefix %q", prefix)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
 	}
-	return prefix + "-" + safe, nil
+	return os.Chmod(dir, 0o777)
 }
 
 // cacheDirectory returns the host directory a cache lives in, and whether there

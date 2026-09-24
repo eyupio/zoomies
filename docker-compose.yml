@@ -5,6 +5,7 @@
 #        ZOOMIES_ENCRYPTION_KEY  openssl rand -base64 32
 #        DOCKER_GID              stat -c '%g' /var/run/docker.sock
 #   2. mkdir -p data && sudo chown 65532:65532 data
+#      sudo mkdir -p /var/lib/zoomies/shared && sudo chown 65532:65532 /var/lib/zoomies/shared
 #   3. docker compose up -d
 #   4. docker compose logs zoomies | grep 'setup token'
 #   5. open ZOOMIES_EXTERNAL_URL, paste that token, and create the first admin
@@ -161,6 +162,18 @@ services:
           # root, since the daemon is root -- and hand you error 14 at startup.
           # Failing with "bind source path does not exist" is far easier to act
           # on than a SQLite error code.
+          create_host_path: false
+      # The shared folder: runners' caches, one folder per purpose, and where
+      # later releases add folders of their own -- which is why it has to be
+      # owned by 65532 (step 2), and why Zoomies creates what it needs inside
+      # it as it starts. It is mounted at the path it has on the host, because
+      # the host's Docker daemon binds its subfolders into runner containers,
+      # and a path that meant something else inside this container would point
+      # a runner at a folder the daemon cannot see.
+      - type: bind
+        source: /var/lib/zoomies/shared
+        target: /var/lib/zoomies/shared
+        bind:
           create_host_path: false
       # The embedded agent needs the Docker socket to create runner containers.
       # This is Zoomies' own access to Docker -- it is NOT the same thing as

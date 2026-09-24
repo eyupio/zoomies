@@ -692,6 +692,12 @@ type CacheConfig struct {
 	// many repositories, and this is what lets such a pool have a repository
 	// cache without an installation of its own per repository.
 	Repository string `json:"repository,omitempty"`
+	// Tools keeps the pool's tool cache -- where setup-python, setup-node,
+	// setup-go and setup-java unpack what they download -- between runners,
+	// in the host's shared folder, with the same scope as the cache above. A
+	// job that can write to it can replace a tool the next job runs, which is
+	// why it follows the cache's scope rather than being fleet-wide.
+	Tools bool `json:"tools,omitempty"`
 }
 
 // Pool is a named group of interchangeable runners: what labels they answer to,
