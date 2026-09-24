@@ -94,7 +94,7 @@ func TestUnknownSubcommandNamesTheAlternatives(t *testing.T) {
 	if code := dispatch(context.Background(), e, []string{"pools", "frobnicate"}); code != exitUsage {
 		t.Fatalf("exit code = %d, want %d", code, exitUsage)
 	}
-	if !strings.Contains(errOut.String(), "create, delete, disable, edit, enable, get, list") {
+	if !strings.Contains(errOut.String(), "create, delete, disable, edit, enable, export, get, import, list") {
 		t.Errorf("alternatives not listed:\n%s", errOut)
 	}
 }

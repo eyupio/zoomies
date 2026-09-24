@@ -268,6 +268,16 @@ export const listScalingEvents = (query?: Query<'listScalingEvents'>, signal?: A
 
 /* -- pools ---------------------------------------------------------------- */
 
+/**
+ * Where the browser goes for a pools export. A navigation rather than a fetch,
+ * as the settings export is, because the point is the browser's own download.
+ */
+export const poolsExportUrl = (format: 'json' | 'yaml') =>
+  `${BASE}/pools/export${toQuery({ format })}`;
+
+export const importPools = (body: Body<'importPools'>) =>
+  api.post<Result<'importPools'>>('/pools/import', { body });
+
 export const listPools = (signal?: AbortSignal) =>
   api.get<Result<'listPools'>>('/pools', { signal });
 
