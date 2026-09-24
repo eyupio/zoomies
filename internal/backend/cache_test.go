@@ -368,9 +368,16 @@ func TestAToolCacheIsBoundFromTheSharedFolderAndNamedToTheRunner(t *testing.T) {
 	if want := filepath.Join(shared, "cache", "tools", "pool-one-acme-one"); dir != want {
 		t.Fatalf("tool cache = %q, want %q: the pool cache's own identity, under cache/tools", dir, want)
 	}
-	cfg := buildRunnerConfig(s, dockerFlavor(), containerOptions{ToolCacheDir: dir})
-	if !slices.Contains(cfg.HostConfig.Binds, dir+":"+RunnerToolCacheMount) {
-		t.Errorf("binds = %v, want the tool cache at %s", cfg.HostConfig.Binds, RunnerToolCacheMount)
+	farm := toolFarmDir(shared, "run-one")
+	cfg := buildRunnerConfig(s, dockerFlavor(), containerOptions{ToolCacheDir: dir, ToolFarmDir: farm})
+	if !slices.Contains(cfg.HostConfig.Binds, dir+":"+RunnerToolCacheSharedMount+":ro") {
+		t.Errorf("binds = %v, want the kept tool cache read-only at %s", cfg.HostConfig.Binds, RunnerToolCacheSharedMount)
+	}
+	if !slices.Contains(cfg.HostConfig.Binds, farm+":"+RunnerToolCacheMount) {
+		t.Errorf("binds = %v, want the runner's own tool cache at %s", cfg.HostConfig.Binds, RunnerToolCacheMount)
+	}
+	if cfg.Labels[LabelToolFarm] != farm {
+		t.Errorf("labels = %v, want the runner's own tool cache recorded for removal", cfg.Labels)
 	}
 	if !slices.Contains(cfg.Env, EnvToolsDirectory+"="+RunnerToolCacheMount) {
 		t.Errorf("env = %v, want %s pointed at the mount", cfg.Env, EnvToolsDirectory)

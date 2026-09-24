@@ -427,6 +427,9 @@ type containerOptions struct {
 	// at RunnerToolCacheMount. Create resolves and creates it; empty mounts
 	// nothing and leaves the image's own tool cache in place.
 	ToolCacheDir string
+	// ToolFarmDir is the host folder holding this runner's own tool cache,
+	// bound at RunnerToolCacheMount; it is set whenever ToolCacheDir is.
+	ToolFarmDir string
 }
 
 // extraCABind is the read-only mount for the extra CA bundle. The Podman
@@ -469,6 +472,9 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 	}
 	if o.WorkDirOwned && o.WorkDirMount != "" {
 		labels[LabelWorkDir] = o.WorkDirMount
+	}
+	if o.ToolFarmDir != "" {
+		labels[LabelToolFarm] = o.ToolFarmDir
 	}
 	runnerRes := spec.Resources
 	if spec.DockerMode == store.DockerDinD {
@@ -551,8 +557,10 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 	if source, err := cacheSource(spec); err == nil && source != "" {
 		hc.Binds = append(hc.Binds, source+":"+RunnerCacheMount+fl.mountSuffix)
 	}
-	if o.ToolCacheDir != "" {
-		hc.Binds = append(hc.Binds, o.ToolCacheDir+":"+RunnerToolCacheMount+fl.mountSuffix)
+	if o.ToolCacheDir != "" && o.ToolFarmDir != "" {
+		hc.Binds = append(hc.Binds,
+			o.ToolCacheDir+":"+RunnerToolCacheSharedMount+":ro"+strings.ReplaceAll(fl.mountSuffix, ":", ","),
+			o.ToolFarmDir+":"+RunnerToolCacheMount+fl.mountSuffix)
 	}
 	if o.ExtraCAFile != "" {
 		hc.Binds = append(hc.Binds, extraCABind(fl, o.ExtraCAFile))
@@ -596,7 +604,7 @@ func runnerEnv(spec Spec, o containerOptions) []string {
 	env = append(env, o.ProxyEnv...)
 	// Before the pool's own variables, so a pool that names a tool cache of
 	// its own in env keeps it: the daemon keeps the last of a repeated name.
-	if o.ToolCacheDir != "" {
+	if o.ToolCacheDir != "" && o.ToolFarmDir != "" {
 		env = append(env, EnvToolsDirectory+"="+RunnerToolCacheMount)
 	}
 
@@ -920,6 +928,11 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 			if err := b.cleanupFailedCreate(ctx, spec, createErr, dindID, workDir, owned); err != nil {
 				createErr = errors.Join(createErr, err)
 			}
+			if opts.ToolFarmDir != "" {
+				if err := os.RemoveAll(opts.ToolFarmDir); err != nil {
+					createErr = errors.Join(createErr, fmt.Errorf("cleaning failed runner tool cache: %w", err))
+				}
+			}
 		}
 	}()
 
@@ -1228,7 +1241,13 @@ func (b *DockerBackend) prepareCacheDirs(spec Spec, opts *containerOptions) {
 		b.log.Warn("could not prepare the tool cache folder; this runner starts without it", "runner", spec.Name, "dir", dir, "error", err)
 		return
 	}
-	opts.ToolCacheDir = dir
+	farm := toolFarmDir(b.sharedDir, spec.Name)
+	if err := buildToolFarm(dir, farm); err != nil {
+		b.log.Warn("could not make the runner's own tool cache; this runner starts without the kept one", "runner", spec.Name, "dir", farm, "error", err)
+		_ = os.RemoveAll(farm)
+		return
+	}
+	opts.ToolCacheDir, opts.ToolFarmDir = dir, farm
 }
 
 // removeByName deletes a container by name if it exists, which is how Create
@@ -1416,7 +1435,7 @@ func (b *DockerBackend) Stop(ctx context.Context, h Handle, timeout time.Duratio
 // Remove tears down the runner, its docker-in-docker sidecar and any scratch
 // directory Zoomies created for it. Removing what is already gone is success.
 func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
-	var name, workDir string
+	var name, workDir, toolFarm string
 	insp, err := b.api.ContainerInspect(ctx, string(h))
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return fmt.Errorf("backend: inspecting container before removal: %w", err)
@@ -1424,6 +1443,7 @@ func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 	if err == nil && insp.Config != nil {
 		name = insp.Config.Labels[LabelName]
 		workDir = insp.Config.Labels[LabelWorkDir]
+		toolFarm = insp.Config.Labels[LabelToolFarm]
 	}
 
 	if name != "" {
@@ -1441,6 +1461,14 @@ func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 		}
 		if err := os.RemoveAll(workDir); err != nil {
 			return fmt.Errorf("backend: removing runner work directory %s: %w", workDir, err)
+		}
+	}
+	if toolFarm != "" {
+		if err := b.Stop(ctx, h, 10*time.Second); err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		if err := os.RemoveAll(toolFarm); err != nil {
+			return fmt.Errorf("backend: removing runner tool cache %s: %w", toolFarm, err)
 		}
 	}
 	if err := b.api.ContainerRemove(ctx, string(h), true); err != nil && !errors.Is(err, ErrNotFound) {
