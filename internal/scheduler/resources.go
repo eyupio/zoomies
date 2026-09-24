@@ -477,7 +477,7 @@ func HostShortfall(h *store.Host, p *store.Pool) string {
 				whole = " -- twice that for a runner and its Docker daemon, which share one slot"
 			}
 			if field == "cpu" {
-				return fmt.Sprintf("it is set to %s, which divides its %s allocatable CPU into shares of %s each, less than this pool's minimum of %s a container%s",
+				return fmt.Sprintf("it is set to %s, which divides its %s allocatable CPU into shares of %s each, less than this pool's minimum of %s CPU a container%s",
 					plural(h.Capacity, "slot"), formatCPUs(h.Allocatable().CPUs), formatCPUs(share.CPUs), m, whole)
 			}
 			return fmt.Sprintf("it is set to %s, which divides its %s of allocatable memory into shares of %s each, less than this pool's minimum of %s a container%s",
