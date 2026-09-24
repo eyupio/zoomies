@@ -67,6 +67,9 @@ type ToolchainScan struct {
 	// expression chooses.
 	Unmatched     []ToolchainDemand           `json:"unmatched"`
 	Installations []ToolchainScanInstallation `json:"installations"`
+	// Fills maps a pool ID to its tool cache's latest fill on each host,
+	// for the pools that keep one; see toolfill.go.
+	Fills map[string][]ToolCacheFill `json:"fills"`
 }
 
 // scannedRequirement is one requirement and the repository it was found in.
@@ -81,6 +84,8 @@ type toolchainScans struct {
 	mu      sync.Mutex
 	running bool
 	latest  ToolchainScan
+	// fills is pool ID to host ID to that host's latest fill.
+	fills map[string]map[string]ToolCacheFill
 }
 
 // ErrToolchainScanRunning is returned when a scan is asked for while one is
@@ -102,6 +107,7 @@ func (c *Controller) ToolchainScanResult() ToolchainScan {
 	if out.Installations == nil {
 		out.Installations = []ToolchainScanInstallation{}
 	}
+	out.Fills = c.toolFillsByPool()
 	return out
 }
 
@@ -132,6 +138,9 @@ func (c *Controller) startToolchainScan(ctx context.Context, detach bool) error 
 		c.toolchains.latest = scan
 		c.toolchains.running = false
 		c.toolchains.mu.Unlock()
+		// What the scan found is what the pools' caches are filled with,
+		// so every scan -- scheduled or asked for -- is followed by a fill.
+		c.fillToolCaches(ctx, scan)
 	}()
 	return nil
 }

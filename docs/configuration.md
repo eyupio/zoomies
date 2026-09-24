@@ -829,6 +829,9 @@ plenty, because workflows do not change by the hour.
 The result is kept in memory, not in the database: it is a reading the next
 scan replaces, and a restart loses nothing a scan cannot rebuild.
 
+A finished scan also [fills the tool cache](#filling-the-tool-cache) of every
+pool that keeps one, with the versions it found that pool's jobs asking for.
+
 ### `github.allow_workflow_cancellation` — cancel runs from Zoomies
 
 ```yaml
@@ -1940,6 +1943,43 @@ It needs the cache on and a container backend: a process runner uses the host's
 own tool cache already. A host whose shared folder cannot be created starts the
 pool's runners without the kept tool cache and says so in its log, rather than
 not starting them.
+
+#### Filling the tool cache
+
+A kept tool cache starts empty, and each host's copy fills one job at a time.
+The [toolchain scan](#githubtoolchain_scan_interval-what-each-pools-jobs-install)
+knows what the pool's jobs will ask for, so when a scan finishes, each host that
+can run the pool is asked to put those versions in its copy before the jobs
+arrive: the twelve asked for by the most jobs, if there are more.
+
+The fill runs in a short-lived container of the pool's own image, as its runner
+user, with only the tool cache mounted, one pool at a time per host, and never
+in a runner's slot. It resolves each version the way the setup action would —
+the newest stable release that matches — from the source that action reads,
+checks the download against the checksum its publisher lists (Node.js, Go and
+Temurin do; the Python manifest lists none, and `setup-python` checks none
+either), and lays it out where the action looks first:
+
+| Toolchain | Resolved against | Filled |
+| --- | --- | --- |
+| Python | the `actions/python-versions` manifest | plain versions (`3.12`, `3.11.x`), on Ubuntu images only, because those are the only builds it publishes |
+| Node.js | nodejs.org's release index | plain versions, `lts/*` and `lts/<name>` |
+| Go | go.dev's release list | plain versions and `stable` |
+| Java | Adoptium's API | the `temurin` distribution only |
+| .NET | — | never: `setup-dotnet` installs outside the tool cache |
+
+A version already there is left alone. A range such as `>=3.10`, a version read
+from a file, and a distribution the fill does not serve are listed as skipped
+with the reason, not guessed at: a toolchain installed under a name the action
+does not look for is a download the job still makes. `GET /api/v1/toolchains`
+reports each host's latest fill under `fills`, with what became of every
+version. It downloads through the pool's proxy, or the agent's, and trusts the
+host's [extra CA](#agentextra_ca_file-behind-a-proxy-that-re-signs-tls) as the
+runners do.
+
+A host whose agent predates the fill is not asked, and one added since the last
+scan is filled by the next. With `github.toolchain_scan_interval` at 0, the
+default, that is the next scan you start.
 
 #### The shared folder
 

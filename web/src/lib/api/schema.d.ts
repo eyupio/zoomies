@@ -879,7 +879,7 @@ export interface paths {
         put?: never;
         /**
          * Scan every installation's workflows for the toolchains they install
-         * @description Starts a scan in the background and answers at once; GET /toolchains says when it has finished. A scan reads every workflow file every installation can see, which spends the GitHub quota the scheduler shares.
+         * @description Starts a scan in the background and answers at once; GET /toolchains says when it has finished. A scan reads every workflow file every installation can see, which spends the GitHub quota the scheduler shares. When it finishes, every pool that keeps a tool cache is filled with the versions it found, on each host that can run the pool; GET /toolchains reports each fill under `fills`.
          */
         post: operations["scanToolchains"];
         delete?: never;
@@ -3564,6 +3564,39 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** @description What a tool cache fill did with one requested version. */
+        ToolFill: {
+            /** @enum {string} */
+            tool: "python" | "node" | "go" | "java" | "dotnet";
+            /** @description The version as the workflows asked for it */
+            request: string;
+            /**
+             * @description present means it was already in the cache; skipped is a request a fill cannot serve, with the reason.
+             * @enum {string}
+             */
+            outcome: "installed" | "present" | "skipped" | "failed";
+            /** @description The release the request resolved to */
+            version?: string;
+            /** @description Why */
+            reason?: string;
+        };
+        /** @description One pool's tool cache fill on one host, the latest there has been. */
+        ToolCacheFill: {
+            host_id: string;
+            host_name: string;
+            /**
+             * @description A fill that succeeded may still have skipped or failed requests; tools says which.
+             * @enum {string}
+             */
+            state: "pending" | "succeeded" | "failed";
+            requested: number;
+            tools: components["schemas"]["ToolFill"][];
+            error?: string;
+            /** Format: date-time */
+            queued_at: string;
+            /** Format: date-time */
+            finished_at?: string;
+        };
         ToolchainScan: {
             running: boolean;
             /** Format: date-time */
@@ -3577,6 +3610,10 @@ export interface components {
             /** @description What jobs ask for that no pool would run. */
             unmatched: components["schemas"]["ToolchainDemand"][];
             installations: components["schemas"]["ToolchainScanInstallation"][];
+            /** @description Pool ID to its tool cache's latest fill on each host, for the pools that keep a tool cache. */
+            fills: {
+                [key: string]: components["schemas"]["ToolCacheFill"][];
+            };
         };
         PoolPrewarm: {
             pool_id?: string;
@@ -5553,7 +5590,7 @@ export interface components {
             busiest_half_percent?: number;
         };
         /** @enum {string} */
-        AgentTaskKind: "create_runner" | "stop_runner" | "remove_runner" | "stream_logs" | "cancel_logs" | "prewarm_image";
+        AgentTaskKind: "create_runner" | "stop_runner" | "remove_runner" | "stream_logs" | "cancel_logs" | "prewarm_image" | "fill_tool_cache";
         /** @description One unit of work for an agent. Tasks are idempotent; the controller may redeliver one after a restart. */
         AgentTask: {
             id: string;
@@ -5572,6 +5609,12 @@ export interface components {
             /** @description The log relay a stream_logs or cancel_logs task concerns. */
             stream_id?: string;
             log_options?: components["schemas"]["LogOptions"];
+            /** @description What a fill_tool_cache task puts in the tool cache of the pool its spec names. */
+            tools?: {
+                tool: string;
+                version: string;
+                distribution?: string;
+            }[];
             /** Format: date-time */
             issued_at: string;
             /** @description Deliveries of this task so far, from 1. A create that cannot tell whether its runner already exists fails a first delivery promptly and leaves a redelivery for the lease. Absent from older controllers. */
@@ -5663,6 +5706,8 @@ export interface components {
             container_started_at?: string;
             digest?: string;
             state?: components["schemas"]["RunnerState"];
+            /** @description What a fill_tool_cache task did with each request. */
+            tool_fills?: components["schemas"]["ToolFill"][];
             /** Format: date-time */
             completed_at: string;
         };
