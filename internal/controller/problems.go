@@ -245,7 +245,8 @@ const problemWindow = time.Hour
 // fleet, which is the one thing it must never say by accident.
 // sharedFolderProblem is a host whose agent cannot hand runners the shared
 // folder -- a containerised agent whose container does not mount it from the
-// host -- raised only where it costs something: a pool that keeps a tool cache
+// host, or a tool cache folder there the runner cannot write to -- raised only
+// where it costs something: a pool that keeps a tool cache
 // and could run there. Its runners start without the kept cache, which is
 // slower and nothing worse; the problem is saying why.
 func sharedFolderProblem(h *store.Host, info store.HostBackend, pools []*store.Pool) (Problem, bool) {
@@ -264,7 +265,7 @@ func sharedFolderProblem(h *store.Host, info store.HostBackend, pools []*store.P
 	return Problem{
 		Code:       "host.shared_folder_unmounted",
 		Severity:   config.SeverityWarning,
-		Title:      h.Name + " keeps no tool cache: its shared folder is not the host's",
+		Title:      h.Name + " keeps no tool cache for its runners",
 		Detail:     fmt.Sprintf("%s. %s start their runners there without the kept tool cache, so every job downloads its toolchains again.", info.SharedFolder, strings.Join(affected, ", ")),
 		Fix:        "mount the folder as the detail says and restart the container; the next heartbeat clears this.",
 		TargetKind: "host",

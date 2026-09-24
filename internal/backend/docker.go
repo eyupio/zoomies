@@ -244,7 +244,11 @@ type DockerBackend struct {
 	// SharedDirProblem.
 	sharedDir     string
 	sharedProblem string
-	log           *slog.Logger
+	// toolCacheProblem is the last tool cache folder a runner could not have
+	// because it cannot write to it; see prepareCacheDirs.
+	toolCacheMu      sync.Mutex
+	toolCacheProblem string
+	log              *slog.Logger
 	// nameRelease is how long a create waits for the daemon to release a name
 	// whose container has gone. A field rather than the constant so a test can
 	// exercise the wait without spending it.
@@ -333,7 +337,7 @@ func (b *DockerBackend) Probe(ctx context.Context) Info {
 	info := Info{
 		Kind:         b.fl.kind,
 		Endpoint:     b.api.Endpoint(),
-		SharedFolder: b.sharedProblem,
+		SharedFolder: firstNonEmpty(b.sharedProblem, b.lastToolCacheProblem()),
 	}
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
@@ -1243,7 +1247,32 @@ func (b *DockerBackend) prepareCacheDirs(spec Spec, opts *containerOptions) {
 		b.log.Warn("could not create the tool cache folder; this runner starts without it", "runner", spec.Name, "dir", dir, "error", err)
 		return
 	}
+	// A folder that was already there is left as its owner made it, and one
+	// the runner cannot write to is worse than none: every setup action that
+	// downloads fails with EACCES instead of downloading. That is the folder
+	// a host's daemon makes, root's, when the path it is handed is not the
+	// one the agent created -- a container that does not mount the shared
+	// folder -- and it outlives the mount being fixed.
+	if why := runnerCannotWrite(dir); why != "" {
+		problem := fmt.Sprintf("the tool cache folder %s %s, so runners start without it and download their toolchains; give it to the runner or open it (sudo chmod 0777 %s), or delete it and Zoomies makes it again", dir, why, dir)
+		b.noteToolCacheProblem(problem)
+		b.log.Warn("the tool cache folder is not writable by the runner; this runner starts without it", "runner", spec.Name, "dir", dir, "fix", problem)
+		return
+	}
+	b.noteToolCacheProblem("")
 	opts.ToolCacheDir = dir
+}
+
+func (b *DockerBackend) noteToolCacheProblem(p string) {
+	b.toolCacheMu.Lock()
+	b.toolCacheProblem = p
+	b.toolCacheMu.Unlock()
+}
+
+func (b *DockerBackend) lastToolCacheProblem() string {
+	b.toolCacheMu.Lock()
+	defer b.toolCacheMu.Unlock()
+	return b.toolCacheProblem
 }
 
 // removeByName deletes a container by name if it exists, which is how Create
