@@ -24,16 +24,11 @@ import {
 
 test.use(browserOverride);
 
-/** Every state badge the grid can draw, from web/src/lib/status.ts. */
-const STATES = [
-  'Walkies!',
-  'Putting lead on',
-  'Resting',
-  'Walking!',
-  'Nearly home',
-  'Slipped the lead',
-  'Back in the kennel',
-];
+/**
+ * Every state badge the grid can draw, from web/src/lib/status.ts, in the plain
+ * words a browser that has not chosen the kennel's vocabulary is shown.
+ */
+const STATES = ['Provisioning', 'Registering', 'Idle', 'Busy', 'Draining', 'Failed', 'Removed'];
 
 const runners = (page: Page) => grid(page, 'Runners');
 
@@ -72,7 +67,7 @@ test('the grid lists the seeded runners with their states', async ({ page }) => 
 
   const busy = rows.filter({ hasText: FIXTURE.busyRunner });
   await expect(busy).toHaveCount(1);
-  await expect(busy).toContainText('Walking!');
+  await expect(busy).toContainText('Busy');
   await expect(busy).toContainText(FIXTURE.linuxPool);
 });
 
@@ -84,12 +79,12 @@ test('filtering by state narrows the rows and puts the filter in the URL', async
   await page.getByRole('button', { name: 'Any state' }).click();
   await page
     .getByRole('group', { name: 'Filter by runner state' })
-    .getByRole('checkbox', { name: 'Walking!' })
+    .getByRole('checkbox', { name: 'Busy' })
     .check();
   await page.keyboard.press('Escape');
 
   await expect(page).toHaveURL(/[?&]state=busy/);
-  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText('Walking!');
+  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText('Busy');
 
   const filtered = dataRows(runners(page));
   await expect(filtered.first()).toBeVisible();
@@ -97,7 +92,7 @@ test('filtering by state narrows the rows and puts the filter in the URL', async
   for (const label of await runners(page)
     .locator('[data-runner-status] .label')
     .allTextContents()) {
-    expect(label.trim(), 'every remaining row matches the filter').toBe('Walking!');
+    expect(label.trim(), 'every remaining row matches the filter').toBe('Busy');
   }
   const narrowed = await filtered.count();
 
@@ -105,7 +100,7 @@ test('filtering by state narrows the rows and puts the filter in the URL', async
   await reload(page, 'Runners');
   await expect(page).toHaveURL(/[?&]state=busy/);
   await expect(dataRows(runners(page))).toHaveCount(narrowed);
-  await expect(page.getByRole('button', { name: 'Walking!', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Busy', exact: true })).toBeVisible();
 });
 
 test('a hidden column stays hidden after a reload', async ({ page }) => {
@@ -199,11 +194,11 @@ test('draining a runner asks first, names it, and cancelling changes nothing', a
   await expect(dialog).toBeHidden();
 
   // Nothing was asked of the controller, so the runner is exactly as it was.
-  await expect(row).toContainText('Walking!');
+  await expect(row).toContainText('Busy');
   await expect(page).toHaveURL(/\/runners$/);
   await reload(page, 'Runners');
   await expect(dataRows(runners(page)).filter({ hasText: FIXTURE.busyRunner })).toContainText(
-    'Walking!',
+    'Busy',
   );
 });
 
@@ -221,9 +216,9 @@ test('opening a runner shows its detail page and its state timeline', async ({ p
   await expect(timeline).toBeVisible();
   await expect(timeline.getByRole('listitem').first()).toBeVisible();
   // The states this runner passed through on the way to being busy.
-  await expect(timeline).toContainText('Walkies!');
-  await expect(timeline).toContainText('Putting lead on');
-  await expect(timeline).toContainText('Walking!');
+  await expect(timeline).toContainText('Provisioning');
+  await expect(timeline).toContainText('Registering');
+  await expect(timeline).toContainText('Busy');
   // And the way back to the list is a breadcrumb, not the browser's button.
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Runners');
 });

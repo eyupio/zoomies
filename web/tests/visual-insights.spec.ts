@@ -144,30 +144,30 @@ test('the runner lifecycle draws the state machine with live counts and links', 
   const steps = lifecycle.getByRole('list', { name: 'Runner lifecycle, in order' });
   await expect(steps.getByRole('listitem')).toHaveCount(5);
   await expect(steps.getByRole('link')).toHaveText([
-    /^\s*Walkies!\s*\d+$/,
-    /^\s*Putting lead on\s*\d+$/,
-    /^\s*Resting\s*\d+$/,
-    /^\s*Walking!\s*\d+$/,
-    /^\s*Nearly home\s*\d+$/,
+    /^\s*Provisioning\s*\d+$/,
+    /^\s*Registering\s*\d+$/,
+    /^\s*Idle\s*\d+$/,
+    /^\s*Busy\s*\d+$/,
+    /^\s*Draining\s*\d+$/,
   ]);
-  await expect(steps.getByRole('link', { name: 'Walking! runners' })).toHaveAttribute(
+  await expect(steps.getByRole('link', { name: 'Busy runners' })).toHaveAttribute(
     'href',
     '/runners?state=busy',
   );
 
   // The counts are the controller's, not a partial page of runners.
   const stats = await page.request.get('/api/v1/stats').then((r) => r.json());
-  await expect(steps.getByRole('link', { name: 'Walking! runners' })).toContainText(
+  await expect(steps.getByRole('link', { name: 'Busy runners' })).toContainText(
     String(stats.runners.busy),
   );
 
   // Every segment of the bar is a link with a name, and hovering one says
   // the share out loud for sighted readers.
   const bar = lifecycle.locator('.bar');
-  const busy = bar.getByRole('link', { name: 'Walking! live runners' });
+  const busy = bar.getByRole('link', { name: 'Busy live runners' });
   await expect(busy).toBeVisible();
   await busy.hover();
-  await expect(page.locator('.bubble:popover-open')).toContainText(/Walking!.*of \d+ · \d+%/);
+  await expect(page.locator('.bubble:popover-open')).toContainText(/Busy.*of \d+ · \d+%/);
   await expect(lifecycle).toContainText(/\d+ live runners? in the flow/);
 });
 

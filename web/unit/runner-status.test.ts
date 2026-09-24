@@ -31,7 +31,7 @@ registerHooks({
 });
 
 const { runnerDisplayStatus } = await import('../src/lib/runners/runner-status.ts');
-const { runnerStatus } = await import('../src/lib/status.ts');
+const { runnerStatus, runnerStatuses } = await import('../src/lib/status.ts');
 
 test('active boosts and throttles replace busy or idle but retain lifecycle detail', () => {
   for (const state of ['busy', 'idle'] as const) {
@@ -95,4 +95,41 @@ test('turning the kennel vocabulary off gives every state a plain label, lifecyc
     runnerDisplayStatus({ state: 'busy', cpu_resource: { state: 'maximum_zoomies' } }).label,
     'Squirrel spotted',
   );
+});
+
+/*
+ * The Runners grid's own buttons: Drain and Delete. A state drawn with one of
+ * them, or with a media control, reads as something to press -- busy runners
+ * drawn with Play looked like runners waiting to be started.
+ */
+const BUTTON_ICONS = ['Play', 'Pause', 'CircleSlash', 'Trash2'];
+
+test('with the vocabulary off, no runner state is drawn with an icon a button uses', () => {
+  const drawn = [
+    ...runnerStatuses(false).map((status) => [status.key, status.icon.name]),
+    ...(['maximum_zoomies', 'zoomies', 'throttled'] as const).map((cpu) => {
+      const status = runnerDisplayStatus({ state: 'busy', cpu_resource: { state: cpu } }, false);
+      return [status.key, status.icon.name];
+    }),
+  ];
+  for (const [key, icon] of drawn) {
+    assert.ok(!BUTTON_ICONS.includes(icon), `${key} is drawn with ${icon}`);
+  }
+});
+
+test('every runner state has an icon of its own', () => {
+  // Provisioning and registering were one dashed ring, and a runner stuck on
+  // GitHub's side looked exactly like one still being built on the host's.
+  const icons = runnerStatuses(false).map((status) => status.icon.name);
+  assert.equal(new Set(icons).size, icons.length, icons.join(', '));
+  assert.equal(runnerStatus('busy', false).icon.name, 'Activity');
+});
+
+test('the two boosts and the throttle are told apart by icon when their labels are not', () => {
+  // Both boosts say "Boost active" in the grid with the vocabulary off, so
+  // the icon is all that separates extra from maximum at a glance.
+  const icon = (cpu: string) =>
+    runnerDisplayStatus({ state: 'busy', cpu_resource: { state: cpu } }, false).icon.name;
+  const icons = [icon('maximum_zoomies'), icon('zoomies'), icon('throttled')];
+  assert.equal(new Set(icons).size, 3, icons.join(', '));
 });
