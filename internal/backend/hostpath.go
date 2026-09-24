@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+	"path"
 	"strconv"
 	"strings"
 )
@@ -49,7 +49,7 @@ func IsMountPoint(dir string) bool {
 		return false
 	}
 	defer f.Close()
-	return mountPoints(f)[filepath.Clean(dir)]
+	return mountPoints(f)[path.Clean(dir)]
 }
 
 // mountPoints reads /proc/self/mountinfo: the fifth field of each line is
@@ -63,7 +63,7 @@ func mountPoints(r io.Reader) map[string]bool {
 		if len(f) < 5 {
 			continue
 		}
-		out[filepath.Clean(unescapeMount(f[4]))] = true
+		out[path.Clean(unescapeMount(f[4]))] = true
 	}
 	return out
 }

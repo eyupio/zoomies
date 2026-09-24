@@ -47,6 +47,7 @@ func TestSharedFolderProblemOnlyInAContainerThatDoesNotMountIt(t *testing.T) {
 // container that is not a daemon to install -- the advice outside one -- but a
 // mount to add, and the detail the Hosts page shows says which.
 func TestAMissingSocketInAContainerIsAMissingMount(t *testing.T) {
+	requirePOSIX(t)
 	was := runningInContainer
 	runningInContainer = func() bool { return true }
 	t.Cleanup(func() { runningInContainer = was })
