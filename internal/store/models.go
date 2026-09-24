@@ -342,6 +342,10 @@ type HostBackend struct {
 	// -- so a default limit sent to such a host would fail every create, and
 	// the controller has to know before it sends one.
 	Limits LimitSupport `json:"limits"`
+	// SharedFolder is what the agent said is wrong with the host's shared
+	// folder: a containerised agent whose container does not mount it from
+	// the host. Empty when nothing is.
+	SharedFolder string `json:"shared_folder,omitempty"`
 }
 
 // LimitSupport is what a container daemon said about the limits it can apply.

@@ -251,6 +251,7 @@ func TestDockerRunArgs(t *testing.T) {
 		ContainerPort: 8080,
 		MountSocket:   true,
 		SocketPath:    "/var/run/docker.sock",
+		MountShared:   true,
 		DockerGID:     998,
 	}
 
@@ -274,6 +275,12 @@ func TestDockerRunArgs(t *testing.T) {
 				"--network", "zoomies",
 				"ghcr.io/eyupio/zoomies:v1.2.3", "controller",
 			},
+		},
+		{
+			// A controller that runs no runners has no caches to keep.
+			name:   "a controller without runners mounts no shared folder",
+			mutate: func(s *DockerRunSpec) { s.MountShared = false; s.MountSocket = false },
+			unwant: []string{"/var/lib/zoomies/shared:/var/lib/zoomies/shared"},
 		},
 		{
 			name:   "published on every interface",

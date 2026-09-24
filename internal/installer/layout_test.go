@@ -9,6 +9,19 @@ import (
 	"testing"
 )
 
+// mountsShared reports whether a Compose file's zoomies service mounts the
+// shared folder.
+func mountsShared(body []byte) (bool, error) {
+	m, err := composeServiceMounts(body)
+	return m.targets[SharedHostDir], err
+}
+
+var sharedWant = wantMount{target: SharedHostDir, bind: SharedHostDir + ":" + SharedHostDir, why: "the shared folder"}
+
+func addShared(body []byte) ([]byte, error) {
+	return addComposeMounts(body, []wantMount{sharedWant}, "")
+}
+
 // fakeDeploymentCommands answers the commands a compose upgrade runs as a
 // healthy host would, and records them.
 func fakeDeploymentCommands(opts *UpgradeOptions, calls *[]string) {
@@ -43,7 +56,7 @@ func withoutSharedMount(t *testing.T, opts *UpgradeOptions, rec DeploymentRecord
 	if err := os.WriteFile(rec.ComposeFile(), []byte(old), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if mounted, err := composeMountsShared([]byte(old)); err != nil || mounted {
+	if mounted, err := mountsShared([]byte(old)); err != nil || mounted {
 		t.Fatalf("the older file still mounts the shared folder (%v, %v):\n%s", mounted, err, old)
 	}
 	opts.shared.dir = filepath.Join(t.TempDir(), "shared")
@@ -63,13 +76,13 @@ func TestComposeMountsSharedReadsBothVolumeSyntaxes(t *testing.T) {
 		{"absent", "services:\n  zoomies:\n    image: zoomies\n", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := composeMountsShared([]byte(tc.body))
+			got, err := mountsShared([]byte(tc.body))
 			if err != nil || got != tc.want {
 				t.Fatalf("composeMountsShared = %v, %v; want %v", got, err, tc.want)
 			}
 		})
 	}
-	if _, err := composeMountsShared([]byte("services:\n  other: {}\n")); err == nil {
+	if _, err := mountsShared([]byte("services:\n  other: {}\n")); err == nil {
 		t.Error("a file with no zoomies service was read as one without the mount")
 	}
 }
@@ -91,25 +104,25 @@ services:
 volumes:
   zoomies-data: {}
 `
-	edited, err := addSharedMount([]byte(body))
+	edited, err := addShared([]byte(body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mounted, err := composeMountsShared(edited); err != nil || !mounted {
+	if mounted, err := mountsShared(edited); err != nil || !mounted {
 		t.Fatalf("the edited file does not mount the shared folder (%v):\n%s", err, edited)
 	}
-	for _, keep := range []string{"# written by zoomies init", "team: platform # who to ask", "zoomies-data:/var/lib/zoomies", "example/sidecar", "${ZOOMIES_IMAGE}", "added by zoomies upgrade"} {
+	for _, keep := range []string{"# written by zoomies init", "team: platform # who to ask", "zoomies-data:/var/lib/zoomies", "example/sidecar", "${ZOOMIES_IMAGE}", "Added by zoomies upgrade"} {
 		if !strings.Contains(string(edited), keep) {
 			t.Errorf("the edit lost %q:\n%s", keep, edited)
 		}
 	}
 
 	// A service with no volumes at all gets the list as well as the entry.
-	edited, err = addSharedMount([]byte("services:\n  zoomies:\n    image: zoomies\n"))
+	edited, err = addShared([]byte("services:\n  zoomies:\n    image: zoomies\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mounted, _ := composeMountsShared(edited); !mounted {
+	if mounted, _ := mountsShared(edited); !mounted {
 		t.Fatalf("no volumes list was added:\n%s", edited)
 	}
 }
@@ -160,7 +173,7 @@ func TestAnUpgradeAddsTheSharedMountOnlyWithApproval(t *testing.T) {
 				}
 				return
 			}
-			if mounted, _ := composeMountsShared(now); !mounted {
+			if mounted, _ := mountsShared(now); !mounted {
 				t.Errorf("the Compose file was not given the mount:\n%s", now)
 			}
 			if !strings.Contains(string(now), "an operator's own note") {
@@ -203,8 +216,11 @@ func TestAMissingComposeFileIsWrittenAgainOrStopsTheUpgrade(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), "zoomies upgrade --yes") {
 					t.Fatalf("err = %v, want one naming zoomies upgrade --yes", err)
 				}
-				if len(calls) != 0 {
-					t.Fatalf("a stopped upgrade ran %v", calls)
+				for _, c := range calls {
+					// Reading where the data is changes nothing.
+					if !strings.Contains(c, " inspect ") {
+						t.Fatalf("a stopped upgrade ran %v", calls)
+					}
 				}
 				if _, err := os.Stat(rec.ComposeFile()); !os.IsNotExist(err) {
 					t.Error("the file was written without approval")
@@ -218,7 +234,7 @@ func TestAMissingComposeFileIsWrittenAgainOrStopsTheUpgrade(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if mounted, _ := composeMountsShared(body); !mounted {
+			if mounted, _ := mountsShared(body); !mounted {
 				t.Errorf("the file written again does not mount the shared folder:\n%s", body)
 			}
 		})

@@ -43,6 +43,9 @@ type UpgradeOptions struct {
 	// shared stands in for the host's shared folder and the account it
 	// belongs to, so a test does not reach for /var/lib/zoomies.
 	shared *sharedTarget
+	// socketGroup stands in for reading the group that owns the runtime's
+	// socket, which is the test host's own otherwise.
+	socketGroup func(path string) int
 }
 
 type upgradePlan struct {
@@ -141,7 +144,7 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 // adds it when the operator approves: --yes, or an answer at the terminal.
 // Unattended, it adds nothing and says how to; see layout.go.
 func (p *upgradePlan) settleLayout(ctx context.Context) error {
-	changes, err := p.layoutChanges()
+	changes, err := p.layoutChanges(ctx)
 	if err != nil || len(changes) == 0 {
 		return err
 	}

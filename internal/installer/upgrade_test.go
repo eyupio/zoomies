@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/eyupio/zoomies/internal/config"
 )
 
 func TestUpgradeSaysWhetherAMovingImageAdvanced(t *testing.T) {
@@ -67,7 +69,7 @@ func upgradeFixture(t *testing.T, deployment Deployment) (UpgradeOptions, Deploy
 	// shared folder and the folder is laid out, so the upgrade has nothing to
 	// add and these tests see only the upgrade itself.
 	if deployment == DeploymentCompose {
-		rendered, err := RenderComposeFile(composeSpecFromDeployment(rec, nil))
+		rendered, err := RenderComposeFile(composeSpecFor(rec, deploymentSettings{cfg: config.Default(), read: true}, 0))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -80,7 +82,7 @@ func upgradeFixture(t *testing.T, deployment Deployment) (UpgradeOptions, Deploy
 		t.Fatal(err)
 	}
 	return UpgradeOptions{ConfigDir: dir, Mode: ModeAgent, Image: stockAgentRepository + ":v9.0",
-		shared: &sharedTarget{dir: shared, uid: -1, gid: -1}}, rec
+		shared: &sharedTarget{dir: shared, uid: -1, gid: -1}, socketGroup: func(string) int { return 0 }}, rec
 }
 
 func TestComposeUpgradeKeepsConfigurationAndPullsBeforeRestarting(t *testing.T) {
@@ -153,6 +155,11 @@ func TestUpgradePreflightNeverPullsOrChangesAnExistingDeployment(t *testing.T) {
 	before, _ := os.ReadFile(rec.EnvFile)
 	opts.run = func(_ context.Context, name string, args ...string) (string, error) {
 		line := name + " " + strings.Join(args, " ")
+		// Reading is allowed -- the image the file names, where the data
+		// volume is -- and nothing else.
+		if strings.Contains(line, "inspect --type container") {
+			return "", nil
+		}
 		if !strings.Contains(line, "config --images") {
 			t.Fatalf("preflight tried to change something: %s", line)
 		}

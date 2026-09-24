@@ -65,17 +65,43 @@ configuration directory: remove it only after checking no upgrade is running.
 ## What a release adds to the host
 
 A release sometimes needs more of the host than the one you installed: a
-folder, a mount, a file the installer wrote and somebody has since removed.
-Before it pulls or restarts anything, an upgrade compares the deployment with
-what this release expects, lists what is missing, and adds it only with your
-approval:
+folder, a mount, a file the installer wrote and somebody has since removed —
+and a Compose file written by an older release, or by hand, can lack a mount
+this one would write. Before it pulls or restarts anything, an upgrade works
+out what this deployment should have, compares it with what it has, lists what
+is missing, and adds it only with your approval.
 
-| Missing | What the upgrade offers |
-| --- | --- |
-| The [shared folder](configuration.md#the-shared-folder), or a folder in it | Create it, owned by the account Zoomies runs as — uid 65532 in the container images, the state directory's owner for a native install. A shared folder owned by someone else is given back to that account. |
-| The shared folder's mount, in a Compose file | Add `/var/lib/zoomies/shared:/var/lib/zoomies/shared` to the `zoomies` service. The file is copied to `docker-compose.yml.bak.<time>` first, and edited rather than written again, so your own services, labels and comments stay; blank lines between them do not survive the edit. |
-| The shared folder's mount, on a `docker` deployment | Create the replacement container with that bind as well as everything the old one had. |
-| `docker-compose.yml` itself | Write it again from `deployment.json` and the `.env` beside it. |
+What the deployment should have depends on what it runs, and that is read from
+its **settings, in its database** — the same place the Settings page writes —
+layered exactly as the controller layers them at start. The upgrade opens the
+database read-only beside the running controller, as a backup does; for a
+container deployment it asks the container where its data volume is. So a
+controller whose embedded agent you turned off on the Settings page is not
+offered a runner host's folder and mounts, and one you turned on is. When the
+database cannot be read (Docker Desktop keeps volumes inside its own VM), the
+upgrade says so and offers what a host that runs runners needs.
+
+| Missing | Offered to | What the upgrade offers |
+| --- | --- | --- |
+| The [shared folder](configuration.md#the-shared-folder), or a folder in it | hosts that run runners: an agent, or a controller with its embedded agent on | Create it, owned by the account Zoomies runs as — uid 65532 in the container images, the state directory's owner for a native install. A shared folder owned by someone else is given back to that account. |
+| The shared folder's mount | the same, in a container | `/var/lib/zoomies/shared:/var/lib/zoomies/shared` |
+| The runtime's socket, and the group that owns it | the same, on the Docker or Podman backend | The socket at its own path, and its owning group as `group_add` so the image's account can use it |
+| The TLS certificate and key | a controller serving TLS from files | Both, read-only, at their own paths |
+| `docker-compose.yml` itself | every Compose deployment | Write it again from `deployment.json` and the deployment's settings. |
+
+Everything missing from a Compose file is added in one edit: the file is
+copied to `docker-compose.yml.bak.<time>` first, and edited rather than written
+again, so your own services, labels and comments stay; blank lines between them
+do not survive the edit. On a `docker` deployment the replacement container is
+created with the missing binds and group as well as everything the old one had.
+
+A running host checks the part that matters most for itself: a containerised
+agent that runs runners without the shared folder mounted from the host keeps
+no tool cache rather than hand runners a folder the host's daemon cannot see,
+and says so as
+[`host.shared_folder_unmounted`](problem-codes.md). One whose container was
+never given the runtime's socket says that, and names the line to add, rather
+than telling you to install Docker.
 
 How the approval is given depends on how the upgrade runs:
 

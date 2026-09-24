@@ -4788,6 +4788,8 @@ export interface components {
                 /** @description A pids limit. A daemon that cannot apply one ignores it. */
                 pids?: boolean;
             };
+            /** @description What is wrong with the host's shared folder, the one runners' caches are bound from: a containerised agent whose container does not mount it from the host, which keeps no tool cache there. Empty when nothing is. See host.shared_folder_unmounted. */
+            shared_folder?: string;
         };
         Host: {
             usage?: components["schemas"]["HostUsage"];
