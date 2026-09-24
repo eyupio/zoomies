@@ -110,4 +110,6 @@ has no macOS runner image, so it does not help with those.
   minutes.
 - [Migrating repositories](migration.md): moving `runs-on` off GitHub's runners,
   one pull request per repository.
+- [Zoomies and the runner services](hosted-runner-services.md): Blacksmith,
+  WarpBuild and RunsOn, side by side.
 - [FAQ](faq.md): what Zoomies needs, and what it will not protect you from.

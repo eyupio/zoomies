@@ -25,6 +25,21 @@ async function openConfiguration(page: Page): Promise<void> {
   await goto(page, '/settings/configuration', 'Configuration');
 }
 
+test('a controller with no agent lists only the switch that would bring one back', async ({
+  page,
+}) => {
+  // The fixture's controller runs no embedded agent, which is what a
+  // controller-only instance is. Its agent settings describe nothing on this
+  // process -- the joined hosts set their own -- so they are not offered; the
+  // switch that would start one is. The fixture sets it from the environment,
+  // so it is listed among the settings the environment holds.
+  await openConfiguration(page);
+  const held = page.getByRole('group', { name: /Held by the environment/i });
+  await expect(held).toContainText('ZOOMIES_AGENT_EMBEDDED');
+  await expect(row(page, 'Runner backend')).toHaveCount(0);
+  await expect(row(page, 'Runners per host')).toHaveCount(0);
+});
+
 /** Change one setting through its own row, and wait for the row to settle. */
 async function change(page: Page, label: string, value: string): Promise<void> {
   const target = row(page, label);

@@ -188,6 +188,7 @@ nav:
   - Runners in your home lab: home-lab.md
   - Runners in Docker: docker.md
   - Compared with ARC: actions-runner-controller.md
+  - Compared with runner services: hosted-runner-services.md
   - What it costs: costs.md
   - FAQ: faq.md
 

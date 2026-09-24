@@ -4157,7 +4157,7 @@ components:
         version: { type: string, examples: ["1.0.0 (abc1234)"] }
         version_channel: { type: string, examples: ["v1.0.0", "dev"], description: The published image and binary tag carrying this build. }
         commit: { type: string }
-        bootstrap_required: { type: boolean, description: True when no user exists yet. }
+        bootstrap_required: { type: boolean, description: True when no user exists yet. `/readyz` carries the same field, so a provisioner can wait on one endpoint. }
         tailcat_available: { type: boolean, description: Whether private enrolment is enabled and the controller has its encryption key. Relay connectivity is checked at enrolment. }
         auth_disabled: { type: boolean, description: True when authentication has been switched off in the configuration. }
         oidc_enabled: { type: boolean }

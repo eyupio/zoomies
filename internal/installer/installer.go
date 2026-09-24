@@ -2391,9 +2391,19 @@ func (i *Installer) stepAdmin(ctx context.Context, st *store.Store, cfg *config.
 			return err
 		}
 	}
-	if _, err := svc.CreateFirstAdmin(ctx, p.AdminUser, p.adminPassword); err != nil {
+	u, err := svc.CreateFirstAdmin(ctx, p.AdminUser, p.adminPassword)
+	if err != nil {
 		return fmt.Errorf("installer: creating the administrator %q: %w", p.AdminUser, err)
 	}
+	// The installer runs before anybody has signed in, so the system is the
+	// actor, and the method says whether a person typed the password or an
+	// answer file supplied it -- the one question an audit of an unattended
+	// install has to be able to answer.
+	method := auth.BootstrapAnswerFile
+	if i.interactive {
+		method = auth.BootstrapInstaller
+	}
+	svc.AuditBootstrap(ctx, auth.SystemIdentity(), u, method, "")
 	i.wrote("created the administrator " + p.AdminUser)
 	return nil
 }

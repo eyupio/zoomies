@@ -129,9 +129,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := &auth.Identity{Kind: auth.KindUser, ID: u.ID, Name: u.Username, Role: u.Role, IP: ClientIP(r.Context())}
-	s.auth.Auditor().Auth(r.Context(), id, "auth.bootstrap", map[string]any{
-		"username": u.Username, "role": u.Role,
-	})
+	s.auth.AuditBootstrap(r.Context(), id, u, auth.BootstrapSetupToken, "")
 
 	token, err := s.auth.NewSession(r.Context(), u, ClientIP(r.Context()), r.UserAgent())
 	if err != nil {

@@ -2712,7 +2712,7 @@ export interface components {
              */
             version_channel?: string;
             commit?: string;
-            /** @description True when no user exists yet. */
+            /** @description True when no user exists yet. `/readyz` carries the same field */
             bootstrap_required: boolean;
             /** @description Whether private enrolment is enabled and the controller has its encryption key. Relay connectivity is checked at enrolment. */
             tailcat_available?: boolean;

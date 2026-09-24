@@ -641,6 +641,10 @@ func (f *fleet) requireStillRunning(name, why string) {
 type apiClient struct {
 	t    *testing.T
 	base string
+	// token is sent as a bearer credential when set. Most drills run with
+	// authentication off; the bootstrap drill is the one whose point is that
+	// it is on and the provisioner still gets in.
+	token string
 }
 
 func (c *apiClient) do(method, path string, body, out any) {
@@ -658,6 +662,9 @@ func (c *apiClient) do(method, path string, body, out any) {
 		c.t.Fatalf("building the request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		c.t.Fatalf("%s %s: %v", method, path, err)
