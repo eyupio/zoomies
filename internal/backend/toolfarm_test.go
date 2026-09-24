@@ -21,7 +21,7 @@ func TestARunnersToolCacheLinksOnlyFinishedVersions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(shared, "go/1.27.1/x64.complete"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	farm := filepath.Join(t.TempDir(), "run-one")
+	farm := toolFarmDir(t.TempDir(), "run-one")
 	if err := os.MkdirAll(filepath.Join(farm, "stale"), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"math"
 	"os"
@@ -177,7 +178,10 @@ type DockerOptions struct {
 	// SharedDir is this host's shared folder (config.SharedDir), where a
 	// pool's tool cache is kept. Empty keeps none.
 	SharedDir string
-	Logger    *slog.Logger
+	// SharedDirProblem is why there is no SharedDir, when there is a reason
+	// an operator can act on; Probe reports it so the Hosts page can.
+	SharedDirProblem string
+	Logger           *slog.Logger
 }
 
 // ExtraCADir is where the extra CA bundle is mounted inside a runner and its
@@ -236,9 +240,15 @@ type DockerBackend struct {
 	dind    string
 	auth    string
 	extraCA string
-	// sharedDir is DockerOptions.SharedDir.
-	sharedDir string
-	log       *slog.Logger
+	// sharedDir is DockerOptions.SharedDir, and sharedProblem its
+	// SharedDirProblem.
+	sharedDir     string
+	sharedProblem string
+	// toolCacheProblem is the last tool cache folder a runner could not have
+	// because it cannot write to it; see prepareCacheDirs.
+	toolCacheMu      sync.Mutex
+	toolCacheProblem string
+	log              *slog.Logger
 	// nameRelease is how long a create waits for the daemon to release a name
 	// whose container has gone. A field rather than the constant so a test can
 	// exercise the wait without spending it.
@@ -305,8 +315,9 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 		auth:    opts.RegistryAuth,
 		extraCA: strings.TrimSpace(opts.ExtraCAFile),
 
-		sharedDir: strings.TrimSpace(opts.SharedDir),
-		log:       log.With("backend", string(fl.kind)),
+		sharedDir:     strings.TrimSpace(opts.SharedDir),
+		sharedProblem: opts.SharedDirProblem,
+		log:           log.With("backend", string(fl.kind)),
 
 		nameRelease: nameReleaseBudget,
 		nameSettle:  nameSettleBudget,
@@ -324,8 +335,9 @@ func (b *DockerBackend) SocketPath() string { return b.api.SocketPath() }
 // no Docker must still start and say so.
 func (b *DockerBackend) Probe(ctx context.Context) Info {
 	info := Info{
-		Kind:     b.fl.kind,
-		Endpoint: b.api.Endpoint(),
+		Kind:         b.fl.kind,
+		Endpoint:     b.api.Endpoint(),
+		SharedFolder: firstNonEmpty(b.sharedProblem, b.lastToolCacheProblem()),
 	}
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
@@ -381,6 +393,13 @@ func (b *DockerBackend) Probe(ctx context.Context) Info {
 // tell the operator to install or start Docker.
 func (b *DockerBackend) unreachableDetail(err error) string {
 	if sock := b.api.SocketPath(); sock != "" {
+		// In a container a missing socket is not a daemon to install: it is
+		// a mount the container was created without, which a Compose file
+		// from an older release, or one written by hand, can lack.
+		if _, serr := os.Stat(sock); errors.Is(serr, fs.ErrNotExist) && runningInContainer() {
+			return fmt.Sprintf("no socket at %s inside this container: it was not given the host's %s socket. Add `- %s:%s` to the zoomies service's volumes (or `--volume %s:%s` to its docker run), or run `zoomies upgrade --yes` on the host, which adds it",
+				sock, b.fl.displayName, sock, sock, sock, sock)
+		}
 		if serr := canUseSocket(sock, b.fl.displayName, b.fl.startHint); serr != nil {
 			return strings.TrimPrefix(serr.Error(), "backend: not available on this host: ")
 		}
@@ -1237,10 +1256,23 @@ func (b *DockerBackend) prepareCacheDirs(spec Spec, opts *containerOptions) {
 	if err != nil || dir == "" {
 		return
 	}
-	if err := ensureToolCacheDir(dir); err != nil {
-		b.log.Warn("could not prepare the tool cache folder; this runner starts without it", "runner", spec.Name, "dir", dir, "error", err)
+	if err := ensureRunnerWritableDir(dir); err != nil {
+		b.log.Warn("could not create the tool cache folder; this runner starts without it", "runner", spec.Name, "dir", dir, "error", err)
 		return
 	}
+	// A folder that was already there is left as its owner made it, and one
+	// the runner cannot write to is worse than none: every setup action that
+	// downloads fails with EACCES instead of downloading. That is the folder
+	// a host's daemon makes, root's, when the path it is handed is not the
+	// one the agent created -- a container that does not mount the shared
+	// folder -- and it outlives the mount being fixed.
+	if why := runnerCannotWrite(dir); why != "" {
+		problem := fmt.Sprintf("the tool cache folder %s %s, so runners start without it and download their toolchains; give it to the runner or open it (sudo chmod 0777 %s), or delete it and Zoomies makes it again", dir, why, dir)
+		b.noteToolCacheProblem(problem)
+		b.log.Warn("the tool cache folder is not writable by the runner; this runner starts without it", "runner", spec.Name, "dir", dir, "fix", problem)
+		return
+	}
+	b.noteToolCacheProblem("")
 	farm := toolFarmDir(b.sharedDir, spec.Name)
 	if err := buildToolFarm(dir, farm); err != nil {
 		b.log.Warn("could not make the runner's own tool cache; this runner starts without the kept one", "runner", spec.Name, "dir", farm, "error", err)
@@ -1248,6 +1280,18 @@ func (b *DockerBackend) prepareCacheDirs(spec Spec, opts *containerOptions) {
 		return
 	}
 	opts.ToolCacheDir, opts.ToolFarmDir = dir, farm
+}
+
+func (b *DockerBackend) noteToolCacheProblem(p string) {
+	b.toolCacheMu.Lock()
+	b.toolCacheProblem = p
+	b.toolCacheMu.Unlock()
+}
+
+func (b *DockerBackend) lastToolCacheProblem() string {
+	b.toolCacheMu.Lock()
+	defer b.toolCacheMu.Unlock()
+	return b.toolCacheProblem
 }
 
 // removeByName deletes a container by name if it exists, which is how Create

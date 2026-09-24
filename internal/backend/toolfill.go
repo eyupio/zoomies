@@ -86,8 +86,8 @@ func (b *DockerBackend) FillToolCache(ctx context.Context, spec Spec, tools []To
 	if dir == "" {
 		return nil, errors.New("backend: this pool keeps no tool cache on this host; it needs the pool cache and its tool cache turned on, and a shared folder the agent could create")
 	}
-	if err := ensureToolCacheDir(dir); err != nil {
-		return nil, fmt.Errorf("backend: preparing the tool cache folder %s: %w", dir, err)
+	if err := ensureRunnerWritableDir(dir); err != nil {
+		return nil, fmt.Errorf("backend: creating the tool cache folder %s: %w", dir, err)
 	}
 	ref, _, _, _, err := b.prepareImage(ctx, spec.Image, spec.PullPolicy)
 	if err != nil {

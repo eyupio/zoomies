@@ -134,9 +134,24 @@ has a CI job that diffs them:
 
 ## Configuration
 
-Every setting is a `zoomies.yaml` key with a `ZOOMIES_*` environment override
-registered in `applyEnv` (`internal/config/config.go`). Adding a key means
-adding both, plus a row in `docs/configuration.md`.
+**Settings live in the database.** The Settings page writes the
+`instance_settings` table and nowhere else, and the controller layers it over
+the defaults and `zoomies.yaml` at start (`config.Rebuild`); a `ZOOMIES_*`
+variable is the operator's last-resort override on top, not where a setting is
+kept. So code that needs a setting's value reads the effective configuration --
+the running `*config.Config`, or `config.Effective` for a deployment that is
+not this process (the installer upgrading one reads its database read-only) --
+and never a `ZOOMIES_*` variable or a `.env` file's copy of one. A value read
+from the environment is wrong the moment an operator has used the Settings
+page. `TestNoCodeReadsASettingFromTheEnvironment` in `internal/docs` fails on
+any such read outside `internal/config`; do not add to its allowlist to get a
+change through. The one real exception is a remote agent, which has no
+database: its own instance settings come from its file and environment.
+
+Every setting is a row in the registry in `internal/config/settings.go`, which
+gives it its `zoomies.yaml` key, its `ZOOMIES_*` override and its place on the
+Settings page. Adding a setting means adding the row, plus a row in
+`docs/configuration.md`.
 
 `config.Validate` returns `Finding`s in three severities, and the distinctions
 matter: **errors** stop startup with a message saying what to change;

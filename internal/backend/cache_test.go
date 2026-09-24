@@ -444,20 +444,40 @@ func TestACacheFolderIsCreatedWritableByTheRunner(t *testing.T) {
 	}
 }
 
-// A tool cache folder the daemon made as root before the agent could is not
-// one setup-node can add to, and it fails the job rather than skipping the
-// cache -- which is how this repository's own CI went red. The tool cache is
-// only ever Zoomies' folder, so an existing one is opened up as well.
-func TestAnExistingToolCacheFolderIsOpenedToTheRunner(t *testing.T) {
+// A tool cache folder the runner cannot write to is worse than none: every
+// setup action that downloads fails with EACCES instead of downloading. It is
+// what a host's daemon leaves, root's, when the agent's container does not
+// mount the shared folder -- and it outlives the mount being fixed, because a
+// folder that exists is left as its owner made it. The runner starts without
+// it, and the host says why.
+func TestAToolCacheTheRunnerCannotWriteIsLeftOut(t *testing.T) {
 	requirePOSIX(t)
-	dir := filepath.Join(t.TempDir(), "cache", "tools", "pool-one")
+	shared := t.TempDir()
+	spec := Spec{Name: "r", PoolID: "pool_1", Cache: store.CacheConfig{Enabled: true, Tools: true, Scope: store.CacheScopePool}}
+	dir := filepath.Join(shared, "cache", "tools", "pool-1")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureToolCacheDir(dir); err != nil {
-		t.Fatalf("ensureToolCacheDir: %v", err)
+	b := &DockerBackend{sharedDir: shared, log: quietLogger()}
+
+	var opts containerOptions
+	b.prepareCacheDirs(spec, &opts)
+	if os.Getuid() != stockRunnerUID {
+		if opts.ToolCacheDir != "" {
+			t.Fatalf("a folder the runner cannot write to was bound: %s", opts.ToolCacheDir)
+		}
+		if p := b.lastToolCacheProblem(); !strings.Contains(p, "chmod 0777") {
+			t.Errorf("problem = %q, want one naming the fix", p)
+		}
 	}
-	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o777 {
-		t.Errorf("existing tool cache folder mode = %v, want writable by every user", fi.Mode().Perm())
+
+	// Opened up, it is used again and the problem clears.
+	if err := os.Chmod(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	opts = containerOptions{}
+	b.prepareCacheDirs(spec, &opts)
+	if opts.ToolCacheDir != dir || b.lastToolCacheProblem() != "" {
+		t.Errorf("dir = %q, problem = %q; want the folder bound and no problem", opts.ToolCacheDir, b.lastToolCacheProblem())
 	}
 }

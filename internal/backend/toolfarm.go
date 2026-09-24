@@ -44,6 +44,11 @@ func buildToolFarm(shared, farm string) error {
 	if err := os.RemoveAll(farm); err != nil {
 		return err
 	}
+	// The parent is the agent's, like the shared folder above it: only each
+	// runner's own folder is opened up.
+	if err := os.MkdirAll(filepath.Dir(farm), 0o750); err != nil {
+		return err
+	}
 	if err := mkdirOpen(farm); err != nil {
 		return err
 	}

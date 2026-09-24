@@ -102,32 +102,29 @@ func ensureRunnerWritableDir(dir string) error {
 	return os.Chmod(dir, 0o777)
 }
 
-// ensureToolCacheDir makes a pool's tool cache folder one the runner can
-// write to, including a folder that already exists.
-//
-// Unlike a pool cache, whose source an operator may choose, the tool cache
-// lives under the host's shared folder and is only ever Zoomies' own. A
-// folder there that the runner cannot write to is one the daemon made as
-// root for a bind before this agent could, or an older agent made closed, and
-// it does not merely cost the cache: actions/setup-node and setup-go fail the
-// job outright when they cannot add to the tool cache they are pointed at. So
-// an existing folder is opened up too, and one that cannot be is refused, so
-// the runner starts without the cache rather than with a broken one.
-func ensureToolCacheDir(dir string) error {
-	if err := ensureRunnerWritableDir(dir); err != nil {
-		return err
-	}
+// stockRunnerUID is the runner account of the stock images, and the one owner
+// besides "everyone" a tool cache folder can be writable to.
+const stockRunnerUID = 1001
+
+// runnerCannotWrite says why the runner could not write to dir, or "" when
+// it can: the folder is open to everyone, or belongs to the stock images'
+// runner. A pool's own image may run as another account; one that does and
+// finds a folder of 1001's is the operator's own arrangement.
+func runnerCannotWrite(dir string) string {
 	fi, err := os.Stat(dir)
 	if err != nil {
-		return err
+		return "cannot be read (" + err.Error() + ")"
 	}
-	if fi.Mode().Perm() == 0o777 {
-		return nil
+	if fi.Mode().Perm()&0o002 != 0 {
+		return ""
 	}
-	if err := os.Chmod(dir, 0o777); err != nil {
-		return fmt.Errorf("the tool cache folder %s is not writable by the runner, and opening it failed: %w", dir, err)
+	if uid, _, ok := fileOwner(fi); ok {
+		if uid == stockRunnerUID && fi.Mode().Perm()&0o200 != 0 {
+			return ""
+		}
+		return fmt.Sprintf("belongs to uid %d with mode %#o, which the runner (uid %d) cannot write to", uid, fi.Mode().Perm(), stockRunnerUID)
 	}
-	return nil
+	return ""
 }
 
 // cacheDirectory returns the host directory a cache lives in, and whether there

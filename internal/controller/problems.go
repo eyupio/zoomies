@@ -148,6 +148,7 @@ var problemAudience = map[string]Audience{
 	"host.limits_unverified":                        AudienceFleet,
 	"host.overprovisioned":                          AudienceFleet,
 	"host.resources_unknown":                        AudienceFleet,
+	"host.shared_folder_unmounted":                  AudienceFleet,
 	"host.runtime_recovering":                       AudienceFleet,
 	"host.throttled":                                AudienceFleet,
 	"host.unhealthy":                                AudienceFleet,
@@ -242,6 +243,36 @@ const problemWindow = time.Hour
 // page an operator opens when something is wrong, and one failing query used
 // to turn the whole of it into a 500. An empty drawer reads as a healthy
 // fleet, which is the one thing it must never say by accident.
+// sharedFolderProblem is a host whose agent cannot hand runners the shared
+// folder -- a containerised agent whose container does not mount it from the
+// host, or a tool cache folder there the runner cannot write to -- raised only
+// where it costs something: a pool that keeps a tool cache
+// and could run there. Its runners start without the kept cache, which is
+// slower and nothing worse; the problem is saying why.
+func sharedFolderProblem(h *store.Host, info store.HostBackend, pools []*store.Pool) (Problem, bool) {
+	if info.SharedFolder == "" {
+		return Problem{}, false
+	}
+	var affected []string
+	for _, p := range pools {
+		if p.Enabled && p.Cache.Enabled && p.Cache.Tools && p.Backend == info.Kind && scheduler.HostCouldRun(h, p) {
+			affected = append(affected, p.Name)
+		}
+	}
+	if len(affected) == 0 {
+		return Problem{}, false
+	}
+	return Problem{
+		Code:       "host.shared_folder_unmounted",
+		Severity:   config.SeverityWarning,
+		Title:      h.Name + " keeps no tool cache for its runners",
+		Detail:     fmt.Sprintf("%s. %s start their runners there without the kept tool cache, so every job downloads its toolchains again.", info.SharedFolder, strings.Join(affected, ", ")),
+		Fix:        "mount the folder as the detail says and restart the container; the next heartbeat clears this.",
+		TargetKind: "host",
+		TargetID:   h.ID,
+	}, true
+}
+
 // agentUpgradeFix renders "here is how to upgrade an agent", or says plainly
 // that there is nothing to upgrade to.
 //
@@ -861,6 +892,9 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 			info, ok := h.BackendInfo.Find(store.BackendKind(kind))
 			if !ok {
 				continue
+			}
+			if p, ok := sharedFolderProblem(h, info, pools); ok {
+				*out = append(*out, p)
 			}
 			if !info.Limits.Known {
 				if defaults && (a.CPUsKnown || a.MemoryKnown) && !slices.Contains(unverified, h.Name) {
