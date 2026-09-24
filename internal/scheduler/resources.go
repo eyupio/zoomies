@@ -604,21 +604,6 @@ func HostRoomFor(h *store.Host, p *store.Pool) HostRoom {
 	}
 	alloc := h.Allocatable()
 	want := Reserve(p, h)
-	// A machine with no room for the standard size is counted in runners at
-	// the minimum, because that is what the pass will place on it; counting
-	// the standard would call a host the pool runs on one it cannot use.
-	if floor := MinimumReserve(p, h); floor != want {
-		standard := true
-		if alloc.CPUsKnown && want.CPUs > 0 && alloc.CPUs+cpuEpsilon < want.CPUs {
-			standard = false
-		}
-		if alloc.MemoryKnown && want.MemoryMB > 0 && alloc.MemoryMB < want.MemoryMB {
-			standard = false
-		}
-		if !standard {
-			want = floor
-		}
-	}
 
 	fits := -1
 	limit := ""
@@ -638,6 +623,25 @@ func HostRoomFor(h *store.Host, p *store.Pool) HostRoom {
 	// would put a machine's cache on the pool's account.
 	if alloc.DiskKnown && want.DiskMB > 0 {
 		consider(int(alloc.DiskMB/want.DiskMB), "disk")
+	}
+	// A pool with a minimum runs one more runner than the standard count
+	// wherever what is left after the standard ones still covers the minimum,
+	// because that is what the pass places: the standard wherever it fits, and
+	// then one runner given all the host can spare. Only one -- a reduced
+	// runner takes the whole remainder, so there is never a second behind it.
+	// Counting the standard alone called a host the pool runs on one it cannot
+	// use; counting every runner at the minimum promised runners the pass
+	// never makes.
+	if fits >= 0 && MinimumReserve(p, h) != want {
+		n := float64(fits)
+		rest := Reservation{
+			CPUs:     alloc.CPUs - n*want.CPUs,
+			MemoryMB: alloc.MemoryMB - int64(fits)*want.MemoryMB,
+			DiskMB:   alloc.DiskMB - int64(fits)*want.DiskMB,
+		}
+		if _, _, ok := ReducedSize(p, h, rest, alloc); ok {
+			fits++
+		}
 	}
 	if fits == -1 {
 		// Nothing measured: the host places by slots alone, exactly as it did

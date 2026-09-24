@@ -1563,6 +1563,16 @@ job that runs. Such a runner is recorded as *reduced* — the Runners page says
 what it was given against what its pool asks for, and its create's reason says
 why — and its host is charged what it was given, not the standard.
 
+A host a pool runs on only at its minimum counts as one of the pool's hosts
+everywhere a host is judged. The pool's room counts the runners the scheduler
+really places there — as many at the standard as fit, then one more given what
+is left if that covers the minimum — at the size they are given, so
+`pool.max_above_room` and `pool.host_overcommitted` do not warn about room the
+pool is using. `host.overprovisioned` judges a slot against the smallest
+minimum every pool that reaches the host accepts, rather than a core and 2 GB,
+and a pool that cannot be placed is told which resource is short of its
+minimum, not of its standard.
+
 These two settings are where a new pool's minimum sliders open. A pool's own
 minimum, set on its size step or as `resources.min_cpus` and
 `resources.min_memory_mb`, is what placement reads, so changing them does not

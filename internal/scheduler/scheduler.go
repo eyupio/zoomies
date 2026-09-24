@@ -1562,7 +1562,13 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			// It has a slot and is the right kind of machine, so what is left
 			// on it is what ran out. Naming which resource is the difference
 			// between adding memory and adding a host.
-			left, alloc, want := hs.leftFor(h, p), hs.alloc[h.ID], Reserve(p, h)
+			//
+			// It is measured against the minimum, because that is what the
+			// pass has already failed to place: a host with memory for a
+			// reduced runner and no CPU for one is short of CPU, and naming
+			// memory would send the operator to add what the pool could
+			// already run in.
+			left, alloc, want := hs.leftFor(h, p), hs.alloc[h.ID], MinimumReserve(p, h)
 			switch {
 			case alloc.DiskKnown && (alloc.DiskMB <= 0 || left.DiskMB < want.DiskMB):
 				lowDisk++
