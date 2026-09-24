@@ -936,11 +936,11 @@ func (t *tick) reap(p *store.Pool, runners []*store.Runner) (actions []Action, r
 				"draining with no job for %s, past the %s drain timeout; its stop was never carried out, so the slot is being taken back",
 				formatDuration(drainingFor(r, t.now)), formatDuration(pol.DrainTimeout))))
 		case pol.MaxRunnerLifetime > 0 && age > pol.MaxRunnerLifetime &&
-			r.State != store.RunnerBusy && r.State != store.RunnerDraining:
+			r.State != store.RunnerBusy && r.State != store.RunnerDraining && !t.stillRunning[r.ID]:
 			retires = append(retires, t.action(ActionDrain, p, r, fmt.Sprintf(
 				"runner reached the %s maximum lifetime",
 				formatDuration(pol.MaxRunnerLifetime))))
-		case staleImage(p, r) && r.State != store.RunnerBusy && r.State != store.RunnerDraining:
+		case staleImage(p, r) && r.State != store.RunnerBusy && r.State != store.RunnerDraining && !t.stillRunning[r.ID]:
 			// The pool's page says one image and this runner was made from
 			// another. A warm runner kept from before the change would take
 			// the next job onto the old image -- for a pool that just gained
@@ -976,7 +976,7 @@ func (t *tick) disable(p *store.Pool, plan *PoolPlan, remaining []*store.Runner,
 	plan.Desired = 0
 	n := 0
 	for _, r := range remaining {
-		if r.State == store.RunnerBusy || r.State == store.RunnerDraining {
+		if r.State == store.RunnerBusy || r.State == store.RunnerDraining || t.stillRunning[r.ID] {
 			continue
 		}
 		plan.Actions = append(plan.Actions, t.action(ActionDrain, p, r, "pool is disabled"))
@@ -1070,11 +1070,19 @@ func (t *tick) unneededStarting(runners []*store.Runner) []*store.Runner {
 
 // drainable returns the idle runners that have waited out the pool's idle
 // timeout, longest-idle first so that the coldest runner goes first.
+//
+// A runner's row can read idle while a job is already running on it: the
+// agent's report and GitHub's in_progress delivery arrive in either order,
+// and an idle report that lands after the job started puts the row back to
+// idle with the idle clock it had before. Drained on that row, the runner is
+// stopped mid-job and killed when the stop times out -- a job GitHub reports
+// as "the self-hosted runner lost communication", and the fleet as exit 137.
+// A job in progress is the durable answer, as it is for a starting runner.
 func (t *tick) drainable(p *store.Pool, runners []*store.Runner) []*store.Runner {
 	timeout := p.IdleTimeout.Duration()
 	var out []*store.Runner
 	for _, r := range runners {
-		if r.State == store.RunnerIdle && r.IdleFor(t.now) >= timeout {
+		if r.State == store.RunnerIdle && r.IdleFor(t.now) >= timeout && !t.stillRunning[r.ID] {
 			out = append(out, r)
 		}
 	}
