@@ -508,6 +508,12 @@ func (s *Server) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 		unprocessable(w, "this join token could not be created", fields)
 		return
 	}
+	if err := s.ctrl.AdmitJoinToken(r.Context()); err != nil {
+		if !asLimit(w, err) {
+			s.internal(w, r, "checking limits.join_tokens", err)
+		}
+		return
+	}
 
 	if req.Connection == "tailcat" {
 		address, err := s.ensureTailcat(r.Context())
