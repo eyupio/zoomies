@@ -720,10 +720,12 @@ func cpuResourceView(r *store.Runner, p *store.Pool, h *store.Host) *CPUResource
 		return nil
 	}
 	guaranteed := r.AllocatedCPUs
-	if p.DockerMode == store.DockerDinD && (r.AllocationSource == store.AllocationFromPool || r.AllocationSource == store.AllocationReduced) {
+	if p.DockerMode == store.DockerDinD && (r.AllocationSource == store.AllocationFromPool ||
+		(r.AllocationSource == store.AllocationReduced && p.Resources.CPUs > 0)) {
 		// A fixed DinD allocation is per container and the host ledger charges
-		// both halves. An automatic allocation is already the logical runner's
-		// whole slot and is split between them, so only the former doubles.
+		// both halves. An automatic allocation -- reduced or not -- is already
+		// the logical runner's whole slot and is split between them, so only
+		// the former doubles.
 		guaranteed *= 2
 	}
 	factor := 1.0

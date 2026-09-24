@@ -493,11 +493,11 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "runners.minimum_cpus", Label: "Minimum CPUs per runner", Env: "ZOOMIES_RUNNER_MINIMUM_CPUS", Kind: KindFloat, Scope: ScopeInstance, Live: true,
-		Summary: "Where a pool's minimum CPU slider opens, in cores: the least a runner of a fixed-size pool may be given when no host has room for its standard size, so a host a little short still runs the job. 0 is no minimum, and a pool's own minimum is what placement reads.",
+		Summary: "Where a pool's minimum CPU slider opens, in cores: the least a runner may be given when no host has room for its standard size — a fixed pool's figures, or an automatic pool's whole slot share — so a host a little short still runs the job. 0 is no minimum, and a pool's own minimum is what placement reads.",
 	},
 	{
 		Key: "runners.minimum_memory_mb", Label: "Minimum memory per runner", Env: "ZOOMIES_RUNNER_MINIMUM_MEMORY_MB", Kind: KindInt, Scope: ScopeInstance, Live: true,
-		Summary: "Where a pool's minimum memory slider opens, in megabytes: the least a runner of a fixed-size pool may be given when no host has room for its standard size. 0 is no minimum; anything set is held to 512.",
+		Summary: "Where a pool's minimum memory slider opens, in megabytes: the least a runner may be given when no host has room for its standard size, fixed or automatic. 0 is no minimum; anything set is held to 512.",
 	},
 	{
 		Key: "runners.env", Label: "Runner environment", Env: "ZOOMIES_RUNNER_ENV", Kind: KindLabels, Scope: ScopeInstance, Live: true,

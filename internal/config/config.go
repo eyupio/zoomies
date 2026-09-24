@@ -734,8 +734,9 @@ type Runners struct {
 	DefaultCPUs     float64 `yaml:"default_cpus"`
 	DefaultMemoryMB int64   `yaml:"default_memory_mb"`
 	// MinimumCPUs and MinimumMemoryMB are where a pool's minimum sliders open:
-	// the least a runner of a fixed-size pool may be given when no host has
-	// room for the standard size above. Zero is no minimum, which is what a
+	// the least a runner may be given when no host has room for its standard
+	// size -- the figures above for a fixed pool, a whole slot's share of the
+	// host for an automatic one. Zero is no minimum, which is what a
 	// pool was before minimums existed, so an upgrade changes nothing. Like
 	// the standard figures they are an opening value for a new pool; a pool's
 	// own minimum is what the scheduler reads.

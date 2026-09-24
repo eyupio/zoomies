@@ -1019,6 +1019,31 @@ test('a runner size can be typed the way people write it, and is written back in
   );
 });
 
+test('an automatic size can carry a minimum for hosts with less than a share left', async ({
+  page,
+}) => {
+  // An automatic pool waited for a whole slot's share of a host, however much
+  // of one was idle. A minimum is what lets it start on what is left, and the
+  // step says so without naming a standard the pool does not set.
+  await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
+  await nameField(page).fill('e2e-auto-minimum');
+  await next(page).click();
+  await addLabel(page, 'auto-minimum');
+  await next(page).click();
+  await next(page).click();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
+  await page.getByRole('radio', { name: 'One share of each host' }).check();
+
+  const minimum = page.getByRole('textbox', { name: 'Minimum memory' });
+  await minimum.fill('2g');
+  await minimum.press('Enter');
+  await expect(minimum).toHaveValue('2 GB');
+  await expect(page.getByText(/whole slot's share/)).toContainText('never less than');
+  await expect(page.getByText(/whole slot's share/)).toContainText('2 GB');
+});
+
 test('a fixed size can carry a minimum for hosts a little short of it', async ({ page }) => {
   // A standard a host cannot quite meet used to leave the job queued. The
   // minimum is the size the pool will still accept, and the step says what
