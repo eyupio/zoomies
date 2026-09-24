@@ -3544,6 +3544,8 @@ export interface components {
                 [key: string]: string;
             };
             run_as_root?: boolean;
+            /** @description Register runners with only the pool's own labels, without self-hosted, the operating system and the architecture (config.sh --no-default-labels). Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. A job asking for self-hosted no longer matches the pool unless the pool lists it. */
+            no_default_labels?: boolean;
             enabled?: boolean;
             /** Format: date-time */
             created_at?: string;
@@ -3633,6 +3635,8 @@ export interface components {
             env_keys: string[];
             run_as_root: boolean;
             enabled: boolean;
+            /** @description The pool registers its runners with its own labels only. */
+            no_default_labels?: boolean;
         };
         PoolsImportRequest: {
             /** @description A pools export */
@@ -3720,6 +3724,11 @@ export interface components {
             };
             /** @default false */
             run_as_root: boolean;
+            /**
+             * @description Register runners with only the pool's own labels, without self-hosted, the operating system and the architecture (config.sh --no-default-labels). Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. A job asking for self-hosted no longer matches the pool unless the pool lists it.
+             * @default false
+             */
+            no_default_labels: boolean;
             /** @default true */
             enabled: boolean;
         };
@@ -3756,6 +3765,8 @@ export interface components {
                 [key: string]: string;
             };
             run_as_root?: boolean;
+            /** @description Register runners with only the pool's own labels, without self-hosted, the operating system and the architecture (config.sh --no-default-labels). Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. A job asking for self-hosted no longer matches the pool unless the pool lists it. */
+            no_default_labels?: boolean;
             enabled?: boolean;
         };
         /** @description The live CPU state for a runner with an enforced CPU quota: lent spare CPU, held at its guarantee, throttled by host pressure, or -- on a pool with elastic CPU off -- sitting exactly where it was put. */
@@ -5499,6 +5510,8 @@ export interface components {
                 url?: string;
                 runner_group?: string;
                 labels?: string[];
+                /** @description Pass --no-default-labels to config.sh on the registration-token path. */
+                no_default_labels?: boolean;
             };
             env?: {
                 [key: string]: string;

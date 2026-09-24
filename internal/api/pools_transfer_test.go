@@ -390,3 +390,24 @@ func TestTheYAMLExportImportsBackUnchanged(t *testing.T) {
 		t.Fatalf("the YAML export does not read back as itself: %+v", plan.Changes)
 	}
 }
+
+// A pool that registers with its own labels only would, imported without the
+// setting, start answering to self-hosted and linux on the other instance --
+// taking jobs its owner kept off it on purpose.
+func TestAPoolKeepsItsOwnLabelsOnlyThroughAnExport(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	zonedHost(h)
+	p := richPool(h, inst)
+	p.Ephemeral = false
+	p.NoDefaultLabels = true
+	if err := h.st.UpdatePool(h.ctx, p); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	op, _ := h.user("operator", store.RoleOperator)
+	doc, body := exportPoolsDoc(t, h, h.session(op))
+	if len(doc.Pools) != 1 || !doc.Pools[0].NoDefaultLabels {
+		t.Fatalf("the export dropped no_default_labels: %+v", doc.Pools)
+	}
+	assertShape(t, loadSpec(t), "PoolsExport", body)
+}

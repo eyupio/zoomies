@@ -85,6 +85,10 @@ type poolDocument struct {
 	EnvKeys   []string `json:"env_keys"`
 	RunAsRoot bool     `json:"run_as_root"`
 	Enabled   bool     `json:"enabled"`
+	// NoDefaultLabels travels with the labels it qualifies: a pool that
+	// registers with its own labels only, imported without this, would start
+	// answering to self-hosted and linux again on the other instance.
+	NoDefaultLabels bool `json:"no_default_labels"`
 }
 
 type poolDocumentTimings struct {
@@ -137,11 +141,12 @@ func documentPool(p *store.Pool, installation string) poolDocument {
 			ScaleUpDelay:      durationText(p.RunnerSettings.ScaleUpDelay),
 			DockerWait:        durationText(p.RunnerSettings.DockerWait),
 		},
-		Cache:        p.Cache,
-		HostSelector: emptyMap(p.HostSelector),
-		EnvKeys:      envKeys,
-		RunAsRoot:    p.RunAsRoot,
-		Enabled:      p.Enabled,
+		Cache:           p.Cache,
+		HostSelector:    emptyMap(p.HostSelector),
+		EnvKeys:         envKeys,
+		RunAsRoot:       p.RunAsRoot,
+		Enabled:         p.Enabled,
+		NoDefaultLabels: p.NoDefaultLabels,
 	}
 }
 
