@@ -366,10 +366,10 @@ func (s *Server) agentRoutes() chi.Router {
 
 	r.Group(func(r chi.Router) {
 		r.Use(s.agentAuth)
-		r.With(limitBody).Post(strings.TrimPrefix(agent.PathHeartbeat, "/api/v1/agent"), s.handleAgentHeartbeat)
+		r.With(s.agentBudget, limitBody).Post(strings.TrimPrefix(agent.PathHeartbeat, "/api/v1/agent"), s.handleAgentHeartbeat)
 		r.Get(strings.TrimPrefix(agent.PathTasks, "/api/v1/agent"), s.handleAgentTasks)
-		r.With(limitBody).Post(strings.TrimPrefix(agent.PathResults, "/api/v1/agent"), s.handleAgentResult)
-		r.With(limitBody).Post(strings.TrimPrefix(agent.PathReport, "/api/v1/agent"), s.handleAgentReport)
+		r.With(s.agentBudget, limitBody).Post(strings.TrimPrefix(agent.PathResults, "/api/v1/agent"), s.handleAgentResult)
+		r.With(s.agentBudget, limitBody).Post(strings.TrimPrefix(agent.PathReport, "/api/v1/agent"), s.handleAgentReport)
 		// No body limit: this one is a runner's whole output, streamed for as
 		// long as the job runs.
 		r.Post(strings.TrimPrefix(agent.PathLogs, "/api/v1/agent")+"/{stream_id}", s.handleAgentLogs)

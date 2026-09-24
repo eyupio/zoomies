@@ -54,6 +54,10 @@ const (
 	EnvRunnerGroup = "ZOOMIES_RUNNER_GROUP"
 	// EnvEphemeral is "true" when the runner must exit after one job.
 	EnvEphemeral = "ZOOMIES_EPHEMERAL"
+	// EnvExtraCAFile names, inside the runner, the extra certificate authority
+	// the entrypoint adds to the image's trust store. It is set only when the
+	// host has agent.extra_ca_file.
+	EnvExtraCAFile = "ZOOMIES_EXTRA_CA_FILE"
 
 	// EnvUpstreamJITConfig is the name actions/runner itself understands. It is
 	// set alongside EnvJITConfig so that an operator can point a pool at a
@@ -152,8 +156,22 @@ type DockerOptions struct {
 	DinDImage string
 	// RegistryAuth is a base64 X-Registry-Auth value for a private registry.
 	RegistryAuth string
-	Logger       *slog.Logger
+	// ExtraCAFile is a PEM bundle on this host that runners and their Docker
+	// sidecars are to trust, for a network whose proxy re-signs TLS. Empty
+	// changes nothing.
+	ExtraCAFile string
+	Logger      *slog.Logger
 }
+
+// ExtraCADir is where the extra CA bundle is mounted inside a runner and its
+// sidecar. It is a directory of its own, holding nothing else, because the
+// sidecar's dockerd is a Go program that reads every file in the directories
+// SSL_CERT_DIR names -- a directory shared with anything else would make it
+// trust that too.
+const ExtraCADir = "/etc/zoomies/ca"
+
+// ExtraCAPath is the bundle's path inside the container.
+const ExtraCAPath = ExtraCADir + "/extra-ca.crt"
 
 // flavor holds the few behaviours that differ between Docker and Podman. It
 // exists so that podman.go can be a page of differences instead of a copy.
@@ -200,6 +218,7 @@ type DockerBackend struct {
 	pull    PullPolicy
 	dind    string
 	auth    string
+	extraCA string
 	log     *slog.Logger
 	// nameRelease is how long a create waits for the daemon to release a name
 	// whose container has gone. A field rather than the constant so a test can
@@ -265,6 +284,7 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 		pull:    pull,
 		dind:    dind,
 		auth:    opts.RegistryAuth,
+		extraCA: strings.TrimSpace(opts.ExtraCAFile),
 		log:     log.With("backend", string(fl.kind)),
 
 		nameRelease: nameReleaseBudget,
@@ -375,6 +395,16 @@ type containerOptions struct {
 	WorkDirOwned bool
 	// DinDImage is only used when building a sidecar config.
 	DinDImage string
+	// ExtraCAFile is a host PEM bundle to mount read-only at ExtraCAPath in
+	// the runner and its sidecar.
+	ExtraCAFile string
+}
+
+// extraCABind is the read-only mount for the extra CA bundle. The Podman
+// relabel suffix is kept: the source is the operator's own bundle, placed for
+// this purpose, and without the label SELinux leaves the mount unreadable.
+func extraCABind(fl flavor, source string) string {
+	return source + ":" + ExtraCAPath + ":ro" + strings.ReplaceAll(fl.mountSuffix, ":", ",")
 }
 
 // buildRunnerConfig assembles the container config for one runner.
@@ -492,6 +522,9 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 	if source, err := cacheSource(spec); err == nil && source != "" {
 		hc.Binds = append(hc.Binds, source+":"+RunnerCacheMount+fl.mountSuffix)
 	}
+	if o.ExtraCAFile != "" {
+		hc.Binds = append(hc.Binds, extraCABind(fl, o.ExtraCAFile))
+	}
 	if o.Network != "" && o.NetworkMode == "" {
 		hc.NetworkMode = o.Network
 		cfg.NetworkingConfig = &NetworkingConfig{
@@ -533,6 +566,11 @@ func runnerEnv(spec Spec, o containerOptions) []string {
 	sort.Strings(keys)
 	for _, k := range keys {
 		env = append(env, k+"="+spec.Env[k])
+	}
+	// Last, so that a pool's env cannot point the entrypoint somewhere the
+	// mount is not: the daemon keeps the last of a repeated name.
+	if o.ExtraCAFile != "" {
+		env = append(env, EnvExtraCAFile+"="+ExtraCAPath)
 	}
 	return env
 }
@@ -590,6 +628,16 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 	if res.PidsLimit > 0 {
 		limit := res.PidsLimit
 		hc.PidsLimit = &limit
+	}
+	// The sidecar pulls every image a dind job uses, so behind a proxy that
+	// re-signs TLS it needs the CA as much as the runner does. dockerd is Go,
+	// and Go adds every file in the SSL_CERT_DIR directories to the system
+	// roots, so naming the mount's directory alongside the image's own is the
+	// whole of it -- no trust-store command to run in an image that is not
+	// ours.
+	if o.ExtraCAFile != "" {
+		hc.Binds = append(hc.Binds, extraCABind(fl, o.ExtraCAFile))
+		cfg.Env = append(cfg.Env, "SSL_CERT_DIR=/etc/ssl/certs:"+ExtraCADir)
 	}
 	if o.Network != "" {
 		cfg.NetworkingConfig = &NetworkingConfig{
@@ -788,7 +836,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	spec.Image = createRef
 	createStarted := time.Now()
 
-	opts := containerOptions{Now: time.Now(), DinDImage: b.dind}
+	opts := containerOptions{Now: time.Now(), DinDImage: b.dind, ExtraCAFile: b.extraCA}
 	network := firstNonEmpty(strings.TrimSpace(spec.Network), b.network)
 	if network != "" {
 		if err := b.ensureNetwork(ctx, network); err != nil {
