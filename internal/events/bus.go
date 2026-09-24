@@ -308,6 +308,17 @@ type SubscribeOptions struct {
 
 // Subscribe returns a feed. The caller must Close it.
 func (b *Bus) Subscribe(ctx context.Context, opts SubscribeOptions) *Subscription {
+	s, _ := b.SubscribeWithin(ctx, opts, 0)
+	return s
+}
+
+// SubscribeWithin is Subscribe with a ceiling on how many feeds may be open,
+// reporting false and subscribing nothing when limit are already open. Zero
+// is no ceiling.
+//
+// The count and the subscription are taken under the one lock, so a burst of
+// streams opened together cannot all see room for one and all take it.
+func (b *Bus) SubscribeWithin(ctx context.Context, opts SubscribeOptions, limit int) (*Subscription, bool) {
 	kinds := map[Kind]bool{}
 	for _, k := range opts.Kinds {
 		kinds[k] = true
@@ -322,9 +333,12 @@ func (b *Bus) Subscribe(ctx context.Context, opts SubscribeOptions) *Subscriptio
 		return true
 	}
 
-	ch := make(chan Event, b.buffer)
-
 	b.mu.Lock()
+	if limit > 0 && len(b.subs) >= limit {
+		b.mu.Unlock()
+		return nil, false
+	}
+	ch := make(chan Event, b.buffer)
 	b.nextID++
 	sub := &subscriber{id: b.nextID, ch: ch, filter: filter}
 	b.subs[sub.id] = sub
@@ -372,7 +386,7 @@ func (b *Bus) Subscribe(ctx context.Context, opts SubscribeOptions) *Subscriptio
 			}
 		}()
 	}
-	return s
+	return s, true
 }
 
 // Subscribers returns the current subscriber count, which the UI shows on the

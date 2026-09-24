@@ -166,7 +166,18 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	// including a write failure to a browser that has already gone.
 	subCtx, unsubscribe := context.WithCancel(ctx)
 	defer unsubscribe()
-	sub := bus.Subscribe(subCtx, opts)
+	// Refused before the stream starts, while a status code can still be
+	// sent. The browser's EventSource gives up on a non-200 rather than
+	// retrying, which is what an instance with no room wants from it.
+	limit := s.cfg().Limits.EventSubscribers
+	sub, ok := bus.SubscribeWithin(subCtx, opts, limit)
+	if !ok {
+		limitReached(w, &controller.LimitError{
+			Setting: "limits.event_subscribers", Limit: limit, What: "live-update streams",
+			Free: "close a browser tab that is no longer needed",
+		})
+		return
+	}
 
 	stream := startSSE(w, r)
 	_ = stream.retry(2 * time.Second)

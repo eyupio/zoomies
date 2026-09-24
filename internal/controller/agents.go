@@ -486,6 +486,16 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 	if existing != nil {
 		hostID = existing.ID
 	}
+	// Checked before the token is redeemed, so an agent refused by the
+	// ceiling keeps a token it can use once there is room. A host joining
+	// again replaces its own row and adds nothing to the count. The embedded
+	// agent is exempt: it is this process's own machine, and refusing it
+	// would leave a single-VM controller with no host at all.
+	if existing == nil && !embedded {
+		if err := c.admitHost(ctx); err != nil {
+			return nil, err
+		}
+	}
 
 	var tokenLabels store.StringMap
 	tokenCapacity := 0
