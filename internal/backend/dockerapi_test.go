@@ -698,3 +698,32 @@ func TestParseDockerTime(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+// The daemon answers a stop only once the container is down or its grace
+// period is over, so a stop that gives a job minutes to finish holds the
+// request open for minutes. The transport's response-header timeout used to
+// cut it off at 90 seconds and report "the daemon may be busy or stalled",
+// which failed the runner as unexplained while the daemon carried on and
+// killed the container anyway. A stop is bounded by its own grace period.
+func TestAStopOutlastsTheResponseHeaderTimeout(t *testing.T) {
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"POST " + v + "/containers/slow/stop": func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(300 * time.Millisecond)
+			w.WriteHeader(http.StatusNoContent)
+		},
+		"GET " + v + "/containers/slow/json": func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(300 * time.Millisecond)
+			writeJSON(w, 200, &ContainerInspect{ID: "slow"})
+		},
+	})
+	c := f.client(t)
+	c.http.Transport.(*http.Transport).ResponseHeaderTimeout = 50 * time.Millisecond
+	if err := c.ContainerStop(context.Background(), "slow", 5*time.Second); err != nil {
+		t.Fatalf("a stop answered after its grace period's work failed: %v", err)
+	}
+	// Every other call keeps the timeout: a daemon that does not answer an
+	// inspect is one that is stalled.
+	if _, err := c.ContainerInspect(context.Background(), "slow"); err == nil {
+		t.Fatal("an ordinary call outlived the response-header timeout")
+	}
+}

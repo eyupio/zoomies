@@ -610,6 +610,44 @@ func TestStartingRunnerForAnInProgressJobIsNeverCancelledAsSurplus(t *testing.T)
 	}
 }
 
+// A runner's row can read idle -- with the idle clock it had before -- while a
+// job is already running on it, when the agent's idle report lands after the
+// job started. Drained on that row it was stopped mid-job and killed with 137,
+// and GitHub reported "the self-hosted runner lost communication". A job in
+// progress keeps its runner, whatever the row says, on every path that retires
+// runners that are not busy.
+func TestAnIdleRowWhoseJobIsRunningIsNeverDrained(t *testing.T) {
+	cases := map[string]func(p *store.Pool, r *store.Runner){
+		"idle timeout":  func(p *store.Pool, r *store.Runner) {},
+		"pool disabled": func(p *store.Pool, r *store.Runner) { p.Enabled = false },
+		"image changed": func(p *store.Pool, r *store.Runner) { p.Image = "new:1"; r.Image = "old:1" },
+		"maximum lifetime": func(p *store.Pool, r *store.Runner) {
+			d := store.Duration(time.Minute)
+			p.RunnerSettings.MaxRunnerLifetime = &d
+		},
+	}
+	for name, set := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := testPool("linux-x64", "linux")
+			r := idleRunner("r1", p, 30*time.Minute)
+			set(p, r)
+			running := &store.Job{
+				ID: "job-1", PoolID: p.ID, RunnerID: r.ID, State: store.JobInProgress,
+				Repo: "acme/widgets", InstallationID: testInstallation,
+			}
+			plan := Decide(snap([]*store.Pool{p}, []*store.Runner{r}, []*store.Job{running},
+				[]*store.Host{testHost("host_a", 8, 1)}))
+			for _, pp := range plan.Pools {
+				for _, a := range pp.Actions {
+					if a.RunnerID == r.ID && (a.Kind == ActionDrain || a.Kind == ActionRemove || a.Kind == ActionFail) {
+						t.Fatalf("%s a runner whose job is running: %+v", a.Kind, a)
+					}
+				}
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Scale down
 // ---------------------------------------------------------------------------

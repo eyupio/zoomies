@@ -69,8 +69,12 @@ const (
 type APIClient struct {
 	// host is the endpoint exactly as the operator wrote it, so that error
 	// messages name the thing in their configuration file.
-	host    string
-	http    *http.Client
+	host string
+	http *http.Client
+	// held is http without the response-header timeout, for the calls the
+	// daemon answers only when the work is done: a stop holds the request
+	// open for the whole grace period. Their context carries the deadline.
+	held    *http.Client
 	version string
 
 	// base is the URL prefix requests are built on. For a unix socket the
@@ -133,7 +137,18 @@ func NewAPIClient(host string) (*APIClient, error) {
 	// Client.Timeout would abort a followed log stream, so the deadline lives
 	// on the context of each non-streaming call instead.
 	c.http = &http.Client{Transport: tr}
+	heldTr := tr.Clone()
+	heldTr.ResponseHeaderTimeout = 0
+	c.held = &http.Client{Transport: heldTr}
 	return c, nil
+}
+
+// heldResponse marks a call whose answer the daemon holds back until the work
+// is done, so the response-header timeout must not apply to it.
+type heldResponse struct{}
+
+func withHeldResponse(ctx context.Context) context.Context {
+	return context.WithValue(ctx, heldResponse{}, true)
 }
 
 // Endpoint returns the host string this client was built from.
@@ -262,7 +277,11 @@ func (c *APIClient) doRaw(ctx context.Context, method, path string, q url.Values
 		}
 	}
 
-	resp, err := c.http.Do(req)
+	client := c.http
+	if held, _ := ctx.Value(heldResponse{}).(bool); held && c.held != nil {
+		client = c.held
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, c.unavailable(err)
 	}
@@ -655,7 +674,12 @@ func (c *APIClient) ContainerStop(ctx context.Context, id string, timeout time.D
 
 	// The daemon holds this request open until the container is down or the
 	// grace period expires, so the default call deadline would cancel our own
-	// stop on any timeout longer than a minute.
+	// stop on any timeout longer than a minute -- and so would the transport's
+	// 90-second response-header timeout, which is what it used to do: every
+	// stop that gave a job more than 90 seconds to finish came back as "the
+	// daemon may be busy or stalled", the runner was failed as unexplained,
+	// and the daemon went on to kill the container at the grace period's end.
+	ctx = withHeldResponse(ctx)
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout+defaultCallTimeout)
