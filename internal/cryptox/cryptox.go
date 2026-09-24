@@ -193,6 +193,75 @@ func (k *Key) OpenString(sealed []byte) (string, error) {
 }
 
 // ---------------------------------------------------------------------------
+// Sealing under a passphrase
+// ---------------------------------------------------------------------------
+
+// passphraseMagic starts every value SealWithPassphrase writes, so a value
+// sealed with the instance key -- or anything else -- is refused as the wrong
+// kind rather than reported as a wrong passphrase.
+const passphraseMagic = "zoomies-pass-v1:"
+
+// The KDF costs are the backup encryptor's: a passphrase-sealed value is opened
+// once, by a person moving an installation, so the time is spent where a
+// guessed passphrase costs the guesser most.
+const (
+	passArgonTime   = 3
+	passArgonMemory = 64 * 1024 // KiB
+	passArgonLanes  = 4
+)
+
+// ErrWrongPassphrase is a passphrase-sealed value that did not open. A wrong
+// passphrase and an altered value are the same failure by construction.
+var ErrWrongPassphrase = errors.New("cryptox: the passphrase does not open this value, or the value has been altered")
+
+// SealWithPassphrase encrypts plaintext under a key derived from passphrase
+// with argon2id and a fresh salt, and returns magic||salt||nonce||ciphertext.
+//
+// This exists so a secret can leave the instance without the instance key:
+// that key seals every secret column, and handing it over to move one
+// installation would hand over every other one with it.
+func SealWithPassphrase(passphrase string, plaintext []byte) ([]byte, error) {
+	if strings.TrimSpace(passphrase) == "" {
+		return nil, errors.New("cryptox: a passphrase is needed to seal")
+	}
+	salt := make([]byte, argonSaltLen)
+	if _, err := rand.Read(salt); err != nil {
+		return nil, err
+	}
+	k, err := passphraseKey(passphrase, salt)
+	if err != nil {
+		return nil, err
+	}
+	sealed, err := k.Seal(plaintext)
+	if err != nil {
+		return nil, err
+	}
+	out := append([]byte(passphraseMagic), salt...)
+	return append(out, sealed...), nil
+}
+
+// OpenWithPassphrase reverses SealWithPassphrase.
+func OpenWithPassphrase(passphrase string, sealed []byte) ([]byte, error) {
+	if !strings.HasPrefix(string(sealed), passphraseMagic) || len(sealed) < len(passphraseMagic)+argonSaltLen {
+		return nil, errors.New("cryptox: this value was not sealed with a passphrase")
+	}
+	rest := sealed[len(passphraseMagic):]
+	k, err := passphraseKey(passphrase, rest[:argonSaltLen])
+	if err != nil {
+		return nil, err
+	}
+	out, err := k.Open(rest[argonSaltLen:])
+	if err != nil {
+		return nil, ErrWrongPassphrase
+	}
+	return out, nil
+}
+
+func passphraseKey(passphrase string, salt []byte) (*Key, error) {
+	return NewKey(argon2.IDKey([]byte(passphrase), salt, passArgonTime, passArgonMemory, passArgonLanes, KeyLen))
+}
+
+// ---------------------------------------------------------------------------
 // Password hashing
 // ---------------------------------------------------------------------------
 

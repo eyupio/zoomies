@@ -526,3 +526,36 @@ administrator has set, and nothing else — travels separately, from
   on the page afterwards, exactly as a change made by hand would be.
 
 Both are audited, as `settings.export` and `settings.import`.
+
+## Moving one installation, or removing its history
+
+A backup is the whole fleet and is sealed under the instance key, which also
+seals every other installation's credentials. To take one GitHub App to a new
+machine without handing that key over, export the installation alone:
+
+```sh
+zoomies export --installation ins_k3f9qz2m --passphrase-file ./move.pass
+zoomies import zoomies-installation-ins_k3f9qz2m.json --passphrase-file ./move.pass   # on the new instance
+zoomies installations verify ins_k3f9qz2m
+```
+
+The archive holds the installation, its pools, runners, jobs and their events,
+webhook deliveries, scaling events, runner sessions, usage days and capacity
+samples, and every audit row that names any of them. With a passphrase, the
+App's private key and webhook secret are sealed under it with argon2id and
+AES-256-GCM — the scheme an encrypted backup uses — and the import opens them
+and seals them again under the new instance's key; without one, the history
+travels and the credentials do not. The instance-sealed columns never leave in
+any case. The import is all or nothing, keeps every row's ID, and leaves the
+runner rows out: they name hosts only the old instance has, and their history
+arrives as sessions. Stop the pools on the old instance first, for the reason
+[restoring onto a second machine](#restoring-onto-a-second-machine) gives.
+
+Deleting an installation leaves its history behind on purpose. To remove that
+too — a team that has left, whose jobs and audit trail should go with it —
+purge it: `DELETE /api/v1/installations/{id}?purge=true&confirm=<target>`,
+with the target typed to confirm, removes exactly the set an export writes and
+nothing that belongs to another installation. Export first if it may ever be
+wanted. The one row left afterwards is the `installation.purge` audit entry
+recording that it happened. Export and import are audited as
+`installation.export` and `installation.import`.
