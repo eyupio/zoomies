@@ -29,7 +29,7 @@ func TestWorkflowMatricesCoverTheCatalogue(t *testing.T) {
 		{"release.yml", "runner-images"},
 	} {
 		t.Run(wf.file, func(t *testing.T) {
-			got := runnerMatrix(t, wf.file, wf.job)
+			got, arches := runnerMatrix(t, wf.file, wf.job)
 			want := map[string]matrixEntry{}
 			for _, img := range Images() {
 				plats := make([]string, 0, len(img.Arches))
@@ -49,6 +49,13 @@ func TestWorkflowMatricesCoverTheCatalogue(t *testing.T) {
 				}
 				if g != w {
 					t.Errorf("%s builds %s as %+v, but the catalogue says %+v; %s", wf.file, tag, g, w, regenerate)
+				}
+				// Each architecture is its own row, built on a machine of that
+				// architecture, and the rows are merged into one manifest. A
+				// platform with no row of its own would be named by the manifest
+				// and built by nothing.
+				if built := strings.Join(arches[tag], ","); built != w.Platforms {
+					t.Errorf("%s builds %s on %s machines, but it is published for %s; %s", wf.file, tag, built, w.Platforms, regenerate)
 				}
 			}
 			for tag := range got {
@@ -74,7 +81,7 @@ type matrixEntry struct {
 	Platforms string `yaml:"platforms"`
 }
 
-func runnerMatrix(t *testing.T, file, job string) map[string]matrixEntry {
+func runnerMatrix(t *testing.T, file, job string) (map[string]matrixEntry, map[string][]string) {
 	t.Helper()
 	var wf struct {
 		Jobs map[string]struct {
@@ -82,6 +89,7 @@ func runnerMatrix(t *testing.T, file, job string) map[string]matrixEntry {
 				Matrix struct {
 					Include []struct {
 						Tag         string `yaml:"tag"`
+						Arch        string `yaml:"arch"`
 						matrixEntry `yaml:",inline"`
 					} `yaml:"include"`
 				} `yaml:"matrix"`
@@ -100,13 +108,18 @@ func runnerMatrix(t *testing.T, file, job string) map[string]matrixEntry {
 		t.Fatalf("%s has no %s job", file, job)
 	}
 	out := map[string]matrixEntry{}
+	arches := map[string][]string{}
 	for _, row := range j.Strategy.Matrix.Include {
+		if prev, ok := out[row.Tag]; ok && prev != row.matrixEntry {
+			t.Errorf("%s's %s rows for %s disagree about what they build", file, job, row.Tag)
+		}
 		out[row.Tag] = row.matrixEntry
+		arches[row.Tag] = append(arches[row.Tag], "linux/"+row.Arch)
 	}
 	if len(out) == 0 {
 		t.Fatalf("%s's %s job builds nothing", file, job)
 	}
-	return out
+	return out, arches
 }
 
 // The Makefile builds the same variants by hand, because a contributor
