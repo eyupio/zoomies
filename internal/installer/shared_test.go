@@ -2,6 +2,7 @@ package installer
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,7 +39,9 @@ func TestTheComposeFileMountsTheSharedFolderAtItsOwnPath(t *testing.T) {
 			t.Errorf("service %s does not mount %q: %v", name, want, svc.Volumes)
 		}
 	}
-	if SharedHostDir != filepath.Join(ContainerStateDir, "shared") {
+	// A path inside the container, so slash-separated whichever OS runs the
+	// installer's tests.
+	if SharedHostDir != path.Join(ContainerStateDir, "shared") {
 		t.Errorf("SharedHostDir = %s, but the container's own shared folder is %s/shared", SharedHostDir, ContainerStateDir)
 	}
 }
