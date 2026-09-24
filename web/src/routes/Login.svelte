@@ -13,15 +13,31 @@
   wrong credentials, too many attempts, or a controller that cannot be reached
   at all. Those are three different problems and only one of them is the
   operator's fault.
+
+  It is also the one page of a controller that people who did not install it
+  see, so it is split in two: the form, and a Zoomies Black panel that says
+  what this is, who makes it and where the source lives. The panel is the
+  brand's own ground in both themes, which is what lets the lockup sit on it
+  with no holding shape of its own.
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { Eye, EyeOff, TriangleAlert } from '@lucide/svelte';
+  import {
+    Code,
+    Database,
+    Eye,
+    EyeOff,
+    Globe,
+    Package,
+    Server,
+    TriangleAlert,
+  } from '@lucide/svelte';
   import { ApiError, oidcStartUrl } from '$lib/api/client';
   import { authFailureText, sentence } from '$lib/errors';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import { DEVELOPER_NAME, DEVELOPER_URL, REPO_URL, SITE_HOST, SITE_URL } from '$lib/links';
+  import GithubMark from '$lib/icons/GithubMark.svelte';
   import Logo from '$lib/components/Logo.svelte';
   import Button from '$lib/components/Button.svelte';
   import Field from '$lib/components/Field.svelte';
@@ -60,6 +76,66 @@
   );
 
   const meta = $derived(session.meta);
+
+  /**
+   * Whether this is the shell's /login route rather than the sign-in screen.
+   *
+   * The router serves /login to somebody already in the product too -- that is
+   * the only way the "no sign-in required" statement is ever seen -- and there
+   * the page sits inside the navigation and the footer, which already say what
+   * Zoomies is. The brand panel and the full-window layout are for the screen
+   * that has nothing else on it.
+   */
+  const embedded = $derived(session.phase === 'ready');
+
+  /**
+   * The address being signed in to, as the browser reached it. Somebody with
+   * accounts on a staging and a production controller should not have to read
+   * the address bar to know which one they are about to type a password into.
+   * The browser's own idea of the host is the one that is always right: the
+   * configured external URL can be missing, can be a loopback address reached
+   * through a tunnel, or can name an address this browser did not use -- and
+   * it is this address the password is about to be sent to.
+   */
+  const host = location.host;
+
+  /**
+   * The rings' radii, as fractions of the square they are drawn in, and the
+   * two that carry a highlight: a Runner Blue arc on one and a short tick on
+   * the next.
+   */
+  const ARC_RING = 0.27;
+  const TICK_RING = 0.37;
+  const RING_RADII = [0.18, ARC_RING, TICK_RING, 0.46];
+
+  /** A dash covering `share` of the circle of this radius, and a gap for the rest. */
+  function dash(radius: number, share: number): string {
+    const around = 2 * Math.PI * radius;
+    return `${around * share} ${around}`;
+  }
+
+  /**
+   * What the brand panel says Zoomies is. Three facts, each true of every
+   * installation, because whoever reads them is usually not the operator: a
+   * developer sent this address by the colleague who installed it.
+   */
+  const facts = [
+    {
+      icon: Package,
+      title: 'A clean runner for every job',
+      detail: 'Ephemeral containers, destroyed when the job ends.',
+    },
+    {
+      icon: Database,
+      title: 'One binary, one SQLite file',
+      detail: 'No Kubernetes and no database server to run.',
+    },
+    {
+      icon: Code,
+      title: 'Free and open source',
+      detail: 'Read the source before you run it.',
+    },
+  ];
 
   $effect(() => {
     if (ssoFailure) router.setQuery({ error: null });
@@ -157,176 +233,486 @@
   }
 </script>
 
-<div class="card">
-  <div class="brand">
-    <Logo variant="lockup" size={96} label="Zoomies" />
-  </div>
+{#snippet rings(where: 'panel' | 'band', size: number)}
+  <!-- The circular motion path the dog runs in, centred just past the corner
+       so only an arc of it shows, and kept away from the lockup: the brand
+       pack allows no texture on or behind the artwork itself. Drawn at the
+       size it is shown rather than scaled, so every stroke stays a hairline. -->
+  {@const c = size / 2}
+  <svg
+    class="rings {where}"
+    style:--rings="{size}px"
+    width={size}
+    height={size}
+    viewBox="0 0 {size} {size}"
+    aria-hidden="true"
+    focusable="false"
+  >
+    {#each RING_RADII as radius (radius)}
+      <circle cx={c} cy={c} r={radius * size} />
+    {/each}
+    <circle
+      class="arc"
+      cx={c}
+      cy={c}
+      r={ARC_RING * size}
+      stroke-dasharray={dash(ARC_RING * size, 0.13)}
+      transform="rotate(218 {c} {c})"
+    />
+    <circle
+      class="tick"
+      cx={c}
+      cy={c}
+      r={TICK_RING * size}
+      stroke-dasharray={dash(TICK_RING * size, 0.04)}
+      transform="rotate(236 {c} {c})"
+    />
+  </svg>
+{/snippet}
 
-  {#if meta?.auth_disabled}
-    <h1>No sign-in required</h1>
-    <p class="lede">
-      Authentication is switched off in this instance's configuration, so there is nothing to sign
-      in to. Anyone who can reach this address has full access.
-    </p>
-    <Button variant="primary" full href="/">Continue to the dashboard</Button>
-    <p class="note">
-      Turn authentication back on in the configuration file before this instance is reachable by
-      anyone you do not trust.
-    </p>
-  {:else}
-    <h1>Sign in</h1>
-    <p class="lede">Manage the runner fleet on this instance.</p>
+<!--
+  Four regions, in the order they are read: the lockup, the form, what Zoomies
+  is, and which build this is. On a desktop the first and third stack into the
+  panel on the left; on a phone they become a band above the form and a row of
+  links below it. The source order is the reading order in both, so the three
+  outbound links come after the form for a keyboard, not before it.
+-->
+<div class="signin" class:embedded>
+  {#if !embedded}
+    <div class="mark">
+      {@render rings('band', 200)}
+      <span class="lockup"><Logo variant="lockup" size={84} label="Zoomies" /></span>
+    </div>
+  {/if}
 
-    {#if failureText}
-      <p class="failure" role="alert">
-        <TriangleAlert size={15} aria-hidden="true" />
-        <span>{failureText}</span>
-      </p>
-    {/if}
+  <div class="form-side">
+    <div class="form-column">
+      {#if !embedded}
+        <p class="instance" title="The Zoomies instance at this address">
+          <Server size={12} aria-hidden="true" />
+          <span class="sr-only">This instance:</span>
+          <span class="host">{host}</span>
+        </p>
+      {/if}
 
-    <form onsubmit={submit} novalidate>
-      <Field label="Username" error={usernameError}>
-        {#snippet children({ id, describedBy, invalid })}
-          <Input
-            bind:value={username}
-            bind:element={usernameInput}
-            {id}
-            {describedBy}
-            {invalid}
-            name="username"
-            autocomplete="username"
-            autocapitalize="none"
-            spellcheck={false}
-            disabled={submitting}
-            onkeydown={readCapsLock}
-            onblur={() => (touched = { ...touched, username: true })}
-          />
-        {/snippet}
-      </Field>
+      {#if meta?.auth_disabled}
+        <h1>No sign-in required</h1>
+        <p class="lede">
+          Authentication is switched off in this instance's configuration, so there is nothing to
+          sign in to. Anyone who can reach this address has full access.
+        </p>
+        <Button variant="primary" size="lg" full href="/">Continue to the dashboard</Button>
+        <p class="note">
+          Turn authentication back on in the configuration file before this instance is reachable by
+          anyone you do not trust.
+        </p>
+      {:else}
+        <h1>Sign in</h1>
+        <p class="lede">Manage the runner fleet on this instance.</p>
 
-      <!-- The caps-lock warning goes in `notice`, not `hint`: hint is the
-           branch Field drops the moment there is an error, which is exactly
-           when caps lock is most likely to be the reason for one. -->
-      <Field
-        label="Password"
-        hint="The one you chose when this instance was set up."
-        error={passwordError}
-        notice={capsLock ? 'Caps lock is on.' : undefined}
-      >
-        {#snippet children({ id, describedBy, invalid })}
-          <Input
-            bind:value={password}
-            bind:element={passwordInput}
-            {id}
-            {describedBy}
-            {invalid}
-            type={revealed ? 'text' : 'password'}
-            name="password"
-            autocomplete="current-password"
-            disabled={submitting}
-            onkeydown={readCapsLock}
-            onblur={() => {
-              touched = { ...touched, password: true };
-              capsLock = false;
-            }}
-          >
-            {#snippet trailing()}
-              <IconButton
-                icon={revealed ? EyeOff : Eye}
-                label={revealed ? 'Hide password' : 'Show password'}
-                size="sm"
-                pressed={revealed}
+        {#if failureText}
+          <p class="failure" role="alert">
+            <TriangleAlert size={15} aria-hidden="true" />
+            <span>{failureText}</span>
+          </p>
+        {/if}
+
+        <form onsubmit={submit} novalidate>
+          <Field label="Username" error={usernameError}>
+            {#snippet children({ id, describedBy, invalid })}
+              <Input
+                bind:value={username}
+                bind:element={usernameInput}
+                {id}
+                {describedBy}
+                {invalid}
+                size="lg"
+                name="username"
+                autocomplete="username"
+                autocapitalize="none"
+                spellcheck={false}
                 disabled={submitting}
-                onclick={() => {
-                  revealed = !revealed;
-                  passwordInput?.focus();
-                }}
+                onkeydown={readCapsLock}
+                onblur={() => (touched = { ...touched, username: true })}
               />
             {/snippet}
-          </Input>
-        {/snippet}
-      </Field>
+          </Field>
 
-      <Button type="submit" variant="primary" full loading={submitting}>Sign in</Button>
-    </form>
+          <!-- The caps-lock warning goes in `notice`, not `hint`: hint is the
+               branch Field drops the moment there is an error, which is exactly
+               when caps lock is most likely to be the reason for one.
 
-    {#if meta?.oidc_enabled}
-      <div class="divider"><span>or</span></div>
-      <Button href={oidcStartUrl()} full>{meta.oidc_label ?? 'Sign in with SSO'}</Button>
-    {/if}
+               The hint holds the row an error takes, so "Enter your password."
+               appearing on blur cannot move the button out from under a pointer
+               on its way to it. It used to read "the one you chose when this
+               instance was set up", which is true of the first administrator
+               and of nobody else: every other password was set by an
+               administrator, and an administrator is also who can reset it. -->
+          <Field
+            label="Password"
+            hint="Forgotten it? An administrator can reset it."
+            error={passwordError}
+            notice={capsLock ? 'Caps lock is on.' : undefined}
+          >
+            {#snippet children({ id, describedBy, invalid })}
+              <Input
+                bind:value={password}
+                bind:element={passwordInput}
+                {id}
+                {describedBy}
+                {invalid}
+                size="lg"
+                type={revealed ? 'text' : 'password'}
+                name="password"
+                autocomplete="current-password"
+                disabled={submitting}
+                onkeydown={readCapsLock}
+                onblur={() => {
+                  touched = { ...touched, password: true };
+                  capsLock = false;
+                }}
+              >
+                {#snippet trailing()}
+                  <IconButton
+                    icon={revealed ? EyeOff : Eye}
+                    label={revealed ? 'Hide password' : 'Show password'}
+                    pressed={revealed}
+                    disabled={submitting}
+                    onclick={() => {
+                      revealed = !revealed;
+                      passwordInput?.focus();
+                    }}
+                  />
+                {/snippet}
+              </Input>
+            {/snippet}
+          </Field>
+
+          <Button type="submit" variant="primary" size="lg" full loading={submitting}>
+            Sign in
+          </Button>
+        </form>
+
+        {#if meta?.oidc_enabled}
+          <div class="divider"><span>or</span></div>
+          <Button href={oidcStartUrl()} size="lg" full
+            >{meta.oidc_label ?? 'Sign in with SSO'}</Button
+          >
+        {/if}
+      {/if}
+    </div>
+  </div>
+
+  {#if !embedded}
+    <!--
+      What Zoomies is, for the person who did not install it -- and until now the
+      page named the product and nothing else. Free and open source is the fact
+      worth carrying, because it is what makes "you could run your own" a real
+      sentence. The links are the ones the site and every signed-in page carry,
+      from links.ts, and each leaves the product, so each opens a new tab.
+    -->
+    <div class="about">
+      {@render rings('panel', 840)}
+      <div class="pitch">
+        <p class="tagline">GitHub Actions runners on machines you own.</p>
+        <p class="pitch-lede">
+          Zoomies starts a fresh runner for every queued job and tears it down when the job is done.
+        </p>
+        <ul class="facts">
+          {#each facts as fact (fact.title)}
+            <li>
+              <span class="fact-icon"><fact.icon size={16} aria-hidden="true" /></span>
+              <span class="fact-text">
+                <strong>{fact.title}</strong>
+                <span>{fact.detail}</span>
+              </span>
+            </li>
+          {/each}
+        </ul>
+      </div>
+      <nav class="links" aria-label="About Zoomies">
+        <a href={SITE_URL} target="_blank" rel="noopener noreferrer">
+          <Globe size={15} aria-hidden="true" />
+          {SITE_HOST}<span class="sr-only"> (opens in a new tab)</span>
+        </a>
+        <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
+          <GithubMark size={15} aria-hidden="true" />
+          GitHub<span class="sr-only"> (opens in a new tab)</span>
+        </a>
+        <span class="credit">
+          Developed by
+          <a href={DEVELOPER_URL} target="_blank" rel="noopener noreferrer">
+            {DEVELOPER_NAME}<span class="sr-only"> (opens in a new tab)</span>
+          </a>
+        </span>
+      </nav>
+    </div>
+
+    <!-- A build number is about the installation, not about signing in, so it
+         sits under the form rather than inside it. -->
+    <div class="meta">
+      <span class="build">
+        <span class="product">Zoomies</span>
+        {#if meta?.version}<span class="version">{meta.version}</span>{/if}
+      </span>
+      {#if !meta?.auth_disabled}
+        <span class="no-account">No account? Ask an administrator of this instance to add you.</span
+        >
+      {/if}
+    </div>
   {/if}
 </div>
 
-<!--
-  The one place a person who did not install this can find out what it is.
-  A controller is usually somebody's private infrastructure, so whoever reaches
-  this screen is often not its operator -- and until now the page named the
-  product and nothing else. Free and open source is the fact worth carrying
-  here, because it is what makes "you could run your own" a real sentence.
--->
-<p class="colophon">
-  {#if meta?.version}<span class="version">Zoomies {meta.version}</span>{/if}
-  <span class="what">Free, open-source self-hosted GitHub Actions runners</span>
-  <a href={SITE_URL} target="_blank" rel="noopener noreferrer">{SITE_HOST}</a>
-  <a href={REPO_URL} target="_blank" rel="noopener noreferrer">Source</a>
-  <span class="credit">
-    Developed by
-    <a href={DEVELOPER_URL} target="_blank" rel="noopener noreferrer">{DEVELOPER_NAME}</a>
-  </span>
-</p>
-
 <style>
   /*
-    The card floats on the page rather than sitting in a layout, so it carries
-    real elevation. A hairline highlight along its top edge keeps it from
-    reading as a flat rectangle in dark mode, where the border alone nearly
-    disappears.
+    The measures this layout is cut to. The panel takes a share of the window
+    between a floor that still holds the lockup beside its padding and a
+    ceiling past which the extra width would only be black. The lockup is the
+    brand's primary full logo, given the room the brand page asks for on this
+    screen and never under its 220px minimum; its artwork carries its own clear
+    space, which starts 12.6% in from the left and 14.6% down from the top of
+    the file, and the panel pulls the frame out by that much so the dog lines
+    up with the text beneath it without any of that clear space being lost.
   */
-  .card {
-    position: relative;
-    width: 100%;
-    max-width: 25rem;
-    padding: var(--z-space-8);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-lg);
+  .signin {
+    --panel-width: clamp(22rem, 42vw, 35rem);
+    --panel-pad-x: var(--z-space-16);
+    --lockup: 16.25rem;
+
+    display: grid;
+    grid-template-columns: var(--panel-width) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'mark form'
+      'about form'
+      'about meta';
+    min-height: 100vh;
     background: var(--z-surface);
-    box-shadow: var(--z-shadow-lg);
   }
-  .card::before {
-    content: '';
-    position: absolute;
-    inset: 0 0 auto;
-    height: var(--z-border-width);
-    margin: 0 var(--z-radius-lg);
-    background: linear-gradient(90deg, transparent, var(--z-border-strong), transparent);
+
+  /* ---------------------------------------------------------- brand panel */
+
+  .mark,
+  .about {
+    position: relative;
+    overflow: hidden;
+    background: var(--z-panel-bg);
+    color: var(--z-panel-text);
+    border-right: var(--z-border-width) solid var(--z-border);
   }
-  .brand {
+  .mark {
+    grid-area: mark;
+    padding: var(--z-space-12) var(--panel-pad-x) 0;
+  }
+  .lockup {
+    display: block;
+    width: var(--lockup);
+    margin: calc(var(--lockup) * -0.146) 0 0 calc(var(--lockup) * -0.126);
+  }
+  .lockup :global(.logo.lockup) {
+    justify-content: flex-start;
+  }
+  .about {
+    grid-area: about;
     display: flex;
+    flex-direction: column;
+    gap: var(--z-space-10);
+    padding: var(--z-space-4) var(--panel-pad-x) var(--z-space-10);
+  }
+  .pitch {
+    position: relative;
+    max-width: 25rem;
+  }
+  .tagline {
+    margin: 0;
+    font-size: var(--z-text-2xl);
+    line-height: var(--z-leading-2xl);
+    font-weight: var(--z-weight-semibold);
+    letter-spacing: var(--z-tracking-tight);
+    text-wrap: balance;
+  }
+  .pitch-lede {
+    margin: var(--z-space-3) 0 0;
+    font-size: var(--z-text-base);
+    line-height: var(--z-leading-base);
+    color: var(--z-panel-text-muted);
+  }
+  .facts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-4);
+    margin: var(--z-space-8) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .facts li {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--z-space-3);
+  }
+  .fact-icon {
+    display: grid;
+    flex: none;
+    width: var(--z-space-8);
+    height: var(--z-space-8);
+    place-items: center;
+    border: var(--z-border-width) solid var(--z-panel-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-panel-raised);
+  }
+  .fact-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-nudge-2);
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+    color: var(--z-panel-text-subtle);
+  }
+  .fact-text strong {
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-panel-text);
+  }
+
+  /*
+    The links sit at the foot of the panel, whatever height the window gives
+    it. Their colours are local so that the phone layout, where they leave the
+    panel for the page, can hand them the theme's own.
+  */
+  .links {
+    --link: var(--z-panel-text-muted);
+    --link-hover: var(--z-panel-text);
+    --credit: var(--z-panel-text-subtle);
+    --credit-link: var(--z-panel-text);
+
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-2) var(--z-space-6);
+    margin-top: auto;
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+    font-weight: var(--z-weight-medium);
+  }
+  .links a {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    color: var(--link);
+    text-decoration: none;
+    transition: color var(--z-motion-fast) var(--z-ease);
+  }
+  .links a:hover,
+  .links a:focus-visible {
+    color: var(--link-hover);
+    text-decoration: underline;
+    text-underline-offset: var(--z-underline-offset);
+  }
+  .credit {
+    margin-left: auto;
+    font-weight: var(--z-weight-normal);
+    color: var(--credit);
+  }
+  .credit a {
+    display: inline;
+    font-weight: var(--z-weight-semibold);
+    color: var(--credit-link);
+  }
+
+  /*
+    Decoration, so it takes no pointer and no space, and its strokes stay a
+    hairline at whatever size it is drawn.
+  */
+  .rings {
+    position: absolute;
+    pointer-events: none;
+  }
+  .rings circle {
+    fill: none;
+    stroke: var(--z-panel-ring);
+    stroke-width: var(--z-border-width);
+  }
+  /* 2px is this drawing's own measure, not the thick border: that token
+     means selected, focused or wrong, and an arc means none of them. */
+  .rings .arc {
+    stroke: var(--z-brand-runner-blue);
+    stroke-width: 2px;
+    stroke-linecap: round;
+  }
+  .rings .tick {
+    stroke: var(--z-panel-text-subtle);
+    stroke-linecap: round;
+  }
+  .rings.panel {
+    right: calc(var(--z-space-5) * -1 - var(--rings) / 2);
+    bottom: calc(var(--z-space-5) * -1 - var(--rings) / 2);
+  }
+  .rings.band {
+    display: none;
+  }
+
+  /* ---------------------------------------------------------------- form */
+
+  .form-side {
+    grid-area: form;
+    display: flex;
+    align-items: center;
     justify-content: center;
-    margin-bottom: var(--z-space-6);
-    color: var(--z-text);
+    padding: var(--z-space-12) var(--z-space-8) var(--z-space-6);
+  }
+  .form-column {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 22.5rem;
+  }
+  .instance {
+    display: inline-flex;
+    align-self: flex-start;
+    align-items: center;
+    gap: var(--z-space-2);
+    max-width: 100%;
+    height: var(--z-space-6);
+    margin: 0 0 var(--z-space-5);
+    padding: 0 var(--z-space-3);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-full);
+    background: var(--z-bg);
+    font-family: var(--z-font-mono);
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+  .instance :global(svg) {
+    flex: none;
+    color: var(--z-text-subtle);
+  }
+  .host {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   h1 {
     margin: 0;
-    font-size: var(--z-text-xl);
-    line-height: var(--z-leading-xl);
+    font-size: var(--z-text-2xl);
+    line-height: var(--z-leading-2xl);
     font-weight: var(--z-weight-semibold);
     letter-spacing: var(--z-tracking-tight);
     color: var(--z-text);
-    text-align: center;
   }
   .lede {
-    margin: var(--z-space-2) 0 var(--z-space-6);
-    font-size: var(--z-text-sm);
-    line-height: var(--z-leading-sm);
+    margin: var(--z-space-1) 0 var(--z-space-6);
+    font-size: var(--z-text-base);
+    line-height: var(--z-leading-base);
     color: var(--z-text-muted);
-    text-align: center;
-    text-wrap: balance;
+    text-wrap: pretty;
   }
   form {
     display: flex;
     flex-direction: column;
     gap: var(--z-space-4);
+  }
+  form :global(.btn) {
+    margin-top: var(--z-space-1);
   }
   .failure {
     display: flex;
@@ -335,7 +721,7 @@
     margin: 0 0 var(--z-space-5);
     padding: var(--z-space-3);
     border: var(--z-border-width) solid var(--z-danger-border);
-    border-radius: var(--z-radius-sm);
+    border-radius: var(--z-radius-md);
     background: var(--z-danger-subtle);
     font-size: var(--z-text-sm);
     line-height: var(--z-leading-sm);
@@ -343,7 +729,7 @@
   }
   .failure :global(svg) {
     flex: none;
-    margin-top: var(--z-nudge-1);
+    margin-top: var(--z-nudge-3);
     color: var(--z-danger);
   }
   .divider {
@@ -366,39 +752,155 @@
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
-    text-align: center;
   }
-  /*
-    Outside the card: a build number is about the installation, not about
-    signing in, and it should not be the last thing inside the box.
 
-    The project link sits beside it because this page is where Zoomies is met
-    by people who did not install it -- a developer sent a URL by the operator
-    who did. One quiet line is enough to tell them what they are looking at,
-    and who makes it: the credit is the same one the site's footer carries.
-  */
-  .colophon {
+  .meta {
+    grid-area: meta;
     display: flex;
     flex-wrap: wrap;
-    justify-content: center;
-    gap: var(--z-space-1) var(--z-space-3);
-    margin: 0;
-    font-size: var(--z-text-2xs);
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-2) var(--z-space-4);
+    padding: var(--z-space-5) var(--z-space-8);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
     color: var(--z-text-subtle);
   }
-  .version {
-    font-family: var(--z-font-mono);
+  .build {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    min-width: 0;
   }
-  .colophon a {
-    color: inherit;
-    text-decoration: none;
-  }
-  .colophon a:hover,
-  .colophon a:focus-visible {
+  .product {
+    font-weight: var(--z-weight-semibold);
     color: var(--z-text-muted);
-    text-decoration: underline;
   }
-  .credit a {
-    font-weight: var(--z-weight-medium);
+  .version {
+    overflow: hidden;
+    padding: 0 var(--z-space-2);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-full);
+    font-family: var(--z-font-mono);
+    font-size: var(--z-text-2xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /*
+    Between the phone and the wide desktop the panel is at its floor, and the
+    full inset would leave the tagline a word or two per line.
+  */
+  @media (max-width: 1180px) {
+    .signin {
+      --panel-pad-x: var(--z-space-10);
+    }
+  }
+
+  /*
+    A laptop with its browser chrome can leave well under 720px of window. The
+    facts are the part of the panel that can go without the page losing its
+    meaning, and they go before the page grows a scrollbar.
+  */
+  @media (min-width: 769px) and (max-height: 720px) {
+    .facts {
+      display: none;
+    }
+  }
+
+  /*
+    The phone: the panel's two halves come apart. The lockup becomes a band at
+    the top, at the brand's 220px minimum, and the form rises over its lower
+    edge as a sheet. The pitch is dropped -- a phone is for signing in to a
+    fleet somebody already chose -- but the links, which are the page's only
+    answer to "what is this", move below the form in the theme's colours.
+  */
+  @media (max-width: 768px) {
+    .signin {
+      --lockup: 13.75rem;
+
+      display: flex;
+      flex-direction: column;
+    }
+    .mark,
+    .about {
+      border-right: 0;
+    }
+    /* Installed to a home screen, the page is drawn under the status bar,
+       so the band runs up behind it and the lockup starts below it. */
+    .mark {
+      display: flex;
+      justify-content: center;
+      padding: calc(var(--z-space-4) + var(--z-safe-top)) var(--z-space-4) var(--z-space-8);
+    }
+    .lockup {
+      margin: 0;
+    }
+    .lockup :global(.logo.lockup) {
+      justify-content: center;
+    }
+    .rings.band {
+      display: block;
+      right: calc(var(--z-space-4) * -1 - var(--rings) / 2);
+      bottom: calc(var(--z-space-4) * -1 - var(--rings) / 2);
+    }
+    .rings.panel,
+    .pitch {
+      display: none;
+    }
+    .form-side {
+      position: relative;
+      z-index: 1;
+      margin-top: calc(var(--z-space-3) * -1);
+      padding: var(--z-space-6) var(--z-space-4) var(--z-space-2);
+      border-radius: var(--z-radius-lg) var(--z-radius-lg) 0 0;
+      background: var(--z-surface);
+    }
+    .form-column {
+      max-width: none;
+    }
+    .about {
+      overflow: visible;
+      padding: var(--z-space-6) var(--z-space-4) 0;
+      background: none;
+      color: var(--z-text);
+    }
+    .links {
+      --link: var(--z-text-muted);
+      --link-hover: var(--z-text);
+      --credit: var(--z-text-subtle);
+      --credit-link: var(--z-text-muted);
+
+      justify-content: center;
+      gap: var(--z-space-2) var(--z-space-5);
+    }
+    .credit {
+      margin-left: 0;
+    }
+    .meta {
+      flex-direction: column;
+      justify-content: center;
+      padding: var(--z-space-3) var(--z-space-4) calc(var(--z-space-4) + var(--z-safe-bottom));
+      text-align: center;
+    }
+  }
+
+  /*
+    Inside the signed-in shell, which already carries the brand, the version
+    and the links: the form alone, where the page's content starts. These are
+    more specific than every rule above, the phone's included, so they hold at
+    any width.
+  */
+  .signin.embedded {
+    display: block;
+    min-height: 0;
+    background: none;
+  }
+  .embedded .form-side {
+    display: block;
+    margin: 0;
+    padding: 0;
+    border-radius: 0;
+    background: none;
   }
 </style>

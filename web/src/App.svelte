@@ -153,7 +153,9 @@
 {:else if session.phase === 'bootstrap'}
   <main id="main" class="centred"><Bootstrap /></main>
 {:else if !authenticated}
-  <main id="main" class="centred"><Login /></main>
+  <!-- Full bleed, not centred: the sign-in page is a layout of its own, a
+       brand panel beside the form, and it fills the window. -->
+  <main id="main"><Login /></main>
 {:else}
   <div class="app">
     <Nav menuOpen={navMenuOpen} onmore={() => (navMenuOpen = !navMenuOpen)} />

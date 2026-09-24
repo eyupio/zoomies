@@ -4,7 +4,8 @@
   The v2.1 hierarchy is deliberate, and it has four rungs rather than three:
 
   * lockup is the unchanged primary full logo, never below 220px wide, and
-    given real room on the screens where it is the only thing on the page;
+    given real room on the screens that open the product -- boot, first run,
+    and the sign-in page's brand panel;
   * mark at 128px and above is the original circular dog, the primary
     standalone mark, at the guide's minimum size for it;
   * mark from 48px is the secondary head/swish;
@@ -94,8 +95,8 @@
   }
   /*
     The frame is square and capped at the container rather than fixed, so asking
-    for a bigger lockup on a sign-in card cannot push the card wider than the
-    phone it is being read on. The artwork keeps its supplied padding -- the
+    for a bigger lockup on the first-run card, or in the sign-in page's band,
+    cannot push either wider than the phone it is being read on. The artwork keeps its supplied padding -- the
     brand guide forbids cropping it -- so the frame is deliberately larger than
     the dog inside it.
   */

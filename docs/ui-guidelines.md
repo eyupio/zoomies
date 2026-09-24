@@ -215,6 +215,30 @@ black chip rather than inverting it -- one asset, correct in both themes,
 legible at 24px. See [brand.md](brand.md), which lists every place the signed-in
 product carries the mark, the name or the descriptor.
 
+#### The sign-in panel
+
+The sign-in page's brand panel is Zoomies Black in both themes, so what is
+drawn on it cannot follow the theme: the light theme's muted grey is 3.2:1 on
+black. These are declared once, never overridden per theme, and read by that
+panel alone. Measured on `#080808`:
+
+| Token | Value | Use | Contrast |
+| --- | --- | --- | --- |
+| `--z-panel-bg` | `--z-brand-black` | The panel | — |
+| `--z-panel-text` | `--z-brand-white` | The tagline, fact titles, the credit's name | 20.0:1 |
+| `--z-panel-text-muted` | `--z-brand-cool-grey` | The lede and the links | 10.5:1 |
+| `--z-panel-text-subtle` | `#868B94` | The facts' detail, "Developed by" | 5.9:1 |
+| `--z-panel-border` | `#262A31` | The fact icons' edge | decorative |
+| `--z-panel-raised` | `#121418` | The fact icons' ground | decorative |
+| `--z-panel-ring` | `rgb(255 255 255 / .07)` | The motion-path rings | decorative |
+
+The subtle and border values are the dark theme's `--z-text-subtle` and
+`--z-border`, repeated because the light theme has no name for them. The one
+arc of `--z-brand-runner-blue` in the rings is 5.2:1, an illustrative stroke
+rather than anything to read. The focus ring stays `--z-accent`, which is 3.6:1
+on the panel in the light theme and 9.3:1 in the dark, both past the 3:1 a
+control's indicator needs.
+
 ### 1.2 Type
 
 Two faces, both self-hosted as woff2 so an air-gapped install has no network
@@ -238,7 +262,7 @@ Both declare a full system fallback stack so the first paint is never blank.
 | `--z-text-base` | 14px / 22px | `--z-weight-normal` | Form controls, prose |
 | `--z-text-lg` | 16px / 24px | `--z-weight-semibold` | Card titles |
 | `--z-text-xl` | 20px / 28px | `--z-weight-semibold` | Page titles |
-| `--z-text-2xl` | 28px / 34px | `--z-weight-bold` | Overview metrics |
+| `--z-text-2xl` | 28px / 34px | `--z-weight-bold` | Overview metrics; at `--z-weight-semibold`, the sign-in page's heading and tagline |
 | `--z-text-3xl` | 36px / 42px | `--z-weight-bold` | Hero numbers |
 
 Four weights exist and the table names them rather than numbers, because the
@@ -250,6 +274,13 @@ Tracking is set for uppercase and for display sizes, and left alone in between:
 and drawer sections, `--z-tracking-wider` (0.08em) for the widely spaced brand
 lockups in the footer, nav and About panel, and `--z-tracking-tight` (-0.01em)
 for headings at `--z-text-2xl` and above, which set too loose at their default.
+A quiet link's hover underline sits `--z-underline-offset` (0.15em) below the
+text, clear of the descenders.
+
+The sign-in page is the one place a title is set at `--z-text-2xl`. Everywhere
+else a page title is a label over the content that follows; there, the form is
+the whole page and the title and the brand panel's tagline are its display
+text.
 
 The base size is 13px, not 16px. This is a dense operational tool; 13px Inter at
 450 weight on the warm background stays comfortably legible while fitting a
@@ -307,11 +338,13 @@ low against a 13px line. Anything that *can* sit on the spacing scale does.
 The drawn controls have their own sizes, for the same reason: `--z-control-box`
 (15px, the checkbox and radio box), `--z-control-thumb` (14px, the switch), and
 `--z-control-icon` (14px, the icon inside a button). Field and button *heights*
-are on the spacing scale and stay there, with one exception: `--z-control-touch`
+are on the spacing scale and stay there: `sm` is `--z-space-6`, `md` is
+`--z-space-8`, and `lg` — which only the sign-in form uses, because it is the one
+form that is the whole page — is `--z-space-10`. The one exception is `--z-control-touch`
 (44px) is the height a control read by a finger takes under
 `@media (pointer: coarse)` — the segmented choices, the chips and legend
 switches every trend carries, a slider's thumb, a column heading's reposition
-grip and resize edge — because a 24px row
+grip and resize edge, and the sign-in form's `lg` fields and button — because a 24px row
 a mouse is fine with is two rows under one fingertip. It applies only where the pointer is coarse,
 so the desktop keeps its density.
 
@@ -599,9 +632,9 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 
 | Component | Notes |
 | --- | --- |
-| `Button` | variants: `primary`, `secondary`, `ghost`, `danger`; sizes `sm`, `md`; `loading` swaps the label for a spinner without changing width |
+| `Button` | variants: `primary`, `secondary`, `ghost`, `danger`; sizes `sm`, `md`, and `lg` for the sign-in form alone; `loading` swaps the label for a spinner without changing width |
 | `IconButton` | square, always has an `aria-label` |
-| `Input`, `Textarea`, `Select`, `Switch`, `Checkbox`, `RadioGroup` | all support `error` and `hint`; the error is announced with `aria-describedby` |
+| `Input`, `Textarea`, `Select`, `Switch`, `Checkbox`, `RadioGroup` | all support `error` and `hint`; the error is announced with `aria-describedby`. `Input` has the same three sizes as `Button` |
 | `Field` | label + control + hint + error; the only way form controls are laid out |
 | `Badge` | status pill: colour **and** shape from the state map |
 | `StatusDot` | the shape half of the state encoding, reusable inline |
@@ -793,6 +826,16 @@ ranges:
   before first paint: a phone is not a narrow desktop and has no sidebar to
   collapse.
 * `> 1180px` — **full.**
+
+One page also answers to the window's height. On a desktop the sign-in page's
+brand panel drops its three facts when the window is under 720px tall — a laptop
+with its browser chrome is often less — rather than grow a scrollbar on the one
+page that should fit without one. It is the only height query in the product,
+and it hides nothing a person needs to sign in.
+
+On a phone that page's brand panel becomes a band drawn to the very top of the
+screen, so it pads by `--z-safe-top`, the status bar's height, which is zero
+anywhere but an installed web app.
 
 An overlay that covers the screen — the drawer, the dialogs, the command
 palette, the side menu, the bar along the bottom and the toasts — takes its
@@ -993,7 +1036,8 @@ home page and the repository README embed — are captured from the real binary,
 never from a design file or a retouched page. `make screenshots` builds, boots
 a controller with the demo fleet (`ZOOMIES_SEED_DEMO`) and authentication on,
 signs in as a freshly bootstrapped administrator, and photographs every page in
-both themes at 1440×900 on a 2× display, plus the Overview on a phone. The
+both themes at 1440×900 on a 2× display, plus the sign-in page from a browser
+that was never given the session, and the Overview on a phone. The
 files are lossless WebP. The script is `web/tests/support/screenshots.mjs`,
 and it needs Pillow (`pip install pillow`) to encode them.
 

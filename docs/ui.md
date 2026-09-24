@@ -20,6 +20,23 @@ and a morning's worth of jobs. `ZOOMIES_SEED_DEMO=true` writes the same fleet
 into an empty controller, so you can walk through these pages yourself before
 connecting GitHub.
 
+## Signing in
+
+Before any of them, the page everyone meets first — and often the only one met
+by people who did not install the controller. The form is on the right, under
+the address of the instance being signed in to, so telling a staging controller
+from a production one does not rest on reading the address bar. On the left, in
+Zoomies Black in either theme, is what this is: a line on what Zoomies does,
+three facts true of every installation, and links to [zoomies.sh](https://zoomies.sh),
+the source on GitHub and [EyUp.io](https://eyup.io), who make it. A failed
+sign-in says which kind of failure it was — wrong credentials, too many
+attempts, or a controller that cannot be reached — and caps lock is called out
+before it costs an attempt. On a phone the logo becomes a band above the form
+and the links move below it.
+
+![The sign-in page: a Zoomies Black panel on the left holding the lockup, a one-line description, three facts and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-dark.webp#only-dark){ .zoomies-shot }
+![The sign-in page: a Zoomies Black panel on the left holding the lockup, a one-line description, three facts and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-light.webp#only-light){ .zoomies-shot }
+
 ## Overview
 
 The page that has to earn the second monitor. It opens on the activity
