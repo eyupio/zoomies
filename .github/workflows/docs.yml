@@ -52,8 +52,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  refresh-release:
+    name: Refresh the website from main
+    # A release run belongs to its tag even if checkout selects main. Pages
+    # rejects that tag before the deploy job starts, so request a new run whose
+    # ref really is main. workflow_dispatch can be triggered by GITHUB_TOKEN.
+    if: github.event_name == 'release' && github.event.repository.has_pages
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Start the website workflow on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: gh workflow run docs.yml --repo "$REPO" --ref main
+
   build:
     name: Build
+    # The main-branch run requested above owns both the build and deployment.
+    if: github.event_name != 'release'
     outputs:
       # The pages this build changed, as an IndexNow payload (hooks/indexnow.py),
       # for the deploy job to submit once they are actually live. Empty when
@@ -71,10 +89,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # A release event runs at the tag. The site is main's docs, and main
-          # may have moved since the tag was cut, so a release builds from
-          # there; every other event is already at the commit it should build.
-          ref: ${{ github.event_name == 'release' && 'main' || '' }}
           # The sitemap stamps each URL with the date its page was last edited,
           # which is in the history. A shallow checkout has none, and every page
           # would claim to have changed on the day of the build.
@@ -165,11 +179,9 @@ jobs:
 
   deploy:
     name: Deploy
-    # Only from main, and only when Pages is enabled: a pull request builds the
-    # site to prove it still builds, and publishes nothing. A release runs at
-    # its tag, and is the one event that publishes from somewhere else --
-    # having built main, above.
-    if: github.event.repository.has_pages && (github.ref == 'refs/heads/main' || github.event_name == 'release') && github.event_name != 'pull_request'
+    # Only from main, and only when Pages is enabled. Release events request a
+    # main-branch run above; tags and pull requests never enter the environment.
+    if: github.event.repository.has_pages && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build
     runs-on: ${{ inputs.runner == 'github' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
