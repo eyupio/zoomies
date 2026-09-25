@@ -1460,8 +1460,14 @@ jobs:
           DIGESTS: ${{ runner.temp }}/digests
         run: |
           set -eu
+          shopt -s nullglob
+          dirs=("$DIGESTS"/*/)
+          if [ "${#dirs[@]}" -eq 0 ]; then
+            echo "::notice::No runner image digest artifacts were produced; skipping tag publication."
+            exit 0
+          fi
           failed=0
-          for dir in "$DIGESTS"/*/; do
+          for dir in "${dirs[@]}"; do
             variant=$(basename "$dir")
             images="zoomies-runner zoomies-runner-docker"
             [ -f "$dir/full" ] && images="$images zoomies-runner-full"
