@@ -570,6 +570,33 @@ jobs:
             COMMIT=${{ github.sha }}
             DATE=${{ steps.release.outputs.date }}
 
+      # These tags are created from this job's digests, so validate the
+      # pushed-by-digest images before recording anything for the manifest
+      # publisher. A broken image must never acquire a release tag.
+      - name: Validate runner images before publishing tags
+        env:
+          TAG: ${{ matrix.tag }}
+          OS: ${{ matrix.os }}
+          OS_VERSION: ${{ matrix.version }}
+          ARCH: ${{ matrix.arch }}
+          IS_FULL: ${{ matrix.full && 'true' || 'false' }}
+          RUNNER_DIGEST: ${{ steps.runner.outputs.digest || steps.runner-github.outputs.digest }}
+          RUNNER_DOCKER_DIGEST: ${{ steps.runner-docker.outputs.digest || steps.runner-docker-github.outputs.digest }}
+          RUNNER_FULL_DIGEST: ${{ steps.runner-full.outputs.digest || steps.runner-full-github.outputs.digest }}
+        run: |
+          set -eu
+          runner="ghcr.io/eyupio/zoomies-runner@$RUNNER_DIGEST"
+          runner_docker="ghcr.io/eyupio/zoomies-runner-docker@$RUNNER_DOCKER_DIGEST"
+          docker pull "$runner"
+          test/runner-image/check.sh "$runner" "$OS" "$OS_VERSION" runner
+          docker pull "$runner_docker"
+          test/runner-image/check.sh "$runner_docker" "$OS" "$OS_VERSION" runner-docker
+          if [ "$IS_FULL" = "true" ] && [ "$ARCH" = "amd64" ]; then
+            runner_full="ghcr.io/eyupio/zoomies-runner-full@$RUNNER_FULL_DIGEST"
+            docker pull "$runner_full"
+            test/runner-image/check.sh "$runner_full" "$OS" "$OS_VERSION" runner-full
+          fi
+
       - name: Record the digests
         env:
           TAG: ${{ matrix.tag }}
@@ -631,8 +658,8 @@ jobs:
           shopt -s nullglob
           dirs=("$DIGESTS"/*/)
           if [ "${#dirs[@]}" -eq 0 ]; then
-            echo "::notice::No runner image digest artifacts were produced; skipping tag publication."
-            exit 0
+            echo "::error::Release runner images were expected, but no validated digest artifacts were produced."
+            exit 1
           fi
           failed=0
           for dir in "${dirs[@]}"; do

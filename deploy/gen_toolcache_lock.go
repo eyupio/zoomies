@@ -158,14 +158,22 @@ func python(platforms []string, known map[string]string) ([]entry, error) {
 			found = true
 			for _, platform := range platforms {
 				for _, a := range arches {
+					// The Ubuntu 26.04 x64 Python archives are built with a
+					// newer CPU ISA than older x64 hosts provide. Its userspace
+					// can run the 24.04 archive, which keeps the full image's
+					// tool cache compatible with the supported x86-64 baseline.
+					sourcePlatform := platform
+					if platform == "26.04" && a.docker == "amd64" {
+						sourcePlatform = "24.04"
+					}
 					url := ""
 					for _, f := range rel.Files {
-						if f.Platform == "linux" && f.PlatformVersion == platform && f.Arch == a.python {
+						if f.Platform == "linux" && f.PlatformVersion == sourcePlatform && f.Arch == a.python {
 							url = f.URL
 						}
 					}
 					if url == "" {
-						return nil, fmt.Errorf("Python %s has no build for Ubuntu %s %s", rel.Version, platform, a.docker)
+						return nil, fmt.Errorf("Python %s has no build for Ubuntu %s %s", rel.Version, sourcePlatform, a.docker)
 					}
 					digest, ok := known[url]
 					if !ok {
