@@ -113,12 +113,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # the tarball's installdependencies.sh, which knows each distribution's names
 # for them -- naming them here is what made this file Ubuntu-24.04-only.
 #
-# deploy/runner-apt.sh rides along with every script that installs packages,
-# here and below: it is the one that survives an archive mirror the index has
-# moved past, and each step carries it rather than the image keeping a copy
-# around for the next one.
+# The apt and dnf helpers accompany every script that installs packages,
+# here and below: they recover from stale indexes and repository metadata
+# skew. Each step removes its helpers after installation.
+COPY --chmod=0755 deploy/runner-dnf.sh /tmp/
 COPY --chmod=0755 deploy/runner-apt.sh deploy/runner-packages.sh /tmp/
-RUN /tmp/runner-packages.sh "${OS_FAMILY}" && rm /tmp/runner-packages.sh /tmp/runner-apt.sh
+RUN /tmp/runner-packages.sh "${OS_FAMILY}" && rm /tmp/runner-packages.sh /tmp/runner-apt.sh /tmp/runner-dnf.sh
 ENV LANG=en_US.UTF-8
 
 # The runner must not be root. It gets passwordless sudo because a great many
@@ -217,13 +217,15 @@ RUN set -eux; \
 # part of the image most likely to be edited, and putting it last means editing
 # it does not re-fetch the ~200 MB archive above. What is in it, and what is
 # deliberately not, is in deploy/runner-toolchain.sh.
+COPY --chmod=0755 deploy/runner-dnf.sh /tmp/
 COPY --chmod=0755 deploy/runner-apt.sh deploy/runner-toolchain.sh /tmp/
-RUN /tmp/runner-toolchain.sh "${OS_FAMILY}" && rm /tmp/runner-toolchain.sh /tmp/runner-apt.sh
+RUN /tmp/runner-toolchain.sh "${OS_FAMILY}" && rm /tmp/runner-toolchain.sh /tmp/runner-apt.sh /tmp/runner-dnf.sh
 
 # The GitHub CLI, from GitHub's own repository because no distribution here
 # carries it.
+COPY --chmod=0755 deploy/runner-dnf.sh /tmp/
 COPY --chmod=0755 deploy/runner-apt.sh deploy/runner-gh.sh /tmp/
-RUN /tmp/runner-gh.sh "${OS_FAMILY}" && rm /tmp/runner-gh.sh /tmp/runner-apt.sh
+RUN /tmp/runner-gh.sh "${OS_FAMILY}" && rm /tmp/runner-gh.sh /tmp/runner-apt.sh /tmp/runner-dnf.sh
 
 # Prove the toolchain is actually reachable, for the same reason the Docker
 # variant checks its client: a package that installed but left nothing on PATH
@@ -245,11 +247,12 @@ RUN set -eux; \
 # install rather than the whole toolchain above -- and so that a build with
 # EXTRA_PACKAGES set is cheap enough for CI to run one on every variant, which
 # is what keeps this build argument from quietly ceasing to work.
+COPY --chmod=0755 deploy/runner-dnf.sh /tmp/
 COPY --chmod=0755 deploy/runner-apt.sh deploy/runner-extra.sh /tmp/
 # Declare this only at its installation step so changing the package list
 # reuses the runner download and toolchain layers above.
 ARG EXTRA_PACKAGES=""
-RUN /tmp/runner-extra.sh "${OS_FAMILY}" ${EXTRA_PACKAGES} && rm /tmp/runner-extra.sh /tmp/runner-apt.sh
+RUN /tmp/runner-extra.sh "${OS_FAMILY}" ${EXTRA_PACKAGES} && rm /tmp/runner-extra.sh /tmp/runner-apt.sh /tmp/runner-dnf.sh
 
 COPY --chmod=0755 deploy/runner-entrypoint.sh /usr/local/bin/entrypoint.sh
 
@@ -279,8 +282,9 @@ ARG OS_FAMILY
 ARG OS_ID
 USER root
 
+COPY --chmod=0755 deploy/runner-dnf.sh /tmp/
 COPY --chmod=0755 deploy/runner-apt.sh deploy/runner-docker-cli.sh /tmp/
-RUN /tmp/runner-docker-cli.sh "${OS_FAMILY}" "${OS_ID}" && rm /tmp/runner-docker-cli.sh /tmp/runner-apt.sh
+RUN /tmp/runner-docker-cli.sh "${OS_FAMILY}" "${OS_ID}" && rm /tmp/runner-docker-cli.sh /tmp/runner-apt.sh /tmp/runner-dnf.sh
 # Prove the client landed somewhere the runner will actually find it: a plugin
 # installed but unreachable is the same failure as no client at all, and it is
 # far cheaper to catch here than in somebody's workflow.

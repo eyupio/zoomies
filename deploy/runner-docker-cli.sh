@@ -43,7 +43,7 @@ case "${family}" in
       docker-ce-cli docker-buildx-plugin docker-compose-plugin
     ;;
   dnf)
-    dnf install -y 'dnf-command(config-manager)'
+    "$(dirname "$0")/runner-dnf.sh" 'dnf-command(config-manager)'
     repo="https://download.docker.com/linux/${repo_os}/docker-ce.repo"
     # dnf5 (Fedora) spells this "addrepo --from-repofile"; dnf4 (the RHEL
     # rebuilds) spells it "--add-repo". Asking which one this dnf understands
@@ -53,7 +53,7 @@ case "${family}" in
     else
       dnf config-manager addrepo --from-repofile="${repo}"
     fi
-    dnf install -y --setopt=install_weak_deps=False \
+    "$(dirname "$0")/runner-dnf.sh" --setopt=install_weak_deps=False \
       docker-ce-cli docker-buildx-plugin docker-compose-plugin
     dnf clean all
     rm -rf /var/cache/dnf

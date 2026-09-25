@@ -34,7 +34,7 @@ case "${family}" in
     "$(dirname "$0")/runner-apt.sh" "$@"
     ;;
   dnf)
-    dnf install -y --allowerasing --setopt=install_weak_deps=False "$@"
+    "$(dirname "$0")/runner-dnf.sh" --allowerasing --setopt=install_weak_deps=False "$@"
     dnf clean all
     rm -rf /var/cache/dnf
     ;;

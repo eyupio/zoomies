@@ -866,6 +866,8 @@ jobs:
           shellcheck -s sh test/upgrade/upgrade-check.sh
           dash -n test/runner-image/check.sh
           shellcheck -s sh test/runner-image/check.sh
+          dash -n test/runner-image/dnf-check.sh
+          shellcheck -s sh test/runner-image/dnf-check.sh
           # Both image workflows and make invoke this directly. Shell syntax
           # checks alone accepted mode 0644 and every release leg then failed.
           test -x test/runner-image/check.sh || { echo "::error::test/runner-image/check.sh must be executable"; exit 1; }
@@ -878,6 +880,9 @@ jobs:
             dash -n "$f"
             shellcheck -s sh "$f"
           done
+
+      - name: RPM package install recovery
+        run: dash test/runner-image/dnf-check.sh
 
       - name: What install.sh does on a host that already has the binary
         run: |
