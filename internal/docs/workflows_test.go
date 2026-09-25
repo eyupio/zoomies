@@ -453,6 +453,7 @@ func TestCIDogfoodsZoomiesWithRecoveryForEveryJob(t *testing.T) {
 		found := map[string]bool{}
 		if name == "ci.yml" {
 			exceptions["arm64"] = "ubuntu-24.04-arm"
+			exceptions["drill"] = "ubuntu-latest"
 			exceptions["windows"] = "windows-latest"
 		}
 		jobs := regexp.MustCompile(`(?m)^  ([a-zA-Z0-9_-]+):\n`).FindAllStringSubmatchIndex(body, -1)
