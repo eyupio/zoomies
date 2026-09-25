@@ -1543,7 +1543,7 @@ func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 		if err := b.Stop(ctx, h, 10*time.Second); err != nil && !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		if err := os.RemoveAll(toolFarm); err != nil {
+		if err := b.removeRunnerToolFarm(ctx, *insp, os.RemoveAll); err != nil {
 			return fmt.Errorf("backend: removing runner tool cache %s: %w", toolFarm, err)
 		}
 	}

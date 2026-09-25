@@ -389,11 +389,22 @@ whether it is yours to deal with.
 **When cleanup fails**, the runner's row says so rather than only the log. The
 Runners page and the runner's own page show what went wrong, how many times it
 has been tried, and the `runners.cleanup_failed` problem names it in the
-problems panel. Three shapes:
+problems panel. Common causes:
 
 * **A container Zoomies could not remove.** It is still on its host, holding
   its writable layer. Zoomies keeps retrying; if it does not clear, remove it
   on the host with `docker rm -f`, and look at why the daemon refused.
+* **A runner tool cache reports `unlinkat ... permission denied`.** Setup
+  actions can create nested directories as the container's runner user or
+  root, while the agent service runs as `zoomies`. Making the top-level folder
+  `777` does not change permissions inside it. Zoomies stops the runner and,
+  when ordinary deletion is denied, uses a short-lived cleanup container with
+  only that runner's disposable tool cache mounted. It does not mount the
+  pool's kept cache or follow links into it. Upgrade the agent on the affected
+  host; existing failed cleanups use this recovery on their next retry. No
+  reinstall, service-user change or recursive `chmod` is required. If recovery
+  itself fails, the error names the failing step and the runner's cleanup
+  information is retained for another attempt.
 * **A registration GitHub still calls busy.** GitHub's own bookkeeping can lag
   a few seconds behind the `workflow_job` webhook that told Zoomies the job
   was done, and the first delete attempt loses that race. This is not a
@@ -408,7 +419,7 @@ problems panel. Three shapes:
   usually a permission the App has lost. Check the App's installation, or
   delete the entry on the target's runner settings page.
 
-All three clear themselves when a retry succeeds. The attempt count is kept
+These clear themselves when a retry succeeds. The attempt count is kept
 afterwards, because how many tries it took is the difference between a blip and
 a host worth looking at.
 
