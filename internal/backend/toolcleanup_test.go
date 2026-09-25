@@ -28,6 +28,9 @@ func cleanupRunner(t *testing.T, shared string) ContainerInspect {
 // Inject the unlinkat failure so this regression also runs in root CI jobs.
 // The fake daemon models the helper clearing container-owned descendants.
 func TestToolCleanupRecoversPermissionFailure(t *testing.T) {
+	// Recovery uses a POSIX bind mount and shell. A Windows drive-letter
+	// path contains the ':' separator that this mount's safety check rejects.
+	requirePOSIX(t)
 	for _, scenario := range []string{"success", "auto-removed", "exit failure", "wait failure", "start failure", "cancelled", "still denied", "stale helper", "foreign helper"} {
 		t.Run(scenario, func(t *testing.T) {
 			shared := t.TempDir()
