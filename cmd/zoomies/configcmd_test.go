@@ -203,6 +203,26 @@ func TestHealthcheckAgainstAServer(t *testing.T) {
 		}
 	})
 
+	// The container's health check names http://127.0.0.1:8080 whatever the
+	// controller serves, so with TLS on it could never pass: the container
+	// read as unhealthy for as long as it ran, and an upgrade waiting on the
+	// check would wait until it gave up.
+	t.Run("a loopback controller serving TLS is asked over https", func(t *testing.T) {
+		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		}))
+		defer srv.Close()
+		plain := "http://" + strings.TrimPrefix(srv.URL, "https://")
+
+		e, out, errOut := newTestEnv(t)
+		if code := dispatch(context.Background(), e, []string{"healthcheck", "--url", plain}); code != exitOK {
+			t.Fatalf("exit code = %d, want 0: %s", code, errOut)
+		}
+		if !strings.Contains(out.String(), srv.URL+"/healthz is healthy") {
+			t.Errorf("output = %q, want the https URL named", out)
+		}
+	})
+
 	t.Run("nothing listening", func(t *testing.T) {
 		e, _, errOut := newTestEnv(t)
 		if code := dispatch(context.Background(), e, []string{"healthcheck", "--url", "http://127.0.0.1:1"}); code != exitError {
@@ -426,5 +446,23 @@ func TestAMissingKeyOverASealedDatabaseIsRefusedAtStartup(t *testing.T) {
 	}
 	if _, serr := os.Stat(cfg.Security.EncryptionKeyFile); !os.IsNotExist(serr) {
 		t.Error("a key file was written anyway, so the next start would find one and read nothing")
+	}
+}
+
+func TestOnlyALoopbackHealthCheckIsMovedToHTTPS(t *testing.T) {
+	for in, want := range map[string]string{
+		"http://127.0.0.1:8080/healthz": "https://127.0.0.1:8080/healthz",
+		"http://[::1]:8080/healthz":     "https://[::1]:8080/healthz",
+		"http://localhost:8080/healthz": "https://localhost:8080/healthz",
+		// Off the host, plain HTTP is what the operator asked for, and a
+		// certificate left unchecked there would be a real risk.
+		"http://10.0.0.5:8080/healthz":       "",
+		"http://zoomies.example.com/healthz": "",
+		"https://127.0.0.1:8080/healthz":     "",
+	} {
+		got, ok := loopbackHTTPS(in)
+		if ok != (want != "") || got != want {
+			t.Errorf("loopbackHTTPS(%q) = %q, %v; want %q", in, got, ok, want)
+		}
 	}
 }

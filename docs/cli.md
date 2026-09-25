@@ -266,3 +266,10 @@ risk.
 above, so its `--timeout` is `5s` rather than `30s` and it has no `--token`. It
 is meant to run from a container's health check, where five seconds is already
 generous and there is no token to hand.
+
+A container's health check names `http://127.0.0.1:8080` whether or not the
+controller serves TLS. When a loopback address answers that it was sent plain
+HTTP by an HTTPS server, `healthcheck` asks the same address over `https`
+without checking the certificate: the listener is this host's own, and its
+certificate may be self-signed. `--ca-file` still verifies against that
+certificate when given. An address off the host is never moved to `https`.
