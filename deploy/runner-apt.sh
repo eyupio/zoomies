@@ -16,9 +16,7 @@
 # which is why Acquire::Retries -- which covers a transfer that drops rather
 # than a file a mirror does not have -- is not enough on its own.
 #
-# It is deliberately apt-only. dnf reads a metalink, knows about several
-# mirrors at once and fails over between them itself, so the RPM variants have
-# never needed this.
+# RPM repository metadata skew is handled separately by runner-dnf.sh.
 #
 # A package name that is simply wrong still fails the build, which is what
 # deploy/runner-extra.sh relies on to catch a typo in EXTRA_PACKAGES. It just

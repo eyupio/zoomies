@@ -26,7 +26,7 @@ case "${family}" in
     "$(dirname "$0")/runner-apt.sh" gh
     ;;
   dnf)
-    dnf install -y 'dnf-command(config-manager)'
+    "$(dirname "$0")/runner-dnf.sh" 'dnf-command(config-manager)'
     repo="https://cli.github.com/packages/rpm/gh-cli.repo"
     # dnf5 (Fedora) spells this "addrepo --from-repofile"; dnf4 (the RHEL
     # rebuilds) spells it "--add-repo". Asking which one this dnf understands
@@ -36,7 +36,7 @@ case "${family}" in
     else
       dnf config-manager addrepo --from-repofile="${repo}"
     fi
-    dnf install -y --setopt=install_weak_deps=False gh
+    "$(dirname "$0")/runner-dnf.sh" --setopt=install_weak_deps=False gh
     dnf clean all
     rm -rf /var/cache/dnf
     ;;

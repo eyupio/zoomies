@@ -35,7 +35,7 @@ case "${family}" in
   dnf)
     # gosu has no RPM: shadow-utils' runuser does the same job, and the
     # entrypoint uses neither -- it is here only for a workflow that expects it.
-    dnf install -y --allowerasing --setopt=install_weak_deps=False \
+    "$(dirname "$0")/runner-dnf.sh" --allowerasing --setopt=install_weak_deps=False \
       ca-certificates curl git jq unzip zip tar gzip xz \
       sudo shadow-utils tzdata glibc-langpack-en openssh-clients rsync hostname
     dnf clean all

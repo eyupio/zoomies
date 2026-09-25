@@ -53,7 +53,7 @@ case "${family}" in
     # attempted and allowed to fail rather than branched on a distribution list
     # that would need editing for every new one.
     if ! grep -q '^ID=fedora' /etc/os-release 2>/dev/null; then
-      dnf install -y 'dnf-command(config-manager)'
+      "$(dirname "$0")/runner-dnf.sh" 'dnf-command(config-manager)'
       dnf config-manager --set-enabled crb 2>/dev/null \
         || dnf config-manager --set-enabled powertools 2>/dev/null \
         || echo "runner-toolchain.sh: no CRB or PowerTools repository to enable; continuing" >&2
@@ -62,7 +62,7 @@ case "${family}" in
     # -devel packages whose Debian names differ enough to be worth listing.
     dnf group install -y --setopt=install_weak_deps=False development-tools \
       || dnf group install -y --setopt=install_weak_deps=False "Development Tools"
-    dnf install -y --allowerasing --setopt=install_weak_deps=False \
+    "$(dirname "$0")/runner-dnf.sh" --allowerasing --setopt=install_weak_deps=False \
       pkgconf-pkg-config cmake autoconf automake libtool patch file gettext \
       python3 python3-pip python3-devel python3-setuptools \
       nodejs npm \

@@ -174,6 +174,26 @@ esac
 for t in bash git curl jq tar unzip zip gzip xz sudo ssh rsync timeout date uname hostname; do has "$t"; done
 # The toolchain from deploy/runner-toolchain.sh and deploy/runner-gh.sh.
 for t in cc make cmake python3 node npm git-lfs gh; do has "$t"; done
+# libxml2's headers and runtime must be a compatible pair. Package metadata
+# skew once broke Rocky release builds; prove recovery leaves a usable library.
+runs "libxml2 development package" pkg-config --exists libxml-2.0
+xml_test_dir=$(mktemp -d)
+cat > "$xml_test_dir/check.c" <<'XML'
+#include <libxml/parser.h>
+int main(void) {
+    xmlInitParser();
+    xmlCleanupParser();
+    return 0;
+}
+XML
+# shellcheck disable=SC2046 # pkg-config emits compiler/linker argument lists
+if cc $(pkg-config --cflags libxml-2.0) "$xml_test_dir/check.c" \
+    -o "$xml_test_dir/check" $(pkg-config --libs libxml-2.0) && "$xml_test_dir/check"; then
+  pass "libxml2 compiles, links and runs"
+else
+  fail "libxml2 headers/runtime cannot build a program"
+fi
+rm -rf "$xml_test_dir"
 # ca-certificates: a bundle at either family's path, and one curl can use.
 if [ -s /etc/ssl/certs/ca-certificates.crt ] || [ -s /etc/pki/tls/certs/ca-bundle.crt ]; then
   pass "CA bundle present"
