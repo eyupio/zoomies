@@ -110,6 +110,13 @@ func TestSecurityHeaders(t *testing.T) {
 	if got := resp.header.Get("Referrer-Policy"); got == "" {
 		t.Error("no Referrer-Policy")
 	}
+	// A cross-origin popup that navigates back here -- or one this page
+	// opens to another origin -- must not share this tab's browsing context
+	// group, or window.opener bridges the two and Spectre-style side
+	// channels have somewhere to run.
+	if got := resp.header.Get("Cross-Origin-Opener-Policy"); got != "same-origin" {
+		t.Errorf("Cross-Origin-Opener-Policy = %q, want same-origin", got)
+	}
 	// This request is plain HTTP, so HSTS would be a promise the connection
 	// cannot keep.
 	if got := resp.header.Get("Strict-Transport-Security"); got != "" {

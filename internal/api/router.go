@@ -472,6 +472,16 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("X-Frame-Options", "DENY")
+		// Isolate the browsing context from any cross-origin popup that ends
+		// up sharing it. X-Frame-Options and frame-ancestors already refuse
+		// framing; this closes the other door -- a popup that navigates back
+		// to us, or one this page opens to another origin, cannot reach the
+		// operator's tab through window.opener, and Spectre-style side
+		// channels between the two are cut off. The App manifest flow
+		// submits with target="_self" and every external link carries
+		// rel="noopener noreferrer", so nothing here relies on the reverse
+		// direction that this severs.
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		// Only over a connection this controller can tell was really
 		// https: see requestScheme. Emitting HSTS because a client said so
 		// lets anyone who can reach the listener pin the host in a
