@@ -107,6 +107,7 @@ runs() { # runs <description> <command...>
 [ "$(id -un)" = runner ] && pass "running as runner" || fail "running as $(id -un), not runner"
 [ "$(id -u)" = 1001 ] && pass "uid 1001" || fail "uid is $(id -u), not 1001"
 [ "$(id -g)" = 1001 ] && pass "gid 1001" || fail "gid is $(id -g), not 1001"
+[ ! -r /etc/shadow ] && pass "shadow is not readable by runner" || fail "runner can read /etc/shadow without sudo"
 if sudo -n true 2>/tmp/zoomies-sudo-error; then
   pass "passwordless sudo"
 else
