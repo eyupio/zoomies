@@ -498,6 +498,7 @@ type ContainerState struct {
 // ContainerInspect is GET /containers/{id}/json.
 type ContainerInspect struct {
 	ID         string           `json:"Id"`
+	Image      string           `json:"Image"`
 	Name       string           `json:"Name"`
 	Created    string           `json:"Created"`
 	State      *ContainerState  `json:"State"`
