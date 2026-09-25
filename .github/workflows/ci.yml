@@ -322,7 +322,11 @@ jobs:
     name: Drill
     needs: [changes]
     if: needs.changes.outputs.go == 'true'
-    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
+    # The drill uses two local processes and no Docker daemon. Keep it off the
+    # project runner pool so a lost runner cannot discard its evidence or block
+    # this independent integration check.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -1270,33 +1274,6 @@ jobs:
             COMMIT=${{ github.sha }}
             DATE=${{ needs.images.outputs.date }}
 
-      - if: needs.images.outputs.publish == 'true'
-        name: Record the digests
-        env:
-          TAG: ${{ matrix.tag }}
-          ARCH: ${{ matrix.arch }}
-          IS_FULL: ${{ matrix.full && 'true' || 'false' }}
-          RUNNER_DIGEST: ${{ steps.runner.outputs.digest }}
-          RUNNER_DOCKER_DIGEST: ${{ steps.runner-docker.outputs.digest }}
-          RUNNER_FULL_DIGEST: ${{ steps.runner-full.outputs.digest }}
-        run: |
-          set -eu
-          test -n "$RUNNER_DIGEST" && test -n "$RUNNER_DOCKER_DIGEST"
-          echo "$RUNNER_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner.digest"
-          echo "$RUNNER_DOCKER_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner-docker.digest"
-          if [ "$IS_FULL" = "true" ]; then
-            test -n "$RUNNER_FULL_DIGEST"
-            echo "$RUNNER_FULL_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner-full.digest"
-          fi
-
-      - if: needs.images.outputs.publish == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: runner-digests-${{ matrix.tag }}-${{ matrix.arch }}
-          path: ${{ runner.temp }}/digests
-          if-no-files-found: error
-          retention-days: 1
-
       # Check each finished image holds what the rest of Zoomies assumes of it:
       # the runner user's uid, the files the entrypoint execs, the pinned
       # actions/runner release, the tools workflows expect, the Docker client
@@ -1425,6 +1402,36 @@ jobs:
           # can only mean the build argument arrived.
           docker run --rm --entrypoint tree "$IMAGE" --version
 
+      # Only a matrix leg that passed every image check may hand its pushed
+      # digests to the manifest publisher. A failed validation must not move a
+      # user-facing image tag.
+      - if: needs.images.outputs.publish == 'true'
+        name: Record the digests
+        env:
+          TAG: ${{ matrix.tag }}
+          ARCH: ${{ matrix.arch }}
+          IS_FULL: ${{ matrix.full && 'true' || 'false' }}
+          RUNNER_DIGEST: ${{ steps.runner.outputs.digest }}
+          RUNNER_DOCKER_DIGEST: ${{ steps.runner-docker.outputs.digest }}
+          RUNNER_FULL_DIGEST: ${{ steps.runner-full.outputs.digest }}
+        run: |
+          set -eu
+          test -n "$RUNNER_DIGEST" && test -n "$RUNNER_DOCKER_DIGEST"
+          echo "$RUNNER_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner.digest"
+          echo "$RUNNER_DOCKER_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner-docker.digest"
+          if [ "$IS_FULL" = "true" ]; then
+            test -n "$RUNNER_FULL_DIGEST"
+            echo "$RUNNER_FULL_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner-full.digest"
+          fi
+
+      - if: needs.images.outputs.publish == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runner-digests-${{ matrix.tag }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests
+          if-no-files-found: error
+          retention-days: 1
+
   # Joins each variant's per-architecture digests into the tags a pool pulls.
   # A variant goes out only when every architecture it is published for
   # pushed: a tag missing one would be a runner that cannot start on that
@@ -1435,7 +1442,7 @@ jobs:
     name: Runner image manifests
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     needs: [images, runner-images]
-    if: ${{ !cancelled() && needs.images.outputs.publish == 'true' && needs.images.outputs.runner == 'true' }}
+    if: ${{ !cancelled() && needs.images.outputs.publish == 'true' && needs.images.outputs.runner == 'true' && needs.runner-images.result != 'skipped' }}
     permissions:
       contents: read
       packages: write
@@ -1463,8 +1470,8 @@ jobs:
           shopt -s nullglob
           dirs=("$DIGESTS"/*/)
           if [ "${#dirs[@]}" -eq 0 ]; then
-            echo "::notice::No runner image digest artifacts were produced; skipping tag publication."
-            exit 0
+            echo "::error::Runner images were expected, but no validated digest artifacts were produced."
+            exit 1
           fi
           failed=0
           for dir in "${dirs[@]}"; do

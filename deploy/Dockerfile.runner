@@ -145,7 +145,15 @@ RUN set -eux; \
       echo "runner ALL=(ALL) NOPASSWD: ALL"; \
     } > /etc/sudoers.d/runner; \
     chmod 0440 /etc/sudoers.d/runner; \
-    visudo -cf /etc/sudoers.d/runner
+    if ! grep -Eq '^[[:space:]]*(@|#)includedir[[:space:]]+/etc/sudoers.d([[:space:]]|$)' /etc/sudoers; then \
+      printf '\n#includedir /etc/sudoers.d\n' >> /etc/sudoers; \
+    fi; \
+    visudo -c; \
+    su -s /bin/sh runner -c 'sudo -n true'; \
+    su -s /bin/sh runner -c 'HTTPS_PROXY=http://proxy.invalid:3128 no_proxy=.invalid sudo -n env' > /tmp/runner-sudo-env; \
+    grep -qx 'HTTPS_PROXY=http://proxy.invalid:3128' /tmp/runner-sudo-env; \
+    grep -qx 'no_proxy=.invalid' /tmp/runner-sudo-env; \
+    rm /tmp/runner-sudo-env
 
 # Two directories the runner must own before anything is mounted over them.
 #

@@ -107,12 +107,22 @@ runs() { # runs <description> <command...>
 [ "$(id -un)" = runner ] && pass "running as runner" || fail "running as $(id -un), not runner"
 [ "$(id -u)" = 1001 ] && pass "uid 1001" || fail "uid is $(id -u), not 1001"
 [ "$(id -g)" = 1001 ] && pass "gid 1001" || fail "gid is $(id -g), not 1001"
-runs "passwordless sudo" sudo -n true
+if sudo -n true 2>/tmp/zoomies-sudo-error; then
+  pass "passwordless sudo"
+else
+  detail="$(cat /tmp/zoomies-sudo-error)"
+  fail "passwordless sudo: ${detail:-sudo -n true failed without an error message}"
+fi
 [ "${RUNNER_ALLOW_RUNASROOT:-}" = 0 ] && pass "RUNNER_ALLOW_RUNASROOT=0" || fail "RUNNER_ALLOW_RUNASROOT is '${RUNNER_ALLOW_RUNASROOT:-}'"
 # The proxy the agent hands a runner (proxyEnvKeys in internal/backend/proxy.go)
 # has to survive sudo, or a job's `sudo apt-get install` loses it. The two
 # spellings are checked because the Dockerfile's env_keep lists each by name.
-kept="$(HTTPS_PROXY=http://proxy.invalid:3128 no_proxy=.invalid sudo -n env 2>/dev/null)"
+if kept="$(HTTPS_PROXY=http://proxy.invalid:3128 no_proxy=.invalid sudo -n env 2>&1)"; then
+  :
+else
+  fail "sudo environment probe failed: $kept"
+  kept=""
+fi
 for v in HTTPS_PROXY=http://proxy.invalid:3128 no_proxy=.invalid; do
   printf '%s\n' "${kept}" | grep -qx "$v" && pass "sudo keeps ${v%%=*}" || fail "sudo drops ${v%%=*}"
 done
