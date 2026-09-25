@@ -136,9 +136,14 @@ ENV LANG=en_US.UTF-8
 # exactly the six names internal/backend/proxy.go passes on, and a test there
 # holds the two lists together. visudo checks the file, because sudo refuses
 # to run at all over a sudoers.d entry it cannot parse.
+#
+# RPM bases ship shadow with mode 0000. PAM's setuid helper cannot read it on
+# every container runtime; give its root owner read access without exposing
+# it to the runner or bypassing PAM's account checks.
 RUN set -eux; \
     groupadd -g 1001 runner 2>/dev/null || true; \
     useradd -m -s /bin/bash -u 1001 -g 1001 runner; \
+    if [ "${OS_FAMILY}" = dnf ]; then chmod 0400 /etc/shadow; fi; \
     mkdir -p /etc/sudoers.d; \
     { \
       echo 'Defaults:runner env_keep += "HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy"'; \

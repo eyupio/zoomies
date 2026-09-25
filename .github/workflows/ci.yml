@@ -866,6 +866,9 @@ jobs:
           shellcheck -s sh test/upgrade/upgrade-check.sh
           dash -n test/runner-image/check.sh
           shellcheck -s sh test/runner-image/check.sh
+          # Both image workflows and make invoke this directly. Shell syntax
+          # checks alone accepted mode 0644 and every release leg then failed.
+          test -x test/runner-image/check.sh || { echo "::error::test/runner-image/check.sh must be executable"; exit 1; }
           # The runner image's own scripts run under whatever /bin/sh the base
           # image has, which on Debian is not bash. Globbed rather than listed,
           # so a new one is covered by existing.
