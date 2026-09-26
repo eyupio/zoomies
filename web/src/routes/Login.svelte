@@ -826,10 +826,13 @@
 
   /*
     The phone: the panel's two halves come apart. The lockup becomes a band at
-    the top with the compact mark and wordmark, and the form rises over its
-    lower edge as a sheet. The full square lockup stays on desktop. The pitch is dropped -- a phone is for signing in to a
-    fleet somebody already chose -- but the links, which are the page's only
-    answer to "what is this", move below the form in the theme's colours.
+    the top with the paw/swish and wordmark, and the form rises over its lower
+    edge as a sheet. The full square lockup stays on desktop. The pitch is
+    dropped -- a phone is for signing in to a fleet somebody already chose --
+    but the links, which are the page's only answer to "what is this", move
+    below the form in the theme's colours. Every region keeps the same 24px
+    gutter, so the sheet, the links and the build line share one left edge
+    rather than each hugging the glass at its own inset.
   */
   @media (max-width: 960px) {
     .signin {
@@ -845,9 +848,9 @@
     .mark {
       display: flex;
       justify-content: center;
-      padding: calc(var(--z-space-3) + var(--z-safe-top))
-        max(var(--z-space-4), env(safe-area-inset-right)) var(--z-space-5)
-        max(var(--z-space-4), env(safe-area-inset-left));
+      padding: calc(var(--z-space-4) + var(--z-safe-top))
+        max(var(--z-space-6), env(safe-area-inset-right)) var(--z-space-6)
+        max(var(--z-space-6), env(safe-area-inset-left));
     }
     .lockup {
       display: none;
@@ -868,8 +871,8 @@
       position: relative;
       z-index: 1;
       margin-top: calc(var(--z-space-3) * -1);
-      padding: var(--z-space-5) max(var(--z-space-4), env(safe-area-inset-right)) var(--z-space-2)
-        max(var(--z-space-4), env(safe-area-inset-left));
+      padding: var(--z-space-6) max(var(--z-space-6), env(safe-area-inset-right)) var(--z-space-2)
+        max(var(--z-space-6), env(safe-area-inset-left));
       border-radius: var(--z-radius-lg) var(--z-radius-lg) 0 0;
       background: var(--z-surface);
     }
@@ -895,7 +898,8 @@
     .about {
       overflow: visible;
       margin-top: auto;
-      padding: var(--z-space-6) var(--z-space-4) 0;
+      padding: var(--z-space-8) max(var(--z-space-6), env(safe-area-inset-right)) 0
+        max(var(--z-space-6), env(safe-area-inset-left));
       background: none;
       color: var(--z-text);
     }
@@ -914,7 +918,9 @@
     .meta {
       flex-direction: column;
       justify-content: center;
-      padding: var(--z-space-3) var(--z-space-4) calc(var(--z-space-4) + var(--z-safe-bottom));
+      padding: var(--z-space-3) max(var(--z-space-6), env(safe-area-inset-right))
+        calc(var(--z-space-4) + var(--z-safe-bottom))
+        max(var(--z-space-6), env(safe-area-inset-left));
       text-align: center;
     }
   }
