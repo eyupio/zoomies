@@ -1169,6 +1169,7 @@ jobs:
           password: ${{ github.token }}
 
       - name: Set up Docker Buildx
+        id: buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # Only the default variant carries the unqualified tags. Anything else
@@ -1342,34 +1343,6 @@ jobs:
       - name: The runner-docker image has what Zoomies relies on
         run: test/runner-image/check.sh "zoomies-runner-docker-check:${{ matrix.tag }}" "${{ matrix.os }}" "${{ matrix.version }}" runner-docker
 
-      # On its own architecture only: under an emulator this would be
-      # gigabytes of toolchains unpacked and run through QEMU. The arm64 leg's
-      # build above already runs every toolchain's own version check.
-      - name: Load the runner-full image to check it
-        if: matrix.full && matrix.arch == 'amd64'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: deploy/Dockerfile.runner
-          target: runner-full
-          platforms: linux/amd64
-          push: false
-          load: true
-          cache-from: type=gha,version=2,scope=ci-runner-docker-${{ matrix.tag }}-${{ matrix.arch }}
-          build-args: |
-            BASE=${{ matrix.base }}
-            OS_FAMILY=${{ matrix.family }}
-            OS_ID=${{ matrix.os }}
-            OS_VERSION=${{ matrix.version }}
-            VERSION=${{ needs.images.outputs.version }}
-            COMMIT=${{ github.sha }}
-            DATE=${{ needs.images.outputs.date }}
-          tags: zoomies-runner-full-check:${{ matrix.tag }}
-
-      - name: The runner-full image has what Zoomies relies on
-        if: matrix.full && matrix.arch == 'amd64'
-        run: test/runner-image/check.sh "zoomies-runner-full-check:${{ matrix.tag }}" "${{ matrix.os }}" "${{ matrix.version }}" runner-full
-
       # EXTRA_PACKAGES is a documented way to bake a fleet's own toolchain into
       # a variant without forking the Dockerfile, and nothing above exercises
       # it: it could stop reaching the image entirely and every build in this
@@ -1409,6 +1382,55 @@ jobs:
           # `tree` is in no variant's own package list, so finding it on PATH
           # can only mean the build argument arrived.
           docker run --rm --entrypoint tree "$IMAGE" --version
+
+      # The pushed full image is durable even after its builder cache is gone.
+      # Loading it through Buildx keeps another copy of the multi-gigabyte
+      # toolchains beside the checked image, exhausting the DinD runner's disk.
+      # Finish all other builds first, then validate the exact digest that will
+      # receive the published tag. PRs have no pushed digest, so keep their
+      # local Buildx load and do not discard the cache it depends on.
+      - name: Make room to check the published runner-full image
+        if: matrix.full && matrix.arch == 'amd64' && env.PUBLISH == 'true'
+        env:
+          BUILDER: ${{ steps.buildx.outputs.name }}
+          DIGEST: ${{ steps.runner-full.outputs.digest }}
+          TAG: ${{ matrix.tag }}
+        run: |
+          set -eu
+          test -n "$DIGEST"
+          docker image rm "zoomies-runner-check:$TAG" "zoomies-runner-docker-check:$TAG" "zoomies-runner-extra-packages:$TAG"
+          docker buildx prune --builder "$BUILDER" --all --force
+          ref="$RUNNER_FULL_IMAGE@$DIGEST"
+          docker pull --platform linux/amd64 "$ref"
+          docker tag "$ref" "zoomies-runner-full-check:$TAG"
+
+      # On its own architecture only: under an emulator this would be
+      # gigabytes of toolchains unpacked and run through QEMU. The arm64 leg's
+      # build above already runs every toolchain's own version check.
+      - name: Load the runner-full image to check it
+        if: matrix.full && matrix.arch == 'amd64' && env.PUBLISH != 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile.runner
+          target: runner-full
+          platforms: linux/amd64
+          push: false
+          load: true
+          cache-from: type=gha,version=2,scope=ci-runner-docker-${{ matrix.tag }}-${{ matrix.arch }}
+          build-args: |
+            BASE=${{ matrix.base }}
+            OS_FAMILY=${{ matrix.family }}
+            OS_ID=${{ matrix.os }}
+            OS_VERSION=${{ matrix.version }}
+            VERSION=${{ needs.images.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ needs.images.outputs.date }}
+          tags: zoomies-runner-full-check:${{ matrix.tag }}
+
+      - name: The runner-full image has what Zoomies relies on
+        if: matrix.full && matrix.arch == 'amd64'
+        run: test/runner-image/check.sh "zoomies-runner-full-check:${{ matrix.tag }}" "${{ matrix.os }}" "${{ matrix.version }}" runner-full
 
       # Only a matrix leg that passed every image check may hand its pushed
       # digests to the manifest publisher. A failed validation must not move a
