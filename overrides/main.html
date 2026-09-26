@@ -212,11 +212,11 @@
       "@type": "BreadcrumbList",
       "itemListElement": [
         { "@type": "ListItem", "position": 1, "name": "Home", "item": "{{ config.site_url }}" }
-        {%- set ancestors = page.ancestors | reverse | list -%}
-        {%- for parent in ancestors %}
-        , { "@type": "ListItem", "position": {{ loop.index + 1 }}, "name": {{ parent.title | tojson }} }
+        {%- set linked_ancestors = page.ancestors | reverse | selectattr('url') | list -%}
+        {%- for parent in linked_ancestors %}
+        , { "@type": "ListItem", "position": {{ loop.index + 1 }}, "name": {{ parent.title | tojson }}, "item": {{ (config.site_url ~ parent.url) | tojson }} }
         {%- endfor %}
-        , { "@type": "ListItem", "position": {{ ancestors | length + 2 }}, "name": {{ page_title | tojson }}, "item": "{{ canonical }}" }
+        , { "@type": "ListItem", "position": {{ linked_ancestors | length + 2 }}, "name": {{ page_title | tojson }}, "item": "{{ canonical }}" }
       ]
     }
   </script>
