@@ -600,6 +600,8 @@ type Agent struct {
 
 // Scheduler tunes the scaling loop.
 type Scheduler struct {
+	// PlacementMode keeps readiness-based host selection opt-in until measured.
+	PlacementMode string `yaml:"placement_mode"`
 	// Interval is how often the reconcile loop runs even without an event.
 	Interval time.Duration `yaml:"interval"`
 	// ScaleUpDelay makes the scheduler wait before reacting to a queued job,
@@ -882,7 +884,7 @@ func Default() *Config {
 			BootstrapCPUGrace:  2 * time.Minute,
 			PrewarmTimeout:     5 * time.Minute,
 			PrewarmJitter:      30 * time.Second,
-			DockerBuildCacheMB: 5120,
+			DockerBuildCacheMB: 0,
 		},
 		Scheduler: Scheduler{
 			Interval:          10 * time.Second,
@@ -903,6 +905,7 @@ func Default() *Config {
 			MaxCreatesPerTick:       10,
 			DefaultRunnerLimits:     true,
 			RegistrationConcurrency: 1,
+			PlacementMode:           "headroom",
 			HostThrottling:          true,
 			AutoRerunLimit:          1,
 		},

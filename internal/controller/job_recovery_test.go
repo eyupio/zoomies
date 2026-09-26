@@ -86,6 +86,7 @@ func TestRunningContainerNeedsAnOnlineGitHubRunner(t *testing.T) {
 	if err := h.c.ReportRunners(h.ctx, host.ID, report); err != nil {
 		t.Fatal(err)
 	}
+	h.c.enrichOnce(h.ctx)
 	got, _ = h.st.GetRunner(h.ctx, r.ID)
 	if got.State != store.RunnerIdle || got.GitHubRunnerID == 0 {
 		t.Fatalf("online runner = %+v", got)

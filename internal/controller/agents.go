@@ -20,7 +20,6 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
-	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
@@ -240,8 +239,18 @@ func (q *taskQueue) take(n int, now time.Time) []agent.Task {
 	return out
 }
 
-// complete clears a task's lease once its result has arrived, returning the
-// task if it was still on record -- it is not after a controller restart.
+// peek leaves the lease recoverable until all required result writes commit.
+func (q *taskQueue) peek(taskID string) (agent.Task, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	lt, ok := q.inflight[taskID]
+	if ok {
+		return lt.task, true
+	}
+	return agent.Task{}, false
+}
+
+// complete clears the lease after durable result application.
 func (q *taskQueue) complete(taskID string) (agent.Task, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -362,6 +371,9 @@ func (c *Controller) enqueue(hostID string, t agent.Task) bool {
 // runner is progressing -- the container is where it was, doing what it was
 // doing -- and a prewarm has no runner to stamp.
 func (c *Controller) enqueueLifecycle(ctx context.Context, hostID string, t agent.Task) bool {
+	if !c.mayAct() {
+		return false
+	}
 	queued := c.enqueue(hostID, t)
 	if queued {
 		c.stampTaskIssued(ctx, t)
@@ -824,7 +836,8 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	c.setHostHealth(hostID, true)
 
 	return &agent.HeartbeatResponse{
-		OK: true,
+		MutationsPaused: !c.mayAct(),
+		OK:              true,
 		// An incompatible host is told it is cordoned as well, so an agent
 		// that does understand the field stops asking for new work without
 		// waiting to be told twice. The two are separate fields because they
@@ -937,6 +950,9 @@ func (c *Controller) NoteAgentSession(ctx context.Context, hostID, sessionID str
 // different fault, already logged where reports are applied, and answering
 // "unknown" would invite one host to remove another's work.
 func (c *Controller) unknownRunners(ctx context.Context, hostID string, reports []agent.RunnerReport) []string {
+	if !c.mayAct() {
+		return nil
+	}
 	if len(reports) == 0 {
 		return nil
 	}
@@ -986,6 +1002,9 @@ func (c *Controller) PollTasks(ctx context.Context, hostID string, wait time.Dur
 	c.pollsInFlight.Add(1)
 	defer c.pollsInFlight.Add(-1)
 
+	if !c.mayAct() {
+		return &agent.TaskBatch{Backoff: time.Second}, nil
+	}
 	if tasks := q.take(maxTasksPerPoll, c.Now()); len(tasks) > 0 {
 		c.stampIssued(ctx, tasks)
 		return &agent.TaskBatch{Tasks: tasks}, nil
@@ -1005,6 +1024,9 @@ func (c *Controller) PollTasks(ctx context.Context, hostID string, wait time.Dur
 		// task reaches its host in the instant it is queued.
 		return &agent.TaskBatch{Backoff: c.shed()}, nil
 	case <-q.wake:
+		if !c.mayAct() {
+			return &agent.TaskBatch{Backoff: time.Second}, nil
+		}
 		tasks := q.take(maxTasksPerPoll, c.Now())
 		c.stampIssued(ctx, tasks)
 		return &agent.TaskBatch{Tasks: tasks}, nil
@@ -1037,7 +1059,12 @@ func (c *Controller) stampIssued(ctx context.Context, tasks []agent.Task) {
 }
 
 // ReportResult applies the outcome of one task and clears its lease.
-func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.TaskResult) error {
+func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.TaskResult) (resultErr error) {
+	defer func() {
+		if resultErr == nil {
+			c.queues.get(hostID).complete(res.TaskID)
+		}
+	}()
 	if res.NotStarted && !res.OK {
 		// The agent was shutting down -- an upgrade, a restart -- and gave the
 		// task back before touching the runner. Offer it again straight away
@@ -1059,7 +1086,7 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 		// Out of attempts: fall through and fail the runner, which is the
 		// honest answer for a host that never stays up long enough.
 	}
-	task, known := c.queues.get(hostID).complete(res.TaskID)
+	task, known := c.queues.get(hostID).peek(res.TaskID)
 	if known && task.Kind == agent.TaskFillToolCache {
 		c.recordToolFill(hostID, task, res)
 		return nil
@@ -1112,11 +1139,20 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 
 	if res.Handle != "" && string(res.Handle) != r.ContainerID {
 		if err := c.st.SetRunnerContainer(ctx, r.ID, string(res.Handle)); err != nil {
-			c.log.Warn("could not record a runner's workload handle", "runner", r.ID, "error", err)
+			return fmt.Errorf("recording runner workload handle: %w", err)
 		}
 	}
 	if kind == agent.TaskCreateRunner && res.OK && res.ContainerStartedAt != nil {
-		_ = c.st.SetRunnerStartup(ctx, r.ID, res.ImagePullDuration, res.ContainerStartedAt)
+		service := res.CreateDuration
+		if res.ImagePullDuration != nil {
+			service += *res.ImagePullDuration
+		}
+		if err := c.st.SetRunnerServiceTime(ctx, r.ID, service); err != nil {
+			return err
+		}
+		if err := c.st.SetRunnerStartup(ctx, r.ID, res.ImagePullDuration, res.ContainerStartedAt); err != nil {
+			return err
+		}
 		if p, err := c.st.GetPool(ctx, r.PoolID); err == nil {
 			if res.StartupWait != nil && *res.StartupWait >= 0 {
 				c.metrics.startupWait.WithLabelValues(p.Name, string(p.Backend)).Observe(res.StartupWait.Seconds())
@@ -1128,7 +1164,9 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 		}
 	}
 	if res.Digest != "" {
-		_ = c.st.SetRunnerImageDigest(ctx, r.ID, res.Digest)
+		if err := c.st.SetRunnerImageDigest(ctx, r.ID, res.Digest); err != nil {
+			return err
+		}
 	}
 
 	if kind == agent.TaskCreateRunner {
@@ -1163,11 +1201,12 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 			// dropped there at debug level -- and a remove that failed means
 			// the container is still on the host, with nobody told. It is
 			// recorded on the row instead.
-			c.noteCleanupFailure(ctx, r, kind, message)
-			return nil
+			return c.noteCleanupFailure(ctx, r, kind, message)
 		}
 	}
-	c.applyRunnerState(ctx, r, state, message, res.Fault)
+	if err := c.applyRunnerState(ctx, r, state, message, res.Fault); err != nil {
+		return err
+	}
 	if res.OK && cleansUp(kind) {
 		return c.noteCleanupSucceeded(ctx, r, kind == agent.TaskRemoveRunner)
 	}
@@ -1195,19 +1234,20 @@ func cleansUp(kind agent.TaskKind) bool {
 // free; forcing it back through the state machine would make the fleet's
 // capacity wrong in order to record a tidying problem. What is wrong is the
 // host, and the row is where that belongs.
-func (c *Controller) noteCleanupFailure(ctx context.Context, r *store.Runner, kind agent.TaskKind, reason string) {
+func (c *Controller) noteCleanupFailure(ctx context.Context, r *store.Runner, kind agent.TaskKind, reason string) error {
 	c.metrics.cleanups.WithLabelValues("failed").Inc()
 	detail := fmt.Sprintf("%s failed: %s", kind, reason)
 	if err := c.st.RecordCleanupFailure(ctx, r.ID, detail); err != nil {
 		c.log.Warn("could not record a failed cleanup on its runner",
 			"runner", r.ID, "kind", kind, "error", err)
-		return
+		return err
 	}
 	c.log.Warn("could not clean a runner up; it is recorded on the row",
 		"runner", r.ID, "name", r.Name, "host", r.HostID, "kind", kind, "error", reason)
 	if updated, err := c.st.GetRunner(ctx, r.ID); err == nil {
 		c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	}
+	return nil
 }
 
 // noteCleanupSucceeded clears a recorded failure once the same work has since
@@ -1221,7 +1261,7 @@ func (c *Controller) noteCleanupSucceeded(ctx context.Context, r *store.Runner, 
 			c.metrics.cleanups.WithLabelValues("succeeded").Inc()
 		}
 		if r.RegistrationDeletedAt == nil {
-			c.deleteRegistration(ctx, r, nil)
+			return c.st.QueueEnrichment(ctx, "registration", r.ID)
 		}
 		return nil
 	}
@@ -1261,7 +1301,6 @@ func (c *Controller) ReportRunners(ctx context.Context, hostID string, reports [
 // applyReports folds each observation into the runner's authoritative state.
 func (c *Controller) applyReports(ctx context.Context, hostID string, reports []agent.RunnerReport) error {
 	var errs []error
-	registrations := make(map[string][]github.Runner)
 	for _, rep := range reports {
 		if rep.RunnerID == "" {
 			continue
@@ -1279,17 +1318,26 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 			continue
 		}
 		if rep.CleanupError != "" && r.State.Terminal() {
-			c.noteCleanupFailure(ctx, r, agent.TaskRemoveRunner, rep.CleanupError)
+			if err := c.noteCleanupFailure(ctx, r, agent.TaskRemoveRunner, rep.CleanupError); err != nil {
+				errs = append(errs, err)
+				continue
+			}
 		}
 		if r.State.Terminal() && rep.Phase.Live() {
 			c.reconcileLateReport(ctx, r, rep)
 			continue
 		}
 		if rep.Handle != "" && string(rep.Handle) != r.ContainerID {
-			_ = c.st.SetRunnerContainer(ctx, r.ID, string(rep.Handle))
+			if err := c.st.SetRunnerContainer(ctx, r.ID, string(rep.Handle)); err != nil {
+				errs = append(errs, err)
+				continue
+			}
 		}
 		if rep.GitHubRunnerID != 0 && r.GitHubRunnerID == 0 {
-			_ = c.st.SetRunnerGitHubID(ctx, r.ID, rep.GitHubRunnerID)
+			if err := c.st.SetRunnerGitHubID(ctx, r.ID, rep.GitHubRunnerID); err != nil {
+				errs = append(errs, err)
+				continue
+			}
 		}
 		cpuMoved := false
 		if rep.Stats.SampledAt != nil || rep.Stats.CPUPercent != 0 || rep.Stats.MemoryBytes != 0 {
@@ -1303,11 +1351,15 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 		if state == "" && rep.Phase == backend.PhaseRunning && r.State == store.RunnerRegistering {
 			// Container liveness is not GitHub readiness. Keep the provision
 			// timeout active until GitHub confirms the listener is online.
-			if c.runnerOnline(ctx, r, registrations) {
-				state = store.RunnerIdle
+			if err := c.st.QueueEnrichment(ctx, "ready", r.ID); err != nil {
+				errs = append(errs, err)
+				continue
 			}
 		}
-		c.applyRunnerState(ctx, r, state, rep.Message, rep.Fault)
+		if err := c.applyRunnerState(ctx, r, state, rep.Message, rep.Fault); err != nil {
+			errs = append(errs, err)
+			continue
+		}
 		if cpuMoved {
 			// A boost given, taken back or tightened by a throttle is the
 			// runner's cpu_resource changing, and the UI repaints a runner
@@ -1475,14 +1527,14 @@ func (c *Controller) observeRunnerReady(ctx context.Context, updated *store.Runn
 // fault is the agent's own classification, sent alongside the state. An agent
 // older than that field sends none, which is recorded as the unclassified kind
 // -- exactly what this controller knew before there was a taxonomy at all.
-func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, state store.RunnerState, message string, fault store.FaultKind) {
+func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, state store.RunnerState, message string, fault store.FaultKind) error {
 	if state == "" || state == r.State {
-		return
+		return nil
 	}
 	if !state.Valid() || !store.CanTransition(r.State, state) {
 		c.log.Debug("ignoring a runner state an agent reported out of order",
 			"runner", r.ID, "from", r.State, "to", state)
-		return
+		return nil
 	}
 	var updated *store.Runner
 	var err error
@@ -1493,7 +1545,7 @@ func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, stat
 	}
 	if err != nil {
 		c.log.Warn("could not apply a runner state an agent reported", "runner", r.ID, "state", state, "error", err)
-		return
+		return err
 	}
 	c.observeRunnerReady(ctx, updated)
 	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
@@ -1512,6 +1564,7 @@ func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, stat
 		// decision should happen now rather than on the next tick.
 		c.Nudge()
 	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

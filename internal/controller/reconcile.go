@@ -86,11 +86,19 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 	if err := c.recoverHostCleanup(ctx); err != nil {
 		return fmt.Errorf("recovering unfinished host cleanup: %w", err)
 	}
+	placementVersion := c.placementVersion.Load()
 	snap, err := c.snapshot(ctx)
 	if err != nil {
 		return err
 	}
 	plan := scheduler.Decide(snap)
+	if c.cfg().Scheduler.PlacementMode == "shadow" {
+		candidate := snap
+		candidate.PreferReadiness = true
+		alternative := scheduler.Decide(candidate)
+		c.log.Debug("compared host placement policies", "current", plan.Pools, "readiness", alternative.Pools)
+	}
+	c.rememberPlacement(snap, plan, placementVersion)
 	c.setLastPlan(plan)
 	c.setReserved(snap)
 	c.apply(ctx, snap, plan)
@@ -115,13 +123,9 @@ func (c *Controller) snapshot(ctx context.Context) (scheduler.Snapshot, error) {
 	// The scheduler sizes a pool by its minimum, so it is handed the minimum
 	// in force -- the fleet's where the pool set none -- rather than the row.
 	pools = c.sizingPools(pools)
-	runners := make(map[string][]*store.Runner, len(pools))
-	for _, p := range pools {
-		rs, err := c.st.ListRunnersForPool(ctx, p.ID)
-		if err != nil {
-			return scheduler.Snapshot{}, fmt.Errorf("listing runners for pool %s: %w", p.Name, err)
-		}
-		runners[p.ID] = rs
+	runners, err := c.st.SchedulingRunners(ctx)
+	if err != nil {
+		return scheduler.Snapshot{}, fmt.Errorf("listing scheduling runners: %w", err)
 	}
 	jobs, err := c.st.ListQueuedJobs(ctx)
 	if err != nil {
@@ -144,7 +148,26 @@ func (c *Controller) snapshot(ctx context.Context) (scheduler.Snapshot, error) {
 		return scheduler.Snapshot{}, fmt.Errorf("reading provisioning order: %w", err)
 	}
 	now := c.Now()
+	readiness := make(map[string]map[string]time.Duration)
+	if c.cfg().Scheduler.PlacementMode == "readiness" || c.cfg().Scheduler.PlacementMode == "shadow" {
+		if estimates, err := c.st.StartupEstimates(ctx, now.Add(-24*time.Hour)); err == nil {
+			images := map[string]string{}
+			for _, p := range pools {
+				images[p.ID] = c.RunnerImage(p)
+			}
+			for _, e := range estimates {
+				if images[e.PoolID] != e.Image {
+					continue
+				}
+				if readiness[e.PoolID] == nil {
+					readiness[e.PoolID] = map[string]time.Duration{}
+				}
+				readiness[e.PoolID][e.HostID] = time.Duration(e.Milliseconds) * time.Millisecond
+			}
+		}
+	}
 	return scheduler.Snapshot{
+		Readiness: readiness, PreferReadiness: c.cfg().Scheduler.PlacementMode == "readiness",
 		LastProvisioned:    lastProvisioned,
 		Now:                now,
 		HeldInstallations:  c.heldInstallations(now),
@@ -184,7 +207,7 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 	// computed and published above, which is the point: an operator recovering
 	// from a backup can see exactly what this controller would do the moment
 	// they lift the fence, and can tell "nothing to do" from "not allowed to".
-	if c.Fenced().Fenced {
+	if !c.mayAct() {
 		return
 	}
 	pools := make(map[string]*store.Pool, len(snap.Pools))
@@ -337,6 +360,9 @@ func (c *Controller) recordScaling(ctx context.Context, pp scheduler.PoolPlan, c
 // queuedSince is when the pool's first waiting job was queued, or zero when it
 // has none.
 func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *store.Host, a scheduler.Action, queuedSince time.Time) error {
+	if !c.mayAct() {
+		return nil
+	}
 	inst, err := c.st.GetInstallation(ctx, pool.InstallationID)
 	if err != nil {
 		return fmt.Errorf("pool %s points at installation %s, which is not there; edit the pool to choose an installation: %w",
@@ -681,6 +707,9 @@ func (c *Controller) drainRunnerID(ctx context.Context, id, reason string, pool 
 
 // drainRunner moves a runner to draining and asks its host to stop it.
 func (c *Controller) drainRunner(ctx context.Context, r *store.Runner, reason string, pool *store.Pool) (*store.Runner, error) {
+	if !c.mayAct() {
+		return nil, errors.New("controller authority is paused; retry after recovery or lease renewal")
+	}
 	updated, err := c.st.TransitionRunner(ctx, r.ID, store.RunnerDraining, reason)
 	if err != nil {
 		return nil, err
@@ -758,6 +787,9 @@ func (c *Controller) releaseRemoval(runnerID string) {
 // paths that answer a caller with the result: the operator-facing
 // RemoveRunner, and a host reporting a runner it was told to give up as lost.
 func (c *Controller) removeRunner(ctx context.Context, r *store.Runner, reason string, pool *store.Pool) (*store.Runner, error) {
+	if !c.mayAct() {
+		return nil, errors.New("controller authority is paused; retry after recovery or lease renewal")
+	}
 	c.enqueueLifecycle(ctx, r.HostID, agent.Task{
 		Kind:     agent.TaskRemoveRunner,
 		RunnerID: r.ID,
@@ -823,6 +855,9 @@ func (c *Controller) failRunnerID(ctx context.Context, id, reason string, fault 
 // an hour and had usually expired, leaving exactly the ghost that comment
 // promised to prevent.
 func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, pool *store.Pool) {
+	if !c.mayAct() {
+		return
+	}
 	if r.GitHubRunnerID == 0 && !store.IsRunnerName(r.Name) {
 		c.confirmCleanup(ctx, r.ID, false)
 		return

@@ -59,7 +59,13 @@ function emptyData(): FleetData {
  * The fields a frame may change without the fleet's shape having changed: the
  * live metrics an agent reports on every heartbeat.
  */
-const VOLATILE = new Set(['cpu_percent', 'memory_bytes', 'last_heartbeat']);
+const VOLATILE = new Set([
+  'cpu_percent',
+  'memory_bytes',
+  'last_heartbeat',
+  'resource_sample',
+  'usage',
+]);
 
 /** True when two rows differ in anything but a live metric. */
 function shapeDiffers(a: Record<string, unknown> | undefined, b: Record<string, unknown>): boolean {
@@ -102,6 +108,7 @@ class Fleet {
    * is about to throw away.
    */
   #deferred: Array<() => void> = [];
+  #overflow = false;
 
   /* -- reads -------------------------------------------------------------- */
 
@@ -288,6 +295,7 @@ class Fleet {
     this.#loaded = false;
     this.#error = null;
     this.#deferred = [];
+    this.#overflow = false;
   }
 
   /**
@@ -311,6 +319,14 @@ class Fleet {
       // Whatever landed after #fetchAll's own replay and before this point
       // is applied now, to whichever Maps are current.
       this.#flushDeferred();
+      if (this.#overflow) {
+        this.#overflow = false;
+        // A bounded replay may have a gap. Refresh after this promise settles.
+        // Yield between attempts if a busy fleet keeps overflowing.
+        setTimeout(() => {
+          if (this.#started) void this.reconcile();
+        }, 1000);
+      }
     });
     return this.#reconciling;
   }
@@ -417,13 +433,20 @@ class Fleet {
 
   /** Run a frame's mutation now, or hold it until the reconcile in flight lands. */
   #live(apply: () => void): void {
-    if (this.#reconciling) this.#deferred.push(apply);
-    else apply();
+    if (this.#reconciling) {
+      if (this.#deferred.length >= 2048) {
+        this.#deferred = [];
+        this.#overflow = true;
+      }
+      this.#deferred.push(apply);
+    } else apply();
   }
 
   #flushDeferred(): void {
     // A frame arriving during the flush is appended and taken in turn.
-    while (this.#deferred.length > 0) this.#deferred.shift()?.();
+    const pending = this.#deferred;
+    this.#deferred = [];
+    for (const apply of pending) apply();
   }
 
   /** Write a row, noting whether the fleet's shape moved with it. */

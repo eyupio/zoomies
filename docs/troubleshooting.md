@@ -363,7 +363,7 @@ whether it is yours to deal with.
   and retries them until the host confirms success.
 * **Unused Docker builder cache.** Every five minutes the agent asks the host
   Docker daemon to reduce unused cache toward `agent.docker_build_cache_mb`
-  (default 5 GiB). Active cache is protected; this is a target, not a quota.
+  (disabled by default; set a positive target to opt in). Active cache is protected; this is a target, not a quota.
   Set `0` to disable it. Separate Buildx container builders are not covered.
 * **Container logs.** New Docker runner and sidecar containers rotate their
   logs at 10 MiB with three files retained.

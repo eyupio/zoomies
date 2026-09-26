@@ -5521,6 +5521,8 @@ export interface components {
             runners?: components["schemas"]["RunnerReport"][];
         };
         AgentHeartbeatResponse: {
+            /** @description Preserve workloads and quotas while controller authority is paused. */
+            mutations_paused?: boolean;
             ok?: boolean;
             /** @description Mirrors the host's cordon flag so the agent stops asking for work at once. */
             cordoned?: boolean;

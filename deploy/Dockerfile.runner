@@ -255,6 +255,7 @@ ARG EXTRA_PACKAGES=""
 RUN /tmp/runner-extra.sh "${OS_FAMILY}" ${EXTRA_PACKAGES} && rm /tmp/runner-extra.sh /tmp/runner-apt.sh /tmp/runner-dnf.sh
 
 COPY --chmod=0755 deploy/runner-entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY --chmod=0755 deploy/runner-inventory.sh /usr/local/lib/zoomies/runner-inventory.sh
 
 # What this image is, for the entrypoint's first log line and for a job that
 # wants to branch on it. A pool pointed at the wrong variant otherwise shows up
@@ -263,6 +264,7 @@ ENV ZOOMIES_RUNNER_OS="${OS_ID}" \
     ZOOMIES_RUNNER_OS_VERSION="${OS_VERSION}" \
     ZOOMIES_RUNNER_VERSION="${RUNNER_VERSION}"
 
+RUN mkdir -p /usr/local/share/zoomies && /usr/local/lib/zoomies/runner-inventory.sh > /usr/local/share/zoomies/installed-software.json
 USER runner
 ENV RUNNER_ALLOW_RUNASROOT=0
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
@@ -291,6 +293,7 @@ RUN /tmp/runner-docker-cli.sh "${OS_FAMILY}" "${OS_ID}" && rm /tmp/runner-docker
 RUN set -eux; \
     docker --version; \
     docker buildx version
+RUN mkdir -p /usr/local/share/zoomies && /usr/local/lib/zoomies/runner-inventory.sh > /usr/local/share/zoomies/installed-software.json
 USER runner
 
 # Stamp the finished image without invalidating its Docker CLI installation.
@@ -374,6 +377,7 @@ RUN set -eux; \
     cargo --version; \
     cargo clippy --version; \
     rustfmt --version
+RUN mkdir -p /usr/local/share/zoomies && /usr/local/lib/zoomies/runner-inventory.sh > /usr/local/share/zoomies/installed-software.json
 USER runner
 
 ARG VERSION=dev

@@ -176,6 +176,13 @@ func TestACleanupThatEventuallyWorksClearsTheRecord(t *testing.T) {
 		t.Fatalf("ReportResult: %v", err)
 	}
 
+	before := h.runnerByID(t, r.ID)
+	if before.HostRemovedAt == nil {
+		t.Fatal("host cleanup was not durable before ACK")
+	}
+	// Remote registration deletion now runs after ingestion has acknowledged.
+	h.c.enrichOnce(h.ctx)
+
 	got := h.runnerByID(t, r.ID)
 	if got.CleanupError != "" {
 		t.Errorf("cleanup_error = %q, want it cleared once the removal worked", got.CleanupError)

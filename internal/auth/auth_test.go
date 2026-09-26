@@ -1076,3 +1076,19 @@ func TestAPlatformAccountAdministersTheFleetToo(t *testing.T) {
 		t.Errorf("deleting the platform account once an admin exists = %v; want ErrLastPlatform", err)
 	}
 }
+
+func TestPasswordVerificationHasAGlobalAdmissionBound(t *testing.T) {
+	for range cap(passwordChecks) {
+		passwordChecks <- struct{}{}
+	}
+	defer func() {
+		for range cap(passwordChecks) {
+			<-passwordChecks
+		}
+	}()
+	// Admission happens before database or expensive hashing work.
+	_, _, err := new(Service).Login(t.Context(), "someone", "guess", "203.0.113.1", "test")
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("saturated password verifier: %v", err)
+	}
+}

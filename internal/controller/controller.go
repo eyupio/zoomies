@@ -254,8 +254,11 @@ type Controller struct {
 	// leaseLost is set when a renewal found somebody else holding it, which is
 	// the fleet's worst state: two schedulers, both certain they are the only
 	// one. It is never cleared -- the operator has to look.
-	lease     *store.ControllerLease
-	leaseLost atomic.Pointer[store.ControllerLease]
+	lease            *store.ControllerLease
+	leaseLost        atomic.Pointer[store.ControllerLease]
+	placement        atomic.Pointer[placementIntent]
+	placementVersion atomic.Uint64
+	leaseRenewed     atomic.Pointer[time.Time]
 	// privateFault is the private-connection listener's state, set by the API
 	// server that owns it; see SetPrivateConnectionFault.
 	privateFault atomic.Pointer[PrivateConnectionFault]
@@ -471,8 +474,10 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.spawn("reconcile", loopCtx, c.reconcileLoop)
 	c.spawn("reap", loopCtx, c.reapLoop)
 	c.spawn("poller", loopCtx, c.pollLoop)
+	c.spawn("job-recovery", loopCtx, c.jobRecoveryLoop)
 	c.spawn("installations", loopCtx, c.probeLoop)
 	c.spawn("background", loopCtx, c.backgroundLoop)
+	c.spawn("enrichment", loopCtx, c.enrichmentLoop)
 	// Its own loop, because a copy of a large database takes as long as it
 	// takes and the housekeeping pass should not wait for it.
 	c.spawn("backups", loopCtx, c.backupLoop)

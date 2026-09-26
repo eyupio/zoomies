@@ -1,6 +1,9 @@
 package backend
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -48,22 +51,24 @@ func cacheIdentity(spec Spec) (string, error) {
 	if !c.Scope.Valid() {
 		return "", fmt.Errorf("backend: %q is not a cache scope", c.Scope)
 	}
-	key := spec.PoolID
+	repo := ""
 	if c.Scope == store.CacheScopeRepository {
-		// The repository comes from the pool's cache configuration when the
-		// installation is organisation-wide and from the installation itself
-		// when it targets one repository; either way it has to be a full
-		// owner/name here, or two repositories would share a cache.
-		repo := firstNonEmpty(strings.TrimSpace(c.Repository), spec.Repository)
-		if !strings.Contains(repo, "/") {
+		repo = strings.ToLower(strings.TrimSpace(firstNonEmpty(c.Repository, spec.Repository)))
+		parts := strings.Split(repo, "/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			return "", fmt.Errorf("backend: a repository-scoped cache needs a repository as owner/name, and this pool has %q; set the pool's cache repository", repo)
 		}
-		key += "-" + repo
 	}
-	safe := sanitizeHostname(key)
-	if safe == "" || safe == "." || safe == ".." {
-		return "", fmt.Errorf("backend: unsafe cache identity")
+	// A hostname is a readable prefix, not an identity: punctuation and long
+	// repository names must never collapse different trust scopes together.
+	raw, _ := json.Marshal([]string{"v2", string(c.Scope), spec.PoolID, repo})
+	sum := sha256.Sum256(raw)
+	prefix := sanitizeHostname(spec.PoolID + "-" + repo)
+	if len(prefix) > 24 {
+		prefix = prefix[:24]
 	}
+	safe := fmt.Sprintf("v2-%s-%x", strings.TrimRight(prefix, "-"), sum[:16])
+
 	return safe, nil
 }
 
@@ -78,7 +83,10 @@ func toolCacheDir(spec Spec, sharedDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(sharedDir, "cache", "tools", safe), nil
+	// Create and fill resolve the image first. Its immutable identity also
+	// separates architecture and ABI, including custom images with no OS labels.
+	image := sha256.Sum256([]byte(spec.Image))
+	return filepath.Join(sharedDir, "cache", "tools", safe, fmt.Sprintf("image-%x", image[:16])), nil
 }
 
 // ensureRunnerWritableDir creates a host folder a runner is going to write to
@@ -153,6 +161,10 @@ func cacheDirectory(spec Spec) (string, bool) {
 // between two runners -- so the limit belongs to a cache the operator is
 // willing to lose, which is what this cache is.
 func pruneCache(dir string, limit int64, log *slog.Logger) {
+	pruneCacheContext(context.Background(), dir, limit, log)
+}
+
+func pruneCacheContext(ctx context.Context, dir string, limit int64, log *slog.Logger) {
 	if limit <= 0 {
 		return
 	}
@@ -174,7 +186,10 @@ func pruneCache(dir string, limit int64, log *slog.Logger) {
 	items := make([]entry, 0, len(entries))
 	var total int64
 	for _, e := range entries {
-		size, mtime := treeSize(filepath.Join(dir, e.Name()))
+		size, mtime := treeSizeContext(ctx, filepath.Join(dir, e.Name()))
+		if ctx.Err() != nil {
+			return
+		}
 		items = append(items, entry{name: e.Name(), size: size, mtime: mtime})
 		total += size
 	}
@@ -191,7 +206,7 @@ func pruneCache(dir string, limit int64, log *slog.Logger) {
 	})
 	freed, removed := int64(0), 0
 	for _, it := range items {
-		if total-freed <= limit {
+		if ctx.Err() != nil || total-freed <= limit {
 			break
 		}
 		if err := os.RemoveAll(filepath.Join(dir, it.name)); err != nil {
@@ -209,7 +224,14 @@ func pruneCache(dir string, limit int64, log *slog.Logger) {
 // modification time in it, so that touching one file inside a cache entry keeps
 // the whole entry warm.
 func treeSize(path string) (size int64, newest int64) {
+	return treeSizeContext(context.Background(), path)
+}
+
+func treeSizeContext(ctx context.Context, path string) (size int64, newest int64) {
 	_ = filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
 			// An entry that vanished mid-walk simply contributes nothing.
 			return nil

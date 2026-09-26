@@ -898,10 +898,10 @@ func (s *Store) PruneJobs(ctx context.Context, before time.Time) (int64, error) 
 	var pruned int64
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM job_events WHERE job_id IN
-			(SELECT id FROM jobs WHERE `+old+`)`, ms(before), ms(before)); err != nil {
+			(SELECT id FROM jobs WHERE `+old+` ORDER BY id LIMIT 500)`, ms(before), ms(before)); err != nil {
 			return err
 		}
-		res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE `+old, ms(before), ms(before))
+		res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE id IN (SELECT id FROM jobs WHERE `+old+` ORDER BY id LIMIT 500)`, ms(before), ms(before))
 		if err != nil {
 			return err
 		}
@@ -1086,7 +1086,7 @@ func (s *Store) ListScalingEvents(ctx context.Context, poolID string, limit int)
 
 // PruneScalingEvents deletes scaling history older than the cutoff.
 func (s *Store) PruneScalingEvents(ctx context.Context, before time.Time) (int64, error) {
-	res, err := s.exec(ctx, `DELETE FROM scaling_events WHERE created_at < ?`, ms(before))
+	res, err := s.exec(ctx, `DELETE FROM scaling_events WHERE rowid IN (SELECT rowid FROM scaling_events WHERE created_at < ? LIMIT 1000)`, ms(before))
 	if err != nil {
 		return 0, err
 	}
@@ -1246,7 +1246,7 @@ func (s *Store) lastDeliveryAt(ctx context.Context, status string) (time.Time, e
 
 // PruneDeliveries deletes webhook history older than the cutoff.
 func (s *Store) PruneDeliveries(ctx context.Context, before time.Time) (int64, error) {
-	res, err := s.exec(ctx, `DELETE FROM webhook_deliveries WHERE received_at < ?`, ms(before))
+	res, err := s.exec(ctx, `DELETE FROM webhook_deliveries WHERE rowid IN (SELECT rowid FROM webhook_deliveries WHERE received_at < ? LIMIT 1000)`, ms(before))
 	if err != nil {
 		return 0, err
 	}
@@ -1319,7 +1319,7 @@ func (s *Store) ListSamples(ctx context.Context, since time.Time) ([]FleetSample
 
 // PruneSamples deletes fleet samples older than the cutoff.
 func (s *Store) PruneSamples(ctx context.Context, before time.Time) (int64, error) {
-	res, err := s.exec(ctx, `DELETE FROM fleet_samples WHERE at < ?`, ms(before))
+	res, err := s.exec(ctx, `DELETE FROM fleet_samples WHERE rowid IN (SELECT rowid FROM fleet_samples WHERE at < ? LIMIT 1000)`, ms(before))
 	if err != nil {
 		return 0, err
 	}

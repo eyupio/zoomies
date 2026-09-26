@@ -367,7 +367,9 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 		return fmt.Errorf("recording job %d: %w", e.JobID, err)
 	}
 	if saved.RunNumber == 0 && saved.GitHubRunID > 0 {
-		c.attachRunNumber(ctx, saved)
+		if n, err := c.st.RunNumberForRun(ctx, saved.GitHubRunID); err == nil {
+			c.recordRunNumber(ctx, saved, n)
+		}
 	}
 	// A recovery response may omit runner_name even though the earlier
 	// in-progress event linked this job. Use the durable link as the fallback,
@@ -377,8 +379,12 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 			runner = r
 		}
 	}
+	if change.Created || change.StateChanged {
+		c.placementVersion.Add(1)
+		c.placement.Store(nil)
+	}
 	c.recordJobChange(ctx, saved, change, source, runner)
-	if saved.StartedAt != nil {
+	if saved.StartedAt != nil && (change.Created || change.StateChanged) && change.PreviousState != store.JobInProgress {
 		poolName, backendName := UnmatchedPool, "unknown"
 		if p, e := c.st.GetPool(ctx, saved.PoolID); e == nil {
 			poolName, backendName = p.Name, string(p.Backend)
@@ -425,31 +431,18 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 					c.Nudge()
 				}
 			}
-			c.observeJobCompletion(saved)
+			if change.Created || change.StateChanged {
+				c.observeJobCompletion(saved)
+			}
 		}
-	} else if saved.State == store.JobCompleted {
+	} else if saved.State == store.JobCompleted && (change.Created || change.StateChanged) {
 		c.observeJobCompletion(saved)
 	}
 
-	// workflow_job only proves that this one job was cancelled. Ask GitHub for
-	// the run-level truth before touching siblings: fail-fast and matrix jobs
-	// can be cancelled while the workflow as a whole continues. Once GitHub
-	// confirms the run was cancelled, close every queued local item and stop
-	// every runner still executing one of its jobs.
-	if saved.State == store.JobCompleted && saved.Conclusion == "cancelled" &&
-		saved.GitHubRunID > 0 && saved.InstallationID != "" {
-		client, clientErr := c.ClientFor(ctx, saved.InstallationID)
-		if clientErr != nil {
-			c.log.Warn("could not verify whether a cancelled job belongs to a cancelled workflow run",
-				"job", saved.ID, "run", saved.GitHubRunID, "error", clientErr)
-		} else if run, runErr := client.GetWorkflowRun(ctx, saved.Repo, saved.GitHubRunID); runErr != nil {
-			c.log.Warn("could not read the workflow run behind a cancelled job",
-				"job", saved.ID, "run", saved.GitHubRunID, "error", runErr)
-		} else if run.Cancelled() {
-			if cancelErr := c.cancelWorkflowRunLocally(ctx, saved.Repo, saved.GitHubRunID, true); cancelErr != nil {
-				c.log.Warn("could not converge every local job in a cancelled workflow run",
-					"repo", saved.Repo, "run", saved.GitHubRunID, "error", cancelErr)
-			}
+	// Run metadata and cancellation verification can wait; the job event cannot.
+	if saved.GitHubRunID > 0 && saved.InstallationID != "" && (saved.RunNumber == 0 || saved.State == store.JobCompleted && saved.Conclusion == "cancelled") {
+		if err := c.st.QueueEnrichment(ctx, "job", saved.ID); err != nil {
+			return err
 		}
 	}
 
@@ -467,45 +460,6 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 	// does to answer.
 	c.Nudge()
 	return nil
-}
-
-// attachRunNumber backfills the workflow run's own display number -- the
-// "#1009" GitHub's Actions UI shows next to the workflow name -- onto a job
-// this controller just saved, so an operator can find the same run there.
-//
-// workflow_job never carries it; only a workflow_run lookup does. Checking
-// the store first means only the first job of a run ever pays for that
-// lookup, and whatever is found is written to the whole run. It used to be
-// written only to the job that asked: a sibling that found it already
-// recorded used it for that one delivery and never saved it, so the Runners
-// page showed "#1114" beside one job of a run and nothing beside the rest.
-// Best-effort throughout -- a failed lookup leaves the job to try again on
-// its next delivery, same as any other webhook enrichment here.
-func (c *Controller) attachRunNumber(ctx context.Context, saved *store.Job) {
-	if n, err := c.st.RunNumberForRun(ctx, saved.GitHubRunID); err == nil {
-		c.recordRunNumber(ctx, saved, n)
-		return
-	} else if !errors.Is(err, store.ErrNotFound) {
-		c.log.Warn("could not look up a run number already recorded for this workflow run",
-			"job", saved.ID, "run", saved.GitHubRunID, "error", err)
-	}
-	if saved.InstallationID == "" {
-		return
-	}
-	client, err := c.ClientFor(ctx, saved.InstallationID)
-	if err != nil {
-		return
-	}
-	run, err := client.GetWorkflowRun(ctx, saved.Repo, saved.GitHubRunID)
-	if err != nil {
-		c.log.Warn("could not read the workflow run behind a job to learn its run number",
-			"job", saved.ID, "run", saved.GitHubRunID, "error", err)
-		return
-	}
-	if run.RunNumber == 0 {
-		return
-	}
-	c.recordRunNumber(ctx, saved, run.RunNumber)
 }
 
 // recordRunNumber writes a run's number to every job of the run that lacks

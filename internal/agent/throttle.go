@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"sort"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/store"
@@ -37,6 +39,7 @@ func (a *Agent) applyResourceDirectives(ctx context.Context, d *ThrottleDirectiv
 	changed := a.cpuFactor != factor || !maps.Equal(a.elasticCPU, next)
 	a.cpuFactor = factor
 	a.elasticCPU = next
+	a.boostRenewedAt = time.Now()
 	a.mu.Unlock()
 	if d == nil && !changed {
 		return
@@ -69,7 +72,8 @@ const boostExpiryMisses = 3
 func (a *Agent) expireBoosts(ctx context.Context) {
 	a.mu.Lock()
 	a.missedBeats++
-	expire := a.missedBeats >= boostExpiryMisses && len(a.elasticCPU) > 0
+	expire := a.missedBeats >= boostExpiryMisses
+	hadBoost := len(a.elasticCPU) > 0
 	if expire {
 		a.elasticCPU = map[string]float64{}
 	}
@@ -77,8 +81,10 @@ func (a *Agent) expireBoosts(ctx context.Context) {
 	if !expire {
 		return
 	}
-	a.log.Warn("the controller has missed several heartbeats; giving back the CPU it lent this host's runners",
-		"missed", boostExpiryMisses)
+	if hadBoost {
+		a.log.Warn("the controller has missed several heartbeats; giving back the CPU it lent this host's runners",
+			"missed", boostExpiryMisses)
+	}
 	a.applyThrottle(ctx, true)
 }
 
@@ -96,17 +102,19 @@ func (a *Agent) expireBoosts(ctx context.Context) {
 // a daemon that recovers is not waited on by anything but time.
 func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 	type candidate struct {
-		runnerID string
-		handle   backend.Handle
-		updater  backend.ResourceUpdater
-		res      store.Resources
-		warned   bool
-		factor   float64
+		runnerID  string
+		handle    backend.Handle
+		updater   backend.ResourceUpdater
+		res       store.Resources
+		warned    bool
+		factor    float64
+		reduction bool
 	}
 	a.mu.Lock()
 	hostFactor := a.cpuFactor
 	now := a.now()
 	var todo []candidate
+	reclaimPending := false
 	for _, r := range a.runners {
 		factor := 1.0
 		if elastic := a.elasticCPU[r.runnerID]; elastic > 1 {
@@ -125,13 +133,14 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 			// controller's business to say so through its host problems.
 			continue
 		}
-		if r.appliedCPUFactor != nil && *r.appliedCPUFactor == factor {
-			continue
-		}
 		// Serialise updates even if the grace expires while one is in
 		// flight: an older response must not overwrite a newer quota.
 		// The next heartbeat reconciles the standing factor.
 		if r.pendingCPUFactor != nil {
+			reclaimPending = true
+			continue
+		}
+		if r.appliedCPUFactor != nil && *r.appliedCPUFactor == factor {
 			continue
 		}
 		b, err := a.opts.Backends.Get(r.kind)
@@ -155,8 +164,9 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 		r.pendingCPUFactor = &f
 		todo = append(todo, candidate{
 			runnerID: r.runnerID, handle: r.handle, updater: u, res: res,
-			factor: factor,
-			warned: r.failedCPUFactor != nil && *r.failedCPUFactor == factor,
+			factor:    factor,
+			reduction: factor <= 1 || r.appliedCPUFactor == nil || factor < *r.appliedCPUFactor,
+			warned:    r.failedCPUFactor != nil && *r.failedCPUFactor == factor,
 		})
 	}
 	a.mu.Unlock()
@@ -183,9 +193,22 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 		}
 	}
 
+	sort.SliceStable(todo, func(i, j int) bool { return todo[i].reduction && !todo[j].reduction })
+	reclaimFailed := reclaimPending
 	for _, c := range todo {
+		if reclaimFailed && !c.reduction {
+			a.mu.Lock()
+			if r := a.runners[c.runnerID]; r != nil {
+				r.pendingCPUFactor = nil
+			}
+			a.mu.Unlock()
+			continue
+		}
 		factor := c.factor
 		err := c.updater.UpdateResources(ctx, c.handle, c.res)
+		if c.reduction && err != nil && !errors.Is(err, backend.ErrNotFound) {
+			reclaimFailed = true
+		}
 		a.mu.Lock()
 		r, ok := a.runners[c.runnerID]
 		if ok {
@@ -220,5 +243,38 @@ func (a *Agent) applyThrottle(ctx context.Context, announce bool) {
 			a.log.Warn("could not change a runner's CPU quota; its job continues at its full allocation and the change will be retried on the next heartbeat",
 				"runner", c.runnerID, "handle", c.handle, "cpus", c.res.CPUs, "cpu_factor", factor, "error", err)
 		}
+	}
+}
+
+// Independent of heartbeat completion. time.Now retains its monotonic reading,
+// so a wall-clock adjustment cannot extend a CPU loan. Backend updates have a
+// separate deadline; a failed withdrawal is tried again on the next tick.
+func (a *Agent) boostExpiryLoop(ctx context.Context) error {
+	interval := min(a.heartbtI, 5*time.Second)
+	if interval <= 0 {
+		interval = time.Second
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+			work, cancel := context.WithTimeout(ctx, 5*time.Second)
+			a.expireBoostLease(work, time.Now())
+			cancel()
+		}
+	}
+}
+func (a *Agent) expireBoostLease(ctx context.Context, now time.Time) {
+	a.mu.Lock()
+	expired := !a.boostRenewedAt.IsZero() && now.Sub(a.boostRenewedAt) >= boostExpiryMisses*a.heartbtI
+	if expired {
+		a.elasticCPU = map[string]float64{}
+	}
+	a.mu.Unlock()
+	if expired {
+		a.applyThrottle(ctx, false)
 	}
 }

@@ -537,6 +537,11 @@ var registry = buildRegistry([]Setting{
 		Summary: "How many runners may be created in one pass, so a thundering herd of queued jobs cannot exhaust a host in one go.",
 	},
 	{
+		Key: "scheduler.placement_mode", Label: "Host placement policy", Env: "ZOOMIES_PLACEMENT_MODE", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Choices: []string{"headroom", "shadow", "readiness"},
+		Summary: "Headroom preserves resource-based placement. Shadow compares startup history and queued starts without changing placement. Readiness opts into the measured policy; all capacity and pressure checks still apply.",
+	},
+	{
 		Key: "scheduler.registration_concurrency", Label: "Concurrent registrations per installation", Env: "ZOOMIES_REGISTRATION_CONCURRENCY", Kind: KindInt, Scope: ScopeInstance, Live: true,
 		Summary: "Maximum concurrent runner credential requests per GitHub installation (1–16). Excess demand stays with the scheduler; rate-limit holds pause new admissions.",
 	},

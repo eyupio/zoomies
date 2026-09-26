@@ -9,6 +9,9 @@ import (
 // Called under reconcileMu. A removal is not complete until the host says it
 // is: recording a terminal job, restarting, or exhausting a lease is not proof.
 func (c *Controller) recoverHostCleanup(ctx context.Context) error {
+	if !c.mayAct() {
+		return nil
+	}
 	const batch = 100
 	runners, err := c.st.PendingHostCleanup(ctx, c.cleanupCursor, batch)
 	if err != nil {

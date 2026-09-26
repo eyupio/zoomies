@@ -43,7 +43,7 @@ const (
 // this exists in the store: a running instance keeps a write-ahead log, so
 // copying the .db file alone produces something that is missing every recent
 // commit, and copying all three files while a write is in flight produces
-// something that is missing part of one. VACUUM INTO takes the write lock, so
+// something that is missing part of one. VACUUM INTO takes a consistent read snapshot, so
 // what lands is one file, already checkpointed, with no WAL beside it -- a
 // database an operator can move, verify and open anywhere.
 //
@@ -83,8 +83,7 @@ func (s *Store) Backup(ctx context.Context, dest string) error {
 		return fmt.Errorf("store: creating %s: %w", filepath.Dir(abs), err)
 	}
 
-	defer s.lockWriter()()
-	if _, err := s.write.ExecContext(ctx, `VACUUM INTO '`+abs+`'`); err != nil {
+	if _, err := s.read.ExecContext(ctx, `VACUUM INTO '`+abs+`'`); err != nil {
 		return fmt.Errorf("store: copying the database to %s: %w", abs, err)
 	}
 	// A backup holds every sealed secret this instance has and every account's

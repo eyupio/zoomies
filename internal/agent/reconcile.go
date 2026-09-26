@@ -82,6 +82,17 @@ func (a *Agent) ReconcileOnce(ctx context.Context) ([]RunnerReport, error) {
 			continue
 		}
 
+		a.mu.Lock()
+		pending := a.inventoryPending[kind]
+		delete(a.inventoryPending, kind)
+		a.mu.Unlock()
+		if pending {
+			for _, w := range workloads {
+				if w.RunnerID != "" && !w.Sidecar {
+					a.adopt(w.RunnerID, kind, w)
+				}
+			}
+		}
 		for _, w := range workloads {
 			if w.Sidecar {
 				// A sidecar carries its runner's id, so it must never be
@@ -130,7 +141,11 @@ func (a *Agent) ReconcileOnce(ctx context.Context) ([]RunnerReport, error) {
 			continue
 		}
 		if r.terminal {
-			a.untrack(r.runnerID)
+			if r.reported {
+				a.untrack(r.runnerID)
+			} else {
+				reports = append(reports, r.report())
+			}
 			continue
 		}
 		msg := fmt.Sprintf("workload %s is no longer on host %s", r.handle, a.opts.Name)
@@ -144,7 +159,6 @@ func (a *Agent) ReconcileOnce(ctx context.Context) ([]RunnerReport, error) {
 			Message:    msg,
 			ObservedAt: now,
 		})
-		a.untrack(r.runnerID)
 	}
 
 	return reports, errors.Join(errs...)
@@ -301,6 +315,9 @@ func entrypointExitHint(code int) string {
 // belongs to would sit in idle or busy until the reconciler declared it
 // vanished, with nothing to say why.
 func (a *Agent) cleanUp(ctx context.Context, b backend.Backend, r tracked, w backend.Workload, now time.Time) (RunnerReport, bool) {
+	if a.mutationsPaused.Load() {
+		return RunnerReport{}, false
+	}
 	if !r.reported || now.Sub(r.terminalAt) < a.retention {
 		return RunnerReport{}, false
 	}
@@ -405,6 +422,9 @@ func (a *Agent) markReported(reports []RunnerReport) {
 // Backend.List only returns workloads carrying the io.zoomies.managed label, so
 // nothing an operator started by hand is ever a candidate.
 func (a *Agent) reapOrphan(ctx context.Context, b backend.Backend, kind store.BackendKind, w backend.Workload, now time.Time) (RunnerReport, bool) {
+	if a.mutationsPaused.Load() {
+		return RunnerReport{}, false
+	}
 	if !a.polled.Load() {
 		return RunnerReport{}, false
 	}

@@ -158,7 +158,9 @@ const (
 
 // HeartbeatResponse tells the agent whether the controller still recognises it.
 type HeartbeatResponse struct {
-	OK bool `json:"ok"`
+	// MutationsPaused preserves observed workloads during fenced recovery.
+	MutationsPaused bool `json:"mutations_paused,omitempty"`
+	OK              bool `json:"ok"`
 	// Cordoned mirrors the host's cordon flag so the agent can stop asking for
 	// work without waiting for the next task poll.
 	Cordoned bool `json:"cordoned"`

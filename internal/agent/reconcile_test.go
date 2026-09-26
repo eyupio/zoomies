@@ -176,6 +176,8 @@ func TestReconcileReportsCleanEphemeralExitAsRemoved(t *testing.T) {
 		t.Fatalf("re-reported a terminal runner: %+v", again)
 	}
 
+	a.markReported(reports)
+
 	// Once the workload is gone, however it went, the agent stops carrying
 	// the runner in every heartbeat.
 	be.setWorkloads()
@@ -296,6 +298,8 @@ func TestReconcileReportsAWorkloadThatDisappeared(t *testing.T) {
 	if len(reports) != 1 || reports[0].State != store.RunnerRemoved {
 		t.Fatalf("reports = %+v, want one removed", reports)
 	}
+	a.markReported(reports)
+	a.ReconcileOnce(context.Background())
 	if got := a.Runners(); len(got) != 0 {
 		t.Fatalf("runner still tracked: %+v", got)
 	}
@@ -661,8 +665,10 @@ func TestReconcileTreatsAnAbandonedSidecarAsRubbishNotAsItsRunner(t *testing.T) 
 	if reports[0].Handle != "wl-1" {
 		t.Fatalf("the report named the sidecar rather than the runner: %+v", reports[0])
 	}
+	a.markReported(reports)
+	a.ReconcileOnce(context.Background())
 	if _, ok := a.snapshot("runner-1"); ok {
-		t.Fatal("a runner reported gone must stop being tracked")
+		t.Fatal("a runner acknowledged gone must stop being tracked")
 	}
 }
 

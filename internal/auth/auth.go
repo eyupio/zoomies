@@ -578,7 +578,20 @@ func (s *Service) JoinRetryAfter(ip string) time.Duration { return s.joins.Retry
 // an SSO-only account -- which has no password to prove anything with -- is
 // simply "incorrect username or password". The reason is logged and audited
 // either way, so an operator diagnosing a failed sign-in still has it.
+// Each Argon2 verification consumes 64 MiB; IP/account windows alone cannot
+// bound the memory used by requests spread across distinct identities.
+var passwordChecks = make(chan struct{}, 2)
+
 func (s *Service) Login(ctx context.Context, username, password, ip, ua string) (*store.User, string, error) {
+	select {
+	case passwordChecks <- struct{}{}:
+		defer func() { <-passwordChecks }()
+	case <-ctx.Done():
+		return nil, "", ctx.Err()
+	default:
+		return nil, "", ErrRateLimited
+	}
+
 	account := normalizeForLimiter(username)
 	if !s.logins.Allow(ip) {
 		s.logger.Warn("login rate limit hit", "ip", ip, "username", username)

@@ -71,7 +71,11 @@ type machineRuntime struct {
 	// reconcileMu does for the scheduling pass. It is a separate mutex because
 	// the two passes have nothing to say to each other and a machine step must
 	// never be able to hold up a scheduling one.
-	mu sync.Mutex
+	mu                 sync.Mutex
+	sweeps             map[string]bool
+	sweepRetry         map[string]time.Time
+	operationCount     int
+	providerOperations map[string]int
 	// calls tracks the provider calls a pass issued, which outlive the pass:
 	// Stop waits on it beside deliveries, because exiting under a create
 	// leaves a machine whose outcome nobody recorded.
@@ -193,12 +197,8 @@ func (c *Controller) ReconcileMachines(ctx context.Context) error {
 	c.machines.mu.Lock()
 	defer c.machines.mu.Unlock()
 
-	// Two controllers each cloning a VM is the expensive failure this design
-	// exists for. Nothing else in this codebase stops on lease loss, because
-	// nothing else spends money: a duplicate runner is a wasted slot and a
-	// duplicate machine is an invoice. The problems drawer already says so
-	// permanently, so this says nothing more.
-	if c.leaseLost.Load() != nil {
+	// Provider and runner mutations share the same authority boundary.
+	if !c.mayAct() {
 		return nil
 	}
 	// Off is off, whoever asked. The loop is not started when providers are
@@ -752,6 +752,9 @@ func (c *Controller) stepMachines(ctx context.Context, env *machineEnv) {
 		if kind == store.MachineOpNone {
 			continue
 		}
+		if c.machines.operationCount >= 8 || c.machines.providerOperations[row.ID] >= 4 {
+			continue
+		}
 		claimed, ok := c.claimMachineStep(ctx, env, m, kind)
 		if !ok {
 			continue
@@ -760,9 +763,20 @@ func (c *Controller) stepMachines(ctx context.Context, env *machineEnv) {
 
 		timeout := c.stepTimeout(pr)
 
+		if c.machines.providerOperations == nil {
+			c.machines.providerOperations = map[string]int{}
+		}
+		c.machines.operationCount++
+		c.machines.providerOperations[row.ID]++
 		c.machines.calls.Add(1)
 		go func(m *store.Machine) {
 			defer c.machines.calls.Done()
+			defer func() {
+				c.machines.mu.Lock()
+				c.machines.operationCount--
+				c.machines.providerOperations[m.ProviderID]--
+				c.machines.mu.Unlock()
+			}()
 			cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 			defer cancel()
 			c.runMachineStep(cctx, env, pr, m)
@@ -851,6 +865,10 @@ func (c *Controller) runMachineStep(ctx context.Context, env *machineEnv, pr *ma
 	started := time.Now()
 
 	var err error
+	if !c.mayAct() {
+		c.recordMachineFailure(ctx, env, pr, m, opID, errMachineHeld)
+		return
+	}
 	switch m.State {
 	case store.MachinePlanned:
 		err = c.stepPlanned(ctx, env, pr, m)

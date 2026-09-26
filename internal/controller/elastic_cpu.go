@@ -31,6 +31,9 @@ const (
 // set of boosts from every plan, so the lent CPU is back within one heartbeat
 // interval and a quota update, and a runner is never below its own quota.
 func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req agent.HeartbeatRequest, now time.Time) []agent.ElasticCPUDirective {
+	if !c.mayAct() {
+		return nil
+	}
 	// Nothing measured is no decision at all: there is nothing to judge the
 	// host by, so nothing is recorded as if there were.
 	if h == nil || !h.Usage.Fresh(now) || h.Usage.CPUPercent == nil {
@@ -287,7 +290,7 @@ func elasticHostBusy(h *store.Host, lent float64) bool {
 // with no limit that is using more than its share is left counted as the load
 // it is, not written off as ours.
 func lentInUse(st backend.Stats, base float64, now time.Time) float64 {
-	if base <= 0 || st.CPUAllocationFactor <= 1 || st.SampledAt == nil || now.Sub(*st.SampledAt) > store.HostUsageMaxAge {
+	if base <= 0 || st.CPUAllocationFactor <= 1 || st.SampledAt == nil || st.SampledAt.After(now) || now.Sub(*st.SampledAt) > store.HostUsageMaxAge {
 		return 0
 	}
 	used := st.CPUPercent / 100
@@ -295,7 +298,7 @@ func lentInUse(st backend.Stats, base float64, now time.Time) float64 {
 }
 
 func elasticCPUDemanding(r *store.Runner, current backend.Stats, base float64, now time.Time) bool {
-	if current.SampledAt == nil || now.Sub(*current.SampledAt) > store.HostUsageMaxAge {
+	if current.SampledAt == nil || current.SampledAt.After(now) || now.Sub(*current.SampledAt) > store.HostUsageMaxAge {
 		return false
 	}
 	if current.CPUPercent >= base*elasticDemandPercent {
@@ -334,6 +337,16 @@ func elasticCPUDemanding(r *store.Runner, current backend.Stats, base float64, n
 // start. Only a pool with more jobs queued than runners starting for it here
 // still needs room kept.
 func (c *Controller) elasticStartReserve(ctx context.Context, h *store.Host, pools map[string]*store.Pool, starting map[string]int) float64 {
+	if intent := c.placement.Load(); intent != nil && intent.Version == c.placementVersion.Load() && c.Now().Sub(intent.At) >= 0 && c.Now().Sub(intent.At) < 30*time.Second {
+		reserve := 0.0
+		for id, n := range intent.Starts[h.ID] {
+			if p := pools[id]; p != nil && n > starting[id] && scheduler.HostCouldRun(h, p) {
+				reserve = math.Max(reserve, scheduler.Reserve(p, h).CPUs)
+			}
+		}
+		return reserve
+	}
+
 	queued, err := c.st.ListQueuedJobs(ctx)
 	if err != nil {
 		return 0

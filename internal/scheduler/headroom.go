@@ -81,6 +81,16 @@ func (hs *hostSet) score(h *store.Host, p *store.Pool) float64 {
 }
 
 func (hs *hostSet) prefer(h, best *store.Host, p *store.Pool) bool {
+	if hs.preferReadiness {
+		a, b := hs.readyDelay(h, p), hs.readyDelay(best, p)
+		// A small timing difference is noise; headroom breaks near ties.
+		if a+5*time.Second < b {
+			return true
+		}
+		if b+5*time.Second < a {
+			return false
+		}
+	}
 	a, b := hs.alloc[h.ID], hs.alloc[best.ID]
 	if !a.CPUsKnown && !a.MemoryKnown && !b.CPUsKnown && !b.MemoryKnown {
 		return hs.free[h.ID] > hs.free[best.ID]
@@ -88,4 +98,15 @@ func (hs *hostSet) prefer(h, best *store.Host, p *store.Pool) bool {
 	score, bestScore := hs.score(h, p), hs.score(best, p)
 	return score > bestScore+cpuEpsilon ||
 		(math.Abs(score-bestScore) <= cpuEpsilon && hs.free[h.ID] > hs.free[best.ID])
+}
+
+// A serial admission queue costs one estimated service interval per start.
+// Unknown hosts use a bounded prior and remain eligible; metrics never relax fit.
+func (hs *hostSet) readyDelay(h *store.Host, p *store.Pool) time.Duration {
+	d := hs.readiness[p.ID][h.ID]
+	if d <= 0 {
+		d = time.Minute
+	}
+	d = min(max(d, 5*time.Second), 10*time.Minute)
+	return time.Duration(hs.warming[h.ID]+1) * d
 }

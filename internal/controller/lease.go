@@ -38,6 +38,7 @@ func (c *Controller) leaseLoop(ctx context.Context) {
 			return
 		case <-t.C:
 		}
+		renewedAt := c.Now()
 		held, err := c.st.RenewControllerLease(ctx, c.lease.Holder)
 		switch {
 		case ctx.Err() != nil:
@@ -54,6 +55,9 @@ func (c *Controller) leaseLoop(ctx context.Context) {
 				held = &store.ControllerLease{Holder: "nobody"}
 			}
 			c.leaseLost.Store(held)
+		case err == nil:
+			at := renewedAt
+			c.leaseRenewed.Store(&at)
 		case err != nil:
 			// A transient write failure is not a lost lease, and the TTL is
 			// three renewals wide precisely so one of these costs nothing.
@@ -67,4 +71,20 @@ func holderName(l *store.ControllerLease) string {
 		return "nobody"
 	}
 	return l.Describe()
+}
+
+// mayAct is checked at admission and again at dispatch: a plan prepared before
+// a restore fence or lost lease must not become authority to mutate a host.
+func (c *Controller) mayAct() bool {
+	if c.Fenced().Fenced || c.leaseLost.Load() != nil {
+		return false
+	}
+	if c.lease == nil {
+		return true
+	}
+	renewed := c.lease.RenewedAt
+	if at := c.leaseRenewed.Load(); at != nil {
+		renewed = *at
+	}
+	return !renewed.IsZero() && c.Now().Before(renewed.Add(LeaseTTL))
 }

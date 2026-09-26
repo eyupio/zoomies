@@ -101,6 +101,8 @@ runs() { # runs <description> <command...>
   if "$@" >/dev/null 2>&1; then pass "${what}"; else fail "${what}: '$*' failed"; fi
 }
 
+runs "installed software inventory" jq -e '.schema == 1 and (.packages | length > 0) and (.tool_cache_entries | type == "array")' /usr/local/share/zoomies/installed-software.json
+
 # The runner user: uid and gid 1001 (Dockerfile.runner), which the Docker
 # backend's work mount and socket handling assume (internal/backend/docker.go),
 # with the passwordless sudo the Dockerfile promises workflows.

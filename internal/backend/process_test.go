@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -63,6 +64,11 @@ exit 1
 
 func requireUnix(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS == "linux" {
+		if _, err := os.Stat(fmt.Sprintf("/proc/%d/stat", os.Getpid())); errors.Is(err, os.ErrNotExist) {
+			t.Skip("native integration needs a proc mount matching its PID namespace")
+		}
+	}
 	if runtime.GOOS == "windows" {
 		t.Skip("the process backend signals with SIGINT and runs shell stubs, neither of which exists on Windows")
 	}
@@ -99,6 +105,12 @@ func installStubRunner(t *testing.T, root, version, listener, config string) {
 }
 
 func newStubProcessBackend(t *testing.T) (*ProcessBackend, string) {
+	if runtime.GOOS == "linux" {
+		if _, err := os.Stat(fmt.Sprintf("/proc/%d/stat", os.Getpid())); errors.Is(err, os.ErrNotExist) {
+			t.Skip("native process integration requires /proc mounted for this PID namespace")
+		}
+	}
+
 	t.Helper()
 	root := t.TempDir()
 	installStubRunner(t, root, stubVersion, stubListener, stubConfigOK)

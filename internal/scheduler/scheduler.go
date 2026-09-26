@@ -22,6 +22,8 @@ import (
 
 // Snapshot is everything the scheduler needs to decide, gathered by the caller.
 type Snapshot struct {
+	Readiness       map[string]map[string]time.Duration
+	PreferReadiness bool
 	// Now is the decision time. It is a field rather than a clock read so that
 	// a test can place a runner exactly one second either side of a timeout.
 	Now             time.Time
@@ -329,6 +331,7 @@ func Decide(s Snapshot) Plan {
 		held:               s.HeldInstallations,
 		stillRunning:       runnersWithAJob(s.Jobs),
 	}
+	t.hosts.readiness, t.hosts.preferReadiness = s.Readiness, s.PreferReadiness
 	if t.budget <= 0 {
 		// An unset cap must not stall the fleet; host capacity still bounds us.
 		t.budget = math.MaxInt
@@ -1104,10 +1107,12 @@ func (t *tick) action(kind ActionKind, p *store.Pool, r *store.Runner, reason st
 // pools cannot both be promised the last free slot -- or the last four
 // gigabytes -- on the same host.
 type hostSet struct {
-	hosts       []*store.Host
-	free        map[string]int
-	observedCPU map[string]float64
-	warming     map[string]int
+	readiness       map[string]map[string]time.Duration
+	preferReadiness bool
+	hosts           []*store.Host
+	free            map[string]int
+	observedCPU     map[string]float64
+	warming         map[string]int
 	// left is the room still unpromised on each host, and alloc what the host
 	// had to begin with. They are separate because the second says which
 	// figures were measured at all, and an unmeasured figure constrains
@@ -1165,8 +1170,8 @@ func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*
 		l.MemoryMB -= res.MemoryMB
 		hs.promisedMemory[h.ID] = l.MemoryMB
 		hs.ours[h.ID] = hostRunsOurs(h, runners)
+		pending := hs.pending(h, pools, runners)
 		if h.Usage.Fresh(now) {
-			pending := hs.pending(h, pools, runners)
 			if v := h.Usage.MemoryAvailableMB; v != nil {
 				// The host sample already includes running work, and what the
 				// operating system itself is using is the reserve's whole

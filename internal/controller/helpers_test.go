@@ -122,15 +122,17 @@ func newHarness(t *testing.T) *harness {
 	}
 
 	c, err := New(Options{
-		Store:     st,
-		Config:    cfg,
-		Key:       key,
-		Auth:      auth.New(st, cfg, bus),
-		Events:    bus,
-		GitHub:    factory,
-		Providers: providers,
-		Logger:    slog.New(slog.DiscardHandler),
-		Clock:     func() time.Time { return time.Now().Add(time.Duration(offset.Load())) },
+		Store:  st,
+		Config: cfg,
+		Key:    key,
+		Auth:   auth.New(st, cfg, bus),
+		Events: bus,
+		GitHub: factory,
+		// Background update checks must not depend on public GitHub in tests.
+		HTTPClient: &http.Client{Transport: harnessTransport{}},
+		Providers:  providers,
+		Logger:     slog.New(slog.DiscardHandler),
+		Clock:      func() time.Time { return time.Now().Add(time.Duration(offset.Load())) },
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -346,7 +348,9 @@ func (h *harness) deliver(event string, body []byte, secret string) *httptest.Re
 // deliverJob posts a signed workflow_job delivery.
 func (h *harness) deliverJob(e jobEvent) *httptest.ResponseRecorder {
 	h.t.Helper()
-	return h.deliver("workflow_job", e.body(), testWebhookSecret)
+	rec := h.deliver("workflow_job", e.body(), testWebhookSecret)
+	h.c.enrichOnce(h.ctx)
+	return rec
 }
 
 // ---------------------------------------------------------------------------
@@ -566,4 +570,15 @@ func (h *harness) problem(t *testing.T, code string) Problem {
 	}
 	t.Fatalf("no %s problem in %v", code, h.problemCodes())
 	return Problem{}
+}
+
+// The controller's GitHub API client is already fake. Its independent public
+// release checker uses this client, so intercept those two URLs as well.
+type harnessTransport struct{}
+
+func (harnessTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.String() == latestReleaseURL || r.URL.String() == mainCommitURL {
+		return jsonResponse(http.StatusNotFound, `{}`), nil
+	}
+	return http.DefaultTransport.RoundTrip(r)
 }
