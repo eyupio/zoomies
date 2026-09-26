@@ -180,6 +180,8 @@
   $effect(() => {
     if (placed || !usernameInput || meta?.auth_disabled) return;
     placed = true;
+    // Do not open a phone keyboard or scroll the form before the user chooses a field.
+    if (matchMedia('(max-width: 960px), (pointer: coarse)').matches) return;
     untrack(() => (username.trim() === '' ? usernameInput : passwordInput))?.focus();
   });
 
@@ -282,6 +284,7 @@
     <div class="mark">
       {@render rings('band', 200)}
       <span class="lockup"><Logo variant="lockup" size={84} label="Zoomies" /></span>
+      <span class="mobile-mark"><Logo variant="full" size={48} label="Zoomies" /></span>
     </div>
   {/if}
 
@@ -487,6 +490,7 @@
       'about form'
       'about meta';
     min-height: 100vh;
+    min-height: 100dvh;
     background: var(--z-surface);
   }
 
@@ -503,6 +507,12 @@
   .mark {
     grid-area: mark;
     padding: var(--z-space-12) var(--panel-pad-x) 0;
+  }
+  .mobile-mark {
+    display: none;
+  }
+  .mobile-mark :global(.logo) {
+    color: var(--z-panel-text);
   }
   .lockup {
     display: block;
@@ -655,6 +665,7 @@
 
   .form-side {
     grid-area: form;
+    min-width: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -665,6 +676,7 @@
     flex-direction: column;
     width: 100%;
     max-width: 22.5rem;
+    min-width: 0;
   }
   .instance {
     display: inline-flex;
@@ -726,6 +738,10 @@
     font-size: var(--z-text-sm);
     line-height: var(--z-leading-sm);
     color: var(--z-text);
+  }
+  .failure span {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .failure :global(svg) {
     flex: none;
@@ -802,7 +818,7 @@
     facts are the part of the panel that can go without the page losing its
     meaning, and they go before the page grows a scrollbar.
   */
-  @media (min-width: 769px) and (max-height: 720px) {
+  @media (min-width: 961px) and (max-height: 720px) {
     .facts {
       display: none;
     }
@@ -810,15 +826,13 @@
 
   /*
     The phone: the panel's two halves come apart. The lockup becomes a band at
-    the top, at the brand's 220px minimum, and the form rises over its lower
-    edge as a sheet. The pitch is dropped -- a phone is for signing in to a
+    the top with the compact mark and wordmark, and the form rises over its
+    lower edge as a sheet. The full square lockup stays on desktop. The pitch is dropped -- a phone is for signing in to a
     fleet somebody already chose -- but the links, which are the page's only
     answer to "what is this", move below the form in the theme's colours.
   */
-  @media (max-width: 768px) {
+  @media (max-width: 960px) {
     .signin {
-      --lockup: 13.75rem;
-
       display: flex;
       flex-direction: column;
     }
@@ -831,13 +845,15 @@
     .mark {
       display: flex;
       justify-content: center;
-      padding: calc(var(--z-space-4) + var(--z-safe-top)) var(--z-space-4) var(--z-space-8);
+      padding: calc(var(--z-space-3) + var(--z-safe-top))
+        max(var(--z-space-4), env(safe-area-inset-right)) var(--z-space-5)
+        max(var(--z-space-4), env(safe-area-inset-left));
     }
     .lockup {
-      margin: 0;
+      display: none;
     }
-    .lockup :global(.logo.lockup) {
-      justify-content: center;
+    .mobile-mark {
+      display: block;
     }
     .rings.band {
       display: block;
@@ -852,15 +868,33 @@
       position: relative;
       z-index: 1;
       margin-top: calc(var(--z-space-3) * -1);
-      padding: var(--z-space-6) var(--z-space-4) var(--z-space-2);
+      padding: var(--z-space-5) max(var(--z-space-4), env(safe-area-inset-right)) var(--z-space-2)
+        max(var(--z-space-4), env(safe-area-inset-left));
       border-radius: var(--z-radius-lg) var(--z-radius-lg) 0 0;
       background: var(--z-surface);
     }
     .form-column {
-      max-width: none;
+      max-width: 28rem;
+    }
+    .form-side :global(input) {
+      min-height: var(--z-control-touch);
+      font-size: var(--z-control-font-touch);
+    }
+    .form-side :global(.icon-btn) {
+      width: var(--z-control-touch);
+      height: var(--z-control-touch);
+    }
+    .form-side :global(.has-trailing input) {
+      padding-right: calc(var(--z-control-touch) + var(--z-space-2));
+    }
+    .form-side :global(.btn) {
+      min-height: var(--z-control-touch);
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
     .about {
       overflow: visible;
+      margin-top: auto;
       padding: var(--z-space-6) var(--z-space-4) 0;
       background: none;
       color: var(--z-text);

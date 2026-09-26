@@ -66,14 +66,6 @@ func (s *Store) Backup(ctx context.Context, dest string) error {
 	// a backup is nearly always a name derived from the date, and the one time
 	// it is not, the file already there is somebody's older backup. Losing that
 	// to a typo is the failure this guards.
-	// The destination is interpolated into the statement below rather than
-	// bound, because SQLite parses VACUUM INTO's target at prepare time and
-	// will not take a parameter for it. A path containing a quote is refused
-	// rather than escaped: it is not a thing an operator means to type, and
-	// quoting rules are exactly where an escape goes wrong.
-	if strings.ContainsAny(abs, "'\"") {
-		return fmt.Errorf("store: %s contains a quote; choose a path without one", abs)
-	}
 	if _, err := os.Stat(abs); err == nil {
 		return fmt.Errorf("store: %s already exists; a backup never overwrites one", abs)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -83,7 +75,7 @@ func (s *Store) Backup(ctx context.Context, dest string) error {
 		return fmt.Errorf("store: creating %s: %w", filepath.Dir(abs), err)
 	}
 
-	if _, err := s.read.ExecContext(ctx, `VACUUM INTO '`+abs+`'`); err != nil {
+	if _, err := s.read.ExecContext(ctx, `VACUUM INTO ?`, abs); err != nil {
 		return fmt.Errorf("store: copying the database to %s: %w", abs, err)
 	}
 	// A backup holds every sealed secret this instance has and every account's

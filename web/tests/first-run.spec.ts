@@ -328,25 +328,35 @@ test('the brand panel is Zoomies Black in both themes', async ({ page }) => {
   await expect(page.getByText(new URL(page.url()).host, { exact: true })).toBeVisible();
 });
 
-test('the sign-in page fits a phone too', async ({ page }) => {
-  await page.setViewportSize({ width: 360, height: 780 });
-  await page.goto('/login');
-  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-  await expectPhoneSafe(page, 'the sign-in page');
-
-  // The panel comes apart on a phone: the lockup stays above the form, at the
-  // brand's minimum, and the links move below it rather than being dropped --
-  // they are the page's only answer to "what is this".
-  const lockup = await page.getByRole('img', { name: 'Zoomies' }).boundingBox();
-  const heading = await page.getByRole('heading', { level: 1 }).boundingBox();
-  expect(lockup?.width, 'the lockup is under the brand minimum').toBeGreaterThanOrEqual(220);
-  expect((lockup?.y ?? 0) < (heading?.y ?? 0), 'the lockup is above the form').toBe(true);
-  expect(heading && heading.y + heading.height, 'the heading is below the fold').toBeLessThan(780);
-  const about = page.getByRole('navigation', { name: 'About Zoomies' });
-  for (const name of [/^zoomies\.sh\b/, /^GitHub\b/, /^EyUp\.io\b/]) {
-    await expect(about.getByRole('link', { name })).toBeVisible();
+test('the sign-in page keeps mobile controls reachable without opening the keyboard', async ({
+  page,
+}) => {
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 390, height: 844 },
+    { width: 844, height: 390 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/login');
+    await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+    await expectPhoneSafe(page, `sign-in at ${viewport.width}px`);
+    await expect(page.locator('input[name="username"]')).not.toBeFocused();
+    const logo = await page.getByRole('img', { name: 'Zoomies', exact: true }).boundingBox();
+    expect(logo?.height).toBeLessThanOrEqual(60);
+    const submit = page.getByRole('button', { name: 'Sign in', exact: true });
+    if (viewport.height >= 568) await expect(submit).toBeInViewport();
+    await page.locator('input[name="username"]').fill('mobile-user');
+    await page.locator('input[name="password"]').fill('test password');
+    await page.getByRole('button', { name: 'Show password' }).click();
+    await expect(page.locator('input[name="password"]')).toHaveAttribute('type', 'text');
+    await submit.scrollIntoViewIfNeeded();
+    await expect(submit).toBeInViewport();
+    const about = page.getByRole('navigation', { name: 'About Zoomies' });
+    for (const name of [/^zoomies\.sh\b/, /^GitHub\b/, /^EyUp\.io\b/]) {
+      await expect(about.getByRole('link', { name })).toBeVisible();
+    }
+    await expect(page.getByText('GitHub Actions runners on machines you own.')).toBeHidden();
   }
-  await expect(page.getByText('GitHub Actions runners on machines you own.')).toBeHidden();
 });
 
 /*
