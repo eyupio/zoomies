@@ -79,6 +79,17 @@ func (b *DockerBackend) FillToolCache(ctx context.Context, spec Spec, tools []To
 	if len(tools) == 0 {
 		return nil, nil
 	}
+	if dir, err := toolCacheDir(spec, b.sharedDir); err != nil || dir == "" {
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("backend: this pool keeps no tool cache on this host")
+	}
+	ref, _, _, _, err := b.prepareImage(ctx, spec.Image, spec.PullPolicy)
+	if err != nil {
+		return nil, err
+	}
+	spec.Image = ref
 	dir, err := toolCacheDir(spec, b.sharedDir)
 	if err != nil {
 		return nil, err
@@ -88,10 +99,6 @@ func (b *DockerBackend) FillToolCache(ctx context.Context, spec Spec, tools []To
 	}
 	if err := ensureRunnerWritableDir(dir); err != nil {
 		return nil, fmt.Errorf("backend: creating the tool cache folder %s: %w", dir, err)
-	}
-	ref, _, _, _, err := b.prepareImage(ctx, spec.Image, spec.PullPolicy)
-	if err != nil {
-		return nil, err
 	}
 
 	cfg := buildToolFillConfig(spec, b.fl, dir, b.extraCA, inheritedProxyEnv(os.LookupEnv, spec.Env), tools)

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -144,7 +143,9 @@ func TestFillToolCacheRunsTheFillInThePoolsToolCache(t *testing.T) {
 	}
 	// The folder a runner of this pool is bound, created before the daemon is
 	// asked to bind it, or the daemon makes it root's.
-	dir := filepath.Join(shared, "cache", "tools", "pool-1")
+	resolved := toolFillSpec()
+	resolved.Image = created.Image
+	dir, _ := toolCacheDir(resolved, shared)
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		t.Fatalf("the tool cache folder was not created: %v", err)
 	}
@@ -152,7 +153,7 @@ func TestFillToolCacheRunsTheFillInThePoolsToolCache(t *testing.T) {
 		t.Errorf("binds = %v, want %s", created.HostConfig.Binds, dir)
 	}
 	// Removed before, in case a cancelled fill left one, and after.
-	if len(removed) != 2 || removed[0] != "zoomies-toolfill-pool-1" {
+	if len(removed) != 2 || removed[0] != "zoomies-toolfill-v2-pool-1-75ea1320805b60dd113424f239f9236f" {
 		t.Errorf("removed = %v", removed)
 	}
 }

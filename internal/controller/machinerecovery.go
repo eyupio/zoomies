@@ -158,7 +158,26 @@ func (c *Controller) sweepProviders(ctx context.Context, env *machineEnv) {
 			c.noteProviderTrouble(row.ID, err, "", env.now)
 			continue
 		}
-		c.sweepProvider(ctx, env, pr)
+		if c.machines.sweeps == nil {
+			c.machines.sweeps = map[string]bool{}
+		}
+		if c.machines.sweeps[row.ID] || len(c.machines.sweeps) >= 4 || env.now.Before(c.machines.sweepRetry[row.ID]) {
+			continue
+		}
+		c.machines.sweeps[row.ID] = true
+		// Freeze evidence before the pass can advance any machine rows.
+		inventory := *env
+		inventory.list = make([]*store.Machine, len(env.list))
+		for i, m := range env.list {
+			copy := *m
+			inventory.list[i] = &copy
+		}
+		c.machines.calls.Add(1)
+		go func() {
+			defer c.machines.calls.Done()
+			defer func() { c.machines.mu.Lock(); delete(c.machines.sweeps, pr.row.ID); c.machines.mu.Unlock() }()
+			c.sweepProvider(ctx, &inventory, pr)
+		}()
 	}
 }
 
@@ -221,9 +240,44 @@ func (c *Controller) sweepProvider(ctx context.Context, env *machineEnv, pr *mac
 	cancel()
 	if err != nil {
 		c.noteProviderTrouble(pr.row.ID, err, "", env.now)
+		c.machines.mu.Lock()
+		if c.machines.sweepRetry == nil {
+			c.machines.sweepRetry = map[string]time.Time{}
+		}
+		c.machines.sweepRetry[pr.row.ID] = c.Now().Add(30 * time.Second)
+		c.machines.mu.Unlock()
 		c.log.Warn("could not list a provider's resources", "provider", pr.row.Name, "error", err)
 		return
 	}
+	// The remote listing must not hold the machine pass lock. Apply it to a
+	// fresh local snapshot, since creates and operator actions continued meanwhile.
+	c.machines.mu.Lock()
+	defer c.machines.mu.Unlock()
+	if !c.mayAct() {
+		return
+	}
+	rows, readErr := c.st.ListProviders(ctx)
+	if readErr != nil {
+		return
+	}
+	fresh, readErr := c.machineSnapshot(ctx, rows)
+	if readErr != nil {
+		return
+	}
+	current := fresh.provider(pr.row.ID)
+	if current == nil || !current.UpdatedAt.Equal(pr.row.UpdatedAt) {
+		return
+	}
+	baseline := make(map[string]*store.Machine, len(env.list))
+	for _, m := range env.list {
+		baseline[m.ID] = m
+	}
+	unchanged := func(m *store.Machine) bool {
+		old := baseline[m.ID]
+		return old != nil && old.State == m.State && old.ResourceID == m.ResourceID &&
+			old.ResourceZone == m.ResourceZone && old.UpdatedAt.Equal(m.UpdatedAt)
+	}
+	env = fresh
 	// Recorded even when the sweep found nothing: the interval is paced by
 	// this stamp, and a sweep that found nothing still happened.
 	if err := c.st.SetProviderSwept(ctx, pr.row.ID, env.now); err != nil {
@@ -256,6 +310,9 @@ func (c *Controller) sweepProvider(ctx context.Context, env *machineEnv, pr *mac
 			continue
 		}
 		found[key] = true
+		if !unchanged(m) {
+			continue
+		}
 		if why := c.ownershipComplaint(m, got); why != "" {
 			if m.State != store.MachineQuarantined {
 				_ = c.quarantineMachine(ctx, env, m, why)
@@ -270,7 +327,7 @@ func (c *Controller) sweepProvider(ctx context.Context, env *machineEnv, pr *mac
 	c.noteOrphans(pr.row.ID, orphans)
 
 	for key, m := range byResource {
-		if found[key] {
+		if found[key] || !unchanged(m) {
 			continue
 		}
 		c.sweepAbsent(ctx, env, pr, m)

@@ -3,6 +3,7 @@
 package backend
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -137,7 +138,9 @@ func signalRunner(proc *os.Process, sig syscall.Signal) error {
 			return nil
 		}
 	}
-	out, err := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(proc.Pid)).CombinedOutput()
+	killCtx, cancel := context.WithTimeout(context.Background(), killGrace)
+	defer cancel()
+	out, err := exec.CommandContext(killCtx, "taskkill", "/T", "/F", "/PID", strconv.Itoa(proc.Pid)).CombinedOutput()
 	if err != nil {
 		if !processAlive(proc.Pid) {
 			return os.ErrProcessDone

@@ -150,12 +150,14 @@ type Options struct {
 //
 // Everything it does is outbound. Nothing dials an agent.
 type Agent struct {
-	usageSampler machine.UsageSampler
-	opts         Options
-	log          *slog.Logger
-	tr           Transport
-	clock        func() time.Time
-	heartbtI     time.Duration
+	mutationsPaused atomic.Bool
+	boostRenewedAt  time.Time
+	usageSampler    machine.UsageSampler
+	opts            Options
+	log             *slog.Logger
+	tr              Transport
+	clock           func() time.Time
+	heartbtI        time.Duration
 	// retention is Options.FinishedRetention: how long a finished runner's
 	// workload outlives its report before the reconciler deletes it.
 	retention time.Duration
@@ -211,7 +213,8 @@ type Agent struct {
 	taskCtx context.Context
 	// orphans records when an unclaimed workload was first seen, which is how
 	// "the controller has not mentioned it in a while" is measured.
-	orphans map[backend.Handle]time.Time
+	orphans          map[backend.Handle]time.Time
+	inventoryPending map[store.BackendKind]bool
 	// backendInfo is the last probe, sent with heartbeats, and probedAt is
 	// when it was taken. It is refreshed as the agent runs: what a host can do
 	// is not a fact of its startup.
@@ -391,21 +394,22 @@ func New(opts Options) (*Agent, error) {
 	}
 
 	a := &Agent{
-		opts:         opts,
-		log:          log,
-		tr:           opts.Transport,
-		clock:        clock,
-		heartbtI:     interval,
-		retention:    opts.FinishedRetention,
-		sem:          make(chan struct{}, opts.Capacity),
-		resolveRetry: resolveRetryDelays,
-		runners:      make(map[string]*tracked),
-		inflight:     make(map[string]bool),
-		running:      make(map[string]TaskKind),
-		waiting:      make(map[string]Task),
-		taskCtx:      context.Background(),
-		orphans:      make(map[backend.Handle]time.Time),
-		cpuFactor:    1,
+		opts:             opts,
+		log:              log,
+		tr:               opts.Transport,
+		clock:            clock,
+		heartbtI:         interval,
+		retention:        opts.FinishedRetention,
+		sem:              make(chan struct{}, opts.Capacity),
+		resolveRetry:     resolveRetryDelays,
+		runners:          make(map[string]*tracked),
+		inflight:         make(map[string]bool),
+		running:          make(map[string]TaskKind),
+		waiting:          make(map[string]Task),
+		taskCtx:          context.Background(),
+		orphans:          make(map[backend.Handle]time.Time),
+		inventoryPending: make(map[store.BackendKind]bool),
+		cpuFactor:        1,
 	}
 	a.logs = newLogRelay(opts.Transport, log)
 	// Built here rather than in Run, so the field is set before any goroutine
@@ -682,6 +686,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	run("reconcile", a.reconcileLoop)
 	run("stats", a.statsLoop)
 	run("watchdog", a.watchdogLoop)
+	run("native-logs", a.nativeLogLoop)
+	run("boost-expiry", a.boostExpiryLoop)
 	if a.opts.DockerBuildCacheMB > 0 {
 		run("build-cache", a.buildCacheLoop)
 	}
@@ -778,6 +784,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	a.mu.Unlock()
 	// The beat carried every runner the agent tracks, so the controller now
 	// knows how each finished one ended, and its workload may go.
+	a.mutationsPaused.Store(resp.MutationsPaused)
 	a.markReported(runners)
 
 	if !a.ready.Swap(true) {
@@ -825,13 +832,17 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	// reconciler, until the controller says it does not know it. Releasing
 	// only what it names is what keeps a restart from destroying live jobs
 	// while still clearing up a workload whose runner was deleted meanwhile.
-	a.releaseUnknown(resp.UnknownRunners)
+	if !resp.MutationsPaused {
+		a.releaseUnknown(resp.UnknownRunners)
+	}
 
 	// The throttle is applied after the release above, so a runner the
 	// controller has just disowned is not the one whose quota is moved, and
 	// under the heartbeat's own deadline: an update the daemon sits on must
 	// not hold the beat open past the interval.
-	a.applyResourceDirectives(hctx, resp.Throttle, resp.ElasticCPU)
+	if !resp.MutationsPaused {
+		a.applyResourceDirectives(hctx, resp.Throttle, resp.ElasticCPU)
+	}
 
 	if resp.ResyncRequested {
 		// The controller restarted and lost its cache, so re-probe rather than
@@ -1205,6 +1216,11 @@ func (a *Agent) start(ctx context.Context, task Task) {
 			return
 		}
 		defer func() { <-a.sem }()
+		if a.mutationsPaused.Load() {
+			release()
+			a.reportNotStarted(ctx, task)
+			return
+		}
 		if ctx.Err() != nil {
 			release()
 			a.reportNotStarted(ctx, task)
@@ -1837,6 +1853,9 @@ func (a *Agent) adoptExisting(ctx context.Context) {
 	slices.Sort(kinds)
 	adopted := 0
 	for _, kind := range kinds {
+		a.mu.Lock()
+		a.inventoryPending[kind] = true
+		a.mu.Unlock()
 		b, err := a.opts.Backends.Get(kind)
 		if err != nil {
 			a.log.Warn("could not reach a backend to adopt what it is running", "backend", kind, "error", err)
@@ -1855,6 +1874,9 @@ func (a *Agent) adoptExisting(ctx context.Context) {
 			a.adopt(w.RunnerID, kind, w)
 			adopted++
 		}
+		a.mu.Lock()
+		delete(a.inventoryPending, kind)
+		a.mu.Unlock()
 	}
 	if adopted > 0 {
 		a.log.Info("adopted runners already on this host", "runners", adopted)

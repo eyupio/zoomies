@@ -214,7 +214,7 @@ agent:
   prewarm_jitter: 30s          # ZOOMIES_AGENT_PREWARM_JITTER -- random delay before background pulls; 0s–5m
   bootstrap_cpu_grace: 2m       # ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE -- 0 applies pressure throttling immediately; maximum 10m
   finished_retention: 0s        # ZOOMIES_AGENT_FINISHED_RETENTION -- 0 removes a finished workload after its report is acknowledged
-  docker_build_cache_mb: 5120   # ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB -- target for unused builder cache; 0 prunes nothing
+  docker_build_cache_mb: 0      # ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB -- target for unused builder cache; 0 prunes nothing
   # Process backend only:
   runner_sha256: ""             # ZOOMIES_AGENT_RUNNER_SHA256 -- digest of the runner archive, when github.runner_version is pinned
   allow_unverified_runner_download: false   # ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD -- warned about
@@ -592,6 +592,7 @@ the validator says so with `limits.loopback`.
 | `scheduler.default_runner_limits` | `ZOOMIES_DEFAULT_RUNNER_LIMITS` | at once | Default runner limits — Give a runner whose pool sets no CPU or memory limit one slot's share of its host as a real limit. Off, a host's worth of them can each take every core. |
 | `scheduler.drain_timeout` | `ZOOMIES_DRAIN_TIMEOUT` | at once | Drain timeout — Fail a runner that has been draining this long with no job left on it. A runner still finishing a job is never touched by it. |
 | `scheduler.host_throttling` | `ZOOMIES_HOST_THROTTLING` | at once | Throttle hosts under pressure — Let the controller throttle a host its measurements say is overwhelmed, and step it back up after a stretch of calm. |
+| `scheduler.placement_mode` | `ZOOMIES_PLACEMENT_MODE` | at once | Host placement — `headroom` (default), `shadow` to compare startup-history placement, or `readiness` to enable it. See [rollout and evidence](development/stability-performance.md#placement-rollout). |
 | `scheduler.interval` | `ZOOMIES_SCHEDULER_INTERVAL` | at once | Scheduler interval — How often the scheduler runs a pass even with nothing to react to. |
 | `scheduler.registration_concurrency` | `ZOOMIES_REGISTRATION_CONCURRENCY` | at once | Bound concurrent credential requests per installation; default 1, range 1–16. Excess demand waits for a later scheduling pass. Existing calls finish when lowered. |
 | `scheduler.max_creates_per_tick` | `ZOOMIES_MAX_CREATES_PER_TICK` | at once | Runners created per pass — How many runners may be created in one pass, so a thundering herd of queued jobs cannot exhaust a host in one go. |
@@ -1229,7 +1230,7 @@ logging settings until replaced.
 ### `agent.docker_build_cache_mb`
 
 Target size in MiB for unused build cache in the host Docker daemon. The default
-is `5120` (5 GiB). The agent requests cache cleanup at startup and every five
+is `0` (disabled). When explicitly enabled, the agent requests cache cleanup at startup and every five
 minutes in a separate loop, so a slow Docker daemon does not delay runner
 removal or heartbeats. Failed cleanup is logged and retried.
 

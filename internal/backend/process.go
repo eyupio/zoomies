@@ -392,6 +392,11 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 		CreatedAt: now,
 		StartedAt: now,
 	}
+	meta.ProcessIdentity, err = processIdentity(meta.PID)
+	if err != nil {
+		abandon(cmd, logFile)
+		return fmt.Errorf("recording native process identity: %w", err)
+	}
 	if err := writeMeta(dir, meta); err != nil {
 		abandon(cmd, logFile)
 		return err
@@ -508,6 +513,9 @@ func (b *ProcessBackend) Status(ctx context.Context, h Handle) (Status, error) {
 	case pid <= 0:
 		st.Phase = PhaseStarting
 	case processAlive(pid):
+		if err := verifyProcessIdentity(meta, pid); err != nil {
+			return Status{}, err
+		}
 		st.Phase = PhaseRunning
 	default:
 		b.mu.Lock()
@@ -605,6 +613,13 @@ func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Durati
 	if pid <= 0 || !processAlive(pid) {
 		return nil
 	}
+	meta, err := readMeta(dir)
+	if err != nil {
+		return err
+	}
+	if err := verifyProcessIdentity(meta, pid); err != nil {
+		return err
+	}
 	if timeout <= 0 {
 		timeout = defaultStopTimeout
 	}
@@ -641,6 +656,18 @@ func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Durati
 const killGrace = 5 * time.Second
 
 func (b *ProcessBackend) kill(ctx context.Context, proc *os.Process, dir string) error {
+	if !processAlive(proc.Pid) {
+		return nil
+	}
+	{
+		meta, err := readMeta(dir)
+		if err != nil {
+			return err
+		}
+		if err := verifyProcessIdentity(meta, proc.Pid); err != nil {
+			return err
+		}
+	}
 	if err := signalRunner(proc, syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		// The group could not be signalled; the leader alone is better than
 		// nothing, and is all Windows can do anyway.
@@ -671,7 +698,7 @@ func (b *ProcessBackend) wipe(ctx context.Context, dir string) error {
 	}
 	if pid := readPID(dir); pid > 0 && processAlive(pid) {
 		if err := b.Stop(ctx, Handle(dir), 10*time.Second); err != nil {
-			b.log.Warn("could not stop the runner before removing it", "dir", dir, "error", err)
+			return fmt.Errorf("refusing to remove a runner whose process could not be stopped: %w", err)
 		}
 	}
 	// The process being gone is not the end of the writing. The goroutine
@@ -774,7 +801,7 @@ func (b *ProcessBackend) List(ctx context.Context) ([]Workload, error) {
 		}
 		st, err := b.Status(ctx, Handle(dir))
 		if err != nil {
-			st = Status{Handle: Handle(dir), Phase: PhaseGone}
+			return nil, fmt.Errorf("inspecting native runner %s: %w", meta.RunnerID, err)
 		}
 		out = append(out, Workload{
 			Handle:   Handle(dir),
@@ -1220,15 +1247,16 @@ func copyFile(src, dst string) error {
 // processMeta is what a restarted agent needs to recognise a directory as one
 // of its runners.
 type processMeta struct {
-	Name      string    `json:"name"`
-	RunnerID  string    `json:"runner_id"`
-	PoolID    string    `json:"pool_id"`
-	PoolName  string    `json:"pool_name"`
-	Version   string    `json:"runner_version"`
-	Ephemeral bool      `json:"ephemeral"`
-	PID       int       `json:"pid"`
-	CreatedAt time.Time `json:"created_at"`
-	StartedAt time.Time `json:"started_at"`
+	Name            string    `json:"name"`
+	RunnerID        string    `json:"runner_id"`
+	PoolID          string    `json:"pool_id"`
+	PoolName        string    `json:"pool_name"`
+	Version         string    `json:"runner_version"`
+	Ephemeral       bool      `json:"ephemeral"`
+	PID             int       `json:"pid"`
+	ProcessIdentity string    `json:"process_identity,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	StartedAt       time.Time `json:"started_at"`
 }
 
 func writeMeta(dir string, m processMeta) error {
@@ -1236,7 +1264,27 @@ func writeMeta(dir string, m processMeta) error {
 	if err != nil {
 		return fmt.Errorf("backend: encoding runner metadata: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, runnerMetaFile), b, 0o640); err != nil {
+	tmp, err := os.CreateTemp(dir, "metadata-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if err = tmp.Chmod(0640); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err = tmp.Write(b); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err = tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp.Name(), filepath.Join(dir, runnerMetaFile)); err != nil {
 		return fmt.Errorf("backend: writing runner metadata in %s: %w", dir, err)
 	}
 	return nil
@@ -1359,6 +1407,15 @@ func (t *followReader) Read(p []byte) (int, error) {
 		if err != nil && !errors.Is(err, io.EOF) {
 			return 0, err
 		}
+		// Copy-truncate keeps the same inode and inherited runner descriptor.
+		if pos, e := t.f.Seek(0, io.SeekCurrent); e == nil {
+			if st, e := t.f.Stat(); e == nil && st.Size() < pos {
+				if _, e = t.f.Seek(0, io.SeekStart); e != nil {
+					return 0, e
+				}
+				continue
+			}
+		}
 		if t.finished != nil && t.finished() {
 			if t.drained {
 				return 0, io.EOF
@@ -1421,4 +1478,21 @@ func seekToLastLines(f *os.File, n int) error {
 	}
 	_, err = f.Seek(0, io.SeekStart)
 	return err
+}
+
+// An existing PID alone is never authority to signal a process after restart.
+// Legacy metadata remains visible for operator recovery, but cannot kill a PID
+// whose birth identity was never recorded.
+func verifyProcessIdentity(meta processMeta, pid int) error {
+	if meta.PID != pid || meta.ProcessIdentity == "" {
+		return fmt.Errorf("%w: native runner process identity is unverified; inspect the runner before cleanup", ErrUnavailable)
+	}
+	identity, err := processIdentity(pid)
+	if err != nil {
+		return fmt.Errorf("%w: reading native process identity: %v", ErrUnavailable, err)
+	}
+	if identity != meta.ProcessIdentity {
+		return fmt.Errorf("%w: native runner PID was reused; refusing to signal or adopt it", ErrUnavailable)
+	}
+	return nil
 }

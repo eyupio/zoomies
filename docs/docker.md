@@ -107,3 +107,7 @@ still on GitHub's own runners.
   are weighing a Kubernetes-based setup instead.
 - [Security](security.md): what a self-hosted runner exposes, and what each
   setting that weakens the defaults costs.
+
+## Persistent caches
+
+Runner ephemerality does not require cold caches. See [Persistent caches](persistent-caches.md) for scoped dependency/tool caches and registry-backed BuildKit reuse with isolated DinD sidecars.

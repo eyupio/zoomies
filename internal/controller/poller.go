@@ -72,7 +72,7 @@ func (c *Controller) pollLoop(ctx context.Context) {
 			// fleet is not going to run any, and sweeping would spend the
 			// installation's GitHub quota to learn something it cannot act on.
 			if !c.Fenced().Fenced {
-				c.pollOnce(ctx)
+				c.discoverJobs(ctx)
 				c.polls.Add(1)
 			}
 		case <-c.settingsChanged:
@@ -100,8 +100,12 @@ func (c *Controller) pollInterval() time.Duration {
 // jobs are checked separately in bounded pages so a missing completion cannot
 // be hidden by unrelated deliveries.
 func (c *Controller) pollOnce(ctx context.Context) {
+	c.reconcileKnownJobs(ctx, c.Now())
+	c.discoverJobs(ctx)
+}
+
+func (c *Controller) discoverJobs(ctx context.Context) {
 	now := c.Now()
-	c.reconcileKnownJobs(ctx, now)
 
 	// Accepted deliveries only: one that was rejected recorded a job for
 	// nobody, and a run of them is the mistyped-secret case this poller is
@@ -370,6 +374,21 @@ func (c *Controller) reconcileKnownJobs(ctx context.Context, now time.Time) {
 		}
 		if err := c.applyWorkflowJob(ctx, remote, sourcePoller); err != nil {
 			c.log.Warn("could not update reconciled workflow job", "job", j.ID, "error", err)
+		}
+	}
+}
+
+func (c *Controller) jobRecoveryLoop(ctx context.Context) {
+	ticker := time.NewTicker(c.pollInterval())
+	defer ticker.Stop()
+	for {
+		if c.mayAct() {
+			c.reconcileKnownJobs(ctx, c.Now())
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 		}
 	}
 }

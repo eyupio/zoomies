@@ -7161,6 +7161,7 @@ components:
     AgentHeartbeatResponse:
       type: object
       properties:
+        mutations_paused: { type: boolean, description: Preserve workloads and quotas while controller authority is paused. }
         ok: { type: boolean }
         cordoned: { type: boolean, description: Mirrors the host's cordon flag so the agent stops asking for work at once. }
         controller_version: { type: string }

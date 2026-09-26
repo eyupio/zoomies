@@ -1587,7 +1587,7 @@ func (b *DockerBackend) pruneCacheFor(ctx context.Context, spec Spec) {
 		b.log.Info("another runner is still using this cache, so its size limit was left unenforced this time",
 			"dir", dir, "limit_bytes", spec.Cache.SizeLimit)
 	default:
-		pruneCache(dir, spec.Cache.SizeLimit, b.log)
+		pruneCacheContext(ctx, dir, spec.Cache.SizeLimit, b.log)
 	}
 }
 

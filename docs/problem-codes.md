@@ -152,6 +152,7 @@ than about what any one setting says.
 
 | Code | Severity | Setting | What to do |
 | --- | --- | --- | --- |
+| `scheduler.placement_mode` | error | `scheduler.placement_mode` | Use `headroom`, `shadow` or `readiness`. |
 | `scheduler.interval` | error | `scheduler.interval` | Must be positive. |
 | `scheduler.burst` | error | `scheduler.max_creates_per_tick` | Must be at least 1. |
 | `scheduler.lifetime_short` | warning | `scheduler.max_runner_lifetime` | Idle runners are recycled sooner than a long job takes, so work may be interrupted. |

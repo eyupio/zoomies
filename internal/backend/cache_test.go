@@ -19,7 +19,7 @@ import (
 func TestCacheMountConstructionAndDisabledBehavior(t *testing.T) {
 	s := Spec{PoolID: "pool_one", Cache: store.CacheConfig{Enabled: true, Scope: store.CacheScopePool}}
 	cfg := buildRunnerConfig(s, dockerFlavor(), containerOptions{})
-	want := "zoomies-cache-pool-one:" + RunnerCacheMount
+	want := "zoomies-cache-v2-pool-one-5fa452050886970a2c7b84f6c3ec78f6:" + RunnerCacheMount
 	if len(cfg.HostConfig.Binds) != 1 || cfg.HostConfig.Binds[0] != want {
 		t.Fatalf("binds = %v, want %q", cfg.HostConfig.Binds, want)
 	}
@@ -58,7 +58,7 @@ func TestCacheRejectsUnsafeInput(t *testing.T) {
 func TestPodmanCacheMountGetsSELinuxSuffix(t *testing.T) {
 	s := Spec{PoolID: "p", Cache: store.CacheConfig{Enabled: true, Scope: store.CacheScopePool}}
 	got := buildRunnerConfig(s, podmanFlavor(), containerOptions{}).HostConfig.Binds[0]
-	if got != "zoomies-cache-p:"+RunnerCacheMount+":z" {
+	if got != "zoomies-cache-v2-p-53376dd3c3bd3405c60ccc089cc42204:"+RunnerCacheMount+":z" {
 		t.Fatalf("bind = %q", got)
 	}
 }
@@ -74,7 +74,7 @@ func TestRepositoryCacheUsesThePoolsConfiguredRepository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cacheSource: %v", err)
 	}
-	if want := "zoomies-cache-pool-one-acme-widgets"; got != want {
+	if want := "zoomies-cache-v2-pool-one-acme-widgets-a92d8a756bd760f626e999cafe84137a"; got != want {
 		t.Fatalf("cache source = %q, want %q", got, want)
 	}
 	// A repository-targeted installation keeps supplying it, unchanged.
@@ -165,7 +165,7 @@ func TestCacheDirectoryOnlyRecognisesHostPaths(t *testing.T) {
 		Enabled: true, Scope: store.CacheScopePool, Source: "/var/lib/zoomies/cache",
 	}}
 	dir, ok := cacheDirectory(host)
-	if !ok || dir != "/var/lib/zoomies/cache/p" {
+	if !ok || dir != "/var/lib/zoomies/cache/v2-p-53376dd3c3bd3405c60ccc089cc42204" {
 		t.Fatalf("cacheDirectory = %q, %v", dir, ok)
 	}
 }
@@ -365,7 +365,7 @@ func TestAToolCacheIsBoundFromTheSharedFolderAndNamedToTheRunner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolCacheDir: %v", err)
 	}
-	if want := filepath.Join(shared, "cache", "tools", "pool-one-acme-one"); dir != want {
+	if want := filepath.Join(shared, "cache", "tools", "v2-pool-one-acme-one-79e56659f49a53f0f81fbe59469a94ba", "image-e3b0c44298fc1c149afbf4c8996fb924"); dir != want {
 		t.Fatalf("tool cache = %q, want %q: the pool cache's own identity, under cache/tools", dir, want)
 	}
 	farm := toolFarmDir(shared, "run-one")
@@ -454,7 +454,7 @@ func TestAToolCacheTheRunnerCannotWriteIsLeftOut(t *testing.T) {
 	requirePOSIX(t)
 	shared := t.TempDir()
 	spec := Spec{Name: "r", PoolID: "pool_1", Cache: store.CacheConfig{Enabled: true, Tools: true, Scope: store.CacheScopePool}}
-	dir := filepath.Join(shared, "cache", "tools", "pool-1")
+	dir, _ := toolCacheDir(spec, shared)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -14,7 +14,7 @@ func TestFinishedRunnerWorkloadsAreNotRetainedByDefault(t *testing.T) {
 
 func TestDockerBuildCacheBudgetDefaultsAndValidation(t *testing.T) {
 	c := Default()
-	if c.Agent.DockerBuildCacheMB != 5120 {
+	if c.Agent.DockerBuildCacheMB != 0 {
 		t.Fatalf("cache target = %d", c.Agent.DockerBuildCacheMB)
 	}
 	for _, value := range []int{-1, 1048577} {

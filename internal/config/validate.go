@@ -302,6 +302,9 @@ func (c *Config) Validate() Findings {
 	var fs Findings
 	add := func(f Finding) { fs = append(fs, f) }
 
+	if mode := c.Scheduler.PlacementMode; mode != "" && mode != "headroom" && mode != "shadow" && mode != "readiness" {
+		add(Finding{Code: "scheduler.placement_mode", Severity: SeverityError, Setting: "scheduler.placement_mode", Title: "unknown host placement policy", Fix: "choose headroom, shadow or readiness."})
+	}
 	if c.Scheduler.RegistrationConcurrency < 1 || c.Scheduler.RegistrationConcurrency > 16 {
 		add(Finding{Code: "scheduler.registration_concurrency", Severity: SeverityError, Setting: "scheduler.registration_concurrency", Title: "registration concurrency is outside its supported range", Detail: "Unbounded credential requests amplify GitHub outages and rate limits.", Fix: "set scheduler.registration_concurrency between 1 and 16; the default is 1."})
 	}

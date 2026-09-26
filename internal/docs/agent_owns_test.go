@@ -34,10 +34,10 @@ func TestTheSecurityPageSaysWhatTheAgentOwnsOnAHost(t *testing.T) {
 		{"`zoomies` system user", "the user it runs as"},
 		{"`agent.work_dir`", "its work directory"},
 		{"`io.zoomies.managed=true`", "the label that is the whole boundary of which containers it touches"},
-		{"zoomies-cache-<pool>", "its per-pool cache"},
+		{"zoomies-cache-<identity>", "its per-pool cache"},
 		{"never removes an image", "what it never prunes"},
 		{"`agent.docker_build_cache_mb`", "the builder-cache target, the one daemon-wide thing it does"},
-		{"`5120`", "the builder-cache default"},
+		{"default `0`", "the builder-cache default"},
 		{"agent.docker_build_cache_mb: 0", "the shared-daemon advice"},
 	} {
 		if !strings.Contains(section, want.fact) {

@@ -31,6 +31,24 @@
 #
 set -euo pipefail
 
+# The kept cache changes the lookup directory, not the tools the image carries.
+# Link baked versions into this runner's disposable view before setup actions
+# inspect it. Nothing writes to the shared cache or copies a toolchain per job.
+if [ "${AGENT_TOOLSDIRECTORY:-}" = /opt/zoomies-tools ]; then
+  for marker in /opt/hostedtoolcache/*/*/*.complete; do
+    [ -f "$marker" ] || continue
+    source=${marker%.complete}
+    [ -d "$source" ] || continue
+    relative=${source#/opt/hostedtoolcache/}
+    target="$AGENT_TOOLSDIRECTORY/$relative"
+    mkdir -p "$(dirname "$target")"
+    if [ ! -e "$target" ] && [ ! -L "$target" ]; then
+      ln -s "$source" "$target"
+      touch "$target.complete"
+    fi
+  done
+fi
+
 cd /home/runner
 
 log() { printf '%s zoomies-runner: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }

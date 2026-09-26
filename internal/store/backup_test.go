@@ -212,3 +212,28 @@ func TestAPrivateConnectionIdentityPreventsGeneratingAReplacementKey(t *testing.
 		t.Fatalf("private connection identity was not protected: %v", err)
 	}
 }
+
+// A backup destination is data, even when its filename resembles SQL.
+func TestBackupBindsTheDestinationAsData(t *testing.T) {
+	ctx := context.Background()
+	s, _ := onDiskStore(t)
+	inst := &Installation{AppID: 7, InstallationID: 9, Target: "acme", TargetType: TargetOrg}
+	if err := s.CreateInstallation(ctx, inst); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "operator's-copy'; DROP TABLE installations; --.db")
+	if err := s.Backup(ctx, dest); err != nil {
+		t.Fatal(err)
+	}
+	copy, err := Open(ctx, Options{Path: dest, ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer copy.Close()
+	for _, db := range []*Store{s, copy} {
+		rows, err := db.ListInstallations(ctx)
+		if err != nil || len(rows) != 1 || rows[0].Target != "acme" {
+			t.Fatalf("backup changed data: %v %v", rows, err)
+		}
+	}
+}
