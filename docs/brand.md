@@ -66,7 +66,6 @@ available space; it is not a choice between interchangeable logos.
 | `brand/logo-light-background.png` | Primary full logo on white or a very light ground |
 | `brand/logo-white-transparent.png` | Transparent white primary logo on a dark or coloured ground |
 | `brand/mark-dark.png`, `brand/mark-white-transparent.png` | Original circular dog mark where the name is already visible |
-| `brand/head-swish-black.png`, `brand/head-swish-white.png` | Compact navigation, badges and app UI at 48px and above |
 | `brand/paw-swish-black.png`, `brand/paw-swish-white.png` | Favicons and equivalent tiny UI marks from 16–64px only |
 | `brand/wordmark-dark.png`, `brand/wordmark-white-transparent.png` | The wordmark alone |
 | `brand/github-avatar.png` | Original-dog artwork with safe space for GitHub's circular crop |
@@ -76,7 +75,7 @@ available space; it is not a choice between interchangeable logos.
 The product's own copies live in `web/public/` and are the sizes the app
 actually serves: `favicon.ico` (16/32/48), `favicon-16.png`, `favicon-32.png`,
 `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, the dedicated
-`maskable-icon-512.png`, and the nine web UI assets under `brand/`.
+`maskable-icon-512.png`, and the web UI assets under `brand/`.
 
 `brand/mark-white.png` and its `@2x` copy are the circular dog at the 128px
 minimum and at twice it, which is why that mark can be served at its minimum and
@@ -159,18 +158,18 @@ carries no texture of its own. The text on the panel uses the fixed
 `--z-panel-*` tokens rather than the theme's, because the panel does not change
 with the theme and the light theme's greys fail on black.
 
-On a phone the panel comes apart: the lockup becomes a band above the form at
-its 220px minimum, and the links move below the form in the theme's own
-colours. The first-run screen stays a card. Only the person who has just
+On a phone the panel comes apart: the lockup gives way to a band above the form
+carrying the paw/swish and the wordmark, and the links move below the form in
+the theme's own colours. The first-run screen stays a card. Only the person who has just
 installed the controller ever sees it, and they already know what it is.
 
 The original circular dog carries Settings → About at 128px, its minimum size —
 the one identity slot in the signed-in product with room for the primary mark,
 and the page that is about the product rather than about the fleet. The
-secondary head/swish carries identity slots between 48px and that minimum. The
-paw/swish carries the navbar, where the detailed dog does not read clearly, plus
-genuinely tiny placements such as the mobile top bar, page footer and command
-palette. All three use the supplied white reverse artwork on a Zoomies Black
+paw/swish carries everything up to its 64px maximum: the navbar, where the
+detailed dog does not read clearly, the sign-in band on a phone, and genuinely
+tiny placements such as the mobile top bar, page footer and command palette.
+Both use the supplied white reverse artwork on a Zoomies Black
 chip, so the artwork is unchanged and remains legible in either theme.
 
 Once somebody is signed in, the identity is carried in these quieter places:
@@ -236,7 +235,6 @@ distortion of the full brand mark elsewhere.
   supplied square icon files already include this padding; do not crop it away.
 * Primary full logo: 220px wide minimum.
 * Circular dog mark: 128px square minimum.
-* Head/swish: 48px square minimum.
 * Paw/swish: 16px square minimum and 64px maximum.
 
 ## Do and do not
@@ -246,7 +244,6 @@ distortion of the full brand mark elsewhere.
 * Use the dark master on dark surfaces.
 * Use the white knockout over dark photography or a coloured UI.
 * Use the original circular dog for avatars, touch icons, PWA icons and social artwork.
-* Use the head/swish for compact UI at 48px and above.
 * Use the paw/swish only for favicons and equivalent tiny UI marks.
 * Keep every mark's supplied swish and safe padding intact.
 
@@ -325,6 +322,5 @@ build for a picture the brand pack already supplies.
 ## For print, signage or merchandise
 
 The SVG files in the original pack are raster wrappers, not true vector
-redraws. The secondary head/swish is a restored reconstruction because its
-approved source binary was not available. For large-format work, commission a
-proper vector redraw from the approved masters rather than enlarging them.
+redraws. For large-format work, commission a proper vector redraw from the
+approved masters rather than enlarging them.

@@ -223,11 +223,10 @@ test('the account menu leads to the pages that are about the person', async ({ p
  * The About page is the product's own identity card, and the two things it
  * says about the product itself are easy to get wrong in opposite directions.
  *
- * The mark: the brand guide ranks the original circular dog above the
- * head/swish, and the head/swish is a restored reconstruction rather than
- * approved source artwork, so serving it here is serving the wrong dog. 128px
- * is the guide's minimum for the circular mark and the reason this is the slot
- * that carries it.
+ * The mark: the brand guide ranks the original circular dog above every other
+ * standalone mark, and the paw/swish stops at 64px, so anything else here is
+ * the wrong artwork. 128px is the guide's minimum for the circular mark and
+ * the reason this is the slot that carries it.
  *
  * The description: most people meet a controller somebody else installed, and
  * the page header says what the page is rather than what Zoomies is.
