@@ -1,0 +1,28 @@
+---
+name: OpenCode
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+jobs:
+  opencode:
+    if: contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run OpenCode
+        uses: dceoy/opencode-action@0ff64486494c3134c46df6ce0e51eda4a64e349f  # v0.7.3
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          model: opencode-go/kimi-k3
