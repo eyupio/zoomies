@@ -183,6 +183,11 @@
     takes two goes to press.
   */
   @media (max-width: 768px) {
+    /* Leave a strip of the page showing on the left, so the drawer still
+       reads as a side panel rather than a second page. */
+    .panel {
+      width: calc(100% - var(--z-space-12));
+    }
     .body,
     .body.flush,
     footer {

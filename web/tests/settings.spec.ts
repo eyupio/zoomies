@@ -537,3 +537,43 @@ test('a duration setting reads 2 weeks and writes it back as 14d', async ({ page
 
   await row.getByRole('button', { name: `Cancel editing ${key}` }).click();
 });
+
+test('an unsupported saved logo style falls back to Starlight without losing other preferences', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'zoomies.prefs',
+      JSON.stringify({ logoTreatment: 'retired-style', gridView: 'cards' }),
+    );
+  });
+  await goto(page, '/settings/appearance', 'Appearance');
+  await expect(page.getByRole('combobox', { name: 'Logo style' })).toHaveValue('starlight');
+  await expect(page.getByRole('img', { name: 'Zoomies logo preview' })).toHaveAttribute(
+    'data-treatment',
+    'starlight',
+  );
+  await page.getByRole('combobox', { name: 'Logo style' }).selectOption('pearl');
+  const stored = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('zoomies.prefs') ?? '{}'),
+  );
+  expect(stored.logoTreatment).toBe('pearl');
+  expect(stored.gridView).toBe('cards');
+});
+
+test('logo styles leave paw icons unchanged in both themes', async ({ page }) => {
+  await goto(page, '/settings/appearance', 'Appearance');
+  const choice = page.getByRole('combobox', { name: 'Logo style' });
+  const paw = page.locator('.logo:not(.large) .art:visible').first();
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    for (const treatment of ['starlight', 'pearl', 'orbital', 'square', 'circle']) {
+      await choice.selectOption(treatment);
+      await expect(paw.locator(colorScheme === 'light' ? '.black' : '.white')).toBeVisible();
+      await expect(paw.locator(colorScheme === 'light' ? '.white' : '.black')).toBeHidden();
+      expect(await paw.evaluate((element) => getComputedStyle(element, '::before').content)).toBe(
+        'none',
+      );
+    }
+  }
+});

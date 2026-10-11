@@ -1422,3 +1422,10 @@ input,
   font-size: 0.8rem;
   color: var(--md-default-fg-color--light);
 }
+
+/* The brand reference keeps the original black artwork in either scheme. */
+.zoomies-brand-original {
+  background: #fff;
+  border: 1px solid #e4e6ea;
+  border-radius: var(--z-radius-lg);
+}

@@ -257,7 +257,7 @@ test('signing out and back in reports the three kinds of failure differently', a
   await page.context().clearCookies();
   await page.goto('/login');
 
-  await expect(page.getByRole('heading', { name: 'Sign in', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in to Zoomies', level: 1 })).toBeVisible();
   // The brand panel is where somebody who did not install this controller
   // learns what it is, where its source lives and who makes it. Every link
   // leaves the page for another site, so every one opens a new tab and says
@@ -501,7 +501,7 @@ test('the brand panel is Zoomies Black in both themes', async ({ page }) => {
   // the light theme's muted grey would be 3:1 on black; one that followed the
   // surface colour would put white text on white.
   const read = () =>
-    page.getByText('GitHub Actions runners on machines you own.').evaluate((tagline) => {
+    page.locator('.tagline').evaluate((tagline) => {
       let ground: Element | null = tagline;
       while (ground && getComputedStyle(ground).backgroundColor === 'rgba(0, 0, 0, 0)') {
         ground = ground.parentElement;
@@ -519,15 +519,16 @@ test('the brand panel is Zoomies Black in both themes', async ({ page }) => {
       ground: 'rgb(8, 8, 8)',
     });
   }
-  // The lockup is on the panel and named, and the decoration is not.
+  // The original black artwork stays readable on the selected pale backdrop.
   await expect(page.getByRole('img', { name: 'Zoomies' })).toBeVisible();
-  expect(
-    await page.evaluate(() =>
-      Array.from(document.querySelectorAll('svg.rings')).every(
-        (svg) => svg.getAttribute('aria-hidden') === 'true',
-      ),
-    ),
-  ).toBe(true);
+  await expect(page.getByRole('img', { name: 'Zoomies', exact: true })).toHaveAttribute(
+    'data-treatment',
+    'starlight',
+  );
+  await expect(page.locator('.mark img')).toHaveAttribute(
+    'src',
+    '/brand/logo-black-transparent.svg',
+  );
   // Which instance this is, as the browser reached it.
   await expect(page.getByText(new URL(page.url()).host, { exact: true })).toBeVisible();
 });
@@ -564,7 +565,9 @@ test('the sign-in page fits a phone too', async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto('/login');
     const where = `the sign-in page at ${viewport.width}x${viewport.height}`;
-    await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Sign in to Zoomies', exact: true }),
+    ).toBeVisible();
 
     // The panel comes apart: the lockup stays above the form, at the brand's
     // minimum rather than shrunk to a chip, and the heading is still above the
@@ -591,7 +594,7 @@ test('the sign-in page fits a phone too', async ({ page }) => {
     for (const name of [/^zoomies\.sh\b/, /^GitHub\b/, /^EyUp\.io\b/]) {
       await expect(about.getByRole('link', { name })).toBeVisible();
     }
-    await expect(page.getByText('GitHub Actions runners on machines you own.')).toBeHidden();
+    await expect(page.locator('.pitch')).toBeHidden();
     await workable(where);
   }
 
@@ -599,7 +602,9 @@ test('the sign-in page fits a phone too', async ({ page }) => {
   // split, panel beside form; it is still a phone, so the same controls apply.
   await page.setViewportSize({ width: 844, height: 390 });
   await page.goto('/login');
-  await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Sign in to Zoomies', exact: true }),
+  ).toBeVisible();
   await workable('the sign-in page at 844x390');
 });
 
@@ -920,4 +925,40 @@ test.describe('what each role is shown', () => {
     expect((await platform.post('/api/v1/recovery/unfence')).status()).not.toBe(403);
     expect((await platform.post('/api/v1/backups/bak_nonexistent/restore')).status()).not.toBe(403);
   });
+});
+
+test('a saved logo treatment survives reload and sign-out on a portrait screen', async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto('/settings/appearance');
+  const choice = page.getByRole('combobox', { name: 'Logo style' });
+  await expect(choice).toHaveValue('starlight');
+  for (const treatment of ['pearl', 'orbital', 'square', 'circle', 'starlight']) {
+    await choice.selectOption(treatment);
+    await expect(page.getByRole('img', { name: 'Zoomies logo preview' })).toHaveAttribute(
+      'data-treatment',
+      treatment,
+    );
+    await page.reload();
+    await expect(choice).toHaveValue(treatment);
+  }
+  await choice.selectOption('circle');
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+  const signedOut = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/v1/auth/logout') && response.request().method() === 'POST',
+  );
+  await page.getByRole('menuitem', { name: 'Sign out', exact: true }).click();
+  expect((await signedOut).ok()).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/login');
+  const logo = page.getByRole('img', { name: 'Zoomies', exact: true });
+  await expect(logo).toBeVisible();
+  await expect(logo).toHaveAttribute('data-treatment', 'circle');
+  await expect(page.locator('.mark img')).toHaveAttribute(
+    'src',
+    '/brand/logo-black-transparent.svg',
+  );
+  await expectPhoneSafe(page, 'the selected logo on a portrait login');
 });

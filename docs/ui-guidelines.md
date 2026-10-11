@@ -19,6 +19,17 @@ from here rather than inventing values.
 
 ## 1. Design tokens
 
+Logo backdrops are chosen in Settings, Appearance and saved in this browser.
+Starlight is the default for new, missing or unrecognised preferences. Pearl
+veil, Orbital haze, White square and White circle are the other choices. Every
+main logo uses the same choice, including the unauthenticated login screen.
+The original black artwork remains unchanged in both themes. The `--z-logo-*`
+tokens select the full atmospheric backdrop assets and define inset spacing.
+Decoration is static and never carries status meaning. The main logo uses the
+same detailed artwork on desktop and portrait phones. Paw icons remain unchanged:
+black in light mode, white in dark mode, with no decorative backdrop.
+Backdrops are lossless WebP files; the original black logo remains a separate SVG.
+
 Runner, workflow and queue status share `ZoomiesStatusIcon`. Settings →
 Appearance → **Zoomies vocabulary** offers three choices:
 

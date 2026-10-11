@@ -18,6 +18,13 @@ import {
 } from './status-style';
 import { DEFAULT_ELI_STYLE, resolveEliStyle, type EliStyle } from './eli-style';
 
+import {
+  DEFAULT_LOGO_TREATMENT,
+  isLogoTreatment,
+  resolveLogoTreatment,
+  type LogoTreatment,
+} from './logo-treatment';
+
 const PREFS_KEY = 'zoomies.prefs';
 const PREFS_ACCOUNT_KEY = 'zoomies.prefs.account';
 /** Read by the inline script in index.html before first paint. */
@@ -170,6 +177,7 @@ interface StoredPrefs {
    * once, and synced to the account so it holds on the phone as at the desk.
    */
   eliStyle?: Partial<EliStyle>;
+  logoTreatment?: LogoTreatment;
 }
 
 /** The quick ranges the activity matrix offers, as the buttons name them. */
@@ -226,6 +234,7 @@ class Prefs {
   #feed = $state<Record<string, boolean>>({});
   #statusStyle = $state<StatusStyle>(DEFAULT_STATUS_STYLE);
   #eliStyle = $state<EliStyle>(DEFAULT_ELI_STYLE);
+  #logoTreatment = $state<LogoTreatment>(DEFAULT_LOGO_TREATMENT);
   #accountSync = false;
   #accountSave: ReturnType<typeof setTimeout> | null = null;
 
@@ -255,6 +264,7 @@ class Prefs {
     this.#feed = stored.feed ?? {};
     this.#statusStyle = resolveStatusStyle(stored);
     this.#eliStyle = resolveEliStyle(stored.eliStyle);
+    this.#logoTreatment = resolveLogoTreatment(stored.logoTreatment);
     this.#applyNav();
   }
 
@@ -520,6 +530,16 @@ class Prefs {
     this.#persist();
   }
 
+  get logoTreatment(): LogoTreatment {
+    return this.#logoTreatment;
+  }
+
+  set logoTreatment(value: LogoTreatment) {
+    if (!isLogoTreatment(value)) return;
+    this.#logoTreatment = value;
+    this.#persist();
+  }
+
   get statusStyle(): StatusStyle {
     return this.#statusStyle;
   }
@@ -561,6 +581,7 @@ class Prefs {
         quirkyStatus: this.quirkyStatus,
         statusStyle: this.#statusStyle,
         eliStyle: this.#eliStyle,
+        logoTreatment: this.#logoTreatment,
       } satisfies StoredPrefs),
     );
     this.#scheduleAccountSave();

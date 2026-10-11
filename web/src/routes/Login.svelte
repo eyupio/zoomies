@@ -14,24 +14,13 @@
   at all. Those are three different problems and only one of them is the
   operator's fault.
 
-  It is also the one page of a controller that people who did not install it
-  see, so it is split in two: the form, and a Zoomies Black panel that says
-  what this is, who makes it and where the source lives. The panel is the
-  brand's own ground in both themes, which is what lets the lockup sit on it
-  with no holding shape of its own.
+  The original black logo keeps the backdrop chosen in Appearance in both themes.
+  On a phone the same full logo stays above the form; only the marketing
+  copy is removed.
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import {
-    Code,
-    Database,
-    Eye,
-    EyeOff,
-    Globe,
-    Package,
-    Server,
-    TriangleAlert,
-  } from '@lucide/svelte';
+  import { Moon, Sun, Eye, EyeOff, Globe, Server, TriangleAlert } from '@lucide/svelte';
   import {
     ApiError,
     confirmTwoStepEnrolment,
@@ -45,6 +34,7 @@
   import TwoStepEnrol from '$lib/twostep/TwoStepEnrol.svelte';
   import { authFailureText, sentence } from '$lib/errors';
   import { router } from '$lib/router';
+  import { theme } from '$lib/state/theme.svelte';
   import { session } from '$lib/state/session.svelte';
   import { DEVELOPER_NAME, DEVELOPER_URL, REPO_URL, SITE_HOST, SITE_URL } from '$lib/links';
   import GithubMark from '$lib/icons/GithubMark.svelte';
@@ -214,44 +204,6 @@
    */
   const host = location.host;
 
-  /**
-   * The rings' radii, as fractions of the square they are drawn in, and the
-   * two that carry a highlight: a Runner Blue arc on one and a short tick on
-   * the next.
-   */
-  const ARC_RING = 0.27;
-  const TICK_RING = 0.37;
-  const RING_RADII = [0.18, ARC_RING, TICK_RING, 0.46];
-
-  /** A dash covering `share` of the circle of this radius, and a gap for the rest. */
-  function dash(radius: number, share: number): string {
-    const around = 2 * Math.PI * radius;
-    return `${around * share} ${around}`;
-  }
-
-  /**
-   * What the brand panel says Zoomies is. Three facts, each true of every
-   * installation, because whoever reads them is usually not the operator: a
-   * developer sent this address by the colleague who installed it.
-   */
-  const facts = [
-    {
-      icon: Package,
-      title: 'A clean runner for every job',
-      detail: 'Ephemeral containers, destroyed when the job ends.',
-    },
-    {
-      icon: Database,
-      title: 'One binary, one SQLite file',
-      detail: 'No Kubernetes and no database server to run.',
-    },
-    {
-      icon: Code,
-      title: 'Free and open source',
-      detail: 'Read the source before you run it.',
-    },
-  ];
-
   $effect(() => {
     if (ssoFailure) router.setQuery({ error: null });
   });
@@ -356,55 +308,10 @@
   }
 </script>
 
-{#snippet rings(where: 'panel' | 'band', size: number)}
-  <!-- The circular motion path the dog runs in, centred just past the corner
-       so only an arc of it shows, and kept away from the lockup: the brand
-       pack allows no texture on or behind the artwork itself. Drawn at the
-       size it is shown rather than scaled, so every stroke stays a hairline. -->
-  {@const c = size / 2}
-  <svg
-    class="rings {where}"
-    style:--rings="{size}px"
-    width={size}
-    height={size}
-    viewBox="0 0 {size} {size}"
-    aria-hidden="true"
-    focusable="false"
-  >
-    {#each RING_RADII as radius (radius)}
-      <circle cx={c} cy={c} r={radius * size} />
-    {/each}
-    <circle
-      class="arc"
-      cx={c}
-      cy={c}
-      r={ARC_RING * size}
-      stroke-dasharray={dash(ARC_RING * size, 0.13)}
-      transform="rotate(218 {c} {c})"
-    />
-    <circle
-      class="tick"
-      cx={c}
-      cy={c}
-      r={TICK_RING * size}
-      stroke-dasharray={dash(TICK_RING * size, 0.04)}
-      transform="rotate(236 {c} {c})"
-    />
-  </svg>
-{/snippet}
-
-<!--
-  Four regions, in the order they are read: the lockup, the form, what Zoomies
-  is, and which build this is. On a desktop the first and third stack into the
-  panel on the left; on a phone they become a band above the form and a row of
-  links below it. The source order is the reading order in both, so the three
-  outbound links come after the form for a keyboard, not before it.
--->
 <div class="signin" class:embedded>
   {#if !embedded}
     <div class="mark">
-      {@render rings('band', 200)}
-      <span class="lockup"><Logo inverse variant="lockup" size={84} label="Zoomies" /></span>
+      <span class="lockup"><Logo variant="lockup" size={71} label="Zoomies" /></span>
     </div>
   {/if}
 
@@ -496,14 +403,29 @@
           </p>
         {/if}
       {:else}
-        <h1>Sign in</h1>
-        <p class="lede">Manage the runner fleet on this instance.</p>
+        <h1>Sign in to Zoomies</h1>
+        <p class="lede">Manage your runner fleet.</p>
 
         {#if failureText}
           <p class="failure" role="alert">
             <TriangleAlert size={15} aria-hidden="true" />
             <span>{failureText}</span>
           </p>
+        {/if}
+
+        {#if meta?.oidc_enabled}
+          <Button href={oidcStartUrl(returnTo)} variant="primary" size="lg" full
+            >{meta.oidc_label ?? 'Sign in with SSO'}</Button
+          >
+          {#if passwordForm}
+            <div class="divider"><span>or use a local account</span></div>
+          {/if}
+          {#if !passwordForm}
+            <p class="note">
+              An administrator who cannot use single sign-on can
+              <a href="/login?password">sign in with a password</a>.
+            </p>
+          {/if}
         {/if}
 
         {#if passwordForm}
@@ -578,29 +500,25 @@
               {/snippet}
             </Field>
 
-            <Button type="submit" variant="primary" size="lg" full loading={submitting}>
+            <Button
+              type="submit"
+              variant={meta?.oidc_enabled ? 'secondary' : 'primary'}
+              size="lg"
+              full
+              loading={submitting}
+            >
               Sign in
             </Button>
           </form>
         {/if}
 
-        {#if meta?.oidc_enabled}
-          {#if passwordForm}
-            <div class="divider"><span>or</span></div>
-          {/if}
-          <Button
-            href={oidcStartUrl(returnTo)}
-            variant={passwordForm ? 'secondary' : 'primary'}
-            size="lg"
-            full>{meta.oidc_label ?? 'Sign in with SSO'}</Button
-          >
-          {#if !passwordForm}
-            <p class="note">
-              An administrator who cannot use single sign-on can
-              <a href="/login?password">sign in with a password</a>.
-            </p>
-          {/if}
-        {/if}
+        <details class="account-help">
+          <summary>Need help signing in?</summary>
+          <p>
+            <strong>Forgotten your password?</strong> An administrator of this instance can reset it.
+          </p>
+          <p><strong>Need an account?</strong> Ask an administrator of this instance to add you.</p>
+        </details>
       {/if}
     </div>
   </div>
@@ -614,23 +532,13 @@
       from links.ts, and each leaves the product, so each opens a new tab.
     -->
     <div class="about">
-      {@render rings('panel', 840)}
       <div class="pitch">
-        <p class="tagline">GitHub Actions runners on machines you own.</p>
+        <p class="eyebrow">Your infrastructure. Your control.</p>
+        <p class="tagline">A fresh runner.<br />For every job.</p>
+        <div class="brand-rule" aria-hidden="true"></div>
         <p class="pitch-lede">
-          Zoomies starts a fresh runner for every queued job and tears it down when the job is done.
+          GitHub Actions runners on machines you own. Managed from one place.
         </p>
-        <ul class="facts">
-          {#each facts as fact (fact.title)}
-            <li>
-              <span class="fact-icon"><fact.icon size={16} aria-hidden="true" /></span>
-              <span class="fact-text">
-                <strong>{fact.title}</strong>
-                <span>{fact.detail}</span>
-              </span>
-            </li>
-          {/each}
-        </ul>
       </div>
       <nav class="links" aria-label="About Zoomies">
         <a href={SITE_URL} target="_blank" rel="noopener noreferrer">
@@ -663,42 +571,33 @@
       {/if}
     </div>
   {/if}
+  {#if !embedded}
+    <div class="appearance">
+      <IconButton
+        icon={theme.resolved === 'dark' ? Sun : Moon}
+        label="Switch to {theme.resolved === 'dark' ? 'light' : 'dark'} appearance"
+        onclick={() => theme.set(theme.resolved === 'dark' ? 'light' : 'dark')}
+      />
+    </div>
+  {/if}
 </div>
 
 <style>
-  /*
-    The measures this layout is cut to. The panel takes a share of the window
-    between a floor that still holds the lockup beside its padding and a
-    ceiling past which the extra width would only be black. The lockup is the
-    brand's primary full logo, given the room the brand page asks for on this
-    screen and never under its 220px minimum; its artwork carries its own clear
-    space, which starts 12.6% in from the left and 14.6% down from the top of
-    the file, and the panel pulls the frame out by that much so the dog lines
-    up with the text beneath it without any of that clear space being lost.
-  */
   .signin {
-    --panel-width: clamp(22rem, 42vw, 35rem);
-    --panel-pad-x: var(--z-space-16);
-    --lockup: 16.25rem;
-
+    --panel-width: clamp(20rem, 40vw, 36rem);
+    --panel-pad-x: var(--z-space-12);
+    position: relative;
+    overflow: clip;
     display: grid;
     grid-template-columns: var(--panel-width) minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto;
-    grid-template-areas:
-      'mark form'
-      'about form'
-      'about meta';
+    grid-template-areas: 'mark form' 'about form' 'about meta';
     min-height: 100vh;
     min-height: 100dvh;
     background: var(--z-surface);
   }
-
-  /* ---------------------------------------------------------- brand panel */
-
   .mark,
   .about {
-    position: relative;
-    overflow: hidden;
     background: var(--z-panel-bg);
     color: var(--z-panel-text);
     border-right: var(--z-border-width) solid var(--z-border);
@@ -708,193 +607,102 @@
     padding: var(--z-space-12) var(--panel-pad-x) 0;
   }
   .lockup {
-    display: block;
-    width: var(--lockup);
-    margin: calc(var(--lockup) * -0.146) 0 0 calc(var(--lockup) * -0.126);
-  }
-  .lockup :global(.logo.lockup) {
-    justify-content: flex-start;
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    justify-content: center;
   }
   .about {
     grid-area: about;
     display: flex;
     flex-direction: column;
-    gap: var(--z-space-10);
-    padding: var(--z-space-4) var(--panel-pad-x) var(--z-space-10);
+    justify-content: space-between;
+    gap: var(--z-space-12);
+    padding: var(--z-space-16) var(--panel-pad-x) var(--z-space-8);
   }
   .pitch {
-    position: relative;
-    max-width: 25rem;
+    margin-block: auto;
+    max-width: 22rem;
+  }
+  .eyebrow {
+    margin: 0 0 var(--z-space-5);
+    font-size: var(--z-text-2xs);
+    font-weight: var(--z-weight-semibold);
+    letter-spacing: var(--z-tracking-wider);
+    text-transform: uppercase;
+    color: var(--z-panel-text-muted);
   }
   .tagline {
     margin: 0;
-    font-size: var(--z-text-2xl);
-    line-height: var(--z-leading-2xl);
+    font-size: var(--z-text-3xl);
+    line-height: var(--z-leading-3xl);
     font-weight: var(--z-weight-semibold);
     letter-spacing: var(--z-tracking-tight);
-    text-wrap: balance;
+  }
+  .brand-rule {
+    width: var(--z-space-10);
+    height: var(--z-border-width-thick);
+    margin-block: var(--z-space-8);
+    background: var(--z-brand-runner-blue);
   }
   .pitch-lede {
-    margin: var(--z-space-3) 0 0;
+    margin: 0;
     font-size: var(--z-text-base);
-    line-height: var(--z-leading-base);
+    line-height: var(--z-leading-lg);
     color: var(--z-panel-text-muted);
   }
-  .facts {
-    display: flex;
-    flex-direction: column;
-    gap: var(--z-space-4);
-    margin: var(--z-space-8) 0 0;
-    padding: 0;
-    list-style: none;
-  }
-  .facts li {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--z-space-3);
-  }
-  .fact-icon {
-    display: grid;
-    flex: none;
-    width: var(--z-space-8);
-    height: var(--z-space-8);
-    place-items: center;
-    border: var(--z-border-width) solid var(--z-panel-border);
-    border-radius: var(--z-radius-md);
-    background: var(--z-panel-raised);
-  }
-  .fact-text {
-    display: flex;
-    flex-direction: column;
-    gap: var(--z-nudge-2);
-    font-size: var(--z-text-sm);
-    line-height: var(--z-leading-sm);
-    color: var(--z-panel-text-subtle);
-  }
-  .fact-text strong {
-    font-weight: var(--z-weight-semibold);
-    color: var(--z-panel-text);
-  }
-
-  /*
-    The links sit at the foot of the panel, whatever height the window gives
-    it. Their colours are local so that the phone layout, where they leave the
-    panel for the page, can hand them the theme's own.
-  */
   .links {
-    --link: var(--z-panel-text-muted);
-    --link-hover: var(--z-panel-text);
-    --credit: var(--z-panel-text-subtle);
-    --credit-link: var(--z-panel-text);
-
-    position: relative;
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: var(--z-space-2) var(--z-space-6);
-    margin-top: auto;
-    font-size: var(--z-text-sm);
-    line-height: var(--z-leading-sm);
-    font-weight: var(--z-weight-medium);
+    gap: var(--z-space-3) var(--z-space-5);
+    font-size: var(--z-text-xs);
+    color: var(--z-panel-text-muted);
   }
   .links a {
     display: inline-flex;
     align-items: center;
     gap: var(--z-space-2);
-    color: var(--link);
+    color: inherit;
     text-decoration: none;
-    transition: color var(--z-motion-fast) var(--z-ease);
   }
-  .links a:hover,
-  .links a:focus-visible {
-    color: var(--link-hover);
+  .links a:hover {
     text-decoration: underline;
-    text-underline-offset: var(--z-underline-offset);
   }
   .credit {
-    margin-left: auto;
-    font-weight: var(--z-weight-normal);
-    color: var(--credit);
+    flex-basis: 100%;
   }
   .credit a {
-    display: inline;
     font-weight: var(--z-weight-semibold);
-    color: var(--credit-link);
   }
-
-  /*
-    Decoration, so it takes no pointer and no space, and its strokes stay a
-    hairline at whatever size it is drawn.
-  */
-  .rings {
-    position: absolute;
-    pointer-events: none;
-  }
-  .rings circle {
-    fill: none;
-    stroke: var(--z-panel-ring);
-    stroke-width: var(--z-border-width);
-  }
-  /* 2px is this drawing's own measure, not the thick border: that token
-     means selected, focused or wrong, and an arc means none of them. */
-  .rings .arc {
-    stroke: var(--z-brand-runner-blue);
-    stroke-width: 2px;
-    stroke-linecap: round;
-  }
-  .rings .tick {
-    stroke: var(--z-panel-text-subtle);
-    stroke-linecap: round;
-  }
-  .rings.panel {
-    right: calc(var(--z-space-5) * -1 - var(--rings) / 2);
-    bottom: calc(var(--z-space-5) * -1 - var(--rings) / 2);
-  }
-  .rings.band {
-    display: none;
-  }
-
-  /* ---------------------------------------------------------------- form */
-
   .form-side {
     grid-area: form;
     min-width: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: var(--z-space-12) var(--z-space-8) var(--z-space-6);
+    padding: var(--z-space-16) var(--z-space-8) var(--z-space-8);
   }
   .form-column {
     display: flex;
     flex-direction: column;
     width: 100%;
-    max-width: 22.5rem;
+    max-width: var(--z-width-dialog-sm);
     min-width: 0;
   }
   .instance {
-    display: inline-flex;
-    align-self: flex-start;
+    display: flex;
     align-items: center;
     gap: var(--z-space-2);
-    max-width: 100%;
-    height: var(--z-space-6);
-    margin: 0 0 var(--z-space-5);
-    padding: 0 var(--z-space-3);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-full);
-    background: var(--z-bg);
-    font-family: var(--z-font-mono);
+    margin: 0 0 var(--z-space-6);
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
   }
   .instance :global(svg) {
     flex: none;
-    color: var(--z-text-subtle);
   }
   .host {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    min-width: 0;
   }
   h1 {
     margin: 0;
@@ -988,17 +796,50 @@
     border-radius: var(--z-radius-sm);
   }
 
+  .account-help {
+    border-top: var(--z-border-width) solid var(--z-border);
+    margin-top: var(--z-space-6);
+    padding-top: var(--z-space-4);
+    color: var(--z-text-muted);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-base);
+  }
+  .account-help summary {
+    cursor: pointer;
+    min-height: var(--z-control-touch);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    list-style: none;
+  }
+  .account-help summary::-webkit-details-marker {
+    display: none;
+  }
+  .account-help summary::after {
+    content: '+';
+    font-size: var(--z-text-lg);
+  }
+  .account-help[open] summary::after {
+    content: '−';
+  }
+  .account-help summary:focus-visible {
+    outline: var(--z-focus-width) solid var(--z-focus-colour);
+    outline-offset: var(--z-focus-offset);
+    border-radius: var(--z-radius-sm);
+  }
+  .account-help p {
+    margin: var(--z-space-3) 0 0;
+  }
   .meta {
     grid-area: meta;
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
     gap: var(--z-space-2) var(--z-space-4);
-    padding: var(--z-space-5) var(--z-space-8);
-    font-size: var(--z-text-xs);
-    line-height: var(--z-leading-xs);
+    justify-content: space-between;
+    padding: var(--z-space-6) var(--z-space-8);
     color: var(--z-text-subtle);
+    font-size: var(--z-text-2xs);
+    line-height: var(--z-leading-xs);
   }
   .build {
     display: inline-flex;
@@ -1006,171 +847,82 @@
     gap: var(--z-space-2);
     min-width: 0;
   }
-  .product {
-    font-weight: var(--z-weight-semibold);
-    color: var(--z-text-muted);
-  }
   .version {
-    overflow: hidden;
-    padding: 0 var(--z-space-2);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-full);
     font-family: var(--z-font-mono);
-    font-size: var(--z-text-2xs);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
-
-  /*
-    Between the phone and the wide desktop the panel is at its floor, and the
-    full inset would leave the tagline a word or two per line.
-  */
+  .appearance {
+    position: absolute;
+    right: var(--z-space-8);
+    top: var(--z-space-6);
+  }
+  .form-side :global(input) {
+    min-height: var(--z-space-12);
+    font-size: var(--z-control-font-touch);
+  }
+  .form-side :global(.btn) {
+    min-height: var(--z-space-12);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .form-side :global(.icon-btn) {
+    width: var(--z-control-touch);
+    height: var(--z-control-touch);
+  }
+  .form-side :global(.has-trailing input) {
+    padding-right: calc(var(--z-control-touch) + var(--z-space-2));
+  }
   @media (max-width: 1180px) {
     .signin {
-      --panel-pad-x: var(--z-space-10);
+      --panel-pad-x: var(--z-space-8);
     }
   }
-
-  /*
-    A laptop with its browser chrome can leave well under 720px of window. The
-    facts are the part of the panel that can go without the page losing its
-    meaning, and they go before the page grows a scrollbar.
-  */
-  @media (min-width: 769px) and (max-height: 720px) {
-    .facts {
-      display: none;
-    }
-  }
-
-  /*
-    The phone: the panel's two halves come apart. The lockup becomes a band at
-    the top, at the brand's 220px minimum, and the form rises over its lower
-    edge as a sheet. The pitch is dropped -- a phone is for signing in to a
-    fleet somebody already chose -- but the links, which are the page's only
-    answer to "what is this", move below the form in the theme's colours.
-
-    The sheet, the links and the build line are one card, inset from both
-    edges so the black ground shows either side of it and the card reads as
-    something placed on the page rather than the page itself. The card sits
-    16px in from the glass and its contents 24px in from the card, and each
-    side yields to a notch or a rounded corner rather than the artwork or a
-    field running under one.
-  */
-  @media (max-width: 768px) {
+  @media (max-width: 800px) {
     .signin {
-      --lockup: 13.75rem;
-      --inset: var(--z-space-4);
-      --gutter: var(--z-space-6);
-      --edge-left: max(var(--inset), env(safe-area-inset-left));
-      --edge-right: max(var(--inset), env(safe-area-inset-right));
-
       display: flex;
       flex-direction: column;
-      background: var(--z-panel-bg);
     }
-    .mark,
-    .about {
-      border-right: 0;
-    }
-    /* Installed to a home screen, the page is drawn under the status bar,
-       so the band runs up behind it and the lockup starts below it. */
     .mark {
       display: flex;
       justify-content: center;
-      padding: calc(var(--z-space-4) + var(--z-safe-top)) var(--edge-right) var(--z-space-8)
-        var(--edge-left);
+      padding: calc(var(--z-space-10) + var(--z-safe-top)) var(--z-space-6) 0;
+      border: 0;
+      background: none;
     }
-    .lockup {
-      margin: 0;
+    .form-side {
+      padding: var(--z-space-3) max(var(--z-space-6), env(safe-area-inset-right)) var(--z-space-6)
+        max(var(--z-space-6), env(safe-area-inset-left));
     }
-    .lockup :global(.logo.lockup) {
-      justify-content: center;
-    }
-    .rings.band {
-      display: block;
-      right: calc(var(--z-space-4) * -1 - var(--rings) / 2);
-      bottom: calc(var(--z-space-4) * -1 - var(--rings) / 2);
-    }
-    .rings.panel,
     .pitch {
       display: none;
     }
-    .form-side {
-      position: relative;
-      z-index: 1;
-      margin: calc(var(--z-space-3) * -1) var(--edge-right) 0 var(--edge-left);
-      padding: var(--z-space-6) var(--gutter) var(--z-space-2);
-      border-radius: var(--z-radius-lg) var(--z-radius-lg) 0 0;
-      background: var(--z-surface);
-    }
-    .form-column {
-      max-width: none;
-    }
     .about {
-      overflow: visible;
-      margin: 0 var(--edge-right) 0 var(--edge-left);
-      padding: var(--z-space-6) var(--gutter) 0;
-      background: var(--z-surface);
-      color: var(--z-text);
+      border: 0;
+      background: none;
+      padding: var(--z-space-6);
+      color: var(--z-text-muted);
+      margin-top: auto;
     }
     .links {
-      --link: var(--z-text-muted);
-      --link-hover: var(--z-text);
-      --credit: var(--z-text-subtle);
-      --credit-link: var(--z-text-muted);
-
+      color: var(--z-text-muted);
       justify-content: center;
-      gap: var(--z-space-2) var(--z-space-5);
     }
     .credit {
-      margin-left: 0;
-    }
-    .meta {
-      flex-direction: column;
-      justify-content: center;
-      margin: 0 var(--edge-right) calc(var(--z-space-4) + var(--z-safe-bottom)) var(--edge-left);
-      padding: var(--z-space-3) var(--gutter) var(--z-space-5);
-      border-radius: 0 0 var(--z-radius-lg) var(--z-radius-lg);
-      background: var(--z-surface);
       text-align: center;
     }
-  }
-
-  /*
-    A phone on its side is wider than the band layout's breakpoint and keeps
-    the desktop split, but it is still worked with a thumb, so the controls
-    grow to the touch size at any width a phone can reach. They grow here
-    rather than in their components because this is the one form that is the
-    whole page: a dense table's inputs cannot afford a 44px row, and the
-    sign-in fields have nowhere else to be. The button is allowed to wrap for
-    the same reason -- a long label on a narrow phone is better on two lines
-    than cut off.
-  */
-  @media (max-width: 960px) {
-    .form-side :global(input) {
-      min-height: var(--z-control-touch);
-      font-size: var(--z-control-font-touch);
+    .meta {
+      justify-content: center;
+      text-align: center;
+      padding: 0 var(--z-space-6) calc(var(--z-space-6) + var(--z-safe-bottom));
     }
-    .form-side :global(.icon-btn) {
-      width: var(--z-control-touch);
-      height: var(--z-control-touch);
+    .appearance {
+      right: var(--z-space-6);
+      top: calc(var(--z-space-4) + var(--z-safe-top));
     }
-    .form-side :global(.has-trailing input) {
-      padding-right: calc(var(--z-control-touch) + var(--z-space-2));
-    }
-    .form-side :global(.btn) {
-      min-height: var(--z-control-touch);
-      white-space: normal;
-      overflow-wrap: anywhere;
+    .no-account {
+      display: none;
     }
   }
-
-  /*
-    Inside the signed-in shell, which already carries the brand, the version
-    and the links: the form alone, where the page's content starts. These are
-    more specific than every rule above, the phone's included, so they hold at
-    any width.
-  */
   .signin.embedded {
     display: block;
     min-height: 0;
@@ -1180,7 +932,6 @@
     display: block;
     margin: 0;
     padding: 0;
-    border-radius: 0;
     background: none;
   }
 </style>
