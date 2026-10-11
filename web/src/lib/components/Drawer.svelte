@@ -15,6 +15,8 @@
     width?: 'sm' | 'md' | 'lg';
     /** Drop the body padding, for lists that draw their own full-width rows. */
     flush?: boolean;
+    /** On a phone, leave a strip of the page showing on the left so the drawer still reads as a side panel. */
+    peek?: boolean;
     onclose?: () => void;
     footer?: Snippet;
     class?: string;
@@ -27,6 +29,7 @@
     description,
     width = 'md',
     flush = false,
+    peek = false,
     onclose,
     footer,
     class: className = '',
@@ -63,6 +66,7 @@
     <div class="scrim" aria-hidden="true" onclick={close}></div>
     <div
       class="panel {width} {className}"
+      class:peek
       role="dialog"
       aria-modal="true"
       aria-labelledby="{id}-title"
@@ -183,6 +187,9 @@
     takes two goes to press.
   */
   @media (max-width: 768px) {
+    .panel.peek {
+      width: calc(100% - var(--z-space-12));
+    }
     .body,
     .body.flush,
     footer {
