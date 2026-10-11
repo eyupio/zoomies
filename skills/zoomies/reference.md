@@ -2290,14 +2290,20 @@ It reads through the REST API with the same URL and token as the rest of the
 CLI, so a viewer token is enough and is what to give it. Without --allow-actions
 it offers read-only tools and nothing else.
 
+With --describe it serves nothing: it prints every tool, resource and prompt
+the server has, action tools included and marked, and exits. No controller is
+needed; skills/zoomies/mcp-reference.md is generated from it.
+
 Usage:
-  zoomies mcp [--allow-actions]
+  zoomies mcp [--allow-actions] [--describe [--output json|markdown]]
 
 Flags:
   --allow-actions            also offer rerun_job, drain_runner, update_pool, update_host, apply_remedy and context_publish; the token's role must permit them too
   --allow-admin              with --allow-actions, also offer edit_host, clear_host_throttle, get_settings and update_settings; the token must be an administrator's
   --ca-file                  PEM file holding the controller's certificate
+  --describe                 print the tools, resources and prompts this server has and exit, without serving
   --insecure                 do not verify the controller's certificate
+  --output=markdown          with --describe: json or markdown
   --timeout=30s              how long to wait for one request
   --token                    an API token (or ZOOMIES_TOKEN)
   --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)

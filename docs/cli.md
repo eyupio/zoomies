@@ -538,6 +538,10 @@ category and `zoomies://catalog/{code}` one entry in full, read with the same
 token as `get_catalog`; and `why_did_job_fail`, `review_fleet_health` and
 `size_this_workflow` are the common questions with the tools to call written
 in, each ending with the sentence that names which text is untrusted.
+`zoomies mcp --describe` prints all of it, tools, resources and prompts, as
+Markdown or with `--output json`, without serving and without a controller;
+`make generate` writes `skills/zoomies/mcp-reference.md` from it and a test
+keeps that file equal to what the binary says.
 
 ```sh
 zoomies tokens create --name claude-code --role viewer --expires-in 720h
@@ -671,7 +675,9 @@ command, one yes for one command. **Leave to the user** are the commands that
 run on or reshape the host Zoomies is installed on, start and stop the fleet,
 or never return; the agent tells you the command and you run it. The skill
 carries [the same command reference](https://github.com/eyupio/zoomies/blob/main/skills/zoomies/reference.md)
-that `zoomies commands` prints.
+that `zoomies commands` prints, and [an MCP reference](https://github.com/eyupio/zoomies/blob/main/skills/zoomies/mcp-reference.md)
+that `zoomies mcp --describe` prints: every tool with its arguments, which
+change the fleet and what unlocks them, and the resources and prompts.
 
 To install it, copy the folder into the agent's skills directory:
 `.claude/skills/zoomies/` in a project, or `~/.claude/skills/zoomies/` for every

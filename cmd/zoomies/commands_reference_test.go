@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/eyupio/zoomies/internal/mcp"
 )
 
 // The reference the skills carry is generated from the binary, so the one
@@ -145,6 +147,75 @@ func TestEverySubcommandAGroupListsIsInTheReference(t *testing.T) {
 		}
 		if strings.Join(got, ",") != strings.Join(listed, ",") {
 			t.Errorf("zoomies %s lists %v, and the reference has %v", c.name, listed, got)
+		}
+	}
+}
+
+// The MCP reference the skill carries is generated from the server's own
+// definitions, so an agent reading it reads this release's tools, resources
+// and prompts, action tools included (they are offered only with
+// --allow-actions, and the reference says so), and not a list somebody once
+// typed. Like the command reference, it is compared with the binary.
+func TestTheMCPReferenceMatchesTheBinary(t *testing.T) {
+	want, err := os.ReadFile("../../skills/zoomies/mcp-reference.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
+	out, _ := runCLI(t, "mcp", "--describe", "--output", "markdown")
+	if out != string(want) {
+		t.Fatalf("skills/zoomies/mcp-reference.md is out of date; run `make generate` from the repository root and commit the result\n%s", firstDifference(string(want), out))
+	}
+}
+
+// The description lists every tool the server has, offered or not, and says
+// which ones change the fleet, so an agent can tell what --allow-actions would
+// add before anyone restarts the server with it. It needs no controller.
+func TestMCPDescribeListsEveryToolResourceAndPrompt(t *testing.T) {
+	out, _ := runCLI(t, "mcp", "--describe", "--output", "json")
+	var ref struct {
+		Tools []struct {
+			Name   string `json:"name"`
+			Action bool   `json:"action"`
+			Admin  bool   `json:"admin"`
+		} `json:"tools"`
+		Resources []struct {
+			URI string `json:"uri"`
+		} `json:"resources"`
+		Prompts []struct {
+			Name string `json:"name"`
+		} `json:"prompts"`
+	}
+	if err := json.Unmarshal([]byte(out), &ref); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	byName := map[string]bool{}
+	actions := map[string]bool{}
+	for _, tool := range ref.Tools {
+		byName[tool.Name] = true
+		if tool.Action {
+			actions[tool.Name] = true
+		}
+		if tool.Admin && !tool.Action {
+			t.Errorf("%s is an administrator tool but not an action", tool.Name)
+		}
+	}
+	for _, name := range []string{"fleet_status", "get_job", "get_catalog", "get_usage", "rerun_job", "update_settings"} {
+		if !byName[name] {
+			t.Errorf("%s is missing from the description", name)
+		}
+	}
+	for _, name := range mcp.ActionTools() {
+		if !actions[name] {
+			t.Errorf("%s changes the fleet and the description does not say so", name)
+		}
+	}
+	if len(ref.Resources) < 2 || len(ref.Prompts) < 3 {
+		t.Errorf("resources %d, prompts %d", len(ref.Resources), len(ref.Prompts))
+	}
+	for _, r := range ref.Resources {
+		if !strings.HasPrefix(r.URI, "zoomies://") {
+			t.Errorf("resource %q is not one of this server's", r.URI)
 		}
 	}
 }

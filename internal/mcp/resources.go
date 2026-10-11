@@ -21,25 +21,49 @@ const (
 	rpcResourceNotFound = -32002
 )
 
-func (s *Server) listResources() any {
-	return map[string]any{"resources": []map[string]any{{
-		"uri":      catalogURI,
-		"name":     "catalog",
-		"title":    "Catalog of problem codes and checks",
-		"mimeType": catalogMIME,
-		"description": "Every problem code and Kennel Club check this fleet can report, by category. " +
+// resource is one thing the server serves by URI, or a template for a family
+// of them. The list is data so the reference and the protocol's two listings
+// cannot disagree about what is offered.
+type resource struct {
+	uri, name, title, description string
+	template                      bool
+}
+
+var resources = []resource{
+	{
+		uri:   catalogURI,
+		name:  "catalog",
+		title: "Catalog of problem codes and checks",
+		description: "Every problem code and Kennel Club check this fleet can report, by category. " +
 			"Read " + catalogTemplate + " for one entry in full: what it means, what to change and how to see that it worked.",
-	}}}
+	},
+	{
+		uri:         catalogTemplate,
+		template:    true,
+		name:        "catalog-entry",
+		title:       "One catalog entry",
+		description: "One problem code or check in full, by the code list_problems, get_job or kennel_findings show, such as pool.no_host or ci.no_timeout.",
+	},
+}
+
+func (s *Server) listResources() any {
+	out := []map[string]any{}
+	for _, r := range resources {
+		if !r.template {
+			out = append(out, map[string]any{"uri": r.uri, "name": r.name, "title": r.title, "mimeType": catalogMIME, "description": r.description})
+		}
+	}
+	return map[string]any{"resources": out}
 }
 
 func (s *Server) listResourceTemplates() any {
-	return map[string]any{"resourceTemplates": []map[string]any{{
-		"uriTemplate": catalogTemplate,
-		"name":        "catalog-entry",
-		"title":       "One catalog entry",
-		"mimeType":    catalogMIME,
-		"description": "One problem code or check in full, by the code list_problems, get_job or kennel_findings show, such as pool.no_host or ci.no_timeout.",
-	}}}
+	out := []map[string]any{}
+	for _, r := range resources {
+		if r.template {
+			out = append(out, map[string]any{"uriTemplate": r.uri, "name": r.name, "title": r.title, "mimeType": catalogMIME, "description": r.description})
+		}
+	}
+	return map[string]any{"resourceTemplates": out}
 }
 
 func (s *Server) readResource(ctx context.Context, params json.RawMessage) (any, *RPCError) {

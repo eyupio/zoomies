@@ -335,10 +335,11 @@ openapi: ## Regenerate the TypeScript client from api/openapi.yaml
 	cd $(UI_DIR) && $(NPM) run generate:api
 
 .PHONY: generate
-generate: ## Rewrite everything generated from a table in Go: the image catalogue, the problem and check catalog, the command reference
+generate: ## Rewrite everything generated from a table in Go: the image catalogue, the problem and check catalog, the command and MCP references
 	go run internal/naming/gen_catalogue.go
 	go run internal/catalog/gen_catalog.go
 	mkdir -p skills/zoomies && go run ./cmd/zoomies commands --output markdown > skills/zoomies/reference.md
+	go run ./cmd/zoomies mcp --describe --output markdown > skills/zoomies/mcp-reference.md
 
 .PHONY: marketplace-lock
 marketplace-lock: ## Re-resolve deploy/marketplace/images.lock against the registry (needs network)

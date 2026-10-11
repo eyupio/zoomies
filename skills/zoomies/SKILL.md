@@ -44,7 +44,10 @@ commands to get round it:
 Ask for `--output json` whenever you will read the result yourself, and
 `--help` on any command for its flags and an example. The complete list of
 commands, flags and exit codes is [reference.md](reference.md); read it instead
-of guessing a flag.
+of guessing a flag. When the Zoomies MCP tools are connected,
+[mcp-reference.md](mcp-reference.md) is the same thing for them: every tool
+with its arguments, which ones change the fleet and what unlocks them, and the
+resources and prompts the server offers.
 
 Start with `zoomies status` and `zoomies problems list` for the fleet as a
 whole. Say what they report, with the number of errors and warnings and what
