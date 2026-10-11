@@ -14,7 +14,8 @@ import (
 // explains a problem. An agent that reaches the fleet only over MCP had no way
 // to: an OAuth token is good on /mcp alone. It is a few hundred kilobytes, far
 // more than a tool answer should put in front of a model, so without arguments
-// the tool is an index, and an entry comes by its code.
+// the tool is an index, and an entry comes by its code. The same two readings
+// are the catalog's resources (resources.go).
 
 // catalogCategories are the catalog's own, in the order an agent should look.
 var catalogCategories = []string{"capacity", "reliability", "security", "configuration", "cost"}
@@ -26,6 +27,71 @@ type catalogEntry struct {
 	Title    string `json:"title"`
 	Category string `json:"category"`
 	Severity string `json:"severity"`
+}
+
+// catalog is GET /catalog taken apart: the entries as the controller wrote
+// them, and the slice of each the index keeps.
+type catalog struct {
+	version int
+	raw     []json.RawMessage
+	entries []catalogEntry
+}
+
+// readCatalog fetches the catalog with the caller's token and takes it apart,
+// refusing a shape it cannot read rather than passing it on.
+func readCatalog(ctx context.Context, c API) (*catalog, error) {
+	body, err := c.Call(ctx, "GET", "/catalog", nil)
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Version int               `json:"version"`
+		Entries []json.RawMessage `json:"entries"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil, errCatalogShape
+	}
+	var entries []catalogEntry
+	if err := json.Unmarshal(body, &struct {
+		Entries *[]catalogEntry `json:"entries"`
+	}{&entries}); err != nil || len(entries) != len(doc.Entries) {
+		return nil, errCatalogShape
+	}
+	return &catalog{version: doc.Version, raw: doc.Entries, entries: entries}, nil
+}
+
+// index is every code under its category, which is small enough to hand a
+// model whole and enough to choose an entry from.
+func (c *catalog) index() ([]byte, error) {
+	categories := map[string][]string{}
+	for _, e := range c.entries {
+		categories[e.Category] = append(categories[e.Category], e.ID)
+	}
+	for _, ids := range categories {
+		sort.Strings(ids)
+	}
+	return json.Marshal(map[string]any{"version": c.version, "categories": categories})
+}
+
+// category is one category's codes with their titles and severity.
+func (c *catalog) category(name string) ([]byte, error) {
+	out := make([]catalogEntry, 0, len(c.entries))
+	for _, e := range c.entries {
+		if e.Category == name {
+			out = append(out, e)
+		}
+	}
+	return json.Marshal(map[string]any{"version": c.version, "category": name, "entries": out})
+}
+
+// entry is one entry in full, as the controller wrote it, or false.
+func (c *catalog) entry(code string) (json.RawMessage, bool) {
+	for i, e := range c.entries {
+		if e.ID == code {
+			return c.raw[i], true
+		}
+	}
+	return nil, false
 }
 
 func catalogTools() []*tool {
@@ -57,54 +123,36 @@ func getCatalog(ctx context.Context, c API, raw json.RawMessage) ([]Content, err
 	if err := decodeArgs(raw, &a); err != nil {
 		return nil, err
 	}
-	body, err := c.Call(ctx, "GET", "/catalog", nil)
+	cat, err := readCatalog(ctx, c)
 	if err != nil {
 		return nil, err
 	}
-	var doc struct {
-		Version int               `json:"version"`
-		Entries []json.RawMessage `json:"entries"`
-	}
-	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, errCatalogShape
-	}
-	var entries []catalogEntry
-	if err := json.Unmarshal(body, &struct {
-		Entries *[]catalogEntry `json:"entries"`
-	}{&entries}); err != nil || len(entries) != len(doc.Entries) {
-		return nil, errCatalogShape
-	}
 	switch {
 	case a.Code != "":
-		for i, e := range entries {
-			if e.ID == a.Code {
-				return jsonContent(doc.Entries[i]), nil
-			}
+		entry, ok := cat.entry(a.Code)
+		if !ok {
+			return nil, fmt.Errorf("there is no %s in the catalog; get_catalog without arguments lists every code", a.Code)
 		}
-		return nil, fmt.Errorf("there is no %s in the catalog; get_catalog without arguments lists every code", a.Code)
+		return jsonContent(entry), nil
 	case a.Category != "":
-		out := make([]catalogEntry, 0, len(entries))
-		for _, e := range entries {
-			if e.Category == a.Category {
-				out = append(out, e)
-			}
+		body, err := cat.category(a.Category)
+		if err != nil {
+			return nil, err
 		}
-		return marshalContent(map[string]any{"version": doc.Version, "category": a.Category, "entries": out})
+		return jsonContent(body), nil
 	}
-	categories := map[string][]string{}
-	for _, e := range entries {
-		categories[e.Category] = append(categories[e.Category], e.ID)
+	body, err := cat.index()
+	if err != nil {
+		return nil, err
 	}
-	for _, ids := range categories {
-		sort.Strings(ids)
-	}
-	return marshalContent(map[string]any{"version": doc.Version, "categories": categories})
+	return jsonContent(body), nil
 }
 
 // errCatalogShape is a catalog the tool cannot take apart, refused rather than
 // passed on, as the Kennel tools refuse an answer they cannot read.
 var errCatalogShape = errors.New("the controller's catalog is not in the shape this tool expects; upgrade the controller and the CLI together")
 
+// marshalContent is one text block of compact JSON for a value built here.
 func marshalContent(v any) ([]Content, error) {
 	body, err := json.Marshal(v)
 	if err != nil {

@@ -531,6 +531,14 @@ routes, and has no authority beyond the token's. An agent that can reach the
 controller over HTTPS can skip the binary and
 [connect to the controller directly](#straight-to-the-controller) instead.
 
+Besides its tools, the server offers two resources and three prompts, for an
+agent that reads vocabulary before it works: `zoomies://catalog` is the
+[catalog](ai-context.md#for-an-agent-operating-the-fleet)'s index of codes by
+category and `zoomies://catalog/{code}` one entry in full, read with the same
+token as `get_catalog`; and `why_did_job_fail`, `review_fleet_health` and
+`size_this_workflow` are the common questions with the tools to call written
+in, each ending with the sentence that names which text is untrusted.
+
 ```sh
 zoomies tokens create --name claude-code --role viewer --expires-in 720h
 claude mcp add zoomies \

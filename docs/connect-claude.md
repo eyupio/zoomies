@@ -153,7 +153,11 @@ code, a finding's check or a job explanation's `problem_code`. Without
 arguments it is an index of codes by category; `code` returns one entry in
 full, and `category` lists one category's codes with their titles and
 severity. The text is Zoomies' own, fixed when the binary was built, and names
-no fleet, repository or person.
+no fleet, repository or person. The same catalog is the resource
+`zoomies://catalog`, with `zoomies://catalog/{code}` for one entry, so a client
+that loads resources can read it without a tool call, and three prompts start
+the common questions with the tools to use: `why_did_job_fail`,
+`review_fleet_health` and `size_this_workflow`.
 
 ### Asking about Kennel Club
 

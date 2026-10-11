@@ -34,7 +34,7 @@ Reviewed eyupio/zoomies main on 2 October 2026, tree 90a7463890631be139fb00c72e8
 | GitHub App and repository discovery | internal/github/client.go; internal/github/migrate.go | Reuse installation credentials and repository discovery; add commit-pinned context ingestion |
 | App manifest | internal/github/manifest.go | Default lacks Contents permission; migration-enabled apps request Contents/workflows/PR write |
 | Webhooks | internal/controller/webhooks.go | Existing handler acts on workflow_job; add a distinct verified context-refresh path |
-| MCP tools | internal/mcp/tools.go; internal/mcp/server.go | Existing tools serve fleet data; protocol currently advertises tools only |
+| MCP tools | internal/mcp/tools.go; internal/mcp/server.go | Existing tools serve fleet data; the protocol advertises tools, the catalog as a resource, and three prompts |
 | Log relay | internal/controller/logs.go | Live logs depend on hosts; build dedicated durable storage for context |
 | Authorisation | internal/auth/rbac.go | Add explicit context actions and repository checks; fleet viewer is not source access |
 

@@ -167,6 +167,10 @@ func fleetAPI(t *testing.T) (*httptest.Server, *[]string) {
 		switch r.Method + " " + r.URL.Path {
 		case "GET /api/v1/stats":
 			_, _ = w.Write([]byte(`{"queued": 3, "running": 2}`))
+		case "GET /api/v1/catalog":
+			_, _ = w.Write([]byte(`{"version":1,"generated_from":"x","entries":[
+			  {"id":"pool.no_host","kind":"problem","title":"A pool has no host","category":"capacity","severity":"error","detection":"runtime","detects":"d1","fix":"f1","verify":null,"docs_html":"h","docs_md":"m"},
+			  {"id":"ci.no_timeout","kind":"check","title":"A job has no timeout","category":"reliability","severity":"warning","detection":"static","detects":"d2","fix":"f2","verify":"v2","area":"ci","docs_html":"h","docs_md":"m"}]}`))
 		case "GET /api/v1/problems":
 			_, _ = w.Write([]byte(`{"items":[{"code":"host.unhealthy","severity":"error"}],"ok":false}`))
 		case "GET /api/v1/jobs":
@@ -475,7 +479,7 @@ func TestMCPAnswersProtocolMistakesWithoutStopping(t *testing.T) {
 	srv, _ := fleetAPI(t)
 	s := startMCP(t, "--url", srv.URL, "--token", "zoo_viewer")
 
-	if r := s.send("resources/list", nil); r.Error == nil || r.Error.Code != -32601 {
+	if r := s.send("completion/complete", nil); r.Error == nil || r.Error.Code != -32601 {
 		t.Errorf("an unknown method must be method-not-found, got %+v", r)
 	}
 	if r := s.send("tools/call", map[string]any{"name": "delete_everything"}); r.Error == nil || r.Error.Code != -32602 {
@@ -509,4 +513,135 @@ func containsString(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// The catalog is the one place every problem code and check is explained, and
+// an agent reads vocabulary best as a resource it can load without a tool call:
+// the index at one URI, and any entry by its code through a template.
+func TestMCPServesTheCatalogAsAResource(t *testing.T) {
+	srv, _ := fleetAPI(t)
+	s := startMCP(t, "--url", srv.URL, "--token", "zoo_viewer")
+
+	var init struct {
+		Capabilities struct {
+			Resources *struct{} `json:"resources"`
+			Prompts   *struct{} `json:"prompts"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(s.request("initialize", map[string]any{"protocolVersion": "2025-06-18"}), &init); err != nil {
+		t.Fatal(err)
+	}
+	if init.Capabilities.Resources == nil || init.Capabilities.Prompts == nil {
+		t.Errorf("initialize must declare resources and prompts: %+v", init)
+	}
+
+	var list struct {
+		Resources []struct {
+			URI      string `json:"uri"`
+			Name     string `json:"name"`
+			MimeType string `json:"mimeType"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(s.request("resources/list", nil), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Resources) != 1 || list.Resources[0].URI != "zoomies://catalog" || list.Resources[0].MimeType != "application/json" {
+		t.Errorf("resources = %+v, want the catalog index alone", list.Resources)
+	}
+	var templates struct {
+		Templates []struct {
+			URITemplate string `json:"uriTemplate"`
+		} `json:"resourceTemplates"`
+	}
+	if err := json.Unmarshal(s.request("resources/templates/list", nil), &templates); err != nil {
+		t.Fatal(err)
+	}
+	if len(templates.Templates) != 1 || templates.Templates[0].URITemplate != "zoomies://catalog/{code}" {
+		t.Errorf("templates = %+v", templates.Templates)
+	}
+
+	read := func(uri string) mcpReply {
+		return s.send("resources/read", map[string]any{"uri": uri})
+	}
+	var index struct {
+		Contents []struct {
+			URI      string `json:"uri"`
+			MimeType string `json:"mimeType"`
+			Text     string `json:"text"`
+		} `json:"contents"`
+	}
+	r := read("zoomies://catalog")
+	if r.Error != nil || json.Unmarshal(r.Result, &index) != nil || len(index.Contents) != 1 {
+		t.Fatalf("reading the index: %+v", r)
+	}
+	if index.Contents[0].URI != "zoomies://catalog" || !strings.Contains(index.Contents[0].Text, `"capacity":["pool.no_host"]`) || strings.Contains(index.Contents[0].Text, "f1") {
+		t.Errorf("index = %+v, want codes by category and no entry text", index.Contents[0])
+	}
+	r = read("zoomies://catalog/ci.no_timeout")
+	if r.Error != nil || json.Unmarshal(r.Result, &index) != nil || len(index.Contents) != 1 || !strings.Contains(index.Contents[0].Text, `"fix":"f2"`) {
+		t.Errorf("reading one entry: %+v %+v", r, index)
+	}
+	if r := read("zoomies://catalog/pool.made_up"); r.Error == nil || r.Error.Code != -32002 {
+		t.Errorf("a code the catalog lacks must be resource-not-found, got %+v", r)
+	}
+	if r := read("zoomies://nothing"); r.Error == nil || r.Error.Code != -32002 {
+		t.Errorf("an unknown URI must be resource-not-found, got %+v", r)
+	}
+}
+
+// The common questions start from prompts that name the tools to use, so an
+// agent new to the fleet reads the way to work before it works.
+func TestMCPOffersPromptsForTheCommonQuestions(t *testing.T) {
+	srv, _ := fleetAPI(t)
+	s := startMCP(t, "--url", srv.URL, "--token", "zoo_viewer")
+
+	var list struct {
+		Prompts []struct {
+			Name      string `json:"name"`
+			Arguments []struct {
+				Name     string `json:"name"`
+				Required bool   `json:"required"`
+			} `json:"arguments"`
+		} `json:"prompts"`
+	}
+	if err := json.Unmarshal(s.request("prompts/list", nil), &list); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, p := range list.Prompts {
+		names = append(names, p.Name)
+	}
+	for _, want := range []string{"why_did_job_fail", "review_fleet_health", "size_this_workflow"} {
+		if !containsString(names, want) {
+			t.Errorf("prompts must include %s, got %v", want, names)
+		}
+	}
+
+	var got struct {
+		Description string `json:"description"`
+		Messages    []struct {
+			Role    string `json:"role"`
+			Content struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(s.request("prompts/get", map[string]any{"name": "why_did_job_fail", "arguments": map[string]any{"job_id": "job_1"}}), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].Role != "user" || got.Messages[0].Content.Type != "text" {
+		t.Fatalf("prompt = %+v", got)
+	}
+	for _, want := range []string{"job_1", "get_job", "get_catalog", "untrusted"} {
+		if !strings.Contains(got.Messages[0].Content.Text, want) {
+			t.Errorf("the prompt does not say %q:\n%s", want, got.Messages[0].Content.Text)
+		}
+	}
+	if r := s.send("prompts/get", map[string]any{"name": "why_did_job_fail"}); r.Error == nil || r.Error.Code != -32602 {
+		t.Errorf("a prompt without its required argument must be invalid-params, got %+v", r)
+	}
+	if r := s.send("prompts/get", map[string]any{"name": "no_such_prompt"}); r.Error == nil || r.Error.Code != -32602 {
+		t.Errorf("an unknown prompt must be invalid-params, got %+v", r)
+	}
 }
