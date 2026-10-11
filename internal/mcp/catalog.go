@@ -174,12 +174,3 @@ func getCatalog(ctx context.Context, c API, raw json.RawMessage) ([]Content, err
 // errCatalogShape is a catalog the tool cannot take apart, refused rather than
 // passed on, as the Kennel tools refuse an answer they cannot read.
 var errCatalogShape = errors.New("the controller's catalog is not in the shape this tool expects; upgrade the controller and the CLI together")
-
-// marshalContent is one text block of compact JSON for a value built here.
-func marshalContent(v any) ([]Content, error) {
-	body, err := json.Marshal(v)
-	if err != nil {
-		return nil, err
-	}
-	return []Content{{Type: "text", Text: strings.TrimSpace(string(body))}}, nil
-}
