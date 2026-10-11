@@ -44,7 +44,6 @@
   {description}
   width="lg"
   flush
-  peek
 >
   {#if active.length > 0}
     <div class="bulk">
