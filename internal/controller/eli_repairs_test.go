@@ -72,6 +72,8 @@ type repairFake struct {
 	unsupportedRun bool
 	noWrite        bool
 	reacted        []int64
+	// sourceErr, when set, is what reading the PR's source fails with.
+	sourceErr error
 }
 
 func (f *repairFake) RepairActor(context.Context, string, string) (github.RepairActor, error) {
@@ -93,6 +95,9 @@ func (f *repairFake) RepairPullForRun(ctx context.Context, repo string, _ int64)
 func (f *repairFake) RepairSource(context.Context, string, github.RepairPull, bool) (*github.RepairSource, error) {
 	if f.onRead != nil {
 		f.onRead()
+	}
+	if f.sourceErr != nil {
+		return nil, f.sourceErr
 	}
 	return &github.RepairSource{Snapshot: prrepair.Snapshot{Files: []prrepair.File{{Path: "main.go", Content: "old", Mode: "100644"}}}}, nil
 }
@@ -379,5 +384,31 @@ func TestARepairFallsBackToThePersonsOnlyUsableProviderWhenNoneIsDefault(t *test
 	got, err := h.c.personalChatProvider(h.ctx, "", user.ID)
 	if err != nil || got.ID != mine.ID {
 		t.Fatalf("got %+v, %v; want the person's own enabled API provider", got, err)
+	}
+}
+
+// When the PR's source cannot be read, the comment says why. "Within Eli's
+// repair limits" named neither the limit nor the file, and the person who
+// got it could not tell a repository too big to inventory from a token
+// without the permission.
+func TestARepairThatCannotReadTheSourceSaysWhy(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	fake := &repairFake{Client: h.gh.Client(inst.Target, inst.TargetType), sourceErr: errors.New("repository inventory exceeds Eli's repair limit")}
+	h.c.clients.entries[inst.ID] = &clientEntry{client: fake, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
+	user := &store.User{Username: "octo", Role: store.RoleViewer}
+	h.st.CreateUser(h.ctx, user)
+	h.st.SetEliIdentity(h.ctx, store.EliIdentity{UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"})
+	h.st.ConfirmEliIdentity(h.ctx, user.ID, 42, true)
+	shared := &store.AssistantProvider{Name: "Shared", Kind: "openai", Enabled: true}
+	h.st.CreateAssistantProvider(h.ctx, shared)
+	mine := &store.AssistantProvider{Name: "Mine", Kind: "openai", Enabled: true, OwnerID: user.ID}
+	h.st.CreateAssistantProvider(h.ctx, mine)
+	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: shared.ID, Enabled: true, DailyLimit: 5})
+	row := &store.EliRepair{DedupKey: "unreadable", Repo: "acme/repo", InstallationID: inst.ID, PullNumber: 1, Trigger: "mention", UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
+	h.st.EnqueueEliRepair(h.ctx, row, 5)
+	h.c.runEliRepair(h.ctx, row)
+	if row.State != "failed" || row.Message != "The PR source could not be read: repository inventory exceeds Eli's repair limit." {
+		t.Fatalf("repair = %+v", row)
 	}
 }

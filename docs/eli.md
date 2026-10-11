@@ -334,7 +334,13 @@ The durable queue deduplicates webhook retries and charges attempts at
 admission. The worker reads the PR's pinned commit, changed text files, repository
 inventory and bounded failed-job evidence. It asks the selected model for a
 strict JSON plan, with at most six model turns and eight edits. Source is capped
-at 128 KiB, individual files at 32 KiB, and replacement content at 64 KiB.
+at 128 KiB, individual files at 32 KiB, and replacement content at 64 KiB. A
+changed file over the file cap, or not plain text (a regenerated reference of a
+few thousand lines, say), is left out and named to the model as unavailable
+rather than stopping the repair, and so are the changed files past the source
+budget; the model fixes what it can read. When the source cannot be read at all,
+the comment says why: the repository's inventory is too large, the PR changes
+too many files, or GitHub refused the read.
 Recognisable provider/GitHub tokens and private-key headers are redacted before
 model use. These filters cannot identify every possible secret, so use a
 provider permitted to process your repository and job logs.

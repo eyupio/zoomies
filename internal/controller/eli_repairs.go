@@ -416,7 +416,9 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 	c.repairNotice(ctx, client, r, "Investigating this PR using "+provider.Name+". The repair is limited to one commit and will leave normal review in place.")
 	source, err := client.RepairSource(ctx, r.Repo, pull, policy.AllowWorkflows)
 	if err != nil {
-		fail("The PR source could not be read within Eli's repair limits.")
+		// The reason is the useful part: "within Eli's repair limits" named
+		// neither the limit nor the file, and the person could not act on it.
+		fail(fmt.Sprintf("The PR source could not be read: %s.", strings.TrimSuffix(err.Error(), ".")))
 		return
 	}
 	failures, err := client.RepairFailures(ctx, r.Repo, pull, r.JobID)

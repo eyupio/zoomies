@@ -2,11 +2,13 @@ package github
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"github.com/eyupio/zoomies/internal/prrepair"
 	"github.com/eyupio/zoomies/internal/store"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -125,3 +127,46 @@ func TestRepairSourceRefusesSymlinksAndSubmodules(t *testing.T) {
 		}
 	}
 }
+
+// A pull request that changes a generated file of a few thousand lines used
+// to stop the whole repair with "could not be read within Eli's repair
+// limits", naming nothing. A changed file Eli may not have (too large, or not
+// text) is left out and named to the model as unavailable, the rest of the
+// source is read, and the repair goes on; the same when the source as a whole
+// reaches its budget. Only GitHub refusing is a failure.
+func TestRepairSourceLeavesOutAFileItMayNotHaveAndNamesIt(t *testing.T) {
+	big := strings.Repeat("x", prrepair.MaxFileBytes+1)
+	blob := func(content string) string {
+		return `{"encoding":"base64","size":` + itoa(len(content)) + `,"content":"` + base64.StdEncoding.EncodeToString([]byte(content)) + `"}`
+	}
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/acme/repo/git/commits/old":
+			w.Write([]byte(`{"sha":"old","tree":{"sha":"tree"}}`))
+		case "/repos/acme/repo/git/trees/tree":
+			w.Write([]byte(`{"truncated":false,"tree":[{"path":"main.go","type":"blob","mode":"100644","sha":"b1"},{"path":"skills/reference.md","type":"blob","mode":"100644","sha":"b2"}]}`))
+		case "/repos/acme/repo/pulls/1/files":
+			w.Write([]byte(`[{"filename":"skills/reference.md","status":"modified"},{"filename":"main.go","status":"modified"}]`))
+		case "/repos/acme/repo/git/blobs/b1":
+			w.Write([]byte(blob("package main\n")))
+		case "/repos/acme/repo/git/blobs/b2":
+			w.Write([]byte(blob(big)))
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	src, err := c.RepairSource(context.Background(), "acme/repo", RepairPull{Number: 1, HeadSHA: "old", Title: "t", Branch: "feature"}, false)
+	if err != nil {
+		t.Fatalf("the repair stopped: %v", err)
+	}
+	if len(src.Snapshot.Files) != 1 || src.Snapshot.Files[0].Path != "main.go" {
+		t.Errorf("files read = %+v", src.Snapshot.Files)
+	}
+	if len(src.Snapshot.Skipped) != 1 || !strings.HasPrefix(src.Snapshot.Skipped[0], "skills/reference.md: ") || !strings.Contains(src.Snapshot.Skipped[0], "32 KiB") {
+		t.Errorf("skipped = %v", src.Snapshot.Skipped)
+	}
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }
