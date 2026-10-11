@@ -387,25 +387,6 @@ func detectInit() InitSystem {
 	return InitNone
 }
 
-// runningUnderWSL is whether this Linux is a WSL distro. Its init is rarely
-// systemd unless the operator turned that on, so a join that finds no service
-// manager there has a specific, fixable reason to give instead of the generic
-// one.
-func runningUnderWSL() bool {
-	if runtime.GOOS != "linux" {
-		return false
-	}
-	b, err := os.ReadFile("/proc/sys/kernel/osrelease")
-	return err == nil && osReleaseIsWSL(string(b))
-}
-
-// osReleaseIsWSL reads the kernel release string, which WSL2 builds name
-// "...microsoft-standard-WSL2" and WSL1 names "...-Microsoft".
-func osReleaseIsWSL(release string) bool {
-	r := strings.ToLower(release)
-	return strings.Contains(r, "microsoft") || strings.Contains(r, "wsl")
-}
-
 // ExistingInstallAt reports which pieces of a previous installation are on
 // disk. It takes its directories as arguments so that it can be tested against
 // a temporary directory rather than against the real /etc.

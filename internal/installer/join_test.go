@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"errors"
@@ -405,6 +406,97 @@ func TestWSLServiceNotesNameTheOptionalSystemdSetting(t *testing.T) {
 	for _, want := range []string{"optionally", "/etc/wsl.conf", "systemd=true", "wsl --shutdown"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the WSL notes do not mention %q:\n%s", want, joined)
+		}
+	}
+}
+
+func wslUpgradeOptions(t *testing.T) (UpgradeOptions, *bytes.Buffer, string) {
+	t.Helper()
+	dir := t.TempDir()
+	var out bytes.Buffer
+	conf := filepath.Join(dir, "wsl.conf")
+	return UpgradeOptions{
+		ConfigDir:  dir,
+		BinaryPath: "/usr/local/bin/zoomies",
+		Mode:       ModeAgent,
+		Out:        &out,
+		isWSL:      func() bool { return true },
+		hasSystemd: func() bool { return false },
+		wslConf:    conf,
+		run: func(context.Context, string, ...string) (string, error) {
+			return "", errors.New("System has not been booted with systemd")
+		},
+	}, &out, conf
+}
+
+// On a WSL distro without systemd the agent is a process somebody started, so
+// the upgrade has no unit to find. It used to say only that no deployment
+// existed, which sent an operator looking for an install that was fine.
+func TestUpgradeOffersToTurnSystemdOnInAWSLDistroWithoutIt(t *testing.T) {
+	opts, out, conf := wslUpgradeOptions(t)
+	if err := os.WriteFile(conf, []byte("[automount]\nenabled=true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts.AssumeYes = true
+	err := Upgrade(context.Background(), opts)
+	if err == nil || !strings.Contains(err.Error(), "wsl --shutdown") {
+		t.Fatalf("err = %v, want the instruction to restart the distro", err)
+	}
+	got, _ := os.ReadFile(conf)
+	if want := "[automount]\nenabled=true\n\n[boot]\nsystemd=true\n"; string(got) != want {
+		t.Fatalf("wsl.conf = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(conf + ".zoomies-bak"); err != nil {
+		t.Fatalf("the original wsl.conf was not kept: %v", err)
+	}
+	if !strings.Contains(out.String(), "WSL") {
+		t.Fatalf("output = %q, does not say this is WSL", out.String())
+	}
+}
+
+func TestUpgradeLeavesWSLConfAloneWithoutApprovalOrUnderCheck(t *testing.T) {
+	for name, tweak := range map[string]func(*UpgradeOptions){
+		"no approval": func(o *UpgradeOptions) {},
+		"check":       func(o *UpgradeOptions) { o.Check = true; o.AssumeYes = true },
+		"declined": func(o *UpgradeOptions) {
+			o.Interactive = true
+			o.In = strings.NewReader("n\n")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			opts, _, conf := wslUpgradeOptions(t)
+			tweak(&opts)
+			if err := Upgrade(context.Background(), opts); err == nil {
+				t.Fatal("an upgrade with no service reported success")
+			}
+			if _, err := os.Stat(conf); err == nil {
+				t.Fatal("wsl.conf was written without approval")
+			}
+		})
+	}
+}
+
+func TestUpgradeSaysTheDistroNeedsRestartingWhenWSLConfAlreadyTurnsSystemdOn(t *testing.T) {
+	opts, _, conf := wslUpgradeOptions(t)
+	if err := os.WriteFile(conf, []byte("[boot]\nsystemd=true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts.AssumeYes = true
+	err := Upgrade(context.Background(), opts)
+	if err == nil || !strings.Contains(err.Error(), "already turns systemd on") {
+		t.Fatalf("err = %v, want it to say only a restart is missing", err)
+	}
+}
+
+func TestWithWSLSystemdKeepsTheRestOfTheFile(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                                     "[boot]\nsystemd=true\n",
+		"[boot]\ncommand=service x start\n":    "[boot]\nsystemd=true\ncommand=service x start\n",
+		"[boot]\nsystemd=false\n[user]\na=b\n": "[boot]\nsystemd=true\n[user]\na=b\n",
+		"[user]\ndefault=me\n":                 "[user]\ndefault=me\n\n[boot]\nsystemd=true\n",
+	} {
+		if got := withWSLSystemd(in); got != want {
+			t.Errorf("withWSLSystemd(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

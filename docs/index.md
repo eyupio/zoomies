@@ -296,8 +296,9 @@ every job but the arm64 and Windows legs runs on a Zoomies fleet, inside a
 container the Docker backend started, through the build under test, and
 [a test](https://github.com/eyupio/zoomies/blob/main/internal/docs/workflows_test.go)
 fails if a job leaves the fleet; and the Windows agent is built, vetted and
-unit-tested on a hosted Windows runner, and has not yet run a job on a Windows
-host anyone kept.
+unit-tested on a hosted Windows runner, and has joined a real Windows host and
+run a job on it, tried by hand by the maintainer on 11 October 2026 (the
+written-up evidence is still to come).
 
 That is not a reason to keep it off your own machines. It is the reason the
 defaults are the careful ones, and the reason every claim on this page names

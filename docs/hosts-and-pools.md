@@ -175,6 +175,12 @@ whenever the distro does. Joining again replaces the host's credentials and
 leaves the earlier record on the controller as an offline host until you remove
 it.
 
+`zoomies upgrade` notices the same situation: on a WSL distro without systemd
+it finds no service to restart, says so, and offers to write `systemd=true`
+into `/etc/wsl.conf` (it keeps the old file as `wsl.conf.zoomies-bak`, and
+`--yes` accepts the offer in advance; `--check` changes nothing). It cannot
+restart the distro for you, so it ends by telling you to run `wsl --shutdown`.
+
 WSL can still stop a distro that has no terminal open. To keep it up, add a
 Windows scheduled task that runs at logon (or at startup, to run before anyone
 signs in) and executes `wsl.exe -d <YourDistro> --exec sleep infinity`.
@@ -1619,9 +1625,10 @@ exactly what the `process` backend means on Linux, and
 Windows runner is a kill rather than an interrupt, because a service has no
 console to raise one on; the runner's registration is single-use either way.
 
-This is new in 1.0 and
-[not yet qualified](index.md#what-is-qualified): it is built and unit-tested,
-and the first job that runs on a real Windows host is what moves the row.
+A Windows host has joined a controller and run
+a job, tried by hand on 11 October 2026. The
+[support matrix](index.md#what-is-qualified) still waits on the written-up
+evidence before it calls the row qualified.
 
 **Separating a noisy repository.** Give it a pool with its own labels and its own
 `max_runners`. Note the limit of `repository_scale_up_limit` on a shared pool: it

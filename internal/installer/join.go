@@ -417,21 +417,6 @@ func Join(ctx context.Context, opts JoinOptions) error {
 	return nil
 }
 
-// wslServiceNotes says why an agent started by hand in a WSL distro stops with
-// its terminal, and the two changes that keep it running. Turning systemd on is
-// optional: without it the agent still works, it just lives and dies with the
-// shell that started it.
-func wslServiceNotes() []string {
-	return []string{
-		"this is a WSL distro without systemd, so the agent stops when its terminal closes.",
-		"to keep it running, optionally turn systemd on: add this to /etc/wsl.conf",
-		"  [boot]",
-		"  systemd=true",
-		"then run `wsl --shutdown` from Windows, reopen the distro and run the join again with a new token.",
-		"WSL can still stop an idle distro; docs/hosts-and-pools.md (A host in WSL2) says how to keep it up.",
-	}
-}
-
 // reportedSize renders what the agent measured, or says plainly that it did
 // not. An empty field would read as "nothing to say" when what it means is
 // "this host cannot say".

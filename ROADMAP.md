@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 3.9 · 10 October 2026 · derived from the owner's
+Version 3.10 · 11 October 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md),
 reconciled against `main` at `6d12a72` on 6 September, at `9a80b31`
 on 19 September and at `88c41f6` on 8 October, when the owner set a new primary target, withdrew the
@@ -361,9 +361,9 @@ list is the only account of what was decided.
 26. **Windows runners, and which kind.** *Taken on 12 September 2026* as
     processes on a Windows host, per
     [decision 0003](roadmap/decisions/0003-windows-runners-are-processes-on-a-host.md).
-    Built, vetted and unit-tested; the first job on a Windows host anyone
-    kept will be a fleet's, and the support-matrix row moves when it
-    happens rather than gating anything.
+    Built, vetted and unit-tested, and since 11 October 2026 tried by hand
+    on a real Windows host, which joined and ran a job. The support-matrix
+    row moves when the evidence is written up, and gates nothing.
 27. **Separate platform administration from fleet operation.** *Now the
     primary target;* see decision 30. One instance remains one trust domain.
 28. **A container per job on Proxmox, from the runner image we already
@@ -625,7 +625,8 @@ in section 7 rather than here.
   service through `sc.exe`, unpacks the `.zip` runner behind the same
   traversal refusal, kills a job's tree through a job object and retries a
   locked work directory. Nothing has joined a Windows host or run a job on
-  one; section 9 says what happens when a fleet does.
+  one when this was written; the owner has since tried it on a real
+  Windows host (11 October 2026), and the evidence is still to be recorded.
 
 ### The September packages
 
@@ -725,8 +726,9 @@ records they produced stay where they are.
   inclusion), ZF-221 (bursts of 1, 4, 8 and 16 on a reference Docker host;
   the runner-and-sidecar budget evaluation), ZF-214b (twenty cycles on a
   disposable cluster before the provider is called qualified) and ZF-206
-  (a job on a Windows host before the package closes). *Cost*: the support
-  matrix keeps saying "built, not run" for Windows and Proxmox, and
+  (a job on a Windows host before the package closes; the owner has since run
+  one by hand, 11 October 2026, without the written evidence). *Cost*: the
+  support matrix keeps saying "built, not run" for Proxmox, and
   `docs/proxmox.md` stopped saying "qualified" (ZF-005). *What survives*:
   the harnesses, which a fleet with a cluster or a Windows host can run, and
   whose rows are welcome.
@@ -1630,9 +1632,9 @@ Nothing here is authorised by planning alone. Each starts when a fleet
 asks for it or the evidence arrives, and each keeps its ID and its
 acceptance from the version that wrote it.
 
-* **ZF-206, Windows**: the remaining evidence is a fleet's. When one joins
-  a Windows host, the support-matrix row moves and the first job's row is
-  recorded; Windows on arm64 has digests and no build, and stays that way
+* **ZF-206, Windows**: a Windows host has joined and run a job (the owner,
+  11 October 2026). What remains is writing the evidence up against the
+  checklist, which moves the support-matrix row; Windows on arm64 has digests and no build, and stays that way
   until asked.
 * **ZF-214c**, a second provider: chosen from demonstrated demand and
   repeatable test access, proven against `RunContractTests` and the same
@@ -1798,6 +1800,13 @@ remaining dependency. Do not invent live runs, elapsed observation, benchmark
 results or user feedback; do not wait for them either.
 
 ## 13. Change record
+
+* **11 October 2026: Version 3.10:** ZF-206, Windows: the owner tried the
+  Windows agent on a real Windows host and it works. The text that said no
+  Windows host had joined or run a job is corrected; the support-matrix row
+  moves when the checklist's evidence is recorded. Separately, `zoomies upgrade`
+  and `zoomies agent join` now recognise a WSL distro without systemd and offer
+  the fix.
 
 * **10 October 2026: Version 3.9:** ZF-239 added: a shared Eli GitHub App as a
   relay for `/eli` and `@eli` mentions, from decision 0012. Slice 1, the shared

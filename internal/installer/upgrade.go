@@ -60,6 +60,11 @@ type UpgradeOptions struct {
 	// helperHost stands in for what the update helper question reads from the
 	// host, so a test does not look at the real /run/systemd or /etc/systemd.
 	helperHost *upgradeHelperHost
+	// isWSL, hasSystemd and wslConf stand in for what the WSL check reads
+	// from the host: the kernel release, /run/systemd and /etc/wsl.conf.
+	isWSL      func() bool
+	hasSystemd func() bool
+	wslConf    string
 	// serveTimeout, servePoll and progressEvery shorten the wait for the
 	// controller to answer, which is minutes long outside a test.
 	serveTimeout, servePoll, progressEvery time.Duration
@@ -580,6 +585,9 @@ func (p *upgradePlan) prepareNative(ctx context.Context) error {
 		}
 	}
 	if p.unit == "" {
+		if p.wslWithoutSystemd() {
+			return p.offerWSLSystemd()
+		}
 		return fmt.Errorf("installer: no existing Zoomies deployment was found; run on the installed host, or pass --config-dir for its deployment record")
 	}
 	return nil

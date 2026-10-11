@@ -83,6 +83,13 @@ evidence.
 
 ## Log
 
+* 2026-10-11: ZF-206, Windows, tried by hand by the owner on a real Windows
+  host: it joined and a job ran. The "has not run" wording is corrected in
+  ROADMAP v3.10, `docs/index.md` and `docs/hosts-and-pools.md`; the support
+  matrix row moves when the evidence is recorded against its checklist. Also
+  in v3.10: `zoomies agent join` and `zoomies upgrade` recognise a WSL distro
+  without systemd and offer to turn it on.
+
 * 2026-10-10: ZF-232 `done` (ROADMAP v3.8): updating Zoomies from the web UI,
   in #719, #734, #743, #757, #759, #786, #789, #797, #801, #803, #816 and the
   Part 6 pull request, which adds the controller-restart drill, the helper run
