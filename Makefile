@@ -141,6 +141,10 @@ test-ui: ## Run the Playwright suite (builds the binary first)
 test-e2e: ## Docker-based end-to-end test; needs GitHub credentials, skipped without
 	$(GO) test -count=1 -tags e2e -timeout 40m ./test/e2e/...
 
+.PHONY: test-eli-eval
+test-eli-eval: ## Play Eli's evaluation scenarios against a real provider; needs ELI_EVAL_URL, ELI_EVAL_KEY and ELI_EVAL_MODEL, skipped without
+	$(GO) test -count=1 -v -run 'TestEliScenariosAgainstARealProvider' ./internal/api/
+
 .PHONY: test-e2e-proxmox
 test-e2e-proxmox: ## Live Proxmox qualification: needs a cluster and ZOOMIES_PROXMOX_*, skipped without. Hours, not minutes -- not in CI.
 	$(GO) test -count=1 -v -tags e2e -timeout 10h ./test/e2e/proxmox/...

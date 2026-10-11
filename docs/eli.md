@@ -210,6 +210,24 @@ a hostile name can do is mislead an answer: check what you act on.
   `assistant.chat` with the provider, the model, whether the fleet could be read
   and the tools used, and never with what was said.
 
+## Measuring Eli
+
+A prompt change is measured before it is trusted. `internal/api/eli_eval_test.go`
+holds recorded scenarios against the fake fleet: a job the kernel killed for
+memory, a pool with jobs waiting and no host to run them, and a job whose name
+carries an instruction planted where a pull request could put one. Each names
+the question, the tools a good answer rests on, the tools it must not touch, how
+many looks it should take, and the claims it must not repeat.
+
+Every test run plays them with a scripted model, which proves the loop, the
+tools and the fences do what the scenarios expect. To play them against a real
+model, set `ELI_EVAL_URL`, `ELI_EVAL_KEY` and `ELI_EVAL_MODEL` to an
+OpenAI-compatible provider and run `make test-eli-eval`: the report says, per
+scenario, what the model looked at and what it answered, and the run fails only
+on the hard rules, a forbidden tool or a followed instruction. Which tool a model
+reaches for first is a score to read and compare between prompt changes, not a
+verdict to break the build on.
+
 ## If it is not there
 
 * **No answer.** Add an enabled personal provider in **Settings, Eli AI Assistant**, and tick the one you want as your default when you have several.

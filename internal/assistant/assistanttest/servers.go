@@ -46,9 +46,28 @@ type Server struct {
 	// ceiling: the OpenAI-protocol server streams reasoning and no words and
 	// finishes with length, the Anthropic one stops with max_tokens.
 	Cut bool
+	// Script, when set, is what the OpenAI-protocol server answers each chat
+	// request with, in order: a round of tool calls with arguments, or words.
+	// The last round answers every request after it. It takes precedence over
+	// CallTool, and is what an evaluation scenario drives the loop with.
+	Script []Round
 
 	mu       sync.Mutex
 	requests []Recorded
+	chats    int
+}
+
+// Round is one scripted reply: the calls the model asks for, or, with none,
+// the words it writes.
+type Round struct {
+	Calls []Call
+	Text  string
+}
+
+// Call is one scripted tool call, its arguments as the JSON the model would send.
+type Call struct {
+	Name      string
+	Arguments string
 }
 
 // Requests returns what the server has seen so far.
@@ -158,7 +177,25 @@ func NewOpenAI(t testing.TB) *Server {
 			return map[string]any{"id": "chatcmpl-1", "object": "chat.completion.chunk", "model": s.Model,
 				"choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": finish}}}
 		}
-		if s.CallTool != "" && offersTool(rec.Body, s.CallTool) && !hasToolAnswer(rec.Body) {
+		s.mu.Lock()
+		turn := s.chats
+		s.chats++
+		s.mu.Unlock()
+		if len(s.Script) > 0 {
+			round := s.Script[min(turn, len(s.Script)-1)]
+			if len(round.Calls) > 0 {
+				for i, call := range round.Calls {
+					sse(w, "", chunk(map[string]any{"tool_calls": []any{map[string]any{"index": i, "id": fmt.Sprintf("call_%d_%d", turn, i), "type": "function",
+						"function": map[string]any{"name": call.Name, "arguments": call.Arguments}}}}, nil))
+				}
+				sse(w, "", chunk(map[string]any{}, "tool_calls"))
+			} else {
+				for _, word := range strings.SplitAfter(round.Text, " ") {
+					sse(w, "", chunk(map[string]any{"content": word}, nil))
+				}
+				sse(w, "", chunk(map[string]any{}, "stop"))
+			}
+		} else if s.CallTool != "" && offersTool(rec.Body, s.CallTool) && !hasToolAnswer(rec.Body) {
 			sse(w, "", chunk(map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "call_fleet", "type": "function",
 				"function": map[string]any{"name": s.CallTool, "arguments": `{}`}}}}, nil))
 			sse(w, "", chunk(map[string]any{}, "tool_calls"))
