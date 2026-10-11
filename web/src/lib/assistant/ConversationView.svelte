@@ -20,12 +20,14 @@
   import { ApiError, updateAssistantProvider } from '$lib/api/client';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import { formatNumber } from '$lib/format';
+  import { fleet } from '$lib/state/fleet.svelte';
   import { session } from '$lib/state/session.svelte';
   import type { Conversation, Turn } from './conversation.svelte';
   import { eli } from './eli.svelte';
   import EliAvatar from './EliAvatar.svelte';
   import EliThinking from './EliThinking.svelte';
   import Markdown from './Markdown.svelte';
+  import { starterQuestions } from './starters';
   import { toolLabel } from './tools';
 
   interface Props {
@@ -49,20 +51,15 @@
 
   // What to offer first. Without the fleet these are things Eli can answer
   // without seeing it, so the first click is never a refusal; with it they are
-  // questions only looking can answer.
-  const GENERAL = [
-    'How do labels decide which pool runs a job?',
-    'Why might a job sit queued?',
-    'How do ephemeral runners work?',
-    'What should I check when a host goes unhealthy?',
-  ];
-  const ABOUT_THE_FLEET = [
-    'How is the fleet doing right now?',
-    'Is anything wrong that I should look at?',
-    'Which jobs are queued, and why?',
-    'How busy are the pools?',
-  ];
-  const starters = $derived(fleetAccess ? ABOUT_THE_FLEET : GENERAL);
+  // about what the fleet is doing now, from the state the page already holds.
+  const starters = $derived(
+    starterQuestions({
+      fleetAccess,
+      stats: fleet.stats,
+      problems: fleet.problems,
+      hosts: fleet.hosts,
+    }),
+  );
 
   let box = $state<HTMLTextAreaElement | null>(null);
   let scroller = $state<HTMLElement>();

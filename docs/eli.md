@@ -120,6 +120,12 @@ its name (a code that is not in the catalog, a route that refused), which is the
 part worth reading. A call Eli makes twice with the same arguments is answered
 from the first without being run or shown again.
 
+The questions an empty conversation offers come from the fleet when Eli can
+read it: the open one first, then the worst open problem by name, the jobs
+waiting, the jobs that failed and the host that is unwell, filled out from a
+fixed few on a quiet fleet. Without fleet access they are about Zoomies in
+general, so the first press is never a refusal.
+
 Every question also carries the situation: the time, your role (so "ask an
 administrator" is advice Eli knows whether you can act on), and the page you
 asked from. Through a provider that may read the fleet that is the page's path,
