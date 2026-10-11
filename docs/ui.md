@@ -36,8 +36,8 @@ attempts, or a controller that cannot be reached) and caps lock is called out
 before it costs an attempt. On a phone the logo becomes a band above the form
 and the links move below it.
 
-![The sign-in page: a Zoomies Black panel on the left holding the lockup, a one-line description, three facts and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-dark.webp#only-dark){ .zoomies-shot }
-![The sign-in page: a Zoomies Black panel on the left holding the lockup, a one-line description, three facts and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-light.webp#only-light){ .zoomies-shot }
+![The sign-in page: a Zoomies Black panel on the left holding the lockup, a short introduction and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-dark.webp#only-dark){ .zoomies-shot }
+![The sign-in page: a Zoomies Black panel on the left holding the lockup, a short introduction and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-light.webp#only-light){ .zoomies-shot }
 
 ## Overview
 
