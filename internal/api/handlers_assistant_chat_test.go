@@ -542,3 +542,75 @@ func TestAnAnswerTheProviderCutSaysSoOnItsDoneFrameAndInTheAudit(t *testing.T) {
 		t.Errorf("audit = %+v, want outcome cut", rows)
 	}
 }
+
+// A model answering from a cold start asks for what the page already knows. The
+// system prompt now says when it is, who is asking and where they are, and, only
+// through a provider that may read the fleet, what the fleet looks like and what
+// the problems drawer holds, so the first answer is about this fleet and not a
+// request to paste things in. With fleet access off nothing of the fleet goes:
+// not a host's id in the page's path, not a count.
+func TestTheModelIsToldWhoAsksWhereAndWhenAndWithFleetAccessWhatTheFleetLooksLike(t *testing.T) {
+	h, cookie, srv := chatHarness(t)
+	host := h.host("build-1")
+	allowFleetAccess(t, h, cookie, true)
+	body := chatBody("user", "What is wrong here?")
+	body["page"] = "/hosts/" + host.ID
+	h.do(request{method: http.MethodPost, path: assistantChat, cookie: cookie, readStream: true, body: body}).mustStatus(t, http.StatusOK, "asking with fleet access")
+	reqs := chatRequests(srv)
+	prompt := systemPrompt(t, reqs[len(reqs)-1].Body)
+	for _, want := range []string{"/hosts/" + host.ID, "administrator", "UTC", "1 host", "Problems:"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the prompt does not say %q:\n%s", want, prompt)
+		}
+	}
+
+	allowFleetAccess(t, h, cookie, false)
+	h.do(request{method: http.MethodPost, path: assistantChat, cookie: cookie, readStream: true, body: body}).mustStatus(t, http.StatusOK, "asking without fleet access")
+	reqs = chatRequests(srv)
+	prompt = systemPrompt(t, reqs[len(reqs)-1].Body)
+	if !strings.Contains(prompt, "the hosts page") || !strings.Contains(prompt, "administrator") || !strings.Contains(prompt, "UTC") {
+		t.Errorf("the prompt does not say the time, the role and the page in coarse terms:\n%s", prompt)
+	}
+	for _, leak := range []string{host.ID, "1 host", "Problems:"} {
+		if strings.Contains(prompt, leak) {
+			t.Errorf("the prompt carries %q to a provider that may not read the fleet:\n%s", leak, prompt)
+		}
+	}
+
+	body["page"] = "no-leading-slash"
+	h.do(request{method: http.MethodPost, path: assistantChat, cookie: cookie, body: body}).mustStatus(t, http.StatusUnprocessableEntity, "a page that is not a path")
+}
+
+// systemPrompt is the system message of a chat-completion request body.
+func systemPrompt(t *testing.T, body map[string]any) string {
+	t.Helper()
+	msgs, _ := body["messages"].([]any)
+	if len(msgs) == 0 {
+		t.Fatal("no messages")
+	}
+	first, _ := msgs[0].(map[string]any)
+	if first["role"] != "system" {
+		t.Fatalf("the first message is %v, not the system prompt", first)
+	}
+	content, _ := first["content"].(string)
+	return content
+}
+
+// A look that failed carries why in its frame, so the page can show the person
+// the reason beside the name instead of the bare fact.
+func TestAFailedLookCarriesItsReasonToThePage(t *testing.T) {
+	h, cookie, srv := chatHarness(t)
+	allowFleetAccess(t, h, cookie, true)
+	srv.CallTool = "get_job"
+	resp := h.do(request{method: http.MethodPost, path: assistantChat, cookie: cookie, readStream: true, body: chatBody("user", "Why did it fail?")})
+	resp.mustStatus(t, http.StatusOK, "asking")
+	var failed map[string]any
+	for _, f := range frames(t, resp.body) {
+		if f.kind == "tool" && f.data["status"] == "failed" {
+			failed = f.data
+		}
+	}
+	if reason, _ := failed["reason"].(string); !strings.Contains(reason, "job_id") {
+		t.Errorf("the failed look does not say why: %v", failed)
+	}
+}

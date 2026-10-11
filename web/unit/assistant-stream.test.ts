@@ -134,6 +134,16 @@ test('a look at the fleet is a frame, and the end says which tools were used', (
 
 test('a tool frame with a status this page does not know is left unsaid', () => {
   assert.deepEqual(new FrameParser().push(frame('tool', { name: 'x', status: 'exploded' })), []);
+  // A failed look says why when the controller says, and nothing is invented when it does not.
+  assert.deepEqual(
+    new FrameParser().push(
+      frame('tool', { name: 'get_job', status: 'failed', reason: 'job_id is required' }),
+    ),
+    [{ kind: 'tool', name: 'get_job', status: 'failed', reason: 'job_id is required' }],
+  );
+  assert.deepEqual(new FrameParser().push(frame('tool', { name: 'get_job', status: 'failed' })), [
+    { kind: 'tool', name: 'get_job', status: 'failed' },
+  ]);
 });
 
 test('the end says how many credentials and email addresses were hidden, and nothing odd is believed', () => {

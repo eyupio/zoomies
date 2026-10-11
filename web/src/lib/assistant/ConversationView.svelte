@@ -242,7 +242,8 @@
                         : look.status === 'failed'
                           ? 'Could not look at'
                           : 'Looked at'}
-                      {toolLabel(look.name)}
+                      {toolLabel(look.name)}{#if look.reason}<span class="why">: {look.reason}</span
+                        >{/if}
                     </li>
                   {/each}
                 </ul>
@@ -567,6 +568,12 @@
   .looks li[data-status='failed'] {
     color: var(--z-danger);
     border-color: var(--z-danger-border);
+  }
+  /* The reason is the useful part of a failed look, so it wraps rather than
+     being cut, and reads in the chip's colour at the muted weight. */
+  .looks .why {
+    font-weight: var(--z-weight-normal);
+    overflow-wrap: anywhere;
   }
   .looks :global(.spin) {
     animation: turn 1s linear infinite;

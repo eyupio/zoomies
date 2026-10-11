@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,6 +39,9 @@ const (
 	// assistantToolTimeout bounds one tool call, so a slow route cannot hold the
 	// answer for the whole of the chat's own timeout.
 	assistantToolTimeout = 30 * time.Second
+	// assistantReasonRunes bounds the reason a failed look carries to the page:
+	// one line a chip can hold, not the whole of what the tool said.
+	assistantReasonRunes = 200
 	// assistantToolResultBytes bounds what one result may put in front of the
 	// model. The tools truncate for themselves; this is the ceiling over them.
 	assistantToolResultBytes = 16 << 10
@@ -64,6 +68,11 @@ type AssistantToolUse struct {
 	Name string
 	// Status is running, done or failed.
 	Status string
+	// Reason is why a look failed, in one line, for the page to show beside the
+	// name: a code that is not in the catalog, a route that refused. It is what
+	// the model was told, which is Zoomies' own text or the fleet's, after
+	// hiding.
+	Reason string
 }
 
 // AssistantChatEvent is one thing an answer yields. Cut, on Done, says the
@@ -112,6 +121,13 @@ type AssistantChat struct {
 	closing   int
 	cut       bool
 	finished  bool
+	// gap says the next words follow a round that ended mid-line, and are set
+	// off from it. Rounds reach the page as one stream, and a heading the model
+	// began a round with landed on the end of the sentence before it.
+	gap bool
+	// made is every call run so far, by name and arguments, with what it was
+	// told. A model that asks the same question twice is answered from here.
+	made map[string]string
 }
 
 // ToolsUsed are the names of the tools Eli called, in order, with repeats. It is
@@ -169,15 +185,24 @@ func (a *AssistantChat) Next(ctx context.Context) (AssistantChatEvent, bool) {
 			a.running = nil
 			text, failed := a.runTool(ctx, call)
 			a.req.Messages = append(a.req.Messages, assistant.Message{Role: assistant.RoleTool, ToolCallID: call.ID, Content: text})
-			status := "done"
+			use := &AssistantToolUse{Name: call.Name, Status: "done"}
 			if failed {
-				status = "failed"
+				use.Status, use.Reason = "failed", firstLine(text)
 			}
-			return AssistantChatEvent{Tool: &AssistantToolUse{Name: call.Name, Status: status}}, true
+			return AssistantChatEvent{Tool: use}, true
 		}
 		if len(a.queue) > 0 {
 			call := a.queue[0]
 			a.queue = a.queue[1:]
+			// A call the model already made, word for word, is answered without
+			// being run or shown: the result is above it, unchanged, and a model
+			// that is told so moves on where one shown the same failure four times
+			// did not. It costs none of the calls an answer may make.
+			if _, again := a.made[callKey(call)]; again {
+				told := fenceToolResult(call.Name, "You already called "+call.Name+" with these arguments in this answer; its result is above and has not changed. Do not call it again.")
+				a.req.Messages = append(a.req.Messages, assistant.Message{Role: assistant.RoleTool, ToolCallID: call.ID, Content: told})
+				continue
+			}
 			a.running = &call
 			return AssistantChatEvent{Tool: &AssistantToolUse{Name: call.Name, Status: "running"}}, true
 		}
@@ -210,6 +235,10 @@ func (a *AssistantChat) Next(ctx context.Context) (AssistantChatEvent, bool) {
 			a.usage.Reported = a.usage.Reported || ev.Usage.Reported
 		case ev.Delta != "":
 			a.text.WriteString(ev.Delta)
+			if a.gap {
+				a.gap = false
+				return AssistantChatEvent{Delta: "\n\n" + ev.Delta}, true
+			}
 			return AssistantChatEvent{Delta: ev.Delta}, true
 		case ev.Done:
 			_ = a.stream.Close()
@@ -242,6 +271,7 @@ func (a *AssistantChat) takeRound() {
 		Role: assistant.RoleAssistant, Content: a.text.String(), ToolCalls: slices.Clone(a.collected),
 	})
 	a.queue = append(a.queue, a.collected...)
+	a.gap = a.text.Len() > 0 && !strings.HasSuffix(a.text.String(), "\n")
 	// The last round is asked for an answer and not for more looking.
 	if a.rounds >= assistantMaxRounds {
 		a.req.Tools = nil
@@ -272,7 +302,37 @@ func (a *AssistantChat) runTool(ctx context.Context, call assistant.ToolCall) (s
 	for i, block := range blocks {
 		blocks[i] = a.hide(block)
 	}
-	return fenceToolResult(call.Name, blocks...), failed
+	text := fenceToolResult(call.Name, blocks...)
+	if a.made == nil {
+		a.made = map[string]string{}
+	}
+	a.made[callKey(call)] = text
+	return text, failed
+}
+
+// callKey is a call by name and arguments, with the arguments' spacing taken
+// out: a model that writes the same call with a space more is asking the same
+// thing.
+func callKey(call assistant.ToolCall) string {
+	var compact bytes.Buffer
+	if json.Compact(&compact, call.Arguments) != nil {
+		return call.Name + " " + string(call.Arguments)
+	}
+	return call.Name + " " + compact.String()
+}
+
+// firstLine is a failed look's reason as the page shows it: the first line of
+// what the tool said, out of its fence, and no longer than a chip can hold.
+func firstLine(fenced string) string {
+	text := fenced
+	if _, after, ok := strings.Cut(text, ">\n"); ok {
+		text = after
+	}
+	text, _, _ = strings.Cut(text, "\n")
+	if r := []rune(text); len(r) > assistantReasonRunes {
+		text = string(r[:assistantReasonRunes-1]) + "\u2026"
+	}
+	return text
 }
 
 // fenceToolResult is what a tool's answer becomes in front of the model: each

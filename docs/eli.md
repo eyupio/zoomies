@@ -115,7 +115,19 @@ will buy for and why one will not, and where each machine got to. That last part
 what lets Eli answer "why is this pool full and not renting?" from the fleet and not
 from a guess. A setting only an administrator can read, such as `provider.enabled`,
 is not something Eli can see, and it is told to say so. When it looks, the panel
-says what it looked at, under the answer.
+says what it looked at, under the answer, and a look that failed says why beside
+its name (a code that is not in the catalog, a route that refused), which is the
+part worth reading. A call Eli makes twice with the same arguments is answered
+from the first without being run or shown again.
+
+Every question also carries the situation: the time, your role (so "ask an
+administrator" is advice Eli knows whether you can act on), and the page you
+asked from. Through a provider that may read the fleet that is the page's path,
+and one line more: how many hosts, pools, runners and jobs there are, and how
+many problems of each severity with their codes. Through a provider that may not,
+it is only the section of the UI ("the hosts page"), and nothing of the fleet.
+Eli is asked to keep its answers short: the answer first, at most one short
+list, no headings and no recap of what it was told.
 
 Eli does not get the tools that change the fleet, and it does not get the ones that
 read a repository's source. It reads as the person asking, through the same routes

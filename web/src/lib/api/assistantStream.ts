@@ -11,7 +11,7 @@
 export type ChatFrame =
   | { kind: 'delta'; text: string }
   | { kind: 'usage'; inputTokens: number; outputTokens: number }
-  | { kind: 'tool'; name: string; status: 'running' | 'done' | 'failed' }
+  | { kind: 'tool'; name: string; status: 'running' | 'done' | 'failed'; reason?: string }
   | {
       kind: 'done';
       provider: string;
@@ -73,7 +73,10 @@ function parseBlock(block: string): ChatFrame | undefined {
       const status = text('status');
       // A status this page does not know is not a look it can show.
       if (status !== 'running' && status !== 'done' && status !== 'failed') return undefined;
-      return { kind, name: text('name'), status };
+      const reason = text('reason');
+      return reason
+        ? { kind, name: text('name'), status, reason }
+        : { kind, name: text('name'), status };
     }
     case 'done': {
       const redacted =

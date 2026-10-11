@@ -14,11 +14,18 @@ import (
 // between requests; the page holds the history and sends it again.
 type assistantChatInput struct {
 	ProviderID string `json:"provider_id"`
-	Messages   []struct {
+	// Page is the path of the page the question was asked from, so the model
+	// knows what "here" is. It is a path and nothing else, or empty.
+	Page     string `json:"page"`
+	Messages []struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	} `json:"messages"`
 }
+
+// assistantPageMaxBytes bounds the page path a chat may name: a route of this
+// UI is far shorter, and the path goes into the prompt as it is.
+const assistantPageMaxBytes = 200
 
 // handleAssistantChat answers a conversation as a stream of Server-Sent Events:
 // `delta` frames carrying text, `tool` frames as Eli looks at the fleet (with
@@ -35,13 +42,18 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	req := controller.AssistantChatRequest{ProviderID: in.ProviderID, OwnerID: s.assistantOwner(r), AllowSubscription: s.isAssistantAdmin(r), Personal: !s.cfg().Security.DisableAuth && strings.Contains(r.URL.Path, "/assistant/personal/")}
+	if in.Page != "" && (!strings.HasPrefix(in.Page, "/") || len(in.Page) > assistantPageMaxBytes || strings.ContainsAny(in.Page, "\n\r")) {
+		unprocessable(w, "page is the path of the page the question is asked from", []fieldError{{"page", "send a path starting with /, at most 200 characters"}})
+		return
+	}
+	req := controller.AssistantChatRequest{ProviderID: in.ProviderID, OwnerID: s.assistantOwner(r), AllowSubscription: s.isAssistantAdmin(r), Personal: !s.cfg().Security.DisableAuth && strings.Contains(r.URL.Path, "/assistant/personal/"), Page: in.Page}
 	// The tools are the person's own: the same routes with the same identity.
 	// Whether the provider may be shown the fleet through them is decided by the
 	// controller, per provider.
 	if id := Identity(r.Context()); id != nil {
 		req.Tools = s.assistantToolbox(r, id)
 		req.UserID = id.UserID
+		req.Role = string(id.Role)
 	}
 	for _, m := range in.Messages {
 		req.Messages = append(req.Messages, controller.AssistantChatMessage{Role: m.Role, Content: m.Content})
@@ -99,7 +111,11 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 			send("error", map[string]string{"message": ev.Err.Error()})
 			return
 		case ev.Tool != nil:
-			if !send("tool", map[string]string{"name": ev.Tool.Name, "status": ev.Tool.Status}) {
+			frame := map[string]string{"name": ev.Tool.Name, "status": ev.Tool.Status}
+			if ev.Tool.Reason != "" {
+				frame["reason"] = ev.Tool.Reason
+			}
+			if !send("tool", frame) {
 				outcome = "abandoned"
 				return
 			}

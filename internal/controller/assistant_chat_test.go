@@ -158,7 +158,10 @@ type fakeBox struct {
 	// blocks is a tool that answers in more than one block, as the ones that
 	// set a runner's words apart from Zoomies' own do.
 	blocks map[string][]string
-	err    error
+	// failures is a tool that answers, but with a failure: what a tool says when
+	// it is asked for something that is not there.
+	failures map[string]string
+	err      error
 }
 
 func (b *fakeBox) Tools() []assistant.Tool { return nil }
@@ -170,7 +173,14 @@ func (b *fakeBox) Call(_ context.Context, name string, _ json.RawMessage) ([]str
 	if blocks, ok := b.blocks[name]; ok {
 		return blocks, false, nil
 	}
+	if why, ok := b.failures[name]; ok {
+		return []string{why}, true, nil
+	}
 	return []string{b.results[name]}, false, nil
+}
+
+func callWith(id, name, args string) assistant.Event {
+	return assistant.Event{ToolCall: &assistant.ToolCall{ID: id, Name: name, Arguments: json.RawMessage(args)}}
 }
 
 func call(id, name string) assistant.Event {
@@ -199,7 +209,8 @@ func TestAModelThatAsksForAToolIsAnsweredAndAskedAgain(t *testing.T) {
 			usage = ev.Usage
 		}
 	}
-	if text.String() != "Let me look. Three runners." {
+	// The second round's words start a paragraph of their own.
+	if text.String() != "Let me look. \n\nThree runners." {
 		t.Errorf("text = %q", text.String())
 	}
 	if !slices.Equal(seen, []string{"fleet_status:running", "fleet_status:done"}) {
@@ -296,10 +307,15 @@ func TestAFailureInALaterRoundEndsTheAnswer(t *testing.T) {
 
 // Asking for one thing at a time is stopped at six rounds as surely as asking
 // for many is stopped at twelve calls, and the answer that ends it is one the
-// model gives without the tools.
+// model gives without the tools. Each round asks for a different page, since
+// the same call twice is answered from the first without being run.
 func TestAModelThatLooksOnceARoundIsStoppedAtSixRounds(t *testing.T) {
 	box := &fakeBox{results: map[string]string{"list_jobs": "[]"}}
-	p := &scriptedProvider{rounds: [][]assistant.Event{{call("c", "list_jobs"), {Done: true}}}}
+	var rounds [][]assistant.Event
+	for i := 0; i <= assistantMaxRounds; i++ {
+		rounds = append(rounds, []assistant.Event{callWith("c", "list_jobs", fmt.Sprintf(`{"page":%d}`, i)), {Done: true}})
+	}
+	p := &scriptedProvider{rounds: rounds}
 	chat := newChat(p, box, "list_jobs")
 	events := drainChat(t, chat)
 	if !events[len(events)-1].Done {
@@ -429,5 +445,73 @@ func TestAnAnswerTheProviderCutEndsSayingSoAndRunsNoHalfWrittenCall(t *testing.T
 	}
 	if len(box.calls) != 0 || len(p.asked) != 1 {
 		t.Errorf("a call from a cut round was run (%v) or the model was asked again (%d)", box.calls, len(p.asked))
+	}
+}
+
+// A model that writes a sentence, looks, and then writes a heading has written
+// two rounds that reach the page as one stream; joined end to end the heading
+// lands in the sentence ("...the snapshot.## What the tools show") and renders
+// as neither. A round that follows words is set off from them by a blank line,
+// and a round that follows nothing, or words that ended on a line, is not.
+func TestARoundThatFollowsWordsStartsOnANewParagraph(t *testing.T) {
+	box := &fakeBox{results: map[string]string{"fleet_status": `{}`}}
+	for _, tc := range []struct{ first, second, want string }{
+		{"I will check the current state.", "## What the tools show", "I will check the current state.\n\n## What the tools show"},
+		{"Looking.\n", "Three runners.", "Looking.\nThree runners."},
+		{"", "Three runners.", "Three runners."},
+	} {
+		p := &scriptedProvider{rounds: [][]assistant.Event{
+			{{Delta: tc.first}, call("c1", "fleet_status"), {Done: true}},
+			{{Delta: tc.second}, {Done: true}},
+		}}
+		var text strings.Builder
+		for _, ev := range drainChat(t, newChat(p, box, "fleet_status")) {
+			text.WriteString(ev.Delta)
+		}
+		if text.String() != tc.want {
+			t.Errorf("%q then %q = %q, want %q", tc.first, tc.second, text.String(), tc.want)
+		}
+		// What the model is told it said is its own words, without the gap.
+		if said := p.asked[1].Messages[1].Content; said != tc.first {
+			t.Errorf("the model was told it said %q, not %q", said, tc.first)
+		}
+	}
+}
+
+// A look that fails is shown with the reason, because "could not look at the
+// catalog" four times in a row told the person nothing, and the reason (a code
+// that is not there, a route that refused) is what they can act on. A call the
+// model has already made, with the same arguments, is not run or shown again:
+// the result is above it, and a model that asks again is told so without it
+// costing one of the calls an answer may make.
+func TestAFailedLookSaysWhyAndARepeatedCallIsAnsweredFromTheFirst(t *testing.T) {
+	box := &fakeBox{failures: map[string]string{"get_catalog": "there is no host.throttle in the catalog; the nearest is host.throttled"}}
+	p := &scriptedProvider{rounds: [][]assistant.Event{
+		{callWith("c1", "get_catalog", `{"code":"host.throttle"}`), {Done: true}},
+		{callWith("c2", "get_catalog", `{"code":"host.throttle"}`), callWith("c3", "get_catalog", `{"code": "host.throttle"}`), {Done: true}},
+		{{Delta: "It is throttled."}, {Done: true}},
+	}}
+	chat := newChat(p, box, "get_catalog")
+	var seen []string
+	for _, ev := range drainChat(t, chat) {
+		if ev.Tool != nil {
+			seen = append(seen, ev.Tool.Status+":"+ev.Tool.Reason)
+		}
+	}
+	if !slices.Equal(seen, []string{"running:", "failed:there is no host.throttle in the catalog; the nearest is host.throttled"}) {
+		t.Errorf("tool events = %q", seen)
+	}
+	if len(box.calls) != 1 {
+		t.Errorf("the box was called %d times for one question asked three times", len(box.calls))
+	}
+	third := p.asked[2].Messages
+	for _, id := range []string{"c2", "c3"} {
+		i := slices.IndexFunc(third, func(m assistant.Message) bool { return m.ToolCallID == id })
+		if i < 0 || !strings.Contains(third[i].Content, "already") {
+			t.Errorf("the model was not told its repeat %s was one: %+v", id, third)
+		}
+	}
+	if chat.calls != 1 {
+		t.Errorf("repeats cost %d calls", chat.calls-1)
 	}
 }

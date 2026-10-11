@@ -74,4 +74,13 @@ func TestAnUnknownCatalogCodeIsSaidToBeUnknown(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "pool.made_up") || out != nil {
 		t.Errorf("out %+v err %v", out, err)
 	}
+	// A code that is nearly right (a letter short, a family it knows) is told the
+	// codes of that family, so the next call is the right one and not a guess.
+	if !strings.Contains(err.Error(), "pool.no_host") || !strings.Contains(err.Error(), "pool.minimum_overcharges") || strings.Contains(err.Error(), "ci.no_timeout") {
+		t.Errorf("the family's codes are not offered: %v", err)
+	}
+	_, err = kennelCall(t, kennelTool(t, "get_catalog").call, api, `{"code":"nothing.like_it"}`)
+	if err == nil || !strings.Contains(err.Error(), "without arguments") {
+		t.Errorf("a code of no known family is not sent to the index: %v", err)
+	}
 }

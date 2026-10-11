@@ -3155,7 +3155,8 @@ export interface paths {
          *     `{"text": ...}` as the model writes, one `usage` frame with
          *     `{"input_tokens", "output_tokens"}` when the provider reports them (summed over
          *     every round when the assistant looked at the fleet), `tool` frames with
-         *     `{"name", "status"}` as it looks (`running`, then `done` or `failed`), and a final
+         *     `{"name", "status"}` as it looks (`running`, then `done` or `failed`, a failed look
+         *     carrying `reason`, one line saying why), and a final
          *     `done` frame with the provider's name and the model, `fleet_access` (whether the
          *     fleet could be read through this provider), the `tools` it used, `cut` (true when
          *     the provider stopped the answer at its output ceiling before the model had
@@ -3360,7 +3361,8 @@ export interface paths {
          * @description Answers a conversation as a `text/event-stream`: `delta` frames carrying
          *     `{"text": ...}` as the model writes, one `usage` frame with
          *     `{"input_tokens", "output_tokens"}` when the provider reports them, `tool` frames
-         *     reporting read-only fleet lookups when enabled, and a final `done` frame with
+         *     reporting read-only fleet lookups when enabled (a failed look carries `reason`,
+         *     one line saying why), and a final `done` frame with
          *     the provider's name, model, `fleet_access`, `tools`, `redacted` (how many
          *     `credentials` and `emails` were replaced with a marker before the model saw the
          *     latest question and what the tools returned), `cut` (true when the provider
@@ -9371,6 +9373,13 @@ export interface components {
         AssistantChatRequest: {
             /** @description The provider to ask. Omit for the default. A disabled provider is not one to ask. */
             provider_id?: string;
+            /**
+             * @description The path of the page the question is asked from, such as `/hosts/host_x`, so the
+             *     model knows what "here" is. A path starting with `/`, or omitted. Through a provider
+             *     that may read the fleet it goes as it is; through one that may not, only the section
+             *     (`the hosts page`), so nothing of the fleet reaches a provider the switch is off for.
+             */
+            page?: string;
             /** @description The conversation so far, oldest first, ending in a `user` message. At most 40 messages, 8 KiB each and 32 KiB in all. */
             messages: {
                 /** @enum {string} */

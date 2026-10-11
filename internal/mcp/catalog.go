@@ -94,6 +94,23 @@ func (c *catalog) entry(code string) (json.RawMessage, bool) {
 	return nil, false
 }
 
+// family is every code that shares a code's prefix before its first dot, in
+// order: what to offer in place of a code that is not there.
+func (c *catalog) family(code string) []string {
+	prefix, _, ok := strings.Cut(code, ".")
+	if !ok || prefix == "" {
+		return nil
+	}
+	var out []string
+	for _, e := range c.entries {
+		if strings.HasPrefix(e.ID, prefix+".") {
+			out = append(out, e.ID)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func catalogTools() []*tool {
 	return []*tool{
 		{
@@ -131,6 +148,12 @@ func getCatalog(ctx context.Context, c API, raw json.RawMessage) ([]Content, err
 	case a.Code != "":
 		entry, ok := cat.entry(a.Code)
 		if !ok {
+			// A code one letter off is answered with its family's codes, so the
+			// next call is the right one; a model shown "no such code" alone
+			// guessed again, and again.
+			if family := cat.family(a.Code); len(family) > 0 {
+				return nil, fmt.Errorf("there is no %s in the catalog; the codes that start the same way are %s", a.Code, strings.Join(family, ", "))
+			}
 			return nil, fmt.Errorf("there is no %s in the catalog; get_catalog without arguments lists every code", a.Code)
 		}
 		return jsonContent(entry), nil
