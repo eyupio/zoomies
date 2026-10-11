@@ -328,6 +328,12 @@ func Join(ctx context.Context, opts JoinOptions) error {
 	if kind != ServiceSystemd && kind != ServiceLaunchd && kind != ServiceWindows {
 		u.note("no service manager here; start the agent yourself with:")
 		u.note("  " + det.BinaryPath + " agent --config " + configFile)
+		if runningUnderWSL() {
+			u.blank()
+			for _, l := range wslServiceNotes() {
+				u.note(l)
+			}
+		}
 		return nil
 	}
 
@@ -409,6 +415,21 @@ func Join(ctx context.Context, opts JoinOptions) error {
 
 	u.note("It should be on the Hosts page of " + opts.ControllerURL + " within a heartbeat.")
 	return nil
+}
+
+// wslServiceNotes says why an agent started by hand in a WSL distro stops with
+// its terminal, and the two changes that keep it running. Turning systemd on is
+// optional: without it the agent still works, it just lives and dies with the
+// shell that started it.
+func wslServiceNotes() []string {
+	return []string{
+		"this is a WSL distro without systemd, so the agent stops when its terminal closes.",
+		"to keep it running, optionally turn systemd on: add this to /etc/wsl.conf",
+		"  [boot]",
+		"  systemd=true",
+		"then run `wsl --shutdown` from Windows, reopen the distro and run the join again with a new token.",
+		"WSL can still stop an idle distro; docs/hosts-and-pools.md (A host in WSL2) says how to keep it up.",
+	}
 }
 
 // reportedSize renders what the agent measured, or says plainly that it did

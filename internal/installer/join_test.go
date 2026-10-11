@@ -383,3 +383,28 @@ func TestJoinRefusesAHostNameTheControllerWouldRefuseBeforeContactingIt(t *testi
 		})
 	}
 }
+
+// A WSL distro is where an operator most often starts the agent by hand and
+// loses it with the terminal, so the kernel strings both WSL generations report
+// have to be recognised, and an ordinary Linux kernel must not be.
+func TestOSReleaseIsWSLRecognisesBothGenerationsOfWSL(t *testing.T) {
+	for release, want := range map[string]bool{
+		"5.15.153.1-microsoft-standard-WSL2\n": true,
+		"4.4.0-19041-Microsoft\n":              true,
+		"6.8.0-45-generic\n":                   false,
+		"":                                     false,
+	} {
+		if got := osReleaseIsWSL(release); got != want {
+			t.Errorf("osReleaseIsWSL(%q) = %v, want %v", release, got, want)
+		}
+	}
+}
+
+func TestWSLServiceNotesNameTheOptionalSystemdSetting(t *testing.T) {
+	joined := strings.Join(wslServiceNotes(), "\n")
+	for _, want := range []string{"optionally", "/etc/wsl.conf", "systemd=true", "wsl --shutdown"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the WSL notes do not mention %q:\n%s", want, joined)
+		}
+	}
+}
