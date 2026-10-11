@@ -24,6 +24,20 @@
    * ------------------------------------------------------------------ */
   --z-brand-black: #080808;
   --z-brand-white: #ffffff;
+  /* Original black artwork on a permanent white inset, in either theme. */
+  --z-logo-inset-border: #e4e6ea;
+  --z-logo-inset-radius: 22px;
+  /* Full atmospheric artwork is shared at every size. The logo remains a
+     separate original SVG above it; these files contain only the backdrop. */
+  --z-logo-scene-scale: 1.6;
+  --z-logo-edge-fade:
+    linear-gradient(to right, transparent, #000 28%, #000 72%, transparent),
+    linear-gradient(to bottom, transparent, #000 28%, #000 72%, transparent);
+  --z-logo-scene-padding: 18.75%;
+  --z-logo-starlight: url('/brand/backdrops/starlight.webp');
+  --z-logo-pearl: url('/brand/backdrops/pearl.webp');
+  --z-logo-orbital: url('/brand/backdrops/orbital.webp');
+  --z-logo-inset-shadow: 0 2px 4px rgb(0 0 0 / 0.08), 0 14px 32px rgb(0 0 0 / 0.14);
   --z-brand-cool-grey: #b9bcc2;
   --z-brand-mid-grey: #666a73;
   --z-brand-runner-blue: #2f80ed;

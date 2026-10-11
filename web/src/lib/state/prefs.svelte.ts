@@ -17,6 +17,13 @@ import {
   type StatusStyle,
 } from './status-style';
 
+import {
+  DEFAULT_LOGO_TREATMENT,
+  isLogoTreatment,
+  resolveLogoTreatment,
+  type LogoTreatment,
+} from './logo-treatment';
+
 const PREFS_KEY = 'zoomies.prefs';
 const PREFS_ACCOUNT_KEY = 'zoomies.prefs.account';
 /** Read by the inline script in index.html before first paint. */
@@ -164,6 +171,7 @@ interface StoredPrefs {
    * and icons -- until an operator chooses otherwise in Appearance.
    */
   statusStyle?: StatusStyle;
+  logoTreatment?: LogoTreatment;
 }
 
 /** The quick ranges the activity matrix offers, as the buttons name them. */
@@ -219,6 +227,7 @@ class Prefs {
   #gridView = $state<GridView>(DEFAULT_GRID_VIEW);
   #feed = $state<Record<string, boolean>>({});
   #statusStyle = $state<StatusStyle>(DEFAULT_STATUS_STYLE);
+  #logoTreatment = $state<LogoTreatment>(DEFAULT_LOGO_TREATMENT);
   #accountSync = false;
   #accountSave: ReturnType<typeof setTimeout> | null = null;
 
@@ -247,6 +256,7 @@ class Prefs {
       : DEFAULT_GRID_VIEW;
     this.#feed = stored.feed ?? {};
     this.#statusStyle = resolveStatusStyle(stored);
+    this.#logoTreatment = resolveLogoTreatment(stored.logoTreatment);
     this.#applyNav();
   }
 
@@ -498,6 +508,16 @@ class Prefs {
     this.#persist();
   }
 
+  get logoTreatment(): LogoTreatment {
+    return this.#logoTreatment;
+  }
+
+  set logoTreatment(value: LogoTreatment) {
+    if (!isLogoTreatment(value)) return;
+    this.#logoTreatment = value;
+    this.#persist();
+  }
+
   get statusStyle(): StatusStyle {
     return this.#statusStyle;
   }
@@ -538,6 +558,7 @@ class Prefs {
         feed: this.#feed,
         quirkyStatus: this.quirkyStatus,
         statusStyle: this.#statusStyle,
+        logoTreatment: this.#logoTreatment,
       } satisfies StoredPrefs),
     );
     this.#scheduleAccountSave();

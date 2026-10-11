@@ -8,9 +8,7 @@ description: >-
 
 # Zoomies brand
 
-<img class="zoomies-logo zoomies-logo--light" src="../brand/logo-black-transparent.svg" alt="The Zoomies logo: a black-and-white cocker spaniel running inside a circular swish, above the Zoomies wordmark" width="360">
-
-<img class="zoomies-logo zoomies-logo--dark" src="../brand/logo-white-transparent.svg" alt="Zoomies: self-hosted Git runners" width="360">
+<img class="zoomies-brand-original" src="../brand/logo-black-transparent.svg" alt="The Zoomies logo: a black-and-white cocker spaniel running inside a circular swish, above the Zoomies wordmark" width="360">
 
 The identity is a fast-moving black-and-white cocker spaniel running inside a
 circular swish, paired with the Zoomies wordmark. A dog doing zoomies in
@@ -64,9 +62,9 @@ available space; it is not a choice between interchangeable logos.
 
 | File | Use |
 | --- | --- |
-| `brand/logo-master-dark.png` | Primary full logo on Zoomies Black or another dark ground |
+| `brand/logo-black-transparent.svg` | Primary full logo on the selected pale backdrop in both themes |
 | `brand/logo-light-background.png` | Primary full logo on white or a very light ground |
-| `brand/logo-white-transparent.png` | Transparent white primary logo on a dark or coloured ground |
+| `brand/logo-white-transparent.png` | Legacy white export, retained for compatibility |
 | `brand/mark-dark.png`, `brand/mark-white-transparent.png` | Running spaniel emblem where the name is already visible |
 | `brand/paw-swish-black.png`, `brand/paw-swish-white.png` | Favicons and equivalent tiny UI marks from 16–64px only |
 | `brand/wordmark-dark.png`, `brand/wordmark-white-transparent.png` | The wordmark alone |
@@ -79,9 +77,18 @@ actually serves: `favicon.ico` (16/32/48), `favicon-16.png`, `favicon-32.png`,
 `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, the dedicated
 `maskable-icon-512.png`, and the web UI assets under `brand/`.
 
-The app serves the full logo and emblem as SVG paths. Black artwork is used
-on light surfaces and white on dark surfaces. The sign-in brand panel stays
-dark and always uses white artwork. Transparent PNG exports are also supplied.
+The app serves the full logo and emblem as SVG paths. It keeps the original
+black artwork on a pale backdrop in both themes. Settings, Appearance offers
+**Starlight** (the default), **Pearl veil**, **Orbital haze**, **White square** and
+**White circle**. The selection stays in this browser, survives sign-out and
+applies to the main logo, including the login screen on portrait phones.
+Paw icons retain their original appearance, without a decorative backdrop.
+The first three use detailed atmospheric artwork: textured pearl mist, a dense
+star field and luminous orbital trails. The lossless WebP backdrops are served
+locally from `brand/backdrops/` and remain separate from the original logo.
+Every size of the main logo uses the same artwork. The last two use simple white insets.
+No logo animation or remote asset request is needed.
+The existing white assets remain available for compatibility.
 
 | Transparent artwork | Formats |
 | --- | --- |
@@ -139,33 +146,27 @@ one: a badge in different colours on different READMEs is not a brand.
 
 The full primary logo appears on the sign-in, first-run, boot and connection
 failure screens (the screens that open the product) and it is given room on
-them: 260px on the sign-in page, about 300px on the first-run screen, 250px on
-the two transient ones, and never below the 220px minimum. The artwork follows the surface colour and is capped at the width of its container, so a phone
-shrinks the lockup rather than overflowing. The artwork carries its own clear
+them: a nominal 220px on the sign-in page, plus room for its atmospheric backdrop.
+The artwork keeps its black colouring and is capped at the width of its
+container, so a phone does not overflow. The artwork carries its own clear
 space, so the canvas is deliberately larger than the dog inside it; that padding
 is part of the supplied file and is not cropped away.
 
-![The sign-in page: a Zoomies Black panel on the left holding the lockup, a one-line description, three facts and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-dark.webp#only-dark){ .zoomies-shot }
-![The sign-in page: a Zoomies Black panel on the left holding the lockup, a one-line description, three facts and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-light.webp#only-light){ .zoomies-shot }
+![The sign-in page: a Zoomies Black panel on the left holding the lockup, a short introduction and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-dark.webp#only-dark){ .zoomies-shot }
+![The sign-in page: a Zoomies Black panel on the left holding the lockup, a short introduction and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-light.webp#only-light){ .zoomies-shot }
 
 The sign-in page is the one screen where the brand gets a panel rather than a
 shape. It is the page met by people who did not install the controller
 (somebody sent its address by the colleague who did) so the left of it is
 Zoomies Black in both themes and says what they are looking at: the lockup, a
-one-line description, three facts true of every installation, and links to
+short introduction and links to
 [zoomies.sh](https://zoomies.sh), the source on GitHub and
-[EyUp.io](https://eyup.io). The panel *is* the holding shape, so the lockup sits
-straight on it, pulled out by exactly its artwork's padding so the dog lines up
-with the text beneath it; the clear space moves with the artwork and nothing
-enters it. The faint rings in the panel's far corner are the circular motion
-path, drawn out past the edge so only an arc of it shows, with one stroke of
-Runner Blue, decoration on the ground, well away from the artwork, which
-carries no texture of its own. The text on the panel uses the fixed
-`--z-panel-*` tokens rather than the theme's, because the panel does not change
-with the theme and the light theme's greys fail on black.
+[EyUp.io](https://eyup.io). The original black artwork uses the backdrop selected in Appearance. The
+brand panel stays dark, while the form follows the selected theme. The panel
+uses fixed `--z-panel-*` text colours to remain readable in either theme.
 
-On a phone the panel comes apart: the lockup becomes a band above the form at
-its 220px minimum, and the links move below the form in the theme's own
+On a phone the panel comes apart: the full lockup and its selected backdrop stay above the form,
+scaling together to fit narrow screens, and the links move below the form in the theme's own
 colours. The first-run screen stays a card. Only the person who has just
 installed the controller ever sees it, and they already know what it is.
 
@@ -175,8 +176,10 @@ and the page that is about the product rather than about the fleet. The
 paw/swish carries everything up to its 64px maximum: the navbar, where the
 detailed dog does not read clearly, and genuinely tiny placements such as the
 mobile top bar, page footer and command palette.
-Both use transparent black artwork in the light theme and white in the dark
-theme. The sign-in panel is always dark and keeps the white full logo.
+The running-spaniel emblem keeps the original black artwork on the selected
+pale backdrop in either theme. Paw icons keep the original black variant in
+light mode and the white variant in dark mode, with no backdrop. The sign-in
+panel stays dark and uses the same saved treatment for the main logo.
 
 Once somebody is signed in, the identity is carried in these quieter places:
 
@@ -232,8 +235,8 @@ The treatment lives in `overrides/partials/animated-logo.html`,
 
 **Do**
 
-* Use the dark master on dark surfaces.
-* Use the white knockout over dark photography or a coloured UI.
+* Use the original black artwork on the selected pale backdrop in both UI themes.
+* Keep the detailed atmospheric backdrop separate from the logo itself.
 * Use the original standalone dog for avatars, touch icons, PWA icons and social artwork.
 * Use the paw/swish only for favicons and equivalent tiny UI marks.
 * Keep every mark's supplied swish and safe padding intact.
@@ -242,8 +245,8 @@ The treatment lives in `overrides/partials/animated-logo.html`,
 
 * Stretch or skew the artwork.
 * Recolour any part of the dog.
-* Add a shadow, gradient or glow.
-* Put the dark master on a busy background.
+* Apply a shadow, gradient, glow or filter to the logo itself.
+* Put the black artwork directly on a dark background without its pale backdrop.
 * Rotate the mark.
 * Promote the paw/swish into a primary or social logo.
 

@@ -92,7 +92,7 @@ const SHOTS = [
       // A square named for a weekday is the year's grid having arrived; the
       // hourly one it replaces names a time of day.
       await matrix
-        .getByRole('gridcell', { name: /^\w+day \d/ })
+        .getByRole('gridcell', { name: /^\w+day,? \d/ })
         .first()
         .waitFor();
       // The newest square with jobs in it is the one tab stop; selecting it
@@ -424,7 +424,7 @@ const SHOTS = [
   {
     name: 'sign-in',
     path: '/login',
-    heading: 'Sign in',
+    heading: 'Sign in to Zoomies',
     signedOut: true,
     device: { viewport: DESKTOP, deviceScaleFactor: SCALE },
   },

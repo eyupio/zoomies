@@ -18,6 +18,9 @@
   import { STATUS_STYLE_OPTIONS, type StatusStyle } from '$lib/state/status-style';
   import { theme, THEME_OPTIONS } from '$lib/state/theme.svelte';
   import type { ThemeChoice } from '$lib/state/theme.svelte';
+  import Logo from '$lib/components/Logo.svelte';
+  import Select from '$lib/components/Select.svelte';
+  import { LOGO_TREATMENT_OPTIONS, type LogoTreatment } from '$lib/state/logo-treatment';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Segmented from '$lib/components/Segmented.svelte';
   import Switch from '$lib/components/Switch.svelte';
@@ -33,12 +36,16 @@
     { value: 'cards', label: 'Cards', name: 'Each row is a card with a line per value' },
   ];
 
+  const logoDescription = $derived(
+    LOGO_TREATMENT_OPTIONS.find((option) => option.value === prefs.logoTreatment)?.description,
+  );
+
   const seconds = Math.round(CLOCK_INTERVAL_MS / 1000);
 </script>
 
 <PageHeader
   title="Appearance"
-  subtitle="Theme and navigation stay in this browser. Table widths and column order follow your signed-in account."
+  subtitle="Theme, logo style and navigation stay in this browser. Table widths and column order follow your signed-in account."
 />
 
 <div class="settings">
@@ -56,6 +63,30 @@
       label="Theme"
       onchange={(value) => theme.set(value as ThemeChoice)}
     />
+  </div>
+
+  <div class="setting logo-setting">
+    <div class="text">
+      <label class="label" for="logo-treatment">Logo style</label>
+      <p class="description" id="logo-treatment-description">
+        Starlight is the default. This choice applies to the main Zoomies logo, including sign-in on
+        a phone, and stays in this browser after you sign out. Paw icons keep their original
+        appearance. The black logo artwork is the same in every style.
+      </p>
+      <div class="logo-select">
+        <Select
+          id="logo-treatment"
+          options={LOGO_TREATMENT_OPTIONS}
+          value={prefs.logoTreatment}
+          describedBy="logo-treatment-description"
+          onchange={(value) => (prefs.logoTreatment = value as LogoTreatment)}
+        />
+      </div>
+      <p class="description" aria-live="polite">{logoDescription}</p>
+    </div>
+    <div class="logo-preview" aria-label="Logo style preview">
+      <Logo variant="lockup" size={71} label="Zoomies logo preview" />
+    </div>
   </div>
 
   <div class="setting">
@@ -154,6 +185,28 @@
   .setting > :global(:last-child) {
     flex: none;
     margin-top: var(--z-nudge-1);
+  }
+  .logo-setting {
+    align-items: center;
+  }
+  .logo-select {
+    max-width: var(--z-width-dialog-sm);
+    margin-block: var(--z-space-4);
+  }
+  .logo-preview {
+    display: grid;
+    place-items: center;
+    padding: var(--z-space-2);
+    overflow: hidden;
+    border-radius: var(--z-radius-lg);
+    background: var(--z-panel-bg);
+  }
+  @media (max-width: 768px) {
+    .logo-preview {
+      align-self: center;
+      padding: var(--z-space-2);
+      max-width: 100%;
+    }
   }
   .note {
     margin: var(--z-space-4) var(--z-space-1) 0;
