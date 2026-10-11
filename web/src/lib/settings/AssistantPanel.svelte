@@ -33,6 +33,7 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Switch from '$lib/components/Switch.svelte';
   import AssistantEliCard from './AssistantEliCard.svelte';
+  import AssistantStyleCard from './AssistantStyleCard.svelte';
   import AssistantProviderCard from './AssistantProviderCard.svelte';
   import AssistantProviderForm from './AssistantProviderForm.svelte';
 
@@ -199,6 +200,7 @@
 
 {#if !loading && scope === 'personal'}
   <AssistantEliCard {providers} />
+  <AssistantStyleCard />
 {/if}
 
 {#if session.can('admin')}

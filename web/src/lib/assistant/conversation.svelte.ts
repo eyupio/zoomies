@@ -10,6 +10,7 @@
 import { ApiError, streamAssistantChat } from '$lib/api/client';
 import { supportHint } from '$lib/errors';
 import { router } from '$lib/router';
+import { prefs } from '$lib/state/prefs.svelte';
 import { hiddenNote } from './redaction';
 import { splitFollowUps, type EliContext, type Suggestion } from './prompts';
 
@@ -99,8 +100,10 @@ export class Conversation {
       await streamAssistantChat(
         {
           messages: [...history, { role: 'user', content: question }],
-          // Where the question was asked from, so "here" means something.
+          // Where the question was asked from, so "here" means something, and
+          // how this person wants the answer written.
           page: router.pathname,
+          style: prefs.eliStyle,
           ...(this.#provider ? { provider_id: this.#provider } : {}),
         },
         (frame) => {

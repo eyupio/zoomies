@@ -9380,12 +9380,30 @@ export interface components {
              *     (`the hosts page`), so nothing of the fleet reaches a provider the switch is off for.
              */
             page?: string;
+            style?: components["schemas"]["AssistantStyle"];
             /** @description The conversation so far, oldest first, ending in a `user` message. At most 40 messages, 8 KiB each and 32 KiB in all. */
             messages: {
                 /** @enum {string} */
                 role: "user" | "assistant";
                 content: string;
             }[];
+        };
+        /**
+         * @description How the person wants Eli's answers written. It is the person's choice, kept in
+         *     their preferences and sent with each question, not the provider's: it is about
+         *     who reads the answer. Empty fields take the default.
+         */
+        AssistantStyle: {
+            /**
+             * @description `short` (the default) is the answer and what to do, under about two hundred words with no headings; `medium` adds the reasons and the evidence, around four hundred words; `long` is the full picture, with what was ruled out and headings where they help.
+             * @enum {string}
+             */
+            length?: "" | "short" | "medium" | "long";
+            /**
+             * @description `plain` is for someone who runs the fleet but is not a CI specialist, terms explained and no commands unless asked; `balanced` (the default) is for an operator, plain words with the exact names of what to act on; `technical` is for an engineer, exact names and figures and no explanation of common terms.
+             * @enum {string}
+             */
+            tone?: "" | "plain" | "balanced" | "technical";
         };
         AssistantProvider: {
             id: string;
@@ -9747,6 +9765,7 @@ export interface components {
             table_layouts?: {
                 [key: string]: components["schemas"]["TableLayoutPreference"];
             };
+            assistant?: components["schemas"]["AssistantStyle"];
         };
         ProblemDismissal: {
             /** @description The UI's identity for one problem, or `type:<code>` for every problem of one kind. Opaque to the controller. */

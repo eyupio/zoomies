@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/controller"
@@ -16,11 +17,35 @@ type assistantChatInput struct {
 	ProviderID string `json:"provider_id"`
 	// Page is the path of the page the question was asked from, so the model
 	// knows what "here" is. It is a path and nothing else, or empty.
-	Page     string `json:"page"`
+	Page string `json:"page"`
+	// Style is how the person wants the answer written, from their settings.
+	Style    *assistantStyleInput `json:"style"`
 	Messages []struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	} `json:"messages"`
+}
+
+// assistantStyleInput is a person's answer style as the UI sends it, with the
+// chat and in their preferences. Empty is the default.
+type assistantStyleInput struct {
+	Length string `json:"length,omitempty"`
+	Tone   string `json:"tone,omitempty"`
+}
+
+// validate says which part of a style this build does not know, or nothing.
+func (in *assistantStyleInput) validate(field string) []fieldError {
+	if in == nil {
+		return nil
+	}
+	var errs []fieldError
+	if in.Length != "" && !slices.Contains(controller.AssistantLengths, in.Length) {
+		errs = append(errs, fieldError{field + ".length", "one of " + strings.Join(controller.AssistantLengths, ", ")})
+	}
+	if in.Tone != "" && !slices.Contains(controller.AssistantTones, in.Tone) {
+		errs = append(errs, fieldError{field + ".tone", "one of " + strings.Join(controller.AssistantTones, ", ")})
+	}
+	return errs
 }
 
 // assistantPageMaxBytes bounds the page path a chat may name: a route of this
@@ -46,7 +71,14 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		unprocessable(w, "page is the path of the page the question is asked from", []fieldError{{"page", "send a path starting with /, at most 200 characters"}})
 		return
 	}
+	if errs := in.Style.validate("style"); len(errs) > 0 {
+		unprocessable(w, "style names an answer length or tone this build does not have", errs)
+		return
+	}
 	req := controller.AssistantChatRequest{ProviderID: in.ProviderID, OwnerID: s.assistantOwner(r), AllowSubscription: s.isAssistantAdmin(r), Personal: !s.cfg().Security.DisableAuth && strings.Contains(r.URL.Path, "/assistant/personal/"), Page: in.Page}
+	if in.Style != nil {
+		req.Style = controller.AssistantStyle{Length: in.Style.Length, Tone: in.Style.Tone}
+	}
 	// The tools are the person's own: the same routes with the same identity.
 	// Whether the provider may be shown the fleet through them is decided by the
 	// controller, per provider.

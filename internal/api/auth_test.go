@@ -883,3 +883,23 @@ func TestForwardedProtoIsBelievedOnlyFromATrustedProxy(t *testing.T) {
 		}
 	})
 }
+
+// How Eli answers is the person's choice, so it is kept with the account like
+// a table layout: chosen on the desk, it holds on the phone. A value this build
+// does not know is refused rather than stored for a later build to trip on.
+func TestTheAnswerStyleFollowsTheSignedInAccount(t *testing.T) {
+	h := newHarness(t)
+	_, cookie := h.user("alice", store.RoleViewer)
+	put := h.do(request{method: http.MethodPut, path: "/api/v1/auth/preferences", cookie: cookie,
+		body: map[string]any{"assistant": map[string]any{"length": "medium", "tone": "plain"}}})
+	put.mustStatus(t, http.StatusOK, "save the answer style")
+	got := h.do(request{method: http.MethodGet, path: "/api/v1/auth/preferences", cookie: cookie})
+	got.mustStatus(t, http.StatusOK, "read it back")
+	style, _ := got.json(t)["assistant"].(map[string]any)
+	if style["length"] != "medium" || style["tone"] != "plain" {
+		t.Errorf("assistant = %v", style)
+	}
+	bad := h.do(request{method: http.MethodPut, path: "/api/v1/auth/preferences", cookie: cookie,
+		body: map[string]any{"assistant": map[string]any{"length": "epic"}}})
+	bad.mustStatus(t, http.StatusUnprocessableEntity, "a length this build does not know")
+}

@@ -311,6 +311,9 @@ type tableLayoutPreference struct {
 
 type userPreferences struct {
 	TableLayouts map[string]tableLayoutPreference `json:"table_layouts,omitempty"`
+	// Assistant is how Eli answers this person: how long, and for whom. It is
+	// here, with the account, so a choice made at the desk holds on the phone.
+	Assistant *assistantStyleInput `json:"assistant,omitempty"`
 }
 
 // handleGetPreferences returns choices belonging to this account rather than
@@ -351,6 +354,10 @@ func (s *Server) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(preferences.TableLayouts) > 100 {
 		unprocessable(w, "too many table layouts", nil)
+		return
+	}
+	if errs := preferences.Assistant.validate("assistant"); len(errs) > 0 {
+		unprocessable(w, "assistant names an answer length or tone this build does not have", errs)
 		return
 	}
 	for tableID, layout := range preferences.TableLayouts {

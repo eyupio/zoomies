@@ -614,3 +614,34 @@ func TestAFailedLookCarriesItsReasonToThePage(t *testing.T) {
 		t.Errorf("the failed look does not say why: %v", failed)
 	}
 }
+
+// The person chooses how Eli answers: how long, and for whom. The default is
+// short and for an operator, because the answer most people want fits on a
+// phone; someone who wants the reasons, or the engineer's version, says so once
+// and every question after carries it. A style this build does not know is
+// refused, not quietly dropped, so a misspelt setting is noticed.
+func TestThePersonsAnswerStyleShapesThePrompt(t *testing.T) {
+	h, cookie, srv := chatHarness(t)
+	ask := func(style map[string]any) string {
+		t.Helper()
+		body := chatBody("user", "Why is the queue slow?")
+		if style != nil {
+			body["style"] = style
+		}
+		h.do(request{method: http.MethodPost, path: assistantChat, cookie: cookie, readStream: true, body: body}).mustStatus(t, http.StatusOK, "asking")
+		reqs := chatRequests(srv)
+		return systemPrompt(t, reqs[len(reqs)-1].Body)
+	}
+	if prompt := ask(nil); !strings.Contains(prompt, "two hundred words") || !strings.Contains(prompt, "operator") {
+		t.Errorf("the default is not short and for an operator:\n%s", prompt)
+	}
+	if prompt := ask(map[string]any{"length": "long", "tone": "technical"}); !strings.Contains(prompt, "full picture") || !strings.Contains(prompt, "engineer") || strings.Contains(prompt, "two hundred words") {
+		t.Errorf("long and technical did not shape the prompt:\n%s", prompt)
+	}
+	if prompt := ask(map[string]any{"length": "medium", "tone": "plain"}); !strings.Contains(prompt, "reasons") || !strings.Contains(prompt, "not a CI specialist") {
+		t.Errorf("medium and plain did not shape the prompt:\n%s", prompt)
+	}
+	body := chatBody("user", "Why?")
+	body["style"] = map[string]any{"length": "essay"}
+	h.do(request{method: http.MethodPost, path: assistantChat, cookie: cookie, body: body}).mustStatus(t, http.StatusUnprocessableEntity, "a length this build does not know")
+}

@@ -126,8 +126,16 @@ asked from. Through a provider that may read the fleet that is the page's path,
 and one line more: how many hosts, pools, runners and jobs there are, and how
 many problems of each severity with their codes. Through a provider that may not,
 it is only the section of the UI ("the hosts page"), and nothing of the fleet.
-Eli is asked to keep its answers short: the answer first, at most one short
-list, no headings and no recap of what it was told.
+How much Eli says, and for whom, is your choice, under *How Eli answers* in
+Settings, Eli AI Assistant, My providers. The default is short: the answer
+first, at most one short list, under about two hundred words, no headings and
+no recap of what it was told. Medium adds the reasons and the evidence; long is
+the full picture, including what Eli ruled out. The voice is plain (terms
+explained, no commands unless asked), balanced (plain words with the exact names
+of what to act on, the default) or technical (exact names and figures, common
+terms not explained). The choice is kept with your account, so it holds on the
+phone as at the desk, and Eli gives more when a question asks for it, whatever
+it says.
 
 Eli does not get the tools that change the fleet, and it does not get the ones that
 read a repository's source. It reads as the person asking, through the same routes

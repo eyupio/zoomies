@@ -16,6 +16,7 @@ import {
   resolveStatusStyle,
   type StatusStyle,
 } from './status-style';
+import { DEFAULT_ELI_STYLE, resolveEliStyle, type EliStyle } from './eli-style';
 
 const PREFS_KEY = 'zoomies.prefs';
 const PREFS_ACCOUNT_KEY = 'zoomies.prefs.account';
@@ -164,6 +165,11 @@ interface StoredPrefs {
    * and icons -- until an operator chooses otherwise in Appearance.
    */
   statusStyle?: StatusStyle;
+  /**
+   * How Eli answers: how long, and for whom. Kept here so the choice is made
+   * once, and synced to the account so it holds on the phone as at the desk.
+   */
+  eliStyle?: Partial<EliStyle>;
 }
 
 /** The quick ranges the activity matrix offers, as the buttons name them. */
@@ -219,6 +225,7 @@ class Prefs {
   #gridView = $state<GridView>(DEFAULT_GRID_VIEW);
   #feed = $state<Record<string, boolean>>({});
   #statusStyle = $state<StatusStyle>(DEFAULT_STATUS_STYLE);
+  #eliStyle = $state<EliStyle>(DEFAULT_ELI_STYLE);
   #accountSync = false;
   #accountSave: ReturnType<typeof setTimeout> | null = null;
 
@@ -247,7 +254,18 @@ class Prefs {
       : DEFAULT_GRID_VIEW;
     this.#feed = stored.feed ?? {};
     this.#statusStyle = resolveStatusStyle(stored);
+    this.#eliStyle = resolveEliStyle(stored.eliStyle);
     this.#applyNav();
+  }
+
+  /** How Eli answers this person. */
+  get eliStyle(): EliStyle {
+    return this.#eliStyle;
+  }
+
+  set eliStyle(value: EliStyle) {
+    this.#eliStyle = resolveEliStyle(value);
+    this.#persist();
   }
 
   get navCollapsed(): boolean {
@@ -337,6 +355,10 @@ class Prefs {
       const remote = await getOwnPreferences();
       const layouts = remote.table_layouts ?? {};
       const previous = storage.get(PREFS_ACCOUNT_KEY);
+      // How Eli answers is the account's choice where one has been made: a
+      // person who chose at the desk finds it on the phone. With none made,
+      // this browser's choice stands and is what the first save carries.
+      if (remote.assistant) this.#eliStyle = resolveEliStyle(remote.assistant);
       if (Object.keys(layouts).length > 0) {
         // The server document is a replacement, not an overlay. Clearing the
         // local layout fields first means a reset made on another browser is a
@@ -538,6 +560,7 @@ class Prefs {
         feed: this.#feed,
         quirkyStatus: this.quirkyStatus,
         statusStyle: this.#statusStyle,
+        eliStyle: this.#eliStyle,
       } satisfies StoredPrefs),
     );
     this.#scheduleAccountSave();
@@ -556,10 +579,12 @@ class Prefs {
           ...(grid.order ? { order: grid.order } : {}),
         };
       }
-      void replaceOwnPreferences({ table_layouts: tableLayouts }).catch(() => {
-        // The local copy is authoritative until the next successful sign-in;
-        // a layout gesture should never turn into an error toast.
-      });
+      void replaceOwnPreferences({ table_layouts: tableLayouts, assistant: this.#eliStyle }).catch(
+        () => {
+          // The local copy is authoritative until the next successful sign-in;
+          // a layout gesture should never turn into an error toast.
+        },
+      );
     }, wait);
   }
 }
