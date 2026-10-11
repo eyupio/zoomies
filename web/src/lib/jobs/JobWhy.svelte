@@ -27,6 +27,8 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import Duration from '$lib/components/Duration.svelte';
   import { catalogLink, evidenceRows, stepAction } from './why';
+  import AskEli from '$lib/assistant/AskEli.svelte';
+  import { jobContext } from '$lib/assistant/contexts';
 
   interface Props {
     job: Job;
@@ -178,6 +180,9 @@
         <p class="detail muted">{why.confidence_reason}</p>
       {/if}
     {/if}
+    <!-- The verdict above is the snapshot Eli is handed; with no verdict yet,
+         the job's own facts are, and Eli can fetch the explanation itself. -->
+    <AskEli context={jobContext(job, why, mode)} />
 
     {#if !failed && counts}
       <dl class="counts">

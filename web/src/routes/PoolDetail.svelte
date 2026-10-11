@@ -9,6 +9,8 @@
 -->
 <script lang="ts">
   import RunnerInsights from '$lib/insights/RunnerInsights.svelte';
+  import AskEli from '$lib/assistant/AskEli.svelte';
+  import { poolContext } from '$lib/assistant/contexts';
   import { Download, Gauge, Pencil, Power, PowerOff, Trash2 } from '@lucide/svelte';
   import {
     deletePool,
@@ -366,6 +368,9 @@
         : undefined}
       onclick={askDelete}>Delete</Button
     >
+  {/if}
+  {#if pool && !editing}
+    <AskEli context={poolContext(pool, counts)} />
   {/if}
 </PageHeader>
 

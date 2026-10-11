@@ -13,6 +13,8 @@
   somebody else as a link rather than as a description of which boxes to tick.
 -->
 <script lang="ts">
+  import AskEli from '$lib/assistant/AskEli.svelte';
+  import { usageContext } from '$lib/assistant/contexts';
   import InstallationReport from '$lib/usage/InstallationReport.svelte';
   import ReleaseTable from '$lib/usage/ReleaseTable.svelte';
   import UsageInsights from '$lib/usage/UsageInsights.svelte';
@@ -405,6 +407,16 @@
   <div class="detail-heading">
     <h2>Detailed usage</h2>
     <span>{rows.length} groups · execution and allocation in hours</span>
+    <AskEli
+      context={usageContext({
+        grouping,
+        since,
+        until,
+        entity: entity || undefined,
+        rows,
+        attributable,
+      })}
+    />
   </div>
   <div class="frame">
     <!--

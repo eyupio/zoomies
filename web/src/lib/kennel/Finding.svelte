@@ -16,6 +16,8 @@
   import RemedyText from '$lib/components/RemedyText.svelte';
   import { severityStatus } from '$lib/status';
   import { fileEvidenceText } from './words';
+  import AskEli from '$lib/assistant/AskEli.svelte';
+  import { findingContext } from '$lib/assistant/contexts';
 
   interface Props {
     finding: KennelFinding;
@@ -26,9 +28,11 @@
     files?: KennelFile[];
     /** What can be done about it: the buttons that apply. */
     actions?: Snippet;
+    /** The repository the finding is about, which lets Eli be asked about it. */
+    repository?: string;
   }
 
-  let { finding, files = [], actions }: Props = $props();
+  let { finding, files = [], actions, repository = '' }: Props = $props();
 
   const paths = $derived(new Map(files.map((file) => [file.sha, file.path])));
 
@@ -90,6 +94,7 @@
   <footer>
     <code class="code">{finding.code}</code>
     {#if finding.subject}<span class="subject">About {finding.subject}</span>{/if}
+    {#if repository}<AskEli context={findingContext(repository, finding)} />{/if}
     {#if actions}<div class="actions">{@render actions()}</div>{/if}
   </footer>
 </article>

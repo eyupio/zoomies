@@ -240,7 +240,8 @@ The panel remembers its size preset and side in this browser. Minimise it while
 working and reopen the same conversation. Conversation text stays in memory and
 is cleared on sign-out; it is not saved to browser storage.
 
-Ask Eli actions on host, runner and problem views send the displayed context
+Ask Eli actions on host, runner, pool and problem views, on a job's Why panel in the
+drawer, on a Kennel Club finding and on the Usage report send the displayed context
 and a relevant question. Eli sees this snapshot, and can use read-only fleet tools when enabled for its provider. After an
 answer, follow-on prompts use the conversation's topic and skip questions
 already asked. Extend `web/src/lib/assistant/prompts.ts` with a narrative topic;
