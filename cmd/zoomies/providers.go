@@ -22,7 +22,7 @@ func runProviders(ctx context.Context, e *env, args []string) error {
 		{"add", "<kind> [flags]", "Add a provider from the terminal, then ask it what it would refuse", providersAdd},
 		{"edit", "<name|id> [flags]", "Change the settings you name and nothing else", providersEdit},
 		{"check", "<name|id>", "Ask a provider what it would refuse, changing nothing", providersCheck},
-		{"pause", "<name|id>", "Stop buying new machines; drains and deletes continue", providersPause},
+		{"pause", "<name|id>", "Stop buying new machines; drains and deletes continue while renting is on", providersPause},
 		{"resume", "<name|id>", "Let it buy machines again", providersResume},
 		{"machines", "", "The machines that exist right now", providersMachines},
 		{"orphans", "<name|id>", "Resources and rows that disagree, for a person to decide", providersOrphans},
@@ -138,7 +138,7 @@ func providersCheck(ctx context.Context, e *env, args []string) error {
 
 func providersPause(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies providers pause <name|id> [--reason \"...\"]",
-		"Stop a provider buying new machines. Draining, deleting and recovering carry on.")
+		"Stop a provider buying new machines. Draining, deleting and recovering carry on while renting is switched on (provider.enabled).")
 	cf := registerClientFlags(fs, true)
 	reason := fs.String("reason", "", "why, for the card and the audit row")
 	fs.example(`zoomies providers pause proxmox-lab --reason "the cluster is being patched"`)

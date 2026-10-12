@@ -1538,7 +1538,7 @@ Subcommands:
   add <kind> [flags]                 Add a provider from the terminal, then ask it what it would refuse
   edit <name|id> [flags]             Change the settings you name and nothing else
   check <name|id>                    Ask a provider what it would refuse, changing nothing
-  pause <name|id>                    Stop buying new machines; drains and deletes continue
+  pause <name|id>                    Stop buying new machines; drains and deletes continue while renting is on
   resume <name|id>                   Let it buy machines again
   machines                           The machines that exist right now
   orphans <name|id>                  Resources and rows that disagree, for a person to decide
@@ -1728,10 +1728,10 @@ Examples:
 
 #### zoomies providers pause
 
-Stop buying new machines; drains and deletes continue
+Stop buying new machines; drains and deletes continue while renting is on
 
 ```text
-Stop a provider buying new machines. Draining, deleting and recovering carry on.
+Stop a provider buying new machines. Draining, deleting and recovering carry on while renting is switched on (provider.enabled).
 
 Usage:
   zoomies providers pause <name|id> [--reason "..."]
