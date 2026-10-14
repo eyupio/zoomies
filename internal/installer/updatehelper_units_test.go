@@ -40,9 +40,18 @@ type installHost struct {
 	opts                              InstallHelperOptions
 }
 
+func privateTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func newInstallHost(t *testing.T, deployment Deployment) *installHost {
 	t.Helper()
-	base, err := filepath.EvalSymlinks(t.TempDir())
+	base, err := filepath.EvalSymlinks(privateTempDir(t))
 	mustDo(t, err)
 	h := &installHost{
 		base:      base,

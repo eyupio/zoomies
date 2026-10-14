@@ -71,7 +71,7 @@ What it does not have:
    `get_catalog` wraps `GET /catalog` as an index by category, one entry by
    code, or one category with titles, and is on Eli's list.
 6. Comments and docs that described the chat before redaction and tools existed
-   were corrected, with the counts in `hand-off-ai.md` and the ZF-235 paragraph.
+   were corrected, with the counts in the ZF-235 paragraph.
 
 ## What competitors ship
 

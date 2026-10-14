@@ -31,7 +31,7 @@ type offerHost struct {
 
 func newOfferHost(t *testing.T) *offerHost {
 	t.Helper()
-	h := &offerHost{installHost: newInstallHost(t, DeploymentNative), out: &bytes.Buffer{}, systemd: t.TempDir()}
+	h := &offerHost{installHost: newInstallHost(t, DeploymentNative), out: &bytes.Buffer{}, systemd: privateTempDir(t)}
 	h.installHost.runner.answer = func(args []string) (string, error) {
 		line := strings.Join(args, " ")
 		switch {

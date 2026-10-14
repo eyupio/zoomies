@@ -14,13 +14,11 @@ operable without a shell on either side) while the self-hosted product it
 already is keeps getting better. The ordered delivery plan in section 10
 supersedes all earlier ordering.
 
-[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) is a finished code-review
-record, and [roadmap/source/](roadmap/source/) contains historical inputs.
-They explain why work existed, but neither may add, reorder or authorise
-current work. [roadmap/progress.md](roadmap/progress.md) is the corresponding
-status/evidence record: it records delivery of packages defined here but does
-not define a competing plan. New or changed delivery work belongs in this
-file first.
+[roadmap/source/](roadmap/source/) contains historical inputs. It explains why
+work existed, but it may not add, reorder or authorise current work.
+[roadmap/progress.md](roadmap/progress.md) is the corresponding status/evidence
+record: it records delivery of packages defined here but does not define a
+competing plan. New or changed delivery work belongs in this file first.
 
 ## 1. Where it stands
 
@@ -1559,10 +1557,11 @@ redaction of the conversation and every tool result, personal providers for
 any signed-in person, the subscription kinds (Claude Code, Codex, Copilot,
 administrators only and never with tools), PR repairs from a `/eli fix`
 comment or an opt-in automatic policy, and the shared mention matcher that is
-ZF-239's first slice; `hand-off-ai.md` has the record. Still open: per-person
-limits and data classes (the rest of 7c), mutate tools behind the confirmation
-card (7d), stored conversations, slash shortcuts and context chips (7e),
-deterministic Kennel fixes (7f), step-up (7h) and autonomy (7i).
+ZF-239's first slice; [the ZF-235 plan](roadmap/plans/2026-10-09-zf-235e-eli.md)
+has the record. Still open: per-person limits and data classes (the rest of
+7c), mutate tools behind the confirmation card (7d), stored conversations,
+slash shortcuts and context chips (7e), deterministic Kennel fixes (7f),
+step-up (7h) and autonomy (7i).
 [roadmap/eli-review.md](roadmap/eli-review.md) reviews what was built against
 what competitors ship and says what to do next.
 

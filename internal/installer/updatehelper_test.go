@@ -37,7 +37,7 @@ type helperHost struct {
 
 func newHelperHost(t *testing.T, installed string) *helperHost {
 	t.Helper()
-	base := t.TempDir()
+	base := privateTempDir(t)
 	dir := filepath.Join(base, "update")
 	if err := os.Mkdir(dir, 0o750); err != nil {
 		t.Fatal(err)
@@ -766,7 +766,7 @@ type pointerHost struct {
 
 func newPointerHost(t *testing.T) *pointerHost {
 	t.Helper()
-	base := t.TempDir()
+	base := privateTempDir(t)
 	p := &pointerHost{base: base, stateDir: filepath.Join(base, "zoomies-update")}
 	for _, d := range []string{p.stateDir, filepath.Join(base, "opt"), filepath.Join(base, "opt", "bin"), filepath.Join(base, "etc")} {
 		mustDo(t, os.Mkdir(d, 0o700))

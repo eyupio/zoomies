@@ -37,7 +37,8 @@ membership; an MCP caller additionally needs explicit consent for that particula
 connection. Existing fleet roles and connections receive no source access by
 migration. Only a signed-in owner can choose repositories for their connection.
 
-See root `handoff.md` for the implementation checkpoint and remaining work.
+See `docs/ai-context.md` for what an operator can do today and what is not yet
+supported.
 
 `PlanSetupFiles` previews owned configuration, the shared `.zoomies/AI_CONTEXT.md`
 guide, short assistant entry points and the optional GitHub-rendered Markdown README badge. It preserves user text and line

@@ -14,8 +14,8 @@ search, and offered to assistants that fetch `llms.txt`. A gate-evidence file
 that says "not yet proven" belongs to the people building the product, not to
 an operator deciding whether to install it.
 
-The owner's own working list, `IMPLEMENTATION_PLAN.md`, already sits at the
-repository root for the same reason.
+The owner's own working list once sat at the repository root for the same
+reason, and has since been deleted as the work it recorded finished.
 
 `internal/docs` has a test, `TestTheLayoutBlocksDescribeTheRepositoryAsItIs`,
 that fails when a top-level directory is not named in the layout blocks of
@@ -23,8 +23,8 @@ that fails when a top-level directory is not named in the layout blocks of
 
 ## Decision
 
-Keep the roadmap at `ROADMAP.md` in the repository root, beside
-`IMPLEMENTATION_PLAN.md`, and everything that supports it under `roadmap/`:
+Keep the roadmap at `ROADMAP.md` in the repository root, and everything that
+supports it under `roadmap/`:
 `progress.md` for the work-package record, `decisions/` for records like this
 one, `validation/` for gate evidence, `agent-models.md` for the model and
 effort guidance, and `source/` for the documents the roadmap was derived from.
