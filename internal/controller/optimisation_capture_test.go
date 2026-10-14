@@ -47,7 +47,7 @@ func checkoutCaptureFixture(t *testing.T) (*harness, *store.Installation, *check
 	h.c.clients.entries[inst.ID] = &clientEntry{client: f, updatedAt: inst.UpdatedAt.Truncate(1e6)}
 	return h, inst, f, sel, optimisation.HistoryReview{HeadSHA: source.HeadSHA, SourceSHA256: hash(source.File.Content), Scope: "repository_and_downstream_consumers", NeedsHistory: &needs}, &store.AuditEvent{ActorID: "usr_operator", ActorKind: "user"}
 }
-func TestCheckoutCaptureChecksServerPolicyTwiceAndReplaysWithoutMoreReads(t *testing.T) {
+func TestCheckoutCaptureRechecksServerPolicyBeforeRetentionAndReplaysWithoutMoreReads(t *testing.T) {
 	h, inst, f, sel, review, actor := checkoutCaptureFixture(t)
 	checks := 0
 	check := func(context.Context) (optimisation.Policy, error) {
@@ -58,7 +58,7 @@ func TestCheckoutCaptureChecksServerPolicyTwiceAndReplaysWithoutMoreReads(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if checks != 2 || f.calls != 1 || f.quotaCalls != 1 || !f.deadline || saved.Preview.Verification != "inconclusive" || saved.Currentness != "not_checked" || saved.Collection == nil || saved.Collection.SourceFunding != "installation_github_read" || saved.Collection.StepNumber != 42 {
+	if checks != 3 || f.calls != 1 || f.quotaCalls != 1 || !f.deadline || saved.Preview.Verification != "inconclusive" || saved.Currentness != "not_checked" || saved.Collection == nil || saved.Collection.SourceFunding != "installation_github_read" || saved.Collection.StepNumber != 42 {
 		t.Fatal("admission or authority changed")
 	}
 	replay, err := h.c.ReplayOptimisationPreview(h.ctx, inst.ID, inst.Target, saved.ID)

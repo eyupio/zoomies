@@ -1096,3 +1096,15 @@ Enrolment commands contain secrets and must not be published. Disabling
 `server.tailcat_enabled` and restarting closes private connectivity; it does
 not rotate the saved identity. See [private host credential handling and relay
 limitations](private-hosts.md#restarts-and-credential-protection).
+
+
+### Optimisation workflow source
+
+The three assistant.optimisation_*_enabled controls default off. Source inspection
+and retained source history are distinct grants to identified operators with
+dedicated optimisations scopes, across repositories their selected installation
+covers. Enabling previews also requires source access. Existing jobs:read and
+public-view access grant no workflow source. Fresh credentials and effective
+settings are checked around collection and before retention. The deterministic
+preview makes no model call or repository write. Source-bearing records share
+the private database and backup boundary; audit events carry no source text.

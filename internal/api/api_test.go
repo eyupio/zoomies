@@ -861,6 +861,11 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/api/v1/provisioning", role: store.RoleViewer, action: auth.ActionJobsRead},
 		{method: "GET", path: "/api/v1/provisioning/selection", role: store.RoleViewer, action: auth.ActionJobsRead},
 		{method: "POST", path: "/api/v1/provisioning/bulk", role: store.RoleOperator, action: auth.ActionProvisioningWrite},
+		{method: "GET", path: "/api/v1/optimisations/policy", role: store.RoleOperator, action: auth.ActionOptimisationsRead, visitorDenied: true},
+		{method: "POST", path: "/api/v1/optimisations/checkout/inspect", role: store.RoleOperator, action: auth.ActionOptimisationsInspect, visitorDenied: true},
+		{method: "POST", path: "/api/v1/optimisations/checkout", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"optimisations:inspect"}, visitorDenied: true},
+		{method: "GET", path: "/api/v1/optimisations/opv_missing?installation_id=ins_missing&repo=acme/repo", role: store.RoleOperator, action: auth.ActionOptimisationsRead, visitorDenied: true},
+
 		{method: "POST", path: "/api/v1/comparisons", role: store.RoleOperator, action: auth.ActionComparisonsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "GET", path: "/api/v1/comparisons/cmp_missing?installation_id=ins_missing&repo=acme/repo", role: store.RoleViewer, action: auth.ActionJobsRead, visitorDenied: true},
 		{method: "GET", path: "/api/v1/jobs", role: store.RoleViewer, action: auth.ActionJobsRead},
@@ -1441,7 +1446,7 @@ func normalisePath(p string) string {
 		}
 		if strings.HasPrefix(part, "ins_") || strings.HasPrefix(part, "pool_") ||
 			strings.HasPrefix(part, "run_") || strings.HasPrefix(part, "host_") ||
-			strings.HasPrefix(part, "job_") || strings.HasPrefix(part, "cmp_") || strings.HasPrefix(part, "prv_") ||
+			strings.HasPrefix(part, "opv_") || strings.HasPrefix(part, "job_") || strings.HasPrefix(part, "cmp_") || strings.HasPrefix(part, "prv_") ||
 			strings.HasPrefix(part, "mach_") || strings.HasPrefix(part, "zoomies-") || part == "missing" {
 			parts[i] = "{id}"
 		}

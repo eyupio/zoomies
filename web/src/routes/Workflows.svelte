@@ -580,6 +580,9 @@
 
 <div class="content">
   <div class="toolbar">
+    {#if session.can('operator') && !session.visitor}<a href="/optimisations"
+        >Optimisation previews</a
+      >{/if}
     <JobViewFilter value={view} onchange={setView} />
     <LevelSwitch level="runs" />
   </div>

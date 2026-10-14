@@ -1,7 +1,7 @@
 # ZF-244: admitted checkout source and timing
 
 14 October 2026. Retention #1022 merged; initial main baseline dd539a76, updated onto main after #1023 at 124a12de.
-Ready PR [#1024](https://github.com/eyupio/zoomies/pull/1024) awaits review/CI/merge.
+PR [#1024](https://github.com/eyupio/zoomies/pull/1024) merged.
 
 ## Scope
 

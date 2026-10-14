@@ -437,6 +437,9 @@ settings page reports rather than refusing the edit.
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
 | `assistant.allow_private_provider` | `ZOOMIES_ASSISTANT_ALLOW_PRIVATE_PROVIDER` | at once | Allow a private provider address: Let an assistant provider's address name this machine or a private network, which is where a local model lives. Off, saving one is refused with a 422 that names this switch in the `base_url` field error. It opens only the assistant's providers; `security.allow_private_egress` is not consulted for them and stays as it is. |
+| `assistant.optimisation_source_enabled` | `ZOOMIES_ASSISTANT_OPTIMISATION_SOURCE_ENABLED` | at once | Off by default. Enable bounded private workflow inspection for authorised operators; GitHub reads use the selected installation. |
+| `assistant.optimisation_preview_enabled` | `ZOOMIES_ASSISTANT_OPTIMISATION_PREVIEW_ENABLED` | at once | Off by default. Enable retention of reviewed checkout previews; source inspection must also be enabled. Publication and dispatch remain separate. |
+| `assistant.optimisation_history_enabled` | `ZOOMIES_ASSISTANT_OPTIMISATION_HISTORY_ENABLED` | at once | Off by default. Enable operator access to retained source-bearing preview history independently from fresh inspection. |
 | `assistant.local_only` | `ZOOMIES_ASSISTANT_LOCAL_ONLY` | at once | Local models only: Refuse any assistant connection that resolves to a public address, after resolving it, so nothing the assistant is told can leave this machine or the LAN whatever a provider row says. A hosted provider cannot be reached while this is on. |
 
 ### `backup`

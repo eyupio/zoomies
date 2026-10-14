@@ -305,6 +305,11 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionComparisonsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/comparisons", s.handleCaptureComparison)
 		r.With(s.require(auth.ActionJobsRead), s.refuseVisitors).Get("/comparisons/{id}", s.handleGetComparison)
 
+		r.With(s.require(auth.ActionOptimisationsRead), s.refuseVisitors).Get("/optimisations/policy", s.handleOptimisationPolicy)
+		r.With(s.require(auth.ActionOptimisationsInspect), s.refuseVisitors).Post("/optimisations/checkout/inspect", s.handleInspectOptimisation)
+		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionOptimisationsInspect), s.refuseVisitors).Post("/optimisations/checkout", s.handleCaptureOptimisation)
+		r.With(s.require(auth.ActionOptimisationsRead), s.refuseVisitors).Get("/optimisations/{id}", s.handleGetOptimisation)
+
 		// Jobs.
 		r.With(s.require(auth.ActionUsageRead)).Get("/usage", s.handleUsage)
 		r.With(s.require(auth.ActionUsageRead)).Get("/usage.csv", s.handleUsageCSV)

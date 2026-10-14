@@ -383,3 +383,8 @@ export type KennelGuidancePreview = Schemas['KennelGuidancePreview'];
 
 export type ComparisonCaptureRequest = Schemas['ComparisonCaptureRequest'];
 export type RetainedComparison = Schemas['RetainedExperimentComparison'];
+
+export type OptimisationSelection = Schemas['OptimisationSelection'];
+export type OptimisationCapture = Schemas['OptimisationCapture'];
+export type OptimisationView = Schemas['OptimisationView'];
+export type OptimisationPolicy = Schemas['OptimisationPolicy'];

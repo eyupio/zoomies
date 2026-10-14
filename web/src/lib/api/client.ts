@@ -1395,3 +1395,14 @@ export const getComparison = (
     query: { installation_id: installation, repo },
     signal,
   });
+
+export const getOptimisationPolicy = () =>
+  api.get<import('./types').OptimisationPolicy>('/optimisations/policy');
+export const inspectOptimisation = (body: import('./types').OptimisationSelection) =>
+  api.post<import('./types').OptimisationView>('/optimisations/checkout/inspect', { body });
+export const captureOptimisation = (body: import('./types').OptimisationCapture) =>
+  api.post<import('./types').OptimisationView>('/optimisations/checkout', { body });
+export const getOptimisation = (id: string, installation: string, repo: string) =>
+  api.get<import('./types').OptimisationView>('/optimisations/' + enc(id), {
+    query: { installation_id: installation, repo },
+  });

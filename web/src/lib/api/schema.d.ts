@@ -5449,10 +5449,150 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/optimisations/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read optimisation enablement flags
+         * @description Operator and optimisations:read. Public visitors refused. Flags default off and are administrator-managed live settings.
+         */
+        get: operations["getOptimisationPolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/optimisations/checkout/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Inspect bounded checkout source and timing
+         * @description Operator and optimisations:inspect, identified non-public caller, source setting enabled. Strict 4 KiB request. One quota check and seven bounded GitHub data reads under shared diagnostic admission and twenty seconds. Source remains private and no-store. Inspection does not retain or publish.
+         */
+        post: operations["inspectOptimisation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/optimisations/checkout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retain a reviewed checkout preview
+         * @description Operator, optimisations:inspect and optimisations:write, source and preview settings enabled. Strict 4 KiB request. Recollect/revalidate source and timing, bind the operator history declaration to head/digest, recheck current server credentials/settings and retain/audit atomically. Inconclusive, historical currentness unchecked, no publication or dispatch.
+         */
+        post: operations["captureOptimisation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/optimisations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Replay scoped retained optimisation source
+         * @description Operator and optimisations:read, history setting enabled. No GitHub reads or replacement source. Strict query scope, no-store, unavailable history is a 404. This permission discloses private retained workflow source; jobs:read and public visitors do not grant it.
+         */
+        get: operations["getOptimisation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        OptimisationPolicy: {
+            source_enabled: boolean;
+            preview_enabled: boolean;
+            history_enabled: boolean;
+        };
+        OptimisationSelection: {
+            installation_id: string;
+            repository: string;
+            run_id: string;
+            attempt: number;
+            github_job_id: string;
+            job_index: number;
+            step_index: number;
+        };
+        OptimisationCapture: {
+            installation_id: string;
+            repository: string;
+            run_id: string;
+            attempt: number;
+            github_job_id: string;
+            job_index: number;
+            step_index: number;
+            reviewed_head_sha: string;
+            reviewed_source_sha256: string;
+            /** @enum {boolean} */
+            history_not_required: true;
+        };
+        OptimisationView: {
+            /** @enum {string} */
+            version: "checkout-web-v1";
+            installation_id: string;
+            repository: string;
+            id: string;
+            head_sha: string;
+            source_sha256: string;
+            path: string;
+            /** @enum {string} */
+            mode: "100644" | "100755";
+            /** @description Original source on inspection, proposed source on retained previews. Reviewed source digest always identifies the original. */
+            content: string;
+            run_id: string;
+            /** @enum {string} */
+            verification: "inconclusive";
+            /** @enum {string} */
+            currentness: "not_checked";
+            source_funding: string;
+            binding_basis: string;
+            after_sha256: string | null;
+            /** Format: date-time */
+            created_at: string | null;
+            reviewed_by: string | null;
+            github_job_id: string | null;
+            before: string | null;
+            after: string | null;
+            attempt: number;
+            job_index: number;
+            step_index: number;
+            checkout_ms: number;
+            step_number: number | null;
+        };
         AIContextMaintenanceRequest: {
             /** @enum {string} */
             mode: "reinstall" | "amend" | "remove";
@@ -20706,6 +20846,142 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+        };
+    };
+    getOptimisationPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current enablement */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptimisationPolicy"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    inspectOptimisation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OptimisationSelection"];
+            };
+        };
+        responses: {
+            /** @description Source-bearing inspection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptimisationView"];
+                };
+            };
+            /** @description Invalid bounded request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    captureOptimisation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OptimisationCapture"];
+            };
+        };
+        responses: {
+            /** @description Retained source-bearing preview */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptimisationView"];
+                };
+            };
+            /** @description Invalid bounded request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    getOptimisation: {
+        parameters: {
+            query: {
+                installation_id: string;
+                repo: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recomputed retained preview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptimisationView"];
+                };
+            };
+            /** @description Invalid bounded request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
 }

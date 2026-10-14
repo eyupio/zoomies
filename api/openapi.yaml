@@ -8184,6 +8184,88 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
 
+  /optimisations/policy:
+    get:
+      operationId: getOptimisationPolicy
+      tags: [assistant]
+      summary: Read optimisation enablement flags
+      description: Operator and optimisations:read. Public visitors refused. Flags default off and are administrator-managed live settings.
+      responses:
+        '200':
+          description: Current enablement
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OptimisationPolicy' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /optimisations/checkout/inspect:
+    post:
+      operationId: inspectOptimisation
+      tags: [assistant]
+      summary: Inspect bounded checkout source and timing
+      description: Operator and optimisations:inspect, identified non-public caller, source setting enabled. Strict 4 KiB request. One quota check and seven bounded GitHub data reads under shared diagnostic admission and twenty seconds. Source remains private and no-store. Inspection does not retain or publish.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OptimisationSelection' }
+      responses:
+        '200':
+          description: Source-bearing inspection
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OptimisationView' }
+        '400': { description: Invalid bounded request, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /optimisations/checkout:
+    post:
+      operationId: captureOptimisation
+      tags: [assistant]
+      summary: Retain a reviewed checkout preview
+      description: Operator, optimisations:inspect and optimisations:write, source and preview settings enabled. Strict 4 KiB request. Recollect/revalidate source and timing, bind the operator history declaration to head/digest, recheck current server credentials/settings and retain/audit atomically. Inconclusive, historical currentness unchecked, no publication or dispatch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OptimisationCapture' }
+      responses:
+        '201':
+          description: Retained source-bearing preview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OptimisationView' }
+        '400': { description: Invalid bounded request, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /optimisations/{id}:
+    get:
+      operationId: getOptimisation
+      tags: [assistant]
+      summary: Replay scoped retained optimisation source
+      description: Operator and optimisations:read, history setting enabled. No GitHub reads or replacement source. Strict query scope, no-store, unavailable history is a 404. This permission discloses private retained workflow source; jobs:read and public visitors do not grant it.
+      parameters:
+      - { name: id, in: path, required: true, schema: { type: string, pattern: '^opv_' } }
+      - { name: installation_id, in: query, required: true, schema: { type: string, maxLength: 128 } }
+      - { name: repo, in: query, required: true, schema: { type: string, maxLength: 240 } }
+      responses:
+        '200':
+          description: Recomputed retained preview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OptimisationView' }
+        '400': { description: Invalid bounded request, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
 components:
   securitySchemes:
     cookieAuth:
@@ -8345,6 +8427,204 @@ components:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   schemas:
+    OptimisationPolicy:
+      type: object
+      additionalProperties: false
+      properties:
+        source_enabled:
+          type: boolean
+        preview_enabled:
+          type: boolean
+        history_enabled:
+          type: boolean
+      required:
+      - source_enabled
+      - preview_enabled
+      - history_enabled
+    OptimisationSelection:
+      type: object
+      additionalProperties: false
+      properties:
+        installation_id:
+          type: string
+          maxLength: 128
+        repository:
+          type: string
+          maxLength: 240
+        run_id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+        attempt:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        github_job_id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+        job_index:
+          type: integer
+          minimum: 0
+          maximum: 20000
+        step_index:
+          type: integer
+          minimum: 0
+          maximum: 20000
+      required:
+      - installation_id
+      - repository
+      - run_id
+      - attempt
+      - github_job_id
+      - job_index
+      - step_index
+    OptimisationCapture:
+      type: object
+      additionalProperties: false
+      properties:
+        installation_id:
+          type: string
+          maxLength: 128
+        repository:
+          type: string
+          maxLength: 240
+        run_id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+        attempt:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        github_job_id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+        job_index:
+          type: integer
+          minimum: 0
+          maximum: 20000
+        step_index:
+          type: integer
+          minimum: 0
+          maximum: 20000
+        reviewed_head_sha:
+          type: string
+          pattern: ^[a-f0-9]{40}$
+        reviewed_source_sha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        history_not_required:
+          type: boolean
+          enum:
+          - true
+      required:
+      - installation_id
+      - repository
+      - run_id
+      - attempt
+      - github_job_id
+      - job_index
+      - step_index
+      - reviewed_head_sha
+      - reviewed_source_sha256
+      - history_not_required
+    OptimisationView:
+      type: object
+      additionalProperties: false
+      properties:
+        version:
+          type: string
+          enum:
+          - checkout-web-v1
+        installation_id:
+          type: string
+        repository:
+          type: string
+        id:
+          type: string
+        head_sha:
+          type: string
+        source_sha256:
+          type: string
+        path:
+          type: string
+        mode:
+          type: string
+          enum:
+          - '100644'
+          - '100755'
+        content:
+          type: string
+          description: Original source on inspection, proposed source on retained previews.
+            Reviewed source digest always identifies the original.
+        run_id:
+          type: string
+        verification:
+          type: string
+          enum:
+          - inconclusive
+        currentness:
+          type: string
+          enum:
+          - not_checked
+        source_funding:
+          type: string
+        binding_basis:
+          type: string
+        after_sha256:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          nullable: true
+          format: date-time
+        reviewed_by:
+          type: string
+          nullable: true
+        github_job_id:
+          type: string
+          nullable: true
+        before:
+          type: string
+          nullable: true
+        after:
+          type: string
+          nullable: true
+        attempt:
+          type: integer
+        job_index:
+          type: integer
+        step_index:
+          type: integer
+        checkout_ms:
+          type: integer
+        step_number:
+          type: integer
+          nullable: true
+      required:
+      - version
+      - installation_id
+      - repository
+      - id
+      - head_sha
+      - source_sha256
+      - path
+      - mode
+      - content
+      - run_id
+      - verification
+      - currentness
+      - source_funding
+      - binding_basis
+      - after_sha256
+      - created_at
+      - reviewed_by
+      - github_job_id
+      - before
+      - after
+      - attempt
+      - job_index
+      - step_index
+      - checkout_ms
+      - step_number
     AIContextMaintenanceRequest:
       type: object
       required: [mode, revision]

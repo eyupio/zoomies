@@ -26,11 +26,37 @@ func (c *Controller) CaptureOptimisationPreview(ctx context.Context, actor *stor
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	evidence, err := c.collectCheckoutEvidence(ctx, installation, repo, selection, check, true)
+	if err != nil {
+		return nil, err
+	}
 	policy, err := check(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if !policy.SourceAllowed || !policy.WorkflowEditsAllowed {
+		return nil, ErrOptimisationPreview
+	}
+	collection := &OptimisationCheckoutProvenance{Version: evidence.Version, Basis: evidence.Basis, Selection: selection, StepNumber: evidence.StepNumber, BlobSHA: evidence.BlobSHA, JobNameSHA256: evidence.JobNameSHA256, StepNameSHA256: evidence.StepNameSHA256, SourceFunding: "installation_github_read"}
+	return c.retainOptimisationPreview(ctx, actor, installation, repo, evidence.Source, evidence.Timing, review, policy, collection)
+}
+
+// InspectOptimisationSource returns bounded source-bearing evidence to an already
+// authorised caller. It shares capture admission but needs no preview permission.
+func (c *Controller) InspectOptimisationSource(ctx context.Context, installation, repo string, selection github.CheckoutSelection, check OptimisationPolicyCheck) (*github.CheckoutEvidence, error) {
+	if check == nil || !github.ValidCheckoutSelection(selection) {
+		return nil, ErrOptimisationPreview
+	}
+	return c.collectCheckoutEvidence(ctx, installation, repo, selection, check, false)
+}
+func (c *Controller) collectCheckoutEvidence(ctx context.Context, installation, repo string, selection github.CheckoutSelection, check OptimisationPolicyCheck, previewRequired bool) (*github.CheckoutEvidence, error) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	policy, err := check(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !policy.SourceAllowed || (previewRequired && !policy.WorkflowEditsAllowed) {
 		return nil, ErrOptimisationPreview
 	}
 	inst, err := c.st.GetInstallation(ctx, installation)
@@ -84,9 +110,8 @@ func (c *Controller) CaptureOptimisationPreview(ctx context.Context, actor *stor
 	if err != nil {
 		return nil, err
 	}
-	if !policy.SourceAllowed || !policy.WorkflowEditsAllowed {
+	if !policy.SourceAllowed || (previewRequired && !policy.WorkflowEditsAllowed) {
 		return nil, ErrOptimisationPreview
 	}
-	collection := &OptimisationCheckoutProvenance{Version: evidence.Version, Basis: evidence.Basis, Selection: selection, StepNumber: evidence.StepNumber, BlobSHA: evidence.BlobSHA, JobNameSHA256: evidence.JobNameSHA256, StepNameSHA256: evidence.StepNameSHA256, SourceFunding: "installation_github_read"}
-	return c.retainOptimisationPreview(ctx, actor, installation, repo, evidence.Source, evidence.Timing, review, policy, collection)
+	return evidence, nil
 }

@@ -227,6 +227,27 @@ give each repository a cache without an installation per repository.
 | POST | `/api/v1/workflow-runs/cancel` | operator | What the Workflows page's own run rows call, since a run has no ID of its own, only `repo` + `github_run_id`, to reach through `/jobs/{id}/cancel` the way JobDrawer does. Body: `{ "repo": "owner/name", "run_id": 1, "force": false }`; behaves exactly like cancelling through one of the run's jobs, down to the same config gate, GitHub App permission, and local pausing of queued and running work, except every job of the run still in hand gets the timeline entry, not only whichever job a caller happened to have in hand. Returns `202` with `jobs`, how many of the run's jobs this fleet knows about. `404` for a run this fleet has never heard of; `409` when every job of it has already completed. |
 | POST | `/api/v1/workflow-runs/provisioning` | operator | `/provisioning/bulk` for a whole run, and what the Workflows page's run rows call for Run now, Pause and Resume. Body: `{ "repo": "owner/name", "run_id": 1, "action": "pause"\|"resume"\|"run_now" }`. Acts on the run's queued jobs this fleet has a hand in, in every provisioning state but removed, a job an operator deleted from the queue was stood down on purpose, and is restored from the Queue page's Removed view rather than swept back in by a Run now on its run, and returns the same per-job `results`. Delete is not offered at the run's level: a removal is a decision about one job. `404` for a run this fleet has never heard of; `409` when it knows the run but no job of it is waiting for a runner here. Audited per job, with the run named beside it. |
 
+## Optimisation previews
+
+These source-bearing routes require an identified operator and dedicated token
+scopes. Public visitors and jobs:read alone cannot read workflow content. Three
+administrator-managed assistant.optimisation_*_enabled settings separately enable
+fresh inspection, preview retention and history reads; all default off.
+
+| Method | Path | Role and scope | Behaviour |
+| --- | --- | --- | --- |
+| GET | `/api/v1/optimisations/policy` | operator, `optimisations:read` | Current enablement flags only. |
+| POST | `/api/v1/optimisations/checkout/inspect` | operator, `optimisations:inspect` | Inspect one bounded successful push checkout. Exact decimal-string run/job IDs, attempt and zero-based source indices. One quota check plus at most seven data reads, shared hourly/flight limits. Requires source enablement. |
+| POST | `/api/v1/optimisations/checkout` | operator, `optimisations:inspect` and `optimisations:write` | Recollect and retain after an explicit history-needs declaration bound to the inspected head/digest. Requires source and preview enablement, with fresh credentials/settings checks. No publication or dispatch. |
+| GET | `/api/v1/optimisations/{id}?installation_id=ID&repo=OWNER/REPO` | operator, `optimisations:read` | Immutable scoped source-bearing history, enabled independently. No GitHub reads. Missing history is unavailable, never automatically recaptured. |
+
+Responses are no-store reviewed whitelists, not private envelopes. Inspection
+contains original source; saved previews contain proposed source and exact line
+before/after, with separate reviewed/proposed digests. Source is bounded to 32 KiB.
+Unsupported matrix/default/ambiguous names, missing timing or changed evidence
+refuse. Verification remains inconclusive and currentness unchecked. Operator
+history review is a declaration, not independently attested history needs.
+
 ## Provisioning queue
 
 The demand behind the runners, rather than the runners: one row per queued job

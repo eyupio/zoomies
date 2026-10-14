@@ -551,6 +551,9 @@ type Database struct {
 // the database and are managed on the Assistant settings page; these decide
 // where a provider may be and where its traffic may go.
 type Assistant struct {
+	OptimisationSourceEnabled  bool `yaml:"optimisation_source_enabled"`
+	OptimisationPreviewEnabled bool `yaml:"optimisation_preview_enabled"`
+	OptimisationHistoryEnabled bool `yaml:"optimisation_history_enabled"`
 	// AllowPrivateProvider lets a provider's base URL name this machine or a
 	// private network. It is the assistant's own switch rather than
 	// security.allow_private_egress because a local model is the normal case

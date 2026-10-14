@@ -61,7 +61,8 @@ in the same implementation PR. A draft PR is not a delivered feature.
 | E2 descriptive-comparison milestone | Merged | ZF-243, [#1020](https://github.com/eyupio/zoomies/pull/1020), based on main after #1019 | Dependency inspection across REST/web UI/CLI and validated MCP/Eli summaries; broad controlled-experiment proof explicitly deferred by owner on 14 October 2026 |
 | E3 checkout preview foundation | Merged | ZF-244, [#1021](https://github.com/eyupio/zoomies/pull/1021), based on main after #1020 | Pure supplied-evidence checkout-depth preview and source/head/policy recheck; no runtime route, publication or verified savings |
 | E3 private preview retention | Merged | ZF-244, [#1022](https://github.com/eyupio/zoomies/pull/1022), based on main after #1021 | Bounded immutable private source/evidence/preview envelope and offline recomputation, scoped actor/audit and explicit unchecked currentness; admission and web flow remain outstanding |
-| E3 admitted checkout evidence | Implemented, pending review/CI/merge | ZF-244, [#1024](https://github.com/eyupio/zoomies/pull/1024), updated onto main after #1023 | Seven bounded data reads associate push source with unique literal job/step names, verify regular file mode and recheck timing; shared quota/flight and server policy rechecks before private retention. Web route remains next |
+| E3 admitted checkout evidence | Merged | ZF-244, [#1024](https://github.com/eyupio/zoomies/pull/1024), updated onto main after #1023 | Seven bounded data reads associate push source with unique literal job/step names, verify regular file mode and recheck timing; shared quota/flight and server policy rechecks before private retention. Web route remains next |
+| E3 authorised web preview | Implemented, PR preparation | ZF-244, PR pending, based on main after #1024 | Default-off source/preview/history controls, dedicated operator scopes, reviewed bounded REST views and web inspect/review/save/replay. Approval and publication remain outstanding |
 | E4 to E6 | Not started | Dependencies and sequence below | No new Kennel fix, recurrence engine or PR reviewer has been implemented in this stack |
 | E7 storage fixture correction | Merged | [#960](https://github.com/eyupio/zoomies/pull/960), following merged #959 | Explicit public fixture permissions; all aicontext package race tests pass. Broad run completed; corrected package reruns pass, as recorded below |
 | E7 fallback-copy mode correction | Merged | [#961](https://github.com/eyupio/zoomies/pull/961), stacked on #960 | Source permissions restored after copying; focused test fails before the correction and backend package race tests pass afterwards |
@@ -2161,7 +2162,7 @@ merge, dispatch, enrichment or E2 scope expansion.
 
 Retention #1022 merged. Branch codex/eli-e3-checkout-evidence starts from main
 after #1022 and is updated onto main after #1023.
-Ready PR [#1024](https://github.com/eyupio/zoomies/pull/1024) awaits review/CI/merge.
+PR [#1024](https://github.com/eyupio/zoomies/pull/1024) merged.
 This adds the bounded optional GitHub reader and internal capture
 adapter; no HTTP route, source policy setting or web flow is exposed yet.
 
@@ -2219,3 +2220,59 @@ rate-limit retry. Bind the review to the displayed source digest/head and actor,
 then call CaptureOptimisationPreview. No model provider/key is needed for this
 deterministic preview. Approval, reconciled draft publication and experiment
 execution remain distinct later slices. Do not claim E3 complete.
+
+
+### E3 authorised web preview, 14 October 2026
+
+Admitted evidence #1024 merged. Branch codex/eli-e3-web-preview starts from main
+after #1024. The scheduled E2 follow-up confirmed #1020 is merged and no duplicate
+E2 work or PR is needed. Controlled-experiment proof remains explicitly deferred.
+
+Three live platform settings, all false by default:
+`assistant.optimisation_source_enabled`, `assistant.optimisation_preview_enabled`
+and `assistant.optimisation_history_enabled`. Administrators manage them via
+the existing persisted Settings registry/UI. They separately enable fresh private
+source inspection, preview retention and source-bearing history. Dedicated
+optimisations:inspect, optimisations:write and optimisations:read scopes require
+operator role; wildcard viewer/job access and public visitors cannot read source.
+These grants cover repositories the selected installation serves, not personal
+model authority. No model provider/key is needed.
+
+REST: GET /optimisations/policy, POST /optimisations/checkout/inspect, POST
+/optimisations/checkout and GET /optimisations/{id} with installation_id/repo.
+Strict 4 KiB documented bodies, canonical decimal-string run/job identities,
+required zero-based positions and server-owned actor/funding. Inspect accepts no
+review/timing/policy assertions; capture accepts the history declaration and
+reviewed head/digest, then recollects and validates. Fresh resolveIdentity and
+effective config checks surround source reads and precede retention. History
+checks independent enablement and credentials; replay never fetches replacement
+source. All source-bearing responses are no-store explicit checkout-web-v1
+whitelists, never private envelopes. Original/proposed digests are distinguished.
+Inspection contains original code; retained views contain proposed code plus
+exact before/after and review actor. Missing provenance remains unknown.
+
+Web /optimisations is linked from Workflows for operators. It shows controls,
+exact selection inputs, escaped source, history-needs declaration before save,
+exact proposed change and a scoped bookmark. Changing selection invalidates
+review. Public/viewer users make no optimisation requests. Retry-After requires
+manual retry, and missing bookmarks never capture. Version, inconclusive
+verification and unchecked currentness are explicit. Saving is preview retention,
+not approval, repository publication or dispatch; passing CI is not savings proof.
+
+Validation completed: focused API/controller/config/auth race fixtures pass for
+role/scoped routes, independent controls, policy withdrawal, exact IDs and offline
+replay. Route/spec coverage and embedded/generated contracts pass. Eight desktop/
+mobile browser checks cover escaping, review/save, bookmarks, disabled controls,
+manual retry and no public private-data calls. UI type/lint/build budgets and
+110 unit checks pass; changed-package vet, generated references/catalogue drift,
+strict docs and whitespace pass. Docs used the repository-only header fallback.
+No whole-repository race suite, live source/model/fleet or performance experiment.
+
+Next agent: review this PR and CI, update merge state, then explicit proposal
+approval and reconciled draft publication. Preserve actor, selected installation,
+funding and reviewed immutable source/currentness. Approval, publication and
+experiment dispatch remain separate permissions/actions. Recheck source head and
+policy immediately before publication; uncertain publication reconciles rather
+than repeats. Keep E2 verification inconclusive until independently sufficient
+evidence exists. CLI/MCP preview presenters may follow the web; do not mark E3
+complete until its draft publication and honest verification acceptance is met.

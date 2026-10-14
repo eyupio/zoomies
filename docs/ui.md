@@ -1028,3 +1028,16 @@ flags. MCP/Eli validates references then returns summaries with details explicit
 omitted within its existing budgets. Matching metadata does not establish workload
 or configuration equivalence, causal improvement or savings. Controlled-experiment
 proof, dispatch and live model evaluation remain deferred.
+
+
+The Workflows page links operators to Optimisation previews. Enable the separate
+source, preview and history controls under Settings, Assistant, as an administrator.
+Choose an installation/repository, exact run/job IDs, attempt and source positions.
+Inspect the uniquely named successful push checkout, review the escaped workflow
+source and declare repository/downstream history and tag needs before saving.
+Saving retains a reviewable exact checkout-depth change and bookmark, not a
+repository edit. Bookmarks replay without new GitHub evidence; missing records
+stay unavailable. Rate-limited operations retry manually after Retry-After.
+Private source requires operator permissions, and viewer/public pages make no
+optimisation requests. Verification remains inconclusive, currentness unchecked
+and passing CI is not performance proof. No model provider is needed.
