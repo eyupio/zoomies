@@ -680,7 +680,9 @@ in view while reading the answer; **What Eli looked at** shows the tools behind 
 
 Fleet lookups require the provider's **Let Eli read this fleet** switch and
 use your own permissions. Chat advises; [PR repairs](#eli-repairs) take an
-explicit request into a change on an existing PR branch. The image below uses
+explicit request into a change on an existing PR branch, and the same switch
+lets Eli read one's history: is one running, what stuck it, whether asking for
+another now would be refused. Starting one is still the repairs page's press. The image below uses
 the demo model, which turns the lookup into a readable summary of jobs, runners,
 host health, recent outcomes and queue waits, with a next step based on those
 figures. It needs no credentials. A configured model supports fuller investigation.

@@ -1557,7 +1557,12 @@ redaction of the conversation and every tool result, personal providers for
 any signed-in person, the subscription kinds (Claude Code, Codex, Copilot,
 administrators only and never with tools), PR repairs from a `/eli fix`
 comment or an opt-in automatic policy, and the shared mention matcher that is
-ZF-239's first slice; [the ZF-235 plan](roadmap/plans/2026-10-09-zf-235e-eli.md)
+ZF-239's first slice. A later pass added the repairs history to that loop as
+the two read tools it was missing (`list_elis_repairs`, `get_eli_repair`),
+which is how the assistant in the chat can say why a repair is stuck, while
+the request, the accept, the clear and the policy stay off the surface: a
+repair spends an attempt and pushes to a pull request, and that press is a
+person's at the repairs page; [the ZF-235 plan](roadmap/plans/2026-10-09-zf-235e-eli.md)
 has the record. Still open: per-person limits and data classes (the rest of
 7c), mutate tools behind the confirmation card (7d), stored conversations,
 slash shortcuts and context chips (7e), deterministic Kennel fixes (7f),

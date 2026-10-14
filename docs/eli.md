@@ -31,6 +31,7 @@ access enabled for your provider, start from **Ask Eli** on the relevant page:
 | Choose a runner size | “Does the measured CPU and memory use support a different size for this workflow?” |
 | Investigate a slow build | “Separate queue wait, startup and execution time before suggesting an optimisation.” |
 | Understand a fleet problem | “Explain this problem code, the affected resources and the proposed remedy.” |
+| Follow a PR repair, in the same account | “Why is my latest repair on this pull request stuck?” or “Did Eli start a repair on the PR I asked about?” |
 
 The answer shows which tools Eli used. It can advise from job history, failure
 explanations and available runner logs, but chat does not apply changes or read
@@ -180,7 +181,11 @@ sides' durations, queue waits, startups, failure rates and OOM kill rates, measu
 by measure), whether a host fails when it is busy (its failures, OOM kills and slow
 startups placed against that minute's load and memory), and which host or pool keeps
 failing to start runners (how many of its starts failed, since when, at which stage
-and with which fault, and its last failed runner's message).
+and with which fault, and its last failed runner's message). Its own
+[PR repairs](#set-up-pr-repairs) it reads through the same toolbox: the page
+first, each row's repository, pull request, state and reason, then one pull
+request's newest repair by name, with the one thing that can change from where
+the row stands.
 The job names and failure messages these quote are written by workflows and hosts,
 and reach Eli set apart as untrusted, never as instructions. Host pressure names the
 jobs only when the person asking can read jobs; otherwise it says the names were
@@ -226,6 +231,13 @@ it says.
 Eli does not get the tools that change the fleet, and it does not get the ones that
 read a repository's source. It reads as the person asking, through the same routes
 and the same permissions, so it can see nothing that person could not.
+
+Those two repair reads are the feature's whole presence in the toolbox. Asking
+again costs an attempt from the repository's and your own budget and pushes to
+the pull request with your provider behind it, so starting a repair, accepting
+an offer, clearing the history and setting a repository's policy are not tools:
+they are the presses a person makes at the repairs page, and a model asked for
+one says so rather than doing it.
 
 ## What is sent
 

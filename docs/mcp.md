@@ -15,7 +15,11 @@ assistant can call, rather than making you copy it all into a conversation.
 
 Want the assistant inside the web UI? [Eli](eli.md) uses the same fleet read
 tools. Want a repair on an existing pull request? [Eli PR
-repairs](eli.md#set-up-pr-repairs) are a separate, opt-in workflow.
+repairs](eli.md#set-up-pr-repairs) are a separate, opt-in workflow: the
+`list_elis_repairs` and `get_eli_repair` read tools answer what a repair
+got to, and starting one, accepting an offer or clearing its history are the
+repairs page's buttons, not tools, because one is a request and one is a
+person's decision.
 
 ## What you can ask
 
@@ -32,6 +36,7 @@ numeric job ID in a GitHub Actions URL.
 | “Read the observed required-check delay for this job's PR number.” | The selected head, target-branch protection, coverage and known timings; the window begins at the earliest observed job, not the push | `get_pr_delay` |
 | “Explain retained comparison cmp_ID in installation ins_ID and repository OWNER/REPO.” | Separate latency, all-attempt execution/idle and failure measures, counts and missing evidence | `get_retained_comparison` |
 | “What needs attention across the fleet?” | Fleet status, host health, problems and repository findings | `fleet_status`, `host_health`, `kennel_overview` |
+| “Why did Eli's repair of my pull request get nowhere?” | The repair's history row for the person asking: repository and pull request, state and the row's reason, whether asking again now would be refused, and how to start another | `list_elis_repairs`, `get_eli_repair` |
 | “Read the workflow and explain how to improve it.” | Verified source excerpts tied to a commit, after source access has been granted | `context_search`, `context_read`, `context_pack` |
 
 `get_pr_delay` requires `job_id` and `pull_number`, a signed-in caller or scoped

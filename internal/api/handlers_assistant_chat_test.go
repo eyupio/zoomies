@@ -523,6 +523,97 @@ func TestEveryReadToolIsOnElisListOrLeftOffOnPurpose(t *testing.T) {
 			t.Errorf("%s is named as left off and the MCP server no longer has it: take it off the list", name)
 		}
 	}
+	// Actions are not read tools, so the loop above never covers them. No tool
+	// that changes the fleet is on Eli's list, whatever its role, and the
+	// read-only server Eli is built over offers none: the loop refuses such a
+	// call by name, so the only way one reaches a model is through this list.
+	for _, name := range mcp.ActionTools() {
+		if slices.Contains(controller.AssistantFleetTools, name) {
+			t.Errorf("%s changes the fleet and is on Eli's list; a hosted model must not be offered it", name)
+		}
+		if have[name] {
+			t.Errorf("%s is an action tool and was listed as a read tool: %v", name, have[name])
+		}
+	}
+	// Eli's two repair reads are the feature's whole presence here, and they
+	// hold in both directions: a repair-named tool off the list is offered to
+	// nobody, and a repair-named name on the list that is not one of the two
+	// reads is a write that slipped on, perhaps under a near-miss name.
+	for _, d := range mcp.New(nil, mcp.Options{}).Definitions() {
+		if strings.Contains(d.Name, "repair") && !slices.Contains(controller.AssistantFleetTools, d.Name) {
+			t.Errorf("%s is a repair tool Eli is not offered; if it reads, name it on the list, and if it writes, it should not exist", d.Name)
+		}
+	}
+	for _, name := range controller.AssistantFleetTools {
+		if strings.Contains(name, "repair") && name != "list_elis_repairs" && name != "get_eli_repair" {
+			t.Errorf("%s is on Eli's list and is not one of Eli's two repair reads", name)
+		}
+	}
+}
+
+// Eli may look at its own PR repairs now, and still may not start one. The
+// reads reach it as the person asking, so its history of eyupio/zoomies shows
+// up in the answer; the writes are refused with the "not offered" sentence,
+// which is what tells the model to send the person to the page instead of a
+// surrogate pressing the button.
+func TestEliCanLookAtRepairsAndNotStartOne(t *testing.T) {
+	h, cookie, srv := chatHarness(t)
+	allowFleetAccess(t, h, cookie, true)
+	inst := h.installation()
+	r := &store.EliRepair{InstallationID: inst.ID, Repo: inst.Target + "/widgets", PullNumber: 101, Trigger: "automatic", State: "failed"}
+	if added, err := h.st.EnqueueEliRepair(h.ctx, r, 5); err != nil || !added {
+		t.Fatalf("seeding: %v %v", added, err)
+	}
+	r.State = "failed"
+	r.Message = "The failed job has no usable error evidence."
+	if err := h.st.SaveEliRepair(h.ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	srv.Script = []assistanttest.Round{
+		{Calls: []assistanttest.Call{
+			{Name: "list_elis_repairs", Arguments: `{}`},
+			{Name: "request_eli_repair", Arguments: `{}`},
+		}},
+		{Text: "A repair of eyupio/zoomies#101 failed; repairs are started from the repairs page."},
+	}
+	resp := h.do(request{method: http.MethodPost, path: assistantChat, cookie: cookie, readStream: true, body: chatBody("user", "Why are Eli repairs not working?")})
+	resp.mustStatus(t, http.StatusOK, "assembling the answer")
+	got := frames(t, resp.body)
+	statuses := []string{}
+	for _, f := range got {
+		if f.kind == "tool" {
+			statuses = append(statuses, f.data["name"].(string)+":"+f.data["status"].(string))
+		}
+	}
+	if !slices.Equal(statuses, []string{"list_elis_repairs:running", "list_elis_repairs:done", "request_eli_repair:running", "request_eli_repair:failed"}) {
+		t.Errorf("tool frames = %v", statuses)
+	}
+	// The row reached the model as the history page shows it.
+	if !shownToTheModel(srv, "has no usable error evidence") {
+		t.Error("the repair row's message never reached the model")
+	}
+	// The refusal says the tool is not offered, and the answer still ends with
+	// who did what.
+	toolMsgs := 0
+	for _, rec := range chatRequests(srv) {
+		msgs, _ := rec.Body["messages"].([]any)
+		for i, m := range msgs {
+			msg, _ := m.(map[string]any)
+			if msg["role"] == "tool" && strings.Contains(msg["content"].(string), "not one you were offered") {
+				toolMsgs++
+				if i == 0 {
+					t.Error("the refusal is not a tool answer")
+				}
+			}
+		}
+	}
+	if toolMsgs != 1 {
+		t.Errorf("%d refusals among the tool messages, want one", toolMsgs)
+	}
+	done := got[len(got)-1]
+	if done.kind != "done" {
+		t.Errorf("done = %+v", done)
+	}
 }
 
 // toolRuns counts, per tool, the looks the page was told had started. A call

@@ -32,6 +32,8 @@ const LABELS: Record<string, string> = {
   host_samples: 'hosts minute by minute',
   runner_timeline: 'a runner’s timeline',
   list_workflow_runs: 'workflow runs',
+  list_elis_repairs: 'the repairs history',
+  get_eli_repair: 'a pull request’s repair',
 };
 
 export function toolLabel(name: string): string {

@@ -374,6 +374,31 @@ Arguments:
 * `since` (string): start of the period, included: a duration ago such as 24h, or an RFC 3339 timestamp (default 24 hours before until)
 * `until` (string): end of the period, not included, in the same forms (default now)
 
+### list_elis_repairs
+
+Eli repairs history
+
+Eli's PR repairs: the attempts the product starts on a pull request's failed checks or a maintainer's /eli fix comment. Each row names its repository and pull request, how the repair began (automatic, or a person's request) and where it got to: passed, waiting on checks, needs attention, superseded by a newer commit, or why it could not. Read as the person asking, so their own and every automatic repair; an administrator's is everyone's, and a viewer's answer covers only their own. The answer says how many match in all, counts this page by state, lists the newest rows, then says how many more match and how to read them; repo narrows by fragment, group and trigger as the history page filters. For one pull request's repair use get_eli_repair; a job's own failure is get_job's to explain. Use it when asked whether Eli repairs are working, stuck or failing, or why one got nowhere.
+
+Arguments:
+
+* `before` (integer): continue with the previous answer's before value, to read the earlier rows
+* `group` (string): only the repairs in this group of states One of `attention`, `active`, `passed`.
+* `limit` (integer): how many rows to list, at most 500 (default 30)
+* `repo` (string): only repairs whose repository contains this fragment, such as zoomies
+* `trigger` (string): only repairs this way begun One of `automatic`, `requested`.
+
+### get_eli_repair
+
+One pull request's repair
+
+The most recent Eli repair of one pull request, with its state and what that means: "No Eli repair" says none was started, which is not the same as repaired. It is the newest row only: repairing again makes another row, and only this pull request's rows are searched. A row still queued, working or waiting on checks is one asking again is refused; a passed one answers that it is already repaired; a failed one goes back to a person's decision at the repairs page. It says nothing about what a repair changed; get_job has a job's own failure. Read it when asked whether a repair started, why one failed, or whether its checks are still waiting.
+
+Arguments:
+
+* `pull_number` (integer, required): the pull request's number in that repository
+* `repo` (string, required): the repository, as owner/name
+
 ### fleet_status
 
 Fleet status

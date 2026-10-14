@@ -25,7 +25,12 @@ import (
 // are the most that could leave the building; the configuration and note tools;
 // the webhook deliveries, the audit log and the support bundle, which are
 // GitHub's whole payloads, who did what by name, and the whole instance at once;
-// and every tool that changes the fleet.
+// and every tool that changes the fleet. That last half is why a repair write
+// (a request, an accept, a clear, a policy) can never reach the list: a repair
+// spends an attempt and pushes to a pull request, so the press is a person's at
+// the repairs page. The history itself is the feature's read, added so a
+// question about why a repair is stuck is answered by looking, the way the
+// other resources are.
 var AssistantFleetTools = []string{
 	"fleet_status", "list_problems", "list_jobs", "get_job", "job_stats",
 	"list_runners", "list_pools", "list_hosts", "host_health", "label_advice",
@@ -34,6 +39,7 @@ var AssistantFleetTools = []string{
 	"recent_events", "wait_for_change", "scaling_decisions", "fleet_samples",
 	"host_samples", "runner_timeline", "list_workflow_runs",
 	"queue_wait_breakdown", "compare_periods", "host_pressure", "startup_failures",
+	"list_elis_repairs", "get_eli_repair",
 }
 
 // What one question may cost in tools. Eli answers from what it looked at, and a
