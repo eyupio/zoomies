@@ -65,6 +65,11 @@ const UPDATES_PORT = 8094;
  */
 const GALLERY_PORT = 8092;
 const FAKE_GITHUB_FILE = 'test-results/fakegithub.json';
+// Playwright starts configured servers even when their projects are excluded.
+// These CI groups use the shared and first-run controllers, not the cold Vite
+// gallery optimiser that can otherwise delay every test behind its readiness.
+const coreCIProjects =
+  process.env.CI === 'true' && ['chromium', 'mobile'].includes(process.env.PROJECTS ?? '');
 
 export default defineConfig({
   testDir: './tests',
@@ -149,16 +154,16 @@ export default defineConfig({
       url: 'http://127.0.0.1:8093/healthz',
       reuseExistingServer: false,
       timeout: 60_000,
-      stdout: 'pipe',
-      stderr: 'pipe',
+      stdout: 'pipe' as const,
+      stderr: 'pipe' as const,
     },
     {
       command: `node tests/support/serve.mjs ${PORT}`,
       url: `http://127.0.0.1:${PORT}/healthz`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
-      stdout: 'pipe',
-      stderr: 'pipe',
+      stdout: 'pipe' as const,
+      stderr: 'pipe' as const,
     },
     {
       command: `node tests/support/serve-firstrun.mjs ${FIRST_RUN_PORT} ${SETUP_TOKEN_FILE}`,
@@ -167,8 +172,8 @@ export default defineConfig({
       // exists, so this suite needs a database nobody has touched.
       reuseExistingServer: false,
       timeout: 60_000,
-      stdout: 'pipe',
-      stderr: 'pipe',
+      stdout: 'pipe' as const,
+      stderr: 'pipe' as const,
     },
     {
       command: `node tests/support/serve-connect.mjs ${CONNECT_PORT} ${FAKE_GITHUB_FILE}`,
@@ -177,24 +182,24 @@ export default defineConfig({
       // already has one answers the question the spec is asking.
       reuseExistingServer: false,
       timeout: 60_000,
-      stdout: 'pipe',
-      stderr: 'pipe',
+      stdout: 'pipe' as const,
+      stderr: 'pipe' as const,
     },
     {
       command: `node tests/support/serve-status.mjs ${STATUS_PORT}`,
       url: `http://127.0.0.1:${STATUS_PORT}/healthz`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
-      stdout: 'pipe',
-      stderr: 'pipe',
+      stdout: 'pipe' as const,
+      stderr: 'pipe' as const,
     },
     {
       command: `node tests/support/serve-stuck.mjs ${STUCK_PORT}`,
       url: `http://127.0.0.1:${STUCK_PORT}/healthz`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
-      stdout: 'pipe',
-      stderr: 'pipe',
+      stdout: 'pipe' as const,
+      stderr: 'pipe' as const,
     },
     {
       command: `node tests/support/serve-updates.mjs ${UPDATES_PORT}`,
@@ -204,8 +209,8 @@ export default defineConfig({
       // the first test with a number it did not start from.
       reuseExistingServer: false,
       timeout: 60_000,
-      stdout: 'pipe',
-      stderr: 'pipe',
+      stdout: 'pipe' as const,
+      stderr: 'pipe' as const,
     },
     {
       command: `node tests/support/serve-gallery.mjs ${GALLERY_PORT}`,
@@ -220,8 +225,13 @@ export default defineConfig({
       // that outlasted the minute the controllers are given. Once the cache
       // exists the server answers in about a second.
       timeout: 300_000,
-      stdout: 'pipe',
-      stderr: 'pipe',
+      stdout: 'pipe' as const,
+      stderr: 'pipe' as const,
     },
-  ],
+  ].filter(
+    ({ url }) =>
+      !coreCIProjects ||
+      url === `http://127.0.0.1:${PORT}/healthz` ||
+      url === `http://127.0.0.1:${FIRST_RUN_PORT}/healthz`,
+  ),
 });
