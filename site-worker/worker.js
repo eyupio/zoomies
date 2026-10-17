@@ -121,21 +121,48 @@ async function apiCatalogResponse(url) {
 }
 
 const ISSUER_ORIGIN = "https://portal.zoomies.sh";
-const DISCOVERY_PATHS = [
-  "/.well-known/openid-configuration",
-  "/.well-known/oauth-authorization-server",
+const DEMO_ORIGIN = "https://demo.zoomies.sh";
+
+// The discovery addresses the site mirrors, each from the party that owns
+// the document. The mirror prefers the issuer's live answer, refetched on
+// every request, so key rotation or an added endpoint is served the moment
+// it exists. When a window leaves a provider unreachable, it falls back to
+// the copy the docs build writes beside the site (hooks/seo.py takes each
+// one from the same address and refuses a body that does not name what the
+// product publishes), so discovery is one build stale rather than dark, and
+// the mirror can be stale, never false. When neither answers, the origin's
+// own answer (a real 404) stands, because the discovery addresses belong to
+// their issuers first.
+const MIRRORS = [
+  {
+    // Both discovery addresses are served from the portal's OpenID document;
+    // RFC 8414 and OIDC metadata are the same document for this issuer.
+    paths: [
+      "/.well-known/openid-configuration",
+      "/.well-known/oauth-authorization-server",
+    ],
+    live: "/.well-known/openid-configuration",
+    upstream: ISSUER_ORIGIN,
+    baked: "/.well-known/openid-configuration.json",
+  },
+  {
+    // The demo serves the protected-resource document at both addresses.
+    paths: [
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/mcp",
+    ],
+    live: null,
+    upstream: DEMO_ORIGIN,
+    baked: "/.well-known/oauth-protected-resource.json",
+  },
 ];
 
-// The mirror prefers the issuer's live answer, refetched on every request, so
-// key rotation or an added endpoint is served the moment it exists. When a
-// window leaves the provider unreachable, it falls back to the copy the docs
-// build takes from the same address (hooks/seo.py), so discovery is one
-// build stale rather than dark; the build's copy is refused if its issuer is
-// not the one this site names, so the mirror can be stale, never false. When
-// neither answers, the origin's own answer (a real 404) stands, because the
-// discovery addresses belong to the issuer first.
-async function discoveryResponse(url) {
-  const upstream = await fetch(new URL("/.well-known/openid-configuration", ISSUER_ORIGIN), {
+async function mirroredResponse(url) {
+  const entry = MIRRORS.find((mirror) => mirror.paths.includes(url.pathname));
+  if (entry === undefined) {
+    return null;
+  }
+  const upstream = await fetch(new URL(entry.live ?? url.pathname, entry.upstream), {
     headers: { accept: "application/json" },
   });
   if (upstream.ok) {
@@ -144,7 +171,7 @@ async function discoveryResponse(url) {
     headers.set("content-type", "application/json");
     return new Response(body, { status: upstream.status, headers });
   }
-  const baked = await fetch(new URL("/.well-known/openid-configuration.json", url.origin), {
+  const baked = await fetch(new URL(entry.baked, url.origin), {
     headers: { accept: "application/json" },
   });
   if (baked.ok) {
@@ -160,10 +187,10 @@ export default {
   async fetch(request) {
     if (request.method === "GET" || request.method === "HEAD") {
       const url = new URL(request.url);
-      if (DISCOVERY_PATHS.includes(url.pathname)) {
-        const discovery = await discoveryResponse(url);
-        if (discovery !== null) {
-          return request.method === "HEAD" ? new Response(null, discovery) : discovery;
+      if (MIRRORS.some((mirror) => mirror.paths.includes(url.pathname))) {
+        const mirrored = await mirroredResponse(url);
+        if (mirrored !== null) {
+          return request.method === "HEAD" ? new Response(null, mirrored) : mirrored;
         }
       }
       if (url.pathname === "/.well-known/api-catalog" || url.pathname === "/.well-known/api-catalog/") {

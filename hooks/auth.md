@@ -2,6 +2,22 @@
      describes what a person, or an agent acting for one, can pass at a Zoomies
      deployment. Keep it true to internal/api and internal/auth, and check both
      when something here names a scope or an endpoint. -->
+---
+agent_auth:
+  skill: https://zoomies.sh/.well-known/agent-skills/zoomies/SKILL.md
+  register_uri: https://demo.zoomies.sh/oauth/register
+  registration_methods:
+    oauth_dynamic_registration:
+      issuer: https://demo.zoomies.sh
+      steps:
+        - Register a client with its redirect URIs at the demo's /oauth/register.
+        - Send the person to /oauth/authorize, where they sign in at the demo and approve the client.
+        - Exchange the code at /oauth/token for a bearer token bound to /mcp.
+    operator_issued_api_token:
+      steps:
+        - The person who runs the deployment mints an API token in the controller's settings, at the scopes the agent needs.
+        - Present it on every call as `Authorization: Bearer <token>`.
+---
 
 # auth.md
 
@@ -93,6 +109,13 @@ so a rotation or an added endpoint can never leave a stale copy here. When
 the portal cannot be reached for a moment, the mirror answers with the copy
 each site build took from the same address, so discovery is one build stale
 rather than dark.
+
+The reachable example's protected-resource metadata is mirrored the same
+way, at `/.well-known/oauth-protected-resource`: it describes the demo's own
+MCP resource and the authorization server it trusts, names this site's
+connection walkthrough as its documentation, and carries the demo's
+`mcp:read` and `mcp:operate` scopes. Everything it points at belongs to the
+demo.
 
 ## Registration instead of accounts
 

@@ -296,7 +296,7 @@ def on_post_build(config):
     _write_auth_md(config)
     _write_agent_discovery(config, site_url)
     _write_api_catalog(config, site_url)
-    _write_oidc_mirror(config)
+    _write_identity_mirrors(config)
 
     # The catalog is generated into the Go package that embeds it, so the
     # binary and the site serve the same bytes; the site copies it rather than
@@ -401,6 +401,76 @@ def _write_api_catalog(config, site_url: str) -> None:
     with open(os.path.join(config["site_dir"], "api-catalog.json"), "w", encoding="utf-8") as fh:
         json.dump(catalog, fh, indent=2)
         fh.write("\n")
+
+
+def _write_identity_mirrors(config) -> None:
+    """Keep copies of the discovery documents the worker mirrors.
+
+    The worker prefers the issuer's live answer at the site's discovery
+    addresses; these files, each taken from the address that serves it, are
+    what it falls back to when a window where a provider cannot be reached
+    leaves it unreachable, so discovery is one build stale rather than dark.
+    A build without the network skips the copies without failing it, the way
+    the header's source facts skip theirs. A body is copied only when it
+    names what the product publishes: the portal's OpenID discovery carries
+    the issuer this site names, and the demo's protected-resource metadata
+    describes the demo's own MCP resource and links its documentation here,
+    so a mirror can be stale by a build, never false.
+    """
+    site_url = str(config["site_url"]).rstrip("/")
+    well = os.path.join(config["site_dir"], ".well-known")
+    os.makedirs(well, exist_ok=True)
+    mirrors = (
+        (
+            "openid-configuration.json",
+            f"{_IDENTITY}/.well-known/openid-configuration",
+            lambda d: isinstance(d, dict) and d.get("issuer") == _IDENTITY,
+            "its issuer is not the one this site names",
+        ),
+        (
+            "oauth-protected-resource.json",
+            f"{_DEMO}/.well-known/oauth-protected-resource",
+            lambda d: isinstance(d, dict)
+            and isinstance(d.get("resource"), str)
+            and d["resource"].endswith("/mcp")
+            and d.get("resource_documentation") == f"{site_url}/connect-claude/",
+            "it does not describe the demo's MCP resource documented here",
+        ),
+    )
+    for name, source, accepts, why in mirrors:
+        try:
+            with urllib.request.urlopen(
+                urllib.request.Request(
+                    source,
+                    headers={
+                        "Accept": "application/json",
+                        # A user agent that names the build: without it the
+                        # portal's rules answer the default library string
+                        # with 403.
+                        "User-Agent": "zoomies-docs-build (+https://zoomies.sh; https://github.com/eyupio/zoomies)",
+                    },
+                ),
+                timeout=10,
+            ) as response:
+                body = response.read(64 * 1024)
+        except OSError as err:
+            # Info, not a warning: --strict would fail a build, and a build
+            # whose network is down only loses the mirror's fallback copy,
+            # not the site.
+            log.info("the mirror's source %s could not be fetched, so this build's copy is skipped: %s", source, err)
+            continue
+        try:
+            document = json.loads(body)
+        except ValueError as err:
+            log.info("the mirror's source %s is not JSON, so this build's copy is skipped: %s", source, err)
+            continue
+        if not accepts(document):
+            log.info("the mirror's source %s is refused because %s, so this build's copy is skipped", source, why)
+            continue
+        documents = True
+        with open(os.path.join(well, name), "w", encoding="utf-8") as fh:
+            json.dump(document, fh, indent=2)
+            fh.write("\n")
 
 
 def _write_oidc_mirror(config) -> None:
