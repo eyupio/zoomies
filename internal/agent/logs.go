@@ -12,11 +12,13 @@ import (
 )
 
 const (
-	// relayChunkSize is how much output one read moves.
+	// relayChunkSize is how much output one read moves, and the most that one
+	// write to the controller carries.
 	relayChunkSize = 32 << 10
-	// relayQueueDepth is how far the relay may run ahead of the controller:
-	// about 2 MiB of buffered output before anything is dropped.
-	relayQueueDepth = 64
+	// relayBufferBytes is how far the relay may run ahead of the controller
+	// before anything is dropped. It is counted in bytes because the size of a
+	// read is the source's choice; see relayBuffer.
+	relayBufferBytes = 2 << 20
 	// relayStopWait bounds how long stopping a stream waits for its copy to
 	// wind down before the agent gets on with shutting down.
 	relayStopWait = 10 * time.Second
@@ -118,9 +120,9 @@ func (r *logRelay) close(streamID string, s *logStream) {
 	s.finish()
 }
 
-// pump moves output from the runner to the controller through a bounded queue.
+// pump moves output from the runner to the controller through a bounded buffer.
 //
-// When the queue is full the relay drops output and says so, rather than
+// When the buffer is full the relay drops output and says so, rather than
 // blocking. Blocking would push back on the runner's own output pipe, and a
 // container whose stdout nobody drains eventually stops making progress: one
 // operator on a slow connection would then be able to stall a build. Losing the
@@ -132,7 +134,7 @@ func (r *logRelay) pump(ctx context.Context, streamID string, s *logStream, src 
 	stopWatch := context.AfterFunc(ctx, func() { src.Close() })
 	defer stopWatch()
 
-	queue := make(chan []byte, relayQueueDepth)
+	out := newRelayBuffer()
 	var writer sync.WaitGroup
 	writer.Add(1)
 	go func() {
@@ -142,43 +144,31 @@ func (r *logRelay) pump(ctx context.Context, streamID string, s *logStream, src 
 				r.log.Debug("closing log stream reported an error", "stream", streamID, "error", err)
 			}
 		}()
-		failed := false
-		for chunk := range queue {
-			if failed {
-				// Keep draining: the reader must never block on a controller
-				// that has gone away.
-				continue
+		for {
+			chunk, ok := out.next()
+			if !ok {
+				return
 			}
 			if _, err := dst.Write(chunk); err != nil {
-				failed = true
 				r.log.Debug("controller closed a log stream", "stream", streamID, "error", err)
 				// A write that failed once never recovers, and a cancel_logs
 				// can have arrived before the stream existed, so nothing else
 				// would end this one: it would follow the job's output for
 				// hours, discarding every byte. Cancelling closes the source
-				// through the AfterFunc above; the drain loop keeps the reader
-				// from blocking while it winds down.
+				// through the AfterFunc above. Nothing drains the buffer from
+				// here, which costs nothing: it fills, then drops, and the
+				// reader never waits on it.
 				s.cancel()
+				return
 			}
 		}
 	}()
 
 	buf := make([]byte, relayChunkSize)
-	var dropped int64
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
-			chunk := make([]byte, 0, n+64)
-			if dropped > 0 {
-				chunk = append(chunk, fmt.Sprintf("\n[log stream fell behind, %d bytes dropped]\n", dropped)...)
-			}
-			chunk = append(chunk, buf[:n]...)
-			select {
-			case queue <- chunk:
-				dropped = 0
-			default:
-				dropped += int64(n)
-			}
+			out.add(buf[:n])
 		}
 		if err != nil {
 			if err != io.EOF && ctx.Err() == nil {
@@ -190,17 +180,8 @@ func (r *logRelay) pump(ctx context.Context, streamID string, s *logStream, src 
 			break
 		}
 	}
-	if dropped > 0 {
-		// The runner has stopped producing, so waiting for room here throttles
-		// nothing: a viewer must always be told what was lost, even when the
-		// drop happened in the last moments of the stream.
-		select {
-		case queue <- []byte(fmt.Sprintf("\n[log stream fell behind, %d bytes dropped]\n", dropped)):
-		case <-time.After(relayStopWait):
-		}
-	}
 
 	src.Close()
-	close(queue)
+	out.close()
 	writer.Wait()
 }

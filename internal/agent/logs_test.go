@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -143,6 +144,111 @@ func TestLogRelayDropsRatherThanBlockingOnASlowController(t *testing.T) {
 	}
 	if len(relayed) >= 300*relayChunkSize {
 		t.Fatal("nothing was dropped, so the relay must have blocked")
+	}
+}
+
+// lineReader hands out one line per Read, which is how a container's output
+// arrives: Docker frames its log stream a record to a frame, and the
+// demultiplexer returns at most the rest of the frame it is in. A source that
+// fills the whole buffer on every read, like burstReader, hides what that does
+// to the relay.
+type lineReader struct {
+	mu      sync.Mutex
+	lines   []string
+	next    int
+	drained chan struct{}
+	once    sync.Once
+}
+
+func newLineReader(count int) *lineReader {
+	r := &lineReader{drained: make(chan struct{})}
+	for i := range count {
+		r.lines = append(r.lines, fmt.Sprintf("ZOOMIES_BUILD_LOG build line %04d %s\n", i, strings.Repeat("x", 60)))
+	}
+	return r
+}
+
+func (r *lineReader) Read(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.next == len(r.lines) {
+		r.once.Do(func() { close(r.drained) })
+		return 0, io.EOF
+	}
+	n := copy(p, r.lines[r.next])
+	r.next++
+	return n, nil
+}
+
+func (r *lineReader) Close() error { return nil }
+
+func (r *lineReader) all() string { return strings.Join(r.lines, "") }
+
+// connectingTransport is a controller whose request has not gone out yet. A
+// real transport writes into a pipe that the HTTP client only starts reading
+// once it has connected, so the first write waits for that however much the
+// runner has already said.
+type connectingTransport struct {
+	*fakeTransport
+	connected <-chan struct{}
+}
+
+func (t connectingTransport) OpenLogStream(ctx context.Context, streamID string) (io.WriteCloser, error) {
+	w, err := t.fakeTransport.OpenLogStream(ctx, streamID)
+	if err != nil {
+		return nil, err
+	}
+	return &connectingStream{fakeStream: w.(*fakeStream), connected: t.connected}, nil
+}
+
+type connectingStream struct {
+	*fakeStream
+	connected <-chan struct{}
+	once      sync.Once
+}
+
+func (s *connectingStream) Write(p []byte) (int, error) {
+	s.once.Do(func() { <-s.connected })
+	return s.fakeStream.Write(p)
+}
+
+// Opening a runner asks for its last thousand lines, which the daemon sends as
+// fast as the socket takes them, and the controller is not listening for the
+// first few milliseconds. A relay that held a fixed number of reads rather than
+// a fixed number of bytes kept the first sixty-four lines of that and threw the
+// rest away, so the viewer opened on the oldest lines of the backlog and a
+// warning, and the job's output was exactly what was missing.
+func TestLogRelayKeepsABacklogOfShortLinesWhileTheRequestConnects(t *testing.T) {
+	const lines = 1000
+	src := newLineReader(lines)
+	connected := make(chan struct{})
+	tr := connectingTransport{fakeTransport: newFakeTransport(), connected: connected}
+	be := newFakeBackend("docker")
+	be.mu.Lock()
+	be.logs = func() io.ReadCloser { return src }
+	be.mu.Unlock()
+
+	relay := newLogRelay(tr, testLogger())
+	if err := relay.start(context.Background(), "stream-1", "wl-1", be, backend.LogOptions{Follow: true, Tail: lines}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	// The whole backlog is read while nothing is accepting it.
+	select {
+	case <-src.drained:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the copy from the runner blocked on a controller that had not connected")
+	}
+	close(connected)
+
+	waitFn(t, "the stream to finish", 10*time.Second, func() bool {
+		s := tr.stream("stream-1")
+		return s != nil && s.isClosed()
+	})
+	got := tr.stream("stream-1").String()
+	if want := src.all(); got != want {
+		t.Fatalf("relayed %d of %d lines, %d of %d bytes; marker present: %v; want the whole backlog, in order, with nothing said to be missing",
+			strings.Count(got, "build line"), lines, len(got), len(want), strings.Contains(got, "fell behind"))
 	}
 }
 
