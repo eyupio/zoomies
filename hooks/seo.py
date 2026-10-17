@@ -332,3 +332,19 @@ def _write_security_txt(config, site_url: str) -> None:
     os.makedirs(target, exist_ok=True)
     with open(os.path.join(target, "security.txt"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))
+    _copy_api_catalog(config, target)
+
+
+def _copy_api_catalog(config, target: str) -> None:
+    """Copy docs/.well-known/api-catalog.json into the built site as it is.
+
+    The catalog is the site's API catalog, a Linkset (RFC 9727) the edge worker
+    re-types at /.well-known/api-catalog, and it is tracked, not generated,
+    because nothing in it rotates. It is still copied here rather than left for
+    the build to pick up: MkDocs passes over files and directories beginning
+    with a dot, so a file under docs/.well-known would never reach the site on
+    its own (the same reason security.txt above is written here). A missing
+    file fails the build, so the well-known address cannot quietly go away.
+    """
+    source = os.path.join(config["docs_dir"], ".well-known", "api-catalog.json")
+    shutil.copyfile(source, os.path.join(target, "api-catalog.json"))
