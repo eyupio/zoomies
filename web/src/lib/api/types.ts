@@ -139,6 +139,15 @@ export type JobExplanation = Schemas['JobExplanation'];
 export type Job = Schemas['Job'];
 export type JobStats = Schemas['JobStats'];
 export type JobStatsGroup = Schemas['JobStatsGroup'];
+/** What each analysis answers: one shape, its own evidence (api/openapi.yaml, Analyses). */
+export type QueueWaitFinding = Schemas['QueueWaitFinding'];
+export type CompareFinding = Schemas['CompareFinding'];
+export type HostPressureFinding = Schemas['HostPressureFinding'];
+export type StartupFailuresFinding = Schemas['StartupFailuresFinding'];
+/** Any of the four, for the card that renders the fields they share. */
+export type Finding =
+  QueueWaitFinding | CompareFinding | HostPressureFinding | StartupFailuresFinding;
+export type AnalysisNextStep = Schemas['AnalysisNextStep'];
 export type WorkflowRun = Schemas['WorkflowRun'];
 export type JobStep = Schemas['JobStep'];
 export type JobEvent = Schemas['JobEvent'];

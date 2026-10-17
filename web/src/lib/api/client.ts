@@ -477,6 +477,26 @@ export const getJobFacets = (signal?: AbortSignal) =>
 export const listWorkflowRuns = (query?: Query<'listWorkflowRuns'>, signal?: AbortSignal) =>
   api.get<Result<'listWorkflowRuns'>>('/workflow-runs', { query, signal });
 
+/* Analyses ----------------------------------------------------------------- */
+
+/*
+ * The four analyses the CLI, the MCP tools and Eli read too, so the card on a
+ * page and every other reader render one computed answer.
+ */
+export const analyseQueueWait = (query?: Query<'analyseQueueWait'>, signal?: AbortSignal) =>
+  api.get<Result<'analyseQueueWait'>>('/analysis/queue-wait', { query, signal });
+
+export const analyseCompare = (query?: Query<'analyseCompare'>, signal?: AbortSignal) =>
+  api.get<Result<'analyseCompare'>>('/analysis/compare', { query, signal });
+
+export const analyseHostPressure = (query?: Query<'analyseHostPressure'>, signal?: AbortSignal) =>
+  api.get<Result<'analyseHostPressure'>>('/analysis/host-pressure', { query, signal });
+
+export const analyseStartupFailures = (
+  query?: Query<'analyseStartupFailures'>,
+  signal?: AbortSignal,
+) => api.get<Result<'analyseStartupFailures'>>('/analysis/startup-failures', { query, signal });
+
 export const getJobEvents = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getJobEvents'>>(`/jobs/${enc(id)}/events`, { signal });
 

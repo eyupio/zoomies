@@ -28,3 +28,12 @@ test('the fleet window is named for what it shows', () => {
   assert.equal(toolLabel('host_samples'), 'hosts minute by minute');
   assert.equal(toolLabel('list_workflow_runs'), 'workflow runs');
 });
+
+// The four analyses each answer one question, and the chat names the question
+// rather than the tool, as the cards on the pages do.
+test('the analysis tools are named for the question each answers', () => {
+  assert.equal(toolLabel('queue_wait_breakdown'), 'why jobs waited');
+  assert.equal(toolLabel('compare_periods'), 'what got worse or better');
+  assert.equal(toolLabel('host_pressure'), 'whether a host’s failures came under pressure');
+  assert.equal(toolLabel('startup_failures'), 'what keeps failing to start');
+});

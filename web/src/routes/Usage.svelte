@@ -18,10 +18,19 @@
   import { usageContext } from '$lib/assistant/contexts';
   import InstallationReport from '$lib/usage/InstallationReport.svelte';
   import ReleaseTable from '$lib/usage/ReleaseTable.svelte';
+  import AnalysisCard from '$lib/insights/AnalysisCard.svelte';
+  import {
+    analysisWindow,
+    refusalOf,
+    changeFigure,
+    DIRECTION_WORDS,
+    MEASURE_WORDS,
+    wordFor,
+  } from '$lib/insights/analysis';
   import UsageInsights from '$lib/usage/UsageInsights.svelte';
   import { Download, Receipt } from '@lucide/svelte';
-  import { getUsage, usageCsvUrl } from '$lib/api/client';
-  import type { Usage, UsageGrouping } from '$lib/api/types';
+  import { analyseCompare, getUsage, usageCsvUrl } from '$lib/api/client';
+  import type { CompareFinding, Usage, UsageGrouping } from '$lib/api/types';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
   import {
@@ -30,6 +39,7 @@
     formatDuration,
     formatNumber,
     formatPercent,
+    pluralise,
   } from '$lib/format';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -172,6 +182,48 @@
     const q = query;
     void load(q);
     return () => pending?.abort();
+  });
+
+  /* What got worse between the releases ------------------------------------
+   * Beside the table of releases, because that table is where "did the
+   * upgrade make things worse?" is asked, and over the same range, so the two
+   * read the same jobs. The table lays the releases out; the comparison says
+   * which measures moved past their bar, and declines to rank a sample too
+   * small to judge.
+   * ------------------------------------------------------------------------ */
+
+  let compare = $state.raw<CompareFinding | null>(null);
+  let compareError = $state<{ message: string; refused: boolean } | null>(null);
+  let compareLoading = $state(false);
+  const compareFrom = $derived(query.from);
+  const compareTo = $derived(query.to);
+
+  $effect(() => {
+    const period =
+      compareFrom && compareTo ? analysisWindow(compareFrom, compareTo, Date.now()) : null;
+    const controller = new AbortController();
+    compareError = null;
+    if (!period) {
+      // A backwards range is the page's own warning to give.
+      compare = null;
+      compareLoading = false;
+      return;
+    }
+    compareLoading = true;
+    analyseCompare({ ...period, by: 'version' }, controller.signal)
+      .then((next) => {
+        if (!controller.signal.aborted) compare = next;
+      })
+      .catch((cause: unknown) => {
+        if (controller.signal.aborted) return;
+        // The report and the table are still true; only this card failed.
+        compare = null;
+        compareError = refusalOf(cause);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) compareLoading = false;
+      });
+    return () => controller.abort();
   });
 
   const entity = $derived(router.param('entity'));
@@ -510,8 +562,100 @@
      with no job still has a plain answer to give here, and the release table's
      own request may fail on its own, for a window over the server's limit. -->
 <ReleaseTable from={query.from} to={query.to} />
+<div class="compare">
+  <AnalysisCard
+    title="What got worse and what got better"
+    finding={compare}
+    error={compareError}
+    loading={compareLoading}
+  >
+    {#if compare}
+      {@const ev = compare.evidence}
+      {#each [{ side: ev.a, name: 'Earlier' }, { side: ev.b, name: 'Later' }] as { side, name } (name)}
+        <dl class="facts" aria-label="{name}: {side.label}">
+          <div>
+            <dt>{name}</dt>
+            <dd>
+              {side.label}, {formatAbsolute(side.since)} to {formatAbsolute(side.until)}
+            </dd>
+          </div>
+          <div>
+            <dt>Jobs</dt>
+            <dd class="figure">
+              {#if side.counts_only}
+                {pluralise(side.figures.jobs, 'job')}, {formatNumber(side.figures.fleet_failed)} lost
+                to the fleet
+              {:else}
+                {pluralise(side.figures.jobs, 'job')}, {formatNumber(side.figures.failed)} failed, {formatNumber(
+                  side.figures.fleet_failed,
+                )} lost to the fleet, {formatNumber(side.figures.oom_killed)} OOM killed
+              {/if}
+            </dd>
+          </div>
+          {#if side.counts_only}
+            <div>
+              <dt>Read from</dt>
+              <dd>
+                The daily roll-up, in whole UTC days, which keeps counts and no outcomes or times.
+              </dd>
+            </div>
+          {/if}
+          {#if side.jobs_gone_before}
+            <div>
+              <dt>Gone before</dt>
+              <dd>
+                {formatAbsolute(side.jobs_gone_before)}: older jobs are past retention.jobs, and no
+                roll-up records which release ran them.
+              </dd>
+            </div>
+          {/if}
+          {#if side.no_record_before}
+            <div>
+              <dt>No counts before</dt>
+              <dd>{formatAbsolute(side.no_record_before)}</dd>
+            </div>
+          {/if}
+          <!-- Only a roll-up side ends early for want of a midnight; a release's
+               side ends at its last job, which its own dates above already say. -->
+          {#if side.counts_only && side.asked_until !== side.until}
+            <div>
+              <dt>Asked until</dt>
+              <dd>
+                {formatAbsolute(side.asked_until)}, read to {formatAbsolute(side.until)}
+              </dd>
+            </div>
+          {/if}
+        </dl>
+      {/each}
+      {#if ev.percentiles_unavailable}
+        <p class="evidence-note">
+          No time was compared: a side came from the daily roll-up, which keeps counts only.
+        </p>
+      {/if}
+      {#if ev.changes.length}
+        <p class="rows-label" id="compare-changes">Measure by measure</p>
+        <ul class="rows" aria-labelledby="compare-changes">
+          {#each ev.changes as c (c.measure)}
+            <li>
+              <span>{wordFor(MEASURE_WORDS, c.measure)}</span>
+              <span class="figure muted"
+                >{changeFigure(c.from, c.unit)} to {changeFigure(c.to, c.unit)}, {wordFor(
+                  DIRECTION_WORDS,
+                  c.direction,
+                )}</span
+              >
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    {/if}
+  </AnalysisCard>
+</div>
 
 <style>
+  .compare {
+    margin: var(--z-space-5) 0 0;
+  }
   .installation-report {
     margin: 0 0 var(--z-space-5);
   }

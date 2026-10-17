@@ -275,6 +275,132 @@ confidence; a comparison with fewer than thirty jobs on either side says so
 rather than ranking; the UI card and the tool show one answer; Eli answers
 each scenario from one analysis call.
 
+### 5.7 As built
+
+As built (17 October), in thirteen tasks under
+[the plan](plans/2026-10-12-zf-241-fleet-analyses.md), whose decisions 3 to 8
+are recorded here as they shipped. Where the table in 5.2 names material the
+fleet does not keep, the finding reads what it does keep and says what it could
+not read; section 8 rules out the rest.
+
+**The causes of a wait** (decision 3). Every second of a job's wait is put down
+to exactly one cause, and the causes are the six in 5.2 as the fleet records
+them, plus two. *No host matched* is `unmatched`, the time before any enabled
+pool claimed the job (`jobs.eligible_at`, the `jobs.unmatched` problem); a job
+nothing has claimed by the period's end is unmatched to its end. *Pool at its
+ceiling* is `pool_ceiling`, the minutes the pool's live, registered runners
+stood at its `max_runners`; a runner that failed before it registered holds no
+place. A fleet that was full is `no_room`, the first addition, from the
+per-minute `usage_capacity_samples` the scheduler already writes, and *hosts
+throttled* is `throttled`, a `no_room` minute in which a host that could run the
+pool (backend, platform, selector and size, the scheduler's own placement rule)
+was on a throttle rung. *Runner startup* is `runner_startup`, from the runner's
+request to its registration, and every minute of the wait after a failed start
+that the ceiling does not explain. *Held for review* is `held_for_review`, and
+*GitHub's own delay* is `github_delay`, from registration to the job's start.
+A pool with no eligible host at all is not recorded per minute anywhere, so
+that time falls in `unattributed`, the second addition, and the finding says
+so and names `pool.no_eligible_host`. A job whose runner's row and session are
+both gone is never split into startup and GitHub's delay: its wait after
+eligibility goes to the pool's conditions where they say, and to `unattributed`
+where they do not, and it is counted. The snapshot's scaling
+decisions and runtime incidents are not read for the wait: the capacity
+samples and the throttle episodes say the same of each minute. A pool's
+ceiling and its `ephemeral` flag are today's values, because the fleet keeps
+no history of pool settings, so a pool whose ceiling has been raised since
+under-reads its past ceiling. A runner of a pool that keeps its runners, there
+before the job was queued, is counted as `runner_kept` rather than split into
+startup and GitHub's delay, and past a tenth of the jobs that waited it holds
+the finding at medium.
+
+**Throttle and incident history** (decision 4). Throttle episodes are read from
+the audit log's `host.throttle`, `host.throttle_lift` and `host.throttle_clear`
+rows (audit rows are never pruned), with each existing host's last change before
+the period as the rung it stood on when the period opened, and an episode still
+open taken from the host's own `Throttle.Since`. Only the times and the host ids
+leave those rows; the actor and the detail never do, so a finding tells a token
+without `audit.read` no more than when a host was throttled. A host's runtime and
+image-pull incidents are kept only while current, so the startup analysis
+explains a failure by the failed runner's own `fault_kind` (written when it
+failed and kept with the row) and by the host's current incident with its
+`since`. Because a runtime incident is first heard of on the heartbeat after the
+start that found the runtime down, it also covers a failure up to one
+`agent.heartbeat_interval` before its `since`. An incident that has already
+cleared is not known, and the finding says so when nothing else explains the
+failures. The image explanation reads "the runner image could not be pulled or
+would not start", which is what a `fault_kind` of `image` records.
+
+**Retention** (decision 5, section 6). A period side that starts before
+`now - retention.jobs` is read from the installation roll-up in whole UTC days,
+counts only: it is compared on the fleet failure rate alone and says its
+percentiles are unavailable. Each counts-only side is built from the span the
+store says it read, the later side first, so no job is counted on both sides;
+each side carries `asked_until`, and `no_record_before` when the fleet's counts
+begin after its start, and the finding names the hours counted on neither side
+and why. A side that cannot be read apart from the other in whole days is
+refused with `analysis.whole_days_only`. A release side cannot fall back,
+because no roll-up records which release ran a job: a release comparison
+reaching past `retention.jobs` compares what the job rows still hold, says the
+earlier jobs of the release that was running when the cut fell are gone, and is
+at most medium. The comparison's figures are `JobStats`, the query behind
+`job_stats` and the Usage page's "By release" table, with cancelled and skipped
+jobs left out by the query; the table keeps them in its counts, rates and queue
+waits, so the two differ by exactly those jobs, and the finding says they were
+left out.
+
+**Where the cards go** (decision 6, section 5.4). The Overview has no version
+panel, so the comparison card is on the Usage page under the "By release" table,
+where releases are already compared, and it compares releases only. `HostDetail`
+has no capacity map (the map is on Hosts and the Overview), so host pressure's
+card is on the one page about one host. The queue-wait card is on the Jobs
+page's Queued view and on any list narrowed to exactly queued jobs, after the
+grid on a Mission Control phone; it states its scope and names the list's
+filters it cannot apply. The startup card is on the Runners page when the failed
+state is filtered. The queue-wait card on the unmatched list the problems drawer
+opens is a later, separate change, by the owner's decision of 17 October. Each
+card renders its route's answer.
+
+**The demo** (decision 7, section 5.6). Three analyses get a seeded cause in a
+fixed window 22 to 20 hours before now: the demo's linux pool waiting on runner
+startup and its arm pool at its ceiling, failures clustering in
+demo-builder-2's busy minutes, and demo-builder-2 failing to start runners
+because the image could not be pulled. Each is named dominant at high
+confidence. The comparison has no seeded cause: the demo's two releases have 12
+and 14 completed jobs, so it answers the small-sample sentence, which is row
+20's second acceptance, and a ranked regression at high confidence is proven by
+the comparison's table tests and its Eli scenario instead. The owner decided on
+17 October to keep that rather than seed 200 more demo jobs. The demo now holds
+92 jobs and 35 runners.
+
+**Authorisation** (decision 8, section 7). One existing read action per route,
+the one for what it is about: `jobs.read` for the queue wait and the
+comparison, `hosts.read` for host pressure, `runners.read` for startup failures.
+Host pressure's events name jobs, which no host view does, so it needs
+`jobs.read` as well to name them: without it (in practice a token narrowed to
+`hosts:read`, since every role from viewer up holds both) each event's
+repository, workflow and job name are withheld, and `job_names_withheld` and a
+next step say so. A public view's visitor is refused before any read: an
+analysis joins jobs, hosts, runners and the audit log, and the public view
+promises none of them together. A next step may name a setting that only
+whoever holds the platform role can see, such as `updates.mode`,
+`retention.jobs` or `retention.samples`, by its name and never its value. A
+request the fleet's records refuse is a `409` (`analysis.too_few_releases`,
+`analysis.whole_days_only`), and one release named twice a `400`
+(`analysis.same_release`), each with the sentence that says what to change.
+
+**The tools.** Each MCP tool is its route with the caller's own credential,
+decoded into the analysis package's own types and refused when the answer is
+another analysis or another version. Each text block is held to the server's
+window block (64 KiB, Eli's 12 KiB) and cut on whole rows with a note naming the
+argument that reaches what was cut; the summary, the confidence and the steps
+are never cut, so each of the controller's sentences is clipped at 512 bytes and
+the largest possible head fits 12 KiB. The structured copy holds exactly the
+rows the text shows, at most 64 KiB. The names a workflow or a host wrote are
+quoted only in the untrusted block of the text, and the structured copy carries
+them inline under a schema that says they are untrusted. None of the four is
+`live`, and under the scripted model Eli answers each of the four scenarios from
+one call.
+
 ## 6. Limits and settings
 
 No new setting. The window reads under `retention.scaling_events`,

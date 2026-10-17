@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 3.12 · 12 October 2026 · derived from the owner's
+Version 3.13 · 17 October 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md),
 reconciled against `main` at `6d12a72` on 6 September, at `9a80b31`
 on 19 September and at `88c41f6` on 8 October, when the owner set a new primary target, withdrew the
@@ -1692,7 +1692,8 @@ Depends on ZF-228, ZF-235. Size M.
 
 ### ZF-241: analyses the controller computes
 
-**Classification: new; M; proposed and designed 12 October.** Why a period
+**Classification: new; M; proposed and designed 12 October, implemented 12
+to 17 October.** Why a period
 was slow, whether a release made things worse, whether a host fails when it
 is busy and which host keeps failing to start runners are each answerable
 from what the fleet keeps, and each takes a model a dozen calls to assemble
@@ -1708,6 +1709,39 @@ runner-startup failures by host and pool; an Eli scenario per finding.
 **Accepted because:** one computed answer is rendered everywhere, as the
 job explanation is, so the UI, the CLI and Eli cannot disagree; the package
 is pure and its decisions are table tests.
+
+**Done:** `internal/analysis` extended, pure, its purity test renamed
+`TestTheAnalysisPackageIsPure`, with the four findings: the queue-wait
+breakdown, every second of a wait put down to one of eight causes; the
+comparison of two releases or two periods, which leaves cancelled and skipped
+jobs out of every figure and ranks nothing with fewer than 30 jobs on either
+side; host pressure against failures, with the line that separates them; and
+repeated runner-startup failures by host and pool, with what explains them
+(#964, #972, #975). The store's bounded reads, the controller's snapshots and a
+seeded cause for three of them in `zoomies demo` (#975). Four viewer routes,
+`GET /api/v1/analysis/queue-wait`, `/analysis/compare`,
+`/analysis/host-pressure` and `/analysis/startup-failures`, over the last 24
+hours unless `since` and `until` say otherwise and never longer than
+`limits.job_stats_window`; a public view's visitor is refused before any read,
+host pressure names jobs only to a caller who can also read jobs, and a request
+the fleet's records refuse is answered with a code of its own and the sentence
+that says what to change (#975). The MCP tools `queue_wait_breakdown`,
+`compare_periods`, `host_pressure` and `startup_failures`, each answer cut on
+whole rows under the server's window block with a note naming the argument that
+shows more, the names a workflow or a host wrote quoted in the text only in the
+untrusted block, and inline in the structured copy under a schema that marks
+them untrusted; all four on Eli's list, with an Eli scenario each answered from
+one call; and `zoomies analyse` with its four subcommands (#983). A card where
+each question is already asked, rendering its route's answer: **Why jobs
+waited** on the Jobs page's Queued view, **What got worse and what got better**
+under the Usage page's "By release" table, **Whether its failures came under
+pressure** on a host's own page, and **What keeps failing to start** on the
+Runners page when its state filter includes failed runners; and *Asking why* in
+`docs/connect-claude.md` (#1130). [fleet-analysis.md](roadmap/fleet-analysis.md)
+section 5.7 records what was built against the plan's decisions. `implemented`
+and not `done` until the cards are seen against a real fleet's data: the Eli
+scenarios have played only under the scripted model, and no real MCP client has
+called the tools.
 
 Depends on ZF-240, ZF-231, ZF-226. Size M.
 
@@ -1972,7 +2006,7 @@ every package in section 8 was re-read on 19 September against the code.
 | 17 | ZF-235 the assistant, slice by slice, after an owner decision to start | Each slice's acceptance in the design's section 9 |
 | 18 | ZF-239 slice 2, the controller's side of a shared App, with no network | An `own` installation is unchanged; a `shared` one completes a repair against the fake relay and holds no private key |
 | 19 | ZF-240 the fleet as it moves, over MCP, implemented, 12 October | One call answers what changed; a second with the cursor blocks until a seeded event; Eli's three scenarios hold and the three reads for whoever runs the fleet are left off its list |
-| 20 | ZF-241 the analyses | Each seeded cause is named as dominant at high confidence; a small sample is said to be small; the card and the tool show one answer |
+| 20 | ZF-241 the analyses, implemented, 17 October | Each seeded cause is named as dominant at high confidence; a small sample is said to be small; the card and the tool show one answer |
 | 21 | ZF-242 PR required-check delay, starting with its independent pure core | Pinned heads and coverage survive every surface; missing/ambiguous checks stay visible; no merge-readiness claim |
 | 22 | ZF-243 selected historical comparison | Descriptive milestone merged; controlled-experiment proof deferred, incomplete evidence stays inconclusive |
 | 23 | ZF-244 reviewed checkout optimisation | Pure supplied-evidence preview first, then scoped web inspection and separately approved draft publication; no verified savings without measurements |
@@ -2017,6 +2051,22 @@ remaining dependency. Do not invent live runs, elapsed observation, benchmark
 results or user feedback; do not wait for them either.
 
 ## 13. Change record
+
+* **17 October 2026: Version 3.13:** ZF-241 implemented: the four analyses in
+  `internal/analysis`, each a viewer route under `/api/v1/analysis`, an MCP tool
+  on Eli's list, a subcommand of `zoomies analyse` and a card where its question
+  is already asked (the Jobs page's Queued view, Usage under "By release", a
+  host's own page, and the Runners page when its state filter includes failed
+  runners), documented
+  as *Asking why* in `docs/connect-claude.md`. The entry and row 20 record it,
+  and [fleet-analysis.md](roadmap/fleet-analysis.md) section 5.7 records what was
+  built against the plan's decisions 3 to 8: the comparison card is on Usage,
+  because the Overview has no version panel, and host pressure's on the host's
+  page, which has no capacity map; a pool's ceiling and `ephemeral` flag are read
+  as they are today, because the fleet keeps no history of pool settings; host
+  pressure names jobs only to a caller who can read them; and the demo's
+  comparison keeps its small sample, by the owner's decision. It stays
+  `implemented` until the cards are seen against a real fleet's data.
 
 * **12 October 2026: Version 3.12:** ZF-240 implemented: `GET /events/recent`
   with `since=now` and a bounded wait, the seven window tools on Eli's list, the three reads

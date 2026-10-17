@@ -1,13 +1,22 @@
 <script lang="ts">
   import AskEli from '$lib/assistant/AskEli.svelte';
-  import { checkHostHealth, getHost, revokeHostCheck } from '$lib/api/client';
+  import { analyseHostPressure, checkHostHealth, getHost, revokeHostCheck } from '$lib/api/client';
   import { events } from '$lib/api/sse';
-  import type { Host } from '$lib/api/types';
+  import type { Host, HostPressureFinding } from '$lib/api/types';
+  import AnalysisCard from '$lib/insights/AnalysisCard.svelte';
+  import {
+    analysisWindow,
+    refusalOf,
+    EVENT_WORDS,
+    jobWords,
+    PRESSURE_MEASURE_WORDS,
+    thresholdValue,
+    wordFor,
+  } from '$lib/insights/analysis';
   import { href, router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
   import { freshness } from '$lib/hosts/freshness';
   import { session } from '$lib/state/session.svelte';
-  import { onClockTick } from '$lib/format';
   import {
     attention as attentionOf,
     bySeverity,
@@ -31,7 +40,7 @@
   import { KIND_WORDS, fixCommand, rowKind } from '$lib/hosts/row-kind';
   import { hostCheckContext } from '$lib/assistant/contexts';
   import { eli } from '$lib/assistant/eli.svelte';
-  import { NO_VALUE, pluralise } from '$lib/format';
+  import { formatAbsolute, formatPercent, NO_VALUE, onClockTick, pluralise } from '$lib/format';
   import { niceValue } from '$lib/hosts/check-value';
   import { acceptedIds, acceptedLast, acceptNote, canAccept, endedNote } from '$lib/hosts/accept';
   import AcceptDialog from '$lib/hosts/AcceptDialog.svelte';
@@ -394,6 +403,51 @@
     if (!canOperate || readOnly) return base;
     return `${base} ${PREVIEW_SENTENCE}${tier === 'dedicated' ? ` ${DEDICATED_SENTENCE}` : ''}`;
   }
+  /* Whether its failures came under pressure ---------------------------------
+   * A host's own page is where "is this machine the trouble?" is asked, so
+   * the pressure analysis sits here, over the day before now: the window the
+   * Hosts page's charts open on. It is asked again when the page is given
+   * another host, and when it is refreshed by hand.
+   * ------------------------------------------------------------------------ */
+
+  let pressure = $state.raw<HostPressureFinding | null>(null);
+  let pressureError = $state<{ message: string; refused: boolean } | null>(null);
+  let pressureLoading = $state(false);
+  let pressureKey = $state(0);
+
+  $effect(() => {
+    const hostId = id;
+    void pressureKey;
+    const controller = new AbortController();
+    pressure = null;
+    pressureError = null;
+    const period = analysisWindow(undefined, undefined, Date.now());
+    if (!hostId || !period) return;
+    pressureLoading = true;
+    analyseHostPressure({ host_id: hostId, ...period }, controller.signal)
+      .then((next) => {
+        if (!controller.signal.aborted) pressure = next;
+      })
+      .catch((cause: unknown) => {
+        if (controller.signal.aborted) return;
+        // The host's report is still the page's; only this card failed.
+        pressureError = refusalOf(cause);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) pressureLoading = false;
+      });
+    return () => controller.abort();
+  });
+
+  /** What a minute was judged pressured by, in the host's own figures. */
+  function pressuredWhen(f: HostPressureFinding): string {
+    const p = f.evidence.pressure;
+    const load = `load per core at or above ${thresholdValue('load_per_cpu', p.load_per_cpu)}`;
+    return p.memory_reserve_mb > 0
+      ? `${load}, or available memory at or below its reserve of ${p.memory_reserve_mb} MB`
+      : load;
+  }
+
   // Through the fleet cache, because that is what the page reads once it has the
   // host: a refresh that only wrote `fetched` was a no-op behind it. A host the
   // cache does not hold (a deep link before the first reconcile, a removed host)
@@ -405,6 +459,7 @@
     if (host?.name) router.setTitle(`${host.name} · Host health`);
   });
   async function refresh(): Promise<void> {
+    pressureKey += 1;
     try {
       await fleet.reconcile();
       // A failed reconcile is a state on the fleet, not an exception, so without
@@ -526,6 +581,7 @@
   <div class="health-content">
     {@render nextPanel()}
     {@render updatePanel()}
+    {@render pressureCard()}
     {#if missing}
       <Panel title="No health report yet" description={missing.description}>
         <p>
@@ -561,6 +617,7 @@
     <!-- First, so that a phone meets the action before a long list of findings. -->
     {@render nextPanel()}
     {@render updatePanel()}
+    {@render pressureCard()}
     <Panel title="Latest host report" description={summary.hint}>
       <p>{reportOrigin(report)} · Checked <RelativeTime value={report.checked_at} /></p>
       {#if changeLog.length}
@@ -665,6 +722,83 @@
   tone="default"
   onconfirm={revoke}
 />
+
+{#snippet pressureCard()}
+  <AnalysisCard
+    title="Whether its failures came under pressure"
+    finding={pressure}
+    error={pressureError}
+    loading={pressureLoading}
+  >
+    {#if pressure}
+      {@const ev = pressure.evidence}
+      <dl class="facts">
+        <div>
+          <dt>Pressured</dt>
+          <dd>{pressuredWhen(pressure)}</dd>
+        </div>
+        <div>
+          <dt>Minutes</dt>
+          <dd class="figure">
+            {ev.minutes} sampled of {ev.expected_minutes}, {ev.pressured_minutes} pressured
+          </dd>
+        </div>
+        <div>
+          <dt>Events</dt>
+          <dd class="figure">
+            {ev.measured_events} measured, {ev.pressured_events} under pressure, {ev.unmeasured} in a
+            minute no sample covers
+          </dd>
+        </div>
+        {#if ev.threshold}
+          <div>
+            <dt>Line</dt>
+            <dd class="figure">
+              {wordFor(PRESSURE_MEASURE_WORDS, ev.threshold.measure)} at or above {thresholdValue(
+                ev.threshold.measure,
+                ev.threshold.value,
+              )}: {formatPercent(ev.threshold.event_share)} of the events, against {formatPercent(
+                ev.threshold.minute_share,
+              )} of the minutes
+            </dd>
+          </div>
+        {/if}
+      </dl>
+      {#if ev.events.length}
+        <p class="rows-label" id="pressure-events">What went wrong</p>
+        <ul class="rows" aria-labelledby="pressure-events">
+          {#each ev.events as e (e.job_id + e.kind + e.at)}
+            <li>
+              <span class="figure">{formatAbsolute(e.at)}</span>
+              <span>{wordFor(EVENT_WORDS, e.kind)}</span>
+              <span class="muted"
+                >{e.pressured
+                  ? 'under pressure'
+                  : e.measured
+                    ? 'not under pressure'
+                    : 'no sample covers its minute'}</span
+              >
+              <!-- With the names withheld the step above says so, once; the row
+                   keeps the job's id rather than three empty names. -->
+              <span class="quoted">{jobWords(e) || e.job_id}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      {#if ev.events_cut > 0}
+        <p class="evidence-note">
+          {pluralise(ev.events_cut, 'older event')} left out of the list, and counted above.
+        </p>
+      {/if}
+      {#if ev.jobs_truncated}
+        <p class="evidence-note">
+          The job read stopped at its limit and the newest were read, so the oldest failures are not
+          placed.
+        </p>
+      {/if}
+    {/if}
+  </AnalysisCard>
+{/snippet}
 
 {#snippet updatePanel()}
   {#if showUpdate && host}

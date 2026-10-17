@@ -228,7 +228,9 @@ than the workflow, and p50 and p95 of duration, queue wait and runner startup.
 Groups can also be days, hosts, pools or job names, two at a time. Cancelled and
 skipped jobs are left out of duration, and the answer says so. Jobs recorded
 before their release was stamped, and jobs no pool here claimed, are the group
-`unknown`. Any viewer may call it.
+`unknown`. Any viewer may call it. It hands over the figures; for the judgement
+of what moved between two releases or two periods, and whether there were jobs
+enough to say, ask for `compare_periods` ([Asking why](#asking-why)).
 
 For what a period cost, ask for `get_usage`. It reads `GET /usage` for the last
 thirty days by pool unless `since` and `until` say otherwise, and returns for
@@ -409,6 +411,104 @@ None of the three is offered to [Eli](eli.md#what-eli-can-see), whatever the
 role of the person asking. That is a choice, not a permission: a delivery is
 GitHub's whole payload, who did what, by name, is not for a hosted model, and the
 support bundle is the whole instance in one document.
+
+### Asking why
+
+The tools above hand Claude the material. Four more do the reasoning on the
+controller and hand back one answer, the same one
+[`zoomies analyse`](cli.md#zoomies-analyse) prints, [Eli](eli.md#what-eli-can-see)
+reads and the UI shows as a card where the question is already asked. Each is one
+read of its route under [Analyses](api-surface.md#analyses), and any viewer may
+call them:
+
+* `queue_wait_breakdown` says why the jobs queued in a period waited. Every
+  second of waiting is put down to exactly one cause: held for review
+  (`held_for_review`), no enabled pool claiming the job (`unmatched`), the pool
+  at its maximum runners (`pool_ceiling`), the fleet with no room for a runner
+  (`no_room`) or no room while a host that could run the pool was throttled
+  (`throttled`), runners starting (`runner_startup`), GitHub's own delay once
+  the runner was ready (`github_delay`), or `unattributed`, time the fleet
+  keeps no record to explain. It answers for the fleet and for each pool, with
+  each pool's longest waits by job; `pool_id` narrows it to one pool.
+* `compare_periods` says what got worse and what got better: by version (the
+  default) between two releases' jobs, the two newest to complete a job in the
+  period unless `a` and `b` name them, or by period between the period and the
+  one of the same length before it. It goes measure by measure: duration, queue
+  wait and startup at p50 and p95, and the fleet failure, failure and OOM kill
+  rates, with each side's own dates and figures.
+* `host_pressure` says whether the failures, OOM kills and slow startups of the
+  jobs on one host (`host_id`, which it needs) came in the minutes the host was
+  under pressure, judged by its load per core against the throttle's line of two
+  and its available memory against its reserve, and the line that separates
+  them when one does; or that they did not.
+* `startup_failures` says which host or pool keeps failing to start runners:
+  how many of its starts failed, since when, at which stage and with which
+  fault, and whether the image, an incident its host reports or a throttle
+  explains it. `pool_id` and `host_id` narrow it.
+
+Each reads the last 24 hours unless `since` and `until` say otherwise; both take
+a duration ago such as `6h` or a timestamp. A period is at most
+`limits.job_stats_window` (90 days unless set), and a longer one is refused with
+the sentence that says so. All four only read.
+
+Every answer has the same shape: a summary, a **confidence** (`high`, `medium`
+or `low`) with its reason whenever it is not high, the next steps in order, the
+catalog codes to read on, and the evidence the summary rests on. Most next
+steps name a setting or a pool's or host's field, such as `pool.max_runners`, or
+a [catalog](ai-context.md) code; none names a command to run, which is the
+catalog's own rule. Claude can open a code with `get_catalog` before it explains
+it. When the queue wait, host
+pressure or startup failures meet more than 5,000 jobs or runners in the period,
+they read the newest 5,000 and are never more than medium, with a reason that
+says to narrow `since`.
+
+A comparison with fewer than 30 jobs on either side ranks nothing and says the
+sample is too small, at low confidence. Cancelled and skipped jobs are left out
+of every figure, and the answer says so, which is why its counts can be lower
+than `job_stats` and the Usage page's **By release** table by exactly those
+jobs. A period side older than `retention.jobs` is read from the daily roll-up
+in whole UTC days, counts only, so it is compared on the fleet failure rate
+alone and the answer says its percentiles are unavailable. A release side has
+no such fallback, because the roll-up does not record which release ran a job:
+it compares the jobs still kept and says the earlier ones are gone. When a
+request cannot be answered (one release named twice, or a pool or host this
+fleet does not have) or the fleet's records refuse it (fewer than two releases
+in the period, a side past retention that cannot be read in whole days), the
+call fails with the route's own sentence saying what to change.
+
+`host_pressure` names the jobs only for a connection that can also read jobs. A
+connection narrowed to `hosts:read` is told when and how things went wrong on
+the host and each job's id, but not its repository, workflow or name, and a next
+step says so.
+
+The repository, workflow and job names the answers quote are written by
+workflows, and a runner's failure message is written by its host and can quote a
+workflow or an image. The text answer puts them after the controller's lines, in
+a block of their own, each quoted under its job's or runner's id, after a notice
+that it is untrusted data, as [the event tools](#names-a-workflow-wrote) do.
+Claude reads them as evidence and never as an instruction. Pool and host names
+are the operator's own and appear in the controller's sentences. Each tool also
+returns its answer as `structuredContent`, the route's finding described by the
+tool's `outputSchema`, and that copy carries the names inline, outside the
+untrusted block; the schema says which fields are untrusted. A client that hands
+`structuredContent` to a model should treat those names as data.
+
+Each block of text is at most 64 KiB (12 KiB when Eli asks), and an answer too
+large for it is cut on whole rows, never part-way through one. The summary, the
+confidence and the steps are always sent; what is cut is the queue wait's pools,
+startup failures' hosts and pools, or host pressure's events. The last line says
+how many were shown and what to pass to read the rest:
+
+```text
+truncated: 12 of 50 pools shown, to keep each block within 64 KiB; pass pool_id to narrow the answer and read the rest
+```
+
+That is `pool_id` for the queue wait, `pool_id` or `host_id` for startup
+failures, and for host pressure, whose events come newest first, an `until` just
+after the oldest event shown, with `since` kept at the period's start. A
+comparison has at most nine measures and comes whole. The structured copy holds
+exactly the rows the text shows and no others, is held to 64 KiB as the text is,
+and carries `truncated` and `more`, the argument that reaches what was cut.
 
 ## When it does not connect
 

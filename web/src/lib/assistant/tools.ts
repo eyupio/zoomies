@@ -34,6 +34,10 @@ const LABELS: Record<string, string> = {
   list_workflow_runs: 'workflow runs',
   list_elis_repairs: 'the repairs history',
   get_eli_repair: 'a pull request’s repair',
+  queue_wait_breakdown: 'why jobs waited',
+  compare_periods: 'what got worse or better',
+  host_pressure: 'whether a host’s failures came under pressure',
+  startup_failures: 'what keeps failing to start',
 };
 
 export function toolLabel(name: string): string {

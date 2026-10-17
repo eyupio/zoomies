@@ -18,9 +18,30 @@
   import RunnerInsights from '$lib/insights/RunnerInsights.svelte';
   import FleetHistory from '$lib/insights/FleetHistory.svelte';
   import { CircleSlash, Search, Trash2 } from '@lucide/svelte';
-  import { listRunners } from '$lib/api/client';
-  import { RUNNER_STATES, type Runner, type RunnerState } from '$lib/api/types';
-  import { NO_VALUE, formatBytes, formatNumber, formatPercent } from '$lib/format';
+  import { analyseStartupFailures, listRunners } from '$lib/api/client';
+  import {
+    RUNNER_STATES,
+    type Runner,
+    type RunnerState,
+    type StartupFailuresFinding,
+  } from '$lib/api/types';
+  import {
+    NO_VALUE,
+    formatAbsolute,
+    formatBytes,
+    formatNumber,
+    formatPercent,
+    pluralise,
+  } from '$lib/format';
+  import { faultLabel } from '$lib/faults';
+  import AnalysisCard from '$lib/insights/AnalysisCard.svelte';
+  import {
+    analysisWindow,
+    refusalOf,
+    EXPLANATION_WORDS,
+    STAGE_WORDS,
+    wordFor,
+  } from '$lib/insights/analysis';
   import { registerSearch } from '$lib/keys';
   import { navigate, router } from '$lib/router';
   import { runnerStatus } from '$lib/status';
@@ -69,6 +90,47 @@
   );
 
   const filters = $derived({ search, poolId, hostId, includeRemoved, states });
+
+  /* What keeps failing to start ------------------------------------------------
+   * Narrowing the list to failed runners is asking "why do these keep
+   * failing?", so that is when the startup-failures analysis is shown. It
+   * reads the day before now (failed runners are kept for retention.runners,
+   * and the list has no dates of its own) and the pool and host the list is
+   * narrowed to.
+   * ------------------------------------------------------------------------ */
+
+  const failedShown = $derived(states.includes('failed'));
+  let startup = $state.raw<StartupFailuresFinding | null>(null);
+  let startupError = $state<{ message: string; refused: boolean } | null>(null);
+  let startupLoading = $state(false);
+  let startupKey = $state(0);
+
+  $effect(() => {
+    if (!failedShown) return;
+    const pool = poolId || undefined;
+    const host = hostId || undefined;
+    void startupKey;
+    const controller = new AbortController();
+    startupError = null;
+    const period = analysisWindow(undefined, undefined, Date.now());
+    if (!period) return;
+    startupLoading = true;
+    analyseStartupFailures({ ...period, pool_id: pool, host_id: host }, controller.signal)
+      .then((next) => {
+        if (!controller.signal.aborted) startup = next;
+      })
+      .catch((cause: unknown) => {
+        if (controller.signal.aborted) return;
+        // The list of failed runners is still the page's; only this card failed.
+        startup = null;
+        startupError = refusalOf(cause);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) startupLoading = false;
+      });
+    return () => controller.abort();
+  });
+
   const filtered = $derived(
     search !== '' || poolId !== '' || hostId !== '' || includeRemoved || states.length > 0,
   );
@@ -470,7 +532,10 @@
 <PageHeader
   title="Runners"
   subtitle="Every runner the controller knows about right now, and what it is doing."
-  onrefresh={() => fleet.reconcile()}
+  onrefresh={() => {
+    startupKey += 1;
+    return fleet.reconcile();
+  }}
 />
 
 <RunnerInsights {poolId} />
@@ -527,6 +592,76 @@
   </FilterBar>
 </div>
 
+{#if failedShown}
+  <div class="startup">
+    <AnalysisCard
+      title="What keeps failing to start"
+      finding={startup}
+      error={startupError}
+      loading={startupLoading}
+    >
+      {#if startup}
+        {@const ev = startup.evidence}
+        <dl class="facts">
+          <div>
+            <dt>Starts</dt>
+            <dd class="figure">
+              {formatNumber(ev.starts)} with an outcome, {formatNumber(ev.failures)} failed, {formatNumber(
+                ev.unknown,
+              )} with no outcome on record
+            </dd>
+          </div>
+        </dl>
+        {#if ev.groups.length}
+          <p class="rows-label" id="startup-groups">Where they fail</p>
+          <ul class="rows" aria-labelledby="startup-groups">
+            {#each ev.groups as g (g.scope + g.id + g.pool_id)}
+              <li>
+                <span>
+                  {g.scope === 'host' ? 'Host' : 'Pool'}
+                  <a href="/{g.scope === 'host' ? 'hosts' : 'pools'}/{g.id}">{g.name || g.id}</a>
+                </span>
+                <span class="figure muted">
+                  {g.failures} of {pluralise(g.starts, 'start')} failed, failing since {formatAbsolute(
+                    g.failing_since,
+                  )}{g.recovered_at
+                    ? `, recovered ${formatAbsolute(g.recovered_at)}`
+                    : ', still failing'}
+                </span>
+                <span class="muted">
+                  Mostly {wordFor(STAGE_WORDS, g.stage)}{g.fault_kind
+                    ? `, ${faultLabel(g.fault_kind).toLowerCase()}`
+                    : ''}{g.explanation
+                    ? `; ${g.explained} put down to ${wordFor(EXPLANATION_WORDS, g.explanation)}`
+                    : ''}
+                </span>
+                {#if g.last_message}
+                  <!-- A host wrote this; it is shown as the characters it is. -->
+                  <span class="quoted">{g.last_message}</span>
+                {/if}
+                {#if g.last_runner_id}
+                  <a href="/runners/{g.last_runner_id}">Open its last failed runner</a>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if ev.groups_cut > 0}
+          <p class="evidence-note">
+            {pluralise(ev.groups_cut, 'more host or pool', 'more hosts and pools')} left out; filter to
+            one to read it.
+          </p>
+        {/if}
+        {#if ev.truncated}
+          <p class="evidence-note">
+            The runner read stopped at its limit, so the newest were read.
+          </p>
+        {/if}
+      {/if}
+    </AnalysisCard>
+  </div>
+{/if}
+
 <DataGrid
   gridId="runners"
   label="Runners"
@@ -565,6 +700,9 @@
 />
 
 <style>
+  .startup {
+    margin: 0 0 var(--z-space-4);
+  }
   .activity-history {
     margin: var(--z-space-4) 0 var(--z-space-5);
   }
