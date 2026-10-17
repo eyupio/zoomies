@@ -474,6 +474,22 @@ export async function openHostCapacityMap(page: Page): Promise<Locator> {
   return map;
 }
 
+/**
+ * Open a host card's Details, which a card does not show until it is asked, and
+ * return the card.
+ *
+ * Idempotent, because the choice is remembered: a test that opened it and then
+ * reloads, or that visits the page twice, finds it open and must not close it.
+ * It waits for the card, so it is also how a test says "once the host is on the
+ * page".
+ */
+export async function openHostCard(card: Locator): Promise<Locator> {
+  const toggle = card.getByRole('button', { name: /^Details for / });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  return card;
+}
+
 /** True when the element currently holds focus. */
 export function isFocused(locator: Locator): Promise<boolean> {
   return locator.evaluate((element) => element === document.activeElement);

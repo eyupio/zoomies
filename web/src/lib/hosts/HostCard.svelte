@@ -14,6 +14,7 @@
   import { slotsOf } from './slots';
   import {
     ArrowUpNarrowWide,
+    ChevronDown,
     ChevronRight,
     CircleDashed,
     RefreshCw,
@@ -42,8 +43,11 @@
   import BackendList from './BackendList.svelte';
   import HostMemoryPool from './HostMemoryPool.svelte';
   import HostUpdateRow from './HostUpdateRow.svelte';
+  import HostVitals from './HostVitals.svelte';
   import ResourceBar from './ResourceBar.svelte';
+  import { backendTrouble } from './backends';
   import { byHandLink, hostUpdateWords, skewFact } from './update';
+  import { hostVitals } from './vitals';
 
   interface Props {
     host: Host;
@@ -70,6 +74,14 @@
     ondelete: (host: Host) => void;
     /** Ask whether to update this host's agent. Only an administrator is offered it. */
     onupdate: (host: Host) => void;
+    /**
+     * Whether the rest of the card is showing. A card is closed unless told
+     * otherwise, and the page that holds it keeps the choice: a card that kept
+     * its own would forget it whenever a filter took the card off the screen.
+     */
+    expanded?: boolean;
+    /** The Details button was pressed: the state the operator asked for. */
+    ontoggle?: (host: Host, open: boolean) => void;
     class?: string;
   }
 
@@ -88,6 +100,8 @@
     onrename,
     ondelete,
     onupdate,
+    expanded = false,
+    ontoggle,
     class: className = '',
   }: Props = $props();
 
@@ -278,6 +292,11 @@
   // the sentence; the kernel and architecture are the fallback for an agent too
   // old to report a distribution.
   const platform = $derived(host.platform_label || [host.os, host.arch].filter(Boolean).join('/'));
+  // The platform and the agent's release on one line, which is all the closed
+  // card says about the machine's software.
+  const identity = $derived(
+    [platform, host.version ? `agent ${host.version}` : ''].filter(Boolean).join(' · '),
+  );
   // Whether an elastic pool would be elastic here. Only asked of a host with
   // a container backend, because moving a live quota is a thing a cgroup has
   // and a bare process does not; an incompatible host already says the
@@ -370,6 +389,14 @@
   /** Amber by the doctor's own rule, so the card and the Warning row agree. */
   const diskLow = $derived(diskIsLow(host.disk_free_mb ?? 0, host.disk_total_mb ?? 0));
   const diskHref = $derived(diskLink(host, health));
+
+  // The three figures a closed card keeps in view, worked out the way the
+  // capacity map works them out, so the chart and the card cannot disagree.
+  const vitals = $derived(hostVitals(host, now));
+  // A host with nothing to run a job in has its reason in the Backends block, so
+  // for that host the block stays out of the fold. One that merely lacks a second
+  // backend (Docker without Podman) is the ordinary case and folds with the rest.
+  const noBackend = $derived(backendTrouble(host));
 
   /**
    * "Proxmox · pve-1 · 143": which provider, and which resource there.
@@ -484,7 +511,14 @@
   ]);
 </script>
 
-<article class="card {className}" aria-labelledby="host-{host.id}-name">
+{#snippet backendsBlock()}
+  <section class="block" aria-label="Backends on {host.name || host.id}">
+    <h4>Backends</h4>
+    <BackendList backends={host.backend_info} kinds={host.backends} />
+  </section>
+{/snippet}
+
+<article class="card {className}" class:expanded aria-labelledby="host-{host.id}-name">
   <header>
     <div class="identity">
       <h3 id="host-{host.id}-name" tabindex="-1">
@@ -501,28 +535,11 @@
             >{health.label}<ChevronRight size={12} aria-hidden="true" /></Badge
           ></a
         >
-        <!-- How this host is attached comes first and in the neutral tone, so
-             every card reads in the same order: state, then what kind of host
-             it is, then what is worth knowing about it. An accent here made
-             two hosts of the same standing look unlike one another. -->
-        {#if host.connection === 'tailcat'}
-          <Badge
-            tone="neutral"
-            label="Tailcat host"
-            size="sm"
-            dot={false}
-            help="Private encrypted agent connection. No public host address or inbound port required. Health is shown separately."
-          />
-        {/if}
-        {#if host.embedded}
-          <Badge
-            tone="neutral"
-            label="Embedded"
-            size="sm"
-            dot={false}
-            help="This agent runs inside the controller process. Removing this host stops that agent while keeping the controller running."
-          />
-        {/if}
+        <!-- State first, and only state: whether the host is up and whether it
+             is well, and the two ways it can be wrong for this controller, a
+             protocol it cannot speak and a release it is behind. What kind of
+             host it is comes on the line below, in the neutral tone, so every
+             card reads in the same order. -->
         {#if host.incompatible}
           <Badge
             tone="danger"
@@ -539,89 +556,59 @@
                meaning. -->
           <Badge tone={skew.tone} label={skew.label} size="sm" dot={false} help={skew.hint} />
         {/if}
-        {#if !host.resources_known}
-          <!-- Not a fault: an agent too old to measure its machine is placed by
-               slots alone, exactly as every host was before it could. Saying so
-               is what stops a card with every figure missing reading as broken. -->
-          <Badge
-            tone="neutral"
-            label="Size unknown"
-            size="sm"
-            dot={false}
-            help="This agent has not reported the machine's CPUs, memory or disk, so this host is placed by its slot count alone. Upgrade the agent and the figures appear on its next heartbeat."
-          />
-        {/if}
-        {#if sizeClass}
-          <!-- Neutral, never a status colour: a class is what kind of machine
-               this is, not a state it is in. The controller's own sentence for
-               how it came by the class is in the block below and in the title,
-               because a tooltip alone is not there on a phone. -->
-          <Badge
-            tone="neutral"
-            label="{classWord(sizeClass.class)} class"
-            size="sm"
-            dot={false}
-            help={sizeClass.reason}
-          />
-        {/if}
-        {#if cannotLendCPU}
-          <!-- Neutral for the same reason: an agent that cannot move a live
-               quota is a fact about its release, not a state of the host. It
-               is said only where there is a quota to move, so a process-only
-               host is not badged for a thing it could never do. -->
-          <Badge
-            tone="neutral"
-            label="Cannot lend CPU"
-            size="sm"
-            dot={false}
-            help={`This agent cannot move a live runner's CPU quota, so a runner of an elastic pool placed here is held at its guaranteed share. Upgrade the agent${host.upgrade_command ? '; the command is at the foot of this card' : ''}.`}
-          />
-        {/if}
-        {#if machine}
-          <!-- Neutral, never the status palette. Which provider built this
-               host and which resource it is are facts about it, not states of
-               it, and the six status hues already mean something an operator
-               has learned. -->
-          <Badge
-            tone="neutral"
-            label={machineLabel}
-            size="sm"
-            dot={false}
-            help="Zoomies created this host. Deleting the machine removes the resource too; removing the host here would leave it running, and on the bill."
-          />
-        {/if}
       </div>
       {#if line.text}<p class="health-checks" id="host-{host.id}-health">{line.text}</p>{/if}
     </div>
     <DropdownMenu items={actions} label="Actions for {host.name || host.id}" size="sm" />
   </header>
 
-  <p class="meta">
-    {#if platform}<span>{platform}</span>{/if}
-    {#if size}<span class="tabular">{size}</span>{/if}
-    {#if disk && diskHref}<Tooltip
-        bare
-        text="Free space on the filesystem holding the work directory, as the agent last reported it. The host's Work directory free space check reads the same filesystem and can be a minute or two older. Select to open it."
-        ><a class="tabular disk" class:low={diskLow} href={diskHref}>{disk}</a></Tooltip
-      >{:else if disk}<Tooltip
-        bare
-        text="Disk on the filesystem holding the work directory, as the agent last reported it."
-        ><button type="button" class="tabular help-term" class:low={diskLow}>{disk}</button
-        ></Tooltip
-      >{/if}
-    {#if host.version}<span>agent {host.version}</span>{/if}
-    {#if host.version_channel}<span class="mono">channel :{host.version_channel}</span>{/if}
-    {#if host.address}<span class="mono">{host.address}</span>{/if}
-  </p>
+  {#if identity || host.connection === 'tailcat' || host.embedded || machine}
+    <!-- What kind of host this is, in the neutral tone and never an accent:
+         how it is attached, what it runs, and which resource it is. These stay
+         on the closed card because they are what an operator reads a host by,
+         and the resource is what is typed into a hypervisor's console during an
+         incident. -->
+    <div class="about">
+      {#if identity}<span class="about-text">{identity}</span>{/if}
+      {#if host.connection === 'tailcat'}
+        <Badge
+          tone="neutral"
+          label="Tailcat host"
+          size="sm"
+          dot={false}
+          help="Private encrypted agent connection. No public host address or inbound port required. Health is shown separately."
+        />
+      {/if}
+      {#if host.embedded}
+        <Badge
+          tone="neutral"
+          label="Embedded"
+          size="sm"
+          dot={false}
+          help="This agent runs inside the controller process. Removing this host stops that agent while keeping the controller running."
+        />
+      {/if}
+      {#if machine}
+        <!-- Which provider built this host and which resource it is are facts
+             about it, not states of it, and the six status hues already mean
+             something an operator has learned. -->
+        <Badge
+          tone="neutral"
+          label={machineLabel}
+          size="sm"
+          dot={false}
+          help="Zoomies created this host. Deleting the machine removes the resource too; removing the host here would leave it running, and on the bill."
+        />
+      {/if}
+    </div>
+  {/if}
 
-  <p class="health" class:bad={host.healthy === false}>
-    {#if host.healthy === false}
+  {#if host.healthy === false}
+    <p class="health bad">
       No heartbeat since <RelativeTime value={host.last_heartbeat} plain />. The agent is not
       reporting, so no runner will be placed here until it does.
-    {:else}
-      Agent connected · last heartbeat <RelativeTime value={host.last_heartbeat} plain />
-    {/if}
-  </p>
+    </p>
+  {/if}
 
   {#if host.incompatible}
     <!-- The controller's own sentence, which already names both protocol
@@ -682,41 +669,12 @@
     </p>
   {/if}
 
-  <p class="meta" aria-label="Current host usage">
-    {#if host.usage_fresh && host.usage}
-      {#if host.usage.cpu_percent !== undefined}
-        <span class="tabular">CPU usage {round(host.usage.cpu_percent)}%</span>
-      {/if}
-      {#if host.usage.memory_available_mb !== undefined}
-        <span class="tabular"
-          >{formatMegabytes(host.usage.memory_available_mb)} memory available</span
-        >
-      {/if}
-      {#if host.usage.load_average_1m !== undefined}
-        <!-- The runnable queue, which is what catches a machine that has
-             stopped keeping up while its CPU figure sits at 100. -->
-        <Tooltip bare text="One-minute load average, against {host.cpus ?? '?'} CPUs"
-          ><button type="button" class="tabular help-term"
-            >load {round(host.usage.load_average_1m)}</button
-          ></Tooltip
-        >
-      {/if}
-      <span>Measured <RelativeTime value={host.usage.sampled_at} plain /></span>
-    {:else if isThrottled}
-      <!-- A throttle outlives the sample that put it there: the rung stands
-           on the last measurements and is lifted after ten minutes without a
-           fresh one, so "cannot be throttled" would be untrue on this card. -->
-      <span
-        >Current usage unavailable. The throttle stands on its last measurements and lifts after ten
-        minutes without a fresh one.</span
-      >
-    {:else}
-      <span
-        >Current usage unavailable. Placement uses configured capacity and reservations, and this
-        host cannot be throttled.</span
-      >
-    {/if}
-  </p>
+  {#if noBackend}
+    <!-- Out of the fold for as long as it is true, and in the same place
+         whether the card is open or not, so opening it moves nothing that was
+         already there. -->
+    {@render backendsBlock()}
+  {/if}
 
   <div class="capacity">
     <UtilisationBar
@@ -734,161 +692,317 @@
         {:else}
           <strong>{formatNumber(active)}</strong> of {formatNumber(capacity)} slots in use
           <span class="muted">· {formatNumber(free)} free</span>
-          {#if slotsNote}<span class="muted" data-testid="host-slots-note">· {slotsNote}</span>{/if}
         {/if}
       </p>
       {#if canOperate}
-        <Button size="sm" icon={Gauge} onclick={() => oncapacity(host)}>Adjust</Button>
+        <Button size="sm" variant="ghost" icon={Gauge} onclick={() => oncapacity(host)}
+          >Adjust</Button
+        >
       {/if}
     </div>
   </div>
 
-  {#if resources}
-    <section class="block" aria-label="Resources committed on {host.name || host.id}">
-      <h4>Committed</h4>
-      <div class="resources">
-        {#each resources as row (row.label)}
-          <ResourceBar
-            label={row.label}
-            used={row.used}
-            total={row.total}
-            text={row.text}
-            hint={row.hint}
-          />
-        {/each}
-      </div>
-    </section>
-  {/if}
+  <HostVitals {vitals} name={host.name || host.id || ''} />
 
-  {#if host.memory_pool}
-    <section class="block" aria-label="Memory {host.name || host.id} can lend">
-      <h4>Memory to lend</h4>
-      <HostMemoryPool pool={host.memory_pool} totalMb={host.memory_mb ?? 0} />
-    </section>
-  {/if}
+  <!--
+    A disclosure, not a link: it changes this card and goes nowhere. It keeps its
+    name when it opens (aria-expanded says which way it is), carries the host's
+    name so a list of the page's buttons is not a column of "Details", and stays
+    where it is when the detail opens beneath it, so the control the reader just
+    pressed does not move out from under them.
+  -->
+  <div class="fold">
+    <button
+      type="button"
+      class="toggle"
+      aria-expanded={expanded}
+      aria-controls={expanded ? `host-${host.id}-details` : undefined}
+      aria-label="Details for {host.name || host.id}"
+      onclick={() => ontoggle?.(host, !expanded)}
+    >
+      <span>Details</span>
+      <span class="chevron"><ChevronDown size={14} aria-hidden="true" /></span>
+    </button>
+  </div>
 
-  {#if sizeRows.length > 0}
-    <section class="block" aria-label="Runner sizes on {host.name || host.id}">
-      <div class="block-head">
-        <h4>Runner sizes</h4>
-        {#if canOperate}
-          <Button size="sm" variant="ghost" icon={Ruler} onclick={() => onsizes(host)}>Edit</Button>
+  <!-- Not mounted while closed, for the reason the Hosts page gives for its
+       capacity map: a fold that only hides still builds everything behind it. -->
+  {#if expanded}
+    <div class="details" id="host-{host.id}-details">
+      <!-- What the card used to open with, kept together: loose lines a full
+           gap apart read as separate paragraphs, and they are one set of facts
+           about the machine. -->
+      <div class="facts">
+        {#if !host.resources_known || sizeClass || cannotLendCPU}
+          <div class="badges">
+            {#if !host.resources_known}
+              <!-- Not a fault: an agent too old to measure its machine is placed by
+                 slots alone, exactly as every host was before it could. Saying so
+                 is what stops a card with every figure missing reading as broken. -->
+              <Badge
+                tone="neutral"
+                label="Size unknown"
+                size="sm"
+                dot={false}
+                help="This agent has not reported the machine's CPUs, memory or disk, so this host is placed by its slot count alone. Upgrade the agent and the figures appear on its next heartbeat."
+              />
+            {/if}
+            {#if sizeClass}
+              <!-- Neutral, never a status colour: a class is what kind of machine
+                 this is, not a state it is in. The controller's own sentence for
+                 how it came by the class is in the block below and in the title,
+                 because a tooltip alone is not there on a phone. -->
+              <Badge
+                tone="neutral"
+                label="{classWord(sizeClass.class)} class"
+                size="sm"
+                dot={false}
+                help={sizeClass.reason}
+              />
+            {/if}
+            {#if cannotLendCPU}
+              <!-- Neutral for the same reason: an agent that cannot move a live
+                 quota is a fact about its release, not a state of the host. It
+                 is said only where there is a quota to move, so a process-only
+                 host is not badged for a thing it could never do. -->
+              <Badge
+                tone="neutral"
+                label="Cannot lend CPU"
+                size="sm"
+                dot={false}
+                help={`This agent cannot move a live runner's CPU quota, so a runner of an elastic pool placed here is held at its guaranteed share. Upgrade the agent${host.upgrade_command ? '; the command is at the foot of this card' : ''}.`}
+              />
+            {/if}
+          </div>
+        {/if}
+
+        {#if size || disk || host.version_channel || host.address}
+          <p class="meta">
+            {#if size}<span class="tabular">{size}</span>{/if}
+            {#if disk && diskHref}<Tooltip
+                bare
+                text="Free space on the filesystem holding the work directory, as the agent last reported it. The host's Work directory free space check reads the same filesystem and can be a minute or two older. Select to open it."
+                ><a class="tabular disk" class:low={diskLow} href={diskHref}>{disk}</a></Tooltip
+              >{:else if disk}<Tooltip
+                bare
+                text="Disk on the filesystem holding the work directory, as the agent last reported it."
+                ><button type="button" class="tabular help-term" class:low={diskLow}>{disk}</button
+                ></Tooltip
+              >{/if}
+            <!-- One unit, so a narrow card breaks between this and the figures
+                 before it and never leaves an address alone on a line. -->
+            {#if host.version_channel || host.address}<span class="mono"
+                >{[host.version_channel ? `channel :${host.version_channel}` : '', host.address]
+                  .filter(Boolean)
+                  .join(' · ')}</span
+              >{/if}
+          </p>
+        {/if}
+
+        {#if host.healthy !== false}
+          <p class="health">
+            Agent connected · last heartbeat <RelativeTime value={host.last_heartbeat} plain />
+          </p>
+        {/if}
+
+        <p class="meta" aria-label="Current host usage">
+          {#if host.usage_fresh && host.usage}
+            {#if host.usage.cpu_percent !== undefined}
+              <span class="tabular">CPU usage {round(host.usage.cpu_percent)}%</span>
+            {/if}
+            {#if host.usage.memory_available_mb !== undefined}
+              <span class="tabular"
+                >{formatMegabytes(host.usage.memory_available_mb)} memory available</span
+              >
+            {/if}
+            {#if host.usage.load_average_1m !== undefined}
+              <!-- The runnable queue, which is what catches a machine that has
+                 stopped keeping up while its CPU figure sits at 100. -->
+              <Tooltip bare text="One-minute load average, against {host.cpus ?? '?'} CPUs"
+                ><button type="button" class="tabular help-term"
+                  >load {round(host.usage.load_average_1m)}</button
+                ></Tooltip
+              >
+            {/if}
+            <span>Measured <RelativeTime value={host.usage.sampled_at} plain /></span>
+          {:else if isThrottled}
+            <!-- A throttle outlives the sample that put it there: the rung stands
+               on the last measurements and is lifted after ten minutes without a
+               fresh one, so "cannot be throttled" would be untrue on this card. -->
+            <span
+              >Current usage unavailable. The throttle stands on its last measurements and lifts
+              after ten minutes without a fresh one.</span
+            >
+          {:else}
+            <span
+              >Current usage unavailable. Placement uses configured capacity and reservations, and
+              this host cannot be throttled.</span
+            >
+          {/if}
+        </p>
+
+        {#if slotsNote && !isThrottled}
+          <!-- Why the slots are the number they are: said here rather than beside
+             the slot bar, where a clause this long ran the line on to three. -->
+          <p class="note" data-testid="host-slots-note">Slot count: {slotsNote}</p>
         {/if}
       </div>
-      <dl class="sizes" data-testid="host-runner-sizes">
-        {#each sizeRows as row (row.label)}
-          <div>
-            <dt>{row.label}</dt>
-            <dd class="tabular">
-              {row.text}
-              <span class="muted">· {row.source}</span>
-            </dd>
-          </div>
-        {/each}
-      </dl>
-    </section>
-  {/if}
 
-  <section class="block" aria-label="Placement priority of {host.name || host.id}">
-    <div class="block-head">
-      <h4>Priority</h4>
-      {#if canOperate}
-        <div class="head-actions">
-          <Button size="sm" variant="ghost" icon={Pencil} onclick={() => onpriority(host)}
-            >{hasOverride ? 'Change pin' : 'Pin'}</Button
-          >
-          {#if !hasOverride}
-            <Button size="sm" variant="ghost" icon={RefreshCw} onclick={() => onrecheck?.(host)}
-              >Re-check</Button
+      {#if resources}
+        <section class="block" aria-label="Resources committed on {host.name || host.id}">
+          <h4>Committed</h4>
+          <div class="resources">
+            {#each resources as row (row.label)}
+              <ResourceBar
+                label={row.label}
+                used={row.used}
+                total={row.total}
+                text={row.text}
+                hint={row.hint}
+              />
+            {/each}
+          </div>
+        </section>
+      {/if}
+
+      {#if host.memory_pool}
+        <section class="block" aria-label="Memory {host.name || host.id} can lend">
+          <h4>Memory to lend</h4>
+          <HostMemoryPool pool={host.memory_pool} totalMb={host.memory_mb ?? 0} />
+        </section>
+      {/if}
+
+      {#if sizeRows.length > 0}
+        <section class="block" aria-label="Runner sizes on {host.name || host.id}">
+          <div class="block-head">
+            <h4>Runner sizes</h4>
+            {#if canOperate}
+              <Button size="sm" variant="ghost" icon={Ruler} onclick={() => onsizes(host)}
+                >Edit</Button
+              >
+            {/if}
+          </div>
+          <dl class="sizes" data-testid="host-runner-sizes">
+            {#each sizeRows as row (row.label)}
+              <div>
+                <dt>{row.label}</dt>
+                <dd class="tabular">
+                  {row.text}
+                  <span class="muted">· {row.source}</span>
+                </dd>
+              </div>
+            {/each}
+          </dl>
+        </section>
+      {/if}
+
+      <section class="block" aria-label="Placement priority of {host.name || host.id}">
+        <div class="block-head">
+          <h4>Priority</h4>
+          {#if canOperate}
+            <div class="head-actions">
+              <Button size="sm" variant="ghost" icon={Pencil} onclick={() => onpriority(host)}
+                >{hasOverride ? 'Change pin' : 'Pin'}</Button
+              >
+              {#if !hasOverride}
+                <Button size="sm" variant="ghost" icon={RefreshCw} onclick={() => onrecheck?.(host)}
+                  >Re-check</Button
+                >
+              {/if}
+            </div>
+          {/if}
+        </div>
+        <p class="priority-line" data-testid="host-priority">
+          <strong data-testid="host-priority-score">{formatNumber(host.priority ?? 0)}</strong>
+          <span class="muted">of 100 · {sourceWords}</span>
+        </p>
+        {#if host.priority_reason}
+          <p class="note" data-testid="host-priority-reason">{host.priority_reason}</p>
+        {/if}
+      </section>
+
+      {#if sizeClass}
+        <section class="block" aria-label="Size class of {host.name || host.id}">
+          <h4>Size class</h4>
+          <p class="class-line" data-testid="host-size-class">
+            <strong>{classWord(sizeClass.class)}</strong>
+            <span class="muted">· {sizeClass.reason}</span>
+          </p>
+          {#if classOverride}
+            <p class="note" data-testid="host-size-override">{classOverride}</p>
+          {/if}
+          {#if classMove}
+            <!-- A move waiting out the hold, in the pending tone the throttle uses:
+                 the fleet is attending to it and it clears itself. Saying when it
+                 takes effect is what lets an operator tell a host that is about to
+                 change pool from one that has merely been mentioned. -->
+            <p class="cordoned throttled" data-testid="host-size-pending">
+              Its measurements have said {classMove.to} since <RelativeTime
+                value={classMove.since}
+                plain
+              />. It moves there <RelativeTime value={classMove.until} plain /> if they keep saying so;
+              its running jobs are not touched.
+            </p>
+          {/if}
+          {#if poolLine}
+            <p class="note" data-testid="host-auto-pool">
+              {poolLine.text}
+              {#if poolLine.poolId}<a href="/pools/{poolLine.poolId}">Open the pool</a>{/if}
+            </p>
+          {/if}
+        </section>
+      {/if}
+
+      {#if !noBackend}
+        {@render backendsBlock()}
+      {/if}
+
+      <section class="block" aria-label="Tags on {host.name || host.id}">
+        <!-- Edited from here, as capacity is from the slot bar: the two settings
+             a host has are each reached from the thing they describe. -->
+        <div class="block-head">
+          <h4>Tags</h4>
+          {#if canOperate}
+            <Button size="sm" variant="ghost" icon={Pencil} onclick={() => onedit(host)}
+              >Edit</Button
             >
           {/if}
         </div>
-      {/if}
+        {#if ownTags.length === 0}
+          <p class="none">
+            None of your own. Pools that select hosts by tag will not choose this one.
+          </p>
+        {:else}
+          <ul class="labels" aria-label="Tags set on {host.name || host.id}">
+            {#each ownTags as tag (tag.key)}
+              <li class="mono">
+                <Tooltip bare text={tag.hint ?? ''}><span>{tag.text}</span></Tooltip>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if derivedTags.length > 0}
+          <!-- Said once, as a caption, rather than on every tag: three "automatic"
+               words on three small chips is noise, and the outline alone would
+               be the only thing telling them apart. -->
+          <p class="caption" id="host-{host.id}-derived">
+            Worked out by the controller, not stored
+          </p>
+          <ul
+            class="labels derived"
+            aria-labelledby="host-{host.id}-derived"
+            data-testid="host-derived-tags"
+          >
+            {#each derivedTags as tag (tag.key)}
+              <li class="mono">
+                <Tooltip bare text={tag.hint ?? ''}><span>{tag.text}</span></Tooltip>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </section>
     </div>
-    <p class="priority-line" data-testid="host-priority">
-      <strong data-testid="host-priority-score">{formatNumber(host.priority ?? 0)}</strong>
-      <span class="muted">of 100 · {sourceWords}</span>
-    </p>
-    {#if host.priority_reason}
-      <p class="note" data-testid="host-priority-reason">{host.priority_reason}</p>
-    {/if}
-  </section>
-
-  {#if sizeClass}
-    <section class="block" aria-label="Size class of {host.name || host.id}">
-      <h4>Size class</h4>
-      <p class="class-line" data-testid="host-size-class">
-        <strong>{classWord(sizeClass.class)}</strong>
-        <span class="muted">· {sizeClass.reason}</span>
-      </p>
-      {#if classOverride}
-        <p class="note" data-testid="host-size-override">{classOverride}</p>
-      {/if}
-      {#if classMove}
-        <!-- A move waiting out the hold, in the pending tone the throttle uses:
-             the fleet is attending to it and it clears itself. Saying when it
-             takes effect is what lets an operator tell a host that is about to
-             change pool from one that has merely been mentioned. -->
-        <p class="cordoned throttled" data-testid="host-size-pending">
-          Its measurements have said {classMove.to} since <RelativeTime
-            value={classMove.since}
-            plain
-          />. It moves there <RelativeTime value={classMove.until} plain /> if they keep saying so; its
-          running jobs are not touched.
-        </p>
-      {/if}
-      {#if poolLine}
-        <p class="note" data-testid="host-auto-pool">
-          {poolLine.text}
-          {#if poolLine.poolId}<a href="/pools/{poolLine.poolId}">Open the pool</a>{/if}
-        </p>
-      {/if}
-    </section>
   {/if}
-
-  <section class="block" aria-label="Backends on {host.name || host.id}">
-    <h4>Backends</h4>
-    <BackendList backends={host.backend_info} kinds={host.backends} />
-  </section>
-
-  <section class="block" aria-label="Tags on {host.name || host.id}">
-    <!-- Edited from here, as capacity is from the slot bar: the two settings
-         a host has are each reached from the thing they describe. -->
-    <div class="block-head">
-      <h4>Tags</h4>
-      {#if canOperate}
-        <Button size="sm" variant="ghost" icon={Pencil} onclick={() => onedit(host)}>Edit</Button>
-      {/if}
-    </div>
-    {#if ownTags.length === 0}
-      <p class="none">None of your own. Pools that select hosts by tag will not choose this one.</p>
-    {:else}
-      <ul class="labels" aria-label="Tags set on {host.name || host.id}">
-        {#each ownTags as tag (tag.key)}
-          <li class="mono">
-            <Tooltip bare text={tag.hint ?? ''}><span>{tag.text}</span></Tooltip>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-    {#if derivedTags.length > 0}
-      <!-- Said once, as a caption, rather than on every tag: three "automatic"
-           words on three small chips is noise, and the outline alone would
-           be the only thing telling them apart. -->
-      <p class="caption" id="host-{host.id}-derived">Worked out by the controller, not stored</p>
-      <ul
-        class="labels derived"
-        aria-labelledby="host-{host.id}-derived"
-        data-testid="host-derived-tags"
-      >
-        {#each derivedTags as tag (tag.key)}
-          <li class="mono">
-            <Tooltip bare text={tag.hint ?? ''}><span>{tag.text}</span></Tooltip>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-  </section>
   {#if showUpdate || showUpgrade}
     <!-- Against the foot of the card, so that a row of stretched cards puts
          every one of these on the same line rather than wherever its own
@@ -1033,10 +1147,6 @@
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
     overflow-wrap: anywhere;
-    /* Two lines reserved: a long name wraps and a short one does not, and
-       without this the badges under it start at a different height on each
-       card in the row. */
-    min-height: calc(2 * var(--z-leading-lg));
   }
   .badges {
     display: flex;
@@ -1242,5 +1352,95 @@
     margin: 0;
     font-size: var(--z-text-xs);
     color: var(--z-text-subtle);
+  }
+
+  /* What a card says about the kind of host it is: the platform and the agent's
+     release as text, then the neutral chips. One line while there is room, and
+     it wraps as a line of words does when there is not. */
+  .about {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-2) var(--z-space-3);
+    min-width: 0;
+  }
+  .about-text {
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-subtle);
+  }
+
+  /* A hairline above the disclosure says that what follows is a second tier.
+     The line is as wide as the content above it, and the button reaches a little
+     past it, so the word lines up with everything else on the card and the
+     hover has room to be seen. */
+  .fold {
+    margin-top: var(--z-space-1);
+    padding-top: var(--z-space-1);
+    border-top: var(--z-border-width) solid var(--z-border);
+  }
+  .toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-2);
+    width: calc(100% + 2 * var(--z-space-2));
+    min-height: var(--z-space-8);
+    margin-inline: calc(-1 * var(--z-space-2));
+    padding: 0 var(--z-space-2);
+    border: 0;
+    border-radius: var(--z-radius-sm);
+    background: transparent;
+    color: var(--z-text-muted);
+    font: inherit;
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-medium);
+    cursor: pointer;
+    transition:
+      background-color var(--z-motion-fast) var(--z-ease),
+      color var(--z-motion-fast) var(--z-ease);
+  }
+  .toggle:hover {
+    background: var(--z-surface-hover);
+    color: var(--z-text);
+  }
+  .chevron {
+    display: inline-flex;
+    transition: transform var(--z-motion-base) var(--z-ease);
+  }
+  .expanded .chevron {
+    transform: rotate(180deg);
+  }
+  /* The detail fades in under the button that opened it. Only the arrival is
+     drawn: closing takes it away at once, because a card that is still
+     shrinking is a card whose buttons are still moving. */
+  .details {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-3);
+    min-width: 0;
+    animation: reveal var(--z-motion-base) var(--z-ease);
+  }
+  .facts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
+    min-width: 0;
+  }
+  @keyframes reveal {
+    from {
+      opacity: 0;
+      transform: translateY(calc(-1 * var(--z-space-1)));
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  /* A finger needs more than the 32px a mouse is fine with. */
+  @media (pointer: coarse) {
+    .toggle {
+      min-height: var(--z-control-touch);
+    }
   }
 </style>

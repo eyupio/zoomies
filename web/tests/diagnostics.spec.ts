@@ -15,7 +15,7 @@
  * and the advice differs; a held job is not this fleet's fault at all.
  */
 import { expect, test } from '@playwright/test';
-import { goto } from './support/fixtures';
+import { goto, openHostCard } from './support/fixtures';
 
 /**
  * The fixture's two stuck runners, by the ids the seed fixes so a test can go
@@ -58,6 +58,8 @@ test('the throttled host says its step, its reason and what it was stepped down 
   // One busy runner with a CPU limit is on it, running at half its quota.
   await expect(card).toContainText('the 1 runner with a CPU limit at 50% of it');
   await expect(card).toContainText(/1 of 2 slots in use\s*· throttled from 4/);
+  // The load average is in the card's second tier, with the rest of the usage line.
+  await openHostCard(card);
   await expect(card).toContainText('load 30');
 });
 

@@ -10,7 +10,7 @@
  * enrolled once and the tests run in order on it.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { goto } from './support/fixtures';
+import { goto, openHostCard } from './support/fixtures';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -112,6 +112,7 @@ test('a host with no size takes its capacity, and says so before anything is typ
   page,
 }) => {
   await goto(page, '/hosts', 'Hosts');
+  await openHostCard(card(page));
   await expect(card(page)).toContainText('0 of 8 slots in use');
   // An unprofiled host reads exactly as it always has: no block of sizes the
   // fleet never chose, repeated on every card.
@@ -129,6 +130,7 @@ test('a standard size gives the host as many slots as its machine holds, and the
   page,
 }) => {
   await goto(page, '/hosts', 'Hosts');
+  await openHostCard(card(page));
   const dialog = await openDialog(page);
   const summary = dialog.getByTestId('runner-sizes-summary');
 
@@ -171,6 +173,7 @@ test('a capacity below what the machine holds is the limit, and the dialog says 
   expect(capped.ok()).toBeTruthy();
   try {
     await goto(page, '/hosts', 'Hosts');
+    await openHostCard(card(page));
     await expect(card(page)).toContainText('0 of 2 slots in use');
     await expect(card(page).getByTestId('host-slots-note')).toContainText(
       'capped by its capacity of 2',
@@ -189,6 +192,7 @@ test('a figure that cannot be right is refused where it is typed, not after Save
   page,
 }) => {
   await goto(page, '/hosts', 'Hosts');
+  await openHostCard(card(page));
   const dialog = await openDialog(page);
   const save = dialog.getByRole('button', { name: 'Save sizes' });
 
@@ -219,6 +223,7 @@ test('a minimum and a ceiling are kept with the standard, and each says whose it
   page,
 }) => {
   await goto(page, '/hosts', 'Hosts');
+  await openHostCard(card(page));
   const dialog = await openDialog(page);
   await type(page, 'Minimum CPU', '2');
   await type(page, 'Boost ceiling', '4');
@@ -337,6 +342,7 @@ test('a profile that would leave a pool nowhere to run is answered in the dialog
   page,
 }) => {
   await goto(page, '/hosts', 'Hosts');
+  await openHostCard(card(page));
   const requests: string[] = [];
   await page.route(`**/api/v1/hosts/${hostId}*`, async (route) => {
     if (route.request().method() !== 'PATCH') return route.fallback();
@@ -382,6 +388,7 @@ test('a profile that would leave a pool nowhere to run is answered in the dialog
 
 test('clearing every figure hands the host back to the fleet', async ({ page }) => {
   await goto(page, '/hosts', 'Hosts');
+  await openHostCard(card(page));
   const dialog = await openDialog(page);
   await dialog.getByRole('button', { name: 'Follow the fleet in everything' }).click();
   await expect(dialog.getByTestId('runner-sizes-summary')).toContainText(
@@ -405,6 +412,7 @@ test("a host can cap pools' in-memory folders or keep them off, and the card say
   // has the last word. This is the whole path: the dialog, the controller and the
   // card, with no pool involved -- the policy is a fact about the machine.
   await goto(page, '/hosts', 'Hosts');
+  await openHostCard(card(page));
   const dialog = await openDialog(page);
   const off = dialog.getByRole('checkbox', {
     name: 'Fall back to disk on this machine (temporary)',

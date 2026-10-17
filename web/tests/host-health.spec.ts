@@ -3,6 +3,7 @@ import {
   documentWidth,
   expectNoReload,
   goto,
+  openHostCard,
   plantMarker,
   reload,
   signedInAs,
@@ -1537,9 +1538,14 @@ test('the card disk figure goes amber by the check rule and links to the check',
   try {
     await beat(8 * 1024, 60 * 1024, 'warn');
     await goto(page, '/hosts', 'Hosts');
-    const figure = page
-      .getByRole('article', { name, exact: true })
-      .getByRole('link', { name: /GB free of/ });
+    const card = page.getByRole('article', { name, exact: true });
+    // The closed card draws the same line: the bar says so in words as well as
+    // in amber, and it does so without anything being opened.
+    await expect(
+      card.getByRole('img', { name: /^Disk: \d+% full.*Low: the Work directory/ }),
+    ).toBeVisible();
+    await openHostCard(card);
+    const figure = card.getByRole('link', { name: /GB free of/ });
     await expect(figure).toHaveClass(/low/);
     await expect(figure).toHaveAttribute('href', `/hosts/${credentials.host_id}#disk.space`);
     await figure.click();
@@ -1549,9 +1555,11 @@ test('the card disk figure goes amber by the check rule and links to the check',
     // Plenty of room: still a way to the check, but not amber.
     await beat(40 * 1024, 100 * 1024, 'ok');
     await goto(page, '/hosts', 'Hosts');
-    const roomy = page
-      .getByRole('article', { name, exact: true })
-      .getByRole('link', { name: /GB free of/ });
+    const calm = page.getByRole('article', { name, exact: true });
+    await expect(calm.getByRole('img', { name: /^Disk: \d+% full/ })).toBeVisible();
+    await expect(calm.getByRole('img', { name: /Low:/ })).toHaveCount(0);
+    await openHostCard(calm);
+    const roomy = calm.getByRole('link', { name: /GB free of/ });
     await expect(roomy).toBeVisible();
     await expect(roomy).not.toHaveClass(/low/);
   } finally {

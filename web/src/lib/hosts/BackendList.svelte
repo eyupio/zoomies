@@ -11,6 +11,7 @@
   import { Check, X } from '@lucide/svelte';
   import type { BackendInfo } from '$lib/api/types';
   import RemedyText from '$lib/components/RemedyText.svelte';
+  import { backendRows } from './backends';
 
   interface Props {
     backends?: readonly BackendInfo[];
@@ -21,9 +22,7 @@
 
   let { backends = [], kinds = [], class: className = '' }: Props = $props();
 
-  const rows = $derived<readonly BackendInfo[]>(
-    backends.length > 0 ? backends : kinds.map((kind) => ({ kind: kind as BackendInfo['kind'] })),
-  );
+  const rows = $derived(backendRows(backends, kinds));
 </script>
 
 {#if rows.length === 0}

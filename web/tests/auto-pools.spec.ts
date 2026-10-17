@@ -21,7 +21,7 @@
  * every test that turns one on puts it back.
  */
 import { expect, test, type Page, type Route } from '@playwright/test';
-import { dataRows, documentWidth, goto, grid } from './support/fixtures';
+import { dataRows, documentWidth, goto, grid, openHostCard } from './support/fixtures';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -138,6 +138,8 @@ test.describe('a host and its class', () => {
   }) => {
     await goto(page, '/hosts', 'Hosts');
     const host = card(page);
+    // The class, its sentence and the tags are the card's second tier.
+    await openHostCard(host);
     await expect(host.getByText('Medium class', { exact: true })).toBeVisible();
     await expect(host.getByTestId('host-size-class')).toContainText('Medium');
     // The controller's own sentence, in the open and not only in a tooltip:
@@ -161,6 +163,7 @@ test.describe('a host and its class', () => {
     page,
   }) => {
     await goto(page, '/hosts', 'Hosts');
+    await openHostCard(card(page));
     const dialog = await openTags(page);
     const worked = dialog.getByTestId('derived-tags');
     await expect(worked).toContainText('size=medium');
@@ -194,6 +197,7 @@ test.describe('a host and its class', () => {
     page,
   }) => {
     await goto(page, '/hosts', 'Hosts');
+    await openHostCard(card(page));
     const dialog = await openTags(page);
     await dialog.getByRole('button', { name: 'Add a tag' }).click();
     // The rack and the flag from the last test are rows 1 and 2.
@@ -237,6 +241,7 @@ test.describe('a host and its class', () => {
     page,
   }) => {
     await goto(page, '/hosts', 'Hosts');
+    await openHostCard(card(page));
     const dialog = await openTags(page);
     await dialog.getByRole('button', { name: 'Remove the tag size' }).click();
     await dialog.getByRole('button', { name: 'Save changes' }).click();

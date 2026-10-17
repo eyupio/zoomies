@@ -330,6 +330,14 @@ const SHOTS = [
       await page.getByRole('article', { name: 'demo-builder-1', exact: true }).evaluate((el) => {
         window.scrollBy(0, el.getBoundingClientRect().top - 120);
       });
+      // Cards open closed. One is opened so that the picture shows both what a
+      // card says at a glance and what is behind its Details button; it is the
+      // middle one, so the closed cards on either side show what the rest look
+      // like beside it.
+      await page.getByRole('button', { name: 'Details for demo-builder-1' }).click();
+      await page.getByRole('region', { name: 'Tags on demo-builder-1' }).waitFor();
+      // The detail fades in, and a picture taken mid-fade is half a picture.
+      await page.waitForTimeout(400);
       await page.mouse.move(700, 40);
     },
   },

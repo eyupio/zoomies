@@ -42,8 +42,8 @@ machine without touching a pool, and add a pool without touching a machine.
 
 ## Adding a host
 
-![The Hosts page scrolled to its host cards, below the capacity map: each card shows its connection state beside a health link, then the slots in use, committed CPU and memory, the memory it can lend and its backends](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
-![The Hosts page scrolled to its host cards, below the capacity map: each card shows its connection state beside a health link, then the slots in use, committed CPU and memory, the memory it can lend and its backends](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
+![The Hosts page scrolled to its host cards, below the capacity map: each card opens closed on its connection state beside a health link, the slots in use and CPU, memory and disk utilisation as bars, with the disk of one host in amber because it is nearly full, and the middle card is open beneath its Details button on committed CPU and memory, the memory it can lend, its priority and its backends](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
+![The Hosts page scrolled to its host cards, below the capacity map: each card opens closed on its connection state beside a health link, the slots in use and CPU, memory and disk utilisation as bars, with the disk of one host in amber because it is nearly full, and the middle card is open beneath its Details button on committed CPU and memory, the memory it can lend, its priority and its backends](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
 
 **Hosts → Add a host** in the UI does the whole thing on one page: it mints a
 join token and prints the command to paste on the new machine, already filled in
@@ -161,7 +161,7 @@ shows it as a different build. Only a **protocol** mismatch stops work reaching
 a host, and then it is excluded from placement exactly as a cordon excludes it
 and says `incompatible` on its card.
 
-The disk figure on a host's card is the filesystem holding the work directory, the one the [host health](host-health.md) `disk.space` check reads. The card follows each heartbeat and the check runs about once a minute, and the figure turns amber by the check's rule (under 10% or under 10 GiB free) and links to that check.
+The **Disk** bar on a host's card is the filesystem holding the work directory, the one the [host health](host-health.md) `disk.space` check reads. The card follows each heartbeat and the check runs about once a minute, and the bar turns amber by the check's rule (under 10% or under 10 GiB free). Under **Details**, the figure in gigabytes links to that check.
 
 ### A host in WSL2
 
@@ -300,7 +300,7 @@ axis a host cannot measure is left out rather than scored last, so an agent too
 old to report a clock does not lose to one that can; a host that reports no size
 at all scores 0 and is placed by headroom exactly as it always was.
 
-The score is the number on the host's card (**Priority**), and the reason
+The score is the number on the host's card (**Priority**, under **Details**), and the reason
 beneath it says what it was computed from. A pool that keeps warm runners also
 stands them up through this ranking, so the fleet's fastest machine fills before
 a slower one is touched. Among hosts that score the same, `scheduler.host_order`
@@ -308,7 +308,7 @@ still decides: `headroom` spreads work, `largest_standard` goes where the big
 runners are, `best_fit` packs.
 
 An operator can pin a host to their own number on the same scale (0 keeps it for
-last, 100 asks for it first) from the card's **Priority** control or a `PATCH`
+last, 100 asks for it first) from the **Priority** control under the card's **Details** or a `PATCH`
 to `/api/v1/hosts/{id}`; the pin outranks the specs and survives a re-join,
 like the labels. Clearing it hands the ranking back to the machine.
 
@@ -574,7 +574,7 @@ by the standard on each of CPU and memory, the smaller count winning) and never
 more than its capacity. Capacity becomes the operator's ceiling on that count
 rather than the count itself: a host that holds three runners and has a capacity
 of eight takes three, and one that holds eight with a capacity of two takes two.
-The host's card says which of the two it is (`slots_limited_by` on the API is
+The host's card says which of the two it is, under **Details** (`slots_limited_by` on the API is
 `cpu`, `memory` or `capacity`). A capacity of zero still takes nothing, because
 that is how a host is paused and a size must never un-pause one, and a host that
 has not reported its machine is counted by its capacity alone until it does.
@@ -674,8 +674,8 @@ zoomies pools create --name zoomies-lint --labels zoomies-lint \
 Every figure says whose it is (the pool's, the host's or the fleet's) so an
 operator told a runner is 3 CPU knows which setting to change to move it:
 
-* A host's card lists its runner sizes with where each came from, and says what
-  its slots are limited by when a standard made them so.
+* A host's card lists its runner sizes, under **Details**, with where each came
+  from, and says what its slots are limited by when a standard made them so.
 * A pool's page has a **Size on each host** panel, for operators, and only
   where a size is somebody's choice per host: a pool that takes its size from its
   hosts, or a fleet where some host has a profile. The pool editor's size
@@ -1015,7 +1015,7 @@ say:
 ![The Runner sizes dialog for a host, scrolled to In-memory folders, where its owner sets the size each folder is asked for on the machine and a ceiling, or falls back to disk as a temporary fix.](screenshots/host-runner-sizes-dark.webp#only-dark){ .zoomies-shot }
 ![The Runner sizes dialog for a host, scrolled to In-memory folders, where its owner sets the size each folder is asked for on the machine and a ceiling, or falls back to disk as a temporary fix.](screenshots/host-runner-sizes-light.webp#only-light){ .zoomies-shot }
 
-Set them under **Runner sizes** on the host's card, with
+Set them under **Runner sizes** in the host card's **Details**, with
 `zoomies hosts edit <host> --tmpfs-work-mb 16384` (also `--tmpfs-tmp-mb`,
 `--tmpfs-docker-mb` and `--tmpfs-max-mb`), `--tmpfs-off` for the tactical
 fallback, or with

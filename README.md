@@ -390,7 +390,7 @@ from there first; the CLI, Compose and the API are
     <td width="50%" valign="top">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/hosts-dark.webp">
-  <img src="docs/screenshots/hosts-light.webp" alt="The Hosts page scrolled to its host cards, below the capacity map: each card shows its connection state beside a health link, then the slots in use, committed CPU and memory, the memory it can lend and its backends" width="100%">
+  <img src="docs/screenshots/hosts-light.webp" alt="The Hosts page scrolled to its host cards, below the capacity map: each card opens closed on its connection state beside a health link, the slots in use and CPU, memory and disk utilisation as bars, with the disk of one host in amber because it is nearly full, and the middle card is open beneath its Details button on committed CPU and memory, the memory it can lend, its priority and its backends" width="100%">
 </picture>
       <p align="center"><sub>Hosts, their room left, and the backends their agents found.</sub></p>
     </td>
