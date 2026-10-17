@@ -9,9 +9,22 @@
 //
 // HTML stays the default. Only an explicit text/markdown entry in Accept gets
 // Markdown; anything else, including a browser's */*, is passed through to the
-// origin untouched.
+// origin with its body untouched, so a browser reads the same page it always
+// did. The one thing the worker adds to an HTML answer is a Link header
+// advertising the API catalog, which GitHub Pages has no way to set.
 
 const MARKDOWN_TYPE = "text/markdown";
+
+// RFC 9727: the well-known address of the site's API catalog, and the file it
+// is published as. GitHub Pages serves the .json file as application/json and
+// cannot be told otherwise, so the worker answers the well-known address
+// itself, with the origin's body re-typed. The document is tracked at
+// docs/.well-known/api-catalog.json, so the catalog cannot drift from the
+// repository any more than the pages can.
+const CATALOG_PATH = "/.well-known/api-catalog";
+const CATALOG_SOURCE = "/.well-known/api-catalog.json";
+const CATALOG_TYPE = "application/linkset+json";
+const CATALOG_LINK = '<https://zoomies.sh/.well-known/api-catalog>; rel="api-catalog"';
 
 // An estimate, not a count: tokens are the model's unit and four characters is
 // the usual order of magnitude for English prose. The header is advisory, and
@@ -83,19 +96,53 @@ async function markdownResponse(request, url) {
   return new Response(body, { status: copy.status, headers });
 }
 
+// The catalog document re-typed, or null when the origin has no catalog, in
+// which case the origin's answer (including a real 404) stands.
+async function catalogResponse(url) {
+  const source = await fetch(new URL(CATALOG_SOURCE, url.origin), {
+    headers: { accept: "application/json" },
+    redirect: "follow",
+  });
+  if (!source.ok) {
+    return null;
+  }
+  const body = await source.text();
+  const headers = new Headers(source.headers);
+  headers.set("content-type", CATALOG_TYPE);
+  return new Response(body, { status: source.status, headers });
+}
+
+// The catalog is a well-known address without an extension, which
+// markdownPath would otherwise look for a copy of, so it is decided before
+// the Accept header is read at all: it is JSON whichever format an agent asks
+// the site for.
 export default {
   async fetch(request) {
     if (request.method === "GET" || request.method === "HEAD") {
       const url = new URL(request.url);
-      if (wantsMarkdown(request.headers.get("accept"))) {
+      if (url.pathname === CATALOG_PATH) {
+        const catalog = await catalogResponse(url);
+        if (catalog !== null) {
+          return request.method === "HEAD" ? new Response(null, catalog) : catalog;
+        }
+      } else if (wantsMarkdown(request.headers.get("accept"))) {
         const markdown = await markdownResponse(request, url);
         if (markdown !== null) {
           return request.method === "HEAD" ? new Response(null, markdown) : markdown;
         }
       }
+      // A same-zone fetch from a Worker goes to the origin directly, so the
+      // HTML answer reaches GitHub Pages exactly as it always did. The only
+      // change is one header: RFC 9727 asks the site to advertise the catalog
+      // with rel="api-catalog", and GitHub Pages cannot set Link headers.
+      const origin = await fetch(request);
+      const headers = new Headers(origin.headers);
+      const type = headers.get("content-type") || "";
+      if (type.startsWith("text/html") && !headers.has("link")) {
+        headers.append("link", CATALOG_LINK);
+      }
+      return new Response(origin.body, { status: origin.status, statusText: origin.statusText, headers });
     }
-    // A same-zone fetch from a Worker goes to the origin directly, so the HTML
-    // answer reaches GitHub Pages exactly as it always did.
     return fetch(request);
   },
 };

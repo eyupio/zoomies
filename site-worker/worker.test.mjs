@@ -128,3 +128,75 @@ test("the token estimate rounds up the parts of a token", () => {
   assert.equal(tokenEstimate("abcd"), 1);
   assert.equal(tokenEstimate("abcde"), 2);
 });
+
+const CATALOG = JSON.stringify({
+  linkset: [
+    {
+      anchor: "https://demo.zoomies.sh/api/v1/",
+      "service-desc": [{ href: "https://raw.githubusercontent.com/eyupio/zoomies/main/api/openapi.yaml", type: "application/yaml" }],
+      "service-doc": [{ href: "https://zoomies.sh/api-surface/", type: "text/html" }],
+      status: [{ href: "https://demo.zoomies.sh/healthz", type: "application/json" }],
+    },
+  ],
+});
+
+test("the well-known api-catalog address is answered with the catalog re-typed", async () => {
+  const response = await handle("https://zoomies.sh/.well-known/api-catalog", new Map([
+    ["/.well-known/api-catalog.json", { type: "application/json", body: CATALOG }],
+  ]), { headers: { accept: "application/linkset+json" } });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/linkset+json");
+  assert.equal(await response.text(), CATALOG);
+});
+
+test("the catalog is the catalog even when an agent asks for markdown", async () => {
+  const response = await handle("https://zoomies.sh/.well-known/api-catalog", new Map([
+    ["/.well-known/api-catalog.json", { type: "application/json", body: CATALOG }],
+  ]), { headers: { accept: "text/markdown" } });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/linkset+json");
+  assert.equal(await response.text(), CATALOG);
+});
+
+test("a HEAD for the catalog answers with the headers and no body", async () => {
+  const response = await handle("https://zoomies.sh/.well-known/api-catalog", new Map([
+    ["/.well-known/api-catalog.json", { type: "application/json", body: CATALOG }],
+  ]), { headers: { accept: "application/linkset+json" }, method: "HEAD" });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/linkset+json");
+  assert.equal(await response.text(), "");
+});
+
+test("an html answer advertises the catalog with a Link header", async () => {
+  const response = await handle("https://zoomies.sh/", new Map([
+    ["/", { type: "text/html; charset=utf-8", body: HTML }],
+  ]));
+
+  assert.equal(await response.text(), HTML);
+  assert.equal(
+    response.headers.get("link"),
+    '<https://zoomies.sh/.well-known/api-catalog>; rel="api-catalog"',
+  );
+});
+
+test("a response that is not html carries no Link header", async () => {
+  const catalog = '{"version": 1}';
+  const response = await handle("https://zoomies.sh/catalog.json", new Map([
+    ["/catalog.json", { type: "application/json", body: catalog }],
+  ]));
+
+  assert.equal(await response.text(), catalog);
+  assert.equal(response.headers.get("link"), null);
+});
+
+test("a Link header the origin already set is left alone", async () => {
+  const existing = '<https://zoomies.sh/sitemap.xml>; rel="sitemap"';
+  const response = await handle("https://zoomies.sh/", new Map([
+    ["/", { type: "text/html; charset=utf-8", body: HTML, headers: { "content-type": "text/html; charset=utf-8", link: existing } }],
+  ]));
+
+  assert.equal(response.headers.get("link"), existing);
+});

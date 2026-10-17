@@ -104,6 +104,13 @@
     has no page and so no copy.
   #}
   {% if page and page.file %}<link rel="alternate" type="text/markdown" href="{{ canonical }}index.md" />{% endif %}
+  {#
+    RFC 9727: where an agent finds the API catalog without reading the Link
+    header the edge worker adds (site-worker/), the catalog document itself
+    names the controller's REST contract, its documentation and the demo's
+    health endpoint.
+  #}
+  <link rel="api-catalog" href="/.well-known/api-catalog" />
   <meta property="og:image" content="{{ image }}" />
   <meta property="og:image:type" content="image/png" />
   <meta property="og:image:width" content="1200" />
