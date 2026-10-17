@@ -38,6 +38,9 @@ coverage.out
 # The built website (mkdocs build)
 /site/
 
+# Wrangler's local state from a deploy of the site's edge worker
+/site-worker/.wrangler/
+
 # Python bytecode from the site build hook
 __pycache__/
 

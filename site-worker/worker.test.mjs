@@ -1,7 +1,8 @@
 // The negotiation rules and the handler's decisions, against an in-memory
-// origin. The Markdown copies the worker serves are written by hooks/seo.py,
-// so a change to their address or their shape fails here rather than at the
-// edge. Plain node:test, so no dependency beyond the binary runs it.
+// origin. The Markdown copies and the API catalog the worker serves are
+// written by hooks/seo.py, so a change to their address or their shape fails
+// here rather than at the edge. Plain node:test, so no dependency beyond the
+// binary runs it.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -10,6 +11,22 @@ import worker, { markdownPath, tokenEstimate, wantsMarkdown } from "./worker.js"
 
 const HTML = "<!doctype html><html><body><p>the page</p></body></html>";
 const MARKDOWN = "# The page\n\nIts body as Markdown.\n";
+const CATALOG = JSON.stringify({
+  linkset: [
+    {
+      anchor: "https://zoomies.sh/.well-known/api-catalog",
+      "service-desc": [{ href: "https://zoomies.sh/openapi.yaml", type: "application/yaml" }],
+      "service-doc": [{ href: "https://zoomies.sh/api-surface/", type: "text/html" }],
+    },
+  ],
+});
+const CATALOG_TYPE = 'application/linkset+json; profile="https://www.rfc-editor.org/info/rfc9727"';
+const CATALOG_LINK = '<https://zoomies.sh/.well-known/api-catalog>; rel="api-catalog"';
+const SERVICE_DESC = '<https://zoomies.sh/openapi.yaml>; rel="service-desc"';
+const SERVICE_DOC = '<https://zoomies.sh/api-surface/>; rel="service-doc"';
+const describedby = (path) => `<https://zoomies.sh${path}>; rel="describedby"`;
+const pageHeaderFor = (described) =>
+  [CATALOG_LINK, SERVICE_DESC, SERVICE_DOC, described].filter((v) => v).join(", ");
 
 function originFor(paths) {
   return async (input) => {
@@ -127,4 +144,85 @@ test("the token estimate rounds up the parts of a token", () => {
   assert.equal(tokenEstimate(""), 0);
   assert.equal(tokenEstimate("abcd"), 1);
   assert.equal(tokenEstimate("abcde"), 2);
+});
+
+test("the well-known catalog is served with the media type the RFC names", async () => {
+  const response = await handle("https://zoomies.sh/.well-known/api-catalog", new Map([
+    ["/.well-known/api-catalog.json", { type: "application/json", body: CATALOG }],
+  ]), { headers: { accept: "application/linkset+json" } });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), CATALOG_TYPE);
+  assert.equal(response.headers.get("link"), CATALOG_LINK);
+  assert.equal(await response.text(), CATALOG);
+});
+
+test("the catalog is served even when the caller asks for markdown", async () => {
+  // The RFC gives the well-known URI one format, the linkset: negotiation
+  // never takes it over, or a catalog could become a page and stop being one.
+  const response = await handle("https://zoomies.sh/.well-known/api-catalog", new Map([
+    ["/.well-known/api-catalog.json", { type: "application/json", body: CATALOG }],
+  ]), { headers: { accept: "text/markdown" } });
+
+  assert.equal(response.headers.get("content-type"), CATALOG_TYPE);
+  assert.equal(await response.text(), CATALOG);
+});
+
+test("a HEAD request for the catalog answers with the Link header and no body", async () => {
+  const response = await handle("https://zoomies.sh/.well-known/api-catalog", new Map([
+    ["/.well-known/api-catalog.json", { type: "application/json", body: CATALOG }],
+  ]), { method: "HEAD" });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), CATALOG_TYPE);
+  assert.equal(response.headers.get("link"), CATALOG_LINK);
+  assert.equal(await response.text(), "");
+});
+
+test("a site without the catalog's copy falls back to the origin's answer", async () => {
+  const response = await handle("https://zoomies.sh/.well-known/api-catalog", new Map([]));
+
+  assert.equal(response.status, 404);
+  assert.equal(response.headers.get("content-type"), "text/html; charset=utf-8");
+});
+
+test("the HTML the origin serves names the API and this page", async () => {
+  // A 200 page has a Markdown copy beside it, so its header carries all four
+  // relations: the catalog, the spec, the docs and the page's own description.
+  const response = await handle("https://zoomies.sh/quickstart/", new Map([
+    ["/quickstart/", { type: "text/html; charset=utf-8", body: HTML }],
+  ]), { headers: { accept: "text/html" } });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("link"), pageHeaderFor(describedby("/quickstart/index.md")));
+  assert.equal(await response.text(), HTML);
+});
+
+test("the homepage's header describes the site and the page", async () => {
+  const response = await handle("https://zoomies.sh/", new Map([
+    ["/", { type: "text/html; charset=utf-8", body: HTML }],
+  ]), { headers: { accept: "text/html" } });
+
+  assert.equal(response.headers.get("link"), pageHeaderFor(describedby("/index.md")));
+});
+
+test("a 404 page names the API but no copy of its own", async () => {
+  // The 404 HTML is not a page of the site and has no Markdown copy to
+  // describe it, so the header stops at the site-wide relations.
+  const response = await handle("https://zoomies.sh/not-a-page/", new Map([]));
+
+  assert.equal(response.status, 404);
+  assert.equal(
+    response.headers.get("link"),
+    pageHeaderFor(undefined),
+  );
+});
+
+test("the markdown copy names the API but is its own description", async () => {
+  const response = await handle("https://zoomies.sh/quickstart/", new Map([
+    ["/quickstart/index.md", { type: "text/markdown; charset=utf-8", body: MARKDOWN }],
+  ]), { headers: { accept: "text/markdown" } });
+
+  assert.equal(response.headers.get("link"), pageHeaderFor(undefined));
+  assert.equal(await response.text(), MARKDOWN);
 });

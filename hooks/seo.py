@@ -13,6 +13,13 @@ from the repository rather than written by hand, so neither can go stale:
   about a project instead of crawling it. It is generated from the navigation,
   so a page added to ``mkdocs.yml`` appears in it without anyone remembering.
 
+* **An API catalog** (RFC 9727) at ``/.well-known/api-catalog``, a linkset in
+  the ``application/linkset+json`` media type naming the OpenAPI
+  specification and the reference page, with the specification itself
+  published beside it at ``openapi.yaml``. GitHub Pages cannot set a content
+  type, so the worker in ``site-worker/`` carries the media type the RFC
+  names.
+
 * **``/.well-known/security.txt``** (RFC 9116), where a researcher looks for how
   to report a vulnerability. It says what SECURITY.md says and points at it.
   ``Expires`` is required and must be under a year away, so a tracked file
@@ -42,6 +49,7 @@ with ``fetch-depth: 0``.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import posixpath
@@ -262,7 +270,8 @@ def on_post_build(config):
         f"- [Full text]({site_url}/llms-full.txt): the readable pages in one file. Every page also has a Markdown copy at its address plus index.md, for example {site_url}/quickstart/index.md.",
         f"- [install.sh]({site_url}/install.sh): the one-line installer, byte-identical to the one in the repository.",
         f"- [install.ps1]({site_url}/install.ps1): the Windows installer, run from an elevated PowerShell window; byte-identical to the one in the repository.",
-        f"- [OpenAPI document]({config['repo_url']}/blob/main/api/openapi.yaml): the REST contract both clients are generated from.",
+        f"- [OpenAPI document]({site_url}/openapi.yaml): the REST contract both clients are generated from.",
+        f"- [API catalog]({site_url}/.well-known/api-catalog): where the APIs are listed for automated discovery, as an RFC 9727 linkset.",
         f"- [Catalog of problem codes and checks]({site_url}/catalog.json): every code Zoomies can raise, with what to do and how to see it worked, as JSON; its schema is beside it at catalog.schema.json.",
         "",
         f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d')}.",
@@ -274,6 +283,7 @@ def on_post_build(config):
 
     _write_markdown(config, site_url)
     _write_security_txt(config, site_url)
+    _write_api_catalog(config, site_url)
 
     # The catalog is generated into the Go package that embeds it, so the
     # binary and the site serve the same bytes; the site copies it rather than
@@ -313,6 +323,47 @@ def _write_markdown(config, site_url: str) -> None:
 
     with open(os.path.join(config["site_dir"], "llms-full.txt"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(full))
+
+
+def _write_api_catalog(config, site_url: str) -> None:
+    """Write the RFC 9727 API catalog and the OpenAPI specification it names.
+
+    The linkset names, for the one API the project publishes, the contract a
+    client implements against and the page a person reads. Both are pointed
+    at this site rather than at GitHub, so an agent following the catalog
+    stops here. The specification is copied verbatim from api/openapi.yaml,
+    so the copy a client fetches is the one the controller's clients are
+    generated from. The document is written twice: the worker answers the
+    well-known path by fetching the .json twin, a URL of its own, and
+    carrying the media type, which GitHub Pages cannot set.
+    """
+    root = os.path.dirname(os.path.abspath(config["docs_dir"]))
+    shutil.copyfile(
+        os.path.join(root, "api", "openapi.yaml"),
+        os.path.join(config["site_dir"], "openapi.yaml"),
+    )
+
+    page = _sources.get("api-surface.md")
+    surface = page[0].canonical_url if page is not None else f"{site_url}/api-surface/"
+    document = {
+        "linkset": [
+            {
+                "anchor": f"{site_url}/.well-known/api-catalog",
+                "service-desc": [
+                    {"href": f"{site_url}/openapi.yaml", "type": "application/yaml"},
+                ],
+                "service-doc": [
+                    {"href": surface, "type": "text/html"},
+                ],
+            },
+        ],
+    }
+    text = json.dumps(document, indent=2) + "\n"
+    known = os.path.join(config["site_dir"], ".well-known")
+    os.makedirs(known, exist_ok=True)
+    for name in ("api-catalog", "api-catalog.json"):
+        with open(os.path.join(known, name), "w", encoding="utf-8") as fh:
+            fh.write(text)
 
 
 def _write_security_txt(config, site_url: str) -> None:

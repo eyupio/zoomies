@@ -25,4 +25,21 @@ Allow: /
 # build time from the navigation, so it cannot fall behind the pages.
 # https://zoomies.sh/llms.txt
 
+# The APIs published for a fleet are catalogued at the well-known URI RFC 9727
+# defines, as a linkset naming the OpenAPI specification and the reference
+# page; every page also carries it in a Link header, so one page is enough to
+# find it from.
+# https://zoomies.sh/.well-known/api-catalog
+
+# A fleet's controller is the OAuth 2.1 authorisation server for its tools,
+# and discovery lives there rather than here: it serves RFC 9728 protected
+# resource metadata and RFC 8414 server metadata on its own address, at
+# /.well-known/oauth-protected-resource/mcp and
+# /.well-known/oauth-authorization-server, and its 401s point a client at
+# them. It issues opaque bearer tokens and publishes no signing keys, so
+# there is deliberately no /.well-known/openid-configuration anywhere in the
+# project: a discovery document that named an identity provider could not,
+# before an agent looked at it.
+# https://zoomies.sh/connect-claude/
+
 Sitemap: https://zoomies.sh/sitemap.xml

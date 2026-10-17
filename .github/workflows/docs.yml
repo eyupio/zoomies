@@ -128,10 +128,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: mkdocs build --strict
 
-      # The two files a crawler and an assistant look for first. Both are
+      # The files a crawler, an assistant or an agent look for first. All are
       # generated, so a build that quietly stopped producing one would
-      # otherwise ship a site nothing can index.
-      - name: The sitemap, llms.txt, the Markdown copies and security.txt were produced
+      # otherwise ship a site nothing can index or discover the API from.
+      - name: The sitemap, llms.txt, the Markdown copies, security.txt and the API catalog were produced
         run: |
           set -eu
           grep -q "https://zoomies.sh/quickstart/" site/sitemap.xml
@@ -140,6 +140,8 @@ jobs:
           grep -q "^# " site/quickstart/index.md
           grep -q "^# " site/index.md
           grep -q "^Contact: " site/.well-known/security.txt
+          grep -q '"linkset"' site/.well-known/api-catalog
+          grep -q "^openapi:" site/openapi.yaml
 
       # The header's release, stars and forks are resolved at build time, and a
       # build that cannot reach the API still succeeds -- for a developer

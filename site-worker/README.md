@@ -2,14 +2,19 @@
 
 A Cloudflare Worker that answers a request carrying `Accept: text/markdown`
 with the page's Markdown copy, at `Content-Type: text/markdown`, with `Vary:
-Accept` and an `x-markdown-tokens` estimate. Every other request, including a
+Accept` and an `x-markdown-tokens` estimate. It also serves the API catalog
+(RFC 9727) at `/.well-known/api-catalog` as `application/linkset+json`, with
+the `api-catalog` Link header, and adds that Link header to the HTML and
+Markdown pages it passes through, so any page names where the APIs are
+listed. GitHub Pages cannot set a custom content type, which is why the
+catalog's media type is carried here. Every other request, including a
 browser's, is passed through to GitHub Pages untouched.
 
 The copies it serves are the ones `hooks/seo.py` writes beside the built site,
 at every page's address plus `index.md` (the address the pages already declare
-as their `rel="alternate"` link). Serving a copy is a lookup rather than an
-HTML-to-Markdown conversion, and what an agent receives is the source the page
-was written in.
+as their `rel="alternate"` link) and the catalog beside the specification it
+names. Serving a copy is a lookup rather than an HTML-to-Markdown conversion,
+and what an agent receives is the source the page was written in.
 
 ## Why a worker
 
@@ -42,6 +47,10 @@ machine. `.github/workflows/docs.yml` runs them on every site change.
       -H "Accept: text/markdown" | head -3
     curl -sI https://zoomies.sh/quickstart/ \
       -H "Accept: text/markdown" | grep -i "content-type"
+    curl -sI https://zoomies.sh/ | grep -i "^link"
+    curl -sI https://zoomies.sh/.well-known/api-catalog | grep -i "content-type"
 
-The second command should say `text/markdown; charset=utf-8`. Browsers and
-crawlers that send no such header keep receiving the HTML, byte for byte.
+The second command should say `text/markdown; charset=utf-8`, the fourth
+`application/linkset+json`. The third names the catalog, the specification,
+the reference page and the page's own Markdown. Browsers and crawlers that
+send no such header keep receiving the HTML, byte for byte.
