@@ -89,7 +89,10 @@ This site mirrors that document, unchanged, at
 `/.well-known/openid-configuration` and `/.well-known/oauth-authorization-server`,
 so a reader of the site finds the real issuer without leaving it; every
 endpoint and key it names belongs to the portal, refetched at each request,
-so a rotation or an added endpoint can never leave a stale copy here.
+so a rotation or an added endpoint can never leave a stale copy here. When
+the portal cannot be reached for a moment, the mirror answers with the copy
+each site build took from the same address, so discovery is one build stale
+rather than dark.
 
 ## Registration instead of accounts
 

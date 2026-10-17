@@ -28,10 +28,12 @@ from the repository rather than written by hand, so neither can go stale:
 * **The agent discovery documents**, the rest of what a machine reader asks
   for: ``/auth.md`` (copied from ``hooks/auth.md``), the MCP server card, the
   two product skills with their ``SKILL.md`` copies and digests under
-  ``agent-skills/``, the ai-catalog index pointing at all of it, and a
-  ``poppy.json``. Each names something that is really serving; where
-  OAuth or A2A metadata is asked for, it stays with the deployments that run
-  it and ``/auth.md`` links to the served one.
+  ``agent-skills/``, the ai-catalog index pointing at all of it, a
+  ``poppy.json``, and a copy of the hosted service's OpenID discovery
+  document, which the worker serves where the issuer's live answer cannot be
+  reached. Each names something that is really serving; where OAuth or A2A
+  metadata is asked for, it stays with the deployments that run it, and
+  ``/auth.md`` links to the served one.
 
 * **A Markdown copy of every page**, at the page's own address plus
   ``index.md``, and **``llms-full.txt``**, the readable pages in one file. The
@@ -64,6 +66,7 @@ import posixpath
 import re
 import shutil
 import subprocess
+import urllib.request
 from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger("mkdocs.hooks.seo")
@@ -293,6 +296,7 @@ def on_post_build(config):
     _write_auth_md(config)
     _write_agent_discovery(config, site_url)
     _write_api_catalog(config, site_url)
+    _write_oidc_mirror(config)
 
     # The catalog is generated into the Go package that embeds it, so the
     # binary and the site serve the same bytes; the site copies it rather than
@@ -357,6 +361,7 @@ def _write_security_txt(config, site_url: str) -> None:
 # serving. The discovery documents below name it because a machine client
 # reading the site wants a deployment it can reach, not a promise.
 _DEMO = "https://demo.zoomies.sh"
+_IDENTITY = "https://portal.zoomies.sh"
 
 
 def _write_api_catalog(config, site_url: str) -> None:
@@ -395,6 +400,51 @@ def _write_api_catalog(config, site_url: str) -> None:
     }
     with open(os.path.join(config["site_dir"], "api-catalog.json"), "w", encoding="utf-8") as fh:
         json.dump(catalog, fh, indent=2)
+        fh.write("\n")
+
+
+def _write_oidc_mirror(config) -> None:
+    """Keep a copy of the hosted service's OpenID discovery document.
+
+    The worker mirrors the issuer's live answer at the site's discovery
+    addresses, and this file is what it falls back to when a window where the
+    provider cannot be reached leaves it unreachable: discovery is then one
+    build stale rather than dark. A build without the network skips the copy
+    without failing it, the way the header's source facts skip theirs, and a
+    body whose issuer is not the one this site names is refused: the copy may
+    be stale by a build, it may not lie.
+    """
+    well = os.path.join(config["site_dir"], ".well-known")
+    os.makedirs(well, exist_ok=True)
+    try:
+        # A user agent that names the build: without it the portal's rules
+        # answer the default library string with 403.
+        with urllib.request.urlopen(
+            urllib.request.Request(
+                f"{_IDENTITY}/.well-known/openid-configuration",
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "zoomies-docs-build (+https://zoomies.sh; https://github.com/eyupio/zoomies)",
+                },
+            ),
+            timeout=10,
+        ) as response:
+            body = response.read(64 * 1024)
+    except OSError as err:
+        # Info, not a warning: --strict would fail a build, and a build whose
+        # network is down only loses the mirror's fallback copy, not the site.
+        log.info("the portal's OpenID discovery document could not be fetched, so this build's mirror copy is skipped: %s", err)
+        return
+    try:
+        document = json.loads(body)
+    except ValueError as err:
+        log.info("the portal's OpenID discovery document is not JSON, so this build's mirror copy is skipped: %s", err)
+        return
+    if not isinstance(document, dict) or document.get("issuer") != _IDENTITY:
+        log.info("the portal's OpenID discovery document names issuer %r, not %r, so this build's mirror copy is skipped", document.get("issuer") if isinstance(document, dict) else document, _IDENTITY)
+        return
+    with open(os.path.join(well, "openid-configuration.json"), "w", encoding="utf-8") as fh:
+        json.dump(document, fh, indent=2)
         fh.write("\n")
 
 

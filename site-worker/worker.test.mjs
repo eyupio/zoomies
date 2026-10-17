@@ -315,7 +315,26 @@ test("a HEAD request for the discovery document answers with no body", async () 
   assert.equal(await response.text(), "");
 });
 
-test("when the provider cannot be reached, the origin's answer stands", async () => {
+const OIDC_BAKED = JSON.stringify({
+  issuer: "https://portal.zoomies.sh",
+  jwks_uri: "https://portal.zoomies.sh/jwks.json",
+});
+
+test("when the provider cannot be reached, the build's copy answers", async () => {
+  const response = await handle(
+    "https://zoomies.sh/.well-known/openid-configuration",
+    new Map([
+      ["/.well-known/openid-configuration.json", { type: "application/json", body: OIDC_BAKED }],
+    ]),
+    {},
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/json");
+  assert.equal(await response.text(), OIDC_BAKED);
+});
+
+test("when neither the provider nor the build's copy answers, nothing is served", async () => {
   const response = await handle(
     "https://zoomies.sh/.well-known/openid-configuration",
     new Map([]),

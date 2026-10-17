@@ -15,10 +15,12 @@ Two things the origin cannot do itself, the worker does on the way through:
   with the `application/linkset+json` content type the RFC asks for. GitHub
   Pages picks a content type from a file's extension and cannot set this one.
 * The hosted service's OpenID Provider discovery document is mirrored at
-  `/.well-known/openid-configuration` and `/.well-known/oauth-authorization-server`,
-  byte for byte from `https://portal.zoomies.sh` and refetched on each
-  request, so the site's identity document is always the one the issuer
-  serves.
+  `/.well-known/openid-configuration` and `/.well-known/oauth-authorization-server`.
+  The mirror prefers the issuer's live answer, refetched on each request, and
+  falls back to the copy each site build takes from the same address
+  (`hooks/seo.py`), so discovery is one build stale rather than dark when the
+  provider cannot be reached. A copy whose issuer is not the portal's is
+  refused by the build, so the mirror can be stale, never false.
 
 The copies it serves are the ones `hooks/seo.py` writes beside the built site,
 at every page's address plus `index.md` (the address the pages already declare
