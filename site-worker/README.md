@@ -20,7 +20,10 @@ Two things the origin cannot do itself, the worker does on the way through:
   falls back to the copy each site build takes from the same address
   (`hooks/seo.py`), so discovery is one build stale rather than dark when the
   provider cannot be reached. A copy whose issuer is not the portal's is
-  refused by the build, so the mirror can be stale, never false.
+  refused by the build, so the mirror can be stale, never false. The demo
+  deployment's protected-resource metadata is mirrored the same way at
+  `/.well-known/oauth-protected-resource`, from the live thing and the build's
+  copy.
 
 The copies it serves are the ones `hooks/seo.py` writes beside the built site,
 at every page's address plus `index.md` (the address the pages already declare
