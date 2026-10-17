@@ -1,7 +1,3 @@
-<!-- Copy: served verbatim at https://zoomies.sh/auth.md by hooks/seo.py. It
-     describes what a person, or an agent acting for one, can pass at a Zoomies
-     deployment. Keep it true to internal/api and internal/auth, and check both
-     when something here names a scope or an endpoint. -->
 ---
 agent_auth:
   skill: https://zoomies.sh/.well-known/agent-skills/zoomies/SKILL.md
@@ -18,6 +14,11 @@ agent_auth:
         - The person who runs the deployment mints an API token in the controller's settings, at the scopes the agent needs.
         - Present it on every call as `Authorization: Bearer <token>`.
 ---
+
+<!-- Copy: served verbatim at https://zoomies.sh/auth.md by hooks/seo.py. It
+     describes what a person, or an agent acting for one, can pass at a Zoomies
+     deployment. Keep it true to internal/api and internal/auth, and check both
+     when something here names a scope or an endpoint. -->
 
 # auth.md
 
