@@ -9,14 +9,15 @@ import { mount } from 'svelte';
 import '../lib/styles/tokens.css';
 import StatusPage from './StatusPage.svelte';
 
-// The operator's own theme choice, when this browser has made one; the
-// system setting otherwise, which tokens.css follows with no attribute. Done
+// The operator's own theme choice, when this browser has made one; dark
+// otherwise, and the system setting when they asked for it, which tokens.css
+// follows with no attribute. Done
 // here rather than inline in status.html because the page's CSP carries no
 // hash for an inline script of its own.
 try {
   const theme = localStorage.getItem('zoomies.theme');
-  if (theme === 'dark' || theme === 'light') {
-    document.documentElement.setAttribute('data-theme', theme);
+  if (theme !== 'system') {
+    document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark');
   }
 } catch {
   /* private mode: the system preference stands */

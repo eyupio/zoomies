@@ -24,7 +24,7 @@ from here rather than inventing values.
 ![Mission Control visual-style selection](screenshots/mission-control/appearance-dark.webp)
 
 
-Settings, Appearance offers **Classic** (the default) and **Mission Control**.
+Settings, Appearance offers **Classic** and **Mission Control** (the default).
 Classic retains the compact neutral palette. Mission Control uses navy surfaces
 in dark mode, cool light surfaces in light mode, and slightly larger type.
 Runner Blue remains the interactive accent; cyan still means running work.
@@ -33,7 +33,8 @@ The phone's More menu offers the same two style choices.
 
 Visual style stays in this browser under `zoomies.ui-style` and is applied before
 first paint, including sign-in and the first-account form. Missing or unknown
-values retain Classic. Reset visual style to Classic clears only that choice.
+values get Mission Control; only a stored `classic` opts a browser out, so
+choosing Mission Control again simply clears the key.
 The separate public `/status` document retains Classic.
 
 Selecting a style updates root tokens without replacing the route or its state.
@@ -573,9 +574,10 @@ Everything inside `@media (prefers-reduced-motion: reduce)` collapses to `1ms`.
 
 ### 1.8 Theme
 
-Three states: `light`, `dark`, `system`. `system` is the default and sets no
-attribute, so `prefers-color-scheme` decides. An explicit choice writes
-`data-theme` on `<html>` and persists to `localStorage` under `zoomies.theme`.
+Three states: `light`, `dark`, `system`. `dark` is the default. `system` sets no
+attribute, so `prefers-color-scheme` decides. Every choice persists to
+`localStorage` under `zoomies.theme`, and all but `system` write `data-theme` on
+`<html>`; a browser with nothing stored gets `dark`.
 The choice is applied by a tiny inline script before first paint so there is no
 flash.
 

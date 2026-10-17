@@ -1,8 +1,8 @@
 /**
  * Light, dark or whatever the operating system says.
  *
- * `system` is the default and writes no attribute, so `prefers-color-scheme`
- * decides. An explicit choice writes `data-theme` on `<html>` and persists. The
+ * `dark` is the default. `system` writes no attribute, so `prefers-color-scheme`
+ * decides. Every choice writes `data-theme` (bar `system`) and persists. The
  * inline script in index.html applies the stored value before first paint; this
  * module keeps subsequent choices in sync.
  *
@@ -58,9 +58,10 @@ export function syncBrowserChrome(choice: ThemeChoice): void {
   }
 }
 
+/** Dark is the default; following the system is a choice that has to be stored. */
 function stored(): ThemeChoice {
   const value = storage.get(KEY);
-  return value === 'light' || value === 'dark' ? value : 'system';
+  return value === 'light' || value === 'system' ? value : 'dark';
 }
 
 class Theme {
@@ -94,13 +95,9 @@ class Theme {
   set(choice: ThemeChoice): void {
     this.#choice = choice;
     if (typeof document === 'undefined') return;
-    if (choice === 'system') {
-      document.documentElement.removeAttribute('data-theme');
-      storage.remove(KEY);
-    } else {
-      document.documentElement.setAttribute('data-theme', choice);
-      storage.set(KEY, choice);
-    }
+    if (choice === 'system') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', choice);
+    storage.set(KEY, choice);
     syncBrowserChrome(choice);
   }
 

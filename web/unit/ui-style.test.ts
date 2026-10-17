@@ -39,10 +39,23 @@ function boot(style: unknown, mode: string | null = null, blocked = false) {
   return { attrs, tags };
 }
 
-test('unknown visual styles retain Classic in the resolver and before first paint', () => {
-  for (const value of [undefined, null, '', 'classic', 'dark', 'MISSION-CONTROL', {}, '<style>']) {
-    assert.equal(resolveUIStyle(value), 'classic');
-    assert.equal(boot(value).attrs.has('data-ui-style'), false);
+test('unset and unknown visual styles get Mission Control; only a stored classic opts out', () => {
+  for (const value of [undefined, null, '', 'dark', 'MISSION-CONTROL', {}, '<style>']) {
+    assert.equal(resolveUIStyle(value), 'mission-control');
+    assert.equal(boot(value).attrs.get('data-ui-style'), 'mission-control');
+  }
+  assert.equal(resolveUIStyle('classic'), 'classic');
+  assert.equal(boot('classic').attrs.has('data-ui-style'), false);
+});
+
+test('an unset colour mode boots dark', () => {
+  const { attrs, tags } = boot(null, null);
+  assert.equal(attrs.get('data-theme'), 'dark');
+  for (const tag of tags) {
+    assert.equal(
+      tag.data.get('media'),
+      tag.data.get('data-theme-colour') === 'dark' ? 'all' : 'not all',
+    );
   }
 });
 
@@ -63,7 +76,7 @@ test('the stored style and explicit colour mode apply together before first pain
 
 test('system mode keeps its native media queries independently of visual style', () => {
   for (const style of ['classic', 'mission-control']) {
-    const { attrs, tags } = boot(style);
+    const { attrs, tags } = boot(style, 'system');
     assert.equal(attrs.has('data-theme'), false);
     for (const tag of tags) {
       assert.equal(
@@ -74,7 +87,7 @@ test('system mode keeps its native media queries independently of visual style',
   }
 });
 
-test('blocked storage does not prevent the page from booting with Classic and system mode', () => {
+test('blocked storage does not prevent the page from booting with no attributes', () => {
   assert.equal(boot('mission-control', 'dark', true).attrs.size, 0);
 });
 

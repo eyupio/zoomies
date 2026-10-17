@@ -135,14 +135,14 @@
       (function () {
         try {
           var t = localStorage.getItem('zoomies.theme');
-          if (t === 'dark' || t === 'light') {
-            document.documentElement.setAttribute('data-theme', t);
-          }
+          // Dark is the default; only a stored 'system' or 'light' differs.
+          if (t !== 'system' && t !== 'light') t = 'dark';
+          if (t !== 'system') document.documentElement.setAttribute('data-theme', t);
+          // Mission Control is the default; only a stored 'classic' differs.
           var style = localStorage.getItem('zoomies.ui-style');
-          if (style === 'mission-control') {
+          if (style !== 'classic') {
+            style = 'mission-control';
             document.documentElement.setAttribute('data-ui-style', style);
-          } else {
-            style = 'classic';
           }
           document.querySelectorAll('meta[data-theme-colour]').forEach(function (tag) {
             var which = tag.getAttribute('data-theme-colour');

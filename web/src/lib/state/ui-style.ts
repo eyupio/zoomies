@@ -15,7 +15,11 @@ export const UI_STYLE_OPTIONS: readonly { value: UIStyle; label: string; descrip
   },
 ];
 
-/** Old and unknown preferences must never opt a browser into a new style. */
+/**
+ * Mission Control is the default: only a stored, deliberate `classic` opts a
+ * browser out. Unknown values fall back to the default rather than to an
+ * accident of an older build's storage.
+ */
 export function resolveUIStyle(value: unknown): UIStyle {
-  return value === 'mission-control' ? value : 'classic';
+  return value === 'classic' ? value : 'mission-control';
 }

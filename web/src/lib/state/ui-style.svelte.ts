@@ -13,12 +13,14 @@ class VisualStyle {
     const choice = resolveUIStyle(value);
     this.#choice = choice;
     if (typeof document === 'undefined') return;
+    // Mission Control is the default, so it stores nothing; Classic is the
+    // deliberate choice and has to be remembered.
     if (choice === 'classic') {
       document.documentElement.removeAttribute('data-ui-style');
-      storage.remove(UI_STYLE_KEY);
+      storage.set(UI_STYLE_KEY, choice);
     } else {
       document.documentElement.setAttribute('data-ui-style', choice);
-      storage.set(UI_STYLE_KEY, choice);
+      storage.remove(UI_STYLE_KEY);
     }
     // Only root tokens change: editors, the fleet cache and Eli keep their state.
     syncBrowserChrome(theme.choice);
