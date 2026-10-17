@@ -221,9 +221,14 @@ jobs:
       - name: Pack the site, hidden files included
         run: |
           set -eu
+          # The API catalog is the Linkset document the edge worker re-types at
+          # /.well-known/api-catalog (site-worker/): it has to be valid JSON or
+          # the well-known address serves nothing an agent can read.
+          python3 -m json.tool site/.well-known/api-catalog.json > /dev/null
           tar --dereference --hard-dereference --directory site \
             -cf "$RUNNER_TEMP/artifact.tar" --exclude=.git --exclude=.github .
           tar -tf "$RUNNER_TEMP/artifact.tar" | grep -q '^\./\.well-known/security\.txt$'
+          tar -tf "$RUNNER_TEMP/artifact.tar" | grep -q '^\./\.well-known/api-catalog\.json$'
           tar -tf "$RUNNER_TEMP/artifact.tar" | grep -q '^\./\.nojekyll$'
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

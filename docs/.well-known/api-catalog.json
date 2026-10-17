@@ -1,0 +1,25 @@
+{
+  "linkset": [
+    {
+      "anchor": "https://demo.zoomies.sh/api/v1/",
+      "service-desc": [
+        {
+          "href": "https://raw.githubusercontent.com/eyupio/zoomies/main/api/openapi.yaml",
+          "type": "application/yaml"
+        }
+      ],
+      "service-doc": [
+        {
+          "href": "https://zoomies.sh/api-surface/",
+          "type": "text/html"
+        }
+      ],
+      "status": [
+        {
+          "href": "https://demo.zoomies.sh/healthz",
+          "type": "application/json"
+        }
+      ]
+    }
+  ]
+}
