@@ -3,6 +3,7 @@ package optimisation
 import (
 	"errors"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -150,4 +151,53 @@ func CheckCacheCurrent(p CachePreview, source CacheSource, evidence SetupEvidenc
 		return ErrCacheUnsupported
 	}
 	return nil
+}
+
+// SetupSample is one exact local job's setup step. The controller maps the
+// fleet's retained job rows into this shape; the optimisation package remains
+// pure.
+type SetupSample struct {
+	JobID      string
+	RunID      string
+	Attempt    int
+	StepNumber int
+	SetupMS    int64
+}
+
+// SetupEvidenceFromSamples turns exact local setup samples into the evidence a
+// cache preview needs. The samples are sorted by job ID before the evidence ID is
+// computed, so the same set gives the same ID whatever order the store returned
+// it in. Two to one hundred samples are required.
+func SetupEvidenceFromSamples(head, sourceSHA256, lockfileSHA256 string, samples []SetupSample) (SetupEvidence, error) {
+	if !commit(head) || len(sourceSHA256) != 64 || sourceSHA256 != strings.ToLower(sourceSHA256) || len(lockfileSHA256) != 64 || lockfileSHA256 != strings.ToLower(lockfileSHA256) || len(samples) < 2 || len(samples) > 100 {
+		return SetupEvidence{}, ErrCacheUnsupported
+	}
+	ordered := append([]SetupSample(nil), samples...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].JobID < ordered[j].JobID })
+	parts := make([]string, 0, len(ordered))
+	var total int64
+	for i, s := range ordered {
+		if s.JobID == "" || len(s.JobID) > 128 || strings.ContainsAny(s.JobID, " \t\r\n\x00") || s.RunID == "" || s.RunID != strconv.FormatInt(mustDecimal(s.RunID), 10) || s.Attempt < 1 || s.StepNumber <= 0 || s.SetupMS <= 0 || i > 0 && ordered[i-1].JobID == s.JobID {
+			return SetupEvidence{}, ErrCacheUnsupported
+		}
+		total += s.SetupMS
+		parts = append(parts, s.JobID+"/"+s.RunID+"/"+strconv.Itoa(s.Attempt)+"/"+strconv.Itoa(s.StepNumber)+"/"+strconv.FormatInt(s.SetupMS, 10))
+	}
+	mean := total / int64(len(ordered))
+	if mean <= 0 || mean > 7*24*60*60*1000 {
+		return SetupEvidence{}, ErrCacheUnsupported
+	}
+	return SetupEvidence{
+		EvidenceID: hash("setup-cache-v1:" + head + ":" + sourceSHA256 + ":" + lockfileSHA256 + ":" + strings.Join(parts, ",")),
+		HeadSHA:    head, SourceSHA256: sourceSHA256, LockfileSHA256: lockfileSHA256,
+		Runs: len(ordered), SetupMS: &mean,
+	}, nil
+}
+
+func mustDecimal(s string) int64 {
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || v <= 0 || strconv.FormatInt(v, 10) != s {
+		return -1
+	}
+	return v
 }

@@ -11,7 +11,7 @@ import (
 )
 
 func TestOptimisationComputesOnlyFromSuppliedSourceAndEvidence(t *testing.T) {
-	allowed := map[string]bool{"crypto/sha256": true, "encoding/hex": true, "errors": true, "path": true, "strconv": true, "strings": true, "unicode/utf8": true, "github.com/eyupio/zoomies/internal/kennel/workflow": true, "github.com/eyupio/zoomies/internal/prrepair": true}
+	allowed := map[string]bool{"crypto/sha256": true, "encoding/hex": true, "errors": true, "path": true, "sort": true, "strconv": true, "strings": true, "unicode/utf8": true, "github.com/eyupio/zoomies/internal/kennel/workflow": true, "github.com/eyupio/zoomies/internal/prrepair": true}
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)

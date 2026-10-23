@@ -139,3 +139,49 @@ func TestCheckCacheCurrentRefusesAChangedSourceLockfileOrPolicy(t *testing.T) {
 		t.Fatalf("policy: %v", err)
 	}
 }
+
+func TestSetupEvidenceFromSamplesIsStableAndUsesExactJobs(t *testing.T) {
+	head, source, lockfile := strings.Repeat("a", 40), strings.Repeat("b", 64), strings.Repeat("c", 64)
+	samples := []SetupSample{
+		{JobID: "job_2", RunID: "20", Attempt: 1, StepNumber: 2, SetupMS: 3000},
+		{JobID: "job_1", RunID: "10", Attempt: 1, StepNumber: 2, SetupMS: 5000},
+		{JobID: "job_3", RunID: "30", Attempt: 2, StepNumber: 2, SetupMS: 4000},
+	}
+	evidence, err := SetupEvidenceFromSamples(head, source, lockfile, samples)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Runs != 3 || evidence.SetupMS == nil || *evidence.SetupMS != 4000 || evidence.HeadSHA != head || evidence.SourceSHA256 != source || evidence.LockfileSHA256 != lockfile || evidence.EvidenceID == "" {
+		t.Fatalf("evidence %+v", evidence)
+	}
+	shuffled := []SetupSample{samples[2], samples[0], samples[1]}
+	again, err := SetupEvidenceFromSamples(head, source, lockfile, shuffled)
+	if err != nil || again.EvidenceID != evidence.EvidenceID {
+		t.Fatalf("order changed the evidence ID: %+v, %v", again, err)
+	}
+}
+
+func TestSetupEvidenceFromSamplesRefusesThinOrMalformedHistory(t *testing.T) {
+	head, source, lockfile := strings.Repeat("a", 40), strings.Repeat("b", 64), strings.Repeat("c", 64)
+	valid := []SetupSample{{JobID: "job_1", RunID: "10", Attempt: 1, StepNumber: 2, SetupMS: 4000}, {JobID: "job_2", RunID: "20", Attempt: 1, StepNumber: 2, SetupMS: 5000}}
+	for _, tc := range []struct {
+		name    string
+		samples []SetupSample
+		head    string
+		source  string
+	}{
+		{"one sample", valid[:1], head, source},
+		{"duplicate job", []SetupSample{valid[0], valid[0]}, head, source},
+		{"bad run", []SetupSample{{JobID: "job_1", RunID: "010", Attempt: 1, StepNumber: 2, SetupMS: 4000}, valid[1]}, head, source},
+		{"zero time", []SetupSample{{JobID: "job_1", RunID: "10", Attempt: 1, StepNumber: 2, SetupMS: 0}, valid[1]}, head, source},
+		{"bad head", valid, "short", source},
+		{"bad source", valid, head, "short"},
+		{"too many", make([]SetupSample, 101), head, source},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := SetupEvidenceFromSamples(tc.head, tc.source, lockfile, tc.samples); err == nil {
+				t.Fatal("accepted")
+			}
+		})
+	}
+}
