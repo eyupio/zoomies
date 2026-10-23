@@ -265,7 +265,14 @@ type Agent struct {
 	// this host. Capacity bounds running jobs, not concurrent image extraction
 	// and DinD startup, which can overwhelm an otherwise healthy daemon.
 	startup startupQueue
-	warmed  map[warmKey]warmResult
+	// dindStartup serialises the creates of DinD runners on a lane of their
+	// own. Such a create holds its turn until the sidecar's daemon answers,
+	// seconds on a busy host, and a runner that starts no daemon used to wait
+	// behind every one of them for a create that takes a fraction of that.
+	// Each lane still starts one runner at a time, so at most one daemon is
+	// initialising on the host.
+	dindStartup startupQueue
+	warmed      map[warmKey]warmResult
 	// fill runs tool cache fills one at a time: two pools' fills at once are
 	// twice the bandwidth for the same finishing time.
 	fill sync.Mutex
@@ -1491,14 +1498,26 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 	a.start(ctx, task)
 }
 
+// startupLane is the queue a create waits in for this host's startup turn: a
+// DinD runner's create waits only behind other DinD creates, everything else
+// behind other creates and image prewarming.
+func (a *Agent) startupLane(task Task) *startupQueue {
+	if task.Spec != nil && task.Spec.DockerMode == store.DockerDinD {
+		return &a.dindStartup
+	}
+	return &a.startup
+}
+
 // start runs a task whose runner's claim is already held, and gives the claim
 // up -- or hands it to whatever is waiting behind it -- when the task is done.
 func (a *Agent) start(ctx context.Context, task Task) {
 	queuedAt := a.now()
 	claimed := task.RunnerID != ""
 	var admission *startupTicket
+	lane := &a.startup
 	if task.Kind == TaskCreateRunner {
-		admission = a.startup.enqueue(true)
+		lane = a.startupLane(task)
+		admission = lane.enqueue(true)
 	}
 	a.tasks.Add(1)
 	go func() {
@@ -1520,7 +1539,7 @@ func (a *Agent) start(ctx context.Context, task Task) {
 				a.reportFailure(ctx, task, "agent shut down before background preparation", store.FaultBackend)
 				return
 			}
-			admission = a.startup.enqueue(false)
+			admission = lane.enqueue(false)
 		}
 		// Wait before taking a lifecycle slot, so queued starts cannot crowd
 		// out stops and removals. The backend's create timeout begins only
@@ -1528,7 +1547,7 @@ func (a *Agent) start(ctx context.Context, task Task) {
 		if task.Kind == TaskCreateRunner || task.Kind == TaskPrewarmImage {
 			a.log.Debug("waiting for this host's startup slot",
 				"task", task.ID, "kind", task.Kind, "runner", task.RunnerID)
-			defer a.startup.done(admission)
+			defer lane.done(admission)
 			select {
 			case <-admission.ready:
 				wait := a.now().Sub(queuedAt)

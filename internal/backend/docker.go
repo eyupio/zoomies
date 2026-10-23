@@ -1437,7 +1437,7 @@ func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy s
 	return createRef, digest, pull, duration, nil
 }
 
-// startDinD keeps the host's serial startup slot until dockerd answers. A
+// startDinD keeps the host's serial DinD startup slot until dockerd answers. A
 // running container only proves its entrypoint started; releasing the slot
 // then let subsequent pulls compete with a quota-limited daemon still booting.
 func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts containerOptions) (string, error) {

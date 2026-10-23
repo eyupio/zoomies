@@ -1363,8 +1363,10 @@ controller's instance setting configures its embedded agent. Existing stored
 values and environment overrides take precedence over defaults.
 
 This is separate from `runners.docker_wait`: that wait now holds the host's
-startup slot until the DinD daemon passes a `docker info` health probe, before
-creating the runner. The fleet default is **3m**, with a pool's
+DinD startup slot until the DinD daemon passes a `docker info` health probe,
+before creating the runner. DinD creates take turns among themselves; a runner
+that starts no daemon, and image prewarming, take turns on a slot of their own,
+so they do not wait behind a daemon that is still initialising. The fleet default is **3m**, with a pool's
 `env.ZOOMIES_DOCKER_WAIT` taking precedence (whole seconds, 1–3600).
 `0s` at fleet level selects the 2m fallback; it does not skip readiness.
 The outer 10m agent create budget and `scheduler.provision_timeout` still

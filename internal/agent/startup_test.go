@@ -92,6 +92,73 @@ func TestRunnerStartsAreSerialAcrossPoolsAndReleaseAfterFailure(t *testing.T) {
 	})
 }
 
+func dindCreateTask(id, runnerID string) Task {
+	task := createTask(id, runnerID)
+	task.Spec.DockerMode = store.DockerDinD
+	return task
+}
+
+func TestARunnerWithoutADaemonDoesNotWaitBehindADinDStart(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, tr, b := startupAgent(t)
+		ctx := context.Background()
+		a.dispatch(ctx, dindCreateTask("dind-first", "run-dind-first"))
+		synctest.Wait()
+		startupEntered(t, b, "run-dind-first")
+
+		a.dispatch(ctx, dindCreateTask("dind-second", "run-dind-second"))
+		synctest.Wait()
+		startupBlocked(t, b)
+
+		plain := createTask("plain", "run-plain")
+		plain.Spec.PoolID = "another-pool"
+		a.dispatch(ctx, plain)
+		synctest.Wait()
+		startupEntered(t, b, "run-plain")
+		startupBlocked(t, b)
+
+		// Two creates are in flight and either may take the next finish, so
+		// the second DinD start is counted rather than expected at a step.
+		started := map[string]bool{}
+		for range 3 {
+			b.finish <- nil
+			synctest.Wait()
+			select {
+			case id := <-b.entered:
+				started[id] = true
+			default:
+			}
+			if res := <-tr.results; !res.OK {
+				t.Fatalf("a start failed: %+v", res)
+			}
+		}
+		if !started["run-dind-second"] || len(started) != 1 {
+			t.Fatalf("starts after the first two: %v, want only run-dind-second", started)
+		}
+		a.tasks.Wait()
+	})
+}
+
+func TestPrewarmingDoesNotHoldADinDStart(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, _, b := startupAgent(t)
+		ctx := context.Background()
+		a.dispatch(ctx, Task{
+			ID: "warm", Kind: TaskPrewarmImage, PoolID: "pool",
+			Backend: store.BackendDocker, Image: "runner-image", PullPolicy: store.PullIfNotPresent,
+		})
+		synctest.Wait()
+		startupEntered(t, b, "runner-image")
+		a.dispatch(ctx, dindCreateTask("dind", "run-dind"))
+		synctest.Wait()
+		startupEntered(t, b, "run-dind")
+		b.finish <- nil
+		b.finish <- nil
+		synctest.Wait()
+		a.tasks.Wait()
+	})
+}
+
 func TestPrewarmingSharesTheStartupSlotButRemovalDoesNot(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		a, tr, b := startupAgent(t)

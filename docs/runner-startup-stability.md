@@ -18,11 +18,13 @@ created DinD pairs used the whole host share as their throttle base instead of
 the per-container half recorded in labels. Restoring their quotas could double
 the CPU reservation. Adoption after restart already used the correct half.
 
-The backend now holds startup admission until a bounded `docker info` health
+The backend now holds the DinD startup admission until a bounded `docker info` health
 probe succeeds, tolerating transient failed probes and reporting early
 OOM/exit. Failure uses the existing cleanup path. The runner image retains
 its readiness check for older agents, host sockets and intervening failures.
-No consumed JIT configuration is retried.
+No consumed JIT configuration is retried. A runner that starts no daemon is
+admitted on a slot of its own, beside the DinD one, so a host still starts at
+most one daemon at a time without making those runners wait for it.
 
 The per-container throttle base now matches creation and adoption. A bounded
 CPU grace protects registration from an additional pressure reduction. A job
