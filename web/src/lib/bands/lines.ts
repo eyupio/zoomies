@@ -206,6 +206,7 @@ export function migrateLine(): BandLine {
 export function kennelLine(k: {
   enabled: boolean;
   repositories: number;
+  notTracked: number;
   attention: number;
   clean: number;
   first: { name: string; findings: string; public: boolean } | null;
@@ -219,8 +220,17 @@ export function kennelLine(k: {
     };
   }
   if (k.repositories === 0) {
+    // A repository somebody chose not to track is a decision, not an absence,
+    // and the page's own empty state says which of the two this is.
+    if (k.notTracked > 0) {
+      return {
+        headline: 'Every repository is set aside.',
+        accent: '',
+        lede: 'Kennel Club has been told not to look at them.',
+      };
+    }
     return {
-      headline: 'Nothing to look at yet.',
+      headline: 'No repositories to check yet.',
       accent: '',
       lede: 'Kennel Club checks the repositories this fleet has run jobs for.',
     };

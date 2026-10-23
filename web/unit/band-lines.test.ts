@@ -168,6 +168,7 @@ test('Kennel Club says what needs attention, and names the first repository', ()
   const line = kennelLine({
     enabled: true,
     repositories: 12,
+    notTracked: 0,
     attention: 2,
     clean: 7,
     first: { name: 'acme/widgets', findings: '2 errors and a warning', public: true },
@@ -182,6 +183,7 @@ test('Kennel Club says what needs attention, and names the first repository', ()
   const quiet = kennelLine({
     enabled: true,
     repositories: 4,
+    notTracked: 0,
     attention: 0,
     clean: 4,
     first: null,
@@ -191,8 +193,40 @@ test('Kennel Club says what needs attention, and names the first repository', ()
   assert.equal(quiet.lede, 'No repository has an error or a warning open.');
 
   assert.equal(
-    kennelLine({ enabled: false, repositories: 0, attention: 0, clean: 0, first: null, more: 0 })
-      .headline,
+    kennelLine({
+      enabled: false,
+      repositories: 0,
+      notTracked: 0,
+      attention: 0,
+      clean: 0,
+      first: null,
+      more: 0,
+    }).headline,
     'Kennel Club is off.',
   );
+});
+
+test('Kennel Club tells a repository somebody set aside from one never checked', () => {
+  const setAside = kennelLine({
+    enabled: true,
+    repositories: 0,
+    notTracked: 4,
+    attention: 0,
+    clean: 0,
+    first: null,
+    more: 0,
+  });
+  assert.equal(setAside.headline, 'Every repository is set aside.');
+  assert.equal(setAside.lede, 'Kennel Club has been told not to look at them.');
+
+  const empty = kennelLine({
+    enabled: true,
+    repositories: 0,
+    notTracked: 0,
+    attention: 0,
+    clean: 0,
+    first: null,
+    more: 0,
+  });
+  assert.equal(empty.headline, 'No repositories to check yet.');
 });

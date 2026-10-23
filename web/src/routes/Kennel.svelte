@@ -147,6 +147,7 @@
     return kennelLine({
       enabled: overview.enabled,
       repositories: overview.repositories,
+      notTracked: overview.not_tracked,
       attention: overview.states.attention,
       clean: overview.states.best_in_show,
       first: first
