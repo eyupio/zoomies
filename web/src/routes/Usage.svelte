@@ -272,7 +272,7 @@
    */
   const attributable = $derived(report?.allocation_attributable !== false);
 
-  /* -- the band -------------------------------------------------------------
+  /* The band ----------------------------------------------------------------
    * The range's own answer, in the same stage every fleet page opens on. The
    * figures move up from the tiles below, so the page says what the range held
    * before it asks anybody to read a table, and a phone (which never draws the
