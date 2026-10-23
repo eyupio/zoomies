@@ -768,4 +768,7 @@ refuses any change, and commits one reviewed workflow file on a branch derived
 from the preview before opening a draft pull request against the branch the push
 ran on. It never force-pushes and never merges. The App needs Contents, Pull
 requests and Workflows write for that one act; a retry reconciles the branch and
-pull request the previous attempt left rather than starting again.
+pull request the previous attempt left rather than starting again. A retained E2
+comparison can be linked to the publication as its verification evidence. The
+link names the comparison and the actor and is audited; the comparison is not
+copied, and its result is not promoted to a saving claim.

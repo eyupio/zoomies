@@ -5786,6 +5786,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/optimisations/checkout/previews/{id}/verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Link a retained comparison to a published checkout preview
+         * @description Requires operator, jobs:read and optimisations:write; public visitors are refused. The preview must already have a publication. The comparison must be a retained workflow comparison whose revision_delta_id is the preview ID, as the preview's Compare runs link sets it. The controller replays the comparison and the preview from retained input only, then records the link with an audit row. It reads no GitHub data, calls no model and adds no verification claim: the comparison remains evidence to open and read, and it stays inconclusive without a usable control and candidate. One comparison may be linked per preview; a different one is refused. The answer is the preview with a verification object naming the comparison and who linked it.
+         */
+        post: operations["linkCheckoutVerification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -12418,6 +12441,18 @@ export interface components {
             pull_number: number;
             pull_url: string;
         } | null;
+        CheckoutVerificationRequest: {
+            installation_id: string;
+            repository: string;
+            comparison_id: string;
+        };
+        /** @description The retained comparison linked to the publication, or null when none was linked. */
+        CheckoutVerification: {
+            comparison_id: string;
+            linked_by: string;
+            /** Format: date-time */
+            linked_at: string;
+        } | null;
         /** @description How the source and timing were collected. Null for a preview retained before collection was recorded. */
         CheckoutCollection: {
             version: string;
@@ -12465,6 +12500,7 @@ export interface components {
             collection: components["schemas"]["CheckoutCollection"];
             approval: components["schemas"]["CheckoutApproval"];
             publication: components["schemas"]["CheckoutPublication"];
+            verification: components["schemas"]["CheckoutVerification"];
             preview: components["schemas"]["CheckoutPreviewDetail"];
         };
         ComparisonCaptureRequest: {
@@ -22082,6 +22118,54 @@ export interface operations {
             429: {
                 headers: {
                     "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    linkCheckoutVerification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckoutVerificationRequest"];
+            };
+        };
+        responses: {
+            /** @description The preview with its linked comparison; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckoutPreview"];
+                };
+            };
+            /** @description Invalid request, preview ID or comparison ID. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The preview is unpublished, or the comparison is unrelated, unsupported or already different. */
+            409: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

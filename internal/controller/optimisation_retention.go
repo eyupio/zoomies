@@ -91,10 +91,17 @@ type RetainedOptimisationPublication struct {
 	PullURL       string
 }
 
+type RetainedOptimisationVerification struct {
+	ComparisonID string
+	LinkedBy     string
+	LinkedAt     time.Time
+}
+
 type RetainedOptimisationPreview struct {
 	Collection     *OptimisationCheckoutProvenance
 	Approval       *RetainedOptimisationApproval
 	Publication    *RetainedOptimisationPublication
+	Verification   *RetainedOptimisationVerification
 	ID             string
 	InstallationID string
 	Repository     string
@@ -213,6 +220,9 @@ func retainedOptimisationView(row *store.OptimisationPreview, preview optimisati
 	}
 	if p := row.Publication; p != nil {
 		v.Publication = &RetainedOptimisationPublication{PublishedBy: p.PublishedBy, PublishedAt: p.CreatedAt, Branch: p.Branch, BaseBranch: p.BaseBranch, BaseSHA: p.BaseSHA, HeadSHA: p.HeadSHA, SourceSHA256: p.SourceSHA256, PreviewSHA256: p.PreviewSHA256, PullNumber: p.PullNumber, PullURL: p.PullURL}
+	}
+	if x := row.Verification; x != nil {
+		v.Verification = &RetainedOptimisationVerification{ComparisonID: x.ComparisonID, LinkedBy: x.LinkedBy, LinkedAt: x.CreatedAt}
 	}
 	return v
 }

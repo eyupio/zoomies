@@ -19,9 +19,10 @@ const MaxRetainedPreviews = 100
 const OptimisationPreviewRetention = 14 * 24 * time.Hour
 
 var (
-	ErrInvalidOptimisationPreview     = errors.New("invalid retained optimisation preview")
-	ErrInvalidOptimisationApproval    = errors.New("invalid retained optimisation preview approval")
-	ErrInvalidOptimisationPublication = errors.New("invalid retained optimisation preview publication")
+	ErrInvalidOptimisationPreview      = errors.New("invalid retained optimisation preview")
+	ErrInvalidOptimisationApproval     = errors.New("invalid retained optimisation preview approval")
+	ErrInvalidOptimisationPublication  = errors.New("invalid retained optimisation preview publication")
+	ErrInvalidOptimisationVerification = errors.New("invalid retained optimisation preview verification")
 )
 
 type OptimisationPreview struct {
@@ -40,6 +41,9 @@ type OptimisationPreview struct {
 	// Publication records the one draft pull request opened for an approved
 	// preview. It is the third act, never a rewrite of the evidence.
 	Publication *OptimisationPublication `json:"publication,omitempty"`
+	// Verification links one retained E2 comparison to the publication after the
+	// operator captured it. It is evidence to read, not a claim of saving.
+	Verification *OptimisationVerification `json:"verification,omitempty"`
 }
 
 // OptimisationApproval records one operator's approval of one exact retained
@@ -72,6 +76,18 @@ type OptimisationPublication struct {
 	PreviewSHA256  string    `json:"preview_sha256"`
 	PullNumber     int       `json:"pull_number"`
 	PullURL        string    `json:"pull_url"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// OptimisationVerification links one retained E2 comparison to a publication.
+// The comparison remains the evidence; this row only records which report the
+// operator chose and who linked it.
+type OptimisationVerification struct {
+	PreviewID      string    `json:"preview_id"`
+	ComparisonID   string    `json:"comparison_id"`
+	InstallationID string    `json:"installation_id"`
+	Repository     string    `json:"repository"`
+	LinkedBy       string    `json:"linked_by"`
 	CreatedAt      time.Time `json:"created_at"`
 }
 
@@ -188,16 +204,21 @@ func (s *Store) GetOptimisationPreview(ctx context.Context, installation, repo, 
 	var approvedAt sql.NullInt64
 	var publishedInstallation, publishedRepo, publishedBy, publishedBranch, publishedBase, publishedBaseSHA, publishedHead, publishedSource, publishedPreview, publishedURL sql.NullString
 	var publishedNumber, publishedAt sql.NullInt64
+	var verifiedComparison, verifiedInstallation, verifiedRepo, verifiedBy sql.NullString
+	var verifiedAt sql.NullInt64
 	err := s.read.QueryRowContext(ctx, `SELECT p.id,p.installation_id,p.repository,p.initiating_user,p.version,p.sha256,p.payload,p.created_at,
 			a.installation_id,a.repository,a.approved_by,a.head_sha,a.source_sha256,a.preview_sha256,a.created_at,
-			u.installation_id,u.repository,u.published_by,u.branch,u.base_branch,u.base_sha,u.head_sha,u.source_sha256,u.preview_sha256,u.pull_number,u.pull_url,u.created_at
+			u.installation_id,u.repository,u.published_by,u.branch,u.base_branch,u.base_sha,u.head_sha,u.source_sha256,u.preview_sha256,u.pull_number,u.pull_url,u.created_at,
+			v.comparison_id,v.installation_id,v.repository,v.linked_by,v.created_at
 		FROM optimisation_previews p
 		LEFT JOIN optimisation_preview_approvals a ON a.preview_id = p.id
 		LEFT JOIN optimisation_publications u ON u.preview_id = p.id
+		LEFT JOIN optimisation_publication_verifications v ON v.preview_id = p.id
 		WHERE p.installation_id = ? AND p.repository = ? AND p.id = ? AND p.created_at > ?`,
 		installation, repo, id, ms(s.Now().Add(-OptimisationPreviewRetention))).Scan(&r.ID, &r.InstallationID, &r.Repository, &r.InitiatingUser, &r.Version, &r.SHA256, &payload, &created,
 		&approvedInstallation, &approvedRepo, &approvedBy, &approvedHead, &approvedSource, &approvedPreview, &approvedAt,
-		&publishedInstallation, &publishedRepo, &publishedBy, &publishedBranch, &publishedBase, &publishedBaseSHA, &publishedHead, &publishedSource, &publishedPreview, &publishedNumber, &publishedURL, &publishedAt)
+		&publishedInstallation, &publishedRepo, &publishedBy, &publishedBranch, &publishedBase, &publishedBaseSHA, &publishedHead, &publishedSource, &publishedPreview, &publishedNumber, &publishedURL, &publishedAt,
+		&verifiedComparison, &verifiedInstallation, &verifiedRepo, &verifiedBy, &verifiedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -231,6 +252,15 @@ func (s *Store) GetOptimisationPreview(ctx context.Context, installation, repo, 
 			BaseSHA: publishedBaseSHA.String, HeadSHA: publishedHead.String, SourceSHA256: publishedSource.String,
 			PreviewSHA256: publishedPreview.String, PullNumber: int(publishedNumber.Int64), PullURL: publishedURL.String,
 			CreatedAt: time.UnixMilli(publishedAt.Int64).UTC(),
+		}
+	}
+	if verifiedComparison.Valid || verifiedInstallation.Valid || verifiedRepo.Valid || verifiedBy.Valid || verifiedAt.Valid {
+		if r.Publication == nil || !verifiedComparison.Valid || !strings.HasPrefix(verifiedComparison.String, PrefixComparison+"_") || len(verifiedComparison.String) > 128 || strings.ContainsAny(verifiedComparison.String, " /\r\n\x00") || !verifiedInstallation.Valid || verifiedInstallation.String != r.InstallationID || !verifiedRepo.Valid || verifiedRepo.String != r.Repository || !verifiedBy.Valid || verifiedBy.String == "" || !verifiedAt.Valid {
+			return nil, ErrInvalidOptimisationPreview
+		}
+		r.Verification = &OptimisationVerification{
+			PreviewID: r.ID, ComparisonID: verifiedComparison.String, InstallationID: r.InstallationID, Repository: r.Repository,
+			LinkedBy: verifiedBy.String, CreatedAt: time.UnixMilli(verifiedAt.Int64).UTC(),
 		}
 	}
 	return r, nil
@@ -378,4 +408,81 @@ func (s *Store) PutOptimisationPublication(ctx context.Context, r *OptimisationP
 		return nil
 	})
 	return err
+}
+
+// LinkOptimisationComparison binds one retained E2 comparison to a published
+// preview as its verification evidence. The comparison remains immutable; this
+// row records which report the operator chose and who linked it. A preview that
+// is not published, a comparison outside the scope or a different comparison
+// already linked is refused.
+func (s *Store) LinkOptimisationComparison(ctx context.Context, installation, repo, previewID, comparisonID string, actor *AuditEvent) (*OptimisationVerification, error) {
+	if actor == nil || strings.TrimSpace(actor.ActorID) == "" || len(actor.ActorID) > 128 || strings.TrimSpace(actor.ActorKind) == "" || len(actor.ActorKind) > 64 || len(actor.ActorName) > 200 || len(actor.IP) > 128 ||
+		installation == "" || len(installation) > 128 || !validOptimisationRepository(repo) || !strings.HasPrefix(previewID, PrefixOptimisationPreview+"_") || len(previewID) > 128 || strings.ContainsAny(previewID, " /\r\n\x00") ||
+		!strings.HasPrefix(comparisonID, PrefixComparison+"_") || len(comparisonID) > 128 || strings.ContainsAny(comparisonID, " /\r\n\x00") {
+		return nil, ErrInvalidOptimisationVerification
+	}
+	now := s.Now().UTC().Truncate(time.Millisecond)
+	var out *OptimisationVerification
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		var previewCreated int64
+		err := tx.QueryRowContext(ctx, `SELECT created_at FROM optimisation_previews WHERE installation_id = ? AND repository = ? AND id = ? AND created_at > ?`,
+			installation, repo, previewID, ms(now.Add(-OptimisationPreviewRetention))).Scan(&previewCreated)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		var publicationCreated int64
+		err = tx.QueryRowContext(ctx, `SELECT created_at FROM optimisation_publications WHERE preview_id = ? AND installation_id = ? AND repository = ?`,
+			previewID, installation, repo).Scan(&publicationCreated)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrConflict
+		}
+		if err != nil {
+			return err
+		}
+		var version string
+		var comparisonCreated int64
+		err = tx.QueryRowContext(ctx, `SELECT version,created_at FROM comparison_evidence WHERE id = ? AND installation_id = ? AND repository = ? AND created_at > ?`,
+			comparisonID, installation, repo, ms(now.Add(-ComparisonEvidenceRetention))).Scan(&version, &comparisonCreated)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if version != ComparisonEvidenceVersion {
+			return ErrConflict
+		}
+		var existing OptimisationVerification
+		var at int64
+		err = tx.QueryRowContext(ctx, `SELECT preview_id,comparison_id,installation_id,repository,linked_by,created_at FROM optimisation_publication_verifications WHERE preview_id = ?`, previewID).
+			Scan(&existing.PreviewID, &existing.ComparisonID, &existing.InstallationID, &existing.Repository, &existing.LinkedBy, &at)
+		switch {
+		case err == nil:
+			if existing.ComparisonID != comparisonID || existing.InstallationID != installation || existing.Repository != repo {
+				return ErrConflict
+			}
+			existing.CreatedAt = time.UnixMilli(at).UTC()
+			out = &existing
+			return nil
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
+		out = &OptimisationVerification{PreviewID: previewID, ComparisonID: comparisonID, InstallationID: installation, Repository: repo, LinkedBy: actor.ActorID, CreatedAt: now}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO optimisation_publication_verifications(preview_id,comparison_id,installation_id,repository,linked_by,created_at) VALUES(?,?,?,?,?,?)`,
+			out.PreviewID, out.ComparisonID, out.InstallationID, out.Repository, out.LinkedBy, ms(now)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events (`+auditCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			NewID(PrefixAudit), actor.ActorID, actor.ActorName, actor.ActorKind, "optimisation.comparison_linked", "optimisation_preview", previewID, "", "", actor.IP, ms(now)); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }

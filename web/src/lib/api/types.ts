@@ -402,5 +402,7 @@ export type CheckoutApproval = Schemas['CheckoutApproval'];
 export type CheckoutApprovalRequest = Schemas['CheckoutApprovalRequest'];
 export type CheckoutPublication = Schemas['CheckoutPublication'];
 export type CheckoutPublicationRequest = Schemas['CheckoutPublicationRequest'];
+export type CheckoutVerification = Schemas['CheckoutVerification'];
+export type CheckoutVerificationRequest = Schemas['CheckoutVerificationRequest'];
 export type OptimisationEnablement = Schemas['OptimisationEnablement'];
 export type HostRecommendation = Schemas['HostRecommendation'];

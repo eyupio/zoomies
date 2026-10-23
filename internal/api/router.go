@@ -312,6 +312,7 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionOptimisationsRead), s.require(auth.ActionJobsRead), s.refuseVisitors).Get("/optimisations/checkout/previews/{id}", s.handleGetCheckoutPreview)
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/checkout/previews/{id}/approval", s.handleApproveCheckoutPreview)
 		r.With(s.require(auth.ActionOptimisationsPublish), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/checkout/previews/{id}/publication", s.handlePublishCheckoutPreview)
+		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/checkout/previews/{id}/verification", s.handleLinkCheckoutVerification)
 
 		// Jobs.
 		r.With(s.require(auth.ActionUsageRead)).Get("/usage", s.handleUsage)

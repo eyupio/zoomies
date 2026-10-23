@@ -8870,6 +8870,49 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /optimisations/checkout/previews/{id}/verification:
+    parameters: [{ $ref: '#/components/parameters/PathID' }]
+    post:
+      operationId: linkCheckoutVerification
+      tags: [jobs]
+      summary: Link a retained comparison to a published checkout preview
+      description: >-
+        Requires operator, jobs:read and optimisations:write; public visitors are
+        refused. The preview must already have a publication. The comparison must
+        be a retained workflow comparison whose revision_delta_id is the preview
+        ID, as the preview's Compare runs link sets it. The controller replays the
+        comparison and the preview from retained input only, then records the link
+        with an audit row. It reads no GitHub data, calls no model and adds no
+        verification claim: the comparison remains evidence to open and read, and
+        it stays inconclusive without a usable control and candidate. One
+        comparison may be linked per preview; a different one is refused. The
+        answer is the preview with a verification object naming the comparison and
+        who linked it.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CheckoutVerificationRequest' }
+      responses:
+        '200':
+          description: The preview with its linked comparison; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckoutPreview' }
+        '400':
+          description: Invalid request, preview ID or comparison ID.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The preview is unpublished, or the comparison is unrelated, unsupported or already different.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
 
 components:
   securitySchemes:
@@ -16537,6 +16580,24 @@ components:
         pull_url: { type: string }
       required: [published_by, published_at, branch, base_branch, base_sha, head_sha, source_sha256, preview_sha256, pull_number, pull_url]
       type: object
+    CheckoutVerificationRequest:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string, minLength: 1, maxLength: 128 }
+        repository: { type: string, minLength: 1, maxLength: 1024 }
+        comparison_id: { type: string, pattern: '^cmp_' }
+      required: [installation_id, repository, comparison_id]
+      type: object
+    CheckoutVerification:
+      additionalProperties: false
+      nullable: true
+      description: The retained comparison linked to the publication, or null when none was linked.
+      properties:
+        comparison_id: { type: string }
+        linked_by: { type: string }
+        linked_at: { type: string, format: date-time }
+      required: [comparison_id, linked_by, linked_at]
+      type: object
     CheckoutCollection:
       additionalProperties: false
       nullable: true
@@ -16585,8 +16646,9 @@ components:
         collection: { $ref: '#/components/schemas/CheckoutCollection' }
         approval: { $ref: '#/components/schemas/CheckoutApproval' }
         publication: { $ref: '#/components/schemas/CheckoutPublication' }
+        verification: { $ref: '#/components/schemas/CheckoutVerification' }
         preview: { $ref: '#/components/schemas/CheckoutPreviewDetail' }
-      required: [id, installation_id, repository, reviewed_by, sha256, created_at, currentness, collection, approval, publication, preview]
+      required: [id, installation_id, repository, reviewed_by, sha256, created_at, currentness, collection, approval, publication, verification, preview]
       type: object
     ComparisonCaptureRequest:
       additionalProperties: false

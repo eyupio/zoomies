@@ -598,3 +598,36 @@ test('a link from a published preview fills the comparison scope, kind and refer
   await expect(page.getByLabel('Comparison kind')).toHaveValue('workflow');
   await expect(page.getByLabel('Workflow revision-delta reference')).toHaveValue('opv_fixture');
 });
+
+test('a report opened from a published preview can be linked back as its verification', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/comparisons/*?*', (route) => route.fulfill({ json: retained }));
+  let body: Record<string, unknown> | undefined;
+  await page.route(
+    '**/api/v1/optimisations/checkout/previews/opv_fixture/verification',
+    async (route) => {
+      body = route.request().postDataJSON();
+      await route.fulfill({ json: { id: 'opv_fixture' } });
+    },
+  );
+  await goto(
+    page,
+    '/comparisons?id=cmp_fixture&installation_id=ins_fixture&repo=acme%2Frepo&preview=opv_fixture',
+    'Comparisons',
+  );
+  await expect(
+    page.getByRole('heading', { name: 'Link this comparison to the preview' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Link this comparison to opv_fixture' }).click();
+  expect(body).toEqual({
+    installation_id: 'ins_fixture',
+    repository: 'acme/repo',
+    comparison_id: 'cmp_fixture',
+  });
+  await expect(page.getByText(/Linked\./)).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open the preview' })).toHaveAttribute(
+    'href',
+    '/optimisations/checkout?id=opv_fixture&installation_id=ins_fixture&repo=acme%2Frepo',
+  );
+});

@@ -1,6 +1,11 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
-  import { captureComparison, getComparison, ApiError } from '$lib/api/client';
+  import {
+    captureComparison,
+    getComparison,
+    linkCheckoutVerification,
+    ApiError,
+  } from '$lib/api/client';
   import type { RetainedComparison, ComparisonCaptureRequest } from '$lib/api/types';
   import { parseAttempts, validateSelection } from '$lib/comparisons/input';
   import { router } from '$lib/router';
@@ -16,7 +21,8 @@
 
   let installation = $state(''),
     repo = $state(''),
-    id = $state('');
+    id = $state(''),
+    previewId = $state('');
   let kind = $state<ComparisonCaptureRequest['kind']>('runner');
   let hypothesis = $state(''),
     delta = $state(''),
@@ -26,6 +32,9 @@
   let baseline = $state(''),
     candidate = $state('');
   let report = $state<RetainedComparison | null>(null);
+  let linked = $state(false),
+    linking = $state(false),
+    linkError = $state('');
   let busy = $state(false),
     error = $state(''),
     retryAt = $state(0),
@@ -84,7 +93,12 @@
       if (current !== operation) return;
       report = result;
       loadedKey = `${id}|${installation}|${repo}`;
-      router.setQuery({ id, installation_id: installation, repo });
+      router.setQuery({
+        id,
+        installation_id: installation,
+        repo,
+        ...(previewId ? { preview: previewId } : {}),
+      });
     } catch (e) {
       if (current === operation) failed(e);
     } finally {
@@ -137,11 +151,36 @@
       report = result;
       id = result.id;
       loadedKey = `${id}|${installation}|${repo}`;
-      router.setQuery({ id, installation_id: installation, repo });
+      router.setQuery({
+        id,
+        installation_id: installation,
+        repo,
+        ...(previewId ? { preview: previewId } : {}),
+      });
     } catch (e) {
       if (current === operation) failed(e);
     } finally {
       if (current === operation) busy = false;
+    }
+  }
+  async function link() {
+    if (linking || linked || !report || !previewId || !canCapture) return;
+    linking = true;
+    linkError = '';
+    try {
+      await linkCheckoutVerification(previewId, {
+        installation_id: installation,
+        repository: repo,
+        comparison_id: report.id,
+      });
+      linked = true;
+    } catch (cause) {
+      linkError =
+        cause instanceof ApiError
+          ? cause.message
+          : 'Could not link this comparison to the preview.';
+    } finally {
+      linking = false;
     }
   }
   let prefilledKey = '';
@@ -150,9 +189,15 @@
       inst = router.param('installation_id'),
       repository = router.param('repo'),
       kindParam = router.param('kind'),
-      revisionParam = router.param('revision');
+      revisionParam = router.param('revision'),
+      previewParam = router.param('preview');
     if (session.visitor) return;
     untrack(() => {
+      if (previewParam && previewParam !== previewId) {
+        previewId = previewParam;
+        linked = false;
+        linkError = '';
+      }
       if (readId && inst && repository) {
         if (`${readId}|${inst}|${repository}` !== loadedKey) void read(readId, inst, repository);
         return;
@@ -341,7 +386,32 @@
         Wait until {new Date(retryAt).toLocaleTimeString()} before another request. Retry manually; this
         page does not poll.
       </p>{/if}
-    {#if report}<ComparisonReport {report} />{/if}
+    {#if report}
+      <ComparisonReport {report} />
+      {#if previewId && canCapture}
+        <section class="comparison-card" aria-labelledby="link-title">
+          <h2 id="link-title">Link this comparison to the preview</h2>
+          <p>
+            The published preview <span class="mono">{previewId}</span> will show this report as its verification
+            comparison. The report stays evidence to read; it is conclusive only when its own control
+            and candidate support that.
+          </p>
+          {#if linked}
+            <p role="status">
+              Linked. <a
+                href={`/optimisations/checkout?id=${encodeURIComponent(previewId)}&installation_id=${encodeURIComponent(installation)}&repo=${encodeURIComponent(repo)}`}
+                >Open the preview</a
+              >.
+            </p>
+          {:else}
+            <Button onclick={link} loading={linking} disabled={linking || busy}
+              >Link this comparison to {previewId}</Button
+            >
+          {/if}
+          {#if linkError}<p role="alert">{linkError}</p>{/if}
+        </section>
+      {/if}
+    {/if}
   </div>
 {/if}
 

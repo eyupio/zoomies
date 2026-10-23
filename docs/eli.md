@@ -404,7 +404,10 @@ says so rather than pretending the press worked.
    repository, workflow kind and preview reference filled in. Choose the runs
    before and after and state the hypothesis; the comparison is captured
    explicitly, and it stays inconclusive without a usable control and candidate.
-   Opening the draft is not evidence of a saving.
+   After the capture, **Link this comparison to the preview** puts the report on
+   the published preview, so the draft and the evidence point at each other.
+   Opening the draft is not evidence of a saving, and the linked report is not a
+   saving claim either.
 
 The step must use a commit-pinned `actions/checkout` with a literal
 `fetch-depth: 0`, in a root workflow with literal job and step names. Matrix,

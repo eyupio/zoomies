@@ -26,6 +26,7 @@
   const p = $derived(preview.preview);
   const approval = $derived(preview.approval);
   const publication = $derived(preview.publication);
+  const verification = $derived(preview.verification);
 </script>
 
 <section class="card" aria-labelledby="preview-title">
@@ -129,12 +130,24 @@
         repository's own checks decide. Verification remains inconclusive until a baseline and
         candidate comparison exists.
       </p>
-      <div class="approval-actions">
-        <Button
-          href={`/comparisons?installation_id=${encodeURIComponent(preview.installation_id)}&repo=${encodeURIComponent(preview.repository)}&kind=workflow&revision=${encodeURIComponent(preview.id)}`}
-          variant="secondary">Compare runs for this preview</Button
-        >
-      </div>
+      {#if verification}
+        <p>
+          Verification comparison:
+          <a
+            href={`/comparisons?id=${encodeURIComponent(verification.comparison_id)}&installation_id=${encodeURIComponent(preview.installation_id)}&repo=${encodeURIComponent(preview.repository)}`}
+            >{verification.comparison_id}</a
+          >, linked by <strong>{verification.linked_by}</strong>
+          <RelativeTime value={verification.linked_at} />. Read it there; Zoomies does not turn it
+          into a saving claim.
+        </p>
+      {:else}
+        <div class="approval-actions">
+          <Button
+            href={`/comparisons?installation_id=${encodeURIComponent(preview.installation_id)}&repo=${encodeURIComponent(preview.repository)}&kind=workflow&revision=${encodeURIComponent(preview.id)}&preview=${encodeURIComponent(preview.id)}`}
+            variant="secondary">Compare runs for this preview</Button
+          >
+        </div>
+      {/if}
     </div>
   {:else if approval && canPublish}
     <div class="approval">

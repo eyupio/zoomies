@@ -27,7 +27,7 @@ as the record of how each slice landed.
 | --- | --- | --- |
 | E1 (ZF-242) | Merged and used: `internal/analysis` (`merge_delay.go`), `get_pr_delay` on Eli's allowlist, CLI, contextual UI | None. ROADMAP.md still lists `in_progress` because live-model evaluation and a real performance experiment have not run |
 | E2 (ZF-243) | Descriptive milestone merged (#1020); `get_retained_comparison` on Eli's allowlist; ZF-241's period comparison, queue breakdown, host pressure and startup failures are `implemented` | None. Controlled-experiment proof and dispatch stay deferred by the owner |
-| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120) and the link from a published preview to E2's comparison page, all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, CLI, MCP and Eli access, and any run against a real repository |
+| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120) and the two-way link between a published preview and E2's comparison (migration 0121), all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, CLI, MCP and Eli access, and any run against a real repository |
 | E4 | Not started as a track. Kennel's evaluator, waivers and guidance exist, but no fix preview or publication path does | Unchanged |
 | E5 | ZF-241's `startup_failures` covers runner-startup recurrence. No workflow/test failure fingerprinting exists | Unchanged |
 | E6 | Not started. `internal/prrepair/mention` (ZF-239 slice 1) is only the command matcher | Unchanged |
@@ -85,7 +85,8 @@ publication arrived on 23 October:
   `optimisation.preview_published`. The App needs Contents, Pull requests and
   Workflows write, and a missing permission is named. The published preview links
   to E2's Comparisons page with the scope, workflow kind and the preview reference
-  prefilled; the comparison remains a manual, inconclusive capture.
+  prefilled; the comparison remains a manual, inconclusive capture, and can be
+  linked back to the preview after it is retained.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval and draft publication have since been built (see the 23 October sections
@@ -2452,7 +2453,7 @@ Next agent: run the whole flow against one real repository first. The published
 preview now links to the E2 comparison page; capturing a real control and
 candidate after merge is the remaining verification step, and it stays
 inconclusive without them. CLI and MCP/Eli access still wait on the
-private-envelope contract decision. The next free migration is 0121.
+private-envelope contract decision. The next free migration is 0122.
 
 
 ### E3 verification link, 23 October 2026
@@ -2465,12 +2466,21 @@ merged pull request, choose evidence or claim a saving. A comparison captured
 afterwards remains a separate retained record and is inconclusive without a
 usable control and candidate.
 
+After capture, the Comparisons page offers **Link this comparison to the
+preview**. The comparison must be a retained workflow comparison whose revision
+delta is the preview ID. The server replays both records, stores one link in
+migration 0121 and audits it as `optimisation.comparison_linked`. The published
+preview then shows the comparison and who linked it. It does not copy the report
+or turn its result into a saving claim. A different comparison already linked is
+refused.
+
 The design is in
-[the plan](roadmap/plans/2026-10-23-eli-e3-verification-link.md). There is no new
-route, migration or model call. Validation: browser tests cover the link's exact
-query and the Comparisons page opening with the scope, workflow kind and
-reference prefilled on desktop and phone.
+[the plan](roadmap/plans/2026-10-23-eli-e3-verification-link.md). Validation:
+store, controller, API and browser tests cover the published-preview
+requirement, scope, one-link rule, audit, the prefilled Comparisons page and
+linking a retained report back on desktop and phone. All against fakes and
+mocked routes only.
 
 Next agent: a real repository run and a real comparison of a published change
 remain. Do not describe the link as verification; it is the route to an explicit
-capture.
+capture and a way to read it again.

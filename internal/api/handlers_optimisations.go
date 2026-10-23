@@ -112,6 +112,18 @@ type CheckoutPublicationView struct {
 	PullURL       string    `json:"pull_url"`
 }
 
+type CheckoutVerificationRequest struct {
+	InstallationID string `json:"installation_id"`
+	Repository     string `json:"repository"`
+	ComparisonID   string `json:"comparison_id"`
+}
+
+type CheckoutVerificationView struct {
+	ComparisonID string    `json:"comparison_id"`
+	LinkedBy     string    `json:"linked_by"`
+	LinkedAt     time.Time `json:"linked_at"`
+}
+
 type CheckoutPreviewDetail struct {
 	Version      string `json:"version"`
 	Kind         string `json:"kind"`
@@ -137,17 +149,18 @@ type CheckoutPreviewDetail struct {
 // source is shown once, at inspection, and the retained record answers with the
 // one line it would change.
 type CheckoutPreviewView struct {
-	ID             string                   `json:"id"`
-	InstallationID string                   `json:"installation_id"`
-	Repository     string                   `json:"repository"`
-	ReviewedBy     string                   `json:"reviewed_by"`
-	SHA256         string                   `json:"sha256"`
-	CreatedAt      time.Time                `json:"created_at"`
-	Currentness    string                   `json:"currentness"`
-	Collection     *CheckoutCollectionView  `json:"collection"`
-	Approval       *CheckoutApprovalView    `json:"approval"`
-	Publication    *CheckoutPublicationView `json:"publication"`
-	Preview        CheckoutPreviewDetail    `json:"preview"`
+	ID             string                    `json:"id"`
+	InstallationID string                    `json:"installation_id"`
+	Repository     string                    `json:"repository"`
+	ReviewedBy     string                    `json:"reviewed_by"`
+	SHA256         string                    `json:"sha256"`
+	CreatedAt      time.Time                 `json:"created_at"`
+	Currentness    string                    `json:"currentness"`
+	Collection     *CheckoutCollectionView   `json:"collection"`
+	Approval       *CheckoutApprovalView     `json:"approval"`
+	Publication    *CheckoutPublicationView  `json:"publication"`
+	Verification   *CheckoutVerificationView `json:"verification"`
+	Preview        CheckoutPreviewDetail     `json:"preview"`
 }
 
 // parse reads a selection. Both positions omitted means "find the checkout step
@@ -189,6 +202,9 @@ func checkoutPreviewView(p *controller.RetainedOptimisationPreview) CheckoutPrev
 	}
 	if p := p.Publication; p != nil {
 		v.Publication = &CheckoutPublicationView{PublishedBy: p.PublishedBy, PublishedAt: p.PublishedAt, Branch: p.Branch, BaseBranch: p.BaseBranch, BaseSHA: p.BaseSHA, HeadSHA: p.HeadSHA, SourceSHA256: p.SourceSHA256, PreviewSHA256: p.PreviewSHA256, PullNumber: p.PullNumber, PullURL: p.PullURL}
+	}
+	if x := p.Verification; x != nil {
+		v.Verification = &CheckoutVerificationView{ComparisonID: x.ComparisonID, LinkedBy: x.LinkedBy, LinkedAt: x.LinkedAt}
 	}
 	return v
 }
@@ -348,6 +364,38 @@ func (s *Server) handlePublishCheckoutPreview(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, checkoutPreviewView(out))
 }
 
+// handleLinkCheckoutVerification attaches one retained comparison to a
+// published preview. The controller checks that the comparison is a workflow
+// comparison naming this preview; the link is evidence to read, not a saving.
+func (s *Server) handleLinkCheckoutVerification(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	id := Identity(r.Context())
+	if id == nil || id.ID == "" {
+		unauthorized(w, "An identified caller is required to link a comparison.")
+		return
+	}
+	previewID := chiURLParam(r, "id")
+	var in CheckoutVerificationRequest
+	if !decodeOptimisationBody(w, r, &in) {
+		return
+	}
+	if !validPreviewID(previewID) || !validScope(in.InstallationID, in.Repository) || !validComparisonID(in.ComparisonID) {
+		badRequest(w, "Supply a preview ID, an installation, a repository and a comparison ID starting cmp_.")
+		return
+	}
+	actor := &store.AuditEvent{ActorID: id.ID, ActorName: id.Name, ActorKind: id.Kind, IP: id.IP}
+	out, err := s.ctrl.LinkOptimisationVerification(r.Context(), actor, in.InstallationID, in.Repository, previewID, in.ComparisonID)
+	if err != nil {
+		s.optimisationError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, checkoutPreviewView(out))
+}
+
+func validComparisonID(id string) bool {
+	return strings.HasPrefix(id, store.PrefixComparison+"_") && len(id) <= 128 && !strings.ContainsAny(id, " /\r\n\x00")
+}
+
 func validPreviewID(id string) bool {
 	return strings.HasPrefix(id, store.PrefixOptimisationPreview+"_") && len(id) <= 128 && !strings.ContainsAny(id, " /\r\n\x00")
 }
@@ -374,6 +422,8 @@ func (s *Server) optimisationError(w http.ResponseWriter, r *http.Request, err e
 	case errors.Is(err, controller.ErrOptimisationApproval):
 		conflict(w, "The commit and source digest do not match this retained preview. Open it again and approve exactly what it shows.")
 	case errors.Is(err, controller.ErrOptimisationPublish):
+		conflict(w, err.Error())
+	case errors.Is(err, controller.ErrOptimisationVerification):
 		conflict(w, err.Error())
 	case errors.Is(err, store.ErrConflict):
 		conflict(w, "This preview already carries a different approval or no longer matches its retained evidence. Open it again before approving.")

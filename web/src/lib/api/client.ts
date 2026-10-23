@@ -1509,6 +1509,15 @@ export const publishCheckoutPreview = (
     '/optimisations/checkout/previews/' + encodeURIComponent(id) + '/publication',
     { body, signal },
   );
+export const linkCheckoutVerification = (
+  id: string,
+  body: import('./types').CheckoutVerificationRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').CheckoutPreview>(
+    '/optimisations/checkout/previews/' + encodeURIComponent(id) + '/verification',
+    { body, signal },
+  );
 
 export const getOptimisationEnablement = (signal?: AbortSignal) =>
   api.get<import('./types').OptimisationEnablement>('/optimisations/enablement', { signal });

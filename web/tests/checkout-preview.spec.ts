@@ -45,6 +45,7 @@ const retained = {
   },
   approval: null,
   publication: null,
+  verification: null,
   preview: {
     version: 'checkout-preview-v1',
     kind: 'checkout_depth',
@@ -91,6 +92,15 @@ const published = {
     preview_sha256: 'd'.repeat(64),
     pull_number: 21,
     pull_url: 'https://github.com/acme/repo/pull/21',
+  },
+};
+
+const verified = {
+  ...published,
+  verification: {
+    comparison_id: 'cmp_fixture',
+    linked_by: 'usr_operator',
+    linked_at: '2026-10-19T09:04:00Z',
   },
 };
 
@@ -435,7 +445,7 @@ test('an approved preview opens one draft pull request and shows where it went',
   await expect(page.getByText(/Nothing was merged/)).toBeVisible();
   await expect(page.getByRole('link', { name: 'Compare runs for this preview' })).toHaveAttribute(
     'href',
-    '/comparisons?installation_id=ins_fixture&repo=acme%2Frepo&kind=workflow&revision=opv_fixture',
+    '/comparisons?installation_id=ins_fixture&repo=acme%2Frepo&kind=workflow&revision=opv_fixture&preview=opv_fixture',
   );
   await expect(page.getByRole('button', { name: 'Open a draft pull request' })).toHaveCount(0);
 });
@@ -495,4 +505,24 @@ test('a published preview opens with its draft link and no publish or approve fo
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
   );
   expect(overflow).toBe(false);
+});
+
+test('a published preview shows its linked verification comparison', async ({ page }) => {
+  await previewsOn(page);
+  await listRuns(page);
+  await page.route('**/api/v1/optimisations/checkout/previews/*?*', (route) =>
+    route.fulfill({ json: verified }),
+  );
+  await goto(
+    page,
+    '/optimisations/checkout?id=opv_fixture&installation_id=ins_fixture&repo=acme%2Frepo',
+    'Checkout preview',
+  );
+  await expect(page.getByRole('heading', { name: 'Draft pull request opened' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'cmp_fixture' })).toHaveAttribute(
+    'href',
+    '/comparisons?id=cmp_fixture&installation_id=ins_fixture&repo=acme%2Frepo',
+  );
+  await expect(page.getByText(/linked by usr_operator/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Compare runs for this preview' })).toHaveCount(0);
 });
