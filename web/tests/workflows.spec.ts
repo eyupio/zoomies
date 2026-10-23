@@ -14,6 +14,7 @@ import {
   FIXTURE,
   goto,
   grid,
+  openFilters,
   pageHeading,
   rowCount,
 } from './support/fixtures';
@@ -42,6 +43,7 @@ test('the page lists one row per run and opens on what is running', async ({ pag
   // Every run this fleet has a hand in, then everything GitHub reported.
   await view(page, 'All').click();
   await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedRuns} runs`);
+  await openFilters(page);
   await page.getByRole('switch', { name: 'Include other runners' }).click();
   await expect(rowCount(page)).toContainText(`of ${FIXTURE.totalRuns} runs`);
   await expect(page).toHaveURL(/[?&]all=true/);

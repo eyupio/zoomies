@@ -460,7 +460,10 @@ test('every settings page has an address of its own, and the section lists them'
     // entry by its label alone.
     if (phone) await goto(page, '/settings', 'Settings');
     await page
-      .getByRole('link', phone ? { name: new RegExp(`^${label} `) } : { name: label, exact: true })
+      .getByRole(
+        'link',
+        phone ? { name: new RegExp(`^${label}(?:,| )`) } : { name: label, exact: true },
+      )
       .first()
       .click();
     await expect(page).toHaveURL(new RegExp(`/settings/${id}$`));

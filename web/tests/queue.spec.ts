@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { goto } from './support/fixtures';
+import { goto, openFilters } from './support/fixtures';
 
 /** A job's name is not a pattern: it carries slashes and dots of its own. */
 function escapeRegExp(value: string): string {
@@ -77,6 +77,7 @@ test('a start with a time of day narrows the queue to that minute', async ({ pag
   const pad = (n: number) => String(n).padStart(2, '0');
   const local = `${cut.getFullYear()}-${pad(cut.getMonth() + 1)}-${pad(cut.getDate())}T${pad(cut.getHours())}:${pad(cut.getMinutes())}`;
   await goto(page, `/queue?since=${encodeURIComponent(local)}`, 'Queue');
+  await openFilters(page);
   await expect(page.getByText('matching items')).toContainText(`${kept} matching items`);
   await expect(page.getByRole('group', { name: 'Queued between' }).getByLabel('From')).toHaveValue(
     local,
