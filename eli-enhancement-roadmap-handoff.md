@@ -103,6 +103,12 @@ publication arrived on 23 October:
   ambiguity and unsupported YAML, requires caller-supplied repeated-setup
   evidence, preserves bytes and line endings, and always says inconclusive. It
   reads nothing, retains nothing and has no route or surface.
+* **Cache setup history (23 October).** The fleet's `jobs` table now has a
+  bounded `RecentSetupStepSamples` query for one repository, workflow name, job
+  name and literal setup step name. It returns the newest successful
+  GitHub-reported step timings with their exact local job identities, skips
+  ambiguous or untimed steps, and a pure helper turns them into the preview's
+  mean setup time and a deterministic evidence ID. No extra GitHub read.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval, draft publication and read access from the CLI, MCP and Eli have since
@@ -120,11 +126,12 @@ been built (see the 23 October sections at the end). The rest remains.
    unless a suitable control and candidate exist, and CI passing is never evidence of
    a saving. Projected savings stay estimates.
 3. **Wider catalogue.** The dependency/build cache foundation is the pure
-   `actions/setup-node` preview described above. Next is bounded evidence
-   admission that binds exact runs, the workflow and the root lockfile, then
-   retention, approval, publication and the read surfaces it needs. Bounded
-   readiness polling and sharding follow, each with its own evidence and
-   refusals. Do not lead with test removal, relaxed assertions or blanket retries.
+   `actions/setup-node` preview and the fleet's retained setup history described
+   above. Next is binding that evidence to one selected run and reading the
+   workflow and root lockfile at its commit, then retention, approval,
+   publication and the read surfaces it needs. Bounded readiness polling and
+   sharding follow, each with its own evidence and refusals. Do not lead with
+   test removal, relaxed assertions or blanket retries.
 
 Owner decisions still open: whether a different person than the reviewer must
 approve (the 23 October slice keeps the recommended default, that the same
@@ -2560,3 +2567,29 @@ fleet.
 Next agent: bind this calculation to a bounded real evidence read before adding
 retention or a route. Do not describe the foundation as a usable cache
 optimisation yet.
+
+
+### E3 cache setup history, 23 October 2026
+
+The cache preview's repeated-setup evidence now comes from the fleet's retained
+job history rather than extra GitHub reads. `RecentSetupStepSamples` takes one
+repository, workflow name, job name and literal setup step name, plus a window
+and limit, and returns the newest successful jobs whose steps carry exactly one
+matching name with both timestamps and a positive duration. Ambiguous or untimed
+steps are left out; the exact local job ID, run, attempt, head and step number
+travel with each sample.
+
+A pure helper sorts the samples by job ID, refuses duplicates and malformed
+values, computes the mean setup milliseconds and a deterministic evidence ID from
+the exact identities and timings. The same set gives the same evidence whatever
+order it was read in. The design is in
+[the plan](roadmap/plans/2026-10-23-eli-e3-cache-history.md).
+
+There is no source read, retention, route, CLI, MCP, Eli or UI yet. Tests cover
+success/failure filtering, exact and ambiguous step names, window and limit,
+order and timing, the mean and deterministic evidence ID, and refusals for thin
+or malformed history. All against the test store only.
+
+Next agent: bind this history to one selected run and read the workflow and root
+lockfile at its commit before adding retention or a route. Do not describe the
+cache optimisation as usable yet.
