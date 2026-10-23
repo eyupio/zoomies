@@ -2,8 +2,6 @@ package controller
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"strconv"
 	"time"
@@ -15,11 +13,29 @@ import (
 
 var ErrOptimisationCache = errors.New("cache preview evidence is unavailable, inconsistent or unsupported")
 
+// CacheInspection is what an operator is shown before keeping a cache preview.
+// It carries the source identity, the retained setup evidence and the computed
+// preview, but never the full workflow file in a transport.
+type CacheInspection struct {
+	Source   github.SetupCacheSource
+	Evidence optimisation.SetupEvidence
+	Samples  []optimisation.SetupSample
+	Preview  optimisation.CachePreview
+}
+
 // InspectCachePreview binds one selected fleet job and one pinned GitHub
 // attempt to the pure cache preview. The source read is the only GitHub work;
 // repeated setup cost comes from the fleet's retained job history. Nothing is
 // retained here.
 func (c *Controller) InspectCachePreview(ctx context.Context, installation, repo string, selection github.SetupCacheSelection, githubJobID int64) (*optimisation.CachePreview, error) {
+	inspection, err := c.inspectCachePreview(ctx, installation, repo, selection, githubJobID)
+	if err != nil {
+		return nil, err
+	}
+	return &inspection.Preview, nil
+}
+
+func (c *Controller) inspectCachePreview(ctx context.Context, installation, repo string, selection github.SetupCacheSelection, githubJobID int64) (*CacheInspection, error) {
 	if installation == "" || repo == "" || githubJobID <= 0 || !github.ValidSetupCacheSelection(selection) {
 		return nil, ErrOptimisationCache
 	}
@@ -121,11 +137,7 @@ func (c *Controller) InspectCachePreview(ctx context.Context, installation, repo
 	if !selectedFound {
 		return nil, ErrOptimisationCache
 	}
-	digest := func(s string) string {
-		sum := sha256.Sum256([]byte(s))
-		return hex.EncodeToString(sum[:])
-	}
-	evidence, err := optimisation.SetupEvidenceFromSamples(source.HeadSHA, digest(source.Workflow.Content), digest(source.Lockfile.Content), evidenceSamples)
+	evidence, err := optimisation.SetupEvidenceFromSamples(source.HeadSHA, source.WorkflowSHA256, source.LockfileSHA256, evidenceSamples)
 	if err != nil {
 		return nil, ErrOptimisationCache
 	}
@@ -133,5 +145,5 @@ func (c *Controller) InspectCachePreview(ctx context.Context, installation, repo
 	if err != nil {
 		return nil, ErrOptimisationCache
 	}
-	return &preview, nil
+	return &CacheInspection{Source: *source, Evidence: evidence, Samples: evidenceSamples, Preview: preview}, nil
 }

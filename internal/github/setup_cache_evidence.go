@@ -2,7 +2,9 @@ package github
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -52,9 +54,11 @@ type SetupCacheSource struct {
 	WorkflowPath    string
 	Workflow        prrepair.File
 	WorkflowBlobSHA string
+	WorkflowSHA256  string
 	LockfilePath    string
 	Lockfile        prrepair.File
 	LockfileBlobSHA string
+	LockfileSHA256  string
 	JobIndex        int
 	StepIndex       int
 	JobName         string
@@ -184,8 +188,8 @@ func (c *appClient) ReadSetupCacheSource(ctx context.Context, repo string, selec
 	return &SetupCacheSource{
 		Version: "setup-cache-evidence-v1", Basis: "push_head_root_lockfile_literal_names", Repository: repo,
 		RunID: strconv.FormatInt(selected.RunID, 10), Attempt: selected.Attempt, HeadSHA: initial.GetHeadSHA(), HeadBranch: initial.GetHeadBranch(),
-		WorkflowPath: workflowPath, Workflow: workflowFile, WorkflowBlobSHA: workflowEntry.sha,
-		LockfilePath: lockfilePath, Lockfile: lockfileFile, LockfileBlobSHA: lockfileEntry.sha,
+		WorkflowPath: workflowPath, Workflow: workflowFile, WorkflowBlobSHA: workflowEntry.sha, WorkflowSHA256: contentSHA256(workflowFile.Content),
+		LockfilePath: lockfilePath, Lockfile: lockfileFile, LockfileBlobSHA: lockfileEntry.sha, LockfileSHA256: contentSHA256(lockfileFile.Content),
 		JobIndex: job, StepIndex: step, JobName: jobName, StepName: stepName,
 	}, nil
 }
@@ -193,7 +197,7 @@ func (c *appClient) ReadSetupCacheSource(ctx context.Context, repo string, selec
 // ValidSetupCacheSource holds a collected source to the same shape the preview
 // accepts. It checks bytes and names; it is not an attestation of executed code.
 func ValidSetupCacheSource(s *SetupCacheSource, repo string, selection SetupCacheSelection) bool {
-	if s == nil || !ValidSetupCacheSelection(selection) || s.Version != "setup-cache-evidence-v1" || s.Basis != "push_head_root_lockfile_literal_names" || s.Repository != repo || s.RunID != strconv.FormatInt(selection.RunID, 10) || s.Attempt != selection.Attempt || !validDelaySHA(s.HeadSHA) || !aicontext.ValidBranch(s.HeadBranch) || experimentSourcePath(&ExperimentAttemptEvidence{Event: "push", HeadSHA: s.HeadSHA, WorkflowPath: s.WorkflowPath}) != s.WorkflowPath || s.Workflow.Path != s.WorkflowPath || s.Workflow.Partial || s.Workflow.StartLine != 0 || len(s.Workflow.Content) == 0 || len(s.Workflow.Content) > optimisation.MaxCheckoutSourceBytes || contextGitBlobSHA(s.Workflow.Content) != s.WorkflowBlobSHA || s.Lockfile.Path != s.LockfilePath || s.Lockfile.Partial || s.Lockfile.StartLine != 0 || len(s.Lockfile.Content) == 0 || len(s.Lockfile.Content) > optimisation.MaxLockfileBytes || !utf8.ValidString(s.Lockfile.Content) || contextGitBlobSHA(s.Lockfile.Content) != s.LockfileBlobSHA || !cacheLockfileSupported(s.LockfilePath) || s.JobName == "" || s.StepName == "" {
+	if s == nil || !ValidSetupCacheSelection(selection) || s.Version != "setup-cache-evidence-v1" || s.Basis != "push_head_root_lockfile_literal_names" || s.Repository != repo || s.RunID != strconv.FormatInt(selection.RunID, 10) || s.Attempt != selection.Attempt || !validDelaySHA(s.HeadSHA) || !aicontext.ValidBranch(s.HeadBranch) || experimentSourcePath(&ExperimentAttemptEvidence{Event: "push", HeadSHA: s.HeadSHA, WorkflowPath: s.WorkflowPath}) != s.WorkflowPath || s.Workflow.Path != s.WorkflowPath || s.Workflow.Partial || s.Workflow.StartLine != 0 || len(s.Workflow.Content) == 0 || len(s.Workflow.Content) > optimisation.MaxCheckoutSourceBytes || contextGitBlobSHA(s.Workflow.Content) != s.WorkflowBlobSHA || contentSHA256(s.Workflow.Content) != s.WorkflowSHA256 || s.Lockfile.Path != s.LockfilePath || s.Lockfile.Partial || s.Lockfile.StartLine != 0 || len(s.Lockfile.Content) == 0 || len(s.Lockfile.Content) > optimisation.MaxLockfileBytes || !utf8.ValidString(s.Lockfile.Content) || contextGitBlobSHA(s.Lockfile.Content) != s.LockfileBlobSHA || contentSHA256(s.Lockfile.Content) != s.LockfileSHA256 || !cacheLockfileSupported(s.LockfilePath) || s.JobName == "" || s.StepName == "" {
 		return false
 	}
 	job, step, err := workflow.FindSetupNode([]byte(s.Workflow.Content))
@@ -202,6 +206,11 @@ func ValidSetupCacheSource(s *SetupCacheSource, repo string, selection SetupCach
 	}
 	jobName, stepName, err := workflow.SetupNames([]byte(s.Workflow.Content), job, step)
 	return err == nil && jobName == s.JobName && stepName == s.StepName
+}
+
+func contentSHA256(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
 }
 
 func cacheLockfileSupported(path string) bool {

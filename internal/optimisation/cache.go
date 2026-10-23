@@ -26,6 +26,9 @@ type CacheSource struct {
 	HeadSHA  string
 	Workflow prrepair.File
 	Lockfile prrepair.File
+	// LockfileSHA256 is the content digest when the lockfile itself is not
+	// retained, as replay does. When Content is present it must match.
+	LockfileSHA256 string
 }
 
 // SetupEvidence is caller-supplied, not independently attested. It says the
@@ -78,8 +81,14 @@ func cacheManager(lockfile string) string {
 	return ""
 }
 
-func cacheLockfile(file prrepair.File) bool {
-	return (file.Path == "package-lock.json" || file.Path == "npm-shrinkwrap.json" || file.Path == "yarn.lock" || file.Path == "pnpm-lock.yaml") && (file.Mode == "100644" || file.Mode == "100755") && !file.Partial && file.StartLine == 0 && len(file.Content) > 0 && len(file.Content) <= MaxLockfileBytes && utf8.ValidString(file.Content)
+func cacheLockfile(file prrepair.File, digest string) bool {
+	if (file.Path != "package-lock.json" && file.Path != "npm-shrinkwrap.json" && file.Path != "yarn.lock" && file.Path != "pnpm-lock.yaml") || (file.Mode != "100644" && file.Mode != "100755") || file.Partial || file.StartLine != 0 || len(digest) != 64 || digest != strings.ToLower(digest) {
+		return false
+	}
+	if file.Content == "" {
+		return true
+	}
+	return len(file.Content) <= MaxLockfileBytes && utf8.ValidString(file.Content) && hash(file.Content) == digest
 }
 
 func cacheWorkflow(file prrepair.File) bool {
@@ -91,11 +100,21 @@ func cacheWorkflow(file prrepair.File) bool {
 // steps, a cache already named, unsupported YAML, stale evidence and disabled
 // policy. It reads nothing and calls no model.
 func PreviewCache(source CacheSource, evidence SetupEvidence, policy Policy) (CachePreview, error) {
-	if !policy.SourceAllowed || !policy.WorkflowEditsAllowed || !commit(source.HeadSHA) || !cacheWorkflow(source.Workflow) || !cacheLockfile(source.Lockfile) {
+	if !policy.SourceAllowed || !policy.WorkflowEditsAllowed || !commit(source.HeadSHA) || !cacheWorkflow(source.Workflow) {
 		return CachePreview{}, ErrCacheUnsupported
 	}
 	sourceDigest := hash(source.Workflow.Content)
-	lockfileDigest := hash(source.Lockfile.Content)
+	lockfileDigest := source.LockfileSHA256
+	if source.Lockfile.Content != "" {
+		computed := hash(source.Lockfile.Content)
+		if lockfileDigest != "" && lockfileDigest != computed {
+			return CachePreview{}, ErrCacheUnsupported
+		}
+		lockfileDigest = computed
+	}
+	if !cacheLockfile(source.Lockfile, lockfileDigest) {
+		return CachePreview{}, ErrCacheUnsupported
+	}
 	manager := cacheManager(source.Lockfile.Path)
 	if manager == "" || evidence.HeadSHA != source.HeadSHA || evidence.SourceSHA256 != sourceDigest || evidence.LockfileSHA256 != lockfileDigest || evidence.EvidenceID == "" || len(evidence.EvidenceID) > 128 || strings.ContainsAny(evidence.EvidenceID, " \t\r\n\x00") || evidence.Runs < 2 || evidence.Runs > 100 || evidence.SetupMS == nil || *evidence.SetupMS <= 0 || *evidence.SetupMS > 7*24*60*60*1000 {
 		return CachePreview{}, ErrCacheUnsupported

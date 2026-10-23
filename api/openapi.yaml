@@ -8913,6 +8913,149 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /optimisations/cache/inspections:
+    post:
+      operationId: inspectCachePreview
+      tags: [jobs]
+      summary: Compute a setup cache preview from one selected job
+      description: >-
+        Requires operator, jobs:read and optimisations:write; public visitors are
+        refused. Refused with 403 unless optimisation.source_reads and
+        optimisation.workflow_edits are on. Reads one completed successful push
+        attempt, its complete commit tree, the root workflow and the one root
+        lockfile at the commit, with at most eight GitHub requests under 20
+        seconds, the shared diagnostic flight and the half-core-quota reserve. The
+        fleet job row must match the attempt's installation, repository, run,
+        attempt and head, be successful, and carry one completed setup step with
+        the workflow's literal name. Repeated setup cost comes from the fleet's
+        retained job history (2 to 100 samples from the last 90 days). Returns the
+        package manager, the exact insertion block, the setup evidence summary and
+        an inconclusive verification; never the full workflow or lockfile.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CacheInspectionRequest' }
+      responses:
+        '200':
+          description: The computed preview and descriptive evidence; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CacheInspection' }
+        '400':
+          description: Invalid request or selection.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The job, lockfile or setup evidence is unsupported or changed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429':
+          description: Diagnostic or GitHub quota refusal; Retry-After says when to retry manually.
+          headers:
+            Retry-After: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /optimisations/cache/previews:
+    post:
+      operationId: captureCachePreview
+      tags: [jobs]
+      summary: Retain a reviewed setup cache preview
+      description: >-
+        Requires operator, jobs:read and optimisations:write; public visitors are
+        refused. Repeats the bounded source read and setup-history query, then
+        requires the same head, workflow digest and lockfile digest the operator
+        inspected. Keeps an immutable private preview for fourteen days with an
+        audit row. It changes one block in one workflow, publishes nothing and
+        calls no model. Verification is always inconclusive and currentness is
+        not_checked.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CacheCaptureRequest' }
+      responses:
+        '201':
+          description: Audited retained cache preview; Cache-Control is no-store.
+          headers:
+            Location: { $ref: "#/components/headers/Location" }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CachePreview' }
+        '400':
+          description: Invalid request or selection.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The source moved, the job or lockfile is unsupported, or the preview cannot be kept.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429':
+          description: Diagnostic or GitHub quota refusal; Retry-After says when to retry manually.
+          headers:
+            Retry-After: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /optimisations/cache/previews/{id}:
+    parameters: [{ $ref: '#/components/parameters/PathID' }]
+    get:
+      operationId: getCachePreview
+      tags: [jobs]
+      summary: Replay a retained setup cache preview without GitHub reads
+      description: >-
+        Requires operator, jobs:read and optimisations:read; public visitors are
+        refused. Supply exactly one installation_id and repo and nothing else.
+        Verifies the stored digest and recomputes the preview from retained input
+        only. The answer carries the insertion block, evidence summary and
+        metadata, never the full workflow or lockfile. currentness is always
+        not_checked and verification inconclusive.
+      x-zoomies-role: operator
+      parameters:
+        - name: installation_id
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 128 }
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 1024 }
+      responses:
+        '200':
+          description: Verified retained cache preview; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CachePreview' }
+        '400':
+          description: Invalid query or preview ID.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: The preview is unavailable, expired or outside this scope.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409':
+          description: Stored content integrity cannot be verified.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
 
 components:
   securitySchemes:
@@ -16579,6 +16722,85 @@ components:
         pull_number: { type: integer, minimum: 1 }
         pull_url: { type: string }
       required: [published_by, published_at, branch, base_branch, base_sha, head_sha, source_sha256, preview_sha256, pull_number, pull_url]
+      type: object
+    CacheSelection:
+      additionalProperties: false
+      properties:
+        run_id: { type: string, pattern: '^[1-9][0-9]{0,18}$' }
+        attempt: { type: integer, minimum: 1 }
+        github_job_id: { type: string, pattern: '^[1-9][0-9]{0,18}$' }
+      required: [run_id, attempt, github_job_id]
+      type: object
+    CacheInspectionRequest:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string, minLength: 1, maxLength: 128 }
+        repository: { type: string, minLength: 1, maxLength: 1024 }
+        selection: { $ref: '#/components/schemas/CacheSelection' }
+      required: [installation_id, repository, selection]
+      type: object
+    CacheCaptureRequest:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string, minLength: 1, maxLength: 128 }
+        repository: { type: string, minLength: 1, maxLength: 1024 }
+        selection: { $ref: '#/components/schemas/CacheSelection' }
+        head_sha: { type: string, description: "The commit the operator reviewed." }
+        source_sha256: { type: string, description: "The workflow digest the operator reviewed." }
+        lockfile_sha256: { type: string, description: "The lockfile digest the operator reviewed." }
+      required: [installation_id, repository, selection, head_sha, source_sha256, lockfile_sha256]
+      type: object
+    CacheInspection:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string }
+        repository: { type: string }
+        selection: { $ref: '#/components/schemas/CacheSelection' }
+        head_sha: { type: string }
+        workflow_path: { type: string }
+        lockfile_path: { type: string }
+        lockfile_sha256: { type: string }
+        source_sha256: { type: string }
+        package_manager: { type: string, enum: [npm, yarn, pnpm] }
+        job_name: { type: string }
+        step_name: { type: string }
+        line: { type: integer, minimum: 1 }
+        runs: { type: integer, minimum: 2, maximum: 100 }
+        setup_ms: { type: integer, format: int64 }
+        before: { type: string, description: "The with block as it is, untrusted repository text." }
+        after: { type: string, description: "The with block with the cache key, untrusted repository text." }
+        verification: { type: string, enum: [inconclusive] }
+        explanation: { type: string }
+        inspected_at: { type: string, format: date-time }
+      required: [installation_id, repository, selection, head_sha, workflow_path, lockfile_path, lockfile_sha256, source_sha256, package_manager, job_name, step_name, line, runs, setup_ms, before, after, verification, explanation, inspected_at]
+      type: object
+    CachePreview:
+      additionalProperties: false
+      properties:
+        id: { type: string, pattern: '^opc_' }
+        installation_id: { type: string }
+        repository: { type: string }
+        reviewed_by: { type: string }
+        sha256: { type: string }
+        created_at: { type: string, format: date-time }
+        currentness: { type: string, enum: [not_checked] }
+        head_sha: { type: string }
+        workflow_path: { type: string }
+        lockfile_path: { type: string }
+        lockfile_sha256: { type: string }
+        source_sha256: { type: string }
+        after_sha256: { type: string }
+        package_manager: { type: string, enum: [npm, yarn, pnpm] }
+        job_name: { type: string }
+        step_name: { type: string }
+        line: { type: integer, minimum: 1 }
+        runs: { type: integer, minimum: 2, maximum: 100 }
+        setup_ms: { type: integer, format: int64 }
+        before: { type: string, description: "The with block as it is, untrusted repository text." }
+        after: { type: string, description: "The with block with the cache key, untrusted repository text." }
+        verification: { type: string, enum: [inconclusive] }
+        explanation: { type: string }
+      required: [id, installation_id, repository, reviewed_by, sha256, created_at, currentness, head_sha, workflow_path, lockfile_path, lockfile_sha256, source_sha256, after_sha256, package_manager, job_name, step_name, line, runs, setup_ms, before, after, verification, explanation]
       type: object
     CheckoutVerificationRequest:
       additionalProperties: false

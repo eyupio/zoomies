@@ -187,3 +187,19 @@ func TestSetupEvidenceFromSamplesRefusesThinOrMalformedHistory(t *testing.T) {
 		})
 	}
 }
+
+func TestCachePreviewComputesFromTheLockfileDigestWhenTheFileIsNotRetained(t *testing.T) {
+	source, evidence := cacheFixture(t)
+	digest := hash(source.Lockfile.Content)
+	source.Lockfile.Content = ""
+	source.LockfileSHA256 = digest
+	p, err := PreviewCache(source, evidence, Policy{SourceAllowed: true, WorkflowEditsAllowed: true})
+	if err != nil || p.PackageManager != "npm" || p.LockfileSHA256 != digest || p.AfterSHA256 == "" {
+		t.Fatalf("preview %+v, %v", p, err)
+	}
+	// A digest that no longer matches the supplied bytes is refused.
+	source.Lockfile.Content = `{"lockfileVersion":2}`
+	if _, err := PreviewCache(source, evidence, Policy{SourceAllowed: true, WorkflowEditsAllowed: true}); err == nil {
+		t.Fatal("mismatched bytes and digest accepted")
+	}
+}
