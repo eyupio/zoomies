@@ -40,3 +40,28 @@ func TestAgentCacheCleanupIsBoundedOptionalAndRetryable(t *testing.T) {
 		t.Fatalf("cleanup calls=%d budget=%d bounded=%v", pruner.calls, pruner.keep, pruner.bounded)
 	}
 }
+
+type sweepBackend struct {
+	*fakeBackend
+	calls   int
+	bounded bool
+}
+
+func (b *sweepBackend) SweepExternals(ctx context.Context) (int, error) {
+	b.calls++
+	_, b.bounded = ctx.Deadline()
+	return 1, nil
+}
+
+// The externals sweep runs whatever the builder-cache target, which is 0 on a
+// shared daemon: the volumes it removes are only ever the agent's own.
+func TestTheExternalsSweepRunsWithoutABuilderCacheTarget(t *testing.T) {
+	a, _, be, _ := newAgent(t, 2)
+	sweeper := &sweepBackend{fakeBackend: be}
+	a.opts.Backends = backend.NewRegistry(sweeper)
+	a.opts.DockerBuildCacheMB = 0
+	a.sweepExternals(context.Background())
+	if sweeper.calls != 1 || !sweeper.bounded {
+		t.Fatalf("sweep calls=%d bounded=%v", sweeper.calls, sweeper.bounded)
+	}
+}

@@ -83,18 +83,29 @@ func collectScratch(readings []<-chan scratchReading) (use []ScratchUse, unmeasu
 }
 
 // scratchPaths is every tmpfs an inspected container was created with, in the
-// order of their paths, so a sample reads the same way twice. A path that is
-// not absolute is left out, because it would reach df as an option. Nothing
-// for a container that could not be inspected or keeps nothing in memory.
+// order of their paths, so a sample reads the same way twice: its Tmpfs
+// mounts, and a volume mounted on a tmpfs, which is how a docker-in-docker
+// sidecar keeps the work folder it shares with its runner. A path that is not
+// absolute is left out, because it would reach df as an option. Nothing for a
+// container that could not be inspected or keeps nothing in memory.
 func scratchPaths(insp *ContainerInspect, err error) []string {
-	if err != nil || insp == nil || insp.HostConfig == nil || len(insp.HostConfig.Tmpfs) == 0 {
+	if err != nil || insp == nil || insp.HostConfig == nil {
 		return nil
 	}
-	paths := make([]string, 0, len(insp.HostConfig.Tmpfs))
+	var paths []string
 	for p := range insp.HostConfig.Tmpfs {
 		if strings.HasPrefix(p, "/") {
 			paths = append(paths, p)
 		}
+	}
+	for _, m := range insp.HostConfig.Mounts {
+		if m.Type == "volume" && m.VolumeOptions != nil && m.VolumeOptions.DriverConfig != nil &&
+			m.VolumeOptions.DriverConfig.Options["type"] == "tmpfs" && strings.HasPrefix(m.Target, "/") {
+			paths = append(paths, m.Target)
+		}
+	}
+	if len(paths) == 0 {
+		return nil
 	}
 	sort.Strings(paths)
 	return paths

@@ -399,6 +399,12 @@ says so rather than pretending the press worked.
    requests and Workflows write for this step, and the third setting,
    `optimisation.publish`, is off until an administrator turns it on from the
    approved preview's page.
+6. **Compare the result, after the draft merges.** The published preview offers
+   **Compare runs for this preview**, which opens E2's Comparisons page with the
+   repository, workflow kind and preview reference filled in. Choose the runs
+   before and after and state the hypothesis; the comparison is captured
+   explicitly, and it stays inconclusive without a usable control and candidate.
+   Opening the draft is not evidence of a saving.
 
 The step must use a commit-pinned `actions/checkout` with a literal
 `fetch-depth: 0`, in a root workflow with literal job and step names. Matrix,

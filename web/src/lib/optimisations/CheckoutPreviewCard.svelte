@@ -126,8 +126,15 @@
       </p>
       <p>
         Nothing was merged. Zoomies does not merge pull requests; review the draft and let the
-        repository's own checks decide. Verification remains inconclusive.
+        repository's own checks decide. Verification remains inconclusive until a baseline and
+        candidate comparison exists.
       </p>
+      <div class="approval-actions">
+        <Button
+          href={`/comparisons?installation_id=${encodeURIComponent(preview.installation_id)}&repo=${encodeURIComponent(preview.repository)}&kind=workflow&revision=${encodeURIComponent(preview.id)}`}
+          variant="secondary">Compare runs for this preview</Button
+        >
+      </div>
     </div>
   {:else if approval && canPublish}
     <div class="approval">

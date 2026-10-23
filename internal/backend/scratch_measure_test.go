@@ -172,6 +172,15 @@ func TestOnlyTheContainersOwnInMemoryFoldersAreAskedAbout(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("paths = %v, want %v: sorted so a sample reads the same way twice, absolute so none is an option", got, want)
 	}
+	// A docker-in-docker sidecar keeps the work folder it shares with its
+	// runner on a volume whose driver mounts a tmpfs; a plain volume is disk.
+	sidecar := &ContainerInspect{HostConfig: &HostConfig{Mounts: []Mount{
+		{Type: "volume", Target: "/home/runner/_work", VolumeOptions: &VolumeOptions{DriverConfig: &VolumeDriver{Name: "local", Options: map[string]string{"type": "tmpfs"}}}},
+		{Type: "volume", Target: "/var/lib/data"},
+	}, Tmpfs: map[string]string{"/var/lib/docker": "rw"}}}
+	if got := scratchPaths(sidecar, nil); !reflect.DeepEqual(got, []string{"/home/runner/_work", "/var/lib/docker"}) {
+		t.Fatalf("sidecar paths = %v, want its tmpfs volume and its tmpfs", got)
+	}
 	for _, none := range []*ContainerInspect{nil, {}, {HostConfig: &HostConfig{}}} {
 		if got := scratchPaths(none, nil); got != nil {
 			t.Fatalf("paths = %v for %+v, want none", got, none)

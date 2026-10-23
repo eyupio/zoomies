@@ -144,14 +144,29 @@
       if (current === operation) busy = false;
     }
   }
+  let prefilledKey = '';
   $effect(() => {
     const readId = router.param('id'),
       inst = router.param('installation_id'),
-      repository = router.param('repo');
-    if (readId && inst && repository && !session.visitor)
-      untrack(() => {
+      repository = router.param('repo'),
+      kindParam = router.param('kind'),
+      revisionParam = router.param('revision');
+    if (session.visitor) return;
+    untrack(() => {
+      if (readId && inst && repository) {
         if (`${readId}|${inst}|${repository}` !== loadedKey) void read(readId, inst, repository);
-      });
+        return;
+      }
+      // A published checkout preview links here with the scope, kind and its
+      // retained reference already chosen, so the operator only picks the runs.
+      const key = `${inst}|${repository}|${kindParam}|${revisionParam}`;
+      if (key === prefilledKey) return;
+      prefilledKey = key;
+      if (inst) installation = inst;
+      if (repository) repo = repository;
+      if (kindParam === 'runner' || kindParam === 'workflow') kind = kindParam;
+      if (revisionParam) revision = revisionParam;
+    });
   });
   onDestroy(() => {
     operation++;
