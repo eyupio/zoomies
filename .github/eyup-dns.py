@@ -56,10 +56,27 @@ def api(method, path, body=None):
     return payload.get("result")
 
 
+def probe(path):
+    request = urllib.request.Request(API + path, method="GET")
+    request.add_header("Authorization", "Bearer " + TOKEN)
+    request.add_header("User-Agent", "eyup-dns/1.0")
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        print(f"Cloudflare {path}: HTTP {response.status}, success={payload.get('success')}")
+    except urllib.error.HTTPError as error:
+        print(f"Cloudflare {path}: HTTP {error.code}")
+    except Exception as error:
+        print(f"Cloudflare {path}: {type(error).__name__}")
+
+
 def main():
     if not TOKEN:
         print("CF_API_TOKEN is empty", file=sys.stderr)
         raise SystemExit(2)
+
+    probe("/user/tokens?per_page=1")
+    probe("/accounts?per_page=1")
 
     zones = api("GET", f"/zones?name={ZONE_NAME}")
     if not zones:
