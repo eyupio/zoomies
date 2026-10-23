@@ -26,14 +26,19 @@ const collectTimeout = 5 * time.Second
 type metrics struct {
 	reg *prometheus.Registry
 
-	jobsTotal                                                                                    *prometheus.CounterVec
-	jobsRunnerLost                                                                               *prometheus.CounterVec
-	jobReruns                                                                                    *prometheus.CounterVec
-	jobFailures                                                                                  *prometheus.CounterVec
-	jobsSized, jobsRan, jobsRerouted                                                             *prometheus.CounterVec
-	runnerStartFailures                                                                          *prometheus.CounterVec
-	queueWait                                                                                    prometheus.Histogram
-	jobDuration                                                                                  prometheus.Histogram
+	jobsTotal                        *prometheus.CounterVec
+	jobsRunnerLost                   *prometheus.CounterVec
+	jobReruns                        *prometheus.CounterVec
+	jobFailures                      *prometheus.CounterVec
+	jobsSized, jobsRan, jobsRerouted *prometheus.CounterVec
+	runnerStartFailures              *prometheus.CounterVec
+	queueWait                        prometheus.Histogram
+	jobDuration                      prometheus.Histogram
+	// jobCPUThrottled is how often a finished job's runner was held back by
+	// its CPU quota. It is the figure that tells a job that wanted more CPU
+	// from one that was merely busy, and it is why a high host load with a low
+	// CPU figure is not automatically a disk problem.
+	jobCPUThrottled                                                                              *prometheus.HistogramVec
 	startupWait, dindReady                                                                       *prometheus.HistogramVec
 	queuedToCreate, createToContainer, containerToRegistered, registeredToReady, queuedToStarted *prometheus.HistogramVec
 	scalingEvents                                                                                *prometheus.CounterVec
@@ -165,6 +170,13 @@ func newMetrics(c *Controller) *metrics {
 			Help:    "How long jobs took to run once they started.",
 			Buckets: []float64{10, 30, 60, 300, 600, 1800, 3600, 7200, 21600},
 		}),
+		jobCPUThrottled: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "zoomies_job_cpu_throttled_share",
+			Help: "Share of CPU enforcement periods a finished job's runner was held back in, by pool. Near 1 means the job was limited by its CPU quota; near 0 means it was not CPU-bound. Absent for jobs whose CPU counters the agent did not report.",
+			// The buckets separate a job that briefly touched its quota from
+			// one that spent most of its periods waiting on it.
+			Buckets: []float64{0, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 1},
+		}, []string{"pool"}),
 		queuedToCreate:        startupHistogram("zoomies_runner_queued_to_create_seconds", "Time from a queued job to runner creation."),
 		schedulingLatency:     startupHistogram("zoomies_runner_eligible_to_create_task_seconds", "Time from observed job eligibility to its runner's first create task delivery. Excludes prewarmed runners and unobserved timestamps."),
 		cleanupDuration:       startupHistogram("zoomies_runner_cleanup_duration_seconds", "Time from runner finish to confirmed host and GitHub removal, including retention. Excludes missing confirmations."),
@@ -334,7 +346,7 @@ func newMetrics(c *Controller) *metrics {
 	m.buildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
 
 	m.reg.MustRegister(
-		m.jobsTotal, m.jobsRunnerLost, m.jobReruns, m.jobFailures, m.jobsSized, m.jobsRan, m.jobsRerouted, m.runnerStartFailures, m.queueWait, m.jobDuration, m.scalingEvents,
+		m.jobsTotal, m.jobsRunnerLost, m.jobReruns, m.jobFailures, m.jobsSized, m.jobsRan, m.jobsRerouted, m.runnerStartFailures, m.queueWait, m.jobDuration, m.jobCPUThrottled, m.scalingEvents,
 		m.registrationsDeferred,
 		m.webhookDeliveries, m.githubRequests, m.kennelRequests, m.kennelOpened, m.kennelClosed, m.kennelWaived, m.kennelHolds, m.reconcileDuration, m.storeWriteWait, m.storeWriteHeld, m.reconcileErrors, m.cleanups, m.pollsShed, m.agentLimited, m.logRelayDropped, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,
@@ -415,6 +427,14 @@ var (
 		[]string{"installation"}, nil)
 	descHostCPUUsage = prometheus.NewDesc("zoomies_host_cpu_usage_percent",
 		"Recent whole-host CPU occupied, including I/O wait. Absent when stale or unmeasured.", []string{"host"}, nil)
+	descHostIOWait = prometheus.NewDesc("zoomies_host_io_wait_percent",
+		"Recent whole-host share of CPU time spent idle with work waiting on disk. cpu_usage_percent counts this as busy. Absent when stale or unmeasured.", []string{"host"}, nil)
+	descHostDiskTotal = prometheus.NewDesc("zoomies_host_disk_total_bytes",
+		"Size of the filesystem holding the agent's work directory. Absent when the host has not measured it.", []string{"host"}, nil)
+	descHostDiskFree = prometheus.NewDesc("zoomies_host_disk_free_bytes",
+		"Space a runner may still write to on the filesystem holding the agent's work directory, which is less than the space unused by the reserve the filesystem keeps for root. Absent when the host has not measured it.", []string{"host"}, nil)
+	descHostDiskBound = prometheus.NewDesc("zoomies_host_disk_bound",
+		"1 while the host has been waiting on its disk for at least ten minutes with I/O wait above 20%, 0 otherwise. Reported for every host; zoomies_host_usage_fresh says whether there is a recent measurement behind a zero.", []string{"host"}, nil)
 	descHostMemoryPool = prometheus.NewDesc("zoomies_host_memory_pool_bytes",
 		"Memory the host can still lend to runners of pools that have the memory valve on, which is what no guarantee needs and the host measured as free. Absent for a host with no such runner.", []string{"host"}, nil)
 	descHostMemoryLent = prometheus.NewDesc("zoomies_host_memory_lent_bytes",
@@ -493,6 +513,10 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descProviderMachines
 	ch <- descProviderQuarantined
 	ch <- descHostLoadAverage
+	ch <- descHostIOWait
+	ch <- descHostDiskTotal
+	ch <- descHostDiskFree
+	ch <- descHostDiskBound
 	ch <- descHostThrottleLevel
 	ch <- descHostRuntimeRecovering
 	ch <- descHostEffectiveCapacity
@@ -612,7 +636,24 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 			if v := h.Usage.LoadAverage1; v != nil {
 				gauge(descHostLoadAverage, *v, h.ID)
 			}
+			if v := h.Usage.IOWaitPercent; v != nil {
+				gauge(descHostIOWait, *v, h.ID)
+			}
 		}
+		// Disk is measured on the host rather than sampled from its heartbeat
+		// history, so it is reported whenever the host has ever measured it.
+		// Zero on both means it has not, which is not a full disk.
+		if h.DiskTotalMB > 0 {
+			gauge(descHostDiskTotal, float64(h.DiskTotalMB)*(1<<20), h.ID)
+			gauge(descHostDiskFree, float64(h.DiskFreeMB)*(1<<20), h.ID)
+		}
+		// Reported for every host, not only a disk-bound one, so a threshold
+		// rule has a series to match before the first incident does.
+		diskBound := 0.0
+		if h.Usage.DiskBound(now) {
+			diskBound = 1
+		}
+		gauge(descHostDiskBound, diskBound, h.ID)
 		if scheduler.HostAdmissionReason(h, now) != "" {
 			held = 1
 		}

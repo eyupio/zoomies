@@ -60,6 +60,10 @@ memory, so they are always current and never drift.
 | `zoomies_host_effective_capacity` | gauge | - | The same slots as the hosts' throttles leave them. Equal to the previous while no host is throttled; the gap between the two is the throttle. |
 | `zoomies_host_capacity_used` | gauge | - | Slots occupied on healthy, uncordoned hosts; the same hosts the two capacity figures count, so dividing by the effective figure gives utilisation. Runners still finishing on a cordoned or silent host are not in it; `zoomies_runners` counts every live runner. |
 | `zoomies_host_cpu_usage_percent` | gauge | `host` | Recent whole-host CPU occupied, including I/O wait. Missing when stale or unmeasured. |
+| `zoomies_host_io_wait_percent` | gauge | `host` | Recent whole-host share of CPU time spent idle with work waiting on disk. `cpu_usage_percent` counts that time as busy, so a build stalled on a saturated disk reads as a host hard at work without this. Missing when stale or unmeasured. |
+| `zoomies_host_disk_total_bytes` | gauge | `host` | Size of the filesystem holding the agent's work directory. Missing when the host has not measured it, which is not a full disk. |
+| `zoomies_host_disk_free_bytes` | gauge | `host` | Space a runner may still write to on that filesystem, which is less than the space unused by the reserve the filesystem keeps for root. Missing when the host has not measured it. |
+| `zoomies_host_disk_bound` | gauge | `host` | 1 while the host has been waiting on its disk for at least ten minutes with I/O wait above 20%, 0 otherwise. Reported for every host, so a threshold rule keeps matching when nothing is wrong; `zoomies_host_usage_fresh` says whether a zero has a recent measurement behind it. The same condition drives the `pool.tmpfs_suggested` advice. |
 | `zoomies_host_memory_available_bytes` | gauge | `host` | Recent available memory including reclaimable cache. Missing when stale or unmeasured. |
 | `zoomies_host_memory_pool_bytes` | gauge | `host` | Memory the host can still [lend to running jobs](elastic-memory.md): what no runner's guarantee needs and the host measured as free, less the floor it keeps for itself. Missing for a host with no runner on a pool that has the memory valve on. |
 | `zoomies_host_memory_lent_bytes` | gauge | `host` | Memory the host's runners hold beyond what they were created with. A loan is not taken back, so it falls only as the runners that hold it go. Missing for a host with no runner on a pool that has the memory valve on. |
@@ -172,6 +176,7 @@ backends and watch `failed` rise before reducing refresh intervals.
 | --- | --- | --- |
 | `zoomies_job_queue_wait_seconds` | histogram | Queued to picked up. The number that answers "is the fleet big enough?". |
 | `zoomies_job_duration_seconds` | histogram | How long jobs ran once started. Capacity planning. |
+| `zoomies_job_cpu_throttled_share` | histogram | Share of its CPU enforcement periods a finished job's runner was held back in, by `pool`. Near 1 means the job was limited by its quota and wanted more CPU; near 0 means it was not CPU-bound. This is how a high host load with a low CPU figure is told from a disk bottleneck. Absent for jobs whose agent did not report CPU counters, and while size routing is off, which is when the counters are not recorded. |
 | `zoomies_store_write_wait_seconds` | histogram | How long a database write waited for the single writer before it could start. Zoomies has one writer by design, and every heartbeat, webhook, scheduling pass and API write queues for it, so this is where a busy instance slows down first. A p99 climbing into whole seconds means too much is writing at once; past ten, SQLite gives up on the write and GitHub has given up on the webhook it came from. |
 | `zoomies_store_write_held_seconds` | histogram | How long each write then held the writer, with every other write waiting behind it. Read beside the wait: a long wait with short holds is a queue, and a long hold is one slow write. A backup holds the writer for its whole copy, so its interval shows here as a spike. |
 | `zoomies_reconcile_duration_seconds` | histogram | One reconcile pass, including its GitHub calls. A rising p99 means the control loop is being held up by GitHub rather than by itself. |
@@ -341,6 +346,11 @@ being down:
 * `zoomies_host_throttle_level` above zero for longer than a job takes, which
   is a host with too many slots for its machine rather than a host having a
   bad afternoon.
+* `zoomies_host_disk_bound` at 1 for longer than a build takes, or
+  `rate(zoomies_job_cpu_throttled_share_sum[30m]) / rate(zoomies_job_cpu_throttled_share_count[30m])`
+  climbing, which are the two halves of "the host is slow because of its disk"
+  and "the job wanted more CPU than its quota". The first is advice for a
+  pool's scratch folders; the second is a reason to raise a runner's size.
 * `zoomies_host_os_checks{state="error"} > 0` and
   `zoomies_host_health_report_age_seconds > 600` are the two worth a page: an
   error is a check that could not run, so nobody knows what that host is

@@ -112,6 +112,33 @@ func TestListHostsPassesTheDoctorAndItsSummaryThroughUntouched(t *testing.T) {
 	}
 }
 
+// The resource figures are what an assistant reads before deciding whether a
+// slow job was CPU or disk, so the pass-through has to keep them and the
+// description has to name them. The disk-bound judgement and the I/O wait
+// behind it are the pair the fleet's own scratch advice rests on.
+func TestListHostsCarriesTheHostResourcePulse(t *testing.T) {
+	const body = `{"items":[{"id":"host_1","cpus":12,"memory_mb":65536,"disk_total_mb":500000,"disk_free_mb":400000,` +
+		`"allocatable_cpus":11.4,"allocatable_memory_mb":64000,"allocatable_disk_mb":398000,` +
+		`"reserved_cpus":3,"reserved_memory_mb":8192,"reserved_known":true,` +
+		`"usage":{"cpu_percent":11,"load_average_1m":26.2,"io_wait_percent":41,"memory_available_mb":56000},` +
+		`"usage_fresh":true,"disk_bound":true}],"total":1}`
+	got, err := call(t, "list_hosts", &recorder{object: body}, `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"cpus":12`, `"disk_total_mb":500000`, `"allocatable_cpus":11.4`, `"reserved_known":true`, `"io_wait_percent":41`, `"disk_bound":true`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the reply does not carry %s:\n%s", want, got)
+		}
+	}
+	d := description(t, "list_hosts")
+	for _, want := range []string{"io_wait_percent", "disk_bound", "allocatable_cpus", "reserved_cpus"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("the description does not name %q:\n%s", want, d)
+		}
+	}
+}
+
 // An accepted warning is in no warning count, so an assistant that only tallied
 // results would report it as failing, and one that only read the summary would
 // not know a person had silenced it. The description names both places and

@@ -575,6 +575,11 @@ func (c *Controller) observeJobCompletion(j *store.Job) {
 	if d := j.Duration(); d > 0 {
 		c.metrics.jobDuration.Observe(d.Seconds())
 	}
+	// Recorded once, when the job ends, because the counters only climb while
+	// it runs; observing every sample would count the same job repeatedly.
+	if share, ok := j.Throttled(); ok {
+		c.metrics.jobCPUThrottled.WithLabelValues(pool).Observe(share)
+	}
 }
 
 // recordDelivery writes one delivery down and tells the UI about it. Every
