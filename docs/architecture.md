@@ -187,13 +187,23 @@ the existing task retry path.
 See [Runner startup under host load](runner-startup-stability.md) for controls,
 the allocation fix and the upstream comparison.
 
-Each agent admits one runner create or image prewarm at a time, shared across
-all pools and backends on that host. Runner starts are FIFO and take priority
-over waiting background refreshes. The slot covers image preparation, the
-DinD daemon readiness, runner creation and failure cleanup. The sidecar must
-pass a bounded `docker info` health probe before the runner is created; a
-running container alone no longer releases the next startup. Running jobs still use the
-host's configured capacity, and different hosts start independently.
+Each agent admits runner starts on two lanes, shared across all pools and
+backends on that host. A create whose pool runs `docker_mode: dind` waits only
+behind other DinD creates, and keeps that lane until the sidecar passes a
+bounded `docker info` health probe; a running container alone does not release
+the next start. Every other create, and image prewarming, waits on the second
+lane behind the creates and prewarms that share it. Both lanes are FIFO,
+foreground work goes ahead of background refreshes, and each lane starts one
+runner at a time, so at most one daemon is initialising on a host. Running jobs
+still use the host's configured capacity, and different hosts start
+independently.
+
+The split lets a runner that starts no daemon reach the host without waiting
+for a daemon to boot, and it lets the two lanes prepare images at the same
+time. That overlap is the cost: a cold pull on one lane can run beside a cold
+pull on the other, or beside a daemon still booting. With `if-not-present` it
+is the first pull of an image and the timed refresh, not every create. A slot
+covers image preparation, runner creation and failure cleanup.
 
 Waiting starts do not hold lifecycle slots, so stop and removal requests can
 still run. A queued create superseded by a stop or removal is skipped before

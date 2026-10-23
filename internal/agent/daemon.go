@@ -261,9 +261,11 @@ type Agent struct {
 	sem   chan struct{}
 	tasks sync.WaitGroup
 
-	// startup serialises creates and image prewarming across every pool on
-	// this host. Capacity bounds running jobs, not concurrent image extraction
-	// and DinD startup, which can overwhelm an otherwise healthy daemon.
+	// startup serialises the creates whose runner starts no daemon, and every
+	// image prewarm, across all pools on this host. DinD creates have their
+	// own lane in dindStartup. Capacity bounds running jobs, not concurrent
+	// image extraction, which can overwhelm an otherwise healthy daemon: the
+	// split leaves an image preparation on each lane able to overlap.
 	startup startupQueue
 	// dindStartup serialises the creates of DinD runners on a lane of their
 	// own. Such a create holds its turn until the sidecar's daemon answers,

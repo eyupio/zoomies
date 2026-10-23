@@ -47,3 +47,38 @@ func TestReadinessWithoutEvidenceFallsBackToHeadroom(t *testing.T) {
 		t.Fatalf("placement=%v", got)
 	}
 }
+
+// The agent starts DinD creates and everything else on separate lanes, so a
+// warming daemon is not ahead of a daemonless runner. Charging every pool for
+// the whole host's warming sent a daemonless pool to a slower host for no
+// reason; this holds the estimate to the lane the pool will actually wait in.
+func TestReadinessCountsWarmingRunnersPerStartupLane(t *testing.T) {
+	plain := limited("plain", 2, 2048)
+	dind := limited("dind", 2, 2048)
+	dind.DockerMode = store.DockerDinD
+	a, b := sized("a", 8, 16, 32768, 100000), sized("b", 8, 16, 32768, 100000)
+	// One DinD runner is warming on a. It is ahead of DinD creates only, and
+	// its reservation is what makes a the worse host on headroom alone.
+	runners := map[string][]*store.Runner{
+		dind.ID: {{HostID: "a", PoolID: dind.ID, State: store.RunnerRegistering}},
+	}
+	for _, tc := range []struct {
+		name    string
+		pool    *store.Pool
+		history map[string]time.Duration
+		want    string
+	}{
+		{"a daemonless pool is not charged for the DinD lane", plain, map[string]time.Duration{"a": 10 * time.Second, "b": 25 * time.Second}, "a"},
+		{"a DinD pool is", dind, map[string]time.Duration{"a": 10 * time.Second, "b": 10 * time.Second}, "b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hs := newHostSet([]*store.Host{a, b}, []*store.Pool{plain, dind}, runners, now)
+			hs.preferReadiness = true
+			hs.readiness = map[string]map[string]time.Duration{tc.pool.ID: tc.history}
+			got := hs.place(tc.pool, 1)
+			if len(got) != 1 || got[0] != tc.want {
+				t.Fatalf("placement=%v want %s", got, tc.want)
+			}
+		})
+	}
+}

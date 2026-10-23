@@ -1285,6 +1285,10 @@ type hostSet struct {
 	free            map[string]int
 	observedCPU     map[string]float64
 	warming         map[string]int
+	// warmingDinD is the part of warming that waits in the DinD startup lane.
+	// readyDelay keeps the two lanes apart; the CPU-pressure rule still uses
+	// the whole count, because one warming runner of either kind is enough.
+	warmingDinD map[string]int
 	// left is the room still unpromised on each host, and alloc what the host
 	// had to begin with. They are separate because the second says which
 	// figures were measured at all, and an unmeasured figure constrains
@@ -1326,6 +1330,7 @@ func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*
 		free:           make(map[string]int, len(hosts)),
 		observedCPU:    make(map[string]float64, len(hosts)),
 		warming:        make(map[string]int, len(hosts)),
+		warmingDinD:    make(map[string]int, len(hosts)),
 		left:           make(map[string]Reservation, len(hosts)),
 		alloc:          make(map[string]store.HostAllocation, len(hosts)),
 		promisedMemory: make(map[string]int64, len(hosts)),
@@ -1359,6 +1364,9 @@ func newHostSet(hosts []*store.Host, pools []*store.Pool, runners map[string][]*
 		hs.ours[h.ID] = t.ours
 		if t.warming > 0 {
 			hs.warming[h.ID] += t.warming
+		}
+		if t.warmingDinD > 0 {
+			hs.warmingDinD[h.ID] += t.warmingDinD
 		}
 		pending := t.pending
 		if h.Usage.Fresh(now) {
@@ -1450,6 +1458,9 @@ func (hs *hostSet) placeAvoiding(p *store.Pool, n int, avoid map[string]bool) []
 		}
 		hs.free[h.ID]--
 		hs.warming[h.ID]++
+		if p.DockerMode == store.DockerDinD {
+			hs.warmingDinD[h.ID]++
+		}
 		l := hs.left[h.ID]
 		l.CPUs -= res.CPUs
 		l.MemoryMB -= res.MemoryMB
