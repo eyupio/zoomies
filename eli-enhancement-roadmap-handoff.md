@@ -123,7 +123,14 @@ publication arrived on 23 October:
   re-reads and requires the same head, workflow digest and lockfile digest
   before keeping it; `GET .../{id}` replays from stored input. The full workflow
   source and setup samples stay private; the lockfile is kept as path, mode and
-  SHA-256, never content. No web page or CLI/MCP/Eli yet.
+  SHA-256, never content.
+* **Cache web page (23 October).** `/optimisations/cache` reuses the checkout run
+  picker and optimisation gate. It shows the package manager, root lockfile,
+  literal setup step, commit and digests, and the exact `with:` block as untrusted
+  text. A declaration gates keeping; the kept card shows the insertion, evidence
+  summary, preview ID and reviewer, says verification is inconclusive and
+  currentness not checked, and publishes nothing. No CLI, MCP, Eli, approval,
+  publication or verification link yet.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval, draft publication and read access from the CLI, MCP and Eli have since
@@ -141,11 +148,11 @@ been built (see the 23 October sections at the end). The rest remains.
    unless a suitable control and candidate exist, and CI passing is never evidence of
    a saving. Projected savings stay estimates.
 3. **Wider catalogue.** The dependency/build cache foundation, retained setup
-   history, bounded source binding and private retention/API are described
-   above. Next is the cache web page, then CLI/MCP/Eli, then approval and
-   publication. Bounded readiness polling and sharding follow, each with its own
-   evidence and refusals. Do not lead with test removal, relaxed assertions or
-   blanket retries.
+   history, bounded source binding, private retention/API and web page are
+   described above. Next is cache CLI/MCP/Eli, then approval and publication.
+   Bounded readiness polling and sharding follow, each with its own evidence and
+   refusals. Do not lead with test removal, relaxed assertions or blanket
+   retries.
 
 Owner decisions still open: whether a different person than the reviewer must
 approve (the 23 October slice keeps the recommended default, that the same
@@ -2666,3 +2673,30 @@ and replay without GitHub. All against fakes.
 
 Next agent: add the cache web page before CLI/MCP/Eli, then approval and
 publication. Do not put the retained envelope on Eli's allowlist.
+
+
+### E3 cache web page, 23 October 2026
+
+`/optimisations/cache` is the first web surface for the wider catalogue. It
+reuses the checkout run picker and one-press gate, lists successful push jobs,
+and on **Review** asks the inspect route for the cache preview. The review shows
+the package manager, root lockfile, literal setup step, commit and both digests,
+the mean setup time over the fleet's retained runs, and the exact `with:` block
+as untrusted text. The full workflow and lockfile are never returned by the API
+or rendered.
+
+The operator must declare that they reviewed the block; **Keep a preview for 14
+days** sends the exact selection, head, workflow digest and lockfile digest the
+server showed. The kept card shows the insertion, evidence summary, preview ID
+and reviewer, says verification is inconclusive and currentness not checked, and
+publishes nothing. The page opens a kept preview from an `opc_` link and is
+linked from Checkout preview.
+
+The design is in [the plan](roadmap/plans/2026-10-23-eli-e3-cache-web.md).
+Validation: desktop and phone browser tests cover picking a job without typing
+IDs, the exact inspect and capture bodies, the escaped insertion block, the
+declaration gating the button, opening a kept preview from its link and no
+horizontal overflow. No live GitHub, model or fleet.
+
+Next agent: add cache CLI/MCP/Eli read access, then approval and publication.
+Do not expose the retained envelope to a model.
