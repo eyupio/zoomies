@@ -28,10 +28,11 @@ const (
 	// PrefixAssistantProvider names a model the assistant may talk to.
 	PrefixAssistantProvider = "asp"
 	// PrefixAssistantConversation names one person's saved chat with Eli.
-	PrefixAssistantConversation = "asc"
-	PrefixEliRepair             = "erf"
-	PrefixEliOpportunity        = "eop"
-	PrefixOptimisationPreview   = "opv"
+	PrefixAssistantConversation    = "asc"
+	PrefixEliRepair                = "erf"
+	PrefixEliOpportunity           = "eop"
+	PrefixOptimisationPreview      = "opv"
+	PrefixOptimisationCachePreview = "opc"
 	// PrefixProviderSetup names a short-lived Proxmox connection enrolment.
 	PrefixProviderSetup = "pvs"
 	// PrefixBackupRemote names an offsite backup destination kept in the

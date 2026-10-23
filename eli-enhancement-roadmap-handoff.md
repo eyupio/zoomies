@@ -114,7 +114,16 @@ publication arrived on 23 October:
   one root lockfile at the commit, and matches literal job and setup step names.
   The controller binds it to the selected fleet job row and the retained setup
   history, then returns the pure cache preview. At most eight GitHub requests
-  under the shared diagnostic admission; no retention, route or surface yet.
+  under the shared diagnostic admission.
+* **Cache retention and API (23 October).** Migration 0122 adds a separate
+  bounded, installation-scoped cache preview history with the same fourteen-day
+  lifetime and twenty/one-hundred caps as checkout. `POST
+  /optimisations/cache/inspections` computes and returns the insertion block and
+  evidence summary without retaining; `POST /optimisations/cache/previews`
+  re-reads and requires the same head, workflow digest and lockfile digest
+  before keeping it; `GET .../{id}` replays from stored input. The full workflow
+  source and setup samples stay private; the lockfile is kept as path, mode and
+  SHA-256, never content. No web page or CLI/MCP/Eli yet.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval, draft publication and read access from the CLI, MCP and Eli have since
@@ -131,12 +140,12 @@ been built (see the 23 October sections at the end). The rest remains.
    time before and after through the E2 comparison. The result is "inconclusive"
    unless a suitable control and candidate exist, and CI passing is never evidence of
    a saving. Projected savings stay estimates.
-3. **Wider catalogue.** The dependency/build cache foundation, the fleet's
-   retained setup history and the bounded source binding are described above.
-   Next is retention, approval, publication and the read surfaces it needs.
-   Bounded readiness polling and sharding follow, each with its own evidence and
-   refusals. Do not lead with test removal, relaxed assertions or blanket
-   retries.
+3. **Wider catalogue.** The dependency/build cache foundation, retained setup
+   history, bounded source binding and private retention/API are described
+   above. Next is the cache web page, then CLI/MCP/Eli, then approval and
+   publication. Bounded readiness polling and sharding follow, each with its own
+   evidence and refusals. Do not lead with test removal, relaxed assertions or
+   blanket retries.
 
 Owner decisions still open: whether a different person than the reviewer must
 approve (the 23 October slice keeps the recommended default, that the same
@@ -2626,3 +2635,34 @@ fakes.
 Next agent: add retention and the API/web surface for this preview before
 considering CLI/MCP/Eli or publication. Do not describe the cache optimisation as
 usable yet.
+
+
+### E3 cache retention and API, 23 October 2026
+
+Cache previews now have their own private, bounded history. Migration 0122 adds
+`optimisation_cache_previews` with a fourteen-day lifetime, twenty per
+installation and one hundred globally, an `opc_` ID, an atomic
+`optimisation.cache_preview_retained` audit row and cascade on installation
+deletion. The envelope retains the before workflow source, the setup evidence
+and its samples, and the preview; the lockfile is kept as path, mode and
+SHA-256, never content.
+
+`POST /optimisations/cache/inspections` computes a preview without retaining and
+returns the `with:` block, package manager, head, workflow digest, lockfile
+digest, setup summary and explanation. `POST /optimisations/cache/previews`
+re-reads the source and history and requires the same head and both digests,
+then keeps it. `GET /optimisations/cache/previews/{id}` replays from stored
+input. The views never carry the full workflow or lockfile. Replay verifies the
+storage digest, strict-decodes the envelope, recomputes setup evidence from its
+samples and compares the complete preview. The source/edit settings still gate
+inspection and capture; visitors are refused.
+
+The design is in
+[the plan](roadmap/plans/2026-10-23-eli-e3-cache-retention-api.md). Store,
+controller and API tests cover scope, immutability, audit rollback, caps,
+expiry, global bound, installation deletion, corruption, backup, exact
+inspect-then-capture, a moved source, an altered envelope, a disabled setting
+and replay without GitHub. All against fakes.
+
+Next agent: add the cache web page before CLI/MCP/Eli, then approval and
+publication. Do not put the retained envelope on Eli's allowlist.

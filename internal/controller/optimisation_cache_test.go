@@ -3,7 +3,10 @@ package controller
 import (
 	"context"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -38,6 +41,11 @@ func cacheBlobSHA(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func cacheSHA256(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
 func cacheControllerFixture(t *testing.T) (*harness, *store.Installation, *cacheSourceReader, github.SetupCacheSelection, int64) {
 	t.Helper()
 	h, inst, _ := experimentJoinFixture(t)
@@ -47,8 +55,8 @@ func cacheControllerFixture(t *testing.T) (*harness, *store.Installation, *cache
 	source := &github.SetupCacheSource{
 		Version: "setup-cache-evidence-v1", Basis: "push_head_root_lockfile_literal_names", Repository: inst.Target,
 		RunID: "10", Attempt: 2, HeadSHA: strings.Repeat("a", 40), HeadBranch: "main",
-		WorkflowPath: ".github/workflows/ci.yml", Workflow: prrepair.File{Path: ".github/workflows/ci.yml", Mode: "100644", Content: workflow}, WorkflowBlobSHA: cacheBlobSHA(workflow),
-		LockfilePath: "package-lock.json", Lockfile: prrepair.File{Path: "package-lock.json", Mode: "100644", Content: lockfile}, LockfileBlobSHA: cacheBlobSHA(lockfile),
+		WorkflowPath: ".github/workflows/ci.yml", Workflow: prrepair.File{Path: ".github/workflows/ci.yml", Mode: "100644", Content: workflow}, WorkflowBlobSHA: cacheBlobSHA(workflow), WorkflowSHA256: cacheSHA256(workflow),
+		LockfilePath: "package-lock.json", Lockfile: prrepair.File{Path: "package-lock.json", Mode: "100644", Content: lockfile}, LockfileBlobSHA: cacheBlobSHA(lockfile), LockfileSHA256: cacheSHA256(lockfile),
 		JobIndex: 0, StepIndex: 1, JobName: "Build", StepName: "Node",
 	}
 	steps := func(seconds int64) store.JobSteps {
@@ -136,5 +144,66 @@ func TestInspectCachePreviewRefusesAWrongScopeOrReaderFailure(t *testing.T) {
 	reader.err = fmt.Errorf("source unavailable")
 	if _, err := h.c.InspectCachePreview(h.ctx, inst.ID, inst.Target, selection, jobID); err == nil {
 		t.Fatal("reader failure accepted")
+	}
+}
+
+func TestCaptureCachePreviewRetainsExactlyWhatWasInspectedAndReplaysIt(t *testing.T) {
+	h, inst, _, selection, jobID := cacheControllerFixture(t)
+	preview, err := h.c.InspectCachePreview(h.ctx, inst.ID, inst.Target, selection, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := &store.AuditEvent{ActorID: "usr_cache", ActorKind: "user"}
+	retained, err := h.c.CaptureCachePreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, preview.HeadSHA, preview.SourceSHA256, preview.LockfileSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retained.ID == "" || retained.ReviewedBy != "usr_cache" || retained.Preview.PackageManager != "npm" || retained.Currentness != "not_checked" {
+		t.Fatalf("retained %+v", retained)
+	}
+	replayed, err := h.c.ReplayCachePreview(h.ctx, inst.ID, inst.Target, retained.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := json.Marshal(retained.Preview)
+	b, _ := json.Marshal(replayed.Preview)
+	if string(a) != string(b) {
+		t.Fatal("replay changed the cache preview")
+	}
+	if _, total, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"optimisation.cache_preview_retained"}}, store.Page{Limit: 10}); err != nil || total != 1 {
+		t.Fatalf("audit total=%d err=%v", total, err)
+	}
+	if _, err := h.c.CaptureCachePreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, preview.HeadSHA, strings.Repeat("f", 64), preview.LockfileSHA256); !errors.Is(err, ErrOptimisationCache) {
+		t.Fatalf("moved source accepted: %v", err)
+	}
+}
+
+func TestReplayCachePreviewRefusesAnAlteredEnvelope(t *testing.T) {
+	h, inst, _, selection, jobID := cacheControllerFixture(t)
+	preview, err := h.c.InspectCachePreview(h.ctx, inst.ID, inst.Target, selection, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := &store.AuditEvent{ActorID: "usr_cache", ActorKind: "user"}
+	retained, err := h.c.CaptureCachePreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, preview.HeadSHA, preview.SourceSHA256, preview.LockfileSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := h.st.GetOptimisationCachePreview(h.ctx, inst.ID, inst.Target, retained.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var e optimisationCacheRetainedEnvelope
+	if err := json.Unmarshal(row.Payload, &e); err != nil {
+		t.Fatal(err)
+	}
+	e.Preview.AfterSHA256 = strings.Repeat("f", 64)
+	row.ID = store.NewID(store.PrefixOptimisationCachePreview)
+	row.Payload, _ = json.Marshal(e)
+	if err := h.st.PutOptimisationCachePreview(h.ctx, row, actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.c.ReplayCachePreview(h.ctx, inst.ID, inst.Target, row.ID); !errors.Is(err, ErrOptimisationCache) {
+		t.Fatalf("altered preview accepted: %v", err)
 	}
 }
