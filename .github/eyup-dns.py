@@ -15,6 +15,7 @@ API = "https://api.cloudflare.com/client/v4"
 ZONE_NAME = "eyup.io"
 APPLY = os.environ.get("APPLY", "false").lower() in {"1", "true", "yes"}
 TOKEN = os.environ.get("CF_API_TOKEN", "")
+ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "")
 
 APEX_A = [
     "185.199.108.153",
@@ -116,6 +117,9 @@ def main():
 
     probe("/user/tokens?per_page=1")
     probe("/accounts?per_page=1")
+    if ACCOUNT_ID:
+        probe(f"/accounts/{ACCOUNT_ID}/tokens?per_page=1")
+        probe(f"/accounts/{ACCOUNT_ID}/tokens/permission_groups?per_page=1")
 
     zones = api("GET", f"/zones?name={ZONE_NAME}")
     if not zones:
