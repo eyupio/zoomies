@@ -479,6 +479,26 @@ test('every settings page has an address of its own, and the section lists them'
   await expect(page).toHaveURL(/\/settings\/appearance$/);
 });
 
+/**
+ * Between the rail and the phone list the section's navigation is a horizontal
+ * strip. It used to keep the vertical rail's sticky offset after it became
+ * relatively positioned, which moved the whole strip down over the page's own
+ * heading: the title and its rule sat half-hidden under the tabs.
+ */
+test('the horizontal settings strip ends above the page heading it names', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 900 });
+  await goto(page, '/settings/account', 'Account');
+
+  const strip = await settingsNav(page).boundingBox();
+  const heading = await pageHeading(page, 'Account').boundingBox();
+  expect(strip, 'the settings strip is on screen').not.toBeNull();
+  expect(heading, 'the page heading is on screen').not.toBeNull();
+  expect(
+    (strip?.y ?? 0) + (strip?.height ?? 0),
+    'the strip does not overlap the page heading',
+  ).toBeLessThanOrEqual(heading?.y ?? 0);
+});
+
 test('the old tab addresses still land on their page', async ({ page }) => {
   // Bookmarks and the links in problem entries were written as `?tab=`, and a
   // setting a link named is still the row it lands on.

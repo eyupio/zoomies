@@ -43,3 +43,9 @@ export function roleLabel(role: string | undefined | null): string {
   if (!role) return 'Unknown';
   return ROLE_OPTIONS.find((option) => option.value === role)?.label ?? role;
 }
+
+/** The sentence saying what the role may do, or empty for one with no entry. */
+export function roleDescription(role: string | undefined | null): string {
+  if (!role) return '';
+  return ROLE_OPTIONS.find((option) => option.value === role)?.description ?? '';
+}

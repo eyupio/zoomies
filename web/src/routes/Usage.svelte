@@ -13,6 +13,8 @@
   somebody else as a link rather than as a description of which boxes to tick.
 -->
 <script lang="ts">
+  import PageBand from '$lib/bands/PageBand.svelte';
+  import { usageLine, usageStats, usageTotals } from '$lib/bands/usage-stats';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import AskEli from '$lib/assistant/AskEli.svelte';
   import { usageContext } from '$lib/assistant/contexts';
@@ -269,6 +271,24 @@
    * columns are absent rather than zero -- a zero would be a claim.
    */
   const attributable = $derived(report?.allocation_attributable !== false);
+
+  /* -- the band -------------------------------------------------------------
+   * The range's own answer, in the same stage every fleet page opens on. The
+   * figures move up from the tiles below, so the page says what the range held
+   * before it asks anybody to read a table, and a phone (which never draws the
+   * band) still gets them above the controls rather than below them.
+   * ------------------------------------------------------------------------ */
+  const bandTotals = $derived(usageTotals(rows));
+  const bandWindow = $derived.by(() => {
+    if (!preset) return 'in this range';
+    const name = preset.name.toLowerCase();
+    return name === 'today' ? 'today' : `in ${name}`;
+  });
+  // Not while the report is failing: the figures would belong to the last one
+  // that loaded, over an error that says this one did not.
+  const bandStats = $derived(report && !error ? usageStats(bandTotals, attributable) : []);
+  const bandLine = $derived(report && !error ? usageLine(bandTotals, bandWindow) : null);
+
   const usageColumns = $derived([
     'key',
     'queued',
@@ -389,6 +409,8 @@
     Export CSV
   </Button>
 </PageHeader>
+
+<PageBand page="usage" line={bandLine} stats={bandStats} />
 
 <div class="controls">
   <DateRange {since} {until} withTime label="Usage between" onchange={setRange} />

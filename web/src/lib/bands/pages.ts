@@ -9,8 +9,13 @@ export const BAND_PAGES = [
   { key: 'queue', label: 'Queue' },
   { key: 'jobs', label: 'Jobs' },
   { key: 'workflows', label: 'Workflows' },
+  { key: 'usage', label: 'Usage' },
   { key: 'hosts', label: 'Hosts' },
   { key: 'providers', label: 'Providers' },
+  { key: 'installations', label: 'Installations' },
+  { key: 'repairs', label: 'Eli repairs' },
+  { key: 'migrate', label: 'Migrate' },
+  { key: 'kennel', label: 'Kennel Club' },
 ] as const;
 
 export type BandPage = (typeof BAND_PAGES)[number]['key'];

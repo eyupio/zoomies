@@ -134,13 +134,13 @@
 <section class="card" aria-labelledby="two-step-heading">
   <span class="icon" aria-hidden="true"><ShieldCheck size={18} /></span>
   <div class="body">
-    <h2 id="two-step-heading" class="title">
+    <h3 id="two-step-heading" class="title">
       Two-step verification
       {#if status?.enabled}<Badge tone="accent" label="On" size="sm" />{/if}
       {#if status?.required && !status.enabled && status.available}
         <Badge tone="accent" label="Required" size="sm" />
       {/if}
-    </h2>
+    </h3>
     {#if failed}
       <p class="detail">Could not read your two-step verification. Refresh to try again.</p>
     {:else if !status}
@@ -279,7 +279,6 @@
     align-items: flex-start;
     flex-wrap: wrap;
     gap: var(--z-space-4);
-    margin-top: var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);

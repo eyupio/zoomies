@@ -5,6 +5,8 @@
   be reached from an installation's page later without a second copy of them.
 -->
 <script lang="ts">
+  import PageBand from '$lib/bands/PageBand.svelte';
+  import { migrateLine } from '$lib/bands/lines';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
@@ -15,6 +17,7 @@
   // A link can point straight at one installation, which is how the
   // Installations page hands off into this.
   const installationId = $derived(router.param('installation_id'));
+  const bandLine = migrateLine();
 
   function cancel(): void {
     router.navigate('/installations');
@@ -25,6 +28,8 @@
   title="Migrate repositories"
   subtitle="Rewrite runs-on in your workflows and open a pull request on each repository. You see the exact diff before anything is opened."
 />
+
+<PageBand page="migrate" line={bandLine} />
 
 {#if canOperate}
   <MigrateWizard {installationId} oncancel={cancel} />

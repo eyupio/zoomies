@@ -12,8 +12,23 @@ const PAGES = [
   { path: '/queue', heading: 'Queue', label: 'Queue', band: 'band-queue' },
   { path: '/jobs', heading: 'Jobs', label: 'Jobs', band: 'band-jobs' },
   { path: '/workflows', heading: 'Workflows', label: 'Workflows', band: 'band-workflows' },
+  { path: '/usage', heading: 'Usage', label: 'Usage', band: 'band-usage' },
   { path: '/hosts', heading: 'Hosts', label: 'Hosts', band: 'band-hosts' },
   { path: '/providers', heading: 'Providers', label: 'Providers', band: 'band-providers' },
+  {
+    path: '/installations',
+    heading: 'Installations',
+    label: 'Installations',
+    band: 'band-installations',
+  },
+  { path: '/repairs', heading: 'Eli repairs', label: 'Eli repairs', band: 'band-repairs' },
+  {
+    path: '/migrate',
+    heading: 'Migrate repositories',
+    label: 'Migrate',
+    band: 'band-migrate',
+  },
+  { path: '/kennel', heading: 'Kennel Club', label: 'Kennel Club', band: 'band-kennel' },
 ] as const;
 
 for (const item of PAGES) {

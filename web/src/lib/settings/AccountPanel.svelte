@@ -13,9 +13,10 @@
   import { KeyRound, LogOut } from '@lucide/svelte';
   import { ApiError, logoutOthers } from '$lib/api/client';
   import { MIN_PASSWORD_LENGTH } from '$lib/passwords';
-  import { roleLabel } from '$lib/roles';
+  import { roleDescription, roleLabel } from '$lib/roles';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
+  import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
@@ -41,6 +42,8 @@
 
   /** The first letter of the name, for the avatar. */
   const initial = $derived(session.displayName.trim().charAt(0).toUpperCase() || '?');
+  /** What the role may do, in the words the Users page uses. */
+  const roleDetail = $derived(roleDescription(session.role));
 
   function start(): void {
     current = '';
@@ -95,35 +98,78 @@
   onrefresh={() => session.refresh()}
 />
 
-<div class="card" class:urgent={session.mustChangePassword}>
+<section class="profile" class:urgent={session.mustChangePassword} aria-labelledby="account-name">
   <span class="avatar" aria-hidden="true">{initial}</span>
-  <div class="who">
-    <p class="name">Signed in as {session.displayName}</p>
+  <div class="identity">
+    <h2 id="account-name" class="name">Signed in as {session.displayName}</h2>
+    <div class="meta">
+      {#if session.role}
+        <Badge tone="neutral" label={roleLabel(session.role)} size="sm" dot={false} />
+      {/if}
+      {#if session.authDisabled}
+        <Badge tone="pending" label="Authentication off" size="sm" dot={false} />
+      {/if}
+      {#if session.mustChangePassword}
+        <Badge tone="danger" label="Change required" size="sm" dot={false} />
+      {/if}
+    </div>
     <p class="detail">
       {#if session.authDisabled}
-        Authentication is switched off in the configuration, so every request is treated as an
-        administrator.
+        Every request is treated as an administrator, because authentication is switched off in the
+        configuration.
       {:else if session.mustChangePassword}
-        Your password was set by somebody else. Choose your own now.
+        Your password was set by somebody else. Choose your own in the Password card below.
       {:else}
-        {roleLabel(session.role)}. Changing your password ends every other session signed in as you,
-        and every MCP connection.
+        {roleDetail || roleLabel(session.role)}
       {/if}
     </p>
   </div>
-  {#if !session.authDisabled}
-    <Button
-      variant={session.mustChangePassword ? 'primary' : 'secondary'}
-      icon={KeyRound}
-      onclick={start}
-    >
-      Change password
-    </Button>
+</section>
+
+{#if !session.authDisabled}
+  <div class="security">
+    <section class="card" aria-labelledby="password-heading">
+      <span class="icon" aria-hidden="true"><KeyRound size={18} /></span>
+      <div class="body">
+        <h3 id="password-heading" class="title">Password</h3>
+        <p class="detail">
+          {#if session.mustChangePassword}
+            Set by somebody else. Choose your own now.
+          {:else}
+            Changing it ends every other session signed in as you, and every MCP connection.
+          {/if}
+        </p>
+      </div>
+      <div class="actions">
+        <Button
+          variant={session.mustChangePassword ? 'primary' : 'secondary'}
+          icon={KeyRound}
+          onclick={start}
+        >
+          Change password
+        </Button>
+      </div>
+    </section>
+
     {#if session.identity?.kind === 'user'}
-      <Button icon={LogOut} onclick={() => (othersOpen = true)}>Sign out other sessions</Button>
+      <section class="card" aria-labelledby="sessions-heading">
+        <span class="icon" aria-hidden="true"><LogOut size={18} /></span>
+        <div class="body">
+          <h3 id="sessions-heading" class="title">Sessions</h3>
+          <p class="detail">
+            Sign out every other browser signed in as you. MCP connections end with them and have to
+            be approved again.
+          </p>
+        </div>
+        <div class="actions">
+          <Button icon={LogOut} onclick={() => (othersOpen = true)}>Sign out other sessions</Button>
+        </div>
+      </section>
+
+      <TwoStepPanel />
     {/if}
-  {/if}
-</div>
+  </div>
+{/if}
 
 <ConfirmDialog
   bind:open={othersOpen}
@@ -135,10 +181,6 @@
   confirmLabel="Sign out the others"
   onconfirm={signOutOthers}
 />
-
-{#if !session.authDisabled && session.identity?.kind === 'user'}
-  <TwoStepPanel />
-{/if}
 
 <Dialog
   bind:open
@@ -218,9 +260,69 @@
 </Dialog>
 
 <style>
-  .card {
+  /* The person, first: a larger card than the actions under it, so the page
+     answers "whose account is this?" before it offers to change anything. */
+  .profile {
     display: flex;
     align-items: center;
+    gap: var(--z-space-4);
+    padding: var(--z-space-5);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-lg);
+    background: var(--z-surface);
+  }
+  .profile.urgent {
+    border-color: var(--z-pending-border);
+    background: var(--z-pending-subtle);
+  }
+  .avatar {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: var(--z-space-12);
+    height: var(--z-space-12);
+    border-radius: var(--z-radius-full);
+    background: var(--z-accent-subtle);
+    color: var(--z-accent);
+    font-size: var(--z-text-lg);
+    font-weight: var(--z-weight-semibold);
+  }
+  .identity {
+    flex: 1 1 18rem;
+    min-width: 0;
+  }
+  .name {
+    margin: 0;
+    font-size: var(--z-text-lg);
+    line-height: var(--z-leading-lg);
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
+    overflow-wrap: anywhere;
+  }
+  .meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--z-space-2);
+    margin-top: var(--z-space-2);
+  }
+  .detail {
+    margin: var(--z-nudge-2) 0 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+  }
+  .security {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-4);
+    margin-top: var(--z-space-4);
+  }
+  /* The same card TwoStepPanel draws, so the three security actions read as
+     one group rather than three slightly different panels. */
+  .card {
+    display: flex;
+    align-items: flex-start;
     flex-wrap: wrap;
     gap: var(--z-space-4);
     padding: var(--z-space-4) var(--z-space-5);
@@ -228,11 +330,7 @@
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
-  .card.urgent {
-    border-color: var(--z-pending-border);
-    background: var(--z-pending-subtle);
-  }
-  .avatar {
+  .icon {
     display: inline-grid;
     place-items: center;
     flex: none;
@@ -241,26 +339,22 @@
     border-radius: var(--z-radius-full);
     background: var(--z-accent-subtle);
     color: var(--z-accent);
-    font-size: var(--z-text-base);
-    font-weight: var(--z-weight-semibold);
   }
-  .who {
+  .body {
     flex: 1 1 16rem;
     min-width: 0;
   }
-  .name {
+  .title {
     margin: 0;
     font-size: var(--z-text-base);
     line-height: var(--z-leading-base);
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
-    overflow-wrap: anywhere;
   }
-  .detail {
-    margin: var(--z-nudge-2) 0 0;
-    font-size: var(--z-text-xs);
-    line-height: var(--z-leading-xs);
-    color: var(--z-text-muted);
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-2);
   }
   .form {
     display: flex;

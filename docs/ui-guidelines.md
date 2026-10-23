@@ -59,9 +59,9 @@ with live summaries and browser-local expansion preferences. History remains
 this fleet's activity, with its own labelled range, even when other runners are
 included in job counts. A fragment link opens its destination before scrolling.
 The full events feed expands in place, retaining the controller's reason strings.
-On a Mission Control phone, Jobs puts search, status
-and records before supplementary analytics; Filters and Fleet context expand
-without clearing the URL filters.
+On a Mission Control phone, Jobs, Queue and Workflows keep the search in view
+and fold the rest of their filters behind a summary, so the records come before
+the controls; Filters and Fleet context expand without clearing the URL filters.
 
 A grid with no saved phone-layout choice starts as Cards in Mission Control
 and Rows in Classic. A saved per-grid view wins over a saved global view, and
@@ -668,10 +668,11 @@ severity, never a problem's own words, and with no status colour in it. It costs
 the Overview some height, so the pools start within the first 1000px of a
 desktop window and no longer within 900px; the hero is left out on a phone,
 where the pools must still be on the first screen. The fleet pages (Runners,
-Pools, Queue, Jobs, Workflows, Hosts and Providers) open on the same stage in a
-slimmer cut, with one sentence from the page's own figures; each is switched off
-per page in Appearance (a list of hidden pages in the browser, so a band added
-later is on), and a phone never shows one. A band's dog can be hidden, or drawn
+Pools, Queue, Jobs, Workflows, Usage, Hosts, Providers, Installations, Eli
+repairs, Migrate and Kennel Club) open on the same stage in a slimmer cut, with
+one sentence from the page's own figures; each is
+switched off per page in Appearance (a list of hidden pages in the browser, so a
+band added later is on), and a phone never shows one. A band's dog can be hidden, or drawn
 at a chosen size (Auto follows the band's own size; Small, Medium and Large pin
 it), a choice made in Appearance and kept in this browser. The wrong-address
 page uses the same stage with the dog.
@@ -713,7 +714,9 @@ fixed, because muscle memory is the point:
     appearance; users and API tokens; the configuration, backups, updates and about.
     Each has an address of its own (`/settings/users`), the section's own rail
     lists them beside the page, and `/settings` alone goes to the first of
-    them, except on a phone, where it is the list.
+    them, except on a phone, where it is the list. The rail is a panel with
+    the section's name at its head and the signed-in identity at its foot; on
+    a phone the list leads with that identity as the card that opens Account.
 
 The sidebar reads the same order under four headings (*Fleet*, *Infrastructure*,
 *GitHub* and *Administration*, with the Overview standing alone at the top and

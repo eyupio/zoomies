@@ -142,6 +142,115 @@ export function providersLine(p: {
   };
 }
 
+export function installationsLine(i: {
+  connections: number;
+  healthy: number;
+  unhealthy: number;
+  unchecked: number;
+  pools: number;
+  lowQuota: number;
+}): BandLine {
+  if (i.connections === 0) {
+    return {
+      headline: 'No GitHub connection yet.',
+      accent: '',
+      lede: 'Connect the App before a pool or a runner can exist.',
+    };
+  }
+  return {
+    headline: `${count(i.connections, 'connection', 'connections')} to GitHub.`,
+    accent:
+      i.unhealthy > 0
+        ? `${i.unhealthy} not working.`
+        : i.unchecked > 0
+          ? `${i.unchecked} not checked yet.`
+          : 'Every one answered.',
+    lede:
+      i.lowQuota > 0
+        ? `${count(i.lowQuota, 'App is', 'Apps are')} below 10% of the API quota.`
+        : i.pools > 0
+          ? `${count(i.pools, 'pool depends', 'pools depend')} on them.`
+          : 'No pool depends on them yet.',
+  };
+}
+
+export function repairsLine(r: { offers: number; running: number }): BandLine {
+  if (r.offers === 0 && r.running === 0) {
+    return {
+      headline: 'Nothing needs you.',
+      accent: 'No repairs are running.',
+      lede: 'Eli is watching for failed PR checks.',
+    };
+  }
+  return {
+    headline:
+      r.offers > 0
+        ? `${count(r.offers, 'offer needs', 'offers need')} review.`
+        : 'Nothing needs you.',
+    accent: `${count(r.running, 'repair is', 'repairs are')} running.`,
+    lede:
+      r.offers > 0
+        ? 'Failed PR checks on Ask me first repositories.'
+        : 'Eli is working through failed checks.',
+  };
+}
+
+export function migrateLine(): BandLine {
+  return {
+    headline: 'Move repositories onto this fleet.',
+    accent: 'You see every diff first.',
+    lede: 'Rewrite runs-on and open a pull request for each repository.',
+  };
+}
+
+export function kennelLine(k: {
+  enabled: boolean;
+  repositories: number;
+  attention: number;
+  clean: number;
+  first: { name: string; findings: string; public: boolean } | null;
+  more: number;
+}): BandLine {
+  if (!k.enabled) {
+    return {
+      headline: 'Kennel Club is off.',
+      accent: '',
+      lede: 'Turn it on to check the repositories this fleet serves.',
+    };
+  }
+  if (k.repositories === 0) {
+    return {
+      headline: 'Nothing to look at yet.',
+      accent: '',
+      lede: 'Kennel Club checks the repositories this fleet has run jobs for.',
+    };
+  }
+  const clean =
+    k.clean > 0 ? `${count(k.clean, 'repository', 'repositories')} with nothing open.` : '';
+  if (k.attention === 0) {
+    return {
+      headline: 'No repository needs attention.',
+      accent: clean,
+      lede: 'No repository has an error or a warning open.',
+    };
+  }
+  return {
+    headline: `${count(k.attention, 'repository needs', 'repositories need')} attention.`,
+    accent: clean,
+    lede: k.first
+      ? `${k.first.name} has ${k.first.findings} open.${
+          k.first.public
+            ? ' It is public, so a pull request from a stranger can reach this fleet.'
+            : ''
+        }${
+          k.more > 0
+            ? ` ${count(k.more, 'more repository needs', 'more repositories need')} attention.`
+            : ''
+        }`
+      : 'Open the repositories to see what is wrong.',
+  };
+}
+
 /** A window as describeWindow words it ("1 hour", "24 hours") as a period: "the last hour". */
 export function windowPhrase(window: string): string {
   return window ? `the last ${window.replace(/^1 /, '')}` : 'the reported window';

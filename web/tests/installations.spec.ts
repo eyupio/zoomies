@@ -2,13 +2,13 @@ import { expect, test } from '@playwright/test';
 import { goto } from './support/fixtures';
 
 /*
- * The summary tiles used to sit inside the loading skeleton, so an operator saw
- * four zeros for as long as the request took and then no tiles at all -- and the
- * quota tile, which is fed by readings that arrive after the list, could never
- * show one. They belong with the content, where they are computed from what
+ * The figures used to sit inside the loading skeleton, so an operator saw four
+ * zeros for as long as the request took and then no figures at all -- and the
+ * quota figure, which is fed by readings that arrive after the list, could
+ * never show one. They belong in the band, where they are computed from what
  * loaded.
  */
-test('the summary tiles show the loaded connections and stay once the page has loaded', async ({
+test('the band figures show the loaded connections and stay once the page has loaded', async ({
   page,
 }) => {
   // An App nearly out of quota, which is the reading the fourth tile exists for.
@@ -20,9 +20,13 @@ test('the summary tiles show the loaded connections and stay once the page has l
   );
   await goto(page, '/installations', 'Installations');
 
-  // A tile has no role of its own: it is a term and its definition.
-  const tile = (label: string) => page.locator('.metric').filter({ hasText: label });
-  await expect(tile('GitHub connections').locator('dd').first()).toHaveText('1');
-  await expect(tile('Low API quota').locator('dd').first()).toHaveText('1');
-  await expect(tile('Low API quota')).toContainText('1 quota readings');
+  // A band figure has no role of its own: it is a term and its definition.
+  const tile = (label: string) =>
+    page.getByTestId('band-installations').locator('.stat').filter({ hasText: label });
+  await expect(tile('GitHub connection').locator('.value')).toHaveText('1');
+  await expect(tile('Low API quota').locator('.value')).toHaveText('1');
+  // The quota reading is the figure's help, where a screen reader reaches it.
+  await expect(
+    page.getByTestId('band-installations').getByText('1 quota readings. Below 10% remaining.'),
+  ).toHaveCount(1);
 });

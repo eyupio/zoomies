@@ -25,6 +25,8 @@
   import ActivityStatus from '$lib/jobs/ActivityStatus.svelte';
   import { queuedActivity } from '$lib/jobs/activity-status';
   import { prefs } from '$lib/state/prefs.svelte';
+  import { visualStyle } from '$lib/state/ui-style.svelte';
+  import { viewport } from '$lib/state/viewport.svelte';
   import Button from '$lib/components/Button.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
@@ -53,6 +55,10 @@
   import type { ProvisioningAction as Action } from '$lib/jobs/provisioning';
 
   type Status = ProvisioningStatus;
+  // The search stays in view and the rest of the filters fold behind a summary,
+  // as on Jobs: on a phone the controls otherwise filled the screen and the
+  // queue itself was entirely below the fold.
+  const compact = $derived(visualStyle.choice === 'mission-control' && viewport.phone);
   // The labels come from the shared map so the button here, the Jobs page's
   // filter chip and the badge on a job row all call the same state the same
   // thing.
@@ -420,6 +426,7 @@
   <div class="filters-panel">
     <JobFilters
       queue
+      {compact}
       value={filters}
       {facets}
       pools={fleet.pools}
@@ -767,8 +774,10 @@
     overflow-wrap: anywhere;
   }
   @media (max-width: 767px) {
+    /* A phone folds the filters away; the sentence explaining how they combine
+       would then be the largest thing on the screen before the queue. */
     .filter-hint {
-      flex-basis: 100%;
+      display: none;
     }
     .selection-bar {
       position: static;

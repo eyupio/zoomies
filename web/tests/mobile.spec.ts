@@ -236,6 +236,31 @@ test('the grids stay inside the screen instead of overflowing it', async ({ page
 });
 
 /*
+ * On a phone the Queue and Workflows filter sets were a wall of menus, dates
+ * and switches that filled the screen before the first row. Jobs already folds
+ * them behind a summary; these two pages now do the same, so the search stays
+ * in view and the rows are one press away rather than a screenful.
+ */
+test('a Mission Control phone folds the Queue and Workflows filters behind a summary', async ({
+  page,
+}) => {
+  for (const [path, heading] of [
+    ['/queue', 'Queue'],
+    ['/workflows', 'Workflows'],
+  ] as const) {
+    await goto(page, path, heading);
+    const disclosure = page.locator('details.advanced');
+    const summary = disclosure.locator('summary');
+    await expect(summary).toBeVisible();
+    await expect(summary).toContainText('Filters (');
+    await expect(disclosure.getByRole('button', { name: 'Repository' })).toBeHidden();
+
+    await summary.click();
+    await expect(disclosure.getByRole('button', { name: 'Repository' })).toBeVisible();
+  }
+});
+
+/*
  * The grids above were the list pages. A detail page is the other half of the
  * phone story and had no test at all, which is how this shipped: a pool page
  * on a 412px phone was 500-odd pixels wide, so the name was cut off mid-word,
