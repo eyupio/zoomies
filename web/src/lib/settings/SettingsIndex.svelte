@@ -5,11 +5,16 @@
 -->
 <script lang="ts">
   import { ChevronRight, Lock } from '@lucide/svelte';
+  import { roleLabel } from '$lib/roles';
   import { session } from '$lib/state/session.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import { SETTINGS_GROUPS, settingsPath } from './pages';
 
   const uid = $props.id();
+  const initial = $derived(session.displayName.trim().charAt(0).toUpperCase() || '?');
+  // The demo and a misconfigured instance have no role; "Unknown" is true of a
+  // role and false of a last line about why there is none.
+  const roleLine = $derived(session.authDisabled ? 'Authentication off' : roleLabel(session.role));
 </script>
 
 <PageHeader
@@ -17,12 +22,32 @@
   subtitle="Your account, who else can sign in, and what Zoomies runs with."
 />
 
+<!--
+    Your own account is the first thing a person looks for in Settings, so it
+    is the one card above the groups rather than a row inside "You". The
+    accessible name still begins with "Account", so every link to the page
+    still says the same thing.
+  -->
+<a
+  class="profile"
+  href={settingsPath('account')}
+  aria-label="Account, who you are signed in as. {session.displayName}, {roleLine}."
+>
+  <span class="avatar" aria-hidden="true">{initial}</span>
+  <span class="text">
+    <span class="kicker">Signed in as</span>
+    <span class="label">{session.displayName}</span>
+    <span class="description">{roleLine}</span>
+  </span>
+  <ChevronRight size={16} aria-hidden="true" />
+</a>
+
 <div class="groups">
   {#each SETTINGS_GROUPS as group, i (group.label)}
     <section aria-labelledby="settings-index-{uid}-{i}">
       <h2 id="settings-index-{uid}-{i}">{group.label}</h2>
       <ul>
-        {#each group.pages as page (page.id)}
+        {#each group.pages.filter((page) => page.id !== 'account') as page (page.id)}
           {@const locked = !session.can(page.needs)}
           <li>
             <a href={settingsPath(page.id)} class:locked>
@@ -47,6 +72,43 @@
 </div>
 
 <style>
+  .profile {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-3);
+    margin-bottom: var(--z-space-5);
+    padding: var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface);
+    color: var(--z-text);
+    text-decoration: none;
+  }
+  .profile:hover {
+    background: var(--z-surface-hover);
+  }
+  .avatar {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: var(--z-space-10);
+    height: var(--z-space-10);
+    border-radius: var(--z-radius-full);
+    background: var(--z-accent-subtle);
+    color: var(--z-accent);
+    font-size: var(--z-text-base);
+    font-weight: var(--z-weight-semibold);
+  }
+  .kicker {
+    display: block;
+    margin-bottom: var(--z-nudge-2);
+    font-size: var(--z-text-2xs);
+    line-height: var(--z-leading-2xs);
+    font-weight: var(--z-weight-medium);
+    letter-spacing: var(--z-tracking-wide);
+    text-transform: uppercase;
+    color: var(--z-text-subtle);
+  }
   .groups {
     display: flex;
     flex-direction: column;

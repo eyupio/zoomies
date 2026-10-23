@@ -25,9 +25,14 @@
 
   const canAdmin = $derived(session.can('admin'));
   const uid = $props.id();
+  const initial = $derived(session.displayName.trim().charAt(0).toUpperCase() || '?');
+  const signedInAs = $derived(
+    session.authDisabled ? 'Authentication off' : roleLabel(session.role),
+  );
 </script>
 
 <nav class="rail" aria-label="Settings">
+  <p class="rail-title">Settings</p>
   {#each SETTINGS_GROUPS as group, i (group.label)}
     <div class="group">
       <p class="group-label" id="settings-group-{uid}-{i}">{group.label}</p>
@@ -63,14 +68,48 @@
       )} role, so those pages are listed but not open to you.
     </p>
   {/if}
+
+  <!-- The section is about a person as much as a controller, so the rail says
+       whose settings these are. It is not a second link to Account: that page
+       already has its own row, and two entries for one destination read as two
+       destinations. -->
+  <div class="me">
+    <span class="avatar" aria-hidden="true">{initial}</span>
+    <span class="me-text">
+      <span class="me-name">{session.displayName}</span>
+      <span class="me-role">{signedInAs}</span>
+    </span>
+  </div>
 </nav>
 
 <style>
+  /*
+    The rail is a panel of its own rather than a column of links floating on
+    the page: the section has a beginning, its groups, and the person it is
+    about. The width keeps the links at the measure they had before the card's
+    padding took some of it back.
+  */
   .rail {
     position: sticky;
     top: calc(var(--z-topbar-height) + var(--z-space-6));
     flex: none;
-    width: var(--z-settings-rail-width);
+    width: calc(var(--z-settings-rail-width) + var(--z-space-6));
+    max-height: calc(100dvh - (var(--z-topbar-height) + var(--z-space-6)) - var(--z-space-6));
+    overflow-y: auto;
+    padding: var(--z-space-3);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-lg);
+    background: var(--z-surface);
+  }
+  .rail-title {
+    margin: 0 0 var(--z-space-3);
+    padding: 0 var(--z-space-2);
+    font-size: var(--z-text-2xs);
+    line-height: var(--z-leading-2xs);
+    font-weight: var(--z-weight-semibold);
+    letter-spacing: var(--z-tracking-wide);
+    text-transform: uppercase;
+    color: var(--z-text-muted);
   }
   .group + .group {
     margin-top: var(--z-space-4);
@@ -134,10 +173,52 @@
     padding: var(--z-space-3);
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
-    background: var(--z-surface);
+    background: var(--z-surface-sunken);
     font-size: var(--z-text-2xs);
     line-height: var(--z-leading-2xs);
     color: var(--z-text-muted);
+  }
+  .me {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    margin-top: var(--z-space-4);
+    padding: var(--z-space-3) var(--z-space-2) 0;
+    border-top: var(--z-border-width) solid var(--z-border);
+  }
+  .avatar {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: var(--z-space-8);
+    height: var(--z-space-8);
+    border-radius: var(--z-radius-full);
+    background: var(--z-accent-subtle);
+    color: var(--z-accent);
+    font-size: var(--z-text-2xs);
+    font-weight: var(--z-weight-semibold);
+  }
+  .me-text {
+    display: block;
+    min-width: 0;
+  }
+  .me-name,
+  .me-role {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .me-name {
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    font-weight: var(--z-weight-medium);
+    color: var(--z-text);
+  }
+  .me-role {
+    font-size: var(--z-text-2xs);
+    line-height: var(--z-leading-2xs);
+    color: var(--z-text-subtle);
   }
   /*
     A tablet has the sidebar collapsed to icons and still not enough width for
@@ -152,13 +233,26 @@
          keeps them inside its own scroll area. Static lets them escape it and
          widen the page. */
       position: relative;
+      /* The sticky offset above belongs to the vertical rail. Left on, it is
+         honoured by a relatively positioned strip too, and moved the tabs down
+         over the page's own heading. */
+      top: auto;
       display: flex;
       align-items: flex-start;
       gap: var(--z-space-2);
       width: auto;
       max-width: 100%;
+      max-height: none;
       overflow-x: auto;
-      padding-bottom: var(--z-space-1);
+      /* The strip is navigation, not a panel: the card around the rail has no
+         meaning when the same list runs across the page. */
+      padding: 0 0 var(--z-space-1);
+      border: 0;
+      background: none;
+    }
+    .rail-title,
+    .me {
+      display: none;
     }
     .group + .group {
       margin-top: 0;

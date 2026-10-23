@@ -32,6 +32,8 @@
     listJobs,
   } from '$lib/api/client';
   import type { Schemas } from '$lib/api/types';
+  import PageBand from '$lib/bands/PageBand.svelte';
+  import { repairsLine } from '$lib/bands/lines';
   import Button from '$lib/components/Button.svelte';
   import Disclosure from '$lib/components/Disclosure.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
@@ -69,6 +71,8 @@
   let offers = $state<Schemas['EliOpportunity'][]>([]);
   let cases = $state<Record<string, CaseView>>({});
   let offersLoaded = $state(false);
+  /** The first read has finished, even if part of it failed. */
+  let readOnce = $state(false);
   let running = $state<Schemas['EliRepair'][]>([]);
   let runningTotal = $state(0);
   let error = $state('');
@@ -136,6 +140,9 @@
       historySummary.total === 1 ? 'repair' : 'repairs'
     }${historySummary.filtered ? ' matching' : ''}${latest}`;
   });
+  const bandLine = $derived(
+    readOnce && !error ? repairsLine({ offers: offers.length, running: runningTotal }) : null,
+  );
   const navItems = $derived([
     { id: 'now', label: 'Now' },
     { id: 'needs', label: 'Needs you', count: offers.length },
@@ -203,6 +210,7 @@
       offersLoaded = true;
       await readCases(offers);
     }
+    readOnce = true;
   }
 
   /** What the page header's Refresh means here: read everything again, offers included. */
@@ -294,6 +302,8 @@
     <Button icon={GitPullRequest} onclick={() => (dialogOpen = true)}>Repair a PR</Button>
     <Button variant="ghost" icon={Settings2} href="/repairs/setup">Setup</Button>
   </PageHeader>
+
+  <PageBand page="repairs" line={bandLine} />
 
   <SectionNav items={navItems} label="On this page" />
 

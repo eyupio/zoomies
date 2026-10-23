@@ -105,9 +105,17 @@
       ? poolSignals(fleet.pools, fleet.stats).find((p) => p.pool.id === poolId)?.queued
       : finite(fleet.stats?.fleet?.queued_jobs),
   );
+  // The demand above says what is waiting; this says what is being worked on,
+  // so a quiet queue beside a busy fleet is not read as an idle one.
+  const runningNow = $derived(
+    poolId
+      ? poolSignals(fleet.pools, fleet.stats).find((p) => p.pool.id === poolId)?.busy
+      : finite(fleet.stats?.runners?.busy),
+  );
   const bandFigures = $derived(
     demandStats({
       queued: queuedNow ?? null,
+      running: runningNow ?? null,
       queuedWarning: queueTone(queuedNow, session.meta?.queue_warning_threshold) === 'warning',
       counts: demand.counts,
       oldest: demand.oldest,

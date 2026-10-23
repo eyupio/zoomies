@@ -35,7 +35,6 @@
 <script lang="ts">
   import { getUsage } from '$lib/api/client';
   import type { UsageRow, UsageGrouping } from '$lib/api/types';
-  import MetricGrid from '$lib/components/MetricGrid.svelte';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Segmented from '$lib/components/Segmented.svelte';
@@ -76,7 +75,7 @@
     type Interval,
   } from '$lib/insights/activity';
   import { remember, remembered } from '$lib/state/prefs.svelte';
-  import { formatDuration, formatNumber, NO_VALUE, toMillis } from '$lib/format';
+  import { formatNumber, toMillis } from '$lib/format';
   let {
     rows,
     grouping,
@@ -112,35 +111,6 @@
   /** The square the matrix has chosen, which is also the crosshair's moment. */
   let selected = $state<number | null>(null);
   let mode = $state<ActivityMode>('outcomes');
-
-  const total = $derived(
-    rows.reduce(
-      (a, r) => ({
-        jobs: a.jobs + r.jobs,
-        completed: a.completed + r.jobs_completed,
-        succeeded: a.succeeded + (r.succeeded ?? 0),
-        failed: a.failed + (r.failed ?? 0),
-        cancelled: a.cancelled + (r.cancelled ?? 0),
-        unknown: a.unknown + (r.unknown ?? 0),
-        seconds: a.seconds + r.job_execution_seconds,
-        allocated: a.allocated + (r.allocated_runner_seconds ?? 0),
-        starts: a.starts + r.jobs_started,
-        wait: a.wait + (r.average_queue_wait_seconds ?? 0) * r.jobs_started,
-      }),
-      {
-        jobs: 0,
-        completed: 0,
-        succeeded: 0,
-        failed: 0,
-        cancelled: 0,
-        unknown: 0,
-        seconds: 0,
-        allocated: 0,
-        starts: 0,
-        wait: 0,
-      },
-    ),
-  );
 
   /**
    * The API cuts hourly buckets for a window of two days or less and daily
@@ -251,54 +221,6 @@
     }
     return out;
   }
-  const metrics = $derived([
-    {
-      label: 'Jobs queued',
-      value: formatNumber(total.jobs),
-      detail: `${formatNumber(total.starts)} started in this window`,
-    },
-    {
-      label: 'Success rate',
-      value: total.completed
-        ? `${((100 * total.succeeded) / total.completed).toFixed(1)}%`
-        : NO_VALUE,
-      detail: `${formatNumber(total.succeeded)} of ${formatNumber(total.completed)} completed`,
-      tone: 'success' as const,
-    },
-    {
-      label: 'Failed jobs',
-      value: formatNumber(total.failed),
-      detail: `${formatNumber(total.cancelled)} cancelled / skipped · ${formatNumber(total.unknown)} unknown`,
-      tone: total.failed ? ('danger' as const) : ('neutral' as const),
-    },
-    {
-      label: 'Execution hours',
-      value: (total.seconds / 3600).toFixed(2),
-      detail: 'Running time inside this window',
-    },
-    {
-      label: 'Average queue wait',
-      value: total.starts ? formatDuration((1000 * total.wait) / total.starts) : NO_VALUE,
-      detail: 'Weighted across jobs that started',
-    },
-    {
-      label: 'Runner busy share',
-      // A share only while the runner records are all there: runners are
-      // kept for less time than jobs, so a range that reaches past runner
-      // retention has its jobs' hours and only some of its runners', and the
-      // ratio is then a number that means nothing rather than a percentage.
-      value:
-        total.allocated && total.allocated >= total.seconds
-          ? `${((100 * total.seconds) / total.allocated).toFixed(1)}%`
-          : NO_VALUE,
-      detail:
-        grouping === 'repository' || grouping === 'workflow'
-          ? 'Allocation not attributable'
-          : total.allocated && total.allocated < total.seconds
-            ? 'Runner records for part of this range are no longer retained'
-            : `${(total.allocated / 3600).toFixed(2)} allocated runner-hours`,
-    },
-  ]);
   /**
    * Runner-hours belong to pools and installations: a runner idles on behalf
    * of a pool and never on behalf of a repository or a workflow, so at those
@@ -474,7 +396,6 @@
   />
 {/snippet}
 
-<MetricGrid items={metrics} />
 <div class="insights">
   <ChartPanel title="Usage over time" {description}>
     {#snippet actions()}

@@ -15,6 +15,8 @@ const ORDER: readonly DemandStatus[] = ['ready', 'expedited', 'paused', 'deleted
 export interface DemandInput {
   /** Jobs waiting for a runner; null or undefined while the figure has not arrived. */
   queued: number | null | undefined;
+  /** Runners executing a job now; null or undefined while the figure has not arrived. */
+  running: number | null | undefined;
   /** The queue is deep enough to be worth the warning colour on a plain panel. */
   queuedWarning: boolean;
   /** Provisioning counts by status; null until the first answer. */
@@ -37,6 +39,15 @@ export function demandStats(input: DemandInput): BandStat[] {
       hint: 'Jobs waiting for a runner. Open them.',
       href: `/jobs?state=queued${poolQuery(input.poolId)}`,
       tone: input.queuedWarning ? 'warning' : undefined,
+    },
+    {
+      label: 'Running',
+      value:
+        input.running === null || input.running === undefined
+          ? undefined
+          : formatNumber(input.running),
+      hint: 'Runners executing a job right now. Open them.',
+      href: `/runners?state=busy${poolQuery(input.poolId)}`,
     },
   ];
   for (const status of ORDER) {

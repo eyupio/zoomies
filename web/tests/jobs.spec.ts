@@ -167,6 +167,7 @@ test('a host facet narrows the jobs to the ones that ran there, and agrees with 
 
   // A queued job has not run anywhere, so the Queue offers no host to filter by.
   await goto(page, '/queue');
+  await openFilters(page);
   await expect(facetTrigger(page, 'Pool')).toBeVisible();
   await expect(facetTrigger(page, 'Host')).toHaveCount(0);
 });

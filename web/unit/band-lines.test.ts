@@ -2,11 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   hostsLine,
+  installationsLine,
+  kennelLine,
+  migrateLine,
   windowPhrase,
   jobsLine,
   poolsLine,
   providersLine,
   queueLine,
+  repairsLine,
   workflowsLine,
 } from '../src/lib/bands/lines.ts';
 
@@ -106,4 +110,123 @@ test('a window is worded as a period, never as "the last 1 hour"', () => {
   assert.equal(windowPhrase('24 hours'), 'the last 24 hours');
   assert.equal(windowPhrase('2 days'), 'the last 2 days');
   assert.equal(windowPhrase(''), 'the reported window');
+});
+
+test('installations say how many Apps there are, and what needs a look', () => {
+  const line = installationsLine({
+    connections: 2,
+    healthy: 1,
+    unhealthy: 1,
+    unchecked: 0,
+    pools: 3,
+    lowQuota: 1,
+  });
+  assert.equal(line.headline, '2 connections to GitHub.');
+  assert.equal(line.accent, '1 not working.');
+  assert.equal(line.lede, '1 App is below 10% of the API quota.');
+  assert.equal(
+    installationsLine({
+      connections: 1,
+      healthy: 1,
+      unhealthy: 0,
+      unchecked: 0,
+      pools: 1,
+      lowQuota: 0,
+    }).lede,
+    '1 pool depends on them.',
+  );
+  assert.equal(
+    installationsLine({
+      connections: 0,
+      healthy: 0,
+      unhealthy: 0,
+      unchecked: 0,
+      pools: 0,
+      lowQuota: 0,
+    }).headline,
+    'GitHub is not connected.',
+  );
+});
+
+test('repairs say what needs a person and what is running', () => {
+  const line = repairsLine({ offers: 2, running: 1 });
+  assert.equal(line.headline, '2 offers need review.');
+  assert.equal(line.accent, '1 repair is running.');
+  assert.equal(repairsLine({ offers: 1, running: 0 }).headline, '1 offer needs review.');
+  assert.equal(repairsLine({ offers: 0, running: 2 }).headline, 'Nothing needs you.');
+  assert.equal(repairsLine({ offers: 0, running: 0 }).headline, 'Nothing needs you.');
+  assert.equal(repairsLine({ offers: 0, running: 0 }).accent, 'No repairs are running.');
+});
+
+test('migrate says what the wizard will do before it asks for anything', () => {
+  const line = migrateLine();
+  assert.equal(line.headline, 'Move repositories onto this fleet.');
+  assert.equal(line.accent, 'You see every diff first.');
+});
+
+test('Kennel Club says what needs attention, and names the first repository', () => {
+  const line = kennelLine({
+    enabled: true,
+    repositories: 12,
+    notTracked: 0,
+    attention: 2,
+    clean: 7,
+    first: { name: 'acme/widgets', findings: '2 errors and a warning', public: true },
+    more: 1,
+  });
+  assert.equal(line.headline, '2 repositories need attention.');
+  assert.equal(line.accent, '7 repositories with nothing open.');
+  assert.match(line.lede, /^acme\/widgets has 2 errors and a warning open\./);
+  assert.match(line.lede, /It is public/);
+  assert.match(line.lede, /1 more repository needs attention\.$/);
+
+  const quiet = kennelLine({
+    enabled: true,
+    repositories: 4,
+    notTracked: 0,
+    attention: 0,
+    clean: 4,
+    first: null,
+    more: 0,
+  });
+  assert.equal(quiet.headline, 'No repository needs attention.');
+  assert.equal(quiet.lede, 'No repository has an error or a warning open.');
+
+  assert.equal(
+    kennelLine({
+      enabled: false,
+      repositories: 0,
+      notTracked: 0,
+      attention: 0,
+      clean: 0,
+      first: null,
+      more: 0,
+    }).headline,
+    'Kennel Club is off.',
+  );
+});
+
+test('Kennel Club tells a repository somebody set aside from one never checked', () => {
+  const setAside = kennelLine({
+    enabled: true,
+    repositories: 0,
+    notTracked: 4,
+    attention: 0,
+    clean: 0,
+    first: null,
+    more: 0,
+  });
+  assert.equal(setAside.headline, 'Every repository is set aside.');
+  assert.equal(setAside.lede, 'Kennel Club has been told not to look at them.');
+
+  const empty = kennelLine({
+    enabled: true,
+    repositories: 0,
+    notTracked: 0,
+    attention: 0,
+    clean: 0,
+    first: null,
+    more: 0,
+  });
+  assert.equal(empty.headline, 'No repositories to check yet.');
 });

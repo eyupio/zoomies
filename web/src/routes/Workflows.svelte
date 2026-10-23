@@ -51,6 +51,8 @@
   import ActivityStatus from '$lib/jobs/ActivityStatus.svelte';
   import { workflowActivity } from '$lib/jobs/activity-status';
   import { prefs } from '$lib/state/prefs.svelte';
+  import { visualStyle } from '$lib/state/ui-style.svelte';
+  import { viewport } from '$lib/state/viewport.svelte';
   import { endOfDay, startOfDay } from '$lib/jobs/DateRange.svelte';
   import { jobFilterState } from '$lib/jobs/filter-state.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
@@ -74,6 +76,10 @@
   const inHand = $derived(filterState.inHand);
   const narrowed = $derived(filterState.narrowed);
   const { patch, clearFilters, setView } = filterState;
+  // The search stays in view and the rest of the filters fold behind a summary,
+  // as on Jobs: on a phone the controls otherwise filled the screen and the
+  // runs themselves were entirely below the fold.
+  const compact = $derived(visualStyle.choice === 'mission-control' && viewport.phone);
 
   /* -- facets and live rows -------------------------------------------------- */
 
@@ -603,6 +609,7 @@
   </div>
 
   <JobFilters
+    {compact}
     statusChips={view === ''}
     value={filters}
     {facets}

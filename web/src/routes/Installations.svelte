@@ -9,7 +9,9 @@
 -->
 <script lang="ts">
   import { supportHint } from '$lib/errors';
-  import MetricGrid from '$lib/components/MetricGrid.svelte';
+  import PageBand from '$lib/bands/PageBand.svelte';
+  import type { BandStat } from '$lib/bands/stats';
+  import { installationsLine } from '$lib/bands/lines';
 
   import { Plug, Plus } from '@lucide/svelte';
   import {
@@ -20,7 +22,7 @@
   } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { Installation, InstallationHealth } from '$lib/api/types';
-  import { pluralise } from '$lib/format';
+  import { formatNumber, pluralise } from '$lib/format';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
@@ -51,7 +53,7 @@
   // swapping the cards for skeletons each time made the one page an operator
   // watches during their first job blink its content away -- which reads as the
   // page being broken. The last known truth is better than a blank panel.
-  let loadedOnce = false;
+  let loadedOnce = $state(false);
 
   /**
    * The list, and each App's quota behind it. A function rather than an inline
@@ -212,6 +214,60 @@
   }
 
   const unhealthy = $derived(installations.filter((i) => i.healthy === false).length);
+  const healthy = $derived(installations.filter((i) => i.healthy === true).length);
+  const unchecked = $derived(installations.filter((i) => i.healthy === undefined).length);
+  const pools = $derived(installations.reduce((n, i) => n + (i.pool_count ?? 0), 0));
+  const lowQuota = $derived(
+    Object.values(rates).filter(
+      (r) => r.limit && r.remaining !== undefined && r.remaining / r.limit < 0.1,
+    ).length,
+  );
+
+  const bandLine = $derived(
+    loadedOnce
+      ? installationsLine({
+          connections: installations.length,
+          healthy,
+          unhealthy,
+          unchecked,
+          pools,
+          lowQuota,
+        })
+      : null,
+  );
+  // The figures the header used to carry, in the band's own strip (or the plain
+  // panel a phone gets). They are computed from the list and the quota readings,
+  // so they do not show until there is something to count.
+  const bandFigures = $derived<BandStat[]>(
+    loadedOnce
+      ? [
+          {
+            label: installations.length === 1 ? 'GitHub connection' : 'GitHub connections',
+            value: formatNumber(installations.length),
+            hint: 'Installed GitHub Apps.',
+          },
+          {
+            label: 'Healthy connections',
+            value: formatNumber(healthy),
+            hint: `${unhealthy} failing · ${unchecked} not checked.`,
+          },
+          {
+            label: 'Connected pools',
+            value: formatNumber(pools),
+            hint: 'Pools depending on these connections.',
+            href: '/pools',
+          },
+          {
+            label: 'Low API quota',
+            value: formatNumber(lowQuota),
+            hint: Object.keys(rates).length
+              ? `${Object.keys(rates).length} quota readings. Below 10% remaining.`
+              : 'No quota readings yet.',
+            tone: lowQuota > 0 ? 'warning' : undefined,
+          },
+        ]
+      : [],
+  );
 </script>
 
 <PageHeader
@@ -219,20 +275,14 @@
   subtitle="The GitHub App connections Zoomies uses to create runners and read queued jobs."
   onrefresh={() => load(new AbortController().signal)}
 >
-  {#snippet meta()}
-    {#if installations.length > 0}
-      <p class="summary" class:bad={unhealthy > 0}>
-        {pluralise(installations.length, 'connection')}
-        {#if unhealthy > 0}· {unhealthy} not working{/if}
-      </p>
-    {/if}
-  {/snippet}
   {#if canAdmin}
     <Button variant="primary" icon={Plus} onclick={() => (connectOpen = true)}>
       Connect GitHub
     </Button>
   {/if}
 </PageHeader>
+
+<PageBand page="installations" line={bandLine} stats={bandFigures} />
 
 <div class="content">
   <LoadingBoundary
@@ -267,46 +317,6 @@
         {/if}
       </EmptyState>
     {/snippet}
-
-    <!--
-      Here rather than in the skeleton: tiles computed from a list that has not
-      arrived read zero, and the quota tile is fed by readings taken after it.
-    -->
-    <MetricGrid
-      strip
-      items={[
-        {
-          label: 'GitHub connections',
-          value: String(installations.length),
-          detail: 'Installed GitHub Apps',
-        },
-        {
-          label: 'Healthy connections',
-          value: String(installations.filter((i) => i.healthy === true).length),
-          detail: `${installations.filter((i) => i.healthy === false).length} failing · ${installations.filter((i) => i.healthy === undefined).length} not checked`,
-        },
-        {
-          label: 'Connected pools',
-          value: String(installations.reduce((n, i) => n + (i.pool_count ?? 0), 0)),
-          detail: 'Pools depending on these connections',
-          href: '/pools',
-        },
-        {
-          label: 'Low API quota',
-          value: String(
-            Object.values(rates).filter(
-              (r) => r.limit && r.remaining !== undefined && r.remaining / r.limit < 0.1,
-            ).length,
-          ),
-          detail: `Below 10% remaining · ${Object.keys(rates).length} quota readings`,
-          tone: Object.values(rates).some(
-            (r) => r.limit && r.remaining !== undefined && r.remaining / r.limit < 0.1,
-          )
-            ? 'warning'
-            : 'neutral',
-        },
-      ]}
-    />
 
     <div class="list">
       {#each installations as installation (installation.id)}
@@ -391,14 +401,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--z-space-6);
-  }
-  .summary {
-    margin: 0;
-    font-size: var(--z-text-xs);
-    color: var(--z-text-muted);
-  }
-  .summary.bad {
-    color: var(--z-danger);
   }
   .list {
     display: flex;

@@ -187,6 +187,11 @@
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+    /* In the grid the cell is the width; a tile that stayed as wide as its own
+       word left the columns looking ragged, with a different gap after each. */
+    .strip .stat {
+      flex: 1;
+    }
     .more {
       grid-column: 1 / -1;
       margin-inline-start: 0;

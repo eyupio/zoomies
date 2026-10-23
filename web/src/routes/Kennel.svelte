@@ -12,8 +12,8 @@
     attention  the repositories to open first, and the checks behind them
     best       the repositories with nothing open
 
-  The answer comes first. A verdict band says what needs attention and what is
-  clean, the full counts follow as a compact strip, and the depth is below it:
+  The answer comes first. A band says what needs attention and what is clean,
+  the full counts follow as a compact strip, and the depth is below it:
   the checks with nothing open and the sources that were read are one press
   away, not another row of equal cards.
 
@@ -24,6 +24,9 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { Trophy } from '@lucide/svelte';
+  import PageBand from '$lib/bands/PageBand.svelte';
+  import { kennelLine } from '$lib/bands/lines';
+  import type { BandStat } from '$lib/bands/stats';
   import { getKennelOverview, listKennelChecks } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { KennelCatalogueEntry, KennelOverview } from '$lib/api/types';
@@ -137,6 +140,61 @@
   const floorText = $derived(overview ? floorSentence(overview) : '');
   const bestWord = $derived(kennelStatus('best_in_show', undefined, prefs.quirkyStatus).label);
   const firstAttention = $derived(overview?.attention[0]);
+
+  const bandLine = $derived.by(() => {
+    if (!loaded || !overview) return null;
+    const first = firstAttention;
+    return kennelLine({
+      enabled: overview.enabled,
+      repositories: overview.repositories,
+      notTracked: overview.not_tracked,
+      attention: overview.states.attention,
+      clean: overview.states.best_in_show,
+      first: first
+        ? {
+            name: first.name,
+            findings: openFindingsText(first.counts),
+            public: first.visibility === 'public',
+          }
+        : null,
+      more: Math.max(0, overview.states.attention - overview.attention.length),
+    });
+  });
+  const bandStats = $derived.by<BandStat[]>(() => {
+    if (!overview || !overview.enabled || overview.repositories === 0) return [];
+    const partly = overview.states.partial + overview.states.pending;
+    return [
+      {
+        label: bestWord,
+        value: formatNumber(overview.states.best_in_show),
+        hint: 'Nothing worse than a note is open.',
+        href:
+          overview.states.best_in_show > 0
+            ? kennelListHref({ state: 'best_in_show', everything: true })
+            : undefined,
+      },
+      {
+        label: 'Partly checked',
+        value: formatNumber(partly),
+        hint: 'Something could not be read, or not looked at yet.',
+        href: partly > 0 ? kennelListHref({ incomplete: true, everything: true }) : undefined,
+      },
+      {
+        label: 'Repositories',
+        value: formatNumber(overview.repositories),
+        hint: overview.scope === 'served' ? 'This fleet has run jobs for.' : 'The App can see.',
+        href: kennelListHref({ everything: true }),
+      },
+    ];
+  });
+  const bandMore = $derived(
+    overview && overview.enabled && overview.states.attention > 0
+      ? {
+          label: 'See all findings',
+          href: kennelListHref({ state: 'attention', everything: true }),
+        }
+      : undefined,
+  );
 
   // A card opens the repositories it counts, and only when it counts some: a link
   // to an empty list is a click that finds nothing. "Partly checked" adds two
@@ -267,6 +325,16 @@
     {/snippet}
   </PageHeader>
 
+  <section id="summary" class="anchor" aria-label="Summary">
+    <PageBand
+      page="kennel"
+      line={bandLine}
+      stats={bandStats}
+      more={bandMore}
+      eyebrow={overview?.enabled && overview.states.attention > 0 ? 'Needs attention' : 'Right now'}
+    />
+  </section>
+
   <div class="content">
     <LoadingBoundary
       class="sections"
@@ -372,73 +440,6 @@
           {/if}
 
           <KennelPageNav items={navItems} />
-
-          <section id="summary" class="verdict anchor" aria-labelledby="verdict-heading">
-            <div
-              class="verdict-main"
-              data-tone={overview.states.attention > 0 ? 'danger' : 'success'}
-            >
-              <div>
-                <p class="eyebrow">
-                  {overview.states.attention > 0 ? 'Needs attention' : 'Nothing needs attention'}
-                </p>
-                <h2 id="verdict-heading">
-                  {#if overview.states.attention === 0}
-                    No repository needs attention
-                  {:else}
-                    {formatNumber(overview.states.attention)}
-                    {overview.states.attention === 1 ? 'repository needs' : 'repositories need'} attention
-                  {/if}
-                </h2>
-                {#if firstAttention}
-                  <p>
-                    <strong>{firstAttention.name}</strong>
-                    has {openFindingsText(firstAttention.counts)} open.
-                    {#if firstAttention.visibility === 'public'}
-                      It is public, so a pull request from a stranger can reach this fleet.
-                    {/if}
-                    {#if overview.states.attention > overview.attention.length}
-                      {formatNumber(overview.states.attention - overview.attention.length)} more
-                      {overview.states.attention - overview.attention.length === 1
-                        ? 'repository needs'
-                        : 'repositories need'} attention.
-                    {/if}
-                  </p>
-                {:else}
-                  <p>No repository has an error or a warning open.</p>
-                {/if}
-              </div>
-              <div class="verdict-actions">
-                {#if firstAttention}
-                  <Button href={`/kennel/repositories/${encodeURIComponent(firstAttention.id)}/ci`}>
-                    Review {firstAttention.name}
-                  </Button>
-                {/if}
-                <a href={kennelListHref({ state: 'attention', everything: true })}
-                  >See all findings</a
-                >
-              </div>
-            </div>
-            <dl class="verdict-stats">
-              <div>
-                <dt>Best in show</dt>
-                <dd class="value success">{formatNumber(overview.states.best_in_show)}</dd>
-                <dd class="detail">Nothing open</dd>
-              </div>
-              <div>
-                <dt>Partly checked</dt>
-                <dd class="value warning">
-                  {formatNumber(overview.states.partial + overview.states.pending)}
-                </dd>
-                <dd class="detail">Reads that were cut short</dd>
-              </div>
-              <div>
-                <dt>Repositories</dt>
-                <dd class="value">{formatNumber(overview.repositories)}</dd>
-                <dd class="detail">This fleet has run jobs for</dd>
-              </div>
-            </dl>
-          </section>
 
           <section class="all-counts" aria-labelledby="counts-heading">
             <h2 id="counts-heading" class="section-title">All counts</h2>
@@ -716,112 +717,6 @@
     scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
   }
 
-  .verdict {
-    display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(20rem, 0.9fr);
-    gap: var(--z-space-4);
-    align-items: stretch;
-  }
-  .verdict-main {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    gap: var(--z-space-4);
-    padding: var(--z-space-5);
-    border: var(--z-border-width) solid var(--z-border);
-    border-left-width: var(--z-border-width-rail);
-    border-radius: var(--z-radius-md);
-    background: var(--z-surface);
-  }
-  .verdict-main[data-tone='danger'] {
-    border-color: var(--z-danger-border);
-    border-left-color: var(--z-danger);
-    background: var(--z-danger-subtle);
-  }
-  .verdict-main[data-tone='success'] {
-    border-color: var(--z-idle-border);
-    border-left-color: var(--z-idle);
-    background: var(--z-idle-subtle);
-  }
-  .eyebrow {
-    margin: 0;
-    color: var(--z-text-muted);
-    font-size: var(--z-text-2xs);
-    font-weight: var(--z-weight-semibold);
-    letter-spacing: var(--z-tracking-wide);
-    text-transform: uppercase;
-  }
-  .verdict-main[data-tone='danger'] .eyebrow {
-    color: var(--z-danger);
-  }
-  .verdict-main[data-tone='success'] .eyebrow {
-    color: var(--z-idle);
-  }
-  .verdict-main h2 {
-    margin: var(--z-space-1) 0 0;
-    font-size: var(--z-text-2xl);
-    line-height: var(--z-leading-2xl);
-    letter-spacing: var(--z-tracking-tight);
-    color: var(--z-text);
-  }
-  .verdict-main p {
-    max-width: 62ch;
-    margin: var(--z-space-2) 0 0;
-    font-size: var(--z-text-sm);
-    line-height: var(--z-leading-sm);
-    color: var(--z-text);
-  }
-  .verdict-actions {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--z-space-3);
-  }
-  .verdict-stats {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    margin: 0;
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-md);
-    background: var(--z-surface);
-    overflow: hidden;
-  }
-  .verdict-stats > div {
-    display: flex;
-    flex-direction: column;
-    padding: var(--z-space-4);
-    border-right: var(--z-border-width) solid var(--z-border);
-  }
-  .verdict-stats > div:last-child {
-    border-right: 0;
-  }
-  .verdict-stats dt {
-    color: var(--z-text-muted);
-    font-size: var(--z-text-2xs);
-    line-height: var(--z-leading-2xs);
-  }
-  .verdict-stats dd {
-    margin: 0;
-  }
-  .verdict-stats .value {
-    margin-top: var(--z-space-1);
-    font-size: var(--z-text-xl);
-    line-height: var(--z-leading-xl);
-    font-weight: var(--z-weight-semibold);
-    font-variant-numeric: tabular-nums;
-  }
-  .verdict-stats .value.success {
-    color: var(--z-idle);
-  }
-  .verdict-stats .value.warning {
-    color: var(--z-pending);
-  }
-  .verdict-stats .detail {
-    margin-top: var(--z-space-1);
-    color: var(--z-text-subtle);
-    font-size: var(--z-text-2xs);
-    line-height: var(--z-leading-2xs);
-  }
   .section-title {
     margin: 0 0 var(--z-space-2);
     font-size: var(--z-text-lg);
@@ -970,7 +865,6 @@
     text-align: right;
   }
   @media (max-width: 980px) {
-    .verdict,
     .overview-grid {
       grid-template-columns: 1fr;
     }
@@ -979,13 +873,6 @@
     .counts {
       margin-left: 0;
       flex-basis: 100%;
-    }
-    .verdict-main h2 {
-      font-size: var(--z-text-xl);
-      line-height: var(--z-leading-xl);
-    }
-    .verdict-stats > div {
-      padding: var(--z-space-3);
     }
   }
 </style>

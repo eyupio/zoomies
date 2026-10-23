@@ -1,5 +1,37 @@
-import { expect, test } from '@playwright/test';
-import { goto } from './support/fixtures';
+import { expect, test, type APIRequestContext } from '@playwright/test';
+import { goto, openFilters } from './support/fixtures';
+
+type ProvisioningRow = {
+  id: string;
+  repo: string;
+  job_name: string;
+  provisioning?: string;
+  provision_now?: boolean;
+};
+
+/**
+ * A ready job whose name appears once in the whole queue.
+ *
+ * The row's actions are named by repository and job name, so two "build"
+ * jobs make a button name ambiguous. Picking a unique name is also what keeps
+ * a bulk selection over the Paused view down to the one item this test paused.
+ */
+async function uniqueReady(request: APIRequestContext): Promise<ProvisioningRow> {
+  const { items } = (await (
+    await request.get('/api/v1/provisioning?limit=500&sort=queued_at&order=asc')
+  ).json()) as { items: ProvisioningRow[] };
+  const counts = new Map<string, number>();
+  for (const row of items) counts.set(row.job_name, (counts.get(row.job_name) ?? 0) + 1);
+  const job = items.find(
+    (row) =>
+      row.provisioning !== 'paused' &&
+      row.provisioning !== 'deleted' &&
+      row.provision_now !== true &&
+      counts.get(row.job_name) === 1,
+  );
+  expect(job, 'the demo fleet has a ready job with a unique name').toBeTruthy();
+  return job!;
+}
 
 /** A job's name is not a pattern: it carries slashes and dots of its own. */
 function escapeRegExp(value: string): string {
@@ -10,10 +42,10 @@ test('queue controls persist, filter and restore demand without changing GitHub 
   page,
   request,
 }) => {
-  const response = await request.get('/api/v1/provisioning?limit=1&sort=queued_at&order=asc');
-  const { items } = await response.json();
-  expect(items.length).toBeGreaterThan(0);
-  const job = items[0];
+  // This test pauses a ready item. Asking for one is also what keeps a retry
+  // from choosing the item a timed-out first attempt left paused.
+  test.setTimeout(60_000);
+  const job = await uniqueReady(request);
   try {
     await goto(page, '/queue', 'Queue');
     const errors: string[] = [];
@@ -33,10 +65,14 @@ test('queue controls persist, filter and restore demand without changing GitHub 
     await page.reload();
     // The status filters live in the Queue band now (or its plain panel on a phone), as the
     // cards above the list used to.
-    await page
-      .getByRole('list', { name: 'Key figures' })
-      .getByRole('button', { name: /^Paused/ })
-      .click();
+    // The band's figures are the ones this clicks on a desktop. The plain
+    // panel is their home on a phone, and the band is not drawn there.
+    const paused = test.info().project.use.isMobile
+      ? page.getByRole('list', { name: 'Key figures' }).getByRole('button', { name: /^Paused/ })
+      : page.getByTestId('band-queue').getByRole('button', { name: /^Paused/ });
+    await paused.click();
+    await page.getByRole('searchbox', { name: 'Search jobs' }).fill(job.job_name);
+    await expect(page).toHaveURL(/[?&]provisioning=paused(?:&|$)/);
     await expect(page.getByRole('grid', { name: 'Provisioning queue' })).toContainText(
       job.job_name,
     );
@@ -44,16 +80,36 @@ test('queue controls persist, filter and restore demand without changing GitHub 
     await expect(page.getByText('Snapshot across all pages')).toBeVisible();
     await page.getByRole('button', { name: 'Run now', exact: true }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Run now', exact: true }).click();
-    const updated = await (await request.get(`/api/v1/jobs/${job.id}`)).json();
-    expect(updated.state).toBe('queued');
-    expect(updated.provisioning).toBe('');
-    expect(updated.provision_now).toBe(true);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    // The action is applied by the controller after the dialog closes; reading
+    // the job before the page's own report lands reads the state before it.
+    await expect(page.getByRole('status').filter({ hasText: '1 updated' })).toBeVisible();
+    // The page's report can land before the controller has written the new
+    // demand, so read the job until it settles rather than once at the wrong
+    // moment.
+    await expect
+      .poll(
+        async () => {
+          const updated = await (await request.get(`/api/v1/jobs/${job.id}`)).json();
+          return {
+            state: updated.state,
+            provisioning: updated.provisioning,
+            provision_now: updated.provision_now,
+          };
+        },
+        { timeout: 10_000 },
+      )
+      .toEqual({ state: 'queued', provisioning: '', provision_now: true });
     expect(errors).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
   } finally {
-    await request.post('/api/v1/provisioning/bulk', { data: { ids: [job.id], action: 'resume' } });
+    // A timeout closes the request context with the page, and cleanup must not
+    // replace the failure that caused it.
+    await request
+      .post('/api/v1/provisioning/bulk', { data: { ids: [job.id], action: 'resume' } })
+      .catch(() => {});
   }
 });
 
@@ -77,6 +133,7 @@ test('a start with a time of day narrows the queue to that minute', async ({ pag
   const pad = (n: number) => String(n).padStart(2, '0');
   const local = `${cut.getFullYear()}-${pad(cut.getMonth() + 1)}-${pad(cut.getDate())}T${pad(cut.getHours())}:${pad(cut.getMinutes())}`;
   await goto(page, `/queue?since=${encodeURIComponent(local)}`, 'Queue');
+  await openFilters(page);
   await expect(page.getByText('matching items')).toContainText(`${kept} matching items`);
   await expect(page.getByRole('group', { name: 'Queued between' }).getByLabel('From')).toHaveValue(
     local,
@@ -141,9 +198,7 @@ test('the save-view dialog has a Cancel and still saves on Enter', async ({ page
 test("a row's actions are one stop on the keyboard, and the arrows move along them", async ({
   page,
 }) => {
-  const response = await page.request.get('/api/v1/provisioning?limit=1&sort=queued_at&order=asc');
-  const { items } = await response.json();
-  const job = items[0];
+  const job = await uniqueReady(page.request);
   const subject = `${job.repo} / ${job.job_name}`;
 
   await goto(page, '/queue', 'Queue');
