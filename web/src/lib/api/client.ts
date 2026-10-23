@@ -1491,12 +1491,34 @@ export const getCheckoutPreview = (
     '/optimisations/checkout/previews/' + encodeURIComponent(id),
     { query: { installation_id: installation, repo }, signal },
   );
+export const approveCheckoutPreview = (
+  id: string,
+  body: import('./types').CheckoutApprovalRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').CheckoutPreview>(
+    '/optimisations/checkout/previews/' + encodeURIComponent(id) + '/approval',
+    { body, signal },
+  );
+export const publishCheckoutPreview = (
+  id: string,
+  body: import('./types').CheckoutPublicationRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').CheckoutPreview>(
+    '/optimisations/checkout/previews/' + encodeURIComponent(id) + '/publication',
+    { body, signal },
+  );
 
 export const getOptimisationEnablement = (signal?: AbortSignal) =>
   api.get<import('./types').OptimisationEnablement>('/optimisations/enablement', { signal });
 export const setOptimisationEnablement = (enabled: boolean) =>
   api.put<import('./types').OptimisationEnablement>('/optimisations/enablement', {
     body: { enabled },
+  });
+export const setOptimisationPublish = (publish: boolean) =>
+  api.put<import('./types').OptimisationEnablement>('/optimisations/enablement', {
+    body: { publish },
   });
 
 /** What Adjust recommends for a host, worked out where the controller applies it. */

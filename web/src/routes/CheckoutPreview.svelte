@@ -4,6 +4,8 @@
     inspectCheckout,
     retainCheckoutPreview,
     getCheckoutPreview,
+    approveCheckoutPreview,
+    publishCheckoutPreview,
     ApiError,
   } from '$lib/api/client';
   import type {
@@ -25,6 +27,7 @@
   import CheckoutPreviewCard from '$lib/optimisations/CheckoutPreviewCard.svelte';
   import CheckoutRunPicker from '$lib/optimisations/CheckoutRunPicker.svelte';
   import OptimisationGate from '$lib/optimisations/OptimisationGate.svelte';
+  import PublicationGate from '$lib/optimisations/PublicationGate.svelte';
 
   // What was chosen: always an installation, a repository and one exact job.
   let chosen = $state<{
@@ -173,6 +176,50 @@
       router.setQuery({ id: result.id, installation_id: chosen.installation, repo: chosen.repo });
       inspection = null;
       reviewed = false;
+    } catch (e) {
+      if (current === operation) failed(e);
+    } finally {
+      if (current === operation) busy = false;
+    }
+  }
+  async function approve() {
+    if (busy || !preview || !canCapture) return;
+    const current = begin();
+    try {
+      const result = await approveCheckoutPreview(
+        preview.id,
+        {
+          installation_id: preview.installation_id,
+          repository: preview.repository,
+          head_sha: preview.preview.head_sha,
+          source_sha256: preview.preview.source_sha256,
+        },
+        controller?.signal,
+      );
+      if (current !== operation) return;
+      preview = result;
+    } catch (e) {
+      if (current === operation) failed(e);
+    } finally {
+      if (current === operation) busy = false;
+    }
+  }
+  async function publish() {
+    if (busy || !preview || !canCapture) return;
+    const current = begin();
+    try {
+      const result = await publishCheckoutPreview(
+        preview.id,
+        {
+          installation_id: preview.installation_id,
+          repository: preview.repository,
+          head_sha: preview.preview.head_sha,
+          source_sha256: preview.preview.source_sha256,
+        },
+        controller?.signal,
+      );
+      if (current !== operation) return;
+      preview = result;
     } catch (e) {
       if (current === operation) failed(e);
     } finally {
@@ -343,9 +390,7 @@
         </details>
       </section>
     {:else}
-      <p>
-        Creating a preview needs an operator. Anyone who can read jobs can open one that was kept.
-      </p>
+      <p>Creating, opening and approving a preview needs an operator.</p>
     {/if}
 
     {#if busy}<p role="status">Working…</p>{/if}
@@ -406,50 +451,65 @@
       </section>
     {/if}
 
-    {#if preview}<CheckoutPreviewCard {preview} />{/if}
+    {#if preview}
+      {#if canCapture && preview.approval && !preview.publication}
+        <PublicationGate bind:enablement refreshKey={gateRefresh} />
+      {/if}
+      <CheckoutPreviewCard
+        {preview}
+        canApprove={canCapture}
+        approving={busy}
+        onapprove={() => void approve()}
+        canPublish={canCapture && enablement?.publish_enabled === true}
+        publishing={busy}
+        onpublish={() => void publish()}
+      />
+    {/if}
 
-    <details class="more card">
-      <summary>Open a kept preview</summary>
-      <form
-        onsubmit={(e) => {
-          e.preventDefault();
-          if (!busy && !retryBlocked) void read();
-        }}
-      >
-        <div class="fields">
-          <Field label="Installation ID" required
-            >{#snippet children(f)}<Input
-                {...f}
-                bind:value={openInstallation}
-                disabled={busy}
-                required
-                placeholder="ins_..."
-              />{/snippet}</Field
-          >
-          <Field label="Repository" required
-            >{#snippet children(f)}<Input
-                {...f}
-                bind:value={openRepo}
-                disabled={busy}
-                required
-                placeholder="OWNER/REPO"
-              />{/snippet}</Field
-          >
-          <Field label="Preview ID" required
-            >{#snippet children(f)}<Input
-                {...f}
-                bind:value={previewId}
-                disabled={busy}
-                required
-                placeholder="opv_..."
-              />{/snippet}</Field
-          >
-        </div>
-        <Button type="submit" variant="secondary" disabled={busy || retryBlocked}
-          >Open preview</Button
+    {#if canCapture}
+      <details class="more card">
+        <summary>Open a kept preview</summary>
+        <form
+          onsubmit={(e) => {
+            e.preventDefault();
+            if (!busy && !retryBlocked) void read();
+          }}
         >
-      </form>
-    </details>
+          <div class="fields">
+            <Field label="Installation ID" required
+              >{#snippet children(f)}<Input
+                  {...f}
+                  bind:value={openInstallation}
+                  disabled={busy}
+                  required
+                  placeholder="ins_..."
+                />{/snippet}</Field
+            >
+            <Field label="Repository" required
+              >{#snippet children(f)}<Input
+                  {...f}
+                  bind:value={openRepo}
+                  disabled={busy}
+                  required
+                  placeholder="OWNER/REPO"
+                />{/snippet}</Field
+            >
+            <Field label="Preview ID" required
+              >{#snippet children(f)}<Input
+                  {...f}
+                  bind:value={previewId}
+                  disabled={busy}
+                  required
+                  placeholder="opv_..."
+                />{/snippet}</Field
+            >
+          </div>
+          <Button type="submit" variant="secondary" disabled={busy || retryBlocked}
+            >Open preview</Button
+          >
+        </form>
+      </details>
+    {/if}
   </div>
 {/if}
 

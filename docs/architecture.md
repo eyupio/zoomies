@@ -760,3 +760,12 @@ tools, in process, with the identity of the person it is talking to, and MCP
 itself reaches the router with the caller's own token, so the model-facing half
 inherits what the person driving it could do with their own token, and cannot
 exceed it.
+
+An optimisation preview is read-only, and approval records a decision without
+writing to GitHub. Draft publication is a separate operator act with its own live
+setting and action. It re-reads the run, branch, policy, source and approval,
+refuses any change, and commits one reviewed workflow file on a branch derived
+from the preview before opening a draft pull request against the branch the push
+ran on. It never force-pushes and never merges. The App needs Contents, Pull
+requests and Workflows write for that one act; a retry reconciles the branch and
+pull request the previous attempt left rather than starting again.

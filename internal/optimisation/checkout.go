@@ -21,6 +21,10 @@ var ErrUnsupported = errors.New("checkout preview needs pinned regular workflow 
 type Policy struct {
 	SourceAllowed        bool
 	WorkflowEditsAllowed bool
+	// PublishAllowed is instance consent for opening a draft pull request for
+	// an approved preview. Preview computation never reads it; only publication
+	// does.
+	PublishAllowed bool
 }
 type Source struct {
 	HeadSHA string

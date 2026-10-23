@@ -37,9 +37,13 @@ func (f *checkoutAPIFactory) For(ctx context.Context, inst *store.Installation, 
 
 type checkoutAPIReader struct {
 	github.Client
-	evidence *github.CheckoutEvidence
-	reads    atomic.Int32
-	err      error
+	evidence   *github.CheckoutEvidence
+	reads      atomic.Int32
+	err        error
+	publishes  int
+	publishPR  *github.PullRequest
+	publishErr error
+	publishReq github.OptimisationPublishRequest
 }
 
 func (f *checkoutAPIReader) RateLimit(context.Context) (*github.RateLimit, error) {
@@ -49,13 +53,18 @@ func (f *checkoutAPIReader) ReadCheckoutEvidence(context.Context, string, github
 	f.reads.Add(1)
 	return f.evidence, f.err
 }
+func (f *checkoutAPIReader) PublishOptimisation(_ context.Context, req github.OptimisationPublishRequest) (*github.PullRequest, error) {
+	f.publishes++
+	f.publishReq = req
+	return f.publishPR, f.publishErr
+}
 
 func checkoutAPIEvidence(repo string, sel github.CheckoutSelection) *github.CheckoutEvidence {
 	hash := func(s string) string { v := sha256.Sum256([]byte(s)); return hex.EncodeToString(v[:]) }
 	source := optimisation.Source{HeadSHA: strings.Repeat("a", 40), File: prrepair.File{Path: ".github/workflows/ci.yml", Mode: "100644", Content: "on: push\njobs:\n  build:\n    name: Build\n    runs-on: ubuntu-latest\n    steps:\n      - name: Checkout\n        uses: actions/checkout@" + strings.Repeat("b", 40) + "\n        with:\n          fetch-depth: 0\n      - name: Say\n        run: echo " + checkoutAPISecret + "\n"}}
 	blob := sha1.Sum([]byte("blob " + strconv.Itoa(len(source.File.Content)) + "\x00" + source.File.Content))
 	ms := int64(4200)
-	return &github.CheckoutEvidence{Version: "checkout-evidence-v1", Basis: "push_source_unique_literal_names", Repository: repo, Selection: sel, StepNumber: 42, BlobSHA: hex.EncodeToString(blob[:]), JobNameSHA256: hash("Build"), StepNameSHA256: hash("Checkout"), Source: source, Timing: optimisation.Timing{EvidenceID: fmt.Sprintf("checkout:%d:%d:%d:42", sel.RunID, sel.Attempt, sel.GitHubJobID), HeadSHA: source.HeadSHA, SourceSHA256: hash(source.File.Content), RunID: strconv.FormatInt(sel.RunID, 10), Attempt: sel.Attempt, JobIndex: sel.JobIndex, StepIndex: sel.StepIndex, Outcome: "success", CheckoutMS: &ms}}
+	return &github.CheckoutEvidence{Version: "checkout-evidence-v1", Basis: "push_source_unique_literal_names", Repository: repo, Selection: sel, StepNumber: 42, BlobSHA: hex.EncodeToString(blob[:]), JobNameSHA256: hash("Build"), StepNameSHA256: hash("Checkout"), HeadBranch: "main", Source: source, Timing: optimisation.Timing{EvidenceID: fmt.Sprintf("checkout:%d:%d:%d:42", sel.RunID, sel.Attempt, sel.GitHubJobID), HeadSHA: source.HeadSHA, SourceSHA256: hash(source.File.Content), RunID: strconv.FormatInt(sel.RunID, 10), Attempt: sel.Attempt, JobIndex: sel.JobIndex, StepIndex: sel.StepIndex, Outcome: "success", CheckoutMS: &ms}}
 }
 
 func checkoutAPIHarness(t *testing.T, enabled bool, opts ...func(*config.Config)) (*harness, string, *checkoutAPIReader, map[string]any) {
@@ -112,22 +121,140 @@ func TestCheckoutOptimisationInspectCaptureAndReplayKeepTheSourceToTheInspection
 	assertShape(t, loadSpec(t), "CheckoutPreview", created.body)
 
 	path := fmt.Sprintf("/api/v1/optimisations/checkout/previews/%s?installation_id=%s&repo=acme/repo", saved.ID, instID)
+	approvePath := fmt.Sprintf("/api/v1/optimisations/checkout/previews/%s/approval", saved.ID)
+	approvalBody := map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.Preview.HeadSHA, "source_sha256": saved.Preview.SourceSHA256}
+	approve := h.do(request{method: http.MethodPost, path: approvePath, token: token, body: approvalBody})
+	approve.mustStatus(t, 200, "approve")
+	var approved CheckoutPreviewView
+	if err := json.Unmarshal(approve.body, &approved); err != nil {
+		t.Fatal(err)
+	}
+	if approved.Approval == nil || approved.Approval.ApprovedBy == "" || approved.Approval.HeadSHA != saved.Preview.HeadSHA || approved.Approval.SourceSHA256 != saved.Preview.SourceSHA256 || approved.Approval.PreviewSHA256 != saved.SHA256 || approved.ReviewedBy != saved.ReviewedBy {
+		t.Fatalf("approval %s", approve.body)
+	}
+	assertShape(t, loadSpec(t), "CheckoutPreview", approve.body)
 	read := h.do(request{method: http.MethodGet, path: path, token: token})
 	read.mustStatus(t, 200, "replay")
 	var replayed CheckoutPreviewView
 	if err := json.Unmarshal(read.body, &replayed); err != nil {
 		t.Fatal(err)
 	}
-	if replayed != saved && (replayed.Preview != saved.Preview || replayed.ID != saved.ID || replayed.SHA256 != saved.SHA256) {
-		t.Fatalf("replay changed the preview: %s", read.body)
+	if replayed.Preview != saved.Preview || replayed.ID != saved.ID || replayed.SHA256 != saved.SHA256 || replayed.Approval == nil || replayed.Approval.ApprovedBy != approved.Approval.ApprovedBy || !replayed.Approval.ApprovedAt.Equal(approved.Approval.ApprovedAt) {
+		t.Fatalf("replay changed the preview or lost its approval: %s", read.body)
 	}
 	if f.reads.Load() != 2 || strings.Contains(string(read.body), checkoutAPISecret) {
-		t.Fatal("replay read GitHub again or exposed the workflow file")
+		t.Fatal("approval or replay read GitHub again or exposed the workflow file")
 	}
-	if auditCount(t, h, "optimisation.preview_retained") != 1 {
-		t.Fatal("capture was not audited exactly once")
+	if auditCount(t, h, "optimisation.preview_retained") != 1 || auditCount(t, h, "optimisation.preview_approved") != 1 {
+		t.Fatal("capture and approval were not audited exactly once")
 	}
 	h.do(request{method: http.MethodGet, path: strings.Replace(path, "repo=acme/repo", "repo=other/repo", 1), token: token}).mustStatus(t, 404, "wrong scope")
+}
+
+func TestCheckoutApprovalBindsTheRetainedPreviewAndIsIdempotent(t *testing.T) {
+	h, instID, f, body := checkoutAPIHarness(t, true)
+	token := h.token("operator", store.RoleOperator, "jobs:read", "optimisations:write", "optimisations:read")
+	inspect := h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/checkout/inspections", token: token, body: body})
+	inspect.mustStatus(t, 200, "inspect")
+	var inspection CheckoutInspectionView
+	if err := json.Unmarshal(inspect.body, &inspection); err != nil {
+		t.Fatal(err)
+	}
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/checkout/previews", token: token, body: previewBody(inspection, body)})
+	created.mustStatus(t, 201, "capture")
+	var saved CheckoutPreviewView
+	if err := json.Unmarshal(created.body, &saved); err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/api/v1/optimisations/checkout/previews/%s/approval", saved.ID)
+	valid := map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.Preview.HeadSHA, "source_sha256": saved.Preview.SourceSHA256}
+
+	// A digest that is not the retained one is a refusal, not an approval of
+	// whatever happens to be in the database now.
+	moved := map[string]any{}
+	for k, v := range valid {
+		moved[k] = v
+	}
+	moved["source_sha256"] = strings.Repeat("d", 64)
+	h.do(request{method: http.MethodPost, path: path, token: token, body: moved}).mustStatus(t, 409, "moved source")
+	if auditCount(t, h, "optimisation.preview_approved") != 0 {
+		t.Fatal("a refused approval wrote an audit row")
+	}
+	// Malformed requests are refused before the store is asked.
+	for _, missing := range []string{"installation_id", "repository", "head_sha", "source_sha256"} {
+		bad := map[string]any{}
+		for k, v := range valid {
+			if k != missing {
+				bad[k] = v
+			}
+		}
+		h.do(request{method: http.MethodPost, path: path, token: token, body: bad}).mustStatus(t, 400, "missing "+missing)
+	}
+	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/checkout/previews/not-a-preview/approval", token: token, body: valid}).mustStatus(t, 400, "bad preview id")
+	h.do(request{method: http.MethodPost, path: path, token: token, body: map[string]any{}}).mustStatus(t, 400, "empty body")
+
+	first := h.do(request{method: http.MethodPost, path: path, token: token, body: valid})
+	first.mustStatus(t, 200, "approve")
+	var approved CheckoutPreviewView
+	if err := json.Unmarshal(first.body, &approved); err != nil {
+		t.Fatal(err)
+	}
+	if approved.Approval == nil || approved.Approval.PreviewSHA256 != saved.SHA256 || approved.Approval.HeadSHA != saved.Preview.HeadSHA || approved.Approval.SourceSHA256 != saved.Preview.SourceSHA256 {
+		t.Fatalf("approval %s", first.body)
+	}
+	// Another operator pressing on the same preview sees the act that was
+	// already recorded rather than a second approval.
+	second := h.token("other-operator", store.RoleOperator, "jobs:read", "optimisations:write", "optimisations:read")
+	again := h.do(request{method: http.MethodPost, path: path, token: second, body: valid})
+	again.mustStatus(t, 200, "repeat")
+	var repeated CheckoutPreviewView
+	if err := json.Unmarshal(again.body, &repeated); err != nil {
+		t.Fatal(err)
+	}
+	if repeated.Approval == nil || repeated.Approval.ApprovedBy != approved.Approval.ApprovedBy || !repeated.Approval.ApprovedAt.Equal(approved.Approval.ApprovedAt) {
+		t.Fatalf("a repeat replaced the first approval: %s", again.body)
+	}
+	if auditCount(t, h, "optimisation.preview_approved") != 1 {
+		t.Fatal("the repeat wrote a second approval audit row")
+	}
+	if f.reads.Load() != 2 {
+		t.Fatal("approval read GitHub source again")
+	}
+	// The preview remains scoped; a different installation sees no preview and
+	// therefore no approval.
+	other := map[string]any{}
+	for k, v := range valid {
+		other[k] = v
+	}
+	other["installation_id"] = "ins_missing"
+	h.do(request{method: http.MethodPost, path: path, token: token, body: other}).mustStatus(t, 404, "wrong installation")
+}
+
+func TestCheckoutApprovalDoesNotNeedTheSourceSettings(t *testing.T) {
+	h, instID, f, body := checkoutAPIHarness(t, true)
+	token := h.token("operator", store.RoleOperator, "jobs:read", "optimisations:write", "optimisations:read")
+	inspect := h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/checkout/inspections", token: token, body: body})
+	inspect.mustStatus(t, 200, "inspect")
+	var inspection CheckoutInspectionView
+	if err := json.Unmarshal(inspect.body, &inspection); err != nil {
+		t.Fatal(err)
+	}
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/checkout/previews", token: token, body: previewBody(inspection, body)})
+	created.mustStatus(t, 201, "capture")
+	var saved CheckoutPreviewView
+	if err := json.Unmarshal(created.body, &saved); err != nil {
+		t.Fatal(err)
+	}
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Optimisation.SourceReads, c.Optimisation.WorkflowEdits = false, false })
+	// Approval is a decision about evidence already kept, so turning the source
+	// settings off stops new reads without erasing the ability to act on what
+	// was kept while they were on.
+	approved := h.do(request{method: http.MethodPost, path: fmt.Sprintf("/api/v1/optimisations/checkout/previews/%s/approval", saved.ID), token: token,
+		body: map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.Preview.HeadSHA, "source_sha256": saved.Preview.SourceSHA256}})
+	approved.mustStatus(t, 200, "approval with the settings off")
+	if f.reads.Load() != 2 {
+		t.Fatal("approval read source")
+	}
 }
 
 func TestCheckoutOptimisationIsRefusedUntilTheSettingsAreOnWithoutReadingSource(t *testing.T) {
@@ -233,11 +360,11 @@ func TestOptimisationEnablementIsOnePressForAnAdministratorAndAudited(t *testing
 		assertShape(t, loadSpec(t), "OptimisationEnablement", resp.body)
 		return out
 	}
-	if s := state(admin); s.Enabled || !s.CanChange {
+	if s := state(admin); s.Enabled || s.Publish || s.PublishEnabled || !s.CanChange || !s.CanPublish {
 		t.Fatalf("a fresh instance is off and an administrator can change it: %+v", s)
 	}
 	op := h.token("operator", store.RoleOperator, "jobs:read", "optimisations:read", "optimisations:write")
-	if s := state(op); s.CanChange || !strings.Contains(s.Reason, "administrator") {
+	if s := state(op); s.CanChange || s.CanPublish || !strings.Contains(s.Reason, "administrator") || !strings.Contains(s.PublishReason, "administrator") {
 		t.Fatalf("an operator is told whom to ask: %+v", s)
 	}
 	// The operator is refused until the administrator presses the button, and
@@ -247,8 +374,8 @@ func TestOptimisationEnablementIsOnePressForAnAdministratorAndAudited(t *testing
 	put := h.do(request{method: http.MethodPut, path: "/api/v1/optimisations/enablement", token: admin, body: map[string]any{"enabled": true}})
 	put.mustStatus(t, 200, "enable")
 	var after OptimisationEnablement
-	if err := json.Unmarshal(put.body, &after); err != nil || !after.Enabled || !after.SourceReads || !after.WorkflowEdits {
-		t.Fatalf("both switches must come on together: %s", put.body)
+	if err := json.Unmarshal(put.body, &after); err != nil || !after.Enabled || !after.SourceReads || !after.WorkflowEdits || after.Publish || after.PublishEnabled {
+		t.Fatalf("both preview switches must come on together without publishing: %s", put.body)
 	}
 	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/checkout/inspections", token: op, body: body}).mustStatus(t, 200, "on")
 	if f.reads.Load() != 1 {
@@ -257,10 +384,23 @@ func TestOptimisationEnablementIsOnePressForAnAdministratorAndAudited(t *testing
 	if auditCount(t, h, "settings.update") != 1 {
 		t.Fatal("turning the switches on must leave one settings audit row")
 	}
+	// Publishing is its own press and turns the preview grants on with it.
+	put = h.do(request{method: http.MethodPut, path: "/api/v1/optimisations/enablement", token: admin, body: map[string]any{"publish": true}})
+	put.mustStatus(t, 200, "publish enable")
+	if err := json.Unmarshal(put.body, &after); err != nil || !after.Enabled || !after.Publish || !after.PublishEnabled || !after.SourceReads || !after.WorkflowEdits {
+		t.Fatalf("publishing must turn all three on together: %s", put.body)
+	}
+	// Turning publishing off does not take the preview grants away.
+	put = h.do(request{method: http.MethodPut, path: "/api/v1/optimisations/enablement", token: admin, body: map[string]any{"publish": false}})
+	put.mustStatus(t, 200, "publish disable")
+	if err := json.Unmarshal(put.body, &after); err != nil || !after.Enabled || after.Publish || after.PublishEnabled || !after.SourceReads || !after.WorkflowEdits {
+		t.Fatalf("disabling publishing must leave previews on: %s", put.body)
+	}
 	h.do(request{method: http.MethodPut, path: "/api/v1/optimisations/enablement", token: admin, body: map[string]any{"enabled": false}}).mustStatus(t, 200, "disable")
 	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/checkout/inspections", token: op, body: body}).mustStatus(t, 403, "off again")
-	h.do(request{method: http.MethodPut, path: "/api/v1/optimisations/enablement", token: admin, body: map[string]any{}}).mustStatus(t, 400, "missing enabled")
+	h.do(request{method: http.MethodPut, path: "/api/v1/optimisations/enablement", token: admin, body: map[string]any{}}).mustStatus(t, 400, "missing enabled or publish")
 	h.do(request{method: http.MethodPut, path: "/api/v1/optimisations/enablement", token: admin, body: map[string]any{"enabled": true, "extra": 1}}).mustStatus(t, 400, "unknown field")
+	h.do(request{method: http.MethodPut, path: "/api/v1/optimisations/enablement", token: op, body: map[string]any{"publish": true}}).mustStatus(t, 403, "operator cannot publish")
 }
 
 func TestOptimisationEnablementRefusesVisitorsAndAnonymous(t *testing.T) {
@@ -285,4 +425,101 @@ func TestCheckoutOptimisationFindsTheStepWhenNoPositionsAreGiven(t *testing.T) {
 	assertShape(t, loadSpec(t), "CheckoutInspection", resp.body)
 	half := map[string]any{"installation_id": body["installation_id"], "repository": body["repository"], "selection": map[string]any{"run_id": "10", "attempt": 2, "github_job_id": "100", "job_index": 0}}
 	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/checkout/inspections", token: token, body: half}).mustStatus(t, 400, "one position without the other")
+}
+
+func TestCheckoutPublicationOpensADraftForAnApprovedPreviewAndReconciles(t *testing.T) {
+	h, instID, f, body := checkoutAPIHarness(t, true, func(c *config.Config) { c.Optimisation.Publish = true })
+	token := h.token("operator", store.RoleOperator, "jobs:read", "optimisations:write", "optimisations:read", "optimisations:publish")
+	inspect := h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/checkout/inspections", token: token, body: body})
+	inspect.mustStatus(t, 200, "inspect")
+	var inspection CheckoutInspectionView
+	if err := json.Unmarshal(inspect.body, &inspection); err != nil {
+		t.Fatal(err)
+	}
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/checkout/previews", token: token, body: previewBody(inspection, body)})
+	created.mustStatus(t, 201, "capture")
+	var saved CheckoutPreviewView
+	if err := json.Unmarshal(created.body, &saved); err != nil {
+		t.Fatal(err)
+	}
+	approve := h.do(request{method: http.MethodPost, path: fmt.Sprintf("/api/v1/optimisations/checkout/previews/%s/approval", saved.ID), token: token,
+		body: map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.Preview.HeadSHA, "source_sha256": saved.Preview.SourceSHA256}})
+	approve.mustStatus(t, 200, "approve")
+	f.publishPR = &github.PullRequest{Number: 21, HTMLURL: "https://github.com/acme/repo/pull/21", Branch: "zoomies/checkout-" + saved.ID}
+	publicationBody := map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.Preview.HeadSHA, "source_sha256": saved.Preview.SourceSHA256}
+	path := fmt.Sprintf("/api/v1/optimisations/checkout/previews/%s/publication", saved.ID)
+	// Publishing has its own live consent and is refused before any source read.
+	reads := f.reads.Load()
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Optimisation.Publish = false })
+	off := h.do(request{method: http.MethodPost, path: path, token: token, body: publicationBody})
+	off.mustStatus(t, 403, "publishing off")
+	if !strings.Contains(string(off.body), "optimisation.publish") || f.reads.Load() != reads || f.publishes != 0 {
+		t.Fatalf("publishing-off refusal read source or opened a draft: %s", off.body)
+	}
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Optimisation.Publish = true })
+	publishedResp := h.do(request{method: http.MethodPost, path: path, token: token, body: publicationBody})
+	publishedResp.mustStatus(t, 200, "publish")
+	var published CheckoutPreviewView
+	if err := json.Unmarshal(publishedResp.body, &published); err != nil {
+		t.Fatal(err)
+	}
+	if published.Publication == nil || published.Publication.PullNumber != 21 || published.Publication.PullURL != "https://github.com/acme/repo/pull/21" || published.Publication.Branch != "zoomies/checkout-"+saved.ID || published.Publication.BaseBranch != "main" || published.Publication.HeadSHA != saved.Preview.HeadSHA || published.Publication.PublishedBy == "" {
+		t.Fatalf("publication %s", publishedResp.body)
+	}
+	if f.publishes != 1 || f.publishReq.Base != "main" || f.publishReq.BaseCommit != saved.Preview.HeadSHA || f.publishReq.Path != saved.Preview.Path {
+		t.Fatalf("publish request %+v", f.publishReq)
+	}
+	assertShape(t, loadSpec(t), "CheckoutPreview", publishedResp.body)
+	if auditCount(t, h, "optimisation.preview_published") != 1 {
+		t.Fatal("publication was not audited exactly once")
+	}
+	// A repeat is the same act; a token without the publish scope is refused.
+	again := h.do(request{method: http.MethodPost, path: path, token: token, body: publicationBody})
+	again.mustStatus(t, 200, "repeat")
+	if f.publishes != 1 {
+		t.Fatal("a repeat opened a second draft")
+	}
+	readonly := h.token("preview-only", store.RoleOperator, "jobs:read", "optimisations:write", "optimisations:read")
+	h.do(request{method: http.MethodPost, path: path, token: readonly, body: publicationBody}).mustStatus(t, 403, "no publish scope")
+}
+
+func TestCheckoutPublicationRefusesAnUnapprovedOrMovedPreview(t *testing.T) {
+	h, instID, f, body := checkoutAPIHarness(t, true, func(c *config.Config) { c.Optimisation.Publish = true })
+	token := h.token("operator", store.RoleOperator, "jobs:read", "optimisations:write", "optimisations:read", "optimisations:publish")
+	inspect := h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/checkout/inspections", token: token, body: body})
+	inspect.mustStatus(t, 200, "inspect")
+	var inspection CheckoutInspectionView
+	if err := json.Unmarshal(inspect.body, &inspection); err != nil {
+		t.Fatal(err)
+	}
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/checkout/previews", token: token, body: previewBody(inspection, body)})
+	created.mustStatus(t, 201, "capture")
+	var saved CheckoutPreviewView
+	if err := json.Unmarshal(created.body, &saved); err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/api/v1/optimisations/checkout/previews/%s/publication", saved.ID)
+	unapproved := map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.Preview.HeadSHA, "source_sha256": saved.Preview.SourceSHA256}
+	resp := h.do(request{method: http.MethodPost, path: path, token: token, body: unapproved})
+	resp.mustStatus(t, 409, "unapproved")
+	if !strings.Contains(string(resp.body), "Approve this preview") || f.publishes != 0 {
+		t.Fatalf("unapproved publication: %s", resp.body)
+	}
+	approve := h.do(request{method: http.MethodPost, path: fmt.Sprintf("/api/v1/optimisations/checkout/previews/%s/approval", saved.ID), token: token,
+		body: map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.Preview.HeadSHA, "source_sha256": saved.Preview.SourceSHA256}})
+	approve.mustStatus(t, 200, "approve")
+	moved := map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.Preview.HeadSHA, "source_sha256": strings.Repeat("d", 64)}
+	resp = h.do(request{method: http.MethodPost, path: path, token: token, body: moved})
+	resp.mustStatus(t, 409, "moved source")
+	if f.publishes != 0 {
+		t.Fatal("a moved approval opened a draft")
+	}
+	// A missing App permission is a 403 that names the permission, not a
+	// generic publication conflict.
+	h.gh.SetPermissions(map[string]string{"contents": "read", "pull_requests": "write", "workflows": "write"})
+	resp = h.do(request{method: http.MethodPost, path: path, token: token, body: unapproved})
+	resp.mustStatus(t, 403, "missing Contents write")
+	if !strings.Contains(string(resp.body), "Contents") || f.publishes != 0 {
+		t.Fatalf("permission refusal: %s", resp.body)
+	}
 }

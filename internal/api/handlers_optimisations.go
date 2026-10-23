@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -73,6 +74,44 @@ type CheckoutCollectionView struct {
 	SourceFunding string `json:"source_funding"`
 }
 
+// CheckoutApprovalRequest names the exact retained preview and the head and
+// source digest the caller means to approve. The server checks them against the
+// immutable preview rather than trusting the request as evidence.
+type CheckoutApprovalRequest struct {
+	InstallationID string `json:"installation_id"`
+	Repository     string `json:"repository"`
+	HeadSHA        string `json:"head_sha"`
+	SourceSHA256   string `json:"source_sha256"`
+}
+
+type CheckoutApprovalView struct {
+	ApprovedBy    string    `json:"approved_by"`
+	ApprovedAt    time.Time `json:"approved_at"`
+	HeadSHA       string    `json:"head_sha"`
+	SourceSHA256  string    `json:"source_sha256"`
+	PreviewSHA256 string    `json:"preview_sha256"`
+}
+
+type CheckoutPublicationRequest struct {
+	InstallationID string `json:"installation_id"`
+	Repository     string `json:"repository"`
+	HeadSHA        string `json:"head_sha"`
+	SourceSHA256   string `json:"source_sha256"`
+}
+
+type CheckoutPublicationView struct {
+	PublishedBy   string    `json:"published_by"`
+	PublishedAt   time.Time `json:"published_at"`
+	Branch        string    `json:"branch"`
+	BaseBranch    string    `json:"base_branch"`
+	BaseSHA       string    `json:"base_sha"`
+	HeadSHA       string    `json:"head_sha"`
+	SourceSHA256  string    `json:"source_sha256"`
+	PreviewSHA256 string    `json:"preview_sha256"`
+	PullNumber    int       `json:"pull_number"`
+	PullURL       string    `json:"pull_url"`
+}
+
 type CheckoutPreviewDetail struct {
 	Version      string `json:"version"`
 	Kind         string `json:"kind"`
@@ -98,15 +137,17 @@ type CheckoutPreviewDetail struct {
 // source is shown once, at inspection, and the retained record answers with the
 // one line it would change.
 type CheckoutPreviewView struct {
-	ID             string                  `json:"id"`
-	InstallationID string                  `json:"installation_id"`
-	Repository     string                  `json:"repository"`
-	ReviewedBy     string                  `json:"reviewed_by"`
-	SHA256         string                  `json:"sha256"`
-	CreatedAt      time.Time               `json:"created_at"`
-	Currentness    string                  `json:"currentness"`
-	Collection     *CheckoutCollectionView `json:"collection"`
-	Preview        CheckoutPreviewDetail   `json:"preview"`
+	ID             string                   `json:"id"`
+	InstallationID string                   `json:"installation_id"`
+	Repository     string                   `json:"repository"`
+	ReviewedBy     string                   `json:"reviewed_by"`
+	SHA256         string                   `json:"sha256"`
+	CreatedAt      time.Time                `json:"created_at"`
+	Currentness    string                   `json:"currentness"`
+	Collection     *CheckoutCollectionView  `json:"collection"`
+	Approval       *CheckoutApprovalView    `json:"approval"`
+	Publication    *CheckoutPublicationView `json:"publication"`
+	Preview        CheckoutPreviewDetail    `json:"preview"`
 }
 
 // parse reads a selection. Both positions omitted means "find the checkout step
@@ -142,6 +183,12 @@ func checkoutPreviewView(p *controller.RetainedOptimisationPreview) CheckoutPrev
 	}
 	if c := p.Collection; c != nil {
 		v.Collection = &CheckoutCollectionView{Version: c.Version, Basis: c.Basis, StepNumber: c.StepNumber, BlobSHA: c.BlobSHA, SourceFunding: c.SourceFunding}
+	}
+	if a := p.Approval; a != nil {
+		v.Approval = &CheckoutApprovalView{ApprovedBy: a.ApprovedBy, ApprovedAt: a.ApprovedAt, HeadSHA: a.HeadSHA, SourceSHA256: a.SourceSHA256, PreviewSHA256: a.PreviewSHA256}
+	}
+	if p := p.Publication; p != nil {
+		v.Publication = &CheckoutPublicationView{PublishedBy: p.PublishedBy, PublishedAt: p.PublishedAt, Branch: p.Branch, BaseBranch: p.BaseBranch, BaseSHA: p.BaseSHA, HeadSHA: p.HeadSHA, SourceSHA256: p.SourceSHA256, PreviewSHA256: p.PreviewSHA256, PullNumber: p.PullNumber, PullURL: p.PullURL}
 	}
 	return v
 }
@@ -232,7 +279,7 @@ func (s *Server) handleGetCheckoutPreview(w http.ResponseWriter, r *http.Request
 		return
 	}
 	id := chiURLParam(r, "id")
-	if !strings.HasPrefix(id, store.PrefixOptimisationPreview+"_") || len(id) > 128 {
+	if !validPreviewID(id) {
 		badRequest(w, "Supply a preview ID.")
 		return
 	}
@@ -244,11 +291,92 @@ func (s *Server) handleGetCheckoutPreview(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, checkoutPreviewView(out))
 }
 
+// handleApproveCheckoutPreview records an operator's explicit approval of one
+// retained preview. It reads no source, so the two preview settings are not
+// consulted: this is a decision about evidence already kept, not new access.
+// Nothing is published, and the approval expires with the preview.
+func (s *Server) handleApproveCheckoutPreview(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	id := Identity(r.Context())
+	if id == nil || id.ID == "" {
+		unauthorized(w, "An identified caller is required to approve a preview.")
+		return
+	}
+	previewID := chiURLParam(r, "id")
+	var in CheckoutApprovalRequest
+	if !decodeOptimisationBody(w, r, &in) {
+		return
+	}
+	if !validPreviewID(previewID) || !validScope(in.InstallationID, in.Repository) || !validDigest(in.HeadSHA, 40) || !validDigest(in.SourceSHA256, 64) {
+		badRequest(w, "Supply a preview ID, an installation, a repository and the commit and source digest the preview names.")
+		return
+	}
+	actor := &store.AuditEvent{ActorID: id.ID, ActorName: id.Name, ActorKind: id.Kind, IP: id.IP}
+	out, err := s.ctrl.ApproveOptimisationPreview(r.Context(), actor, in.InstallationID, in.Repository, previewID, in.HeadSHA, in.SourceSHA256)
+	if err != nil {
+		s.optimisationError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, checkoutPreviewView(out))
+}
+
+// handlePublishCheckoutPreview opens one draft pull request for an approved
+// preview. The server re-reads the source, policy and approval before writing;
+// the request names only the preview binding, never GitHub objects.
+func (s *Server) handlePublishCheckoutPreview(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	id := Identity(r.Context())
+	if id == nil || id.ID == "" {
+		unauthorized(w, "An identified caller is required to publish a preview.")
+		return
+	}
+	previewID := chiURLParam(r, "id")
+	var in CheckoutPublicationRequest
+	if !decodeOptimisationBody(w, r, &in) {
+		return
+	}
+	if !validPreviewID(previewID) || !validScope(in.InstallationID, in.Repository) || !validDigest(in.HeadSHA, 40) || !validDigest(in.SourceSHA256, 64) {
+		badRequest(w, "Supply a preview ID, an installation, a repository and the commit and source digest the preview names.")
+		return
+	}
+	actor := &store.AuditEvent{ActorID: id.ID, ActorName: id.Name, ActorKind: id.Kind, IP: id.IP}
+	out, err := s.ctrl.PublishOptimisationPreview(r.Context(), actor, in.InstallationID, in.Repository, previewID, in.HeadSHA, in.SourceSHA256, s.ctrl.OptimisationPolicy)
+	if err != nil {
+		s.optimisationError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, checkoutPreviewView(out))
+}
+
+func validPreviewID(id string) bool {
+	return strings.HasPrefix(id, store.PrefixOptimisationPreview+"_") && len(id) <= 128 && !strings.ContainsAny(id, " /\r\n\x00")
+}
+
+func validDigest(s string, n int) bool {
+	if len(s) != n || s != strings.ToLower(s) {
+		return false
+	}
+	_, err := hex.DecodeString(s)
+	return err == nil
+}
+
 func (s *Server) optimisationError(w http.ResponseWriter, r *http.Request, err error) {
 	var admission *controller.PRDelayAdmissionError
 	switch {
 	case errors.Is(err, controller.ErrOptimisationPolicy):
 		forbidden(w, "Reviewed workflow optimisations are off. An administrator turns on optimisation.source_reads and optimisation.workflow_edits in Settings.")
+	case errors.Is(err, controller.ErrOptimisationPublishPermission):
+		forbidden(w, "The installation cannot open a draft pull request. "+github.OptimisationPublishPermissionHint)
+	case errors.Is(err, controller.ErrOptimisationPublishPolicy):
+		forbidden(w, "Publishing an optimisation draft is off. An administrator turns on optimisation.source_reads, optimisation.workflow_edits and optimisation.publish in Settings.")
+	case errors.Is(err, controller.ErrOptimisationNotApproved):
+		conflict(w, "Approve this preview before publishing it.")
+	case errors.Is(err, controller.ErrOptimisationApproval):
+		conflict(w, "The commit and source digest do not match this retained preview. Open it again and approve exactly what it shows.")
+	case errors.Is(err, controller.ErrOptimisationPublish):
+		conflict(w, err.Error())
+	case errors.Is(err, store.ErrConflict):
+		conflict(w, "This preview already carries a different approval or no longer matches its retained evidence. Open it again before approving.")
 	case errors.As(err, &admission):
 		rateLimited(w, err.Error(), admission.RetryAfter.Truncate(time.Second)+time.Second)
 	case errors.Is(err, github.ErrRateLimited):
@@ -275,26 +403,34 @@ func (s *Server) optimisationError(w http.ResponseWriter, r *http.Request, err e
 // two settings are separate grants in the registry; the page asks for them
 // together because one is no use without the other, and says so in words.
 type OptimisationEnablement struct {
-	SourceReads   bool   `json:"source_reads"`
-	WorkflowEdits bool   `json:"workflow_edits"`
-	Enabled       bool   `json:"enabled"`
-	CanChange     bool   `json:"can_change"`
-	Reason        string `json:"reason,omitempty"`
+	SourceReads    bool   `json:"source_reads"`
+	WorkflowEdits  bool   `json:"workflow_edits"`
+	Publish        bool   `json:"publish"`
+	Enabled        bool   `json:"enabled"`
+	PublishEnabled bool   `json:"publish_enabled"`
+	CanChange      bool   `json:"can_change"`
+	CanPublish     bool   `json:"can_publish"`
+	Reason         string `json:"reason,omitempty"`
+	PublishReason  string `json:"publish_reason,omitempty"`
 }
 
 type OptimisationEnablementRequest struct {
 	Enabled *bool `json:"enabled"`
+	Publish *bool `json:"publish"`
 }
 
-const optimisationSourceKey, optimisationEditsKey = "optimisation.source_reads", "optimisation.workflow_edits"
+const optimisationSourceKey, optimisationEditsKey, optimisationPublishKey = "optimisation.source_reads", "optimisation.workflow_edits", "optimisation.publish"
 
 func (s *Server) optimisationEnablement(r *http.Request) OptimisationEnablement {
 	cfg := s.cfg()
-	out := OptimisationEnablement{SourceReads: cfg.Optimisation.SourceReads, WorkflowEdits: cfg.Optimisation.WorkflowEdits, CanChange: true}
+	out := OptimisationEnablement{SourceReads: cfg.Optimisation.SourceReads, WorkflowEdits: cfg.Optimisation.WorkflowEdits, Publish: cfg.Optimisation.Publish, CanChange: true, CanPublish: true}
 	out.Enabled = out.SourceReads && out.WorkflowEdits
+	out.PublishEnabled = out.Enabled && out.Publish
 	role := callerRole(r)
 	if !role.AtLeast(store.RoleAdmin) {
-		out.CanChange, out.Reason = false, "Only an administrator can turn this on. Ask one to press the button on this page, or to switch on optimisation.source_reads and optimisation.workflow_edits in Settings."
+		out.CanChange, out.CanPublish = false, false
+		out.Reason = "Only an administrator can turn this on. Ask one to press the button on this page, or to switch on optimisation.source_reads and optimisation.workflow_edits in Settings."
+		out.PublishReason = "Only an administrator can turn this on. Ask one to press the button on this page, or to switch on optimisation.source_reads, optimisation.workflow_edits and optimisation.publish in Settings."
 		return out
 	}
 	for _, key := range []string{optimisationSourceKey, optimisationEditsKey} {
@@ -304,6 +440,16 @@ func (s *Server) optimisationEnablement(r *http.Request) OptimisationEnablement 
 		}
 		if editable, reason := s.editable(st, cfg, role); !editable {
 			out.CanChange, out.Reason = false, reason
+			break
+		}
+	}
+	for _, key := range []string{optimisationSourceKey, optimisationEditsKey, optimisationPublishKey} {
+		st, ok := config.LookupSetting(key)
+		if !ok {
+			continue
+		}
+		if editable, reason := s.editable(st, cfg, role); !editable {
+			out.CanPublish, out.PublishReason = false, reason
 			break
 		}
 	}
@@ -325,12 +471,23 @@ func (s *Server) handleSetOptimisationEnablement(w http.ResponseWriter, r *http.
 	if !decodeOptimisationBody(w, r, &in) {
 		return
 	}
-	if in.Enabled == nil {
-		badRequest(w, "Say whether to turn workflow previews on or off with enabled: true or false.")
+	if in.Enabled == nil && in.Publish == nil {
+		badRequest(w, "Say whether to turn workflow previews or publishing on or off with enabled or publish: true or false.")
 		return
 	}
 	current := s.cfg()
-	flat := map[string]any{optimisationSourceKey: *in.Enabled, optimisationEditsKey: *in.Enabled}
+	flat := map[string]any{}
+	if in.Enabled != nil {
+		flat[optimisationSourceKey], flat[optimisationEditsKey] = *in.Enabled, *in.Enabled
+	}
+	if in.Publish != nil {
+		flat[optimisationPublishKey] = *in.Publish
+		// Publication is no use without the two preview grants, so its press
+		// turns them on too. Turning it off leaves them where they are.
+		if *in.Publish {
+			flat[optimisationSourceKey], flat[optimisationEditsKey] = true, true
+		}
+	}
 	candidate, staged, fields := s.planSettings(current, flat, callerRole(r))
 	if len(fields) > 0 {
 		unprocessable(w, "these settings could not be changed", fields)

@@ -557,6 +557,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 | --- | --- | --- | --- |
 | `optimisation.source_reads` | `ZOOMIES_OPTIMISATION_SOURCE_READS` | at once | Read workflow source for optimisation previews: Let the controller read one workflow file at a run's commit, through the installation's own GitHub access, so an operator can review it before a checkout optimisation is previewed. Off, no source is read. It does not turn on workflow edits and no model sees the file. |
 | `optimisation.workflow_edits` | `ZOOMIES_OPTIMISATION_WORKFLOW_EDITS` | at once | Preview workflow edits: Let the controller compute and keep, for fourteen days, a proposed change to a workflow file, such as reading one commit instead of the full history. Nothing is published, no pull request is opened and no job is run. Needs optimisation.source_reads as well. |
+| `optimisation.publish` | `ZOOMIES_OPTIMISATION_PUBLISH` | at once | Publish approved workflow previews: Let an operator open a draft pull request for an approved checkout preview. It writes one workflow file on a new branch and opens a draft pull request; it never merges, never force-pushes and runs no job. Needs optimisation.source_reads and optimisation.workflow_edits as well, and the App's Contents, Pull requests and Workflows write permissions. |
 
 ### `limits`
 

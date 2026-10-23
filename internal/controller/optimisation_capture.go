@@ -16,11 +16,14 @@ import (
 // authorise source access or workflow previews. No transport exposes this yet.
 type OptimisationPolicyCheck func(context.Context) (optimisation.Policy, error)
 
+// knownHash holds a commit or source digest to the shape the rest of the
+// optimisation code expects: lower-case hexadecimal of exactly one length.
+func knownHash(s string, n int) bool {
+	_, err := hex.DecodeString(s)
+	return len(s) == n && s == strings.ToLower(s) && err == nil
+}
+
 func (c *Controller) CaptureOptimisationPreview(ctx context.Context, actor *store.AuditEvent, installation, repo string, selection github.CheckoutSelection, review optimisation.HistoryReview, check OptimisationPolicyCheck) (*RetainedOptimisationPreview, error) {
-	knownHash := func(s string, n int) bool {
-		_, err := hex.DecodeString(s)
-		return len(s) == n && s == strings.ToLower(s) && err == nil
-	}
 	if actor == nil || actor.ActorID == "" || installation == "" || check == nil || !github.ValidCheckoutSelection(selection) || !knownHash(review.HeadSHA, 40) || !knownHash(review.SourceSHA256, 64) || review.NeedsHistory == nil || *review.NeedsHistory || review.Scope != "repository_and_downstream_consumers" {
 		return nil, ErrOptimisationPreview
 	}
@@ -30,7 +33,7 @@ func (c *Controller) CaptureOptimisationPreview(ctx context.Context, actor *stor
 	if err != nil {
 		return nil, err
 	}
-	collection := &OptimisationCheckoutProvenance{Version: evidence.Version, Basis: evidence.Basis, Selection: evidence.Selection, StepNumber: evidence.StepNumber, BlobSHA: evidence.BlobSHA, JobNameSHA256: evidence.JobNameSHA256, StepNameSHA256: evidence.StepNameSHA256, SourceFunding: "installation_github_read"}
+	collection := &OptimisationCheckoutProvenance{Version: evidence.Version, Basis: evidence.Basis, Selection: evidence.Selection, StepNumber: evidence.StepNumber, BlobSHA: evidence.BlobSHA, JobNameSHA256: evidence.JobNameSHA256, StepNameSHA256: evidence.StepNameSHA256, SourceFunding: "installation_github_read", HeadBranch: evidence.HeadBranch}
 	return c.retainOptimisationPreview(ctx, actor, installation, repo, evidence.Source, evidence.Timing, review, policy, collection)
 }
 

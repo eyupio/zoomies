@@ -14,7 +14,10 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-var ErrOptimisationPreview = errors.New("optimisation preview evidence is unavailable, inconsistent or unsupported")
+var (
+	ErrOptimisationPreview  = errors.New("optimisation preview evidence is unavailable, inconsistent or unsupported")
+	ErrOptimisationApproval = errors.New("the approval does not name the retained preview")
+)
 
 type optimisationRetainedSource struct {
 	HeadSHA string `json:"head_sha"`
@@ -38,10 +41,13 @@ type OptimisationCheckoutProvenance struct {
 	JobNameSHA256  string                   `json:"job_name_sha256"`
 	StepNameSHA256 string                   `json:"step_name_sha256"`
 	SourceFunding  string                   `json:"source_funding"`
+	// HeadBranch is the branch the push ran on. A preview retained before this
+	// was recorded has none, stays readable and is not publishable.
+	HeadBranch string `json:"head_branch,omitempty"`
 }
 
 func (p *OptimisationCheckoutProvenance) evidence(repo string, source optimisation.Source, timing optimisation.Timing) *github.CheckoutEvidence {
-	return &github.CheckoutEvidence{Version: p.Version, Basis: p.Basis, Repository: repo, Selection: p.Selection, StepNumber: p.StepNumber, BlobSHA: p.BlobSHA, JobNameSHA256: p.JobNameSHA256, StepNameSHA256: p.StepNameSHA256, Source: source, Timing: timing}
+	return &github.CheckoutEvidence{Version: p.Version, Basis: p.Basis, Repository: repo, Selection: p.Selection, StepNumber: p.StepNumber, BlobSHA: p.BlobSHA, JobNameSHA256: p.JobNameSHA256, StepNameSHA256: p.StepNameSHA256, Source: source, Timing: timing, HeadBranch: p.HeadBranch}
 }
 
 type optimisationRetainedEnvelope struct {
@@ -58,8 +64,37 @@ type optimisationRetainedEnvelope struct {
 	Preview        optimisation.Preview            `json:"preview"`
 }
 
+// RetainedOptimisationApproval is a separate, attributed act from keeping the
+// preview. It names the exact preview, head and source digest that were
+// approved, and it grants no publication authority by itself.
+type RetainedOptimisationApproval struct {
+	ApprovedBy    string
+	ApprovedAt    time.Time
+	HeadSHA       string
+	SourceSHA256  string
+	PreviewSHA256 string
+}
+
+// RetainedOptimisationPublication is the one draft pull request opened for an
+// approved preview. It is a record of the external write, not a merge and not
+// a claim that the change saves time.
+type RetainedOptimisationPublication struct {
+	PublishedBy   string
+	PublishedAt   time.Time
+	Branch        string
+	BaseBranch    string
+	BaseSHA       string
+	HeadSHA       string
+	SourceSHA256  string
+	PreviewSHA256 string
+	PullNumber    int
+	PullURL       string
+}
+
 type RetainedOptimisationPreview struct {
 	Collection     *OptimisationCheckoutProvenance
+	Approval       *RetainedOptimisationApproval
+	Publication    *RetainedOptimisationPublication
 	ID             string
 	InstallationID string
 	Repository     string
@@ -143,6 +178,41 @@ func (c *Controller) ReplayOptimisationPreview(ctx context.Context, installation
 	}
 	return retainedOptimisationView(row, preview, e.Collection), nil
 }
+
+// ApproveOptimisationPreview records an explicit, attributed approval of the
+// exact retained preview the caller names. It reads no source and calls no
+// GitHub reader, so an approval cannot publish, edit a workflow or start a job.
+// The head and source digest must be the ones the retained preview already
+// binds; a mismatch is refused rather than approved by accident.
+func (c *Controller) ApproveOptimisationPreview(ctx context.Context, actor *store.AuditEvent, installation, repo, id, headSHA, sourceSHA256 string) (*RetainedOptimisationPreview, error) {
+	if actor == nil || actor.ActorID == "" || id == "" || installation == "" || repo == "" || !knownHash(headSHA, 40) || !knownHash(sourceSHA256, 64) {
+		return nil, ErrOptimisationApproval
+	}
+	current, err := c.ReplayOptimisationPreview(ctx, installation, repo, id)
+	if err != nil {
+		return nil, err
+	}
+	if current.Preview.HeadSHA != headSHA || current.Preview.SourceSHA256 != sourceSHA256 {
+		return nil, ErrOptimisationApproval
+	}
+	approval, err := c.st.ApproveOptimisationPreview(ctx, installation, repo, id, headSHA, sourceSHA256, current.SHA256, actor)
+	if err != nil {
+		return nil, err
+	}
+	current.Approval = &RetainedOptimisationApproval{
+		ApprovedBy: approval.ApprovedBy, ApprovedAt: approval.CreatedAt,
+		HeadSHA: approval.HeadSHA, SourceSHA256: approval.SourceSHA256, PreviewSHA256: approval.PreviewSHA256,
+	}
+	return current, nil
+}
+
 func retainedOptimisationView(row *store.OptimisationPreview, preview optimisation.Preview, collection *OptimisationCheckoutProvenance) *RetainedOptimisationPreview {
-	return &RetainedOptimisationPreview{Collection: collection, ID: row.ID, InstallationID: row.InstallationID, Repository: row.Repository, ReviewedBy: row.InitiatingUser, SHA256: row.SHA256, CreatedAt: row.CreatedAt, Currentness: "not_checked", Preview: preview}
+	v := &RetainedOptimisationPreview{Collection: collection, ID: row.ID, InstallationID: row.InstallationID, Repository: row.Repository, ReviewedBy: row.InitiatingUser, SHA256: row.SHA256, CreatedAt: row.CreatedAt, Currentness: "not_checked", Preview: preview}
+	if a := row.Approval; a != nil {
+		v.Approval = &RetainedOptimisationApproval{ApprovedBy: a.ApprovedBy, ApprovedAt: a.CreatedAt, HeadSHA: a.HeadSHA, SourceSHA256: a.SourceSHA256, PreviewSHA256: a.PreviewSHA256}
+	}
+	if p := row.Publication; p != nil {
+		v.Publication = &RetainedOptimisationPublication{PublishedBy: p.PublishedBy, PublishedAt: p.CreatedAt, Branch: p.Branch, BaseBranch: p.BaseBranch, BaseSHA: p.BaseSHA, HeadSHA: p.HeadSHA, SourceSHA256: p.SourceSHA256, PreviewSHA256: p.PreviewSHA256, PullNumber: p.PullNumber, PullURL: p.PullURL}
+	}
+	return v
 }

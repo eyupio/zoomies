@@ -8773,6 +8773,103 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /optimisations/checkout/previews/{id}/approval:
+    parameters: [{ $ref: '#/components/parameters/PathID' }]
+    post:
+      operationId: approveCheckoutPreview
+      tags: [jobs]
+      summary: Approve one exact retained checkout preview
+      description: >-
+        Requires operator, jobs:read and optimisations:write; public visitors
+        are refused. Records an attributed approval of one retained preview,
+        naming its ID, the head and source digest the caller approved, and the
+        actor. The server checks the head and source digest against the
+        immutable preview rather than trusting the request as evidence. Reads no
+        GitHub source, makes no model call and consults neither optimisation
+        setting, because it neither reads source nor edits a workflow. The
+        approval is audited as optimisation.preview_approved, expires with the
+        preview and publishes nothing: no pull request, no job and no claim that
+        the change saves time. A repeated approval of the same binding returns
+        the existing record and writes no second audit row. The same operator
+        who kept the preview may approve it; both people are in the answer.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CheckoutApprovalRequest' }
+      responses:
+        '200':
+          description: The preview with its approval; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckoutPreview' }
+        '400':
+          description: Invalid request, preview ID or digest shape.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The named head or source digest does not match the retained preview.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /optimisations/checkout/previews/{id}/publication:
+    parameters: [{ $ref: '#/components/parameters/PathID' }]
+    post:
+      operationId: publishCheckoutPreview
+      tags: [jobs]
+      summary: Open a draft pull request for an approved checkout preview
+      description: >-
+        Requires operator, jobs:read and optimisations:publish; public visitors
+        are refused. Refused with 403 unless an administrator has turned on
+        optimisation.source_reads, optimisation.workflow_edits and
+        optimisation.publish. The preview must already carry an approval that
+        names the same head and source digest. The server re-reads the run, its
+        branch, the policy, the source and the approval before writing, refuses
+        any change, and runs optimisation.CheckCurrent. It commits one workflow
+        file on a new branch derived from the preview and opens a draft pull
+        request. It never force-pushes, never merges and runs no job. A retry
+        after an uncertain response reconciles the branch and pull request it
+        left behind; a differing existing branch or pull request is preserved
+        and refused. Verification remains inconclusive: no measurement shows
+        the change saves time. The answer is the preview with a publication
+        record naming the pull request and the exact binding.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CheckoutPublicationRequest' }
+      responses:
+        '200':
+          description: The preview with its draft publication; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckoutPreview' }
+        '400':
+          description: Invalid request, preview ID or digest shape.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The preview is unapproved, moved, unsupported or conflicts with an existing branch or pull request.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429':
+          description: Diagnostic or GitHub quota refusal; Retry-After says when to retry manually.
+          headers:
+            Retry-After: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
 
 components:
   securitySchemes:
@@ -16321,16 +16418,20 @@ components:
       properties:
         source_reads: { type: boolean }
         workflow_edits: { type: boolean }
-        enabled: { type: boolean, description: True when both settings are on. }
-        can_change: { type: boolean, description: Whether the caller may change them here. }
-        reason: { type: string, description: "Why the caller cannot, as a sentence to act on. Absent when they can." }
-      required: [source_reads, workflow_edits, enabled, can_change]
+        publish: { type: boolean }
+        enabled: { type: boolean, description: True when both preview settings are on. }
+        publish_enabled: { type: boolean, description: True when the two preview settings and publish are all on. }
+        can_change: { type: boolean, description: Whether the caller may change the preview settings here. }
+        can_publish: { type: boolean, description: Whether the caller may turn publishing on here. }
+        reason: { type: string, description: "Why the caller cannot change the preview settings, as a sentence to act on. Absent when they can." }
+        publish_reason: { type: string, description: "Why the caller cannot turn publishing on, as a sentence to act on. Absent when they can." }
+      required: [source_reads, workflow_edits, publish, enabled, publish_enabled, can_change, can_publish]
       type: object
     OptimisationEnablementRequest:
       additionalProperties: false
       properties:
-        enabled: { type: boolean }
-      required: [enabled]
+        enabled: { type: boolean, description: "Turn the two preview settings on or off. Absent leaves them unchanged." }
+        publish: { type: boolean, description: "Turn draft publication on or off. Turning it on also turns the two preview settings on; turning it off leaves them as they are." }
       type: object
     CheckoutSelection:
       additionalProperties: false
@@ -16389,6 +16490,53 @@ components:
           description: Must be true. The caller declares that neither the repository's tooling nor its downstream consumers need full history.
       required: [installation_id, repository, selection, head_sha, source_sha256, history_reviewed]
       type: object
+    CheckoutApprovalRequest:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string, minLength: 1, maxLength: 128 }
+        repository: { type: string, minLength: 1, maxLength: 1024 }
+        head_sha: { type: string, description: "The commit the approval names. Must match the retained preview." }
+        source_sha256: { type: string, description: "The source digest the approval names. Must match the retained preview." }
+      required: [installation_id, repository, head_sha, source_sha256]
+      type: object
+    CheckoutApproval:
+      additionalProperties: false
+      nullable: true
+      description: An attributed approval of the exact retained preview, or null when none was given.
+      properties:
+        approved_by: { type: string }
+        approved_at: { type: string, format: date-time }
+        head_sha: { type: string }
+        source_sha256: { type: string }
+        preview_sha256: { type: string, description: "The digest of the immutable retained record this approval binds." }
+      required: [approved_by, approved_at, head_sha, source_sha256, preview_sha256]
+      type: object
+    CheckoutPublicationRequest:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string, minLength: 1, maxLength: 128 }
+        repository: { type: string, minLength: 1, maxLength: 1024 }
+        head_sha: { type: string, description: "The commit the approved preview names." }
+        source_sha256: { type: string, description: "The source digest the approved preview names." }
+      required: [installation_id, repository, head_sha, source_sha256]
+      type: object
+    CheckoutPublication:
+      additionalProperties: false
+      nullable: true
+      description: The one draft pull request opened for an approved preview, or null when none was opened.
+      properties:
+        published_by: { type: string }
+        published_at: { type: string, format: date-time }
+        branch: { type: string }
+        base_branch: { type: string }
+        base_sha: { type: string }
+        head_sha: { type: string }
+        source_sha256: { type: string }
+        preview_sha256: { type: string }
+        pull_number: { type: integer, minimum: 1 }
+        pull_url: { type: string }
+      required: [published_by, published_at, branch, base_branch, base_sha, head_sha, source_sha256, preview_sha256, pull_number, pull_url]
+      type: object
     CheckoutCollection:
       additionalProperties: false
       nullable: true
@@ -16435,8 +16583,10 @@ components:
         created_at: { type: string, format: date-time }
         currentness: { type: string, enum: [not_checked] }
         collection: { $ref: '#/components/schemas/CheckoutCollection' }
+        approval: { $ref: '#/components/schemas/CheckoutApproval' }
+        publication: { $ref: '#/components/schemas/CheckoutPublication' }
         preview: { $ref: '#/components/schemas/CheckoutPreviewDetail' }
-      required: [id, installation_id, repository, reviewed_by, sha256, created_at, currentness, collection, preview]
+      required: [id, installation_id, repository, reviewed_by, sha256, created_at, currentness, collection, approval, publication, preview]
       type: object
     ComparisonCaptureRequest:
       additionalProperties: false

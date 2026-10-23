@@ -27,7 +27,7 @@ as the record of how each slice landed.
 | --- | --- | --- |
 | E1 (ZF-242) | Merged and used: `internal/analysis` (`merge_delay.go`), `get_pr_delay` on Eli's allowlist, CLI, contextual UI | None. ROADMAP.md still lists `in_progress` because live-model evaluation and a real performance experiment have not run |
 | E2 (ZF-243) | Descriptive milestone merged (#1020); `get_retained_comparison` on Eli's allowlist; ZF-241's period comparison, queue breakdown, host pressure and startup failures are `implemented` | None. Controlled-experiment proof and dispatch stay deferred by the owner |
-| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), and, from [#1171](https://github.com/eyupio/zoomies/pull/1171), the policy, routes and web flow described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: approval, publication, verification, CLI, MCP and Eli access, and any run against a real repository |
+| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), and, from the 23 October slices, attributed approval (migration 0119) and reconciled draft publication (migration 0120), all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: verification of a published change, CLI, MCP and Eli access, and any run against a real repository |
 | E4 | Not started as a track. Kennel's evaluator, waivers and guidance exist, but no fix preview or publication path does | Unchanged |
 | E5 | ZF-241's `startup_failures` covers runner-startup recurrence. No workflow/test failure fingerprinting exists | Unchanged |
 | E6 | Not started. `internal/prrepair/mention` (ZF-239 slice 1) is only the command matcher | Unchanged |
@@ -39,8 +39,9 @@ on a job, and `GET /assistant/repairs/automatic` with its stop route.
 
 ### E3: what is built, and what is not
 
-Built and merged (#1171, #1176, #1177), all verified against fakes and mocked
-routes only:
+Built and merged, all verified against fakes and mocked routes only. The policy,
+routes and web flow arrived in #1171, #1176 and #1177; approval and draft
+publication arrived on 23 October:
 
 * **Policy.** `optimisation.source_reads` and `optimisation.workflow_edits`, two
   separate live instance settings, off by default and read on every call, so a
@@ -63,48 +64,57 @@ routes only:
   jobs; typing IDs is a collapsed fallback.
 * **Cost.** Inspection and capture each take one of the 20 hourly diagnostic
   admissions, so one preview costs two.
+* **Approval (23 October).** `POST /optimisations/checkout/previews/{id}/approval`
+  records an explicit, attributed approval of one exact retained preview. It names
+  the preview, the head and source digest it approved, and the actor, is audited as
+  `optimisation.preview_approved`, and expires with the preview. The store keeps it
+  in migration 0119 beside the immutable preview, and replay returns it. The same
+  operator may approve their own preview, with both people recorded; a repeat of the
+  same binding returns the existing act without a second audit row. It reads no
+  source, consults neither optimisation setting and publishes nothing. The retained
+  preview card offers the declaration and then shows who approved and when.
+* **Draft publication (23 October).** `POST /optimisations/checkout/previews/{id}/publication`
+  opens one draft pull request for an approved preview. It has its own live setting,
+  `optimisation.publish`, and action, `optimisations.publish`. The controller
+  re-reads the run, its branch, the live policy, the source and the approval, runs
+  `optimisation.CheckCurrent`, and refuses any change. It commits the one reviewed
+  file on a branch derived from the preview, against the branch the push ran on,
+  and opens a draft; it never force-pushes and never merges. A deterministic branch
+  and exact title/body reconciliation make a retry the same act. Migration 0120
+  records the pull request and binding; publishing is audited as
+  `optimisation.preview_published`. The App needs Contents, Pull requests and
+  Workflows write, and a missing permission is named.
 
-Not built, in the order to do it. Nothing below has been started; the owner asked
-for this record before any further code.
+Not built, in the order to do it. The list below was the record on 19 October;
+approval and draft publication have since been built (see the 23 October sections
+at the end). The rest remains.
 
-1. **Validate against one real repository first.** The reader, the policy gate and
-   the web flow have never met a real GitHub App, real Actions history or a real
-   fleet. Pick one repository with a commit-pinned `actions/checkout` and a literal
-   `fetch-depth: 0` in a root workflow, enable the switches, and run read, review and
-   keep end to end. Record what GitHub actually returned (permissions, rate-limit
-   headroom, step names) and fix what the fakes hid. This is cheap and should come
-   before publication is built on top.
-2. **Approval of a kept preview.** An explicit, attributed approval distinct from
-   keeping. It names the preview ID, the head and source digest it approved, and the
-   actor, is audited, and expires with the preview. Approving must not publish.
-   Decide whether a different person than the reviewer must approve; the recommended
-   default is that the same operator may, with both recorded.
-3. **Draft PR publication.** A new capability, not a repair: repairs push to an
-   existing PR branch and never raise one. This opens a draft PR from a new branch,
-   so it needs its own opt-in (proposed `optimisation.publish`, off by default, with
-   the same one-press enable card) and the App's contents and pull-requests write
-   permission. Before writing it must re-read the head, the policy and the source,
-   run `optimisation.CheckCurrent`, and refuse on any change. Non-force, never
-   merges, and a restart in the middle needs reconciling (look for the branch and PR
-   before retrying) rather than blind replay. Reuse the repair worker's bounded
-   edit validation and `internal/github/eli_repairs.go` where both consumers need it.
-   Allocate any migration from 0115 (0114 is `host_auto_adjust`).
-4. **E2 verification of the published change.** After merge, compare the checkout
+1. **Validate against one real repository first.** The reader, the policy gate, the
+   web flow and the draft publisher have never met a real GitHub App, real Actions
+   history or a real fleet. Pick one repository with a commit-pinned
+   `actions/checkout` and a literal `fetch-depth: 0` in a root workflow, enable the
+   switches, and run read, review, keep, approve and publish end to end. Record what
+   GitHub actually returned (permissions, rate-limit headroom, step names, branch
+   and draft behaviour) and fix what the fakes hid.
+2. **E2 verification of the published change.** After merge, compare the checkout
    time before and after through the E2 comparison. The result is "inconclusive"
    unless a suitable control and candidate exist, and CI passing is never evidence of
    a saving. Projected savings stay estimates.
-5. **CLI, MCP and Eli access.** Needs a contract decision first: a kept preview
+3. **CLI, MCP and Eli access.** Needs a contract decision first: a kept preview
    holds private workflow source, so these surfaces would see more than the web UI
    deliberately shows. Until that is decided the routes are not on Eli's allowlist
    and Eli can only point at the page. Web first, then CLI, then MCP/Eli with
    scripted scenarios.
-6. **Wider catalogue** (later): bounded readiness polling, dependency or build
+4. **Wider catalogue** (later): bounded readiness polling, dependency or build
    cache, and sharding, each with its own evidence and refusals. Do not lead with
    test removal, relaxed assertions or blanket retries.
 
-Owner decisions still open: the approver rule in step 2; the name and default of
-the publish setting in step 3; whether the 10 GiB-per-runner disk allowance used by
-host auto-adjust should become a setting.
+Owner decisions still open: whether a different person than the reviewer must
+approve (the 23 October slice keeps the recommended default, that the same
+operator may, with both recorded); whether the proposed
+`optimisation.publish` name and off-by-default level should stand (the slice uses
+them); whether the 10 GiB-per-runner disk allowance used by host auto-adjust
+should become a setting.
 
 ### Related work that shipped in the same PRs, and is not E3
 
@@ -2348,4 +2358,95 @@ real-repository validation run, then approval, then draft publication with its o
 opt-in and fresh head, policy and source rechecks (non-force, never merges, restart
 reconciliation), then E2 verification. CLI and MCP/Eli access wait on a contract
 decision because the retained envelope is private source; do not add the routes to
-Eli's allowlist without it. The next free migration number is 0115.
+Eli's allowlist without it. Approval and draft publication have since merged;
+the next free migration number is 0121.
+
+
+### E3 preview approval, 23 October 2026
+
+Delivers the explicit approval of a kept preview that the 19 October record left
+out. The design is in
+[the plan](roadmap/plans/2026-10-23-eli-e3-preview-approval.md).
+
+Migration 0119 adds `optimisation_preview_approvals`, keyed by the preview and
+cascading from it. The immutable preview envelope is not rewritten; replay reads
+the approval beside it and still recomputes the preview from retained input. An
+approval names the preview ID, the head and source digest the operator approved,
+the preview's storage digest and the actor. The controller verifies the head and
+source digest against the retained preview before the store records anything; a
+moved binding is refused. An approval is audited as
+`optimisation.preview_approved`, expires with the preview's fourteen-day lifetime,
+and returns the original record without a second audit row when the same binding
+is approved again.
+
+The recommended default is kept: the operator who reviewed may approve, and the
+answer carries both `reviewed_by` and `approved_by`. Requiring a different person
+remains an open owner decision and would be a later setting. Approval reads no
+GitHub source, calls no model and consults neither optimisation setting, because
+it neither reads source nor edits a workflow. It does not re-read the head, so
+`currentness` stays `not_checked`, and it publishes nothing. The retained preview
+card shows the commit and source digest, gates the approval button behind an
+explicit declaration, and then shows who approved and when.
+
+Validation: store tests cover binding, scope, idempotency, audit rollback,
+corruption, expiry and cascade; controller tests cover both people, a moved
+binding, replay and expiry; API tests cover the route authorisation and scopes,
+malformed and moved bindings, one audit row and the replay shape; browser tests
+cover the declaration, the exact request body, the approved state replacing the
+form and a phone layout. All against fakes and mocked routes only.
+
+Next agent: read "E3: what is built, and what is not" near the top. A real
+repository run is still first. Draft publication has since merged; E2
+verification of a published change is the next separate slice. CLI and MCP/Eli
+access still wait on the private-envelope contract decision.
+
+
+### E3 draft publication, 23 October 2026
+
+Delivers the reconciled draft pull request that follows an approved preview. The
+design is in
+[the plan](roadmap/plans/2026-10-23-eli-e3-draft-publication.md).
+
+`optimisation.publish` is a third live instance setting, off by default. The
+one-press card beside an approved preview turns it on together with the two
+preview grants; turning it off leaves those alone. The route asks for the
+separate action `optimisations.publish`, so a token that may preview need not be
+able to write to a repository.
+
+Checkout evidence now records the push's head branch. A preview retained before
+that has none and is refused for publication with a request to preview again;
+replay and approval of the older preview are unchanged. Publication re-reads the
+run, job, branch, live policy, source and approval through the same admitted read
+as inspection, runs `optimisation.CheckCurrent`, and refuses any change. It then
+commits the one reviewed file on a branch derived from the preview, against the
+preview's head commit on the run's branch, and opens a draft pull request. It
+never force-pushes and never merges. The branch and the exact title/body are
+deterministic, so a retry after an uncertain response reconciles the same branch
+and pull request; a differing existing branch or pull request is preserved and
+refused. A lost pull-request response is reconciled by listing the branch's
+pull request; if that read fails, the branch is kept for the retry.
+
+GitHub needs Contents write, Pull requests write and Workflows write for this
+write. The App is probed before any object is made, and a missing permission is a
+403 that names it. Migration 0120 records the branch, base, both commits, the
+approval and preview digests, the actor and the pull request; the store refuses
+an expired, unapproved or differently bound preview, and a repeat returns the
+existing record. Publishing is audited as `optimisation.preview_published`. The
+pull request title, body and commit message carry server-owned wording and the
+preview ID, never repository text or the changed line.
+
+Validation: store tests cover binding, the approval requirement, idempotency,
+audit rollback, expiry, cascade and corruption; controller tests cover fresh
+source, branch, policy and approval checks, one draft, retry reconciliation,
+permission refusal and no record after a failed GitHub write; GitHub tests cover
+the pinned base, the draft flag, one commit on a new branch, a lost response,
+the permission hint and conflicting-branch preservation; API tests cover route
+authorisation, scopes, an unapproved or moved binding, the live publish setting,
+audit and replay; browser tests cover approval gating publication, the exact
+request body, the draft link, the page gate and a phone layout. All against fakes
+and mocked routes only.
+
+Next agent: run the whole flow against one real repository first. Then E2
+verification of the published change is the next separate slice, and it stays
+inconclusive unless a control and candidate exist. CLI and MCP/Eli access still
+wait on the private-envelope contract decision. The next free migration is 0121.

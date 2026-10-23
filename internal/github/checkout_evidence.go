@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/eyupio/zoomies/internal/aicontext"
 	"github.com/eyupio/zoomies/internal/kennel/workflow"
 	"github.com/eyupio/zoomies/internal/optimisation"
 	"github.com/eyupio/zoomies/internal/prrepair"
@@ -60,6 +61,10 @@ type CheckoutEvidence struct {
 	StepNameSHA256 string
 	Source         optimisation.Source
 	Timing         optimisation.Timing
+	// HeadBranch is the branch the push ran on, recorded so a later draft pull
+	// request targets the branch the source actually came from. Older retained
+	// evidence has none and remains readable, but cannot be published.
+	HeadBranch string
 }
 
 func checkoutHash(s string) string { v := sha256.Sum256([]byte(s)); return hex.EncodeToString(v[:]) }
@@ -73,7 +78,7 @@ func ValidCheckoutSelection(s CheckoutSelection) bool {
 	return s.RunID > 0 && s.Attempt > 0 && s.GitHubJobID > 0 && s.JobIndex >= 0 && s.JobIndex <= 20000 && s.StepIndex >= 0 && s.StepIndex <= 20000
 }
 func ValidCheckoutEvidence(e *CheckoutEvidence, repo string, s CheckoutSelection) bool {
-	if e == nil || !ValidCheckoutSelection(s) || e.Version != "checkout-evidence-v1" || e.Basis != "push_source_unique_literal_names" || e.Repository != repo || e.Selection != s || e.StepNumber <= 0 || e.StepNumber > 10000 || !validDelaySHA(e.Source.HeadSHA) || e.Source.File.Partial || e.Source.File.StartLine != 0 || len(e.Source.File.Content) > optimisation.MaxCheckoutSourceBytes || contextGitBlobSHA(e.Source.File.Content) != e.BlobSHA || experimentSourcePath(&ExperimentAttemptEvidence{Event: "push", HeadSHA: e.Source.HeadSHA, WorkflowPath: e.Source.File.Path}) == "" {
+	if e == nil || !ValidCheckoutSelection(s) || e.Version != "checkout-evidence-v1" || e.Basis != "push_source_unique_literal_names" || e.Repository != repo || e.Selection != s || e.StepNumber <= 0 || e.StepNumber > 10000 || !validDelaySHA(e.Source.HeadSHA) || e.Source.File.Partial || e.Source.File.StartLine != 0 || len(e.Source.File.Content) > optimisation.MaxCheckoutSourceBytes || contextGitBlobSHA(e.Source.File.Content) != e.BlobSHA || experimentSourcePath(&ExperimentAttemptEvidence{Event: "push", HeadSHA: e.Source.HeadSHA, WorkflowPath: e.Source.File.Path}) == "" || e.HeadBranch != "" && !aicontext.ValidBranch(e.HeadBranch) {
 		return false
 	}
 	job, step, err := workflow.CheckoutNames([]byte(e.Source.File.Content), s.JobIndex, s.StepIndex)
@@ -235,7 +240,7 @@ func (c *appClient) ReadCheckoutEvidence(ctx context.Context, repo string, selec
 		return nil, ErrExperimentAttemptChanged
 	}
 	ms := step.CompletedAt.Sub(step.StartedAt.Time).Milliseconds()
-	out := &CheckoutEvidence{Version: "checkout-evidence-v1", Basis: "push_source_unique_literal_names", Repository: repo, Selection: selected, StepNumber: step.GetNumber(), BlobSHA: f.GetSHA(), JobNameSHA256: checkoutHash(jobName), StepNameSHA256: checkoutHash(stepName), Source: optimisation.Source{HeadSHA: initial.GetHeadSHA(), File: prrepair.File{Path: f.GetPath(), Mode: mode, Content: string(data)}}, Timing: optimisation.Timing{EvidenceID: checkoutEvidenceID(selected, step.GetNumber()), HeadSHA: initial.GetHeadSHA(), SourceSHA256: checkoutHash(string(data)), RunID: strconv.FormatInt(selected.RunID, 10), Attempt: selected.Attempt, JobIndex: selected.JobIndex, StepIndex: selected.StepIndex, Outcome: "success", CheckoutMS: &ms}}
+	out := &CheckoutEvidence{Version: "checkout-evidence-v1", Basis: "push_source_unique_literal_names", Repository: repo, Selection: selected, StepNumber: step.GetNumber(), BlobSHA: f.GetSHA(), JobNameSHA256: checkoutHash(jobName), StepNameSHA256: checkoutHash(stepName), HeadBranch: initial.GetHeadBranch(), Source: optimisation.Source{HeadSHA: initial.GetHeadSHA(), File: prrepair.File{Path: f.GetPath(), Mode: mode, Content: string(data)}}, Timing: optimisation.Timing{EvidenceID: checkoutEvidenceID(selected, step.GetNumber()), HeadSHA: initial.GetHeadSHA(), SourceSHA256: checkoutHash(string(data)), RunID: strconv.FormatInt(selected.RunID, 10), Attempt: selected.Attempt, JobIndex: selected.JobIndex, StepIndex: selected.StepIndex, Outcome: "success", CheckoutMS: &ms}}
 	if !ValidCheckoutEvidence(out, repo, selected) {
 		return nil, fmt.Errorf("github: checkout evidence is inconsistent or unsupported")
 	}

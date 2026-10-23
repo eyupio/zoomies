@@ -310,6 +310,10 @@ var registry = buildRegistry([]Setting{
 		Summary: "Let the controller compute and keep, for fourteen days, a proposed change to a workflow file, such as reading one commit instead of the full history. Nothing is published, no pull request is opened and no job is run. Needs optimisation.source_reads as well.",
 	},
 	{
+		Key: "optimisation.publish", Label: "Publish approved workflow previews", Env: "ZOOMIES_OPTIMISATION_PUBLISH", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Summary: "Let an operator open a draft pull request for an approved checkout preview. It writes one workflow file on a new branch and opens a draft pull request; it never merges, never force-pushes and runs no job. Needs optimisation.source_reads and optimisation.workflow_edits as well.",
+	},
+	{
 		Key: "security.disable_auth", Label: "Disable authentication", Env: "ZOOMIES_DISABLE_AUTH", Kind: KindBool, Scope: ScopePlatform,
 		Summary:       "Remove all authentication. It exists for local development, and it is refused wherever this controller looks reachable.",
 		RestartReason: "the authentication service takes its security settings when it is built",

@@ -14,14 +14,17 @@ import (
 // ErrOptimisationPolicy means the server's own settings do not permit reading
 // workflow source or previewing a workflow edit. It is separate from
 // ErrOptimisationPreview so a transport can name the setting to change.
-var ErrOptimisationPolicy = errors.New("optimisation previews are not enabled: turn on optimisation.source_reads and optimisation.workflow_edits")
+var (
+	ErrOptimisationPolicy        = errors.New("optimisation previews are not enabled: turn on optimisation.source_reads and optimisation.workflow_edits")
+	ErrOptimisationPublishPolicy = errors.New("optimisation publication is not enabled: turn on optimisation.source_reads, optimisation.workflow_edits and optimisation.publish")
+)
 
 // OptimisationPolicy reads the effective settings on every call. Nothing a
 // request carries can stand in for it, and a setting turned off between the
 // inspection and the capture takes effect at once.
 func (c *Controller) OptimisationPolicy(context.Context) (optimisation.Policy, error) {
 	o := c.cfg().Optimisation
-	return optimisation.Policy{SourceAllowed: o.SourceReads, WorkflowEditsAllowed: o.WorkflowEdits}, nil
+	return optimisation.Policy{SourceAllowed: o.SourceReads, WorkflowEditsAllowed: o.WorkflowEdits, PublishAllowed: o.Publish}, nil
 }
 
 // CheckoutInspection is what an operator is shown before declaring that the

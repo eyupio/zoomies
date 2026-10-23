@@ -11,7 +11,7 @@ func checkoutFixture() (Source, Timing, HistoryReview, Policy) {
 	s := Source{HeadSHA: strings.Repeat("a", 40), File: prrepair.File{Path: ".github/workflows/ci.yml", Mode: "100644", Content: "name: Test\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@" + strings.Repeat("b", 40) + "\n        with:\n          fetch-depth: 0 # reviewed history scope\n      - run: npm test\n"}}
 	duration := int64(4200)
 	needs := false
-	return s, Timing{EvidenceID: "checkout_fixture", HeadSHA: s.HeadSHA, SourceSHA256: hash(s.File.Content), RunID: "9223372036854775807", Attempt: 2, JobIndex: 0, StepIndex: 0, Outcome: "success", CheckoutMS: &duration}, HistoryReview{HeadSHA: s.HeadSHA, SourceSHA256: hash(s.File.Content), Scope: "repository_and_downstream_consumers", NeedsHistory: &needs}, Policy{true, true}
+	return s, Timing{EvidenceID: "checkout_fixture", HeadSHA: s.HeadSHA, SourceSHA256: hash(s.File.Content), RunID: "9223372036854775807", Attempt: 2, JobIndex: 0, StepIndex: 0, Outcome: "success", CheckoutMS: &duration}, HistoryReview{HeadSHA: s.HeadSHA, SourceSHA256: hash(s.File.Content), Scope: "repository_and_downstream_consumers", NeedsHistory: &needs}, Policy{SourceAllowed: true, WorkflowEditsAllowed: true}
 }
 func TestCheckoutPreviewPreservesUnrelatedBytesAndNeverClaimsVerifiedSavings(t *testing.T) {
 	for _, ending := range []string{"\n", "\r\n"} {

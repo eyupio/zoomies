@@ -43,6 +43,8 @@ const retained = {
     blob_sha: 'e'.repeat(40),
     source_funding: 'installation_github_read',
   },
+  approval: null,
+  publication: null,
   preview: {
     version: 'checkout-preview-v1',
     kind: 'checkout_depth',
@@ -65,13 +67,48 @@ const retained = {
   },
 };
 
-const enablement = (over: object = {}) => ({
-  source_reads: true,
-  workflow_edits: true,
-  enabled: true,
-  can_change: true,
-  ...over,
-});
+const approved = {
+  ...retained,
+  approval: {
+    approved_by: 'usr_operator',
+    approved_at: '2026-10-19T09:02:00Z',
+    head_sha: 'a'.repeat(40),
+    source_sha256: 'c'.repeat(64),
+    preview_sha256: 'd'.repeat(64),
+  },
+};
+
+const published = {
+  ...approved,
+  publication: {
+    published_by: 'usr_operator',
+    published_at: '2026-10-19T09:03:00Z',
+    branch: 'zoomies/checkout-opv_fixture',
+    base_branch: 'main',
+    base_sha: 'a'.repeat(40),
+    head_sha: 'a'.repeat(40),
+    source_sha256: 'c'.repeat(64),
+    preview_sha256: 'd'.repeat(64),
+    pull_number: 21,
+    pull_url: 'https://github.com/acme/repo/pull/21',
+  },
+};
+
+const enablement = (over: object = {}) => {
+  const state = {
+    source_reads: true,
+    workflow_edits: true,
+    publish: true,
+    enabled: true,
+    publish_enabled: true,
+    can_change: true,
+    can_publish: true,
+    ...over,
+  };
+  state.enabled = state.source_reads && state.workflow_edits;
+  state.publish_enabled = state.enabled && state.publish;
+  return state;
+};
 async function previewsOn(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/optimisations/enablement', (route) =>
     route.fulfill({ json: enablement() }),
@@ -275,6 +312,65 @@ test('someone who cannot turn them on is told whom to ask and offered the words'
   ).toBeVisible();
 });
 
+test('an operator approves a kept preview, and the act is named without publishing', async ({
+  page,
+}) => {
+  await previewsOn(page);
+  await listRuns(page);
+  let approvalBody: Record<string, unknown> | undefined;
+  await page.route('**/api/v1/optimisations/checkout/inspections', (route) =>
+    route.fulfill({ json: inspection }),
+  );
+  await page.route('**/api/v1/optimisations/checkout/previews', (route) =>
+    route.fulfill({ status: 201, json: retained }),
+  );
+  await page.route('**/api/v1/optimisations/checkout/previews/*/approval', async (route) => {
+    approvalBody = route.request().postDataJSON();
+    await route.fulfill({ json: approved });
+  });
+  await goto(page, '/optimisations/checkout', 'Checkout preview');
+  await chooseRun(page);
+  await page.getByLabel(/I reviewed this file/).check();
+  await page.getByRole('button', { name: 'Keep a preview for 14 days' }).click();
+  const approve = page.getByRole('button', { name: 'Approve preview' });
+  await expect(approve).toBeDisabled();
+  await page.getByLabel(/I approve this exact preview/).check();
+  await approve.click();
+  expect(approvalBody).toEqual({
+    installation_id: 'ins_fixture',
+    repository: 'acme/repo',
+    head_sha: 'a'.repeat(40),
+    source_sha256: 'c'.repeat(64),
+  });
+  await expect(page.getByRole('heading', { name: 'Approved', exact: true })).toBeVisible();
+  await expect(page.getByText(/Approved by usr_operator/)).toBeVisible();
+  await expect(page.getByText(/did not publish anything/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Approve preview' })).toHaveCount(0);
+});
+
+test('a kept preview that was already approved opens with the approver and no approval form', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 700 });
+  await previewsOn(page);
+  await listRuns(page);
+  await page.route('**/api/v1/optimisations/checkout/previews/*?*', (route) =>
+    route.fulfill({ json: approved }),
+  );
+  await goto(
+    page,
+    '/optimisations/checkout?id=opv_fixture&installation_id=ins_fixture&repo=acme%2Frepo',
+    'Checkout preview',
+  );
+  await expect(page.getByRole('heading', { name: 'Approved', exact: true })).toBeVisible();
+  await expect(page.getByText(/Approved by usr_operator/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Approve preview' })).toHaveCount(0);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(overflow).toBe(false);
+});
+
 test('a kept preview opens from its link without any GitHub request and the page fits a phone', async ({
   page,
 }) => {
@@ -291,6 +387,106 @@ test('a kept preview opens from its link without any GitHub request and the page
   );
   await expect(page.getByRole('heading', { name: 'Retained preview', exact: true })).toBeVisible();
   await expect(page.getByText('fetch-depth: 1')).toBeVisible();
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(overflow).toBe(false);
+});
+
+test('an approved preview opens one draft pull request and shows where it went', async ({
+  page,
+}) => {
+  await previewsOn(page);
+  await listRuns(page);
+  await page.route('**/api/v1/optimisations/checkout/inspections', (route) =>
+    route.fulfill({ json: inspection }),
+  );
+  await page.route('**/api/v1/optimisations/checkout/previews', (route) =>
+    route.fulfill({ status: 201, json: retained }),
+  );
+  await page.route('**/api/v1/optimisations/checkout/previews/*/approval', (route) =>
+    route.fulfill({ json: approved }),
+  );
+  let publishBody: Record<string, unknown> | undefined;
+  await page.route('**/api/v1/optimisations/checkout/previews/*/publication', async (route) => {
+    publishBody = route.request().postDataJSON();
+    await route.fulfill({ json: published });
+  });
+  await goto(page, '/optimisations/checkout', 'Checkout preview');
+  await chooseRun(page);
+  await page.getByLabel(/I reviewed this file/).check();
+  await page.getByRole('button', { name: 'Keep a preview for 14 days' }).click();
+  await page.getByLabel(/I approve this exact preview/).check();
+  await page.getByRole('button', { name: 'Approve preview' }).click();
+  await expect(page.getByRole('heading', { name: 'Publish a draft pull request' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open a draft pull request' }).click();
+  expect(publishBody).toEqual({
+    installation_id: 'ins_fixture',
+    repository: 'acme/repo',
+    head_sha: 'a'.repeat(40),
+    source_sha256: 'c'.repeat(64),
+  });
+  await expect(page.getByRole('heading', { name: 'Draft pull request opened' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '#21' })).toHaveAttribute(
+    'href',
+    'https://github.com/acme/repo/pull/21',
+  );
+  await expect(page.getByText('zoomies/checkout-opv_fixture')).toBeVisible();
+  await expect(page.getByText(/Nothing was merged/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open a draft pull request' })).toHaveCount(0);
+});
+
+test('draft publishing turns on from the approved preview that needs it', async ({ page }) => {
+  await listRuns(page);
+  let publishing = false;
+  let put: unknown;
+  await page.route('**/api/v1/optimisations/enablement', async (route) => {
+    if (route.request().method() === 'PUT') {
+      put = route.request().postDataJSON();
+      publishing = true;
+    }
+    await route.fulfill({
+      json: publishing ? enablement() : enablement({ publish: false, publish_enabled: false }),
+    });
+  });
+  await page.route('**/api/v1/optimisations/checkout/previews/*?*', (route) =>
+    route.fulfill({ json: approved }),
+  );
+  await goto(
+    page,
+    '/optimisations/checkout?id=opv_fixture&installation_id=ins_fixture&repo=acme%2Frepo',
+    'Checkout preview',
+  );
+  await expect(page.getByRole('heading', { name: 'Turn on draft publishing' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open a draft pull request' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Turn on draft publishing' }).click();
+  expect(put).toEqual({ publish: true });
+  await expect(page.getByRole('heading', { name: 'Turn on draft publishing' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Open a draft pull request' })).toBeVisible();
+});
+
+test('a published preview opens with its draft link and no publish or approve form', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 700 });
+  await previewsOn(page);
+  await listRuns(page);
+  await page.route('**/api/v1/optimisations/checkout/previews/*?*', (route) =>
+    route.fulfill({ json: published }),
+  );
+  await goto(
+    page,
+    '/optimisations/checkout?id=opv_fixture&installation_id=ins_fixture&repo=acme%2Frepo',
+    'Checkout preview',
+  );
+  await expect(page.getByRole('heading', { name: 'Draft pull request opened' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '#21' })).toHaveAttribute(
+    'href',
+    'https://github.com/acme/repo/pull/21',
+  );
+  await expect(page.getByRole('button', { name: 'Open a draft pull request' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Approve preview' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Turn on draft publishing' })).toHaveCount(0);
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
   );

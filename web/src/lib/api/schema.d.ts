@@ -5740,6 +5740,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/optimisations/checkout/previews/{id}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve one exact retained checkout preview
+         * @description Requires operator, jobs:read and optimisations:write; public visitors are refused. Records an attributed approval of one retained preview, naming its ID, the head and source digest the caller approved, and the actor. The server checks the head and source digest against the immutable preview rather than trusting the request as evidence. Reads no GitHub source, makes no model call and consults neither optimisation setting, because it neither reads source nor edits a workflow. The approval is audited as optimisation.preview_approved, expires with the preview and publishes nothing: no pull request, no job and no claim that the change saves time. A repeated approval of the same binding returns the existing record and writes no second audit row. The same operator who kept the preview may approve it; both people are in the answer.
+         */
+        post: operations["approveCheckoutPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/optimisations/checkout/previews/{id}/publication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open a draft pull request for an approved checkout preview
+         * @description Requires operator, jobs:read and optimisations:publish; public visitors are refused. Refused with 403 unless an administrator has turned on optimisation.source_reads, optimisation.workflow_edits and optimisation.publish. The preview must already carry an approval that names the same head and source digest. The server re-reads the run, its branch, the policy, the source and the approval before writing, refuses any change, and runs optimisation.CheckCurrent. It commits one workflow file on a new branch derived from the preview and opens a draft pull request. It never force-pushes, never merges and runs no job. A retry after an uncertain response reconciles the branch and pull request it left behind; a differing existing branch or pull request is preserved and refused. Verification remains inconclusive: no measurement shows the change saves time. The answer is the preview with a publication record naming the pull request and the exact binding.
+         */
+        post: operations["publishCheckoutPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -12261,15 +12307,25 @@ export interface components {
         OptimisationEnablement: {
             source_reads: boolean;
             workflow_edits: boolean;
-            /** @description True when both settings are on. */
+            publish: boolean;
+            /** @description True when both preview settings are on. */
             enabled: boolean;
-            /** @description Whether the caller may change them here. */
+            /** @description True when the two preview settings and publish are all on. */
+            publish_enabled: boolean;
+            /** @description Whether the caller may change the preview settings here. */
             can_change: boolean;
-            /** @description Why the caller cannot, as a sentence to act on. Absent when they can. */
+            /** @description Whether the caller may turn publishing on here. */
+            can_publish: boolean;
+            /** @description Why the caller cannot change the preview settings, as a sentence to act on. Absent when they can. */
             reason?: string;
+            /** @description Why the caller cannot turn publishing on, as a sentence to act on. Absent when they can. */
+            publish_reason?: string;
         };
         OptimisationEnablementRequest: {
-            enabled: boolean;
+            /** @description Turn the two preview settings on or off. Absent leaves them unchanged. */
+            enabled?: boolean;
+            /** @description Turn draft publication on or off. Turning it on also turns the two preview settings on; turning it off leaves them as they are. */
+            publish?: boolean;
         };
         /** @description One exact run, attempt and GitHub job. IDs are decimal strings. Leave both positions out and the server finds the job's one previewable checkout step in the workflow file; name both to choose a step yourself. Naming only one is refused. Responses always carry the positions that were used. */
         CheckoutSelection: {
@@ -12322,6 +12378,46 @@ export interface components {
             /** @description Must be true. The caller declares that neither the repository's tooling nor its downstream consumers need full history. */
             history_reviewed: boolean;
         };
+        CheckoutApprovalRequest: {
+            installation_id: string;
+            repository: string;
+            /** @description The commit the approval names. Must match the retained preview. */
+            head_sha: string;
+            /** @description The source digest the approval names. Must match the retained preview. */
+            source_sha256: string;
+        };
+        /** @description An attributed approval of the exact retained preview, or null when none was given. */
+        CheckoutApproval: {
+            approved_by: string;
+            /** Format: date-time */
+            approved_at: string;
+            head_sha: string;
+            source_sha256: string;
+            /** @description The digest of the immutable retained record this approval binds. */
+            preview_sha256: string;
+        } | null;
+        CheckoutPublicationRequest: {
+            installation_id: string;
+            repository: string;
+            /** @description The commit the approved preview names. */
+            head_sha: string;
+            /** @description The source digest the approved preview names. */
+            source_sha256: string;
+        };
+        /** @description The one draft pull request opened for an approved preview, or null when none was opened. */
+        CheckoutPublication: {
+            published_by: string;
+            /** Format: date-time */
+            published_at: string;
+            branch: string;
+            base_branch: string;
+            base_sha: string;
+            head_sha: string;
+            source_sha256: string;
+            preview_sha256: string;
+            pull_number: number;
+            pull_url: string;
+        } | null;
         /** @description How the source and timing were collected. Null for a preview retained before collection was recorded. */
         CheckoutCollection: {
             version: string;
@@ -12367,6 +12463,8 @@ export interface components {
             /** @enum {string} */
             currentness: "not_checked";
             collection: components["schemas"]["CheckoutCollection"];
+            approval: components["schemas"]["CheckoutApproval"];
+            publication: components["schemas"]["CheckoutPublication"];
             preview: components["schemas"]["CheckoutPreviewDetail"];
         };
         ComparisonCaptureRequest: {
@@ -21878,6 +21976,112 @@ export interface operations {
             /** @description Stored content integrity cannot be verified. */
             409: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    approveCheckoutPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckoutApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description The preview with its approval; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckoutPreview"];
+                };
+            };
+            /** @description Invalid request, preview ID or digest shape. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The named head or source digest does not match the retained preview. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    publishCheckoutPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckoutPublicationRequest"];
+            };
+        };
+        responses: {
+            /** @description The preview with its draft publication; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckoutPreview"];
+                };
+            };
+            /** @description Invalid request, preview ID or digest shape. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The preview is unapproved, moved, unsupported or conflicts with an existing branch or pull request. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Diagnostic or GitHub quota refusal; Retry-After says when to retry manually. */
+            429: {
+                headers: {
+                    "Retry-After"?: string;
                     [name: string]: unknown;
                 };
                 content: {

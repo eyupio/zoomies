@@ -11,18 +11,23 @@ import (
 func TestOptimisationPolicyFollowsTheLiveSettingsAndNothingElse(t *testing.T) {
 	h := newHarness(t)
 	p, err := h.c.OptimisationPolicy(h.ctx)
-	if err != nil || p.SourceAllowed || p.WorkflowEditsAllowed {
-		t.Fatal("a fresh instance must allow neither source reads nor workflow edits")
+	if err != nil || p.SourceAllowed || p.WorkflowEditsAllowed || p.PublishAllowed {
+		t.Fatal("a fresh instance must allow no source reads, workflow edits or publication")
 	}
 	h.c.UpdateConfig(func(c *config.Config) { c.Optimisation.SourceReads = true })
 	p, _ = h.c.OptimisationPolicy(h.ctx)
-	if !p.SourceAllowed || p.WorkflowEditsAllowed {
-		t.Fatal("the two switches are separate grants")
+	if !p.SourceAllowed || p.WorkflowEditsAllowed || p.PublishAllowed {
+		t.Fatal("the switches are separate grants")
 	}
 	h.c.UpdateConfig(func(c *config.Config) { c.Optimisation.WorkflowEdits = true })
 	p, _ = h.c.OptimisationPolicy(h.ctx)
-	if !p.SourceAllowed || !p.WorkflowEditsAllowed {
-		t.Fatal("turning both on did not reach the policy")
+	if !p.SourceAllowed || !p.WorkflowEditsAllowed || p.PublishAllowed {
+		t.Fatal("turning previews on did not reach the policy or turned publishing on")
+	}
+	h.c.UpdateConfig(func(c *config.Config) { c.Optimisation.Publish = true })
+	p, _ = h.c.OptimisationPolicy(h.ctx)
+	if !p.PublishAllowed {
+		t.Fatal("turning publishing on did not reach the policy")
 	}
 }
 

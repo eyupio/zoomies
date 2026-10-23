@@ -1854,9 +1854,10 @@ and disabled source/edit policy. Verification remains inconclusive.
 
 This pure foundation is not a runtime route or a complete E3 delivery. Next wire
 separately authorised bounded source/evidence admission, preview retention and web
-inspection, preserving the owner's web-first priority. Then implement explicit
-approval and reconciled draft publication with fresh head/policy checks. Keep
-experiment dispatch separate. No model or source call is introduced in the core.
+inspection, preserving the owner's web-first priority. Explicit approval and
+reconciled draft publication are now built; next is E2 verification of a
+published change. Keep experiment dispatch separate. No model or source call is
+introduced in the core.
 
 **Acceptance:** exact preview and currentness refusal for one supported change;
 subsequent scoped web preview, draft PR, linked explanation and honest E2 result.
@@ -1867,7 +1868,7 @@ Depends on ZF-242 and ZF-243's descriptive milestone. Size M.
 [private retention/replay](roadmap/plans/2026-10-14-eli-e3-preview-retention.md),
 [admitted checkout evidence](roadmap/plans/2026-10-14-eli-e3-checkout-evidence.md).
 The preview foundation merged in #1021 and private retention in #1022.
-The policy, routes and web flow merged in #1171 (see [the 19 October plan](roadmap/plans/2026-10-19-eli-e3-checkout-web.md)), tested against fakes only. Still to do, in order: a run against one real repository, explicit approval of a kept preview, draft PR publication (its own opt-in, fresh head and policy checks, never merges), E2 verification, then CLI/MCP/Eli access once a contract for the private envelope is decided. [The handoff](eli-enhancement-roadmap-handoff.md#e3-what-is-built-and-what-is-not) has the detail.
+The policy, routes and web flow merged in #1171 (see [the 19 October plan](roadmap/plans/2026-10-19-eli-e3-checkout-web.md)), tested against fakes only. Attributed approval of a kept preview is in [the 23 October approval slice](roadmap/plans/2026-10-23-eli-e3-preview-approval.md): it names the preview, head, source digest and actor, is audited, expires with the preview and publishes nothing. Reconciled draft publication is in [the 23 October publication slice](roadmap/plans/2026-10-23-eli-e3-draft-publication.md): its own live opt-in, fresh head, branch, policy, source and approval checks, one draft pull request, non-force and never merged. Still to do, in order: a run against one real repository, E2 verification, then CLI/MCP/Eli access once a contract for the private envelope is decided. [The handoff](eli-enhancement-roadmap-handoff.md#e3-what-is-built-and-what-is-not) has the detail.
 
 ## 9. Kept for the day somebody asks
 

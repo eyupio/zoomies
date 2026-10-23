@@ -23,6 +23,10 @@ type checkoutCaptureReader struct {
 	calls, quotaCalls int
 	deadline          bool
 	err               error
+	publishes         int
+	publishRequest    github.OptimisationPublishRequest
+	publishPR         *github.PullRequest
+	publishErr        error
 }
 
 func (f *checkoutCaptureReader) RateLimit(context.Context) (*github.RateLimit, error) {
@@ -34,6 +38,11 @@ func (f *checkoutCaptureReader) ReadCheckoutEvidence(ctx context.Context, _ stri
 	_, f.deadline = ctx.Deadline()
 	return f.evidence, f.err
 }
+func (f *checkoutCaptureReader) PublishOptimisation(_ context.Context, req github.OptimisationPublishRequest) (*github.PullRequest, error) {
+	f.publishes++
+	f.publishRequest = req
+	return f.publishPR, f.publishErr
+}
 func checkoutCaptureFixture(t *testing.T) (*harness, *store.Installation, *checkoutCaptureReader, github.CheckoutSelection, optimisation.HistoryReview, *store.AuditEvent) {
 	t.Helper()
 	h, inst, _ := experimentJoinFixture(t)
@@ -42,7 +51,7 @@ func checkoutCaptureFixture(t *testing.T) (*harness, *store.Installation, *check
 	hash := func(s string) string { v := sha256.Sum256([]byte(s)); return hex.EncodeToString(v[:]) }
 	blob := sha1.Sum([]byte("blob " + strconv.Itoa(len(source.File.Content)) + "\x00" + source.File.Content))
 	ms, needs := int64(4200), false
-	e := &github.CheckoutEvidence{Version: "checkout-evidence-v1", Basis: "push_source_unique_literal_names", Repository: inst.Target, Selection: sel, StepNumber: 42, BlobSHA: hex.EncodeToString(blob[:]), JobNameSHA256: hash("Build"), StepNameSHA256: hash("Checkout"), Source: source, Timing: optimisation.Timing{EvidenceID: "checkout:10:2:100:42", HeadSHA: source.HeadSHA, SourceSHA256: hash(source.File.Content), RunID: "10", Attempt: 2, JobIndex: 0, StepIndex: 0, Outcome: "success", CheckoutMS: &ms}}
+	e := &github.CheckoutEvidence{Version: "checkout-evidence-v1", Basis: "push_source_unique_literal_names", Repository: inst.Target, Selection: sel, StepNumber: 42, BlobSHA: hex.EncodeToString(blob[:]), JobNameSHA256: hash("Build"), StepNameSHA256: hash("Checkout"), HeadBranch: "main", Source: source, Timing: optimisation.Timing{EvidenceID: "checkout:10:2:100:42", HeadSHA: source.HeadSHA, SourceSHA256: hash(source.File.Content), RunID: "10", Attempt: 2, JobIndex: 0, StepIndex: 0, Outcome: "success", CheckoutMS: &ms}}
 	f := &checkoutCaptureReader{Client: h.gh.Client(inst.Target, inst.TargetType), evidence: e, quota: &github.RateLimit{Limit: 100, Remaining: 100}}
 	h.c.clients.entries[inst.ID] = &clientEntry{client: f, updatedAt: inst.UpdatedAt.Truncate(1e6)}
 	return h, inst, f, sel, optimisation.HistoryReview{HeadSHA: source.HeadSHA, SourceSHA256: hash(source.File.Content), Scope: "repository_and_downstream_consumers", NeedsHistory: &needs}, &store.AuditEvent{ActorID: "usr_operator", ActorKind: "user"}

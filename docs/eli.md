@@ -384,6 +384,21 @@ says so rather than pretending the press worked.
    confirmation is recorded against your name. It is a declaration, not proof.
 3. **Keep the preview.** It stays for 14 days and shows the one changed line,
    `fetch-depth: 0` to `fetch-depth: 1`.
+4. **Approve it,** if you want to say this exact preview is the change to take
+   forward. Approval names the preview, the commit and the source digest, and
+   records who approved beside who reviewed. It expires with the preview and
+   publishes nothing: no pull request, no job, and the commit is not re-read, so
+   currentness stays `not_checked`. The same operator may approve their own
+   preview, with both people recorded.
+5. **Publish a draft pull request.** This re-reads the run, its branch, the live
+   settings, the source and the approval, and refuses any change. It commits the
+   one reviewed line on a new branch and opens a draft against the branch the
+   push ran on. It never force-pushes and never merges. A retry after a lost
+   response reconciles the same branch and pull request; anything that differs is
+   preserved and refused rather than overwritten. The App needs Contents, Pull
+   requests and Workflows write for this step, and the third setting,
+   `optimisation.publish`, is off until an administrator turns it on from the
+   approved preview's page.
 
 The step must use a commit-pinned `actions/checkout` with a literal
 `fetch-depth: 0`, in a root workflow with literal job and step names. Matrix,
@@ -392,9 +407,9 @@ between your review and the keep, the preview is refused and you read it again.
 
 A preview says nothing about savings. Its verification is always `inconclusive` and
 its currentness `not_checked`: nothing re-reads the commit or your settings after it
-is kept. The time shown is one run's checkout, not a promise. Approving a change,
-opening a pull request for it and measuring the result are separate steps that are
-not built yet. Reading source and keeping previews spend GitHub requests from the
+is kept. The time shown is one run's checkout, not a promise. Publishing opens a
+draft and nothing more: measuring the result is a separate step that is not built
+yet. Reading source, keeping previews and publishing spend GitHub requests from the
 installation's own quota, share the PR check delay allowance, and wait for a manual
 retry when it is exhausted.
 

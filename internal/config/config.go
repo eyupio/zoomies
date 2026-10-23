@@ -563,10 +563,10 @@ type Assistant struct {
 	LocalOnly bool `yaml:"local_only"`
 }
 
-// Optimisation holds the two switches that gate reviewed workflow
-// optimisations. Both default to off: reading a repository's workflow source and
-// previewing an edit to it are separate grants, and neither is implied by
-// Eli being enabled.
+// Optimisation holds the switches that gate reviewed workflow optimisations.
+// All default to off: reading a repository's workflow source, previewing an
+// edit to it and opening a draft pull request for an approved edit are separate
+// grants, and none is implied by Eli being enabled.
 type Optimisation struct {
 	// SourceReads lets the controller read a workflow file at a run's commit so
 	// an operator can review it.
@@ -574,6 +574,9 @@ type Optimisation struct {
 	// WorkflowEdits lets the controller compute and retain a proposed change to
 	// a workflow file. It publishes nothing.
 	WorkflowEdits bool `yaml:"workflow_edits"`
+	// Publish lets an operator open a draft pull request for an approved
+	// preview. It needs both switches above, opens no job and never merges.
+	Publish bool `yaml:"publish"`
 }
 
 type Security struct {
