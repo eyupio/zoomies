@@ -1,6 +1,10 @@
 name: eyup.io DNS helper
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/eyup-dns.yml"
+      - ".github/eyup-dns.py"
   workflow_dispatch:
     inputs:
       apply:
