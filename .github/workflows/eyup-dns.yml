@@ -1,0 +1,26 @@
+name: eyup.io DNS helper
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply the GitHub Pages DNS records (otherwise dry run)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  dns:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Plan or apply
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          APPLY: ${{ inputs.apply }}
+        run: python3 .github/eyup-dns.py
