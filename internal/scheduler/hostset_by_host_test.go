@@ -35,6 +35,7 @@ func referenceNewHostSet(hosts []*store.Host, pools []*store.Pool, runners map[s
 		free:           make(map[string]int, len(hosts)),
 		observedCPU:    make(map[string]float64, len(hosts)),
 		warming:        make(map[string]int, len(hosts)),
+		warmingDinD:    make(map[string]int, len(hosts)),
 		left:           make(map[string]Reservation, len(hosts)),
 		alloc:          make(map[string]store.HostAllocation, len(hosts)),
 		promisedMemory: make(map[string]int64, len(hosts)),
@@ -138,6 +139,9 @@ func (hs *hostSet) referencePending(h *store.Host, pools []*store.Pool, runners 
 			starting := r.State == store.RunnerProvisioning || r.State == store.RunnerRegistering
 			if starting {
 				hs.warming[h.ID]++
+				if p.DockerMode == store.DockerDinD {
+					hs.warmingDinD[h.ID]++
+				}
 			}
 			if starting || r.CreatedAt.After(h.Usage.SampledAt) ||
 				(r.ContainerStartedAt != nil && r.ContainerStartedAt.After(h.Usage.SampledAt)) {

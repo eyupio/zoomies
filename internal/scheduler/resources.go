@@ -322,8 +322,10 @@ type hostTotals struct {
 	// ours says a live runner of any pool is on the host, including a pool the
 	// snapshot no longer lists, whose runners still hold their hosts.
 	ours bool
-	// warming is how many of the runners are still starting.
-	warming int
+	// warming is how many of the runners are still starting, and warmingDinD
+	// how many of those wait in the DinD startup lane.
+	warming     int
+	warmingDinD int
 	// reserved is what they have been promised: the figure Reserved gives.
 	reserved Reservation
 	// pending is what the host's last sample cannot yet contain, the runners
@@ -346,6 +348,9 @@ func (t *hostTotals) add(p *store.Pool, h *store.Host, r *store.Runner) {
 	starting := r.State == store.RunnerProvisioning || r.State == store.RunnerRegistering
 	if starting {
 		t.warming++
+		if p.DockerMode == store.DockerDinD {
+			t.warmingDinD++
+		}
 	}
 	if starting || r.CreatedAt.After(h.Usage.SampledAt) ||
 		(r.ContainerStartedAt != nil && r.ContainerStartedAt.After(h.Usage.SampledAt)) {
