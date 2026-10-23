@@ -1424,10 +1424,13 @@ jobs:
           target: controller
           platforms: ${{ steps.platforms.outputs.list }}
           push: ${{ steps.publish.outputs.value }}
-          # Export intermediate layers for the next ephemeral builder. Each
-          # target has its own scope; cache export is optional and bounded.
+          # Export intermediate layers for the next ephemeral builder on main,
+          # where the next run is another commit whose layers can be reused.
+          # A pull request reads the cache and does not write it: its entries
+          # are scoped to a merge ref nothing else reads, and exporting them
+          # spends the same five minutes and disk the build is waiting on.
           cache-from: type=gha,version=2,scope=ci-controller
-          cache-to: type=gha,version=2,scope=ci-controller,mode=max,timeout=5m,ignore-error=true
+          cache-to: ${{ steps.publish.outputs.value == 'true' && 'type=gha,version=2,scope=ci-controller,mode=max,timeout=5m,ignore-error=true' || '' }}
           # Without these, `zoomies version` inside a published image reports
           # the Dockerfile's "dev" default, and nothing in the image says which
           # commit it came from.
@@ -1456,7 +1459,7 @@ jobs:
           platforms: ${{ steps.platforms.outputs.list }}
           push: ${{ steps.publish.outputs.value }}
           cache-from: type=gha,version=2,scope=ci-agent
-          cache-to: type=gha,version=2,scope=ci-agent,mode=max,timeout=5m,ignore-error=true
+          cache-to: ${{ steps.publish.outputs.value == 'true' && 'type=gha,version=2,scope=ci-agent,mode=max,timeout=5m,ignore-error=true' || '' }}
           build-args: |
             RUNNER_IMAGE_TAG=dev
             VERSION=${{ steps.tags.outputs.version }}

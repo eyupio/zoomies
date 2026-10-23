@@ -33,7 +33,11 @@ WORKDIR /src
 RUN apk add --no-cache git ca-certificates
 COPY go.mod go.sum ./
 RUN go mod download
-COPY . .
+# Only the Go trees, not the whole context: a change to web/ or deploy/ is
+# already represented by the ui stage above, and copying either here would
+# invalidate the compile layer for a change it cannot affect.
+COPY cmd ./cmd
+COPY internal ./internal
 # The UI build output is embedded by internal/api; it must be present before the
 # Go build so that //go:embed finds it.
 COPY --from=ui /src/internal/api/webdist ./internal/api/webdist
