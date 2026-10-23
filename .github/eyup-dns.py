@@ -70,6 +70,45 @@ def probe(path):
         print(f"Cloudflare {path}: {type(error).__name__}")
 
 
+def probe_write(zone_id):
+    spec = {
+        "type": "TXT",
+        "name": "_eyup-pages-probe." + ZONE_NAME,
+        "content": "eyup-pages-probe",
+        "ttl": 60,
+    }
+    request = urllib.request.Request(
+        API + f"/zones/{zone_id}/dns_records",
+        data=json.dumps(spec).encode("utf-8"),
+        method="POST",
+    )
+    request.add_header("Authorization", "Bearer " + TOKEN)
+    request.add_header("Content-Type", "application/json")
+    request.add_header("User-Agent", "eyup-dns/1.0")
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        print(f"DNS write probe: HTTP {error.code}")
+        return
+    if not payload.get("success"):
+        print("DNS write probe: denied")
+        return
+    record_id = payload["result"]["id"]
+    print("DNS write probe: create allowed")
+    delete = urllib.request.Request(
+        API + f"/zones/{zone_id}/dns_records/{record_id}",
+        method="DELETE",
+    )
+    delete.add_header("Authorization", "Bearer " + TOKEN)
+    delete.add_header("User-Agent", "eyup-dns/1.0")
+    try:
+        with urllib.request.urlopen(delete, timeout=15) as response:
+            print(f"DNS write probe: cleanup HTTP {response.status}")
+    except urllib.error.HTTPError as error:
+        print(f"DNS write probe: cleanup HTTP {error.code}; record {record_id} remains")
+
+
 def main():
     if not TOKEN:
         print("CF_API_TOKEN is empty", file=sys.stderr)
@@ -85,6 +124,7 @@ def main():
     zone = zones[0]
     zone_id = zone["id"]
     print(f"Cloudflare zone: {zone['name']} ({zone_id})")
+    probe_write(zone_id)
 
     records = []
     page = 1
