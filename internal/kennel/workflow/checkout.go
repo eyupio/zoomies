@@ -67,11 +67,21 @@ func CheckoutNames(data []byte, jobIndex, stepIndex int) (jobName, stepName stri
 	if _, _, _, err = CheckoutDepthChange(data, jobIndex, stepIndex); err != nil {
 		return
 	}
+	return namesAt(data, jobIndex, stepIndex)
+}
+
+// namesAt reads the literal job and step names at one position. Explicit names
+// avoid depending on GitHub's generated naming rules; duplicate names in the
+// file or the job make the association ambiguous.
+func namesAt(data []byte, jobIndex, stepIndex int) (jobName, stepName string, err error) {
 	root, err := parseRoot(data)
 	if err != nil {
 		return "", "", err
 	}
 	jobs := field(root, "jobs")
+	if jobs == nil || jobs.Kind != yaml.MappingNode || jobIndex < 0 || jobIndex >= len(jobs.Content)/2 {
+		return "", "", errUnsupported
+	}
 	literal := func(n *yaml.Node) (string, bool) {
 		if n == nil || n.Kind != yaml.ScalarNode || n.Tag != "!!str" || n.Value == "" || len(n.Value) > 128 || strings.TrimSpace(n.Value) != n.Value || strings.Contains(n.Value, "${{") || strings.ContainsAny(n.Value, "\r\n\x00") {
 			return "", false
@@ -94,7 +104,6 @@ func CheckoutNames(data []byte, jobIndex, stepIndex int) (jobName, stepName stri
 		}
 		seen[text] = true
 		if i/2 == jobIndex {
-			// Explicit names avoid depending on GitHub's generated naming rules.
 			if field(job, "name") == nil {
 				return "", "", errUnsupported
 			}
@@ -102,6 +111,9 @@ func CheckoutNames(data []byte, jobIndex, stepIndex int) (jobName, stepName stri
 		}
 	}
 	steps := field(jobs.Content[jobIndex*2+1], "steps")
+	if steps == nil || steps.Kind != yaml.SequenceNode || stepIndex < 0 || stepIndex >= len(steps.Content) {
+		return "", "", errUnsupported
+	}
 	seen = map[string]bool{}
 	for i, step := range steps.Content {
 		name, ok := literal(field(step, "name"))

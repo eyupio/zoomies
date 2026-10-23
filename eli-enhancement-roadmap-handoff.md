@@ -109,6 +109,12 @@ publication arrived on 23 October:
   GitHub-reported step timings with their exact local job identities, skips
   ambiguous or untimed steps, and a pure helper turns them into the preview's
   mean setup time and a deterministic evidence ID. No extra GitHub read.
+* **Cache source binding (23 October).** `ReadSetupCacheSource` reads one
+  completed successful push attempt, its commit tree, the root workflow and the
+  one root lockfile at the commit, and matches literal job and setup step names.
+  The controller binds it to the selected fleet job row and the retained setup
+  history, then returns the pure cache preview. At most eight GitHub requests
+  under the shared diagnostic admission; no retention, route or surface yet.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval, draft publication and read access from the CLI, MCP and Eli have since
@@ -125,13 +131,12 @@ been built (see the 23 October sections at the end). The rest remains.
    time before and after through the E2 comparison. The result is "inconclusive"
    unless a suitable control and candidate exist, and CI passing is never evidence of
    a saving. Projected savings stay estimates.
-3. **Wider catalogue.** The dependency/build cache foundation is the pure
-   `actions/setup-node` preview and the fleet's retained setup history described
-   above. Next is binding that evidence to one selected run and reading the
-   workflow and root lockfile at its commit, then retention, approval,
-   publication and the read surfaces it needs. Bounded readiness polling and
-   sharding follow, each with its own evidence and refusals. Do not lead with
-   test removal, relaxed assertions or blanket retries.
+3. **Wider catalogue.** The dependency/build cache foundation, the fleet's
+   retained setup history and the bounded source binding are described above.
+   Next is retention, approval, publication and the read surfaces it needs.
+   Bounded readiness polling and sharding follow, each with its own evidence and
+   refusals. Do not lead with test removal, relaxed assertions or blanket
+   retries.
 
 Owner decisions still open: whether a different person than the reviewer must
 approve (the 23 October slice keeps the recommended default, that the same
@@ -2593,3 +2598,31 @@ or malformed history. All against the test store only.
 Next agent: bind this history to one selected run and read the workflow and root
 lockfile at its commit before adding retention or a route. Do not describe the
 cache optimisation as usable yet.
+
+
+### E3 cache source binding, 23 October 2026
+
+The cache preview can now be computed from one selected fleet job and its exact
+GitHub attempt without retaining anything. `ReadSetupCacheSource` reads a
+completed successful push attempt, its complete commit tree, the root workflow
+and the one root lockfile at that commit. It refuses redirects, non-push
+attempts, a truncated tree, zero or two root lockfiles, oversized or non-UTF-8
+files, a changed final attempt, and a setup step without one literal job and
+step name. At most eight requests.
+
+The controller binds that source to the selected fleet job row: same installation
+and repository, run, attempt and head, successful, one completed step with the
+literal name and a positive duration. It then uses the retained setup samples
+from the last ninety days, requiring the selected job among them, and runs the
+pure cache preview. The read takes one of the shared twenty-hourly diagnostic
+admissions and the half-quota reserve. No model is called.
+
+There is no retention, approval, publication, route, CLI, MCP, Eli or UI. The
+design is in [the plan](roadmap/plans/2026-10-23-eli-e3-cache-source.md). Tests
+cover the source, lockfile, literal names, push/success, tree/file refusals, the
+selected job binding, history, policy, quota and reader failures. All against
+fakes.
+
+Next agent: add retention and the API/web surface for this preview before
+considering CLI/MCP/Eli or publication. Do not describe the cache optimisation as
+usable yet.

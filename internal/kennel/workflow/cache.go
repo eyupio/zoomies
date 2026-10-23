@@ -130,3 +130,14 @@ func FindSetupNode(data []byte) (jobIndex, stepIndex int, err error) {
 	}
 	return jobIndex, stepIndex, nil
 }
+
+// SetupNames returns the literal job and step names for the one pinned
+// setup-node step. The cache preview matches them against the fleet job's
+// GitHub-reported names; an unnamed step cannot be matched safely.
+func SetupNames(data []byte, jobIndex, stepIndex int) (jobName, stepName string, err error) {
+	foundJob, foundStep, err := FindSetupNode(data)
+	if err != nil || foundJob != jobIndex || foundStep != stepIndex {
+		return "", "", errUnsupported
+	}
+	return namesAt(data, jobIndex, stepIndex)
+}

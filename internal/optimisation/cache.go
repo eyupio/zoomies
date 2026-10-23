@@ -55,6 +55,8 @@ type CachePreview struct {
 	EvidenceID     string
 	JobIndex       int
 	StepIndex      int
+	JobName        string
+	StepName       string
 	Line           int
 	Runs           int
 	SetupMS        int64
@@ -102,6 +104,10 @@ func PreviewCache(source CacheSource, evidence SetupEvidence, policy Policy) (Ca
 	if err != nil {
 		return CachePreview{}, ErrCacheUnsupported
 	}
+	jobName, stepName, err := workflow.SetupNames([]byte(source.Workflow.Content), job, step)
+	if err != nil {
+		return CachePreview{}, ErrCacheUnsupported
+	}
 	before, after, line, err := workflow.SetupCacheChange([]byte(source.Workflow.Content), job, step, manager)
 	if err != nil {
 		return CachePreview{}, ErrCacheUnsupported
@@ -115,7 +121,7 @@ func PreviewCache(source CacheSource, evidence SetupEvidence, policy Policy) (Ca
 		Version: "cache-preview-v1", Kind: "dependency_cache", State: "preview_ready",
 		HeadSHA: source.HeadSHA, SourceSHA256: sourceDigest, AfterSHA256: hash(files[0].Content),
 		LockfilePath: source.Lockfile.Path, LockfileSHA256: lockfileDigest, PackageManager: manager,
-		EvidenceID: evidence.EvidenceID, JobIndex: job, StepIndex: step, Line: line,
+		EvidenceID: evidence.EvidenceID, JobIndex: job, StepIndex: step, JobName: jobName, StepName: stepName, Line: line,
 		Runs: evidence.Runs, SetupMS: *evidence.SetupMS, Edit: edit, File: files[0],
 		Verification: "inconclusive",
 		Explanation:  "Enable the setup action's " + manager + " cache using the root " + source.Lockfile.Path + ". The setup step averaged " + setupSeconds(*evidence.SetupMS) + " over " + runCount(evidence.Runs) + "; the saving is unverified and the cache is the action's own, shared with whoever can write this repository's cache. Passing CI alone cannot establish improvement.",
@@ -147,7 +153,7 @@ func CheckCacheCurrent(p CachePreview, source CacheSource, evidence SetupEvidenc
 	if err != nil {
 		return err
 	}
-	if current.HeadSHA != p.HeadSHA || current.SourceSHA256 != p.SourceSHA256 || current.AfterSHA256 != p.AfterSHA256 || current.LockfilePath != p.LockfilePath || current.LockfileSHA256 != p.LockfileSHA256 || current.PackageManager != p.PackageManager || current.JobIndex != p.JobIndex || current.StepIndex != p.StepIndex || current.Line != p.Line || current.Edit != p.Edit || current.File != p.File {
+	if current.HeadSHA != p.HeadSHA || current.SourceSHA256 != p.SourceSHA256 || current.AfterSHA256 != p.AfterSHA256 || current.LockfilePath != p.LockfilePath || current.LockfileSHA256 != p.LockfileSHA256 || current.PackageManager != p.PackageManager || current.JobIndex != p.JobIndex || current.StepIndex != p.StepIndex || current.JobName != p.JobName || current.StepName != p.StepName || current.Line != p.Line || current.Edit != p.Edit || current.File != p.File {
 		return ErrCacheUnsupported
 	}
 	return nil
