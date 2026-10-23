@@ -584,3 +584,17 @@ for (const state of ['observed', 'unsupported', 'zero', 'absent']) {
     );
   });
 }
+
+test('a link from a published preview fills the comparison scope, kind and reference', async ({
+  page,
+}) => {
+  await goto(
+    page,
+    '/comparisons?installation_id=ins_fixture&repo=acme%2Frepo&kind=workflow&revision=opv_fixture',
+    'Comparisons',
+  );
+  await expect(page.getByLabel('Installation ID')).toHaveValue('ins_fixture');
+  await expect(page.getByLabel('Repository')).toHaveValue('acme/repo');
+  await expect(page.getByLabel('Comparison kind')).toHaveValue('workflow');
+  await expect(page.getByLabel('Workflow revision-delta reference')).toHaveValue('opv_fixture');
+});

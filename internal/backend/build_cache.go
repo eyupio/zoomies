@@ -16,6 +16,12 @@ type BuildCachePruner interface {
 	PruneBuildCache(context.Context, int64) (int64, error)
 }
 
+// ExternalsSweeper is optional too: the Docker and Podman backends remove the
+// externals volumes a docker-in-docker pool's image has moved away from.
+type ExternalsSweeper interface {
+	SweepExternals(context.Context) (int, error)
+}
+
 func (b *DockerBackend) PruneBuildCache(ctx context.Context, keepBytes int64) (int64, error) {
 	if b.Kind() != store.BackendDocker || keepBytes <= 0 {
 		return 0, nil

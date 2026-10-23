@@ -143,7 +143,7 @@ func TestContainerConflictRecovery(t *testing.T) {
 func TestForeignConflictSurvivesFailedCreateCleanup(t *testing.T) {
 	spec := jitSpec()
 	spec.DockerMode = store.DockerDinD
-	creates, deletes := 0, 0
+	creates, deletes, fills, fillDeletes := 0, 0, 0, 0
 	f := newFakeEngine(t, map[string]http.HandlerFunc{
 		"GET " + v + "/images/{ref...}": func(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, map[string]string{"Id": "sha256:cached"})
@@ -156,13 +156,35 @@ func TestForeignConflictSurvivesFailedCreateCleanup(t *testing.T) {
 			writeJSON(w, 200, ContainerInspect{ID: "foreign", Config: &ContainerConfig{Labels: map[string]string{LabelManaged: "true", LabelRunnerID: "another-runner"}}})
 		},
 		"POST " + v + "/containers/create": func(w http.ResponseWriter, r *http.Request) {
+			// The externals fill is its own container, under its own name,
+			// and takes no part in the conflict over the runner's names.
+			if strings.HasPrefix(r.URL.Query().Get("name"), "zoomies-externals-") {
+				fills++
+				writeJSON(w, 201, map[string]string{"Id": "fill"})
+				return
+			}
 			creates++
 			writeJSON(w, 409, map[string]string{"message": "name already in use"})
 		},
-		"DELETE " + v + "/containers/{id}": func(w http.ResponseWriter, r *http.Request) { deletes++; w.WriteHeader(204) },
+		"POST " + v + "/volumes/create": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 201, map[string]string{"Name": "zoomies-externals"})
+		},
+		"POST " + v + "/containers/fill/start": func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) },
+		"POST " + v + "/containers/fill/wait":  func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]int{"StatusCode": 0}) },
+		"DELETE " + v + "/containers/{id}": func(w http.ResponseWriter, r *http.Request) {
+			if r.PathValue("id") == "fill" {
+				fillDeletes++
+			} else {
+				deletes++
+			}
+			w.WriteHeader(204)
+		},
 	})
 	b := dockerBackendFor(t, f, DockerOptions{})
 	_, err := b.CreateWithResult(context.Background(), spec)
+	if fills != 1 || fillDeletes != 1 {
+		t.Fatalf("externals fill: %d creates, %d deletes; want one of each", fills, fillDeletes)
+	}
 	if !errors.Is(err, ErrContainerConflict) || creates != 1 || deletes != 0 {
 		t.Fatalf("unsafe cleanup: %v, creates=%d deletes=%d", err, creates, deletes)
 	}

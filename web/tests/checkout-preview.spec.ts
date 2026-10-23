@@ -433,6 +433,10 @@ test('an approved preview opens one draft pull request and shows where it went',
   );
   await expect(page.getByText('zoomies/checkout-opv_fixture')).toBeVisible();
   await expect(page.getByText(/Nothing was merged/)).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Compare runs for this preview' })).toHaveAttribute(
+    'href',
+    '/comparisons?installation_id=ins_fixture&repo=acme%2Frepo&kind=workflow&revision=opv_fixture',
+  );
   await expect(page.getByRole('button', { name: 'Open a draft pull request' })).toHaveCount(0);
 });
 

@@ -419,6 +419,20 @@ chooses which image gets that access. See
 [`agent.dind_image`](configuration.md#agentdind_image-your-own-docker-in-docker-sidecar)
 for what the image must provide and how a private registry is reached.
 
+A `dind` job's own containers are created by the sidecar's daemon, so a bind
+mount of the checkout (`docker run -v "$PWD:/src"`, a compose file's
+`.:/workspace`) names a path that daemon resolves in its own filesystem. The
+work folder is therefore the sidecar's, at the runner's path, and the runner
+mounts every volume of its sidecar to reach it. Kept in memory, it is a volume
+on a tmpfs, sized from the runner's half of the pair like any runner's work
+folder. The sidecar's volumes also include its `/var/lib/docker`, unless the
+image store is kept in memory: a job can read and write the daemon's storage
+there, which gives it nothing it lacked, since it already drives that daemon,
+privileged, through `DOCKER_HOST`. The runner's
+externals, the Node builds a `container:` block mounts, reach the sidecar from a
+volume per runner image, read-only; see
+[What the agent owns on a host](security.md#what-the-agent-owns-on-a-host).
+
 The other five sections are the same pool with the opinions put back: which
 hosts, a backend and platform chosen by hand, a fixed size on every host, the
 count and the runner timings this pool disagrees with the fleet about, and

@@ -465,6 +465,8 @@ type ContainerCreateRequest struct {
 	AttachStderr bool              `json:"AttachStderr"`
 	StopSignal   string            `json:"StopSignal,omitempty"`
 	Healthcheck  *HealthConfig     `json:"Healthcheck,omitempty"`
+	// Volumes declares anonymous volumes, removed with the container.
+	Volumes map[string]struct{} `json:"Volumes,omitempty"`
 
 	HostConfig       *HostConfig       `json:"HostConfig,omitempty"`
 	NetworkingConfig *NetworkingConfig `json:"NetworkingConfig,omitempty"`
@@ -486,6 +488,7 @@ type ContainerHealth struct {
 type HostConfig struct {
 	LogConfig      *LogConfig        `json:"LogConfig,omitempty"`
 	Binds          []string          `json:"Binds,omitempty"`
+	VolumesFrom    []string          `json:"VolumesFrom,omitempty"`
 	NetworkMode    string            `json:"NetworkMode,omitempty"`
 	AutoRemove     bool              `json:"AutoRemove"`
 	Privileged     bool              `json:"Privileged,omitempty"`
@@ -501,7 +504,28 @@ type HostConfig struct {
 	PidsLimit      *int64            `json:"PidsLimit,omitempty"`
 	ShmSize        int64             `json:"ShmSize,omitempty"`
 	Tmpfs          map[string]string `json:"Tmpfs,omitempty"`
+	Mounts         []Mount           `json:"Mounts,omitempty"`
 	RestartPolicy  RestartPolicy     `json:"RestartPolicy"`
+}
+
+// Mount is one entry of HostConfig.Mounts. The agent uses it for one thing: an
+// anonymous volume whose local driver mounts a tmpfs, which, unlike a
+// HostConfig.Tmpfs mount, reaches another container through VolumesFrom.
+type Mount struct {
+	Type          string         `json:"Type"`
+	Target        string         `json:"Target"`
+	VolumeOptions *VolumeOptions `json:"VolumeOptions,omitempty"`
+}
+
+// VolumeOptions carries the driver a Mount's volume is created with.
+type VolumeOptions struct {
+	DriverConfig *VolumeDriver `json:"DriverConfig,omitempty"`
+}
+
+// VolumeDriver is a volume driver and its options.
+type VolumeDriver struct {
+	Name    string            `json:"Name"`
+	Options map[string]string `json:"Options,omitempty"`
 }
 
 type LogConfig struct {
@@ -1139,6 +1163,64 @@ func (c *APIClient) NetworkEnsure(ctx context.Context, name string) error {
 		return nil
 	}
 	return err
+}
+
+// Volume is the part of a volume the agent reads: its name, when it was
+// created, and the labels that say whether it is the agent's at all.
+type Volume struct {
+	Name      string            `json:"Name"`
+	CreatedAt string            `json:"CreatedAt"`
+	Labels    map[string]string `json:"Labels"`
+}
+
+// VolumeCreate creates a named volume carrying labels. Docker answers a name
+// that already exists with that volume, unchanged, labels included; a runtime
+// that answers it with a conflict instead gets the same: the volume exists.
+func (c *APIClient) VolumeCreate(ctx context.Context, name string, labels map[string]string) error {
+	if name == "" {
+		return errors.New("docker api: a volume name is required")
+	}
+	err := c.do(ctx, http.MethodPost, "/volumes/create", nil, map[string]any{"Name": name, "Labels": labels}, nil)
+	if StatusCode(err) == http.StatusConflict {
+		return nil
+	}
+	return err
+}
+
+// VolumeInspect returns one volume, or an error wrapping ErrNotFound.
+func (c *APIClient) VolumeInspect(ctx context.Context, name string) (*Volume, error) {
+	var out Volume
+	if err := c.do(ctx, http.MethodGet, "/volumes/"+name, nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// VolumeList lists volumes matching filters such as {"label": {"io.zoomies.externals"}}.
+func (c *APIClient) VolumeList(ctx context.Context, filters map[string][]string) ([]Volume, error) {
+	q := url.Values{}
+	if len(filters) > 0 {
+		b, err := json.Marshal(filters)
+		if err != nil {
+			return nil, fmt.Errorf("docker api: encoding volume filters: %w", err)
+		}
+		q.Set("filters", string(b))
+	}
+	var out struct {
+		Volumes []Volume `json:"Volumes"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/volumes", q, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Volumes, nil
+}
+
+// VolumeRemove deletes one volume. The daemon refuses, with a 409, a volume
+// that any container still uses, running or stopped. Its one caller is
+// sweepExternals, which removes only the externals volumes the agent
+// labelled; agent_owns_test.go fails if another appears.
+func (c *APIClient) VolumeRemove(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, "/volumes/"+name, nil, nil, nil)
 }
 
 // ---------------------------------------------------------------------------

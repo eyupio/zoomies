@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // These tests pin the agent to what docs/security.md ("What the agent owns on
@@ -105,15 +106,22 @@ func TestTheAgentListsOnlyContainersCarryingItsLabel(t *testing.T) {
 }
 
 // Nothing anywhere in the tree may ask a daemon to prune images, containers,
-// volumes or networks, or delete an image or a volume. This reads the source
-// rather than a fake daemon because the promise is about every code path,
-// including one written next year that no fake here would think to exercise.
+// volumes or networks, or delete an image or a volume, but for one volume
+// delete: APIClient.VolumeRemove, whose only caller removes the externals
+// volumes the agent labelled itself (see the test after this one). This reads
+// the source rather than a fake daemon because the promise is about every code
+// path, including one written next year that no fake here would think to
+// exercise.
 func TestNothingInTheTreePrunesImagesVolumesOrUnlabelledContainers(t *testing.T) {
 	forbidden := []*regexp.Regexp{
 		regexp.MustCompile(`"/(images|containers|volumes|networks)/prune"`),
 		regexp.MustCompile(`MethodDelete,\s*"/(images|volumes)/`),
 		regexp.MustCompile(`"DELETE",\s*"/(images|volumes)/`),
 		regexp.MustCompile(`"(docker|podman)",\s*"(image|volume|system|container)",\s*"prune"`),
+	}
+	// The one exception, matched whole so a second delete beside it still fails.
+	allowed := map[string]string{
+		filepath.Join("internal", "backend", "dockerapi.go"): `return c.do(ctx, http.MethodDelete, "/volumes/"+name, nil, nil, nil)`,
 	}
 	root := filepath.Join("..", "..")
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -134,6 +142,10 @@ func TestNothingInTheTreePrunesImagesVolumesOrUnlabelledContainers(t *testing.T)
 		if err != nil {
 			return err
 		}
+		rel, _ := filepath.Rel(root, path)
+		if ok := allowed[rel]; ok != "" && strings.Count(string(body), ok) == 1 {
+			body = []byte(strings.Replace(string(body), ok, "", 1))
+		}
 		for _, re := range forbidden {
 			if m := re.Find(body); m != nil {
 				t.Errorf("%s: %s -- the agent prunes only unused builder cache, and removes only containers it labelled (%s)", path, m, agentOwnsPromise)
@@ -143,5 +155,108 @@ func TestNothingInTheTreePrunesImagesVolumesOrUnlabelledContainers(t *testing.T)
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The volume delete the test above allows has one caller, removeExternals,
+// which SweepExternals reaches only for volumes carrying the agent's externals
+// label. A second call site would be a new kind of volume the agent deletes,
+// which docs/security.md has to say first.
+func TestVolumeRemoveIsCalledOnlyByTheExternalsSweep(t *testing.T) {
+	root := filepath.Join("..", "..")
+	var sites []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "node_modules", ".git", "web", "site", "dist":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for i := 0; i < strings.Count(string(body), ".VolumeRemove("); i++ {
+			sites = append(sites, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sites) != 1 || filepath.Base(sites[0]) != "docker.go" {
+		t.Fatalf("VolumeRemove is called from %v; its one caller is removeExternals in docker.go (%s)", sites, agentOwnsPromise)
+	}
+	body, err := os.ReadFile(filepath.Join(root, "internal", "backend", "docker.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A Windows checkout ends its lines with CRLF.
+	src := strings.ReplaceAll(string(body), "\r\n", "\n")
+	start := strings.Index(src, "func (b *DockerBackend) removeExternals(")
+	if start < 0 {
+		t.Fatalf("removeExternals is not in docker.go; this test has to follow it (%s)", agentOwnsPromise)
+	}
+	fn := src[start:]
+	if end := strings.Index(fn, "\n}\n"); end >= 0 {
+		fn = fn[:end]
+	}
+	if !strings.Contains(fn, ".VolumeRemove(") {
+		t.Fatalf("VolumeRemove is called outside removeExternals (%s)", agentOwnsPromise)
+	}
+}
+
+// The sweep removes only what the agent labelled, never the newest volume of
+// an image reference, and leaves one in use or just handed to a runner.
+func TestTheExternalsSweepRemovesOnlySupersededVolumesItLabelled(t *testing.T) {
+	label := func(name, ref string) map[string]string {
+		return map[string]string{LabelExternals: name, LabelExternalsImage: ref}
+	}
+	vols := []Volume{
+		{Name: "zoomies-externals-old", CreatedAt: "2026-10-20T10:00:00Z", Labels: label("zoomies-externals-old", "runner:latest")},
+		{Name: "zoomies-externals-busy", CreatedAt: "2026-10-21T10:00:00Z", Labels: label("zoomies-externals-busy", "runner:latest")},
+		{Name: "zoomies-externals-handed", CreatedAt: "2026-10-21T11:00:00Z", Labels: label("zoomies-externals-handed", "runner:latest")},
+		{Name: "zoomies-externals-new", CreatedAt: "2026-10-22T10:00:00Z", Labels: label("zoomies-externals-new", "runner:latest")},
+		{Name: "zoomies-externals-other", CreatedAt: "2026-10-01T10:00:00Z", Labels: label("zoomies-externals-other", "other:1")},
+		// A daemon that ignored the filter: someone else's volumes, one of
+		// them dressed in a name that looks like the agent's.
+		{Name: "postgres-data", CreatedAt: "2026-01-01T10:00:00Z"},
+		{Name: "zoomies-externals-forged", CreatedAt: "2026-01-01T10:00:00Z", Labels: map[string]string{LabelExternalsImage: "runner:latest"}},
+	}
+	var deleted []string
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/volumes": func(w http.ResponseWriter, r *http.Request) {
+			if !strings.Contains(r.URL.Query().Get("filters"), LabelExternals) {
+				t.Errorf("volume list filters = %q, want the externals label", r.URL.Query().Get("filters"))
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"Volumes": vols})
+		},
+		"DELETE " + v + "/volumes/{name}": func(w http.ResponseWriter, r *http.Request) {
+			name := r.PathValue("name")
+			if name == "zoomies-externals-busy" {
+				writeJSON(w, http.StatusConflict, map[string]string{"message": "volume is in use"})
+				return
+			}
+			deleted = append(deleted, name)
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+	b.externalsLock("zoomies-externals-handed")
+	b.externalsHanded["zoomies-externals-handed"] = time.Now()
+
+	removed, err := b.SweepExternals(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 || !slices.Equal(deleted, []string{"zoomies-externals-old"}) {
+		t.Fatalf("sweep removed %d: %v; want only the superseded, unused volume it labelled (%s)", removed, deleted, agentOwnsPromise)
 	}
 }

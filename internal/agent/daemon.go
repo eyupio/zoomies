@@ -956,9 +956,9 @@ func (a *Agent) run(ctx context.Context) error {
 	run("native-logs", a.nativeLogLoop)
 	run("boost-expiry", a.boostExpiryLoop)
 	run("memory-guard", a.memoryGuardLoop)
-	if a.opts.DockerBuildCacheMB > 0 {
-		run("build-cache", a.buildCacheLoop)
-	}
+	// Always on: the builder-cache prune inside it does nothing at a target of
+	// 0, and the externals sweep has no setting to wait for.
+	run("build-cache", a.buildCacheLoop)
 
 	var err error
 	select {
