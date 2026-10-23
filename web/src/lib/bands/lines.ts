@@ -152,7 +152,7 @@ export function installationsLine(i: {
 }): BandLine {
   if (i.connections === 0) {
     return {
-      headline: 'No GitHub connection yet.',
+      headline: 'GitHub is not connected.',
       accent: '',
       lede: 'Connect the App before a pool or a runner can exist.',
     };

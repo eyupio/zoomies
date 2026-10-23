@@ -144,7 +144,7 @@ test('installations say how many Apps there are, and what needs a look', () => {
       pools: 0,
       lowQuota: 0,
     }).headline,
-    'No GitHub connection yet.',
+    'GitHub is not connected.',
   );
 });
 
