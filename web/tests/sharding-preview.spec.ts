@@ -197,3 +197,18 @@ test('a sharding preview under review fits a phone', async ({ page }) => {
   );
   expect(overflow).toBe(false);
 });
+
+test('the other previews link to the sharding preview', async ({ page }) => {
+  await mocks(page);
+  for (const [path, heading] of [
+    ['/optimisations/cache', 'Cache preview'],
+    ['/optimisations/checkout', 'Checkout preview'],
+    ['/optimisations/readiness', 'Readiness preview'],
+  ]) {
+    await goto(page, path, heading);
+    await expect(page.getByRole('link', { name: 'Sharding preview' })).toHaveAttribute(
+      'href',
+      '/optimisations/sharding',
+    );
+  }
+});
