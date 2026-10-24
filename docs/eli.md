@@ -455,6 +455,21 @@ readiness <preview-id> --installation ID --repo OWNER/REPO`, and to Eli as
 `get_readiness_preview`; both show the command, evidence and one changed block,
 never the full workflow, and neither approves nor publishes.
 
+**Sharding preview** (`/optimisations/sharding`) splits a Playwright test job into
+shards that together run the whole suite. Pick a successful push job. Zoomies reads
+the workflow at that commit, finds its one `npx playwright test` step on an Ubuntu
+runner, and chooses the number of shards from the fleet's own history of that job
+(at least ten runs, medians) and from how many runners the pool could start at
+once; you do not choose it. The review shows the exact before and after job block,
+the runner time before and after (every shard repeats the setup, so it rises), the
+runners needed at once, and an estimated wall-clock time that is labelled an
+estimate, not a saving. A job with the original name stays behind to fail unless
+every shard passed, so a required check that names the job still resolves. A command
+that already shards or filters, a job with a matrix, services or outputs, and any
+artifact or coverage upload are refused with the reason. **Keep a preview for 14
+days** retains the exact source, history and shard count privately; it approves and
+publishes nothing.
+
 The step must use a commit-pinned `actions/checkout` with a literal
 `fetch-depth: 0`, in a root workflow with literal job and step names. Matrix,
 generated or reusable names are refused rather than guessed. If the file changed
