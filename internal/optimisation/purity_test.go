@@ -44,7 +44,7 @@ func TestOptimisationComputesOnlyFromSuppliedSourceAndEvidence(t *testing.T) {
 			}
 			// The workflow package supplies the exact line or insertion; the
 			// optimisation package never reads source itself.
-			workflowChange := id.Name == "workflow" && (s.Sel.Name == "CheckoutDepthChange" || s.Sel.Name == "FindSetupNode" || s.Sel.Name == "SetupNames" || s.Sel.Name == "SetupCacheChange")
+			workflowChange := id.Name == "workflow" && (s.Sel.Name == "CheckoutDepthChange" || s.Sel.Name == "FindSetupNode" || s.Sel.Name == "SetupNames" || s.Sel.Name == "SetupCacheChange" || s.Sel.Name == "FindFixedSleep" || s.Sel.Name == "ReadinessNames" || s.Sel.Name == "ReadinessChange")
 			repairEdit := id.Name == "prrepair" && (s.Sel.Name == "File" || s.Sel.Name == "Edit" || s.Sel.Name == "ApplySuppliedEdits")
 			if !workflowChange && !repairEdit {
 				t.Errorf("%s crosses the supplied preview boundary through %s.%s", name, id.Name, s.Sel.Name)
