@@ -246,7 +246,7 @@
   class:pinned
 >
   <div class="key">
-    <span class="label" title={setting.key}>{setting.label}</span>
+    <span class="label">{setting.label}</span>
     {#if editing}
       <span class="key-line mono">{setting.key}</span>
     {/if}
