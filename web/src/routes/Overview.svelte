@@ -160,7 +160,7 @@
 <div class="overview">
   <PageHeader
     title="Overview"
-    subtitle="What this fleet is doing right now, and what needs a person."
+    subtitle="What the fleet is doing, and what needs you."
     onrefresh={() =>
       Promise.all([fleet.reconcile(), activity?.reload(), failures?.reload()]).then(
         () => undefined,
@@ -291,6 +291,49 @@
 <style>
   .overview :global(.page-header) {
     margin-bottom: var(--z-space-3);
+  }
+  /*
+    On a phone the subtitle and the connection state are what stand between the
+    heading and the first pool. The connection sits beside the name as it always
+    did, and the spacing around the rule and the subtitle tightens, so the pools
+    still begin on the first screen under the bottom navigation.
+  */
+  @media (max-width: 768px) {
+    .overview :global(.page-header) {
+      gap: var(--z-space-1);
+      margin-bottom: var(--z-nudge-2);
+    }
+    .overview :global(.page-header .titles) {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: baseline;
+      column-gap: var(--z-space-3);
+    }
+    .overview :global(.page-header .titles h1) {
+      grid-column: 1;
+      grid-row: 1;
+    }
+    .overview :global(.page-header .titles .rule) {
+      grid-column: 1 / -1;
+      grid-row: 2;
+      margin-top: var(--z-nudge-2);
+    }
+    .overview :global(.page-header .titles .subtitle) {
+      grid-column: 1 / -1;
+      grid-row: 3;
+      margin-top: var(--z-nudge-2);
+    }
+    .overview :global(.page-header .titles .meta) {
+      grid-column: 2;
+      grid-row: 1;
+      margin-top: 0;
+    }
+    .overview :global(.page-nav) {
+      margin-bottom: var(--z-nudge-2);
+    }
+    .overview .now {
+      gap: var(--z-space-2);
+    }
   }
   .scope {
     max-width: 100%;

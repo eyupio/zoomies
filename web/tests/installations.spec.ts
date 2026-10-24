@@ -20,13 +20,15 @@ test('the band figures show the loaded connections and stay once the page has lo
   );
   await goto(page, '/installations', 'Installations');
 
-  // A band figure has no role of its own: it is a term and its definition.
-  const tile = (label: string) =>
-    page.getByTestId('band-installations').locator('.stat').filter({ hasText: label });
+  // A band figure has no role of its own: it is a term and its definition. A
+  // phone hides the band and shows the same figures on their own, so the list
+  // is the one place that holds them in both layouts.
+  const figures = page.getByRole('list', { name: 'Key figures' });
+  const tile = (label: string) => figures.locator('.stat').filter({ hasText: label });
   await expect(tile('GitHub connection').locator('.value')).toHaveText('1');
   await expect(tile('Low API quota').locator('.value')).toHaveText('1');
   // The quota reading is the figure's help, where a screen reader reaches it.
-  await expect(
-    page.getByTestId('band-installations').getByRole('link', { name: /^Low API quota/ }),
-  ).toHaveAccessibleDescription('1 quota readings. Below 10% remaining.');
+  await expect(figures.getByRole('link', { name: /^Low API quota/ })).toHaveAccessibleDescription(
+    '1 quota readings. Below 10% remaining.',
+  );
 });
