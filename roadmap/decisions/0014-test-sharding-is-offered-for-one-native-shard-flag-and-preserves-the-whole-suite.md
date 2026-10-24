@@ -1,6 +1,10 @@
 # 0014: Test sharding is offered for a native shard flag and preserves the whole suite
 
-**Status**: proposed, for the owner to ratify. Nothing is built.
+**Status**: accepted. Taken on 24 October 2026 on the owner's instruction: the
+first slice supports Playwright only. The owner did not separately amend the
+other open points in the plan, so its stated defaults stand: a 90 second
+per-shard floor and a cap of eight shards, an aggregator job that keeps the
+original job name, and merged reports and coverage refused.
 
 ## Context
 
@@ -30,5 +34,8 @@ no saving. Approval and publication stay web-only, and a draft is never merged.
 * A repository whose runner has no native shard flag gets no sharding preview.
 * The first slice is narrower than "any test suite" on purpose.
 * Runner time rises with the shard count, and the preview says so before approval.
-* The owner's answers to the four questions in the plan decide the first slice's
-  scope; until then no implementation starts.
+* The count is the largest that keeps every shard at or above the floor, within
+  the cap and the pool's headroom. The plan first said "smallest", which is
+  always two and ignores the evidence; the wording was corrected when the rule
+  was written as code.
+* Jest and Vitest are later slices, each reviewed on its own.
