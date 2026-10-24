@@ -13883,6 +13883,7 @@ components:
         capacity: { type: integer, description: The slots the host was taking that minute -- its configured capacity stepped down by any throttle. }
         active_runners: { type: integer }
         cpu_percent: { type: number, minimum: 0, maximum: 100, description: Whole-host CPU occupied, as the agent measured it. Absent when unmeasured or stale. }
+        io_wait_percent: { type: number, minimum: 0, maximum: 100, description: "Share of CPU time the host spent idle with work waiting on disk. `cpu_percent` counts that time as busy, so this is what tells a host stalled on its disk from one doing arithmetic. Absent when unmeasured or stale." }
         load_average_1m: { type: number, minimum: 0, description: The kernel's one-minute load average. Absent when unmeasured or stale. }
         cpus: { type: integer, description: The machine's CPUs, carried on every row so the chart can draw load against size. }
         memory_mb: { type: integer, format: int64 }
@@ -14358,6 +14359,7 @@ components:
         doctor: { $ref: "#/components/schemas/HostDoctorView" }
         usage: { $ref: "#/components/schemas/HostUsage" }
         usage_fresh: { type: boolean, description: Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. }
+        disk_bound: { type: boolean, description: "True while the host has been waiting on its disk for at least ten minutes with I/O wait above 20%. False when it has not, including when its usage is stale; read `usage_fresh` to tell a calm disk from an unmeasured one. It is the condition behind the controller's advice to keep a pool's scratch folders in memory." }
         admission_reason: { type: string, description: Why current host pressure is holding new runner starts. Empty when no pressure hold applies. }
         throttle:
           allOf:

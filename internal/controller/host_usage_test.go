@@ -76,3 +76,42 @@ func TestHeartbeatUsageReachesPlacementViewsAndMetrics(t *testing.T) {
 		t.Fatal("CPU recovery undid the operator's cordon")
 	}
 }
+
+// The disk figures the pulse already carries have to be reachable from the two
+// places an operator or an assistant asks: the host's API view and the
+// Prometheus endpoint. Disk-bound is the judgement the scratch advice rests on,
+// and I/O wait is the figure that separates it from a CPU-bound host.
+func TestTheDiskPulseIsReadableFromTheViewAndMetrics(t *testing.T) {
+	h := newHarness(t)
+	_, _, host := h.fleet()
+	wait := 31.0
+	since := h.c.Now().Add(-11 * time.Minute)
+	if err := h.st.SetHostUsage(h.ctx, host.ID, store.HostUsage{
+		SampledAt:       h.c.Now(),
+		IOWaitPercent:   &wait,
+		IOWaitHighSince: &since,
+	}); err != nil {
+		t.Fatalf("SetHostUsage: %v", err)
+	}
+	host, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	view := h.c.HostView(host)
+	if !view.UsageFresh || !view.DiskBound {
+		t.Fatalf("view usage_fresh=%v disk_bound=%v, want a fresh disk-bound host", view.UsageFresh, view.DiskBound)
+	}
+	if view.Usage == nil || view.Usage.IOWaitPercent == nil || *view.Usage.IOWaitPercent != wait {
+		t.Fatalf("view usage = %+v, want I/O wait %v", view.Usage, wait)
+	}
+	for name, want := range map[string]float64{
+		"zoomies_host_io_wait_percent":  wait,
+		"zoomies_host_disk_total_bytes": float64(host.DiskTotalMB) * (1 << 20),
+		"zoomies_host_disk_free_bytes":  float64(host.DiskFreeMB) * (1 << 20),
+		"zoomies_host_disk_bound":       1,
+	} {
+		if got, ok := gatherValue(t, h.c, name, map[string]string{"host": host.ID}); !ok || got != want {
+			t.Errorf("%s = %v (%v), want %v", name, got, ok, want)
+		}
+	}
+}

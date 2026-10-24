@@ -9997,6 +9997,8 @@ export interface components {
             active_runners: number;
             /** @description Whole-host CPU occupied */
             cpu_percent?: number;
+            /** @description Share of CPU time the host spent idle with work waiting on disk. `cpu_percent` counts that time as busy, so this is what tells a host stalled on its disk from one doing arithmetic. Absent when unmeasured or stale. */
+            io_wait_percent?: number;
             /** @description The kernel's one-minute load average. Absent when unmeasured or stale. */
             load_average_1m?: number;
             /** @description The machine's CPUs */
@@ -10463,6 +10465,8 @@ export interface components {
             usage?: components["schemas"]["HostUsage"];
             /** @description Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. */
             usage_fresh?: boolean;
+            /** @description True while the host has been waiting on its disk for at least ten minutes with I/O wait above 20%. False when it has not, including when its usage is stale; read `usage_fresh` to tell a calm disk from an unmeasured one. It is the condition behind the controller's advice to keep a pool's scratch folders in memory. */
+            disk_bound?: boolean;
             /** @description Why current host pressure is holding new runner starts. Empty when no pressure hold applies. */
             admission_reason?: string;
             /** @description The throttle the controller has this host on. Absent when it is on none. */
