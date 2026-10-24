@@ -111,3 +111,54 @@ func TestOptimisationsCacheRefusesInvalidScopeBeforeAnyRequest(t *testing.T) {
 		}
 	}
 }
+
+const cliReadinessPreview = `{
+  "id":"opr_1","installation_id":"ins_1","repository":"acme/repo","reviewed_by":"usr_reviewer",
+  "sha256":"` + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + `","created_at":"2026-10-24T10:00:00Z","currentness":"not_checked",
+  "condition":"curl -fsS http://127.0.0.1:8080/health","head_sha":"` + "cccccccccccccccccccccccccccccccccccccccc" + `",
+  "source_sha256":"` + "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" + `","workflow_path":".github/workflows/ci.yml",
+  "job_name":"Build","step_name":"Wait for the API","line":12,"wait_seconds":30,"runs":4,"wait_ms":31000,
+  "before":"        run: sleep 30\n","after":"        run: |\n          timeout 30 sh -c 'until curl -fsS http://127.0.0.1:8080/health; do sleep 1; done'\n",
+  "verification":"inconclusive","explanation":"Replace a fixed 30s sleep with a bounded poll of the operator command."
+}`
+
+func TestOptimisationsReadinessPrintsTheConditionAndChangedBlock(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/readiness/previews/opr_1": cliReadinessPreview})
+	out, _ := runCLI(t, "optimisations", "readiness", "opr_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL)
+	for _, want := range []string{"opr_1", "acme/repo", "Wait for the API", "curl -fsS", "timeout 30 sh -c", "4 runs", "not a saving", "operator-supplied"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "on: push") {
+		t.Error("the full workflow source was printed")
+	}
+}
+
+func TestOptimisationsReadinessStructuredOutputPreservesTheControllerAnswer(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/readiness/previews/opr_1": cliReadinessPreview})
+	out, _ := runCLI(t, "optimisations", "readiness", "opr_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL, "--output", "json")
+	var got, want bytes.Buffer
+	if err := json.Compact(&got, []byte(out)); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Compact(&want, []byte(cliReadinessPreview)); err != nil {
+		t.Fatal(err)
+	}
+	if got.String() != want.String() {
+		t.Fatalf("structured output changed the answer:\n%s\nwant\n%s", got.String(), want.String())
+	}
+}
+
+func TestOptimisationsReadinessRefusesInvalidScopeBeforeAnyRequest(t *testing.T) {
+	for _, args := range [][]string{
+		{"optimisations", "readiness", "preview", "--installation", "ins_1", "--repo", "acme/repo"},
+		{"optimisations", "readiness", "opr_1", "--installation", "installation", "--repo", "acme/repo"},
+		{"optimisations", "readiness", "opr_1", "--installation", "ins_1", "--repo", "acme"},
+	} {
+		e, out, errOut := newTestEnv(t)
+		if code := dispatch(context.Background(), e, args); code == 0 || out.Len() != 0 {
+			t.Fatalf("accepted %v: %s", args, errOut.String())
+		}
+	}
+}

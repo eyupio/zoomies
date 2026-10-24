@@ -27,7 +27,7 @@ as the record of how each slice landed.
 | --- | --- | --- |
 | E1 (ZF-242) | Merged and used: `internal/analysis` (`merge_delay.go`), `get_pr_delay` on Eli's allowlist, CLI, contextual UI | None. ROADMAP.md still lists `in_progress` because live-model evaluation and a real performance experiment have not run |
 | E2 (ZF-243) | Descriptive milestone merged (#1020); `get_retained_comparison` on Eli's allowlist; ZF-241's period comparison, queue breakdown, host pressure and startup failures are `implemented` | None. Controlled-experiment proof and dispatch stay deferred by the owner |
-| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and the wider catalogue's setup cache preview through its pure foundation, retained history, bounded source, private retention/API, web page, bounded CLI/MCP/Eli replay, attributed approval (migration 0123), one reconciled draft pull request (migration 0124), a pure bounded readiness polling foundation, its bounded source/inspection route, the readiness inspection page and private retention/API, all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, and write access from the CLI, MCP or Eli (deliberately web-only) |
+| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and the wider catalogue's setup cache preview through its pure foundation, retained history, bounded source, private retention/API, web page, bounded CLI/MCP/Eli replay, attributed approval (migration 0123), one reconciled draft pull request (migration 0124), a pure bounded readiness polling foundation, its bounded source/inspection route, the readiness inspection page, private retention/API and bounded CLI/MCP/Eli replay, all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, and write access from the CLI, MCP or Eli (deliberately web-only) |
 | E4 | Not started as a track. Kennel's evaluator, waivers and guidance exist, but no fix preview or publication path does | Unchanged |
 | E5 | ZF-241's `startup_failures` covers runner-startup recurrence. No workflow/test failure fingerprinting exists | Unchanged |
 | E6 | Not started. `internal/prrepair/mention` (ZF-239 slice 1) is only the command matcher | Unchanged |
@@ -179,6 +179,12 @@ publication arrived on 23 October:
   before/after block, condition and evidence. The web page keeps the reviewed
   preview and opens it from an `opr_` link. No approval, publication, CLI, MCP
   or Eli access yet.
+* **Readiness read surfaces (24 October).** `zoomies optimisations readiness
+  <preview-id>` and the MCP/Eli tool `get_readiness_preview` read the same bounded
+  replay route as the web page: metadata, the operator's command, the wait
+  evidence and the one changed run block. They never return the full workflow or
+  actor identities and neither approves nor publishes. No new route, migration or
+  setting.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval, draft publication and read access from the CLI, MCP and Eli have since
@@ -198,10 +204,10 @@ been built (see the 23 October sections at the end). The rest remains.
 3. **Wider catalogue.** The dependency/build cache foundation, retained setup
    history, bounded source binding, private retention/API, web page and
    CLI/MCP/Eli replay, attributed approval, draft publication, the pure bounded
-   readiness polling foundation, its source/inspection route, inspection page and
-   private retention/API are described above. Next is readiness CLI/MCP/Eli,
-   approval and publication, then test sharding, each with its own evidence and
-   refusals. Do not lead with test removal, relaxed assertions or
+   readiness polling foundation, its source/inspection route, inspection page,
+   private retention/API and bounded CLI/MCP/Eli replay are described above. Next
+   is readiness approval and publication, then test sharding, each with its own
+   evidence and refusals. Do not lead with test removal, relaxed assertions or
    blanket retries.
 
 Owner decisions still open: whether a different person than the reviewer must
@@ -2949,3 +2955,27 @@ declaration, exact body, retained card and opening from a link.
 Next agent: add readiness CLI/MCP/Eli read access, then approval and publication.
 Do not infer the condition or apply the change from a read surface. Test sharding
 remains separate.
+
+
+### E3 readiness read surfaces, 24 October 2026
+
+The owner's bounded view applies to readiness too: metadata, the operator's
+readiness command, the wait evidence and the one changed run block, never the
+full workflow. `zoomies optimisations readiness <preview-id> --installation ID
+--repo OWNER/REPO` and the MCP/Eli tool `get_readiness_preview` read the existing
+replay route through the caller's token, needing `optimisations:read` and
+`jobs:read`. They neither approve nor publish.
+
+The MCP/Eli projection drops `reviewed_by`, the selection and any future field.
+The block is quoted untrusted text because it came from a repository; the
+condition is marked operator-supplied, not inferred. Verification is always
+inconclusive and the wait time is descriptive, not a saving.
+
+The design is in
+[the plan](roadmap/plans/2026-10-24-eli-e3-readiness-read.md). Validation: CLI
+tests cover the human view, unchanged JSON and invalid scope before a request;
+MCP tests cover one scoped GET, the exact projection, dropped actor and selection
+fields, invalid arguments and unavailable or inconsistent evidence.
+
+Next agent: add readiness approval and publication, then test sharding. Do not
+infer the condition or expose the full retained envelope to a model.
