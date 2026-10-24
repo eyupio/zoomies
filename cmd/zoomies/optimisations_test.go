@@ -186,3 +186,61 @@ func TestOptimisationsReadinessShowsTheDraftPullRequest(t *testing.T) {
 		t.Errorf("an unpublished preview did not say so:\n%s", out)
 	}
 }
+
+const cliShardingPreview = `{
+  "id":"ops_1","installation_id":"ins_1","repository":"acme/repo","reviewed_by":"usr_reviewer",
+  "sha256":"` + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + `","created_at":"2026-10-24T10:00:00Z","currentness":"not_checked",
+  "head_sha":"` + "cccccccccccccccccccccccccccccccccccccccc" + `","source_sha256":"` + "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" + `",
+  "workflow_path":".github/workflows/ci.yml","job_name":"End to end","step_name":"Browser tests","line":3,"shards":4,"runs":12,
+  "test_ms":360000,"setup_ms":42000,"headroom":4,"runner_ms_before":402000,"runner_ms_after":528000,"wall_ms_before":402000,"wall_ms_after":132000,
+  "before":"  e2e:\n    runs-on: ubuntu-latest\n","after":"  e2e-shards:\n    strategy:\n      matrix:\n        shard: [1, 2, 3, 4]\n",
+  "verification":"inconclusive","explanation":"Split the Browser tests step into 4 Playwright shards."
+}`
+
+func TestOptimisationsShardingPrintsTheDisclosureAndTheChangedBlock(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/sharding/previews/ops_1": cliShardingPreview})
+	out, _ := runCLI(t, "optimisations", "sharding", "ops_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL)
+	for _, want := range []string{"ops_1", "acme/repo", "Browser tests", "4, which together run the whole Playwright suite", "every shard repeats the setup", "4 of 4", "upper bound", "estimate from medians", "not a saving", "shard: [1, 2, 3, 4]"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "on: push") {
+		t.Error("the full workflow source was printed")
+	}
+}
+
+func TestOptimisationsShardingStructuredOutputPreservesTheControllerAnswer(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/sharding/previews/ops_1": cliShardingPreview})
+	out, _ := runCLI(t, "optimisations", "sharding", "ops_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL, "--output", "json")
+	var got, want bytes.Buffer
+	if err := json.Compact(&got, []byte(out)); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Compact(&want, []byte(cliShardingPreview)); err != nil {
+		t.Fatal(err)
+	}
+	if got.String() != want.String() {
+		t.Fatalf("structured output changed the answer:\n%s\nwant\n%s", got.String(), want.String())
+	}
+}
+
+func TestOptimisationsShardingRefusesInvalidScopeAndInconsistentAnswers(t *testing.T) {
+	for _, args := range [][]string{
+		{"optimisations", "sharding", "preview", "--installation", "ins_1", "--repo", "acme/repo"},
+		{"optimisations", "sharding", "opr_1", "--installation", "ins_1", "--repo", "acme/repo"},
+		{"optimisations", "sharding", "ops_1", "--installation", "installation", "--repo", "acme/repo"},
+		{"optimisations", "sharding", "ops_1", "--installation", "ins_1", "--repo", "acme"},
+	} {
+		e, out, errOut := newTestEnv(t)
+		if code := dispatch(context.Background(), e, args); code == 0 || out.Len() != 0 {
+			t.Fatalf("accepted %v: %s", args, errOut.String())
+		}
+	}
+	bad := strings.Replace(cliShardingPreview, `"shards":4`, `"shards":1`, 1)
+	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/sharding/previews/ops_1": bad})
+	e, out, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"optimisations", "sharding", "ops_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL}); code == 0 || out.Len() != 0 || !strings.Contains(errOut.String(), "inconsistent") {
+		t.Fatalf("an inconsistent answer was printed: %s %s", out.String(), errOut.String())
+	}
+}

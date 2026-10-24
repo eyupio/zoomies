@@ -468,7 +468,11 @@ every shard passed, so a required check that names the job still resolves. A com
 that already shards or filters, a job with a matrix, services or outputs, and any
 artifact or coverage upload are refused with the reason. **Keep a preview for 14
 days** retains the exact source, history and shard count privately; it approves and
-publishes nothing.
+publishes nothing. The same retained view is available from `zoomies optimisations
+sharding <preview-id> --installation ID --repo OWNER/REPO`, and to Eli as
+`get_sharding_preview`; both show the shard count, the evidence, the extra runner
+time and one changed block, never the full workflow, and neither approves nor
+publishes.
 
 The step must use a commit-pinned `actions/checkout` with a literal
 `fetch-depth: 0`, in a root workflow with literal job and step names. Matrix,

@@ -3121,3 +3121,15 @@ estimated wall clock, then keep it for fourteen days. No count or command is a
 field. See [the plan](roadmap/plans/2026-10-24-eli-e3-sharding-web.md).
 
 Next agent: CLI, MCP and Eli replay, then approval and publication.
+
+
+### E3 sharding read surfaces, 24 October 2026
+
+`zoomies optimisations sharding <preview-id>` and the MCP/Eli tool
+`get_sharding_preview` read the replay route in the bounded form: shard count,
+evidence, runner time before and after, runners needed, the estimated wall clock
+and the one changed job block, never the full workflow or actor identities. Neither
+approves nor publishes. See
+[the plan](roadmap/plans/2026-10-24-eli-e3-sharding-read.md).
+
+Next agent: attributed approval (migration 0130), then publication (0131).

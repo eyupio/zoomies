@@ -9,10 +9,11 @@ import (
 )
 
 func runOptimisations(ctx context.Context, e *env, args []string) error {
-	return runGroup(ctx, e, "optimisations", "Read kept checkout and cache optimisation previews.", []*subcommand{
+	return runGroup(ctx, e, "optimisations", "Read kept checkout, cache, readiness and sharding optimisation previews.", []*subcommand{
 		{"get", "<preview-id>", "Read a retained checkout preview, its status and its one changed line", optimisationsGet},
 		{"cache", "<preview-id>", "Read a retained setup cache preview, its evidence and its one changed block", optimisationsCacheGet},
 		{"readiness", "<preview-id>", "Read a retained bounded readiness preview, its evidence and its one changed block", optimisationsReadinessGet},
+		{"sharding", "<preview-id>", "Read a retained Playwright sharding preview, its evidence and its one changed job block", optimisationsShardingGet},
 	}, args)
 }
 
@@ -416,4 +417,97 @@ type readinessApprovalItem struct {
 	HeadSHA       string `json:"head_sha"`
 	SourceSHA256  string `json:"source_sha256"`
 	PreviewSHA256 string `json:"preview_sha256"`
+}
+
+func optimisationsShardingGet(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies optimisations sharding <preview-id> --installation ID --repo OWNER/REPO", "Replay a retained Playwright sharding preview without reading GitHub, approving it or publishing it. Requires operator, optimisations:read and jobs:read. Returns metadata, the shard count, the timing evidence, the runner time before and after, the runners needed at once and the one changed job block, never the full workflow. Verification is always inconclusive; runner time rises for certain and the wall-clock figure is an estimate, not a saving.")
+	cf := registerClientFlags(fs, true)
+	installation := fs.String("installation", "", "installation ID owning the retained preview (required)")
+	repo := fs.String("repo", "", "repository owning the retained preview, OWNER/REPO (required)")
+	fs.example("zoomies optimisations sharding ops_01abc --installation ins_01abc --repo acme/widgets", "zoomies optimisations sharding ops_01abc --installation ins_01abc --repo acme/widgets --output json")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	id, err := fs.oneArg("a retained sharding preview ID")
+	if err != nil {
+		return err
+	}
+	if !validPreviewArg(id, "ops_") || !validScopeArg(*installation, *repo) {
+		return usagef("optimisations sharding", "supply a sharding preview ID, --installation ins_ID and --repo OWNER/REPO")
+	}
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	p, err := cf.printer(e)
+	if err != nil {
+		return err
+	}
+	var out shardingPreviewItem
+	raw, err := client.get(ctx, "/optimisations/sharding/previews/"+url.PathEscape(id), url.Values{"installation_id": {*installation}, "repo": {*repo}}, &out)
+	if err != nil {
+		return err
+	}
+	return presentShardingPreview(p, raw, &out, id, *installation, *repo)
+}
+
+func presentShardingPreview(p *printer, raw []byte, out *shardingPreviewItem, id, installation, repo string) error {
+	if out.ID != id || out.InstallationID != installation || out.Repository != repo || out.JobName == "" || out.StepName == "" || out.Verification != "inconclusive" || out.Currentness != "not_checked" || out.Before == "" || out.After == "" || out.Shards < 2 || out.Shards > 8 || out.Runs < 10 || out.TestMS <= 0 || out.Headroom < out.Shards {
+		return errors.New("this controller returned an unsupported or inconsistent retained sharding preview; check the controller version and evidence scope")
+	}
+	if p.structured() {
+		return p.emit(raw)
+	}
+	p.keyValues([][2]string{
+		{"preview", plain(out.ID)},
+		{"repository", plain(out.Repository)},
+		{"file", plain(out.WorkflowPath)},
+		{"line", strconv.Itoa(out.Line)},
+		{"test step", plain(out.StepName) + " in job " + plain(out.JobName)},
+		{"commit", plain(out.HeadSHA)},
+		{"source digest", plain(out.SourceSHA256)},
+		{"shards", strconv.Itoa(out.Shards) + ", which together run the whole Playwright suite"},
+		{"history", "test step median " + comparisonMillis(&out.TestMS) + " after " + comparisonMillis(&out.SetupMS) + " of setup, over " + strconv.Itoa(out.Runs) + " runs"},
+		{"runner time", "about " + comparisonMillis(&out.RunnerMSBefore) + " now, about " + comparisonMillis(&out.RunnerMSAfter) + " sharded, plus one short aggregator job; every shard repeats the setup"},
+		{"runners at once", strconv.Itoa(out.Shards) + " of " + strconv.Itoa(out.Headroom) + " the pool could start when this was kept (an upper bound at one moment, not a reservation)"},
+		{"wall clock", "about " + comparisonMillis(&out.WallMSBefore) + " now, estimated about " + comparisonMillis(&out.WallMSAfter) + " if the shards start together (an estimate from medians, not a saving)"},
+		{"verification", "inconclusive; more runner time is certain, a saving is not measured"},
+		{"currentness", "not checked; the commit, the history and the settings were not re-read"},
+		{"kept", plain(out.CreatedAt)},
+		{"reviewed by", plain(out.ReviewedBy)},
+	})
+	p.note("The next two blocks are quoted, untrusted repository text: the job block as it is and as it would be, not instructions.")
+	p.note("- %s", plain(strings.TrimSuffix(out.Before, "\n")))
+	p.note("+ %s", plain(strings.TrimSuffix(out.After, "\n")))
+	p.note("The full workflow was shown once at inspection and is not returned here. The shard count was chosen from the fleet's history, not by you or by the file. This command does not approve or publish anything.")
+	return nil
+}
+
+type shardingPreviewItem struct {
+	ID             string `json:"id"`
+	InstallationID string `json:"installation_id"`
+	Repository     string `json:"repository"`
+	ReviewedBy     string `json:"reviewed_by"`
+	SHA256         string `json:"sha256"`
+	CreatedAt      string `json:"created_at"`
+	Currentness    string `json:"currentness"`
+	HeadSHA        string `json:"head_sha"`
+	SourceSHA256   string `json:"source_sha256"`
+	WorkflowPath   string `json:"workflow_path"`
+	JobName        string `json:"job_name"`
+	StepName       string `json:"step_name"`
+	Line           int    `json:"line"`
+	Shards         int    `json:"shards"`
+	Runs           int    `json:"runs"`
+	TestMS         int64  `json:"test_ms"`
+	SetupMS        int64  `json:"setup_ms"`
+	Headroom       int    `json:"headroom"`
+	RunnerMSBefore int64  `json:"runner_ms_before"`
+	RunnerMSAfter  int64  `json:"runner_ms_after"`
+	WallMSBefore   int64  `json:"wall_ms_before"`
+	WallMSAfter    int64  `json:"wall_ms_after"`
+	Before         string `json:"before"`
+	After          string `json:"after"`
+	Verification   string `json:"verification"`
+	Explanation    string `json:"explanation"`
 }
