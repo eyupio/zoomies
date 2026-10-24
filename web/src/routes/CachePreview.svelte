@@ -264,9 +264,9 @@
   title="Cache preview"
   subtitle="See whether a Node build can cache its dependencies consistently. A preview changes nothing on GitHub."
   ><Button href="/optimisations/checkout" variant="secondary">Checkout preview</Button><Button
-    href="/comparisons"
-    variant="secondary">Compare runs</Button
-  ></PageHeader
+    href="/optimisations/readiness"
+    variant="secondary">Readiness preview</Button
+  ><Button href="/comparisons" variant="secondary">Compare runs</Button></PageHeader
 >
 {#if session.visitor}
   <ErrorState

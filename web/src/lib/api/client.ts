@@ -1536,6 +1536,14 @@ export const publishCachePreview = (
     '/optimisations/cache/previews/' + encodeURIComponent(id) + '/publication',
     { body, signal },
   );
+export const inspectReadinessPreview = (
+  body: import('./types').ReadinessInspectionRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').ReadinessInspection>('/optimisations/readiness/inspections', {
+    body,
+    signal,
+  });
 export const inspectCachePreview = (
   body: import('./types').CacheInspectionRequest,
   signal?: AbortSignal,

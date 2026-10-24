@@ -217,7 +217,11 @@ func TestOptimisationCacheApprovalBindsThePreviewAndDoesNotPublish(t *testing.T)
 		t.Fatalf("repeat changed the approval: %+v %v", again, err)
 	}
 	events, total, err := s.ListAudit(ctx, AuditFilter{TargetID: r.ID}, Page{Limit: 10})
-	if err != nil || total != 2 || events[0].Action != "optimisation.cache_preview_approved" || events[1].Action != "optimisation.cache_preview_retained" {
+	actions := map[string]bool{}
+	for _, e := range events {
+		actions[e.Action] = true
+	}
+	if err != nil || total != 2 || !actions["optimisation.cache_preview_approved"] || !actions["optimisation.cache_preview_retained"] {
 		t.Fatalf("audit %+v total=%d err=%v", events, total, err)
 	}
 	got, err := s.GetOptimisationCachePreview(ctx, r.InstallationID, r.Repository, r.ID)
@@ -278,7 +282,11 @@ func TestOptimisationCachePublicationRecordsOneApprovedDraft(t *testing.T) {
 		t.Fatalf("read %+v %v", got, err)
 	}
 	events, total, err := s.ListAudit(ctx, AuditFilter{TargetID: r.ID}, Page{Limit: 10})
-	if err != nil || total != 3 || events[0].Action != "optimisation.cache_preview_published" {
+	actions := map[string]bool{}
+	for _, e := range events {
+		actions[e.Action] = true
+	}
+	if err != nil || total != 3 || !actions["optimisation.cache_preview_published"] || !actions["optimisation.cache_preview_approved"] || !actions["optimisation.cache_preview_retained"] {
 		t.Fatalf("audit %+v total=%d err=%v", events, total, err)
 	}
 	other := *pub
