@@ -345,3 +345,33 @@ func TestInspectReadinessPreviewBindsTheJobToTheOperatorsCondition(t *testing.T)
 		t.Fatalf("empty condition: %v", err)
 	}
 }
+
+func TestCaptureReadinessPreviewKeepsExactlyWhatWasInspectedAndReplaysIt(t *testing.T) {
+	h, inst, reader, selection, jobID := cacheControllerFixture(t)
+	condition := "curl -fsS http://127.0.0.1:8080/health"
+	preview, err := h.c.InspectReadinessPreview(h.ctx, inst.ID, inst.Target, selection, jobID, condition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := &store.AuditEvent{ActorID: "usr_readiness", ActorKind: "user"}
+	retained, err := h.c.CaptureReadinessPreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, condition, preview.HeadSHA, preview.SourceSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retained.ID == "" || retained.ReviewedBy != "usr_readiness" || retained.Currentness != "not_checked" || retained.Provenance == nil || retained.Provenance.Selection != selection || retained.Provenance.GitHubJobID != jobID || retained.Provenance.HeadBranch != "main" {
+		t.Fatalf("retained %+v", retained)
+	}
+	if reader.calls != 2 {
+		t.Fatalf("capture reads=%d", reader.calls)
+	}
+	replayed, err := h.c.ReplayReadinessPreview(h.ctx, inst.ID, inst.Target, retained.ID)
+	if err != nil || replayed.Preview.Edit != preview.Edit || replayed.Preview.Condition != condition {
+		t.Fatalf("replay %+v %v", replayed, err)
+	}
+	if _, total, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"optimisation.readiness_preview_retained"}}, store.Page{Limit: 10}); err != nil || total != 1 {
+		t.Fatalf("audit total=%d err=%v", total, err)
+	}
+	if _, err := h.c.CaptureReadinessPreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, condition, preview.HeadSHA, strings.Repeat("f", 64)); !errors.Is(err, ErrOptimisationReadiness) {
+		t.Fatalf("moved source accepted: %v", err)
+	}
+}

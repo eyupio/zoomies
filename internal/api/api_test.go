@@ -874,6 +874,8 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "POST", path: "/api/v1/optimisations/checkout/previews/opv_missing/verification", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "POST", path: "/api/v1/optimisations/cache/inspections", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "POST", path: "/api/v1/optimisations/readiness/inspections", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
+		{method: "POST", path: "/api/v1/optimisations/readiness/previews", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
+		{method: "GET", path: "/api/v1/optimisations/readiness/previews/opr_missing?installation_id=ins_missing&repo=acme/repo", role: store.RoleOperator, action: auth.ActionOptimisationsRead, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "POST", path: "/api/v1/optimisations/cache/previews", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "GET", path: "/api/v1/optimisations/cache/previews/opc_missing?installation_id=ins_missing&repo=acme/repo", role: store.RoleOperator, action: auth.ActionOptimisationsRead, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "POST", path: "/api/v1/optimisations/cache/previews/opc_missing/approval", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
@@ -1467,7 +1469,7 @@ func normalisePath(p string) string {
 		}
 		if strings.HasPrefix(part, "ins_") || strings.HasPrefix(part, "pool_") ||
 			strings.HasPrefix(part, "run_") || strings.HasPrefix(part, "host_") ||
-			strings.HasPrefix(part, "job_") || strings.HasPrefix(part, "cmp_") || strings.HasPrefix(part, "opv_") || strings.HasPrefix(part, "opc_") || strings.HasPrefix(part, "prv_") ||
+			strings.HasPrefix(part, "job_") || strings.HasPrefix(part, "cmp_") || strings.HasPrefix(part, "opv_") || strings.HasPrefix(part, "opc_") || strings.HasPrefix(part, "opr_") || strings.HasPrefix(part, "prv_") ||
 			strings.HasPrefix(part, "mach_") || strings.HasPrefix(part, "zoomies-") || part == "missing" {
 			parts[i] = "{id}"
 		}

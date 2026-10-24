@@ -17,8 +17,8 @@ review the exact bounded wait without the server guessing a condition.
   bound), the observed wait mean, and the exact before/after block as untrusted
   text. It says a timeout fails the step and that passing CI alone cannot
   establish a saving.
-* No retention, approval, publication, CLI, MCP or Eli access is added. The page
-  ends with the inspection only.
+* This slice adds no retention, approval, publication, CLI, MCP or Eli access;
+  a later slice adds keeping and reopening.
 * The cache page links to the new page; the router and API client carry it.
 * The Eli guide, roadmap and handoff are updated.
 
@@ -41,5 +41,5 @@ review the exact bounded wait without the server guessing a condition.
 
 ## Next
 
-Retain the inspected readiness preview, then add CLI/MCP/Eli, approval and
-publication. Test sharding remains a separate catalogue item.
+A later slice retains the inspected preview and adds reopening; then CLI/MCP/Eli,
+approval and publication follow. Test sharding remains a separate catalogue item.

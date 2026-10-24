@@ -1536,6 +1536,27 @@ export const publishCachePreview = (
     '/optimisations/cache/previews/' + encodeURIComponent(id) + '/publication',
     { body, signal },
   );
+export const retainReadinessPreview = (
+  body: import('./types').ReadinessCaptureRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').ReadinessPreview>('/optimisations/readiness/previews', {
+    body,
+    signal,
+  });
+export const getReadinessPreview = (
+  id: string,
+  installationId: string,
+  repo: string,
+  signal?: AbortSignal,
+) =>
+  api.get<import('./types').ReadinessPreview>(
+    '/optimisations/readiness/previews/' +
+      encodeURIComponent(id) +
+      '?' +
+      new globalThis.URLSearchParams({ installation_id: installationId, repo }).toString(),
+    { signal },
+  );
 export const inspectReadinessPreview = (
   body: import('./types').ReadinessInspectionRequest,
   signal?: AbortSignal,

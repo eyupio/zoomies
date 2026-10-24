@@ -1,7 +1,17 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
-  import { ApiError, inspectReadinessPreview } from '$lib/api/client';
-  import type { Job, OptimisationEnablement, ReadinessInspection } from '$lib/api/types';
+  import { onDestroy, untrack } from 'svelte';
+  import {
+    ApiError,
+    inspectReadinessPreview,
+    retainReadinessPreview,
+    getReadinessPreview,
+  } from '$lib/api/client';
+  import type {
+    Job,
+    OptimisationEnablement,
+    ReadinessInspection,
+    ReadinessPreview,
+  } from '$lib/api/types';
   import { checkoutSeconds } from '$lib/optimisations/input';
   import { session } from '$lib/state/session.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
@@ -9,8 +19,11 @@
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
+  import Checkbox from '$lib/components/Checkbox.svelte';
   import CheckoutRunPicker from '$lib/optimisations/CheckoutRunPicker.svelte';
   import OptimisationGate from '$lib/optimisations/OptimisationGate.svelte';
+  import ReadinessPreviewCard from '$lib/optimisations/ReadinessPreviewCard.svelte';
+  import { router } from '$lib/router';
 
   let chosen = $state<{
     installation: string;
@@ -26,6 +39,12 @@
   let gateRefresh = $state(0);
   const previewsOff = $derived(enablement !== undefined && !enablement.enabled);
   let inspection = $state<ReadinessInspection | null>(null);
+  let reviewed = $state(false);
+  let preview = $state<ReadinessPreview | null>(null);
+  let previewId = $state(''),
+    openInstallation = $state(''),
+    openRepo = $state('');
+  let loadedKey = '';
   let busy = $state(false),
     error = $state(''),
     retryAt = $state(0),
@@ -81,6 +100,8 @@
       label: `${job.workflow || 'Workflow'}, job ${job.job_name}`,
     };
     inspection = null;
+    preview = null;
+    reviewed = false;
   }
   async function inspect() {
     if (busy || retryBlocked || !canCapture || !chosen || !readyCondition) return;
@@ -102,6 +123,8 @@
       );
       if (current !== operation) return;
       inspection = result;
+      reviewed = false;
+      preview = null;
       queueMicrotask(() => reviewHeading?.focus());
     } catch (e) {
       if (current === operation) failed(e);
@@ -109,6 +132,75 @@
       if (current === operation) busy = false;
     }
   }
+  async function retain() {
+    if (busy || retryBlocked || !canCapture || !inspection || !reviewed) return;
+    const current = begin();
+    try {
+      const result = await retainReadinessPreview(
+        {
+          installation_id: inspection.installation_id,
+          repository: inspection.repository,
+          selection: inspection.selection,
+          condition: inspection.condition,
+          head_sha: inspection.head_sha,
+          source_sha256: inspection.source_sha256,
+        },
+        controller?.signal,
+      );
+      if (current !== operation) return;
+      preview = result;
+      previewId = result.id;
+      loadedKey = `${result.id}|${result.installation_id}|${result.repository}`;
+      router.setQuery({
+        id: result.id,
+        installation_id: result.installation_id,
+        repo: result.repository,
+      });
+      inspection = null;
+      reviewed = false;
+    } catch (e) {
+      if (current === operation) failed(e);
+    } finally {
+      if (current === operation) busy = false;
+    }
+  }
+  async function read(readId = previewId, inst = openInstallation, repository = openRepo) {
+    const current = begin();
+    preview = null;
+    inspection = null;
+    try {
+      openInstallation = inst;
+      openRepo = repository;
+      previewId = readId;
+      if (
+        !/^ins_[a-zA-Z0-9_-]{1,124}$/.test(inst) ||
+        !/^[^\s/?#]+\/[^\s/?#]+$/.test(repository) ||
+        repository.length > 1024
+      )
+        throw new Error('Supply an installation ID starting ins_ and repository OWNER/REPO.');
+      if (!/^opr_[a-zA-Z0-9_-]{1,124}$/.test(readId))
+        throw new Error('Supply a readiness preview ID starting opr_.');
+      const result = await getReadinessPreview(readId, inst, repository, controller?.signal);
+      if (current !== operation) return;
+      preview = result;
+      loadedKey = `${readId}|${inst}|${repository}`;
+      router.setQuery({ id: readId, installation_id: inst, repo: repository });
+    } catch (e) {
+      if (current === operation) failed(e);
+    } finally {
+      if (current === operation) busy = false;
+    }
+  }
+  $effect(() => {
+    const readId = router.param('id'),
+      inst = router.param('installation_id'),
+      repository = router.param('repo');
+    if (session.visitor) return;
+    untrack(() => {
+      if (readId && inst && repository && `${readId}|${inst}|${repository}` !== loadedKey)
+        void read(readId, inst, repository);
+    });
+  });
   function cleanup() {
     operation++;
     controller?.abort();
@@ -234,11 +326,65 @@
           a service that never becomes ready fails where the old wait stopped waiting. Passing CI
           alone cannot establish a saving.
         </p>
+        <Checkbox
+          bind:checked={reviewed}
+          label="I reviewed this run block and the readiness command; a timeout may fail the step."
+          disabled={busy}
+        />
+        <Button
+          onclick={retain}
+          loading={busy && !!inspection && reviewed}
+          disabled={busy || retryBlocked || !reviewed}>Keep a preview for 14 days</Button
+        >
         <p>
-          Nothing was retained, approved or published. This page is an inspection only; it does not
-          open a pull request.
+          Keeping retains the exact source, command and evidence privately for fourteen days. It
+          approves and publishes nothing and does not open a pull request.
         </p>
       </section>
+    {/if}
+
+    {#if preview}<ReadinessPreviewCard {preview} />{/if}
+
+    {#if canCapture}
+      <details class="more card">
+        <summary>Open a kept readiness preview</summary>
+        <form
+          onsubmit={(e) => {
+            e.preventDefault();
+            if (!busy && !retryBlocked) void read();
+          }}
+        >
+          <div class="fields">
+            <Field label="Installation ID" required
+              >{#snippet children(f)}<Input
+                  {...f}
+                  bind:value={openInstallation}
+                  disabled={busy}
+                  placeholder="ins_..."
+                />{/snippet}</Field
+            >
+            <Field label="Repository" required
+              >{#snippet children(f)}<Input
+                  {...f}
+                  bind:value={openRepo}
+                  disabled={busy}
+                  placeholder="OWNER/REPO"
+                />{/snippet}</Field
+            >
+            <Field label="Preview ID" required
+              >{#snippet children(f)}<Input
+                  {...f}
+                  bind:value={previewId}
+                  disabled={busy}
+                  placeholder="opr_..."
+                />{/snippet}</Field
+            >
+          </div>
+          <Button type="submit" variant="secondary" disabled={busy || retryBlocked}
+            >Open preview</Button
+          >
+        </form>
+      </details>
     {/if}
   </div>
 {/if}
@@ -262,6 +408,11 @@
   }
   p {
     margin-block: var(--z-space-3);
+  }
+  .ready,
+  .fields {
+    display: grid;
+    gap: var(--z-space-3);
   }
   .ready {
     margin-block-start: var(--z-space-4);
@@ -303,6 +454,13 @@
   .added {
     font-weight: var(--z-weight-semibold);
     background: var(--z-surface-sunken);
+  }
+  .more {
+    padding: var(--z-space-4);
+  }
+  summary {
+    cursor: pointer;
+    font-weight: var(--z-weight-semibold);
   }
   .sr {
     position: absolute;
