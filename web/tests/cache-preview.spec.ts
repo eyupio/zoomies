@@ -46,6 +46,14 @@ const retained = {
   after: '        with:\n          cache: npm\n          node-version: 20\n',
   verification: 'inconclusive',
   explanation: 'Enable the setup action npm cache. The saving is unverified.',
+  approval: null,
+};
+const approval = {
+  approved_by: 'usr_operator',
+  approved_at: '2026-10-23T09:02:00Z',
+  head_sha: 'a'.repeat(40),
+  source_sha256: 'b'.repeat(64),
+  preview_sha256: 'd'.repeat(64),
 };
 const enablement = {
   source_reads: true,
@@ -97,6 +105,7 @@ test('pick a run, review the cache line, declare, keep: no IDs typed', async ({ 
   await listRuns(page);
   let inspectBody: { selection: Record<string, unknown> } | undefined;
   let retainBody: Record<string, unknown> | undefined;
+  let approveBody: Record<string, unknown> | undefined;
   await page.route('**/api/v1/optimisations/cache/inspections', async (route) => {
     inspectBody = route.request().postDataJSON();
     await route.fulfill({ json: inspection });
@@ -104,6 +113,10 @@ test('pick a run, review the cache line, declare, keep: no IDs typed', async ({ 
   await page.route('**/api/v1/optimisations/cache/previews', async (route) => {
     retainBody = route.request().postDataJSON();
     await route.fulfill({ status: 201, json: retained });
+  });
+  await page.route('**/api/v1/optimisations/cache/previews/*/approval', async (route) => {
+    approveBody = route.request().postDataJSON();
+    await route.fulfill({ json: { ...retained, approval } });
   });
   await goto(page, '/optimisations/cache', 'Cache preview');
   await page.getByRole('combobox', { name: 'Repository' }).selectOption('acme/repo');
@@ -129,6 +142,19 @@ test('pick a run, review the cache line, declare, keep: no IDs typed', async ({ 
   expect(retainBody?.lockfile_sha256).toBe('c'.repeat(64));
   await expect(page.getByText('Nothing was published.')).toBeVisible();
   await expect(page.getByText(/no measurement shows this change helps/)).toBeVisible();
+
+  const approve = page.getByRole('button', { name: 'Approve preview' });
+  await expect(approve).toBeDisabled();
+  await page.getByLabel(/I approve this exact cache preview/).check();
+  await approve.click();
+  await expect(page.getByRole('heading', { name: 'Approved' })).toBeVisible();
+  expect(approveBody).toEqual({
+    installation_id: 'ins_fixture',
+    repository: 'acme/repo',
+    head_sha: 'a'.repeat(40),
+    source_sha256: 'b'.repeat(64),
+  });
+  await expect(page.getByText(/did not publish anything/)).toBeVisible();
 });
 
 test('a kept cache preview opens from its link and the page fits a phone', async ({ page }) => {

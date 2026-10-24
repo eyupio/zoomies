@@ -101,6 +101,28 @@ func TestCacheOptimisationInspectorCaptureAndReplayKeepTheSourcePrivate(t *testi
 		t.Fatal("replay read GitHub or exposed the workflow")
 	}
 	h.do(request{method: http.MethodGet, path: strings.Replace(path, "repo=acme/repo", "repo=other/repo", 1), token: token}).mustStatus(t, 404, "wrong scope")
+	approveBody := map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.HeadSHA, "source_sha256": saved.SourceSHA256}
+	approved := h.do(request{method: http.MethodPost, path: path[:strings.Index(path, "?")] + "/approval", token: token, body: approveBody})
+	approved.mustStatus(t, 200, "approval")
+	var decided CachePreviewView
+	if err := json.Unmarshal(approved.body, &decided); err != nil {
+		t.Fatal(err)
+	}
+	if decided.Approval == nil || decided.Approval.ApprovedBy != saved.ReviewedBy || decided.Approval.HeadSHA != saved.HeadSHA || decided.Approval.SourceSHA256 != saved.SourceSHA256 || decided.Approval.PreviewSHA256 != saved.SHA256 {
+		t.Fatalf("approval %s", approved.body)
+	}
+	assertShape(t, loadSpec(t), "CachePreview", approved.body)
+	if auditCount(t, h, "optimisation.cache_preview_approved") != 1 || f.cacheReads.Load() != 2 {
+		t.Fatal("approval audited wrongly or read GitHub")
+	}
+	after := h.do(request{method: http.MethodGet, path: path, token: token})
+	after.mustStatus(t, 200, "replay after approval")
+	var replayedAfter CachePreviewView
+	if err := json.Unmarshal(after.body, &replayedAfter); err != nil || replayedAfter.Approval == nil || replayedAfter.Approval.ApprovedBy != saved.ReviewedBy {
+		t.Fatalf("replay lost the approval: %v %s", err, after.body)
+	}
+	approveBody["head_sha"] = strings.Repeat("f", 40)
+	h.do(request{method: http.MethodPost, path: path[:strings.Index(path, "?")] + "/approval", token: token, body: approveBody}).mustStatus(t, 409, "wrong head")
 }
 
 func TestCacheOptimisationRefusesUntilEnabledAndAMovedSource(t *testing.T) {

@@ -1518,6 +1518,15 @@ export const linkCheckoutVerification = (
     '/optimisations/checkout/previews/' + encodeURIComponent(id) + '/verification',
     { body, signal },
   );
+export const approveCachePreview = (
+  id: string,
+  body: import('./types').CacheApprovalRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').CachePreview>(
+    '/optimisations/cache/previews/' + encodeURIComponent(id) + '/approval',
+    { body, signal },
+  );
 export const inspectCachePreview = (
   body: import('./types').CacheInspectionRequest,
   signal?: AbortSignal,

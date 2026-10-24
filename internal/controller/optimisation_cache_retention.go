@@ -54,6 +54,17 @@ type RetainedCachePreview struct {
 	CreatedAt      time.Time
 	Currentness    string
 	Preview        optimisation.CachePreview
+	Approval       *RetainedCacheApproval
+}
+
+// RetainedCacheApproval is one attributed decision about the exact retained
+// cache preview. It is not a publication and expires with the preview.
+type RetainedCacheApproval struct {
+	ApprovedBy    string
+	ApprovedAt    time.Time
+	HeadSHA       string
+	SourceSHA256  string
+	PreviewSHA256 string
 }
 
 // CaptureCachePreview re-reads the source and setup history, requires the same
@@ -132,7 +143,33 @@ func (c *Controller) ReplayCachePreview(ctx context.Context, installation, repo,
 }
 
 func retainedCacheView(row *store.OptimisationCachePreview, preview optimisation.CachePreview) *RetainedCachePreview {
-	return &RetainedCachePreview{ID: row.ID, InstallationID: row.InstallationID, Repository: row.Repository, ReviewedBy: row.InitiatingUser, SHA256: row.SHA256, CreatedAt: row.CreatedAt, Currentness: "not_checked", Preview: preview}
+	v := &RetainedCachePreview{ID: row.ID, InstallationID: row.InstallationID, Repository: row.Repository, ReviewedBy: row.InitiatingUser, SHA256: row.SHA256, CreatedAt: row.CreatedAt, Currentness: "not_checked", Preview: preview}
+	if a := row.Approval; a != nil {
+		v.Approval = &RetainedCacheApproval{ApprovedBy: a.ApprovedBy, ApprovedAt: a.CreatedAt, HeadSHA: a.HeadSHA, SourceSHA256: a.SourceSHA256, PreviewSHA256: a.PreviewSHA256}
+	}
+	return v
+}
+
+// ApproveCachePreview records an operator's explicit approval of the exact
+// retained cache preview they name. It reads no source and calls no GitHub
+// reader, so an approval cannot publish, edit a workflow or start a job.
+func (c *Controller) ApproveCachePreview(ctx context.Context, actor *store.AuditEvent, installation, repo, id, headSHA, sourceSHA256 string) (*RetainedCachePreview, error) {
+	if actor == nil || actor.ActorID == "" || installation == "" || repo == "" || id == "" || !knownHash(headSHA, 40) || !knownHash(sourceSHA256, 64) {
+		return nil, ErrOptimisationCacheApproval
+	}
+	current, err := c.ReplayCachePreview(ctx, installation, repo, id)
+	if err != nil {
+		return nil, err
+	}
+	if current.Preview.HeadSHA != headSHA || current.Preview.SourceSHA256 != sourceSHA256 {
+		return nil, ErrOptimisationCacheApproval
+	}
+	approval, err := c.st.ApproveOptimisationCachePreview(ctx, installation, repo, id, headSHA, sourceSHA256, current.SHA256, actor)
+	if err != nil {
+		return nil, err
+	}
+	current.Approval = &RetainedCacheApproval{ApprovedBy: approval.ApprovedBy, ApprovedAt: approval.CreatedAt, HeadSHA: approval.HeadSHA, SourceSHA256: approval.SourceSHA256, PreviewSHA256: approval.PreviewSHA256}
+	return current, nil
 }
 
 func hashString(s string) string {

@@ -178,6 +178,40 @@ func TestCaptureCachePreviewRetainsExactlyWhatWasInspectedAndReplaysIt(t *testin
 	}
 }
 
+func TestApproveCachePreviewRecordsTheExactPreviewWithoutReadingGitHub(t *testing.T) {
+	h, inst, reader, selection, jobID := cacheControllerFixture(t)
+	preview, err := h.c.InspectCachePreview(h.ctx, inst.ID, inst.Target, selection, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := &store.AuditEvent{ActorID: "usr_cache", ActorKind: "user"}
+	retained, err := h.c.CaptureCachePreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, preview.HeadSHA, preview.SourceSHA256, preview.LockfileSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approver := &store.AuditEvent{ActorID: "usr_approver", ActorKind: "user"}
+	approved, err := h.c.ApproveCachePreview(h.ctx, approver, inst.ID, inst.Target, retained.ID, preview.HeadSHA, preview.SourceSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Approval == nil || approved.Approval.ApprovedBy != "usr_approver" || approved.Approval.HeadSHA != preview.HeadSHA || approved.Approval.SourceSHA256 != preview.SourceSHA256 || approved.Approval.PreviewSHA256 != retained.SHA256 {
+		t.Fatalf("approval %+v", approved)
+	}
+	if reader.calls != 2 {
+		t.Fatalf("approval read GitHub: %d", reader.calls)
+	}
+	replayed, err := h.c.ReplayCachePreview(h.ctx, inst.ID, inst.Target, retained.ID)
+	if err != nil || replayed.Approval == nil || replayed.Approval.ApprovedBy != "usr_approver" {
+		t.Fatalf("replay lost the approval: %+v %v", replayed, err)
+	}
+	if _, total, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"optimisation.cache_preview_approved"}}, store.Page{Limit: 10}); err != nil || total != 1 {
+		t.Fatalf("audit total=%d err=%v", total, err)
+	}
+	if _, err := h.c.ApproveCachePreview(h.ctx, approver, inst.ID, inst.Target, retained.ID, strings.Repeat("f", 40), preview.SourceSHA256); !errors.Is(err, ErrOptimisationCacheApproval) {
+		t.Fatalf("wrong head accepted: %v", err)
+	}
+}
+
 func TestReplayCachePreviewRefusesAnAlteredEnvelope(t *testing.T) {
 	h, inst, _, selection, jobID := cacheControllerFixture(t)
 	preview, err := h.c.InspectCachePreview(h.ctx, inst.ID, inst.Target, selection, jobID)
