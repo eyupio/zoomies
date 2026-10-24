@@ -137,6 +137,9 @@
     border-collapse: collapse;
     display: block;
     overflow-x: auto;
+    /* The visually hidden header cell is absolutely positioned; without a
+       positioned scroller it escapes the scroll area and widens the page. */
+    position: relative;
   }
   th,
   td {

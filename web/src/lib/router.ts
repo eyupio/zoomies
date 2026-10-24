@@ -132,6 +132,12 @@ export const ROUTES: readonly RouteDef[] = [
     title: 'Readiness preview',
     load: () => import('../routes/ReadinessPreview.svelte'),
   },
+  {
+    name: 'sharding-preview',
+    path: '/optimisations/sharding',
+    title: 'Sharding preview',
+    load: () => import('../routes/ShardingPreview.svelte'),
+  },
   { name: 'jobs', path: '/jobs', title: 'Jobs', load: () => import('../routes/Jobs.svelte') },
   { name: 'usage', path: '/usage', title: 'Usage', load: () => import('../routes/Usage.svelte') },
   { name: 'hosts', path: '/hosts', title: 'Hosts', load: () => import('../routes/Hosts.svelte') },

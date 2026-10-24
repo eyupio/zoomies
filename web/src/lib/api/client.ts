@@ -1575,6 +1575,35 @@ export const publishReadinessPreview = (
     '/optimisations/readiness/previews/' + encodeURIComponent(id) + '/publication',
     { body, signal },
   );
+export const inspectShardingPreview = (
+  body: import('./types').ShardingInspectionRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').ShardingInspection>('/optimisations/sharding/inspections', {
+    body,
+    signal,
+  });
+export const retainShardingPreview = (
+  body: import('./types').ShardingCaptureRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').ShardingPreview>('/optimisations/sharding/previews', {
+    body,
+    signal,
+  });
+export const getShardingPreview = (
+  id: string,
+  installationId: string,
+  repo: string,
+  signal?: AbortSignal,
+) =>
+  api.get<import('./types').ShardingPreview>(
+    '/optimisations/sharding/previews/' +
+      encodeURIComponent(id) +
+      '?' +
+      new globalThis.URLSearchParams({ installation_id: installationId, repo }).toString(),
+    { signal },
+  );
 export const inspectReadinessPreview = (
   body: import('./types').ReadinessInspectionRequest,
   signal?: AbortSignal,

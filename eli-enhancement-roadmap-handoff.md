@@ -3111,3 +3111,13 @@ migration is 0130.
 
 Next agent: the sharding page and keep flow, then CLI/MCP/Eli replay, approval and
 publication.
+
+
+### E3 sharding page, 24 October 2026
+
+`/optimisations/sharding` reviews and keeps a sharding preview: choose a run, read
+the workflow, review the shards, the extra runner time, the runners needed and the
+estimated wall clock, then keep it for fourteen days. No count or command is a
+field. See [the plan](roadmap/plans/2026-10-24-eli-e3-sharding-web.md).
+
+Next agent: CLI, MCP and Eli replay, then approval and publication.
