@@ -59,3 +59,55 @@ func TestOptimisationsGetRefusesInvalidScopeBeforeAnyRequest(t *testing.T) {
 		}
 	}
 }
+
+const cliCachePreview = `{
+  "id":"opc_1","installation_id":"ins_1","repository":"acme/repo","reviewed_by":"usr_reviewer",
+  "sha256":"` + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + `","created_at":"2026-10-23T10:00:00Z","currentness":"not_checked",
+  "head_sha":"` + "cccccccccccccccccccccccccccccccccccccccc" + `","workflow_path":".github/workflows/ci.yml",
+  "lockfile_path":"package-lock.json","lockfile_sha256":"` + "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" + `",
+  "source_sha256":"` + "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" + `","after_sha256":"` + "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" + `",
+  "package_manager":"npm","job_name":"Build","step_name":"Node","line":12,"runs":4,"setup_ms":4200,
+  "before":"        with:\n          node-version: 20\n","after":"        with:\n          cache: npm\n          node-version: 20\n",
+  "verification":"inconclusive","explanation":"Enable the setup action npm cache. The saving is unverified."
+}`
+
+func TestOptimisationsCachePrintsMetadataAndTheChangedBlock(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/cache/previews/opc_1": cliCachePreview})
+	out, _ := runCLI(t, "optimisations", "cache", "opc_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL)
+	for _, want := range []string{"opc_1", "acme/repo", ".github/workflows/ci.yml", "package-lock.json", "cache: npm", "4 runs", "untrusted repository text", "not a saving"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "on: push") {
+		t.Error("the full workflow source was printed")
+	}
+}
+
+func TestOptimisationsCacheStructuredOutputPreservesTheControllerAnswer(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/cache/previews/opc_1": cliCachePreview})
+	out, _ := runCLI(t, "optimisations", "cache", "opc_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL, "--output", "json")
+	var got, want bytes.Buffer
+	if err := json.Compact(&got, []byte(out)); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Compact(&want, []byte(cliCachePreview)); err != nil {
+		t.Fatal(err)
+	}
+	if got.String() != want.String() {
+		t.Fatalf("structured output changed the answer:\n%s\nwant\n%s", got.String(), want.String())
+	}
+}
+
+func TestOptimisationsCacheRefusesInvalidScopeBeforeAnyRequest(t *testing.T) {
+	for _, args := range [][]string{
+		{"optimisations", "cache", "preview", "--installation", "ins_1", "--repo", "acme/repo"},
+		{"optimisations", "cache", "opc_1", "--installation", "installation", "--repo", "acme/repo"},
+		{"optimisations", "cache", "opc_1", "--installation", "ins_1", "--repo", "acme"},
+	} {
+		e, out, errOut := newTestEnv(t)
+		if code := dispatch(context.Background(), e, args); code == 0 || out.Len() != 0 {
+			t.Fatalf("accepted %v: %s", args, errOut.String())
+		}
+	}
+}

@@ -27,7 +27,7 @@ as the record of how each slice landed.
 | --- | --- | --- |
 | E1 (ZF-242) | Merged and used: `internal/analysis` (`merge_delay.go`), `get_pr_delay` on Eli's allowlist, CLI, contextual UI | None. ROADMAP.md still lists `in_progress` because live-model evaluation and a real performance experiment have not run |
 | E2 (ZF-243) | Descriptive milestone merged (#1020); `get_retained_comparison` on Eli's allowlist; ZF-241's period comparison, queue breakdown, host pressure and startup failures are `implemented` | None. Controlled-experiment proof and dispatch stay deferred by the owner |
-| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and a pure supplied-evidence cache preview foundation, all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, cache evidence/retention/routes, and write access from the CLI, MCP or Eli (deliberately web-only) |
+| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and the wider catalogue's setup cache preview through its pure foundation, retained history, bounded source, private retention/API, web page and bounded CLI/MCP/Eli replay, all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, cache approval/publication, and write access from the CLI, MCP or Eli (deliberately web-only) |
 | E4 | Not started as a track. Kennel's evaluator, waivers and guidance exist, but no fix preview or publication path does | Unchanged |
 | E5 | ZF-241's `startup_failures` covers runner-startup recurrence. No workflow/test failure fingerprinting exists | Unchanged |
 | E6 | Not started. `internal/prrepair/mention` (ZF-239 slice 1) is only the command matcher | Unchanged |
@@ -129,8 +129,14 @@ publication arrived on 23 October:
   literal setup step, commit and digests, and the exact `with:` block as untrusted
   text. A declaration gates keeping; the kept card shows the insertion, evidence
   summary, preview ID and reviewer, says verification is inconclusive and
-  currentness not checked, and publishes nothing. No CLI, MCP, Eli, approval,
-  publication or verification link yet.
+  currentness not checked, and publishes nothing.
+* **Cache read surfaces (23 October).** `zoomies optimisations cache <preview-id>`
+  and the MCP/Eli tool `get_cache_preview` read the same bounded route as the
+  cache web page: metadata, the package manager, root lockfile, setup evidence,
+  digests and the one `with:` block. They never return the full workflow or
+  lockfile, drop actor identities from model output, and neither approve nor
+  publish. The path and block are untrusted repository text; verification is
+  inconclusive. No new route, migration or setting.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval, draft publication and read access from the CLI, MCP and Eli have since
@@ -148,11 +154,11 @@ been built (see the 23 October sections at the end). The rest remains.
    unless a suitable control and candidate exist, and CI passing is never evidence of
    a saving. Projected savings stay estimates.
 3. **Wider catalogue.** The dependency/build cache foundation, retained setup
-   history, bounded source binding, private retention/API and web page are
-   described above. Next is cache CLI/MCP/Eli, then approval and publication.
-   Bounded readiness polling and sharding follow, each with its own evidence and
-   refusals. Do not lead with test removal, relaxed assertions or blanket
-   retries.
+   history, bounded source binding, private retention/API, web page and
+   CLI/MCP/Eli replay are described above. Next is cache approval and
+   publication. Bounded readiness polling and sharding follow, each with its own
+   evidence and refusals. Do not lead with test removal, relaxed assertions or
+   blanket retries.
 
 Owner decisions still open: whether a different person than the reviewer must
 approve (the 23 October slice keeps the recommended default, that the same
@@ -2700,3 +2706,26 @@ horizontal overflow. No live GitHub, model or fleet.
 
 Next agent: add cache CLI/MCP/Eli read access, then approval and publication.
 Do not expose the retained envelope to a model.
+
+
+### E3 cache read surfaces, 23 October 2026
+
+The owner's bounded view applies to the cache too: metadata, the package manager,
+the root lockfile, the setup evidence, the digests and the one `with:` block,
+never the full workflow or lockfile. `zoomies optimisations cache <preview-id>
+--installation ID --repo OWNER/REPO` and the MCP/Eli tool `get_cache_preview`
+read the existing replay route through the caller's token, needing
+`optimisations:read` and `jobs:read`. They neither approve nor publish. The
+MCP/Eli projection drops `reviewed_by` and any future field, and the block is
+quoted untrusted text because it came from a repository. Verification is always
+inconclusive; the setup time is descriptive, not a saving.
+
+The design is in
+[the plan](roadmap/plans/2026-10-23-eli-e3-cache-read.md). Validation: CLI tests
+cover the human view, unchanged JSON and invalid scope before a request; MCP
+tests cover one scoped GET, the exact projection, dropped actor/source fields,
+invalid arguments and unavailable or inconsistent evidence.
+
+Next agent: add cache approval and publication, then bounded readiness polling
+and sharding. Real-repository validation and a real E2 comparison remain the
+owner's after merge. Do not expose the full retained envelope to a model.
