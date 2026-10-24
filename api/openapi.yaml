@@ -9099,6 +9099,59 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /optimisations/cache/previews/{id}/publication:
+    parameters: [{ $ref: '#/components/parameters/PathID' }]
+    post:
+      operationId: publishCachePreview
+      tags: [jobs]
+      summary: Open one draft pull request for an approved cache preview
+      description: >-
+        Requires operator, jobs:read and optimisations:publish; public visitors
+        are refused. Refused with 403 unless optimisation.source_reads,
+        optimisation.workflow_edits and optimisation.publish are on. Re-reads
+        the selected job, its branch, the workflow and the lockfile, rechecks
+        the live settings and the approval, and requires the same head, source
+        digest and after block. Commits the reviewed file on a new branch and
+        opens one draft pull request against the run's branch. Never merges,
+        never force-pushes and runs no job. A retry reconciles the branch and
+        pull request an earlier attempt left behind. Verification remains
+        inconclusive; no saving is claimed.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CachePublicationRequest' }
+      responses:
+        '200':
+          description: The retained preview with its draft pull request; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CachePreview' }
+        '400':
+          description: Invalid request, scope or digest.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: The preview is unavailable, expired or outside this scope.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409':
+          description: The preview is not approved, its source moved, the settings changed, or GitHub refused or changed the draft.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429':
+          description: Diagnostic or GitHub quota refusal; Retry-After says when to retry manually.
+          headers:
+            Retry-After: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
 
 components:
   securitySchemes:
@@ -16846,7 +16899,34 @@ components:
         verification: { type: string, enum: [inconclusive] }
         explanation: { type: string }
         approval: { $ref: '#/components/schemas/CacheApproval' }
-      required: [id, installation_id, repository, reviewed_by, sha256, created_at, currentness, head_sha, workflow_path, lockfile_path, lockfile_sha256, source_sha256, after_sha256, package_manager, job_name, step_name, line, runs, setup_ms, before, after, verification, explanation, approval]
+        publication: { $ref: '#/components/schemas/CachePublication' }
+      required: [id, installation_id, repository, reviewed_by, sha256, created_at, currentness, head_sha, workflow_path, lockfile_path, lockfile_sha256, source_sha256, after_sha256, package_manager, job_name, step_name, line, runs, setup_ms, before, after, verification, explanation, approval, publication]
+      type: object
+    CachePublication:
+      additionalProperties: false
+      nullable: true
+      description: The one draft pull request opened for an approved cache preview, or null when none was opened.
+      properties:
+        published_by: { type: string }
+        published_at: { type: string, format: date-time }
+        branch: { type: string }
+        base_branch: { type: string }
+        base_sha: { type: string }
+        head_sha: { type: string }
+        source_sha256: { type: string }
+        preview_sha256: { type: string }
+        pull_number: { type: integer, minimum: 1 }
+        pull_url: { type: string }
+      required: [published_by, published_at, branch, base_branch, base_sha, head_sha, source_sha256, preview_sha256, pull_number, pull_url]
+      type: object
+    CachePublicationRequest:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string, minLength: 1, maxLength: 128 }
+        repository: { type: string, minLength: 1, maxLength: 1024 }
+        head_sha: { type: string, description: "The approved commit the cache preview names." }
+        source_sha256: { type: string, description: "The approved workflow digest the cache preview names." }
+      required: [installation_id, repository, head_sha, source_sha256]
       type: object
     CacheApproval:
       additionalProperties: false

@@ -1527,6 +1527,15 @@ export const approveCachePreview = (
     '/optimisations/cache/previews/' + encodeURIComponent(id) + '/approval',
     { body, signal },
   );
+export const publishCachePreview = (
+  id: string,
+  body: import('./types').CachePublicationRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').CachePreview>(
+    '/optimisations/cache/previews/' + encodeURIComponent(id) + '/publication',
+    { body, signal },
+  );
 export const inspectCachePreview = (
   body: import('./types').CacheInspectionRequest,
   signal?: AbortSignal,
