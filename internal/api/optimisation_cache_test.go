@@ -223,8 +223,8 @@ func TestReadinessInspectionBindsTheCommandAndWaitEvidenceWithoutRetaining(t *te
 	if err := json.Unmarshal(read.body, &replayed); err != nil {
 		t.Fatal(err)
 	}
-	if replayed != saved || f.readinessReads.Load() != 2 || strings.Contains(string(read.body), "on: push") {
-		t.Fatalf("replay changed or exposed source: %s", read.body)
+	if replayed != saved || f.readinessReads.Load() != 2 || strings.Contains(string(read.body), "on: push") || replayed.SourceSHA256 == "" || replayed.SourceSHA256 != f.readinessSource.WorkflowSHA256 {
+		t.Fatalf("replay changed, lost the source digest, or exposed source: %s", read.body)
 	}
 	bad := map[string]any{"installation_id": instID, "repository": "acme/repo", "selection": selection, "condition": " "}
 	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/readiness/inspections", token: token, body: bad}).mustStatus(t, 400, "empty condition")

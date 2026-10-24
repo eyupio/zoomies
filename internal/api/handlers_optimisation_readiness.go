@@ -117,7 +117,7 @@ func readinessPreviewView(p *controller.RetainedReadinessPreview) ReadinessPrevi
 	return ReadinessPreviewView{
 		ID: p.ID, InstallationID: p.InstallationID, Repository: p.Repository, ReviewedBy: p.ReviewedBy, SHA256: p.SHA256,
 		CreatedAt: p.CreatedAt, Currentness: p.Currentness, Selection: selection, Condition: d.Condition,
-		HeadSHA: d.HeadSHA, WorkflowPath: d.Edit.Path, JobName: d.JobName, StepName: d.StepName, Line: d.Line,
+		HeadSHA: d.HeadSHA, SourceSHA256: d.SourceSHA256, WorkflowPath: d.Edit.Path, JobName: d.JobName, StepName: d.StepName, Line: d.Line,
 		WaitSeconds: d.WaitSeconds, Runs: d.Runs, WaitMS: d.WaitMS, Before: d.Edit.Before, After: d.Edit.After,
 		Verification: d.Verification, Explanation: d.Explanation,
 	}
