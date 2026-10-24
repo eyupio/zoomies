@@ -3,6 +3,7 @@
   import {
     inspectCachePreview,
     retainCachePreview,
+    approveCachePreview,
     getCachePreview,
     ApiError,
   } from '$lib/api/client';
@@ -147,6 +148,28 @@
       router.setQuery({ id: result.id, installation_id: chosen.installation, repo: chosen.repo });
       inspection = null;
       reviewed = false;
+    } catch (e) {
+      if (current === operation) failed(e);
+    } finally {
+      if (current === operation) busy = false;
+    }
+  }
+  async function approve() {
+    if (busy || retryBlocked || !canCapture || !preview) return;
+    const current = begin();
+    try {
+      const result = await approveCachePreview(
+        preview.id,
+        {
+          installation_id: preview.installation_id,
+          repository: preview.repository,
+          head_sha: preview.head_sha,
+          source_sha256: preview.source_sha256,
+        },
+        controller?.signal,
+      );
+      if (current !== operation) return;
+      preview = result;
     } catch (e) {
       if (current === operation) failed(e);
     } finally {
@@ -329,7 +352,14 @@
       </section>
     {/if}
 
-    {#if preview}<CachePreviewCard {preview} />{/if}
+    {#if preview}
+      <CachePreviewCard
+        {preview}
+        canApprove={canCapture}
+        approving={busy}
+        onapprove={() => void approve()}
+      />
+    {/if}
 
     {#if canCapture}
       <details class="more card">

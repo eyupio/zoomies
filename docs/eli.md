@@ -427,7 +427,9 @@ time over the fleet's recent successful runs is descriptive, not a saving.
 
 Confirm that you reviewed the block, then **Keep a preview for 14 days**. The
 kept card shows the insertion, the commit and digests, the lockfile path and
-digest, the setup summary and who kept it. Verification is always
+digest, the setup summary and who kept it. An operator can then approve that
+exact preview: approval names its commit and source digest, records who approved,
+expires with the preview and publishes nothing. Verification is always
 `inconclusive` and currentness `not_checked`; the cache is the setup action's own,
 and nothing is published. The full workflow and lockfile are never returned after
 the inspection.

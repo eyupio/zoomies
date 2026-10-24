@@ -5872,6 +5872,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/optimisations/cache/previews/{id}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve one retained setup cache preview
+         * @description Requires operator, jobs:read and optimisations:write; public visitors are refused. Records an attributed approval of the exact retained cache preview named by its commit and source digest. It reads no source, calls no GitHub reader, opens no pull request and runs no job. The approval expires with the preview. A repeated approval of the same binding is a no-op with no second audit row; a different head, source or preview is refused.
+         */
+        post: operations["approveCachePreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -12583,6 +12606,25 @@ export interface components {
             /** @enum {string} */
             verification: "inconclusive";
             explanation: string;
+            approval: components["schemas"]["CacheApproval"];
+        };
+        /** @description An attributed approval of the exact retained cache preview, or null when none was given. */
+        CacheApproval: {
+            approved_by: string;
+            /** Format: date-time */
+            approved_at: string;
+            head_sha: string;
+            source_sha256: string;
+            /** @description The digest of the immutable retained record this approval binds. */
+            preview_sha256: string;
+        } | null;
+        CacheApprovalRequest: {
+            installation_id: string;
+            repository: string;
+            /** @description The commit the cache preview names. */
+            head_sha: string;
+            /** @description The workflow digest the cache preview names. */
+            source_sha256: string;
         };
         CheckoutVerificationRequest: {
             installation_id: string;
@@ -22473,6 +22515,62 @@ export interface operations {
                 };
             };
             /** @description Stored content integrity cannot be verified. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    approveCachePreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CacheApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description The retained preview with its approval; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CachePreview"];
+                };
+            };
+            /** @description Invalid request, scope or digest. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The preview is unavailable, expired or outside this scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The preview, its stored evidence or an earlier approval does not match the request. */
             409: {
                 headers: {
                     [name: string]: unknown;

@@ -27,7 +27,7 @@ as the record of how each slice landed.
 | --- | --- | --- |
 | E1 (ZF-242) | Merged and used: `internal/analysis` (`merge_delay.go`), `get_pr_delay` on Eli's allowlist, CLI, contextual UI | None. ROADMAP.md still lists `in_progress` because live-model evaluation and a real performance experiment have not run |
 | E2 (ZF-243) | Descriptive milestone merged (#1020); `get_retained_comparison` on Eli's allowlist; ZF-241's period comparison, queue breakdown, host pressure and startup failures are `implemented` | None. Controlled-experiment proof and dispatch stay deferred by the owner |
-| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and the wider catalogue's setup cache preview through its pure foundation, retained history, bounded source, private retention/API, web page and bounded CLI/MCP/Eli replay, all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, cache approval/publication, and write access from the CLI, MCP or Eli (deliberately web-only) |
+| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and the wider catalogue's setup cache preview through its pure foundation, retained history, bounded source, private retention/API, web page, bounded CLI/MCP/Eli replay and attributed approval (migration 0123), all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, cache publication, and write access from the CLI, MCP or Eli (deliberately web-only) |
 | E4 | Not started as a track. Kennel's evaluator, waivers and guidance exist, but no fix preview or publication path does | Unchanged |
 | E5 | ZF-241's `startup_failures` covers runner-startup recurrence. No workflow/test failure fingerprinting exists | Unchanged |
 | E6 | Not started. `internal/prrepair/mention` (ZF-239 slice 1) is only the command matcher | Unchanged |
@@ -136,7 +136,13 @@ publication arrived on 23 October:
   digests and the one `with:` block. They never return the full workflow or
   lockfile, drop actor identities from model output, and neither approve nor
   publish. The path and block are untrusted repository text; verification is
-  inconclusive. No new route, migration or setting.
+  inconclusive. No new route besides approval; no new setting.
+* **Cache approval (23 October).** Migration 0123 stores one attributed approval
+  per retained cache preview, cascading with it. The web card offers a
+  declaration and approval after keeping; the approval names the exact commit,
+  workflow digest and preview hash, is audited, expires with the preview and
+  publishes nothing. The CLI shows the approval; MCP/Eli project its time and
+  digests but drop who approved. No publication yet.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval, draft publication and read access from the CLI, MCP and Eli have since
@@ -155,7 +161,7 @@ been built (see the 23 October sections at the end). The rest remains.
    a saving. Projected savings stay estimates.
 3. **Wider catalogue.** The dependency/build cache foundation, retained setup
    history, bounded source binding, private retention/API, web page and
-   CLI/MCP/Eli replay are described above. Next is cache approval and
+   CLI/MCP/Eli replay and attributed approval are described above. Next is cache
    publication. Bounded readiness polling and sharding follow, each with its own
    evidence and refusals. Do not lead with test removal, relaxed assertions or
    blanket retries.
@@ -2503,7 +2509,7 @@ Next agent: run the whole flow against one real repository first. The published
 preview now links to the E2 comparison page; capturing a real control and
 candidate after merge is the remaining verification step, and it stays
 inconclusive without them. CLI and MCP/Eli access still wait on the
-private-envelope contract decision. The next free migration is 0122.
+private-envelope contract decision. The cache approval took 0123; the next free migration is 0124.
 
 
 ### E3 verification link, 23 October 2026
@@ -2729,3 +2735,31 @@ invalid arguments and unavailable or inconsistent evidence.
 Next agent: add cache approval and publication, then bounded readiness polling
 and sharding. Real-repository validation and a real E2 comparison remain the
 owner's after merge. Do not expose the full retained envelope to a model.
+
+
+### E3 cache approval, 23 October 2026
+
+A cache preview can now be approved as a separate, attributed act. Migration
+0123 stores one approval per retained cache preview, cascading with it; the
+store joins and validates it, and a partial row is corrupt evidence. The route
+is `POST /optimisations/cache/previews/{id}/approval`, needing
+`optimisations:write` and `jobs:read`; visitors are refused. It reads no source,
+opens no pull request and runs no job.
+
+The kept card asks for a declaration, then shows the approver, time, commit and
+digests and says nothing was published. A repeated approval of the same binding
+is a no-op with no second audit row; a different head, source or preview is a
+conflict. `zoomies optimisations cache` shows the approval, and
+`get_cache_preview` projects its time and digests while dropping who approved.
+OpenAPI and both generated clients carry the new route and nullable approval.
+
+The design is in
+[the plan](roadmap/plans/2026-10-23-eli-e3-cache-approval.md). Validation:
+store tests cover binding, repeat, audit, foreign scope and expiry; API tests
+cover the route, audit, replay and a mismatched head; browser tests cover the
+disabled button, declaration, request body and approved card on desktop and
+phone.
+
+Next agent: add cache publication, then bounded readiness polling and sharding.
+Real-repository validation and a real E2 comparison remain the owner's after
+merge. Approval is not publication; do not describe it as applying the change.

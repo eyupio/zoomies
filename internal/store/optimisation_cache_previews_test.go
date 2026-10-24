@@ -196,3 +196,54 @@ func TestOptimisationCachePreviewSurvivesAReadOnlyBackupWithItsAudit(t *testing.
 		t.Fatal("backup lost cache preview audit", err)
 	}
 }
+
+func TestOptimisationCacheApprovalBindsThePreviewAndDoesNotPublish(t *testing.T) {
+	s := newTestStore(t)
+	r := optimisationCachePreviewFixture(t, s)
+	ctx := context.Background()
+	if err := s.PutOptimisationCachePreview(ctx, r, optimisationAudit()); err != nil {
+		t.Fatal(err)
+	}
+	head, source := strings.Repeat("a", 40), strings.Repeat("b", 64)
+	approval, err := s.ApproveOptimisationCachePreview(ctx, r.InstallationID, r.Repository, r.ID, head, source, r.SHA256, optimisationAudit())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approval.ApprovedBy != "usr_actor" || approval.HeadSHA != head || approval.SourceSHA256 != source || approval.PreviewSHA256 != r.SHA256 {
+		t.Fatalf("approval %+v", approval)
+	}
+	again, err := s.ApproveOptimisationCachePreview(ctx, r.InstallationID, r.Repository, r.ID, head, source, r.SHA256, optimisationAudit())
+	if err != nil || !again.CreatedAt.Equal(approval.CreatedAt) {
+		t.Fatalf("repeat changed the approval: %+v %v", again, err)
+	}
+	events, total, err := s.ListAudit(ctx, AuditFilter{TargetID: r.ID}, Page{Limit: 10})
+	if err != nil || total != 2 || events[0].Action != "optimisation.cache_preview_approved" || events[1].Action != "optimisation.cache_preview_retained" {
+		t.Fatalf("audit %+v total=%d err=%v", events, total, err)
+	}
+	got, err := s.GetOptimisationCachePreview(ctx, r.InstallationID, r.Repository, r.ID)
+	if err != nil || got.Approval == nil || got.Approval.ApprovedBy != "usr_actor" {
+		t.Fatalf("read %+v %v", got, err)
+	}
+	if _, err := s.ApproveOptimisationCachePreview(ctx, r.InstallationID, r.Repository, r.ID, head, strings.Repeat("c", 64), r.SHA256, optimisationAudit()); !errors.Is(err, ErrConflict) {
+		t.Fatalf("different source accepted: %v", err)
+	}
+}
+
+func TestOptimisationCacheApprovalExpiresWithThePreviewAndRefusesForeignScope(t *testing.T) {
+	now := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
+	s := newTestStoreAt(t, func() time.Time { return now })
+	r := optimisationCachePreviewFixture(t, s)
+	ctx := context.Background()
+	if err := s.PutOptimisationCachePreview(ctx, r, optimisationAudit()); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range [][2]string{{"other", r.Repository}, {r.InstallationID, "other/repo"}} {
+		if _, err := s.ApproveOptimisationCachePreview(ctx, scope[0], scope[1], r.ID, strings.Repeat("a", 40), strings.Repeat("b", 64), r.SHA256, optimisationAudit()); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("foreign scope %v: %v", scope, err)
+		}
+	}
+	now = now.Add(OptimisationCachePreviewRetention)
+	if _, err := s.ApproveOptimisationCachePreview(ctx, r.InstallationID, r.Repository, r.ID, strings.Repeat("a", 40), strings.Repeat("b", 64), r.SHA256, optimisationAudit()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expired preview approved: %v", err)
+	}
+}

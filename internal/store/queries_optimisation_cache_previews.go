@@ -21,14 +21,28 @@ const OptimisationCachePreviewRetention = 14 * 24 * time.Hour
 var ErrInvalidOptimisationCachePreview = errors.New("invalid retained optimisation cache preview")
 
 type OptimisationCachePreview struct {
-	ID             string          `json:"id"`
-	InstallationID string          `json:"installation_id"`
-	Repository     string          `json:"repository"`
-	InitiatingUser string          `json:"initiating_user"`
-	Version        string          `json:"version"`
-	SHA256         string          `json:"sha256"`
-	Payload        json.RawMessage `json:"payload"`
-	CreatedAt      time.Time       `json:"created_at"`
+	ID             string                     `json:"id"`
+	InstallationID string                     `json:"installation_id"`
+	Repository     string                     `json:"repository"`
+	InitiatingUser string                     `json:"initiating_user"`
+	Version        string                     `json:"version"`
+	SHA256         string                     `json:"sha256"`
+	Payload        json.RawMessage            `json:"payload"`
+	CreatedAt      time.Time                  `json:"created_at"`
+	Approval       *OptimisationCacheApproval `json:"approval,omitempty"`
+}
+
+// OptimisationCacheApproval is one attributed decision about the exact cache
+// preview the operator was shown. It is not a publication.
+type OptimisationCacheApproval struct {
+	PreviewID      string    `json:"preview_id"`
+	InstallationID string    `json:"installation_id"`
+	Repository     string    `json:"repository"`
+	ApprovedBy     string    `json:"approved_by"`
+	HeadSHA        string    `json:"head_sha"`
+	SourceSHA256   string    `json:"source_sha256"`
+	PreviewSHA256  string    `json:"preview_sha256"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // PutOptimisationCachePreview accepts an already authorised actor. The row and
@@ -113,7 +127,15 @@ func (s *Store) GetOptimisationCachePreview(ctx context.Context, installation, r
 	r := &OptimisationCachePreview{}
 	var payload []byte
 	var created int64
-	err := s.read.QueryRowContext(ctx, `SELECT id,installation_id,repository,initiating_user,version,sha256,payload,created_at FROM optimisation_cache_previews WHERE installation_id = ? AND repository = ? AND id = ? AND created_at > ?`, installation, repo, id, ms(s.Now().Add(-OptimisationCachePreviewRetention))).Scan(&r.ID, &r.InstallationID, &r.Repository, &r.InitiatingUser, &r.Version, &r.SHA256, &payload, &created)
+	var approvedInstallation, approvedRepo, approvedBy, approvedHead, approvedSource, approvedPreview sql.NullString
+	var approvedAt sql.NullInt64
+	err := s.read.QueryRowContext(ctx, `SELECT p.id,p.installation_id,p.repository,p.initiating_user,p.version,p.sha256,p.payload,p.created_at,
+			a.installation_id,a.repository,a.approved_by,a.head_sha,a.source_sha256,a.preview_sha256,a.created_at
+		FROM optimisation_cache_previews p
+		LEFT JOIN optimisation_cache_preview_approvals a ON a.preview_id = p.id
+		WHERE p.installation_id = ? AND p.repository = ? AND p.id = ? AND p.created_at > ?`,
+		installation, repo, id, ms(s.Now().Add(-OptimisationCachePreviewRetention))).Scan(&r.ID, &r.InstallationID, &r.Repository, &r.InitiatingUser, &r.Version, &r.SHA256, &payload, &created,
+		&approvedInstallation, &approvedRepo, &approvedBy, &approvedHead, &approvedSource, &approvedPreview, &approvedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -126,5 +148,80 @@ func (s *Store) GetOptimisationCachePreview(ctx context.Context, installation, r
 	}
 	r.Payload = payload
 	r.CreatedAt = time.UnixMilli(created).UTC()
+	if approvedInstallation.Valid || approvedRepo.Valid || approvedBy.Valid || approvedHead.Valid || approvedSource.Valid || approvedPreview.Valid || approvedAt.Valid {
+		if !approvedInstallation.Valid || approvedInstallation.String != r.InstallationID || !approvedRepo.Valid || approvedRepo.String != r.Repository || !approvedBy.Valid || approvedBy.String == "" || !approvedAt.Valid || !validOptimisationHash(approvedHead.String, 40) || !validOptimisationHash(approvedSource.String, 64) || !validOptimisationHash(approvedPreview.String, 64) || approvedPreview.String != r.SHA256 {
+			return nil, ErrInvalidOptimisationCachePreview
+		}
+		r.Approval = &OptimisationCacheApproval{
+			PreviewID: r.ID, InstallationID: r.InstallationID, Repository: r.Repository,
+			ApprovedBy: approvedBy.String, HeadSHA: approvedHead.String, SourceSHA256: approvedSource.String,
+			PreviewSHA256: approvedPreview.String, CreatedAt: time.UnixMilli(approvedAt.Int64).UTC(),
+		}
+	}
 	return r, nil
+}
+
+// ApproveOptimisationCachePreview records one exact approval of a retained
+// cache preview. The preview is not rewritten, and a repeat by the same
+// binding is a no-op with no second audit row. It never publishes.
+func (s *Store) ApproveOptimisationCachePreview(ctx context.Context, installation, repo, id, headSHA, sourceSHA256, previewSHA256 string, actor *AuditEvent) (*OptimisationCacheApproval, error) {
+	if actor == nil || strings.TrimSpace(actor.ActorID) == "" || len(actor.ActorID) > 128 || strings.TrimSpace(actor.ActorKind) == "" || len(actor.ActorKind) > 64 || len(actor.ActorName) > 200 || len(actor.IP) > 128 ||
+		installation == "" || len(installation) > 128 || !strings.HasPrefix(id, PrefixOptimisationCachePreview+"_") || len(id) > 128 || strings.ContainsAny(id, " /\r\n\x00") || !validOptimisationRepository(repo) ||
+		!validOptimisationHash(headSHA, 40) || !validOptimisationHash(sourceSHA256, 64) || !validOptimisationHash(previewSHA256, 64) {
+		return nil, ErrInvalidOptimisationCachePreview
+	}
+	now := s.Now().UTC().Truncate(time.Millisecond)
+	var out *OptimisationCacheApproval
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		var version, storedSHA string
+		var created int64
+		var payload []byte
+		err := tx.QueryRowContext(ctx, `SELECT version,sha256,payload,created_at FROM optimisation_cache_previews WHERE installation_id = ? AND repository = ? AND id = ? AND created_at > ?`,
+			installation, repo, id, ms(now.Add(-OptimisationCachePreviewRetention))).Scan(&version, &storedSHA, &payload, &created)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(payload)
+		if len(payload) > MaxOptimisationCachePreviewBytes || hex.EncodeToString(sum[:]) != storedSHA {
+			return ErrInvalidOptimisationCachePreview
+		}
+		if version != OptimisationCachePreviewVersion || storedSHA != previewSHA256 {
+			return ErrConflict
+		}
+		var existing OptimisationCacheApproval
+		var at int64
+		err = tx.QueryRowContext(ctx, `SELECT preview_id,installation_id,repository,approved_by,head_sha,source_sha256,preview_sha256,created_at FROM optimisation_cache_preview_approvals WHERE preview_id = ?`, id).
+			Scan(&existing.PreviewID, &existing.InstallationID, &existing.Repository, &existing.ApprovedBy, &existing.HeadSHA, &existing.SourceSHA256, &existing.PreviewSHA256, &at)
+		switch {
+		case err == nil:
+			if existing.InstallationID != installation || existing.Repository != repo || existing.HeadSHA != headSHA || existing.SourceSHA256 != sourceSHA256 || existing.PreviewSHA256 != previewSHA256 {
+				return ErrConflict
+			}
+			existing.CreatedAt = time.UnixMilli(at).UTC()
+			out = &existing
+			return nil
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
+		out = &OptimisationCacheApproval{
+			PreviewID: id, InstallationID: installation, Repository: repo, ApprovedBy: actor.ActorID,
+			HeadSHA: headSHA, SourceSHA256: sourceSHA256, PreviewSHA256: previewSHA256, CreatedAt: now,
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO optimisation_cache_preview_approvals(preview_id,installation_id,repository,approved_by,head_sha,source_sha256,preview_sha256,created_at) VALUES(?,?,?,?,?,?,?,?)`,
+			out.PreviewID, out.InstallationID, out.Repository, out.ApprovedBy, out.HeadSHA, out.SourceSHA256, out.PreviewSHA256, ms(now)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events (`+auditCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			NewID(PrefixAudit), actor.ActorID, actor.ActorName, actor.ActorKind, "optimisation.cache_preview_approved", "optimisation_cache_preview", id, "", "", actor.IP, ms(now)); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }

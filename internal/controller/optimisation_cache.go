@@ -11,7 +11,10 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-var ErrOptimisationCache = errors.New("cache preview evidence is unavailable, inconsistent or unsupported")
+var (
+	ErrOptimisationCache         = errors.New("cache preview evidence is unavailable, inconsistent or unsupported")
+	ErrOptimisationCacheApproval = errors.New("the cache preview's head and source digest do not match the retained preview")
+)
 
 // CacheInspection is what an operator is shown before keeping a cache preview.
 // It carries the source identity, the retained setup evidence and the computed
