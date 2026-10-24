@@ -255,10 +255,10 @@ test('a figure whose list is on another page opens that page at the list', async
     .getByTestId('band-runners')
     .getByRole('link', { name: /^Jobs? queued/ })
     .click();
-  // The filter is in the address, and so is the section that shows it.
-  await expect(page).toHaveURL(/\/jobs\?state=queued#jobs-list$/);
-  await expect(page.getByRole('heading', { name: 'Jobs', level: 1 })).toBeVisible();
-  await expect(page.locator('#jobs-list')).toBeFocused();
+  // The queue shows the work that is waiting, and the address names its list.
+  await expect(page).toHaveURL(/\/queue#queue-list$/);
+  await expect(page.getByRole('heading', { name: 'Queue', level: 1 })).toBeVisible();
+  await expect(page.locator('#queue-list')).toBeFocused();
 
   await page.goBack();
   await page
@@ -294,6 +294,6 @@ test('on a phone a figure still opens the page and the list it counts', async ({
     .getByRole('list', { name: 'Key figures' })
     .getByRole('link', { name: /^Jobs? queued/ })
     .click();
-  await expect(page).toHaveURL(/\/jobs\?state=queued#jobs-list$/);
-  await expect(page.locator('#jobs-list')).toBeFocused();
+  await expect(page).toHaveURL(/\/queue#queue-list$/);
+  await expect(page.locator('#queue-list')).toBeFocused();
 });

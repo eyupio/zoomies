@@ -11,10 +11,10 @@ test('the provisioning figures are in the Runners band, with the way to the queu
   const band = page.getByRole('list', { name: 'Key figures' });
   // The six tiles are gone from this page: the Overview and the Queue carry those
   // figures, and the grid is what a person came to the Runners page for.
-  // The queued-jobs figure is the one that stays, first in the band and a click from the jobs.
+  // The queued-jobs figure is the one that stays, first in the band and a click from the queue.
   await expect(band.getByRole('link', { name: /^Jobs? queued/ })).toHaveAttribute(
     'href',
-    /^\/jobs\?state=queued/,
+    /^\/queue#queue-list$/,
   );
   await expect(band.getByRole('link', { name: /^Manage queue/ })).toHaveAttribute(
     'href',
