@@ -98,30 +98,51 @@ type ReadinessApprovalView struct {
 	PreviewSHA256 string    `json:"preview_sha256"`
 }
 
+type ReadinessPublicationRequest struct {
+	InstallationID string `json:"installation_id"`
+	Repository     string `json:"repository"`
+	HeadSHA        string `json:"head_sha"`
+	SourceSHA256   string `json:"source_sha256"`
+}
+
+type ReadinessPublicationView struct {
+	PublishedBy   string    `json:"published_by"`
+	PublishedAt   time.Time `json:"published_at"`
+	Branch        string    `json:"branch"`
+	BaseBranch    string    `json:"base_branch"`
+	BaseSHA       string    `json:"base_sha"`
+	HeadSHA       string    `json:"head_sha"`
+	SourceSHA256  string    `json:"source_sha256"`
+	PreviewSHA256 string    `json:"preview_sha256"`
+	PullNumber    int       `json:"pull_number"`
+	PullURL       string    `json:"pull_url"`
+}
+
 type ReadinessPreviewView struct {
-	ID             string                 `json:"id"`
-	InstallationID string                 `json:"installation_id"`
-	Repository     string                 `json:"repository"`
-	ReviewedBy     string                 `json:"reviewed_by"`
-	SHA256         string                 `json:"sha256"`
-	CreatedAt      time.Time              `json:"created_at"`
-	Currentness    string                 `json:"currentness"`
-	Selection      CacheSelectionBody     `json:"selection"`
-	Condition      string                 `json:"condition"`
-	HeadSHA        string                 `json:"head_sha"`
-	SourceSHA256   string                 `json:"source_sha256"`
-	WorkflowPath   string                 `json:"workflow_path"`
-	JobName        string                 `json:"job_name"`
-	StepName       string                 `json:"step_name"`
-	Line           int                    `json:"line"`
-	WaitSeconds    int                    `json:"wait_seconds"`
-	Runs           int                    `json:"runs"`
-	WaitMS         int64                  `json:"wait_ms"`
-	Before         string                 `json:"before"`
-	After          string                 `json:"after"`
-	Verification   string                 `json:"verification"`
-	Explanation    string                 `json:"explanation"`
-	Approval       *ReadinessApprovalView `json:"approval"`
+	ID             string                    `json:"id"`
+	InstallationID string                    `json:"installation_id"`
+	Repository     string                    `json:"repository"`
+	ReviewedBy     string                    `json:"reviewed_by"`
+	SHA256         string                    `json:"sha256"`
+	CreatedAt      time.Time                 `json:"created_at"`
+	Currentness    string                    `json:"currentness"`
+	Selection      CacheSelectionBody        `json:"selection"`
+	Condition      string                    `json:"condition"`
+	HeadSHA        string                    `json:"head_sha"`
+	SourceSHA256   string                    `json:"source_sha256"`
+	WorkflowPath   string                    `json:"workflow_path"`
+	JobName        string                    `json:"job_name"`
+	StepName       string                    `json:"step_name"`
+	Line           int                       `json:"line"`
+	WaitSeconds    int                       `json:"wait_seconds"`
+	Runs           int                       `json:"runs"`
+	WaitMS         int64                     `json:"wait_ms"`
+	Before         string                    `json:"before"`
+	After          string                    `json:"after"`
+	Verification   string                    `json:"verification"`
+	Explanation    string                    `json:"explanation"`
+	Approval       *ReadinessApprovalView    `json:"approval"`
+	Publication    *ReadinessPublicationView `json:"publication"`
 }
 
 func readinessPreviewView(p *controller.RetainedReadinessPreview) ReadinessPreviewView {
@@ -139,6 +160,9 @@ func readinessPreviewView(p *controller.RetainedReadinessPreview) ReadinessPrevi
 	}
 	if a := p.Approval; a != nil {
 		v.Approval = &ReadinessApprovalView{ApprovedBy: a.ApprovedBy, ApprovedAt: a.ApprovedAt, HeadSHA: a.HeadSHA, SourceSHA256: a.SourceSHA256, PreviewSHA256: a.PreviewSHA256}
+	}
+	if x := p.Publication; x != nil {
+		v.Publication = &ReadinessPublicationView{PublishedBy: x.PublishedBy, PublishedAt: x.PublishedAt, Branch: x.Branch, BaseBranch: x.BaseBranch, BaseSHA: x.BaseSHA, HeadSHA: x.HeadSHA, SourceSHA256: x.SourceSHA256, PreviewSHA256: x.PreviewSHA256, PullNumber: x.PullNumber, PullURL: x.PullURL}
 	}
 	return v
 }
@@ -214,6 +238,34 @@ func (s *Server) handleApproveReadiness(w http.ResponseWriter, r *http.Request) 
 	}
 	actor := &store.AuditEvent{ActorID: id.ID, ActorName: id.Name, ActorKind: id.Kind, IP: id.IP}
 	out, err := s.ctrl.ApproveReadinessPreview(r.Context(), actor, in.InstallationID, in.Repository, previewID, in.HeadSHA, in.SourceSHA256)
+	if err != nil {
+		s.optimisationError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, readinessPreviewView(out))
+}
+
+// handlePublishReadiness opens one draft pull request for an approved readiness
+// preview. The server re-reads the source, policy and approval before writing;
+// the request names only the preview binding, never GitHub objects.
+func (s *Server) handlePublishReadiness(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	id := Identity(r.Context())
+	if id == nil || id.ID == "" {
+		unauthorized(w, "An identified caller is required to publish a readiness preview.")
+		return
+	}
+	previewID := chiURLParam(r, "id")
+	var in ReadinessPublicationRequest
+	if !decodeOptimisationBody(w, r, &in) {
+		return
+	}
+	if !validReadinessPreviewID(previewID) || !validScope(in.InstallationID, in.Repository) || !validDigest(in.HeadSHA, 40) || !validDigest(in.SourceSHA256, 64) {
+		badRequest(w, "Supply a readiness preview ID, an installation, a repository and the commit and source digest the preview names.")
+		return
+	}
+	actor := &store.AuditEvent{ActorID: id.ID, ActorName: id.Name, ActorKind: id.Kind, IP: id.IP}
+	out, err := s.ctrl.PublishReadinessPreview(r.Context(), actor, in.InstallationID, in.Repository, previewID, in.HeadSHA, in.SourceSHA256, s.ctrl.OptimisationPolicy)
 	if err != nil {
 		s.optimisationError(w, r, err)
 		return

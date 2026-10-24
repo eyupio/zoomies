@@ -171,3 +171,18 @@ func TestOptimisationsReadinessShowsWhoApprovedIt(t *testing.T) {
 		t.Errorf("approval not shown:\n%s", out)
 	}
 }
+
+func TestOptimisationsReadinessShowsTheDraftPullRequest(t *testing.T) {
+	head, source, preview := strings.Repeat("c", 40), strings.Repeat("e", 64), strings.Repeat("a", 64)
+	body := strings.Replace(cliReadinessPreview, `"explanation":`, `"approval":{"approved_by":"usr_approver","approved_at":"2026-10-24T10:02:00Z","head_sha":"`+head+`","source_sha256":"`+source+`","preview_sha256":"`+preview+`"},"publication":{"published_by":"usr_publisher","published_at":"2026-10-24T10:03:00Z","branch":"zoomies/readiness-opr_1","base_branch":"main","base_sha":"`+head+`","head_sha":"`+head+`","source_sha256":"`+source+`","preview_sha256":"`+preview+`","pull_number":12,"pull_url":"https://github.com/acme/repo/pull/12"},"explanation":`, 1)
+	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/readiness/previews/opr_1": body})
+	out, _ := runCLI(t, "optimisations", "readiness", "opr_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL)
+	if !strings.Contains(out, "draft pull request #12") || !strings.Contains(out, "zoomies/readiness-opr_1") || !strings.Contains(out, "usr_publisher") {
+		t.Errorf("publication not shown:\n%s", out)
+	}
+	unpublished := jsonRoutes(t, map[string]string{"/api/v1/optimisations/readiness/previews/opr_1": cliReadinessPreview})
+	out, _ = runCLI(t, "optimisations", "readiness", "opr_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", unpublished.URL)
+	if !strings.Contains(out, "not published") {
+		t.Errorf("an unpublished preview did not say so:\n%s", out)
+	}
+}

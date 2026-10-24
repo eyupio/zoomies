@@ -56,6 +56,7 @@ type RetainedReadinessPreview struct {
 	Preview        optimisation.ReadinessPreview
 	Provenance     *ReadinessProvenance
 	Approval       *RetainedReadinessApproval
+	Publication    *RetainedReadinessPublication
 }
 
 // RetainedReadinessApproval is one attributed decision about the exact retained
@@ -158,7 +159,25 @@ func retainedReadinessView(row *store.OptimisationReadinessPreview, preview opti
 	if a := row.Approval; a != nil {
 		v.Approval = &RetainedReadinessApproval{ApprovedBy: a.ApprovedBy, ApprovedAt: a.CreatedAt, HeadSHA: a.HeadSHA, SourceSHA256: a.SourceSHA256, PreviewSHA256: a.PreviewSHA256}
 	}
+	if p := row.Publication; p != nil {
+		v.Publication = &RetainedReadinessPublication{PublishedBy: p.PublishedBy, PublishedAt: p.CreatedAt, Branch: p.Branch, BaseBranch: p.BaseBranch, BaseSHA: p.BaseSHA, HeadSHA: p.HeadSHA, SourceSHA256: p.SourceSHA256, PreviewSHA256: p.PreviewSHA256, PullNumber: p.PullNumber, PullURL: p.PullURL}
+	}
 	return v
+}
+
+// RetainedReadinessPublication is the one draft pull request opened for an
+// approved readiness preview. It is not a merge and does not claim a saving.
+type RetainedReadinessPublication struct {
+	PublishedBy   string
+	PublishedAt   time.Time
+	Branch        string
+	BaseBranch    string
+	BaseSHA       string
+	HeadSHA       string
+	SourceSHA256  string
+	PreviewSHA256 string
+	PullNumber    int
+	PullURL       string
 }
 
 // ApproveReadinessPreview records an operator's explicit approval of the exact

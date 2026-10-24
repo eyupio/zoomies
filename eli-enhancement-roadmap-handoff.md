@@ -193,6 +193,16 @@ publication arrived on 23 October:
   nothing. The readiness page offers a declaration and **Approve preview**; the CLI
   shows the approver; `get_readiness_preview` projects the time and digests and
   drops `approved_by`.
+* **Readiness publication (24 October).** Migration 0128 stores one draft pull
+  request per approved readiness preview, cascading with it. `POST
+  /optimisations/readiness/previews/{id}/publication` needs `optimisations:publish`
+  and `jobs:read`, re-reads the selected job, branch and workflow with the stored
+  provenance, requires the same head, workflow digest, condition, bound and after
+  block, and opens one draft on `zoomies/readiness-<preview-id>`. It never merges,
+  never force-pushes and reconciles a retry. A preview kept without provenance is
+  refused with a message to make a new one. The CLI shows the publication;
+  `get_readiness_preview` keeps the branch, URL, time and digests and drops
+  `published_by`.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval, draft publication and read access from the CLI, MCP and Eli have since
@@ -213,8 +223,9 @@ been built (see the 23 October sections at the end). The rest remains.
    history, bounded source binding, private retention/API, web page and
    CLI/MCP/Eli replay, attributed approval, draft publication, the pure bounded
    readiness polling foundation, its source/inspection route, inspection page,
-   private retention/API, bounded CLI/MCP/Eli replay and attributed approval are
-   described above. Next is readiness publication, then test sharding, each with its own
+   private retention/API, bounded CLI/MCP/Eli replay, attributed approval and
+   draft publication are described above. Next is test sharding, which has no
+   agreed contract yet, each with its own
    evidence and refusals. Do not lead with test removal, relaxed assertions or
    blanket retries.
 
@@ -2561,7 +2572,7 @@ Next agent: run the whole flow against one real repository first. The published
 preview now links to the E2 comparison page; capturing a real control and
 candidate after merge is the remaining verification step, and it stays
 inconclusive without them. CLI and MCP/Eli access still wait on the
-private-envelope contract decision. The cache approval took 0123, publication 0124, the host sample change 0125 and readiness retention 0126; readiness approval took 0127; the next free migration is 0128.
+private-envelope contract decision. The cache approval took 0123, publication 0124, the host sample change 0125 and readiness retention 0126; readiness approval took 0127 and readiness publication 0128; the next free migration is 0129.
 
 
 ### E3 verification link, 23 October 2026
@@ -3014,3 +3025,39 @@ specs on desktop and phone.
 
 Next agent: add readiness publication (migration 0128) from the retained
 provenance, then write the test sharding contract for the owner to accept.
+
+
+### E3 readiness publication, 24 October 2026
+
+An approved readiness preview can now be published as one draft pull request,
+mirroring the cache slice. Migration 0128 stores one draft per approved preview;
+`GetOptimisationReadinessPreview` joins and validates it (a partial row, or one
+bound differently from the approval, is corrupt evidence) and
+`PutOptimisationReadinessPublication` is idempotent and audited as
+`optimisation.readiness_preview_published`.
+
+`PublishReadinessPreview` replays the preview, requires the approval at the same
+head and source, re-inspects the selected job and branch with the stored
+provenance, and refuses any change to the head, workflow digest, operator
+condition, bound, after block or branch. It requires all three live settings
+(`source_reads`, `workflow_edits`, `publish`) before and after the read, probes the
+App permissions, and calls the existing `github.OptimisationPublisher` on
+`zoomies/readiness-<preview-id>`. The pull request body says the command is the
+operator's, that no saving was measured and that Zoomies will not merge it.
+
+The web card offers **Open a draft pull request** after approval, then shows the
+draft link, branch and publisher and says nothing was merged. The CLI shows the
+publication line; the model projection drops `published_by`.
+
+The design is in
+[the plan](roadmap/plans/2026-10-24-eli-e3-readiness-publication.md). Validation:
+store, controller, API and auth-matrix tests, CLI and MCP tests, and browser
+specs on desktop and phone. The controller tests cover an unapproved preview, a
+moved head, branch, workflow or bound, a withdrawn setting (including one
+withdrawn mid-read), missing App permission, a conflicting existing draft, and a
+retry that returns the existing publication without another GitHub write.
+
+Next agent: test sharding has no implementation contract. Write the dated plan
+and decision record in `roadmap/plans/2026-10-24-eli-e3-test-sharding-contract.md`
+and ask the owner to accept it before any code. Real-repository validation and a
+real E2 comparison remain the owner's.

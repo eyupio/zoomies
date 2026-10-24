@@ -318,6 +318,7 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/readiness/previews", s.handleCaptureReadiness)
 		r.With(s.require(auth.ActionOptimisationsRead), s.require(auth.ActionJobsRead), s.refuseVisitors).Get("/optimisations/readiness/previews/{id}", s.handleGetReadiness)
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/readiness/previews/{id}/approval", s.handleApproveReadiness)
+		r.With(s.require(auth.ActionOptimisationsPublish), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/readiness/previews/{id}/publication", s.handlePublishReadiness)
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/cache/previews", s.handleCaptureCache)
 		r.With(s.require(auth.ActionOptimisationsRead), s.require(auth.ActionJobsRead), s.refuseVisitors).Get("/optimisations/cache/previews/{id}", s.handleGetCachePreview)
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/cache/previews/{id}/approval", s.handleApproveCache)

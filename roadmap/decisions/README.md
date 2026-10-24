@@ -51,3 +51,4 @@ what was decided.
 | [0010](0010-kennel-club-has-a-side-menu-and-the-switch-is-in-it.md) | Kennel Club has a side menu like Settings', and its on/off switch is in it | accepted, at the owner's instruction |
 | [0011](0011-an-operator-may-let-zoomies-update-itself.md) | An operator may opt in to updating Zoomies from the web UI, through a consented root-owned helper on each host; narrows decision 25 | accepted, at the owner's instruction; the narrowing of decision 25 not yet put to the owner separately |
 | [0012](0012-a-shared-eli-app-is-a-relay-for-mentions-and-nothing-else.md) | A shared Eli GitHub App is a relay for mentions, and nothing else | proposed, for the owner to ratify |
+| [0014](0014-test-sharding-is-offered-for-one-native-shard-flag-and-preserves-the-whole-suite.md) | Test sharding is offered for a native shard flag and preserves the whole suite | proposed, for the owner to ratify |

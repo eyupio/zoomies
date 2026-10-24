@@ -446,7 +446,11 @@ timeout fails the step. Zoomies never infers the command. Confirm the block and
 bound and evidence. Keeping approves and publishes nothing and opens no pull
 request. An operator can then approve that exact preview: approval names its
 commit and source digest, records who approved, expires with the preview and
-publishes nothing. The same retained view is available from `zoomies optimisations
+publishes nothing. After approval, **Open a draft pull request** commits the
+reviewed file on a new branch and opens one draft against the branch the run came
+from. It re-reads the job, branch and workflow first and refuses if any moved, it
+never merges, never force-pushes and runs no job, and a preview kept before the
+branch was recorded must be made again. The same retained view is available from `zoomies optimisations
 readiness <preview-id> --installation ID --repo OWNER/REPO`, and to Eli as
 `get_readiness_preview`; both show the command, evidence and one changed block,
 never the full workflow, and neither approves nor publishes.
