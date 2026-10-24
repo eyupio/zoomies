@@ -39,14 +39,15 @@ export interface DemandInput {
 }
 
 const poolQuery = (poolId: string) => (poolId ? `&pool_id=${encodeURIComponent(poolId)}` : '');
+const queueQuery = (poolId: string) => (poolId ? `?pool_id=${encodeURIComponent(poolId)}` : '');
 
 export function demandStats(input: DemandInput): BandStat[] {
   const stats: BandStat[] = [
     {
       label: input.queued === 1 ? 'Job queued' : 'Jobs queued',
       value: formatNumber(input.queued),
-      hint: 'Jobs waiting for a runner. Open them.',
-      href: `/jobs?state=queued${poolQuery(input.poolId)}#jobs-list`,
+      hint: 'Jobs waiting for a runner. Open the queue.',
+      href: `/queue${queueQuery(input.poolId)}#queue-list`,
       tone: input.queuedWarning ? 'warning' : undefined,
     },
     {
@@ -89,6 +90,6 @@ export function demandStats(input: DemandInput): BandStat[] {
 export function demandMore(poolId: string): BandMore {
   return {
     label: 'Manage queue',
-    href: `${poolId ? `/queue?pool_id=${encodeURIComponent(poolId)}` : '/queue'}#queue-list`,
+    href: `/queue${queueQuery(poolId)}#queue-list`,
   };
 }

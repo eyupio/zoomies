@@ -70,13 +70,13 @@ test('on the runners page, Running narrows the list on this page instead of open
   stats[1]?.onselect?.();
   assert.equal(selected, 1);
   // Every other figure still goes where it did.
-  assert.equal(stats[0]?.href, '/jobs?state=queued#jobs-list');
+  assert.equal(stats[0]?.href, '/queue#queue-list');
   assert.equal(stats[2]?.href, '/queue?provisioning=ready#queue-list');
 });
 
 test('a pool filter narrows every link to that pool', () => {
   const stats = demandStats({ ...base, poolId: 'pool 1' });
-  assert.equal(stats[0]?.href, '/jobs?state=queued&pool_id=pool%201#jobs-list');
+  assert.equal(stats[0]?.href, '/queue?pool_id=pool%201#queue-list');
   assert.equal(stats[1]?.href, '/runners?state=busy&pool_id=pool%201#runners-list');
   assert.equal(stats[3]?.href, '/queue?provisioning=expedited&pool_id=pool%201#queue-list');
   assert.equal(demandMore('pool 1').href, '/queue?pool_id=pool%201#queue-list');
