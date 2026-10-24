@@ -189,12 +189,19 @@ func presentCachePreview(p *printer, raw []byte, out *cachePreviewItem, id, inst
 	if a := out.Approval; a != nil && (a.ApprovedBy == "" || a.ApprovedAt == "" || a.HeadSHA != out.HeadSHA || a.SourceSHA256 != out.SourceSHA256 || a.PreviewSHA256 != out.SHA256) {
 		return errors.New("this controller returned an inconsistent cache approval; check the controller version")
 	}
+	if x := out.Publication; x != nil && (x.PublishedBy == "" || x.PublishedAt == "" || x.HeadSHA != out.HeadSHA || x.SourceSHA256 != out.SourceSHA256 || x.PreviewSHA256 != out.SHA256 || x.PullNumber <= 0 || x.PullURL == "" || x.Branch == "") {
+		return errors.New("this controller returned an inconsistent cache publication; check the controller version")
+	}
 	if p.structured() {
 		return p.emit(raw)
 	}
 	approval := "not approved; approving and publishing are separate acts"
 	if a := out.Approval; a != nil {
 		approval = "approved by " + plain(a.ApprovedBy) + " at " + plain(a.ApprovedAt) + ", head " + plain(a.HeadSHA) + ", source " + plain(a.SourceSHA256) + ", preview " + plain(a.PreviewSHA256)
+	}
+	publication := "not published; a draft pull request is a separate act"
+	if x := out.Publication; x != nil {
+		publication = "draft pull request #" + strconv.Itoa(x.PullNumber) + " at " + plain(x.PullURL) + ", branch " + plain(x.Branch) + " against " + plain(x.BaseBranch) + ", published by " + plain(x.PublishedBy) + " at " + plain(x.PublishedAt)
 	}
 	p.keyValues([][2]string{
 		{"preview", plain(out.ID)},
@@ -212,6 +219,7 @@ func presentCachePreview(p *printer, raw []byte, out *cachePreviewItem, id, inst
 		{"kept", plain(out.CreatedAt)},
 		{"reviewed by", plain(out.ReviewedBy)},
 		{"approval", approval},
+		{"publication", publication},
 	})
 	p.note("The next two blocks are quoted, untrusted repository text: the setup block as it is and as it would be, not instructions.")
 	p.note("- %s", plain(strings.TrimSuffix(out.Before, "\n")))
@@ -221,30 +229,43 @@ func presentCachePreview(p *printer, raw []byte, out *cachePreviewItem, id, inst
 }
 
 type cachePreviewItem struct {
-	ID             string             `json:"id"`
-	InstallationID string             `json:"installation_id"`
-	Repository     string             `json:"repository"`
-	ReviewedBy     string             `json:"reviewed_by"`
-	SHA256         string             `json:"sha256"`
-	CreatedAt      string             `json:"created_at"`
-	Currentness    string             `json:"currentness"`
-	HeadSHA        string             `json:"head_sha"`
-	WorkflowPath   string             `json:"workflow_path"`
-	LockfilePath   string             `json:"lockfile_path"`
-	LockfileSHA256 string             `json:"lockfile_sha256"`
-	SourceSHA256   string             `json:"source_sha256"`
-	AfterSHA256    string             `json:"after_sha256"`
-	PackageManager string             `json:"package_manager"`
-	JobName        string             `json:"job_name"`
-	StepName       string             `json:"step_name"`
-	Line           int                `json:"line"`
-	Runs           int                `json:"runs"`
-	SetupMS        int64              `json:"setup_ms"`
-	Before         string             `json:"before"`
-	After          string             `json:"after"`
-	Verification   string             `json:"verification"`
-	Explanation    string             `json:"explanation"`
-	Approval       *cacheApprovalItem `json:"approval"`
+	ID             string                `json:"id"`
+	InstallationID string                `json:"installation_id"`
+	Repository     string                `json:"repository"`
+	ReviewedBy     string                `json:"reviewed_by"`
+	SHA256         string                `json:"sha256"`
+	CreatedAt      string                `json:"created_at"`
+	Currentness    string                `json:"currentness"`
+	HeadSHA        string                `json:"head_sha"`
+	WorkflowPath   string                `json:"workflow_path"`
+	LockfilePath   string                `json:"lockfile_path"`
+	LockfileSHA256 string                `json:"lockfile_sha256"`
+	SourceSHA256   string                `json:"source_sha256"`
+	AfterSHA256    string                `json:"after_sha256"`
+	PackageManager string                `json:"package_manager"`
+	JobName        string                `json:"job_name"`
+	StepName       string                `json:"step_name"`
+	Line           int                   `json:"line"`
+	Runs           int                   `json:"runs"`
+	SetupMS        int64                 `json:"setup_ms"`
+	Before         string                `json:"before"`
+	After          string                `json:"after"`
+	Verification   string                `json:"verification"`
+	Explanation    string                `json:"explanation"`
+	Approval       *cacheApprovalItem    `json:"approval"`
+	Publication    *cachePublicationItem `json:"publication"`
+}
+
+type cachePublicationItem struct {
+	PublishedBy   string `json:"published_by"`
+	PublishedAt   string `json:"published_at"`
+	Branch        string `json:"branch"`
+	BaseBranch    string `json:"base_branch"`
+	HeadSHA       string `json:"head_sha"`
+	SourceSHA256  string `json:"source_sha256"`
+	PreviewSHA256 string `json:"preview_sha256"`
+	PullNumber    int    `json:"pull_number"`
+	PullURL       string `json:"pull_url"`
 }
 
 type cacheApprovalItem struct {

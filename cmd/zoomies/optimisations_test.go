@@ -74,7 +74,7 @@ const cliCachePreview = `{
 func TestOptimisationsCachePrintsMetadataAndTheChangedBlock(t *testing.T) {
 	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/cache/previews/opc_1": cliCachePreview})
 	out, _ := runCLI(t, "optimisations", "cache", "opc_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL)
-	for _, want := range []string{"opc_1", "acme/repo", ".github/workflows/ci.yml", "package-lock.json", "cache: npm", "4 runs", "not approved", "untrusted repository text", "not a saving"} {
+	for _, want := range []string{"opc_1", "acme/repo", ".github/workflows/ci.yml", "package-lock.json", "cache: npm", "4 runs", "not approved", "not published", "untrusted repository text", "not a saving"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not say %q:\n%s", want, out)
 		}

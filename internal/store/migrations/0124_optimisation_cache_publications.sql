@@ -1,0 +1,20 @@
+-- A publication is the one draft pull request opened for an approved setup
+-- cache preview. It cascades with the preview, names the branch and base it
+-- used, and records exactly what was written where. Nothing here is a merge.
+CREATE TABLE optimisation_cache_publications (
+    preview_id      TEXT PRIMARY KEY REFERENCES optimisation_cache_previews(id) ON DELETE CASCADE,
+    installation_id TEXT NOT NULL,
+    repository      TEXT NOT NULL,
+    published_by    TEXT NOT NULL,
+    branch          TEXT NOT NULL,
+    base_branch     TEXT NOT NULL,
+    base_sha        TEXT NOT NULL,
+    head_sha        TEXT NOT NULL,
+    source_sha256   TEXT NOT NULL,
+    preview_sha256  TEXT NOT NULL,
+    pull_number     INTEGER NOT NULL CHECK(pull_number > 0),
+    pull_url        TEXT NOT NULL,
+    created_at      INTEGER NOT NULL
+);
+CREATE INDEX optimisation_cache_publication_scope
+    ON optimisation_cache_publications(installation_id, repository, preview_id);
