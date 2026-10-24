@@ -262,7 +262,7 @@
   ><Button href="/optimisations/cache" variant="secondary">Cache preview</Button><Button
     href="/optimisations/checkout"
     variant="secondary">Checkout preview</Button
-  ></PageHeader
+  ><Button href="/optimisations/sharding" variant="secondary">Sharding preview</Button></PageHeader
 >
 {#if session.visitor}
   <ErrorState
