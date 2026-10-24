@@ -16,7 +16,10 @@ test('the provisioning figures are in the Runners band, with the way to the queu
     'href',
     /^\/jobs\?state=queued/,
   );
-  await expect(band.getByRole('link', { name: /^Manage queue/ })).toHaveAttribute('href', '/queue');
+  await expect(band.getByRole('link', { name: /^Manage queue/ })).toHaveAttribute(
+    'href',
+    '/queue#queue-list',
+  );
   // And the strip that used to stand between the band and the list is not there twice.
   await expect(page.getByLabel('Provisioning demand context')).toHaveCount(0);
   await page.getByText('Explore fleet activity over the last 24 hours', { exact: true }).click();

@@ -18,6 +18,7 @@
   import RunnerInsights from '$lib/insights/RunnerInsights.svelte';
   import PageBand from '$lib/bands/PageBand.svelte';
   import { demandMore, demandStats } from '$lib/bands/demand-stats';
+  import { revealHash } from '$lib/bands/jump';
   import { runnersLine } from '$lib/bands/runners-line';
   import { provisioningDemand } from '$lib/insights/provisioning.svelte';
   import { finite, poolSignals, queueTone } from '$lib/insights/signals';
@@ -121,6 +122,13 @@
       oldest: demand.oldest,
       poolId,
       labels: QUEUE_STATUS_LABELS,
+      // The list this figure counts is on the page, so pressing it narrows the
+      // rows to busy runners and takes the reader to them.
+      onPageRunning: {
+        section: 'runners-list',
+        active: states.length === 1 && states[0] === 'busy',
+        onselect: () => router.setQuery({ state: ['busy'], offset: null }),
+      },
     }),
   );
 
@@ -740,34 +748,36 @@
   </div>
 {/if}
 
-<DataGrid
-  gridId="runners"
-  label="Runners"
-  {columns}
-  {filters}
-  {bulkActions}
-  fetcher={fetchRunners}
-  rowId={(row) => row.id ?? ''}
-  defaultSort="created_at"
-  defaultOrder="desc"
-  selectable={canOperate}
-  liveKey={fleet.shape}
-  noun="runners"
-  onopen={(row) => navigate(`/runners/${row.id ?? ''}`)}
-  onrows={takeRows}
-  emptyTitle={filtered ? 'No runners match these filters' : 'No runners right now'}
-  emptyDescription={filtered
-    ? 'Nothing in the fleet answers all of these at once. Removing one of them will widen the search.'
-    : 'That is normal when nothing is queued, runners are created on demand.'}
->
-  {#snippet emptyAction()}
-    {#if filtered}
-      <Button variant="secondary" onclick={clearFilters}>Clear filters</Button>
-    {:else}
-      <Button variant="secondary" href="/pools">Look at the pools</Button>
-    {/if}
-  {/snippet}
-</DataGrid>
+<div id="runners-list" class="jump-target" tabindex="-1" use:revealHash>
+  <DataGrid
+    gridId="runners"
+    label="Runners"
+    {columns}
+    {filters}
+    {bulkActions}
+    fetcher={fetchRunners}
+    rowId={(row) => row.id ?? ''}
+    defaultSort="created_at"
+    defaultOrder="desc"
+    selectable={canOperate}
+    liveKey={fleet.shape}
+    noun="runners"
+    onopen={(row) => navigate(`/runners/${row.id ?? ''}`)}
+    onrows={takeRows}
+    emptyTitle={filtered ? 'No runners match these filters' : 'No runners right now'}
+    emptyDescription={filtered
+      ? 'Nothing in the fleet answers all of these at once. Removing one of them will widen the search.'
+      : 'That is normal when nothing is queued, runners are created on demand.'}
+  >
+    {#snippet emptyAction()}
+      {#if filtered}
+        <Button variant="secondary" onclick={clearFilters}>Clear filters</Button>
+      {:else}
+        <Button variant="secondary" href="/pools">Look at the pools</Button>
+      {/if}
+    {/snippet}
+  </DataGrid>
+</div>
 
 <RunnerConfirm
   bind:open={confirmOpen}
@@ -778,6 +788,9 @@
 />
 
 <style>
+  .jump-target {
+    scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
+  }
   .startup {
     margin: 0 0 var(--z-space-4);
   }

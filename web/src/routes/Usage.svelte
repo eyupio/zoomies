@@ -286,7 +286,9 @@
   });
   // Not while the report is failing: the figures would belong to the last one
   // that loaded, over an error that says this one did not.
-  const bandStats = $derived(report && !error ? usageStats(bandTotals, attributable) : []);
+  const bandStats = $derived(
+    report && !error ? usageStats(bandTotals, attributable, 'usage-detail') : [],
+  );
   const bandLine = $derived(report && !error ? usageLine(bandTotals, bandWindow) : null);
 
   const usageColumns = $derived([
@@ -503,7 +505,7 @@
     {label}
     onselect={focus}
   />
-  <div class="detail-heading">
+  <div id="usage-detail" class="detail-heading jump-target" tabindex="-1">
     <h2>Detailed usage</h2>
     <span>{rows.length} groups · execution and allocation in hours</span>
     <AskEli
@@ -695,6 +697,9 @@
 {/if}
 
 <style>
+  .jump-target {
+    scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
+  }
   .compare {
     margin: var(--z-space-5) 0 0;
   }

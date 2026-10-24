@@ -1,6 +1,7 @@
 <script lang="ts">
   import PageBand from '$lib/bands/PageBand.svelte';
   import type { BandStat } from '$lib/bands/stats';
+  import { revealHash } from '$lib/bands/jump';
   import { queueLine } from '$lib/bands/lines';
   import { readableJobText } from '$lib/jobs/name';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
@@ -357,6 +358,7 @@
       value: counts[item.value]?.toLocaleString(),
       hint: `${item.hint}. Show only these.`,
       active: provisioning.length === 1 && provisioning[0] === item.value,
+      section: 'queue-list',
       onselect: () => setStatus([item.value]),
     })),
   );
@@ -532,29 +534,31 @@
       {/if}
     </div>
   {/if}
-  {#key snapshot.length > 0}
-    <DataGrid
-      gridId="provisioning-queue"
-      label="Provisioning queue"
-      {columns}
-      fetcher={fetchRows}
-      {rowId}
-      filters={query}
-      defaultSort="queued_at"
-      defaultOrder="asc"
-      noun="items"
-      {liveKey}
-      selectable={canOperate && !snapshot.length}
-      {bulkActions}
-      onopen={openJob}
-      onrows={takeRows}
-      emptyTitle="No provisioning items match"
-      emptyDescription="New demand appears here when GitHub queues work for this fleet. Widen your filters or review removed items."
-    >
-      {#snippet emptyAction()}<Button variant="secondary" onclick={clear}>Reset filters</Button
-        >{/snippet}
-    </DataGrid>
-  {/key}
+  <div id="queue-list" class="jump-target" tabindex="-1" use:revealHash>
+    {#key snapshot.length > 0}
+      <DataGrid
+        gridId="provisioning-queue"
+        label="Provisioning queue"
+        {columns}
+        fetcher={fetchRows}
+        {rowId}
+        filters={query}
+        defaultSort="queued_at"
+        defaultOrder="asc"
+        noun="items"
+        {liveKey}
+        selectable={canOperate && !snapshot.length}
+        {bulkActions}
+        onopen={openJob}
+        onrows={takeRows}
+        emptyTitle="No provisioning items match"
+        emptyDescription="New demand appears here when GitHub queues work for this fleet. Widen your filters or review removed items."
+      >
+        {#snippet emptyAction()}<Button variant="secondary" onclick={clear}>Reset filters</Button
+          >{/snippet}
+      </DataGrid>
+    {/key}
+  </div>
   <!-- The table is the page. How demand is split and how provisioning is ordered are one
        fold under it. -->
   <details class="how">
@@ -654,6 +658,9 @@
 </Dialog>
 
 <style>
+  .jump-target {
+    scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
+  }
   .demand-heading {
     display: flex;
     align-items: baseline;

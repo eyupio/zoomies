@@ -8,9 +8,11 @@
   still has the numbers. The component never decides which: PageBand does.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
   import Duration from '$lib/components/Duration.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { NO_VALUE } from '$lib/format';
+  import { jumpToSection } from './jump';
   import type { BandMore, BandStat } from './stats';
 
   interface Props {
@@ -22,6 +24,25 @@
     label?: string;
   }
   let { stats, more, variant = 'panel', label = 'Key figures' }: Props = $props();
+
+  /**
+   * Pressing a figure may also narrow the list below it. The jump waits for
+   * that change to land, because the filters above the list can add or remove
+   * a row and move the section under the pointer.
+   */
+  async function reveal(stat: BandStat): Promise<void> {
+    stat.onselect?.();
+    if (!stat.section) return;
+    await tick();
+    jumpToSection(stat.section);
+  }
+
+  function follow(event: MouseEvent, stat: BandStat): void {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+      return;
+    event.preventDefault();
+    void reveal(stat);
+  }
 </script>
 
 {#snippet figure(stat: BandStat)}
@@ -39,10 +60,20 @@
       class:active={stat.active}
       data-tone={stat.tone}
       aria-pressed={stat.active}
-      onclick={stat.onselect}
+      onclick={() => void reveal(stat)}
     >
       {@render figure(stat)}
     </button>
+  {:else if stat.section}
+    <a
+      class="stat interactive"
+      class:active={stat.active}
+      data-tone={stat.tone}
+      href="#{stat.section}"
+      onclick={(event) => follow(event, stat)}
+    >
+      {@render figure(stat)}
+    </a>
   {:else if stat.href}
     <a class="stat interactive" data-tone={stat.tone} href={stat.href}>
       {@render figure(stat)}

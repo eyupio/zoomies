@@ -142,7 +142,18 @@
     if (!authenticated || count === 0 || count === focused) return;
     focused = count;
     void tick().then(() => {
-      const heading = document.getElementById('page-heading') ?? document.getElementById('main');
+      // A link from another page's band names the list it counts, and that
+      // destination is where the reader asked to be. The heading is right only
+      // when there is nowhere focusable to land.
+      const hash = location.hash.slice(1);
+      const candidate = hash ? document.getElementById(hash) : null;
+      const destination = candidate?.matches(
+        'a[href], button, input, select, textarea, summary, [tabindex]',
+      )
+        ? candidate
+        : null;
+      const heading =
+        destination ?? document.getElementById('page-heading') ?? document.getElementById('main');
       heading?.focus();
       announcement = `${title}. Page loaded.`;
     });

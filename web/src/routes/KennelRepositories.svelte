@@ -33,6 +33,7 @@
   } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { KennelCatalogueEntry, KennelOverview, KennelRepository } from '$lib/api/types';
+  import { revealHash } from '$lib/bands/jump';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
@@ -651,44 +652,46 @@
         {/if}
       </p>
 
-      <DataGrid
-        gridId="kennel-repositories"
-        label="Repositories"
-        {columns}
-        fetcher={fetchRepositories}
-        rowId={(row) => row.id}
-        selectable={canAdmin}
-        {bulkActions}
-        {filters}
-        defaultSort="severity"
-        defaultOrder="desc"
-        noun="repositories"
-        {liveKey}
-        onopen={open}
-        emptyTitle={anyFilter
-          ? activeOnly
-            ? 'No active repositories match those filters'
-            : 'No repositories match those filters'
-          : activeOnly && hidden
-            ? 'No repository has had a job lately'
-            : 'No repositories yet'}
-        emptyDescription={hidden
-          ? `${hidden} without a job in the last 30 days ${hidden === 1 ? 'is' : 'are'} not shown.`
-          : anyFilter
-            ? 'Try a wider search, or clear a filter.'
-            : 'Kennel Club looks at repositories your fleet has run jobs for. None yet.'}
-      >
-        {#snippet emptyAction()}
-          {#if hidden}
-            <Button onclick={() => router.setQuery({ active: 'all', offset: null })}
-              >Show them</Button
-            >
-          {/if}
-          {#if anyFilter}
-            <Button onclick={clearFilters}>Clear filters</Button>
-          {/if}
-        {/snippet}
-      </DataGrid>
+      <div id="kennel-repositories" class="jump-target" tabindex="-1" use:revealHash>
+        <DataGrid
+          gridId="kennel-repositories"
+          label="Repositories"
+          {columns}
+          fetcher={fetchRepositories}
+          rowId={(row) => row.id}
+          selectable={canAdmin}
+          {bulkActions}
+          {filters}
+          defaultSort="severity"
+          defaultOrder="desc"
+          noun="repositories"
+          {liveKey}
+          onopen={open}
+          emptyTitle={anyFilter
+            ? activeOnly
+              ? 'No active repositories match those filters'
+              : 'No repositories match those filters'
+            : activeOnly && hidden
+              ? 'No repository has had a job lately'
+              : 'No repositories yet'}
+          emptyDescription={hidden
+            ? `${hidden} without a job in the last 30 days ${hidden === 1 ? 'is' : 'are'} not shown.`
+            : anyFilter
+              ? 'Try a wider search, or clear a filter.'
+              : 'Kennel Club looks at repositories your fleet has run jobs for. None yet.'}
+        >
+          {#snippet emptyAction()}
+            {#if hidden}
+              <Button onclick={() => router.setQuery({ active: 'all', offset: null })}
+                >Show them</Button
+              >
+            {/if}
+            {#if anyFilter}
+              <Button onclick={clearFilters}>Clear filters</Button>
+            {/if}
+          {/snippet}
+        </DataGrid>
+      </div>
     {/if}
   </div>
 </KennelShell>
@@ -704,6 +707,9 @@
 {/if}
 
 <style>
+  .jump-target {
+    scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
+  }
   .content {
     display: flex;
     flex-direction: column;

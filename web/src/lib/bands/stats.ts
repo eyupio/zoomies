@@ -15,6 +15,12 @@ export interface BandStat {
   hint?: string;
   /** Makes the figure a link. */
   href?: string;
+  /**
+   * The section on this page that holds the figure's evidence. Pressing the
+   * figure jumps there, so a band's number is a way into the list under it
+   * rather than only a link somewhere else.
+   */
+  section?: string;
   /** Makes the figure a button, as the Queue's status filters are. */
   onselect?: () => void;
   /** The button is the filter that is on now. */

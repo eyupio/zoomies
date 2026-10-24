@@ -193,12 +193,91 @@ test('the Runners band carries the provisioning figures, and they stay when it i
   await expect(alone.getByRole('link', { name: /^Manage queue/ })).toBeVisible();
 });
 
-test('the Queue status filters live in the band and still filter the list', async ({ page }) => {
+test('the Queue status filters live in the band, filter the list and take the reader to it', async ({
+  page,
+}) => {
   await goto(page, '/queue', 'Queue');
   const filter = page.getByTestId('band-queue').getByRole('button', { name: /^Paused/ });
   await expect(filter).toHaveAttribute('aria-pressed', 'false');
   await filter.click();
   await expect(filter).toHaveAttribute('aria-pressed', 'true');
+  await expect(page).toHaveURL(/#queue-list$/);
+  await expect(page.locator('#queue-list')).toBeFocused();
+});
+
+test('a figure that counts a list on the page narrows it and jumps to it', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  await page
+    .getByTestId('band-runners')
+    .getByRole('button', { name: /^Running/ })
+    .click();
+  // The figure is a shortcut into the evidence, not a trip to another page.
+  await expect(page).toHaveURL(/[?&]state=busy/);
+  await expect(page).toHaveURL(/#runners-list$/);
+  await expect(page.locator('#runners-list')).toBeFocused();
+});
+
+test('the figures that count a section jump to it on their own page', async ({ page }) => {
+  const figures = [
+    {
+      path: '/usage',
+      heading: 'Usage',
+      band: 'band-usage',
+      figure: /^Failed jobs/,
+      section: 'usage-detail',
+    },
+    {
+      path: '/providers',
+      heading: 'Providers',
+      band: 'band-providers',
+      figure: /^Machines/,
+      section: 'machines',
+    },
+    {
+      path: '/installations',
+      heading: 'Installations',
+      band: 'band-installations',
+      figure: /^GitHub connection/,
+      section: 'installations-list',
+    },
+  ];
+  for (const item of figures) {
+    await goto(page, item.path, item.heading);
+    await page.getByTestId(item.band).getByRole('link', { name: item.figure }).click();
+    await expect(page).toHaveURL(new RegExp(`#${item.section}$`));
+    await expect(page.locator(`#${item.section}`)).toBeFocused();
+  }
+});
+
+test('a figure whose list is on another page opens that page at the list', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  await page
+    .getByTestId('band-runners')
+    .getByRole('link', { name: /^Jobs? queued/ })
+    .click();
+  // The filter is in the address, and so is the section that shows it.
+  await expect(page).toHaveURL(/\/jobs\?state=queued#jobs-list$/);
+  await expect(page.getByRole('heading', { name: 'Jobs', level: 1 })).toBeVisible();
+  await expect(page.locator('#jobs-list')).toBeFocused();
+
+  await page.goBack();
+  await page
+    .getByTestId('band-runners')
+    .getByRole('link', { name: /^Ready/ })
+    .click();
+  await expect(page).toHaveURL(/\/queue\?provisioning=ready#queue-list$/);
+  await expect(page.getByRole('heading', { name: 'Queue', level: 1 })).toBeVisible();
+  await expect(page.locator('#queue-list')).toBeFocused();
+});
+
+test('every page names itself, underlines it and says what it is', async ({ page }) => {
+  for (const item of PAGES) {
+    await goto(page, item.path, item.heading);
+    const header = page.locator('.page-header');
+    await expect(header.getByRole('heading', { name: item.heading, level: 1 })).toBeVisible();
+    await expect(header.locator('.rule')).toBeVisible();
+    await expect(header.locator('p.subtitle')).toBeVisible();
+  }
 });
 
 test('a phone, which never draws a band, still gets its figures', async ({ page }) => {
@@ -206,4 +285,15 @@ test('a phone, which never draws a band, still gets its figures', async ({ page 
   await goto(page, '/queue', 'Queue');
   await expect(page.getByTestId('band-queue')).toBeHidden();
   await expect(page.getByRole('list', { name: 'Key figures' })).toBeVisible();
+});
+
+test('on a phone a figure still opens the page and the list it counts', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await goto(page, '/runners', 'Runners');
+  await page
+    .getByRole('list', { name: 'Key figures' })
+    .getByRole('link', { name: /^Jobs? queued/ })
+    .click();
+  await expect(page).toHaveURL(/\/jobs\?state=queued#jobs-list$/);
+  await expect(page.locator('#jobs-list')).toBeFocused();
 });

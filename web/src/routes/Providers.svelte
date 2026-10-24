@@ -221,10 +221,12 @@
           {
             label: providers.length === 1 ? 'Provider' : 'Providers',
             value: formatNumber(providers.length),
+            section: 'providers-list',
           },
           {
             label: machines.length === 1 ? 'Machine' : 'Machines',
             value: formatNumber(machines.length),
+            section: 'machines',
           },
           ...(review.length > 0
             ? [
@@ -233,6 +235,7 @@
                   value: formatNumber(review.length),
                   hint: 'Machines that need a person to look at them.',
                   tone: 'warning' as const,
+                  section: 'machines',
                 },
               ]
             : []),
@@ -335,7 +338,7 @@
       onpause={(paused) => void pauseAll(paused)}
     />
 
-    <div class="grid">
+    <div id="providers-list" class="grid jump-target" tabindex="-1">
       {#each providers as provider (provider.id)}
         <ProviderCard
           {provider}
@@ -349,7 +352,12 @@
       {/each}
     </div>
 
-    <section class="panel" aria-labelledby="machines-heading">
+    <section
+      id="machines"
+      class="panel jump-target"
+      tabindex="-1"
+      aria-labelledby="machines-heading"
+    >
       <header>
         <div>
           <h2 id="machines-heading">Machines</h2>
@@ -389,6 +397,9 @@
 </div>
 
 <style>
+  .jump-target {
+    scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
+  }
   /* The gap has to sit on LoadingBoundary's own wrapper: `.content` only has
      that one child, so a gap on it spaces nothing and the metrics, the band,
      the cards and the Machines panel all touch. */

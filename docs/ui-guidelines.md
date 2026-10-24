@@ -658,8 +658,9 @@ the rail is for the eye and the weight is for anyone it does not reach. Every
 page header names its section above the title (the sidebar's own heading, drawn
 from a data attribute so it is never a second heading or a string a page's text
 can collide with), sets the title in the medium weight, and puts a short blue
-rule under it; the Overview, which stands alone, has no section to name. Panels
-are cards with the extra-large radius, on the page's own surface: the quiet
+rule under it; the Overview, which stands alone, has no section to name but
+carries the same title, rule and one-sentence explanation as every other page.
+Panels are cards with the extra-large radius, on the page's own surface: the quiet
 text colours are only guaranteed to read on it, and a raised one costs the
 gallery's contrast check in dark. The Overview opens with the public pages'
 stage as a hero, Zoomies Black in both themes: the dog, an eyebrow, a large headline with its accent, the short
@@ -676,8 +677,11 @@ Appearance; each is
 switched off per page in Appearance (a list of hidden pages in the browser, so a
 band added later is on), and a phone never shows one. A band's dog can be hidden, or drawn
 at a chosen size (Auto follows the band's own size; Small, Medium and Large pin
-it), a choice made in Appearance and kept in this browser. The wrong-address
-page uses the same stage with the dog.
+it), a choice made in Appearance and kept in this browser. A figure a band
+carries is a way into the evidence it counts: pressing it narrows the list on
+this page and takes the reader to it, or opens the page that holds the list at
+that list, with the filter in the address. The wrong-address page uses the same
+stage with the dog.
 
 Persistent left navigation, collapsible to icons only (persisted). Order is
 fixed, because muscle memory is the point:

@@ -17,6 +17,15 @@ export interface DemandInput {
   queued: number | null | undefined;
   /** Runners executing a job now; null or undefined while the figure has not arrived. */
   running: number | null | undefined;
+  /**
+   * What "Running" does when the runners list is on this page. It narrows that
+   * list and jumps to it; without it the figure opens the runners list.
+   */
+  onPageRunning?: {
+    section: string;
+    onselect: () => void;
+    active?: boolean;
+  };
   /** The queue is deep enough to be worth the warning colour on a plain panel. */
   queuedWarning: boolean;
   /** Provisioning counts by status; null until the first answer. */
@@ -37,7 +46,7 @@ export function demandStats(input: DemandInput): BandStat[] {
       label: input.queued === 1 ? 'Job queued' : 'Jobs queued',
       value: formatNumber(input.queued),
       hint: 'Jobs waiting for a runner. Open them.',
-      href: `/jobs?state=queued${poolQuery(input.poolId)}`,
+      href: `/jobs?state=queued${poolQuery(input.poolId)}#jobs-list`,
       tone: input.queuedWarning ? 'warning' : undefined,
     },
     {
@@ -46,8 +55,16 @@ export function demandStats(input: DemandInput): BandStat[] {
         input.running === null || input.running === undefined
           ? undefined
           : formatNumber(input.running),
-      hint: 'Runners executing a job right now. Open them.',
-      href: `/runners?state=busy${poolQuery(input.poolId)}`,
+      hint: input.onPageRunning
+        ? 'Runners executing a job right now. Show them below.'
+        : 'Runners executing a job right now. Open them.',
+      ...(input.onPageRunning
+        ? {
+            section: input.onPageRunning.section,
+            onselect: input.onPageRunning.onselect,
+            active: input.onPageRunning.active,
+          }
+        : { href: `/runners?state=busy${poolQuery(input.poolId)}#runners-list` }),
     },
   ];
   for (const status of ORDER) {
@@ -56,7 +73,7 @@ export function demandStats(input: DemandInput): BandStat[] {
       // Not zero while the answer is on its way: zero is a claim.
       value: input.counts ? formatNumber(input.counts[status] ?? 0) : undefined,
       hint: `Provisioning demand that is ${input.labels[status].toLowerCase()}. Open it in the queue.`,
-      href: `/queue?provisioning=${status}${poolQuery(input.poolId)}`,
+      href: `/queue?provisioning=${status}${poolQuery(input.poolId)}#queue-list`,
     });
   }
   if (input.oldest) {
@@ -72,6 +89,6 @@ export function demandStats(input: DemandInput): BandStat[] {
 export function demandMore(poolId: string): BandMore {
   return {
     label: 'Manage queue',
-    href: poolId ? `/queue?pool_id=${encodeURIComponent(poolId)}` : '/queue',
+    href: `${poolId ? `/queue?pool_id=${encodeURIComponent(poolId)}` : '/queue'}#queue-list`,
   };
 }
