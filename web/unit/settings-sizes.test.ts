@@ -1,7 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Setting } from '../src/lib/api/types.ts';
-import { SECTION_BLURB, displayValue, settingQuantity } from '../src/lib/settings/settings.ts';
+import {
+  SECTION_BLURB,
+  SECTION_TITLES,
+  displayValue,
+  sectionTitle,
+  settingQuantity,
+} from '../src/lib/settings/settings.ts';
 
 function setting(key: string, kind: Setting['kind'], value: unknown): Setting {
   return { key, kind, value, label: key, section: key.split('.')[0] } as Setting;
@@ -42,4 +48,23 @@ test('the Updates group describes what the mode would do and promises nothing', 
   assert.match(blurb, /offer an Update button/);
   assert.doesNotMatch(blurb, /what it does about/);
   assert.doesNotMatch(blurb, /an update on its own/);
+});
+
+// The key is the first half of a dotted setting and is the right word for a
+// terminal, not for a heading. An unknown section keeps its key rather than
+// disappearing from the page, which is what a section added to the API would
+// otherwise do.
+test('a configuration section is named for a person, with its key as the fallback', () => {
+  assert.equal(sectionTitle('oidc'), 'Single sign-on');
+  assert.equal(sectionTitle('capacity_demand'), 'Capacity demand');
+  assert.equal(sectionTitle('a_future_section'), 'a_future_section');
+});
+
+// A heading with no sentence under it makes an operator open a section to find
+// out whether it is the one they want. Every named section says what it is for.
+test('every named configuration section also says what it is for', () => {
+  for (const [key, title] of Object.entries(SECTION_TITLES)) {
+    assert.ok(title.trim(), `${key} has a heading`);
+    assert.ok((SECTION_BLURB[key] ?? '').trim(), `${key} has a blurb`);
+  }
 });

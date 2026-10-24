@@ -7,20 +7,27 @@
   naming the key that unseals what is in it cannot live inside the thing they
   open.
 
-  Eighty-eight settings is too many to scroll, so the page is built to be
-  searched and filtered rather than read: one toolbar with a box that matches
-  keys, summaries and environment variable names and a switch between every
-  setting, the ones somebody has actually changed, and the ones the controller
-  is complaining about; and beside the rows an index of the sections that says
-  where you are and takes you to any other. What an operator usually wants is
-  one of those three things, and all of them are one action away without the
-  rows moving down the page to make room.
+  A hundred settings is too many to read, so the page is built to be searched,
+  filtered and scanned: the search is the first thing under the heading, the
+  validator's remarks are one quiet line that opens on request, and every
+  section is a card with a human name and a count. What an operator usually
+  wants is one setting, the ones somebody has changed, or the ones the
+  controller is complaining about; each is one action away, and none of them
+  makes the rows move down the page to make room.
 
   Secrets are absent rather than starred out: the API does not send them at all.
 -->
 <script lang="ts">
   import { supportHint } from '$lib/errors';
-  import { FileDown, FileUp, Lock, RotateCcw, Search, TriangleAlert } from '@lucide/svelte';
+  import {
+    ChevronDown,
+    FileDown,
+    FileUp,
+    Lock,
+    RotateCcw,
+    Search,
+    TriangleAlert,
+  } from '@lucide/svelte';
   import { getSettings, settingsExportUrl, updateSettings, ApiError } from '$lib/api/client';
   import { registerSearch } from '$lib/keys';
   import { router } from '$lib/router';
@@ -39,7 +46,13 @@
   import Segmented from '$lib/components/Segmented.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import SettingRow from './SettingRow.svelte';
-  import { SECTION_BLURB, SECTIONS_ELSEWHERE, displayValue, matches } from './settings';
+  import {
+    SECTION_BLURB,
+    SECTIONS_ELSEWHERE,
+    displayValue,
+    matches,
+    sectionTitle,
+  } from './settings';
 
   let settings = $state<Settings | null>(null);
   let loading = $state(true);
@@ -219,14 +232,58 @@
   const held = $derived(visible.filter((s) => s.source === 'environment'));
   const changeable = $derived(visible.filter((s) => s.source !== 'environment'));
 
-  /* The API already orders the list, so grouping preserves that order. */
+  /*
+    The API already orders the list, so grouping preserves that order. The card
+    heading carries what the old flat list made the reader work out: the
+    section's human name, how many settings are in it, and whether anything in
+    it is asking for attention.
+  */
+  type NoteSeverity = 'error' | 'warning' | 'info';
+
+  function worstSeverity(problems: readonly Problem[] | undefined): NoteSeverity | null {
+    let worst: NoteSeverity | null = null;
+    for (const problem of problems ?? []) {
+      const severity: NoteSeverity =
+        problem.severity === 'error'
+          ? 'error'
+          : problem.severity === 'warning'
+            ? 'warning'
+            : 'info';
+      if (worst === null || severity === 'error' || (severity === 'warning' && worst === 'info')) {
+        worst = severity;
+      }
+    }
+    return worst;
+  }
+
   const sections = $derived.by(() => {
-    const out: { name: string; rows: Setting[] }[] = [];
+    const out: {
+      name: string;
+      title: string;
+      rows: Setting[];
+      notes: number;
+      worst: NoteSeverity | null;
+      pending: number;
+    }[] = [];
     for (const setting of changeable) {
       const name = setting.section ?? 'other';
-      const last = out[out.length - 1];
-      if (last?.name === name) last.rows.push(setting);
-      else out.push({ name, rows: [setting] });
+      let last = out[out.length - 1];
+      if (last?.name !== name) {
+        last = { name, title: sectionTitle(name), rows: [], notes: 0, worst: null, pending: 0 };
+        out.push(last);
+      }
+      last.rows.push(setting);
+      const findings = findingsBySetting[setting.key] ?? [];
+      last.notes += findings.length;
+      const severity = worstSeverity(findings);
+      if (
+        severity === 'error' ||
+        (severity === 'warning' && last.worst !== 'error') ||
+        (severity === 'info' && last.worst === null)
+      ) {
+        last.worst = severity;
+      }
+      if (setting.pending) last.pending += 1;
     }
     return out;
   });
@@ -238,7 +295,47 @@
     ),
   );
 
+  /*
+    The validator's general remarks are usually information, and information
+    does not belong between an operator and the search box. They are one line
+    until asked for; a warning or an error opens the line by itself, because
+    that is the one case where reading it may change what the operator does.
+  */
+  const noteCounts = $derived.by(() => {
+    const counts = { error: 0, warning: 0, info: 0 };
+    for (const finding of generalFindings) {
+      if (finding.severity === 'error') counts.error += 1;
+      else if (finding.severity === 'warning') counts.warning += 1;
+      else counts.info += 1;
+    }
+    return counts;
+  });
+  const notesNeedAttention = $derived(noteCounts.error + noteCounts.warning > 0);
+  const notesLabel = $derived.by(() => {
+    const parts: string[] = [];
+    if (noteCounts.error) parts.push(plural(noteCounts.error, 'error'));
+    if (noteCounts.warning) parts.push(plural(noteCounts.warning, 'warning'));
+    if (noteCounts.info) parts.push(plural(noteCounts.info, 'note'));
+    return notesNeedAttention ? parts.join(' · ') : `${parts.join(' · ')}, all informational`;
+  });
+  const notesWorst = $derived<NoteSeverity>(
+    noteCounts.error > 0 ? 'error' : noteCounts.warning > 0 ? 'warning' : 'info',
+  );
+  let notesOpen = $state(false);
+  let notesChosen = $state(false);
+  $effect(() => {
+    if (!notesChosen) notesOpen = notesNeedAttention;
+  });
+  function toggleNotes(): void {
+    notesChosen = true;
+    notesOpen = !notesOpen;
+  }
+
   const pending = $derived(settings?.pending_restart ?? []);
+
+  function plural(count: number, one: string): string {
+    return `${count} ${one}${count === 1 ? '' : 's'}`;
+  }
 
   /* -- the index ------------------------------------------------------------ */
 
@@ -326,7 +423,7 @@
 
 <PageHeader
   title="Configuration"
-  subtitle="What Zoomies runs with, and where each value came from. A change made here is kept in the database and survives a restart; the environment always has the last word."
+  subtitle="What Zoomies runs with, and where each value came from. Changes are kept in the database; the environment has the last word."
   onrefresh={() => {
     reload += 1;
   }}
@@ -354,6 +451,32 @@
   {/snippet}
 
   {#if settings}
+    <!--
+      The search and the view switch stay reachable while the list scrolls.
+      On a page this long, a filter that has to be scrolled back to is one
+      that gets used once. They come before every notice for the same reason:
+      finding one setting is the common visit, and the validator's remarks are
+      not what it is for.
+    -->
+    <div class="controls" bind:this={controls}>
+      <div class="search">
+        <Input
+          bind:value={query}
+          bind:element={searchField}
+          size="sm"
+          icon={Search}
+          placeholder="Search settings, descriptions and ZOOMIES_* names  (press /)"
+          ariaLabel="Search settings"
+        />
+      </div>
+      <Segmented
+        options={views}
+        value={view}
+        label="Which settings to show"
+        onchange={(next) => (view = next as View)}
+      />
+    </div>
+
     {#if pending.length > 0}
       <section class="notice waiting" aria-labelledby="pending-restart">
         <Badge tone="draining" label="Saved" size="sm" dot={false} />
@@ -378,179 +501,201 @@
     {/if}
 
     {#if generalFindings.length > 0}
-      <section class="general" aria-labelledby="general-findings">
-        <h2 id="general-findings">
-          <TriangleAlert size={14} aria-hidden="true" />
-          What the validator says
-        </h2>
-        <ul>
-          {#each generalFindings as finding (finding.code)}
-            {@const meta = severityStatus(finding.severity)}
-            <li>
-              <Badge status={meta} size="sm" />
-              <div>
-                <p class="finding-title">{finding.title}</p>
-                {#if finding.detail}<p class="finding-detail">{finding.detail}</p>{/if}
-                {#if finding.fix}
-                  <p class="finding-detail"><strong>Fix:</strong> {finding.fix}</p>
-                {/if}
-                <!--
-                  Which layer set it, when that is not where the fix points.
-                  Told only to "change server.bind", an operator edits the
-                  configuration file -- and a value stored here or pinned by
-                  a variable is one the file cannot change, so they restart
-                  into the same complaint having learned nothing.
-                -->
-                {#if finding.undo}
-                  <p class="finding-detail">
-                    <strong
-                      >{finding.source === 'environment'
-                        ? 'The environment is setting this'
-                        : 'This value is stored in this fleet'}</strong
-                    >
-                    {finding.source === 'environment'
-                      ? ', and it is the last word: neither the file nor this page can change it. With the controller stopped, run'
-                      : ', so editing the configuration file will not change it. If it is stopping the controller starting, run this against the stopped controller:'}
-                    <code>{finding.undo}</code>
-                  </p>
-                {/if}
-              </div>
-            </li>
-          {/each}
-        </ul>
+      <section class="notes" class:attention={notesNeedAttention} data-tone={notesWorst}>
+        <button
+          type="button"
+          class="notes-head"
+          aria-expanded={notesOpen}
+          aria-controls="setup-notes-body"
+          onclick={toggleNotes}
+        >
+          <span class="notes-icon"><TriangleAlert size={15} aria-hidden="true" /></span>
+          <span class="notes-heading">Setup notes</span>
+          <span class="notes-label">{notesLabel}</span>
+          {#if !notesOpen && generalFindings[0]}
+            <span class="notes-peek">{generalFindings[0].title}</span>
+          {/if}
+          <ChevronDown size={15} class="chev{notesOpen ? ' open' : ''}" aria-hidden="true" />
+        </button>
+        <div id="setup-notes-body" class="notes-body" hidden={!notesOpen}>
+          <p class="notes-lede">
+            What the startup validator says about this configuration. Notes are worth knowing; a
+            warning or an error is worth acting on.
+          </p>
+          <ul class="notes-list">
+            {#each generalFindings as finding (finding.code)}
+              {@const meta = severityStatus(finding.severity)}
+              <li>
+                <Badge status={meta} size="sm" />
+                <div class="note-copy">
+                  <p class="note-title">{finding.title}</p>
+                  {#if finding.detail}<p class="note-detail">{finding.detail}</p>{/if}
+                  {#if finding.fix}
+                    <p class="note-detail"><strong>To fix:</strong> {finding.fix}</p>
+                  {/if}
+                  <!--
+                    Which layer set it, when that is not where the fix points.
+                    Told only to "change server.bind", an operator edits the
+                    configuration file -- and a value stored here or pinned by
+                    a variable is one the file cannot change, so they restart
+                    into the same complaint having learned nothing.
+                  -->
+                  {#if finding.undo}
+                    <p class="note-undo">
+                      {#if finding.source === 'environment'}
+                        The environment is the last word, so neither the file nor this page can
+                        change it. With the controller stopped, run
+                      {:else}
+                        This value is stored in this fleet, so editing the configuration file will
+                        not change it. With the controller stopped, run
+                      {/if}
+                      <code>{finding.undo}</code>
+                    </p>
+                  {/if}
+                </div>
+              </li>
+            {/each}
+          </ul>
+        </div>
       </section>
     {/if}
 
-    <div class="panel">
-      <!--
-        The search and the view switch stay reachable while the list scrolls.
-        On a page this long, a filter that has to be scrolled back to is one
-        that gets used once.
-      -->
-      <div class="controls" bind:this={controls}>
-        <div class="search">
-          <Input
-            bind:value={query}
-            bind:element={searchField}
-            size="sm"
-            icon={Search}
-            placeholder="Search settings, summaries and ZOOMIES_* names  (press /)"
-            ariaLabel="Search settings"
-          />
-        </div>
-        <Segmented
-          options={views}
-          value={view}
-          label="Which settings to show"
-          onchange={(next) => (view = next as View)}
-        />
-      </div>
+    <div class="body">
+      <div class="rows" bind:this={rows}>
+        {#if sections.length === 0 && held.length === 0 && elsewhere.length === 0}
+          <div class="group empty-group">
+            <p class="empty">
+              <RotateCcw size={14} aria-hidden="true" />
+              Nothing matches
+              {#if query}“{query}”{/if}
+              {#if view === 'changed'}among the settings that have been changed{/if}
+              {#if view === 'attention'}among the settings needing attention{/if}.
+            </p>
+          </div>
+        {/if}
 
-      {#if sections.length === 0 && held.length === 0}
-        <p class="empty">
-          <RotateCcw size={14} aria-hidden="true" />
-          Nothing matches
-          {#if query}“{query}”{/if}
-          {#if view === 'changed'}among the settings that have been changed{/if}
-          {#if view === 'attention'}among the settings needing attention{/if}.
-        </p>
-      {/if}
-
-      <div class="body">
-        <div class="rows" bind:this={rows}>
-          {#each elsewhere as [name, where] (name)}
-            <section class="elsewhere" aria-labelledby="section-{name}">
-              <div class="section-head" data-section={name}>
-                <h2 id="section-{name}" class="mono">{name}</h2>
-                {#if SECTION_BLURB[name]}<p>{SECTION_BLURB[name]}</p>{/if}
-              </div>
-              <p class="pointer">
-                These are set on <a href={where.href}>{where.page}</a>, beside what they affect.
-              </p>
-            </section>
-          {/each}
-          {#each sections as section (section.name)}
-            <section aria-labelledby="section-{section.name}">
-              <div class="section-head" data-section={section.name}>
-                <h2 id="section-{section.name}" class="mono">{section.name}</h2>
+        {#each sections as section (section.name)}
+          <section class="group" aria-labelledby="section-{section.name}">
+            <header class="section-head" data-section={section.name}>
+              <div class="section-titles">
+                <h2 id="section-{section.name}">{section.title}</h2>
                 {#if SECTION_BLURB[section.name]}<p>{SECTION_BLURB[section.name]}</p>{/if}
               </div>
-              {#each section.rows as setting (setting.key)}
-                <SettingRow
-                  {setting}
-                  findings={findingsBySetting[setting.key] ?? []}
-                  sought={setting.key === sought}
-                  onsave={save}
-                />
-              {/each}
-            </section>
-          {/each}
+              <div class="section-meta">
+                {#if section.notes > 0}
+                  <Badge
+                    tone={section.worst === 'error'
+                      ? 'danger'
+                      : section.worst === 'warning'
+                        ? 'pending'
+                        : 'neutral'}
+                    label={plural(section.notes, 'note')}
+                    size="sm"
+                    dot={false}
+                  />
+                {/if}
+                {#if section.pending > 0}
+                  <Badge
+                    tone="draining"
+                    label="{plural(section.pending, 'change')} waiting"
+                    size="sm"
+                    dot={false}
+                  />
+                {/if}
+                <span class="section-count">{plural(section.rows.length, 'setting')}</span>
+              </div>
+            </header>
+            {#each section.rows as setting (setting.key)}
+              <SettingRow
+                {setting}
+                findings={findingsBySetting[setting.key] ?? []}
+                sought={setting.key === sought}
+                onsave={save}
+              />
+            {/each}
+          </section>
+        {/each}
 
-          {#if held.length > 0}
-            <fieldset class="held">
-              <legend>
-                <Lock size={13} aria-hidden="true" />
-                Held by the environment
-              </legend>
-              <p class="held-note">
-                {held.length === 1 ? 'This setting is' : 'These settings are'} set by a
-                <code>ZOOMIES_*</code> variable, and the environment is the last word, it overrides
-                both the database and the configuration file. To change
-                {held.length === 1 ? 'it' : 'them'}, amend the environment file Zoomies starts with
-                and restart it. Removing a variable hands that setting back to this page.
-              </p>
-              <ul class="held-rows">
-                {#each held as setting (setting.key)}
-                  <!--
-                    The order here is the order the grid places them in: the
-                    variable and its value on one line, the setting's name and
-                    its key underneath. A `display: contents` row flows in
-                    document order, so the columns are assigned by where each
-                    span sits rather than by the grid-column it asks for.
-                  -->
-                  <li>
-                    <span class="held-env mono">{setting.env}</span>
-                    <span class="held-value mono">{displayValue(setting)}</span>
-                    <span class="held-label">{setting.label}</span>
-                    <span class="held-key mono">{setting.key}</span>
-                  </li>
-                {/each}
-              </ul>
-            </fieldset>
-          {/if}
-        </div>
+        {#each elsewhere as [name, where] (name)}
+          <section class="group elsewhere" aria-labelledby="section-{name}">
+            <header class="section-head" data-section={name}>
+              <div class="section-titles">
+                <h2 id="section-{name}">{sectionTitle(name)}</h2>
+                {#if SECTION_BLURB[name]}<p>{SECTION_BLURB[name]}</p>{/if}
+              </div>
+            </header>
+            <p class="pointer">
+              These are set on <a href={where.href}>{where.page}</a>, beside what they affect.
+            </p>
+          </section>
+        {/each}
 
-        <!--
-          The index. A hundred settings under fourteen headings is a page
-          nobody scrolls twice, and the search box only helps somebody who
-          already knows what the setting is called -- which is the case this
-          page is least needed for. The index is what the operator who is
-          looking around uses: it says which section they are in, takes them
-          to any other, and narrows with the filters so a section the search
-          emptied is not offered as somewhere to go.
-        -->
-        {#if sections.length > 1}
-          <nav class="index" aria-label="Jump to a section">
-            <p class="index-label" aria-hidden="true">On this page</p>
-            <ul>
-              {#each sections as section (section.name)}
-                {@const here = section.name === activeSection}
+        {#if held.length > 0}
+          <fieldset class="group held">
+            <legend>
+              <Lock size={13} aria-hidden="true" />
+              Held by the environment
+            </legend>
+            <p class="held-note">
+              {held.length === 1 ? 'This setting is' : 'These settings are'} set by a
+              <code>ZOOMIES_*</code> variable, and the environment is the last word, it overrides
+              both the database and the configuration file. To change
+              {held.length === 1 ? 'it' : 'them'}, amend the environment file Zoomies starts with
+              and restart it. Removing a variable hands that setting back to this page.
+            </p>
+            <ul class="held-rows">
+              {#each held as setting (setting.key)}
                 <li>
-                  <a
-                    href="#section-{section.name}"
-                    class="mono"
-                    class:current={here}
-                    aria-current={here ? 'true' : undefined}
-                  >
-                    <span class="index-name">{section.name}</span>
-                    <span class="index-count">{section.rows.length}</span>
-                  </a>
+                  <span class="held-label">{setting.label}</span>
+                  <span class="held-key mono">{setting.key}</span>
+                  <span class="held-env mono">{setting.env}</span>
+                  <span class="held-value mono">{displayValue(setting)}</span>
                 </li>
               {/each}
             </ul>
-          </nav>
+          </fieldset>
         {/if}
       </div>
+
+      <!--
+        The index. A hundred settings under fourteen headings is a page
+        nobody scrolls twice, and the search box only helps somebody who
+        already knows what the setting is called -- which is the case this
+        page is least needed for. The index is what the operator who is
+        looking around uses: it says which section they are in, takes them
+        to any other, and narrows with the filters so a section the search
+        emptied is not offered as somewhere to go.
+      -->
+      {#if sections.length > 1}
+        <nav class="index" aria-label="Jump to a section">
+          <p class="index-label" aria-hidden="true">On this page</p>
+          <ul>
+            {#each sections as section (section.name)}
+              {@const here = section.name === activeSection}
+              <li>
+                <a
+                  href="#section-{section.name}"
+                  class:current={here}
+                  class:has-notes={section.notes > 0}
+                  aria-current={here ? 'true' : undefined}
+                >
+                  <span class="index-name">{section.title}</span>
+                  {#if section.notes > 0}
+                    <span class="index-note" data-tone={section.worst}>
+                      <TriangleAlert
+                        size={11}
+                        aria-hidden="true"
+                        title={plural(section.notes, 'note')}
+                      />
+                    </span>
+                  {/if}
+                  <span class="index-count">{section.rows.length}</span>
+                </a>
+              </li>
+            {/each}
+          </ul>
+        </nav>
+      {/if}
     </div>
 
     <!--
@@ -580,13 +725,6 @@
 </LoadingBoundary>
 
 <style>
-  .elsewhere .pointer {
-    margin: 0;
-    padding: var(--z-space-3) var(--z-space-5) var(--z-space-4);
-    font-size: var(--z-text-xs);
-    color: var(--z-text-muted);
-  }
-
   .panel {
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
@@ -594,6 +732,32 @@
   }
   .pad {
     padding: var(--z-space-5);
+  }
+
+  /*
+    Under the top bar, which is sticky too: at `top: 0` the toolbar slid up
+    behind it and the search box was there but could not be reached.
+  */
+  .controls {
+    position: sticky;
+    top: calc(var(--z-topbar-height) + var(--z-space-2));
+    z-index: var(--z-layer-sticky);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-3);
+    margin-bottom: var(--z-space-4);
+    padding: var(--z-space-3) var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface);
+    box-shadow: var(--z-shadow-sm);
+  }
+  .search {
+    flex: 1 1 22rem;
+    min-width: 0;
+    max-width: 40rem;
   }
 
   .notice {
@@ -635,23 +799,100 @@
     color: var(--z-text-subtle);
   }
 
-  .general {
+  /*
+    The validator's general remarks are a line, not a wall. The line says how
+    many there are and what kind; the body is only in the way when somebody
+    asks for it.
+  */
+  .notes {
     margin-bottom: var(--z-space-4);
-    padding: var(--z-space-4) var(--z-space-5);
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
-    background: var(--z-surface-sunken);
+    background: var(--z-surface);
   }
-  .general h2 {
+  .notes.attention {
+    border-color: var(--z-pending-border);
+  }
+  .notes[data-tone='error'] {
+    border-color: var(--z-danger-border);
+  }
+  .notes-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--z-space-2);
-    margin: 0 0 var(--z-space-3);
+    width: 100%;
+    min-height: var(--z-control-touch);
+    padding: var(--z-space-2) var(--z-space-4);
+    border: 0;
+    border-radius: var(--z-radius-md);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .notes-head:hover {
+    background: var(--z-surface-hover);
+  }
+  .notes-head:focus-visible {
+    outline: 2px solid var(--z-focus-colour);
+    outline-offset: -2px;
+  }
+  .notes-icon {
+    display: inline-flex;
+    flex: none;
+    color: var(--z-text-muted);
+  }
+  .notes[data-tone='warning'] .notes-icon {
+    color: var(--z-pending);
+  }
+  .notes[data-tone='error'] .notes-icon {
+    color: var(--z-danger);
+  }
+  .notes-heading {
+    flex: none;
     font-size: var(--z-text-sm);
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
   }
-  .general ul {
+  .notes-label {
+    flex: none;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .notes-peek {
+    flex: 1;
+    min-width: 0;
+    margin-left: var(--z-space-2);
+    overflow: hidden;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-subtle);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .notes-head :global(.chev) {
+    flex: none;
+    margin-left: auto;
+    color: var(--z-text-subtle);
+    transition: transform var(--z-motion-fast) var(--z-ease);
+  }
+  .notes-head :global(.chev.open) {
+    transform: rotate(180deg);
+  }
+  .notes-body {
+    padding: 0 var(--z-space-4) var(--z-space-4);
+    border-top: var(--z-border-width) solid var(--z-border);
+  }
+  .notes-lede {
+    margin: var(--z-space-3) 0 var(--z-space-2);
+    max-width: 80ch;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+  }
+  .notes-list {
     display: flex;
     flex-direction: column;
     gap: var(--z-space-3);
@@ -659,74 +900,73 @@
     padding: 0;
     list-style: none;
   }
-  .general li {
+  .notes-list li {
     display: flex;
     align-items: flex-start;
     gap: var(--z-space-2);
   }
-  .finding-title {
+  .note-copy {
+    min-width: 0;
+  }
+  .note-title {
     margin: 0;
     font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
     color: var(--z-text);
   }
-  .finding-detail {
+  .note-detail,
+  .note-undo {
     margin: var(--z-space-1) 0 0;
     max-width: 80ch;
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
   }
-
-  /*
-    Under the top bar, which is sticky too: at `top: 0` the toolbar slid up
-    behind it and the search box was there but could not be reached.
-  */
-  .controls {
-    position: sticky;
-    top: var(--z-topbar-height);
-    z-index: var(--z-layer-sticky);
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--z-space-3);
-    padding: var(--z-space-3) var(--z-space-5);
-    border-bottom: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-md) var(--z-radius-md) 0 0;
-    background: var(--z-surface);
-  }
-  .search {
-    flex: 1 1 20rem;
-    min-width: 0;
-    max-width: 32rem;
-  }
-
-  .empty {
-    display: flex;
-    align-items: center;
-    gap: var(--z-space-2);
-    margin: 0;
-    padding: var(--z-space-6) var(--z-space-5);
-    font-size: var(--z-text-sm);
-    color: var(--z-text-muted);
+  .note-undo code {
+    font-size: var(--z-text-2xs);
+    overflow-wrap: anywhere;
   }
 
   .body {
     display: flex;
     align-items: flex-start;
+    gap: var(--z-space-4);
   }
   .rows {
+    display: flex;
     flex: 1;
+    flex-direction: column;
+    gap: var(--z-space-4);
     min-width: 0;
   }
+
+  /*
+    A section is a card, not a band in one endless list: the heading is the
+    thing an operator scans for, and a card gives it an edge to stop at.
+  */
+  .group {
+    min-width: 0;
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface);
+    overflow: hidden;
+  }
   .section-head {
-    padding: var(--z-space-3) var(--z-space-5) var(--z-space-2);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--z-space-2) var(--z-space-4);
+    padding: var(--z-space-3) var(--z-space-4);
     border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
   }
+  .section-titles {
+    min-width: 0;
+  }
   h2 {
     margin: 0;
-    font-size: var(--z-text-sm);
+    font-size: var(--z-text-base);
+    line-height: var(--z-leading-base);
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
     /* The index's links, and a browser's own address-bar anchor, jump to this
@@ -744,17 +984,53 @@
     line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
   }
-  section:last-child :global(.row:last-child) {
+  .section-meta {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--z-space-1) var(--z-space-2);
+    padding-top: var(--z-space-1);
+  }
+  .section-count {
+    font-size: var(--z-text-2xs);
+    color: var(--z-text-subtle);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .group :global(.row:last-child) {
     border-bottom: 0;
+  }
+
+  .elsewhere .pointer {
+    margin: 0;
+    padding: var(--z-space-3) var(--z-space-4);
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+
+  .empty-group {
+    padding: var(--z-space-3) 0;
+  }
+  .empty {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    margin: 0;
+    padding: var(--z-space-6) var(--z-space-5);
+    font-size: var(--z-text-sm);
+    color: var(--z-text-muted);
   }
 
   .index {
     position: sticky;
-    top: calc(var(--z-topbar-height) + var(--z-space-12));
+    top: calc(var(--z-topbar-height) + var(--z-space-16));
     flex: none;
-    width: 11rem;
-    padding: var(--z-space-3) var(--z-space-2) var(--z-space-3) var(--z-space-4);
-    border-left: var(--z-border-width) solid var(--z-border);
+    width: 12rem;
+    max-height: calc(100dvh - (var(--z-topbar-height) + var(--z-space-16)) - var(--z-space-4));
+    overflow-y: auto;
+    padding: var(--z-space-2) 0 var(--z-space-2) var(--z-space-4);
   }
   .index-label {
     margin: 0 0 var(--z-space-1);
@@ -779,10 +1055,10 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--z-space-2);
-    height: var(--z-space-6);
+    min-height: var(--z-space-6);
     padding: 0 var(--z-space-2);
     border-radius: var(--z-radius-sm);
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     color: var(--z-text-muted);
     text-decoration: none;
   }
@@ -798,13 +1074,31 @@
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .index-note {
+    display: inline-flex;
+    flex: none;
+  }
+  .index-note[data-tone='info'] {
+    color: var(--z-text-subtle);
+  }
+  .index-note[data-tone='warning'] {
+    color: var(--z-pending);
+  }
+  .index-note[data-tone='error'] {
+    color: var(--z-danger);
   }
   .index-count {
+    flex: none;
     font-family: var(--z-font-sans);
     color: var(--z-text-subtle);
     font-variant-numeric: tabular-nums;
   }
   .index a.current .index-count {
+    color: inherit;
+  }
+  .index a.current .index-note {
     color: inherit;
   }
 
@@ -815,12 +1109,10 @@
     an operator and the ones they can.
   */
   .held {
-    margin: var(--z-space-5);
+    margin: 0;
     padding: var(--z-space-4);
-    border: var(--z-border-width) solid var(--z-pending-border);
-    border-radius: var(--z-radius-sm);
+    border-color: var(--z-pending-border);
     background: var(--z-pending-subtle);
-    min-width: 0;
   }
   .held legend {
     display: flex;
@@ -851,8 +1143,8 @@
   }
   .held-rows li {
     display: grid;
-    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
-    gap: 0 var(--z-space-3);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+    gap: var(--z-space-1) var(--z-space-4);
     align-items: baseline;
     padding-top: var(--z-space-3);
     border-top: var(--z-border-width) solid var(--z-pending-border);
@@ -861,28 +1153,24 @@
     padding-top: 0;
     border-top: 0;
   }
-  .held-env {
-    grid-column: 1;
-    font-size: var(--z-text-xs);
+  .held-label {
+    font-size: var(--z-text-sm);
     font-weight: var(--z-weight-medium);
+    color: var(--z-text);
+  }
+  .held-key {
+    font-size: var(--z-text-2xs);
+    color: var(--z-text-subtle);
+    overflow-wrap: anywhere;
+  }
+  .held-env {
+    font-size: var(--z-text-xs);
     color: var(--z-text);
     overflow-wrap: anywhere;
   }
   .held-value {
-    grid-column: 2;
     font-size: var(--z-text-xs);
     color: var(--z-text);
-    overflow-wrap: anywhere;
-  }
-  .held-label {
-    grid-column: 1;
-    font-size: var(--z-text-2xs);
-    color: var(--z-text-muted);
-  }
-  .held-key {
-    grid-column: 2;
-    font-size: var(--z-text-2xs);
-    color: var(--z-text-subtle);
     overflow-wrap: anywhere;
   }
 
@@ -890,7 +1178,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--z-space-1) var(--z-space-5);
-    margin: var(--z-space-3) var(--z-space-1) 0;
+    margin: var(--z-space-4) 0 0;
     font-size: var(--z-text-2xs);
     line-height: var(--z-leading-2xs);
     color: var(--z-text-subtle);
@@ -918,7 +1206,7 @@
 
   /*
     A tablet has no column to spare for the index, so it becomes a row of
-    chips above the rows -- the same list, read across -- and the rows take
+    chips above the rows -- the same list, read across -- and the cards take
     the whole width.
   */
   @media (max-width: 1180px) {
@@ -926,14 +1214,14 @@
       flex-direction: column;
       align-items: stretch;
     }
+    .rows {
+      width: 100%;
+    }
     .index {
       order: -1;
       position: static;
       width: auto;
-      padding: var(--z-space-3) var(--z-space-5);
-      border-left: 0;
-      border-bottom: var(--z-border-width) solid var(--z-border);
-      background: var(--z-surface-sunken);
+      padding: 0 0 var(--z-space-3);
     }
     .index-label {
       display: none;
@@ -952,12 +1240,41 @@
     }
   }
   @media (max-width: 768px) {
+    .notes-head {
+      padding: var(--z-space-2) var(--z-space-3);
+    }
+    .notes-label {
+      flex: 1 1 auto;
+      min-width: 0;
+      margin-left: 0;
+    }
+    .notes-peek {
+      display: none;
+    }
+    /*
+      The index is sixteen sections, and wrapping them on a phone spent more of
+      the screen than the page's own heading. One scrollable row keeps the map
+      without pushing the settings below it.
+    */
+    .index ul {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      padding-bottom: var(--z-space-1);
+      scrollbar-width: none;
+    }
+    .index ul::-webkit-scrollbar {
+      display: none;
+    }
+    .section-head {
+      flex-direction: column;
+    }
+    .section-meta {
+      justify-content: flex-start;
+      padding-top: 0;
+    }
     .held-rows li {
       grid-template-columns: minmax(0, 1fr);
     }
-    .held-env,
-    .held-value,
-    .held-label,
     .held-key {
       grid-column: 1;
     }

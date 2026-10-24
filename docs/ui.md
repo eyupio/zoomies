@@ -1098,6 +1098,18 @@ everybody, marked rather than hidden.
 ![Settings: the section's rail beside the Users page, listing one administrator](screenshots/settings-dark.webp#only-dark){ .zoomies-shot }
 ![Settings: the section's rail beside the Users page, listing one administrator](screenshots/settings-light.webp#only-light){ .zoomies-shot }
 
+**Configuration** puts search and the view switch directly under the heading,
+then one card per section with a human name, a sentence about what it decides
+and a count. Each row shows the name, what it does, the value in force and where
+that value came from; the raw dotted key appears only while the row is being
+edited, where it is the thing an operator would look up in the reference. A
+setting the validator has something to say about carries that finding under it,
+with the explanation one disclosure away. The validator's own general remarks
+are a single line above the first card, and it opens by itself only when
+something is a warning or an error. On a phone the section index is one
+scrollable row rather than a wall of chips, and a row's value and its control
+share a line under the description.
+
 ### Eli AI Assistant
 
 Each user connects their own API provider in **Settings, Eli AI Assistant**. Administrators

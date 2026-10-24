@@ -335,6 +335,9 @@
      width than stretched across a wide monitor. */
   --z-settings-rail-width: 200px;
   --z-settings-page-max: 960px;
+  /* The configuration is the one settings page that is a reference rather than
+     a form, so its rows take the width an extra column needs. */
+  --z-settings-page-wide: 1180px;
   /* How wide a run of prose is let to get before it wraps, so a sentence stays
      readable on a wide monitor. */
   --z-measure-prose: 72ch;
