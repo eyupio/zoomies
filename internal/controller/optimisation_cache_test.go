@@ -21,15 +21,17 @@ import (
 
 type cacheSourceReader struct {
 	github.Client
-	source         *github.SetupCacheSource
-	quota          *github.RateLimit
-	calls          int
-	quotaCalls     int
-	err            error
-	publishes      int
-	publishRequest github.OptimisationPublishRequest
-	publishPR      *github.PullRequest
-	publishErr     error
+	source          *github.SetupCacheSource
+	quota           *github.RateLimit
+	calls           int
+	quotaCalls      int
+	err             error
+	publishes       int
+	publishRequest  github.OptimisationPublishRequest
+	publishPR       *github.PullRequest
+	publishErr      error
+	readinessSource *github.ReadinessSource
+	readinessErr    error
 }
 
 func (f *cacheSourceReader) RateLimit(context.Context) (*github.RateLimit, error) {
@@ -39,6 +41,10 @@ func (f *cacheSourceReader) RateLimit(context.Context) (*github.RateLimit, error
 func (f *cacheSourceReader) ReadSetupCacheSource(context.Context, string, github.SetupCacheSelection) (*github.SetupCacheSource, error) {
 	f.calls++
 	return f.source, f.err
+}
+func (f *cacheSourceReader) ReadReadinessSource(context.Context, string, github.SetupCacheSelection) (*github.ReadinessSource, error) {
+	f.calls++
+	return f.readinessSource, f.readinessErr
 }
 func (f *cacheSourceReader) PublishOptimisation(_ context.Context, req github.OptimisationPublishRequest) (*github.PullRequest, error) {
 	f.publishes++
@@ -60,7 +66,7 @@ func cacheControllerFixture(t *testing.T) (*harness, *store.Installation, *cache
 	t.Helper()
 	h, inst, _ := experimentJoinFixture(t)
 	now := h.c.Now().UTC()
-	workflow := "on: push\njobs:\n  build:\n    name: Build\n    runs-on: ubuntu-latest\n    steps:\n      - name: Checkout\n        uses: actions/checkout@" + strings.Repeat("a", 40) + "\n      - name: Node\n        uses: actions/setup-node@" + strings.Repeat("b", 40) + "\n        with:\n          node-version: 20\n"
+	workflow := "on: push\njobs:\n  build:\n    name: Build\n    runs-on: ubuntu-latest\n    steps:\n      - name: Checkout\n        uses: actions/checkout@" + strings.Repeat("a", 40) + "\n      - name: Node\n        uses: actions/setup-node@" + strings.Repeat("b", 40) + "\n        with:\n          node-version: 20\n      - name: Wait for the API\n        run: sleep 4\n"
 	lockfile := `{"lockfileVersion":3}`
 	source := &github.SetupCacheSource{
 		Version: "setup-cache-evidence-v1", Basis: "push_head_root_lockfile_literal_names", Repository: inst.Target,
@@ -71,7 +77,7 @@ func cacheControllerFixture(t *testing.T) (*harness, *store.Installation, *cache
 	}
 	steps := func(seconds int64) store.JobSteps {
 		start, end := now.Add(-time.Duration(seconds+1)*time.Second), now.Add(-time.Second)
-		return store.JobSteps{{Number: 1, Name: "Set up job", Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &start}, {Number: 2, Name: "Node", Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end}}
+		return store.JobSteps{{Number: 1, Name: "Set up job", Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &start}, {Number: 2, Name: "Node", Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end}, {Number: 3, Name: "Wait for the API", Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end}}
 	}
 	if _, err := h.st.UpsertJob(h.ctx, &store.Job{GitHubJobID: 100, GitHubRunID: 10, Repo: inst.Target, Workflow: "CI", JobName: "Build", State: store.JobCompleted, Conclusion: "success", InstallationID: inst.ID, HeadBranch: "main", HeadSHA: source.HeadSHA, RunAttempt: 2, QueuedAt: now.Add(-time.Minute), CompletedAt: &now, Steps: steps(4)}); err != nil {
 		t.Fatal(err)
@@ -80,6 +86,7 @@ func cacheControllerFixture(t *testing.T) (*harness, *store.Installation, *cache
 		t.Fatal(err)
 	}
 	reader := &cacheSourceReader{Client: h.gh.Client(inst.Target, inst.TargetType), source: source, quota: &github.RateLimit{Limit: 5000, Remaining: 5000, ResetAt: now.Add(time.Hour)}}
+	reader.readinessSource = &github.ReadinessSource{Version: "readiness-evidence-v1", Basis: "push_head_root_workflow_literal_names", Repository: inst.Target, RunID: "10", Attempt: 2, HeadSHA: source.HeadSHA, HeadBranch: source.HeadBranch, WorkflowPath: source.WorkflowPath, Workflow: source.Workflow, WorkflowBlobSHA: source.WorkflowBlobSHA, WorkflowSHA256: source.WorkflowSHA256, JobIndex: 0, StepIndex: 2, JobName: "Build", StepName: "Wait for the API", WaitSeconds: 4}
 	h.c.clients.entries[inst.ID] = &clientEntry{client: reader, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
 	h.c.UpdateConfig(func(c *config.Config) { c.Optimisation.SourceReads, c.Optimisation.WorkflowEdits = true, true })
 	return h, inst, reader, github.SetupCacheSelection{RunID: 10, Attempt: 2}, 100
@@ -315,5 +322,26 @@ func TestPublishCachePreviewRefusesWithoutApprovalOrWithAForeignBinding(t *testi
 	}
 	if _, err := h.c.PublishCachePreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, strings.Repeat("f", 40), preview.SourceSHA256, check); !errors.Is(err, ErrOptimisationCacheApproval) {
 		t.Fatalf("foreign head publish: %v", err)
+	}
+}
+
+func TestInspectReadinessPreviewBindsTheJobToTheOperatorsCondition(t *testing.T) {
+	h, inst, reader, selection, jobID := cacheControllerFixture(t)
+	condition := "curl -fsS http://127.0.0.1:8080/health"
+	if !github.ValidReadinessSource(reader.readinessSource, inst.Target, selection) {
+		t.Fatalf("source invalid: %+v", reader.readinessSource)
+	}
+	p, err := h.c.InspectReadinessPreview(h.ctx, inst.ID, inst.Target, selection, jobID, condition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != "bounded_readiness_poll" || p.WaitSeconds != 4 || p.JobName != "Build" || p.StepName != "Wait for the API" || p.Condition != condition || p.Runs != 2 || p.WaitMS != 5000 || !strings.Contains(p.Edit.After, "timeout 4 sh -c 'until "+condition+"; do sleep 1; done'") || p.Verification != "inconclusive" {
+		t.Fatalf("preview %+v", p)
+	}
+	if reader.calls != 1 {
+		t.Fatalf("reads=%d", reader.calls)
+	}
+	if _, err := h.c.InspectReadinessPreview(h.ctx, inst.ID, inst.Target, selection, jobID, " "); !errors.Is(err, ErrOptimisationReadiness) {
+		t.Fatalf("empty condition: %v", err)
 	}
 }

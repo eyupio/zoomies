@@ -2,6 +2,7 @@ package optimisation
 
 import (
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -119,4 +120,33 @@ func CheckReadinessCurrent(p ReadinessPreview, source ReadinessSource, evidence 
 // quote in the only way a single-quoted shell word allows.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// ReadinessEvidenceFromSamples turns exact local wait samples into the evidence
+// a readiness preview needs. The samples are sorted by job ID before the
+// evidence ID is computed, so the same set gives the same ID whatever order the
+// store returned it in. Two to one hundred samples are required.
+func ReadinessEvidenceFromSamples(head, sourceSHA256 string, samples []SetupSample) (ReadinessEvidence, error) {
+	if !commit(head) || len(sourceSHA256) != 64 || sourceSHA256 != strings.ToLower(sourceSHA256) || len(samples) < 2 || len(samples) > 100 {
+		return ReadinessEvidence{}, ErrReadinessUnsupported
+	}
+	ordered := append([]SetupSample(nil), samples...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].JobID < ordered[j].JobID })
+	parts := make([]string, 0, len(ordered))
+	var total int64
+	for i, s := range ordered {
+		if s.JobID == "" || len(s.JobID) > 128 || strings.ContainsAny(s.JobID, " \t\r\n\x00") || s.RunID == "" || s.RunID != strconv.FormatInt(mustDecimal(s.RunID), 10) || s.Attempt < 1 || s.StepNumber <= 0 || s.SetupMS <= 0 || i > 0 && ordered[i-1].JobID == s.JobID {
+			return ReadinessEvidence{}, ErrReadinessUnsupported
+		}
+		total += s.SetupMS
+		parts = append(parts, s.JobID+"/"+s.RunID+"/"+strconv.Itoa(s.Attempt)+"/"+strconv.Itoa(s.StepNumber)+"/"+strconv.FormatInt(s.SetupMS, 10))
+	}
+	mean := total / int64(len(ordered))
+	if mean <= 0 || mean > 7*24*60*60*1000 {
+		return ReadinessEvidence{}, ErrReadinessUnsupported
+	}
+	return ReadinessEvidence{
+		EvidenceID: hash("readiness-v1:" + head + ":" + sourceSHA256 + ":" + strings.Join(parts, ",")),
+		HeadSHA:    head, SourceSHA256: sourceSHA256, Runs: len(ordered), WaitMS: &mean,
+	}, nil
 }

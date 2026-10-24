@@ -8963,6 +8963,56 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /optimisations/readiness/inspections:
+    post:
+      operationId: inspectReadinessPreview
+      tags: [jobs]
+      summary: Compute a bounded readiness preview from one selected job
+      description: >-
+        Requires operator, jobs:read and optimisations:write; public visitors are
+        refused. Refused with 403 unless optimisation.source_reads and
+        optimisation.workflow_edits are on. Reads one completed successful push
+        attempt, its complete commit tree and the root workflow, with at most
+        four GitHub requests under 20 seconds, the shared diagnostic flight and
+        the half-core-quota reserve. The fleet job row must match the attempt's
+        installation, repository, run, attempt and head, be successful, and carry
+        one completed step with the workflow's literal name. Repeated wait cost
+        comes from the fleet's retained job history (2 to 100 samples from the
+        last 90 days). The operator supplies the readiness command; it is never
+        inferred. Returns the exact before and after run block, the bound (the
+        original sleep), the evidence summary and an inconclusive verification.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReadinessInspectionRequest' }
+      responses:
+        '200':
+          description: The computed preview and descriptive evidence; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReadinessInspection' }
+        '400':
+          description: Invalid request, selection or condition.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The job, fixed sleep or wait evidence is unsupported or changed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429':
+          description: Diagnostic or GitHub quota refusal; Retry-After says when to retry manually.
+          headers:
+            Retry-After: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   /optimisations/cache/previews:
     post:
       operationId: captureCachePreview
@@ -16820,6 +16870,37 @@ components:
         pull_number: { type: integer, minimum: 1 }
         pull_url: { type: string }
       required: [published_by, published_at, branch, base_branch, base_sha, head_sha, source_sha256, preview_sha256, pull_number, pull_url]
+      type: object
+    ReadinessInspectionRequest:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string, minLength: 1, maxLength: 128 }
+        repository: { type: string, minLength: 1, maxLength: 1024 }
+        selection: { $ref: '#/components/schemas/CacheSelection' }
+        condition: { type: string, minLength: 1, maxLength: 1024, description: "The readiness command the operator reviewed; one line, never inferred." }
+      required: [installation_id, repository, selection, condition]
+      type: object
+    ReadinessInspection:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string }
+        repository: { type: string }
+        selection: { $ref: '#/components/schemas/CacheSelection' }
+        condition: { type: string }
+        head_sha: { type: string }
+        workflow_path: { type: string }
+        job_name: { type: string }
+        step_name: { type: string }
+        line: { type: integer, minimum: 1 }
+        wait_seconds: { type: integer, minimum: 2, maximum: 3600 }
+        runs: { type: integer, minimum: 2, maximum: 100 }
+        wait_ms: { type: integer, format: int64 }
+        before: { type: string, description: "The run block as it is, untrusted repository text." }
+        after: { type: string, description: "The bounded poll, untrusted operator text inside a reviewed edit." }
+        verification: { type: string, enum: [inconclusive] }
+        explanation: { type: string }
+        inspected_at: { type: string, format: date-time }
+      required: [installation_id, repository, selection, condition, head_sha, workflow_path, job_name, step_name, line, wait_seconds, runs, wait_ms, before, after, verification, explanation, inspected_at]
       type: object
     CacheSelection:
       additionalProperties: false
