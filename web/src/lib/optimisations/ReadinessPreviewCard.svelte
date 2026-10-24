@@ -176,6 +176,9 @@
     padding-block: var(--z-space-3);
     border-top: var(--z-border-width) solid var(--z-border);
   }
+  .approval p {
+    overflow-wrap: anywhere;
+  }
   .approval h3 {
     font-size: var(--z-text-base);
     font-weight: var(--z-weight-semibold);
