@@ -266,7 +266,10 @@
   ><Button href="/optimisations/checkout" variant="secondary">Checkout preview</Button><Button
     href="/optimisations/readiness"
     variant="secondary">Readiness preview</Button
-  ><Button href="/comparisons" variant="secondary">Compare runs</Button></PageHeader
+  ><Button href="/optimisations/sharding" variant="secondary">Sharding preview</Button><Button
+    href="/comparisons"
+    variant="secondary">Compare runs</Button
+  ></PageHeader
 >
 {#if session.visitor}
   <ErrorState

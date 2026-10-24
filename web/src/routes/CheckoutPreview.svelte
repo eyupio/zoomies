@@ -293,9 +293,9 @@
   title="Checkout preview"
   subtitle="See whether a workflow fetches history it does not need. A preview changes nothing on GitHub."
   ><Button href="/optimisations/cache" variant="secondary">Cache preview</Button><Button
-    href="/comparisons"
-    variant="secondary">Compare runs</Button
-  ></PageHeader
+    href="/optimisations/sharding"
+    variant="secondary">Sharding preview</Button
+  ><Button href="/comparisons" variant="secondary">Compare runs</Button></PageHeader
 >
 {#if session.visitor}
   <ErrorState
