@@ -2,8 +2,8 @@
  * Whether a band draws its dog, and how large it is when it does.
  *
  * The dog's size is separate from the band's cut: the cut is about air and
- * type, the dog's size is about the brand. `auto` follows the cut, so a compact
- * band draws a smaller dog than a standard one; the three named sizes pin it
+ * type, the dog's size is about the brand. `auto` follows the cut, so a slim
+ * band draws a smaller dog than an expanded one; the three named sizes pin it
  * whichever cut the band takes, because an operator who wants the numbers up
  * front may still want the brand large beside them.
  */

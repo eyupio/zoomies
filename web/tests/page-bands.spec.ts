@@ -91,26 +91,48 @@ test('the Overview opens on a standard band and every other page on a compact on
   }
 });
 
-test('a page can be moved between compact and standard in Appearance, and stays there', async ({
-  page,
-}) => {
+test('a page can be moved between every size in Appearance, and stays there', async ({ page }) => {
   await goto(page, '/settings/appearance', 'Appearance');
   const size = page.getByRole('group', { name: 'Runners band size' });
+  for (const label of ['Slim', 'Compact', 'Standard', 'Expanded']) {
+    await expect(size.getByRole('button', { name: label, exact: true })).toBeVisible();
+  }
   await expect(size.getByRole('button', { name: 'Compact' })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
-  await size.getByRole('button', { name: 'Standard' }).click();
+  await size.getByRole('button', { name: 'Expanded' }).click();
 
   await goto(page, '/runners', 'Runners');
-  await expect(page.getByTestId('band-runners')).toHaveAttribute('data-size', 'standard');
+  await expect(page.getByTestId('band-runners')).toHaveAttribute('data-size', 'expanded');
   // Only that page moved.
   await goto(page, '/pools', 'Pools');
   await expect(page.getByTestId('band-pools')).toHaveAttribute('data-size', 'compact');
 
   await page.reload();
   await goto(page, '/runners', 'Runners');
-  await expect(page.getByTestId('band-runners')).toHaveAttribute('data-size', 'standard');
+  await expect(page.getByTestId('band-runners')).toHaveAttribute('data-size', 'expanded');
+});
+
+test('a band offers the same sizes on the band itself, and the choice is shared', async ({
+  page,
+}) => {
+  await goto(page, '/runners', 'Runners');
+  const band = page.getByTestId('band-runners');
+  const size = band.getByRole('group', { name: 'Runners band size' });
+  for (const label of ['Slim', 'Compact', 'Standard', 'Expanded']) {
+    await expect(size.getByRole('button', { name: label, exact: true })).toBeVisible();
+  }
+  await size.getByRole('button', { name: 'Slim', exact: true }).click();
+  await expect(band).toHaveAttribute('data-size', 'slim');
+
+  // Appearance holds the same choice, rather than a second one of its own.
+  await goto(page, '/settings/appearance', 'Appearance');
+  await expect(
+    page
+      .getByRole('group', { name: 'Runners band size' })
+      .getByRole('button', { name: 'Slim', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('a size is only offered for a band that is on', async ({ page }) => {

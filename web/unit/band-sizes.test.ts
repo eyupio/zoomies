@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BAND_PAGES, defaultBandSize, isBandSize } from '../src/lib/bands/pages.ts';
+import { BAND_PAGES, BAND_SIZES, defaultBandSize, isBandSize } from '../src/lib/bands/pages.ts';
 
 // The sizes are the only thing the first load shows differently from before, so they are
-// held to what the pages looked like: the Overview's full stage, everything else slim.
+// held to what the pages looked like: the Overview's full stage, everything else compact.
 test('the Overview opens on a standard band and every other page on a compact one', () => {
   assert.equal(defaultBandSize('overview'), 'standard');
   for (const page of BAND_PAGES) {
@@ -11,9 +11,14 @@ test('the Overview opens on a standard band and every other page on a compact on
   }
 });
 
-test('only the two sizes this build draws are sizes', () => {
-  assert.ok(isBandSize('compact'));
-  assert.ok(isBandSize('standard'));
+// The control reads as a scale, so the order is part of the choice, not an accident of
+// which size happened to be added first.
+test('the four cuts are sizes, in order from the shortest band to the tallest', () => {
+  assert.deepEqual(
+    BAND_SIZES.map((size) => size.key),
+    ['slim', 'compact', 'standard', 'expanded'],
+  );
+  for (const size of BAND_SIZES) assert.ok(isBandSize(size.key), size.key);
   assert.ok(!isBandSize('huge'));
   assert.ok(!isBandSize(undefined));
 });

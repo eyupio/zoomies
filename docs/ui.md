@@ -166,9 +166,11 @@ says one thing about its page in a sentence, from figures the page already holds
 the evidence. A band is Zoomies Black in both themes and uses only neutral white and
 the brand's blue.
 
-A band comes in two sizes. **Standard** is the Overview's full stage; **Compact** is
-the slimmer one the working pages use, so the rows keep the room. The Overview
-defaults to Standard and every other page to Compact.
+A band comes in four sizes, from **Slim** (the shortest)
+through **Compact** and **Standard** to **Expanded** (the tallest). The Overview
+defaults to Standard and every other page to Compact. The sizes are on the band
+itself, as Eli's panel sizes are, so a page can be given more or less room where it
+is being read; the choice is per page and stays in the browser.
 
 Where a page used to spend a row of its height on a panel of figures, the band
 carries them in a strip along its lower edge. The Runners band holds the
@@ -179,9 +181,10 @@ that is switched off, and any band on a phone, shows those same figures in a pla
 panel in its place, so nothing disappears with the dog.
 
 The small cross at the top right of a band removes it. It asks first, and says where
-to bring it back. **Settings → Appearance → Page bands** has a switch and a size for
-each page, the Overview's included; every band is on until you switch it off, and
-the choices stay in that browser.
+to bring it back. The size icons beside it change the band in place.
+**Settings → Appearance → Page bands** has a switch and the same four sizes for each
+page, the Overview's included; every band is on until you switch it off, and the
+choices stay in that browser.
 
 ## Pools
 

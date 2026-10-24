@@ -669,8 +669,10 @@ the Overview some height, so the pools start within the first 1000px of a
 desktop window and no longer within 900px; the hero is left out on a phone,
 where the pools must still be on the first screen. The fleet pages (Runners,
 Pools, Queue, Jobs, Workflows, Usage, Hosts, Providers, Installations, Eli
-repairs, Migrate and Kennel Club) open on the same stage in a slimmer cut, with
-one sentence from the page's own figures; each is
+repairs, Migrate and Kennel Club) open on the same stage, with
+one sentence from the page's own figures. A band takes one of four cuts, Slim,
+Compact, Standard or Expanded, chosen per page from the band itself or in
+Appearance; each is
 switched off per page in Appearance (a list of hidden pages in the browser, so a
 band added later is on), and a phone never shows one. A band's dog can be hidden, or drawn
 at a chosen size (Auto follows the band's own size; Small, Medium and Large pin
