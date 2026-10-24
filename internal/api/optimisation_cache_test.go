@@ -31,7 +31,7 @@ func cacheAPIHarness(t *testing.T) (*harness, string, *checkoutAPIReader, map[st
 	t.Helper()
 	h, instID, f, _ := checkoutAPIHarness(t, true)
 	now := time.Now().UTC()
-	workflow := "on: push\njobs:\n  build:\n    name: Build\n    runs-on: ubuntu-latest\n    steps:\n      - name: Checkout\n        uses: actions/checkout@" + strings.Repeat("a", 40) + "\n      - name: Node\n        uses: actions/setup-node@" + strings.Repeat("b", 40) + "\n        with:\n          node-version: 20\n      - name: Test\n        run: npm test\n"
+	workflow := "on: push\njobs:\n  build:\n    name: Build\n    runs-on: ubuntu-latest\n    steps:\n      - name: Checkout\n        uses: actions/checkout@" + strings.Repeat("a", 40) + "\n      - name: Node\n        uses: actions/setup-node@" + strings.Repeat("b", 40) + "\n        with:\n          node-version: 20\n      - name: Wait for the API\n        run: sleep 4\n      - name: Test\n        run: npm test\n"
 	lockfile := `{"lockfileVersion":3}`
 	f.cacheSource = &github.SetupCacheSource{
 		Version: "setup-cache-evidence-v1", Basis: "push_head_root_lockfile_literal_names", Repository: "acme/repo",
@@ -40,9 +40,15 @@ func cacheAPIHarness(t *testing.T) (*harness, string, *checkoutAPIReader, map[st
 		LockfilePath: "package-lock.json", Lockfile: prrepair.File{Path: "package-lock.json", Mode: "100644", Content: lockfile}, LockfileBlobSHA: cacheAPISHA1(lockfile), LockfileSHA256: cacheAPISHA256(lockfile),
 		JobIndex: 0, StepIndex: 1, JobName: "Build", StepName: "Node",
 	}
+	f.readinessSource = &github.ReadinessSource{
+		Version: "readiness-evidence-v1", Basis: "push_head_root_workflow_literal_names", Repository: "acme/repo",
+		RunID: "10", Attempt: 2, HeadSHA: strings.Repeat("a", 40), HeadBranch: "main",
+		WorkflowPath: ".github/workflows/ci.yml", Workflow: f.cacheSource.Workflow, WorkflowBlobSHA: f.cacheSource.WorkflowBlobSHA, WorkflowSHA256: f.cacheSource.WorkflowSHA256,
+		JobIndex: 0, StepIndex: 2, JobName: "Build", StepName: "Wait for the API", WaitSeconds: 4,
+	}
 	steps := func(seconds int64) store.JobSteps {
 		start, end := now.Add(-time.Duration(seconds+1)*time.Second), now.Add(-time.Second)
-		return store.JobSteps{{Number: 1, Name: "Set up job", Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &start}, {Number: 2, Name: "Node", Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end}}
+		return store.JobSteps{{Number: 1, Name: "Set up job", Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &start}, {Number: 2, Name: "Node", Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end}, {Number: 3, Name: "Wait for the API", Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end}}
 	}
 	for _, job := range []struct {
 		id, run int64
@@ -174,4 +180,28 @@ func TestCacheOptimisationRefusesUntilEnabledAndAMovedSource(t *testing.T) {
 		t.Fatal("a moved source was retained")
 	}
 	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/cache/inspections", token: token, body: map[string]any{"installation_id": instID, "repository": "acme/repo", "selection": map[string]any{"run_id": 10, "attempt": 2, "github_job_id": "100"}}}).mustStatus(t, 400, "numeric run ID")
+}
+
+func TestReadinessInspectionBindsTheCommandAndWaitEvidenceWithoutRetaining(t *testing.T) {
+	h, instID, f, selection := cacheAPIHarness(t)
+	token := h.token("operator", store.RoleOperator, "jobs:read", "optimisations:write", "optimisations:read")
+	body := map[string]any{"installation_id": instID, "repository": "acme/repo", "selection": selection, "condition": "curl -fsS http://127.0.0.1:8080/health"}
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/readiness/inspections", token: token, body: body})
+	resp.mustStatus(t, 200, "inspect readiness")
+	var got ReadinessInspectionView
+	if err := json.Unmarshal(resp.body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.WaitSeconds != 4 || got.JobName != "Build" || got.StepName != "Wait for the API" || got.Condition != body["condition"] || got.Runs != 2 || got.WaitMS != 5000 || got.Verification != "inconclusive" || !strings.Contains(got.After, "timeout 4 sh -c 'until curl -fsS http://127.0.0.1:8080/health; do sleep 1; done'") || strings.Contains(string(resp.body), "on: push") {
+		t.Fatalf("inspection %s", resp.body)
+	}
+	assertShape(t, loadSpec(t), "ReadinessInspection", resp.body)
+	if f.readinessReads.Load() != 1 {
+		t.Fatal("inspection did not read exactly once")
+	}
+	if auditCount(t, h, "optimisation.readiness_preview_retained") != 0 {
+		t.Fatal("inspection retained something")
+	}
+	bad := map[string]any{"installation_id": instID, "repository": "acme/repo", "selection": selection, "condition": " "}
+	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/readiness/inspections", token: token, body: bad}).mustStatus(t, 400, "empty condition")
 }

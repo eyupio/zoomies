@@ -873,6 +873,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "POST", path: "/api/v1/optimisations/checkout/previews/opv_missing/publication", role: store.RoleOperator, action: auth.ActionOptimisationsPublish, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "POST", path: "/api/v1/optimisations/checkout/previews/opv_missing/verification", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "POST", path: "/api/v1/optimisations/cache/inspections", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
+		{method: "POST", path: "/api/v1/optimisations/readiness/inspections", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "POST", path: "/api/v1/optimisations/cache/previews", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "GET", path: "/api/v1/optimisations/cache/previews/opc_missing?installation_id=ins_missing&repo=acme/repo", role: store.RoleOperator, action: auth.ActionOptimisationsRead, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "POST", path: "/api/v1/optimisations/cache/previews/opc_missing/approval", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},

@@ -5829,6 +5829,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/optimisations/readiness/inspections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compute a bounded readiness preview from one selected job
+         * @description Requires operator, jobs:read and optimisations:write; public visitors are refused. Refused with 403 unless optimisation.source_reads and optimisation.workflow_edits are on. Reads one completed successful push attempt, its complete commit tree and the root workflow, with at most four GitHub requests under 20 seconds, the shared diagnostic flight and the half-core-quota reserve. The fleet job row must match the attempt's installation, repository, run, attempt and head, be successful, and carry one completed step with the workflow's literal name. Repeated wait cost comes from the fleet's retained job history (2 to 100 samples from the last 90 days). The operator supplies the readiness command; it is never inferred. Returns the exact before and after run block, the bound (the original sleep), the evidence summary and an inconclusive verification.
+         */
+        post: operations["inspectReadinessPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/optimisations/cache/previews": {
         parameters: {
             query?: never;
@@ -12554,6 +12574,37 @@ export interface components {
             pull_number: number;
             pull_url: string;
         } | null;
+        ReadinessInspectionRequest: {
+            installation_id: string;
+            repository: string;
+            selection: components["schemas"]["CacheSelection"];
+            /** @description The readiness command the operator reviewed; one line, never inferred. */
+            condition: string;
+        };
+        ReadinessInspection: {
+            installation_id: string;
+            repository: string;
+            selection: components["schemas"]["CacheSelection"];
+            condition: string;
+            head_sha: string;
+            workflow_path: string;
+            job_name: string;
+            step_name: string;
+            line: number;
+            wait_seconds: number;
+            runs: number;
+            /** Format: int64 */
+            wait_ms: number;
+            /** @description The run block as it is, untrusted repository text. */
+            before: string;
+            /** @description The bounded poll, untrusted operator text inside a reviewed edit. */
+            after: string;
+            /** @enum {string} */
+            verification: "inconclusive";
+            explanation: string;
+            /** Format: date-time */
+            inspected_at: string;
+        };
         CacheSelection: {
             run_id: string;
             attempt: number;
@@ -22444,6 +22495,61 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             /** @description The job, lockfile or setup evidence is unsupported or changed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Diagnostic or GitHub quota refusal; Retry-After says when to retry manually. */
+            429: {
+                headers: {
+                    "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    inspectReadinessPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadinessInspectionRequest"];
+            };
+        };
+        responses: {
+            /** @description The computed preview and descriptive evidence; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadinessInspection"];
+                };
+            };
+            /** @description Invalid request, selection or condition. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The job, fixed sleep or wait evidence is unsupported or changed. */
             409: {
                 headers: {
                     [name: string]: unknown;

@@ -431,6 +431,8 @@ func (s *Server) optimisationError(w http.ResponseWriter, r *http.Request, err e
 		conflict(w, "The attempt changed while its source was read. Try the preview again.")
 	case errors.Is(err, controller.ErrOptimisationCache):
 		conflict(w, "This cache preview cannot be computed from the selected job. It needs a successful push job the fleet ran, one pinned actions/setup-node step with literal job and step names, one root lockfile, and at least two matching setup timings from the last ninety days.")
+	case errors.Is(err, controller.ErrOptimisationReadiness):
+		conflict(w, "This readiness preview cannot be computed from the selected job. It needs a successful push job the fleet ran, one literal sleep step on an Ubuntu runner, an operator-supplied readiness command, and at least two matching wait timings from the last ninety days.")
 	case errors.Is(err, controller.ErrOptimisationPublish):
 		conflict(w, err.Error())
 	case errors.Is(err, controller.ErrOptimisationVerification):
