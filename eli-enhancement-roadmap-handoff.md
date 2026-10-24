@@ -27,7 +27,7 @@ as the record of how each slice landed.
 | --- | --- | --- |
 | E1 (ZF-242) | Merged and used: `internal/analysis` (`merge_delay.go`), `get_pr_delay` on Eli's allowlist, CLI, contextual UI | None. ROADMAP.md still lists `in_progress` because live-model evaluation and a real performance experiment have not run |
 | E2 (ZF-243) | Descriptive milestone merged (#1020); `get_retained_comparison` on Eli's allowlist; ZF-241's period comparison, queue breakdown, host pressure and startup failures are `implemented` | None. Controlled-experiment proof and dispatch stay deferred by the owner |
-| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and the wider catalogue's setup cache preview through its pure foundation, retained history, bounded source, private retention/API, web page, bounded CLI/MCP/Eli replay, attributed approval (migration 0123) and one reconciled draft pull request (migration 0124), all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, and write access from the CLI, MCP or Eli (deliberately web-only) |
+| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and the wider catalogue's setup cache preview through its pure foundation, retained history, bounded source, private retention/API, web page, bounded CLI/MCP/Eli replay, attributed approval (migration 0123), one reconciled draft pull request (migration 0124) and a pure bounded readiness polling foundation, all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, and write access from the CLI, MCP or Eli (deliberately web-only) |
 | E4 | Not started as a track. Kennel's evaluator, waivers and guidance exist, but no fix preview or publication path does | Unchanged |
 | E5 | ZF-241's `startup_failures` covers runner-startup recurrence. No workflow/test failure fingerprinting exists | Unchanged |
 | E6 | Not started. `internal/prrepair/mention` (ZF-239 slice 1) is only the command matcher | Unchanged |
@@ -150,6 +150,13 @@ publication arrived on 23 October:
   `zoomies/cache-<id>`. It opens one draft, never merges or force-pushes, and a
   retry reconciles it. Provenance (run, attempt, fleet job, branch) is part of
   the retained envelope; previews kept before it cannot be published.
+* **Bounded readiness polling foundation (24 October, pure).** One literal
+  `sleep <seconds>` step on a literal Ubuntu runner can become
+  `timeout N sh -c 'until <condition>; do sleep 1; done'`. The condition is
+  supplied by the operator, never guessed; the original duration is the bound.
+  It refuses ambiguity, other commands, comments, non-Ubuntu runners and
+  fractional or suffixed sleeps, preserves surrounding bytes and line endings,
+  and always says inconclusive. No source read, route, migration or surface.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval, draft publication and read access from the CLI, MCP and Eli have since
@@ -168,9 +175,9 @@ been built (see the 23 October sections at the end). The rest remains.
    a saving. Projected savings stay estimates.
 3. **Wider catalogue.** The dependency/build cache foundation, retained setup
    history, bounded source binding, private retention/API, web page and
-   CLI/MCP/Eli replay, attributed approval and draft publication are described
-   above. Next is bounded readiness polling and sharding, each with its own
-   evidence and refusals. Do not lead with test removal, relaxed assertions or
+   CLI/MCP/Eli replay, attributed approval, draft publication and the pure
+   bounded readiness polling foundation are described above. Next is readiness
+   source/web access and test sharding, each with its own evidence and refusals. Do not lead with test removal, relaxed assertions or
    blanket retries.
 
 Owner decisions still open: whether a different person than the reviewer must
@@ -2805,3 +2812,38 @@ phone.
 Next agent: bounded readiness polling and sharding. Real-repository validation
 and a real E2 comparison remain the owner's after merge. Publication is not
 evidence of a saving, and the draft is not merged by Zoomies.
+
+
+### E3 bounded readiness polling foundation, 24 October 2026
+
+A fixed sleep is a wait with no condition. The pure preview replaces one literal
+`sleep <seconds>` step on a literal Ubuntu runner with:
+
+```sh
+timeout <N> sh -c 'until <condition>; do sleep 1; done'
+```
+
+The condition is supplied by the operator, never inferred from a service name, a
+port or a nearby command. The original duration becomes the bound, so a service
+that never becomes ready fails at the same point the old wait stopped waiting. A
+timeout exits non-zero, preserving the failure boundary.
+
+`internal/kennel/workflow/readiness.go` finds the one candidate and replaces only
+its run block, preserving surrounding comments, bytes and line endings. It
+refuses more than one candidate, a non-Ubuntu or expression runner, a comment, a
+second command, a folded scalar, fractional or suffixed sleeps, and values below
+two seconds or above one hour. `internal/optimisation/readiness.go` computes the
+preview from supplied source, evidence and condition, quotes the command for
+`sh`, applies the edit and reports inconclusive verification.
+
+The design is in
+[the plan](roadmap/plans/2026-10-24-eli-e3-readiness-foundation.md). Validation:
+workflow tests cover plain and block scalars, CRLF, ambiguity, non-Ubuntu
+runners, comments, extra commands, suffixes and short waits; optimisation tests
+cover the exact edit, apostrophe quoting, currentness and refusals.
+
+Next agent: bind one selected fleet job and its retained wait history to this
+preview, then add the web page that asks for the readiness command and shows the
+exact block. CLI/MCP/Eli, approval and publication follow the cache pattern. Test
+sharding remains separate. Do not infer a condition or describe the change as a
+verified saving.
