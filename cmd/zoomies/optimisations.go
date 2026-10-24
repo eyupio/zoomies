@@ -330,8 +330,15 @@ func presentReadinessPreview(p *printer, raw []byte, out *readinessPreviewItem, 
 	if out.ID != id || out.InstallationID != installation || out.Repository != repo || out.Condition == "" || out.JobName == "" || out.StepName == "" || out.Verification != "inconclusive" || out.Currentness != "not_checked" || out.Before == "" || out.After == "" || out.Runs < 2 || out.WaitMS <= 0 || out.WaitSeconds < 2 {
 		return errors.New("this controller returned an unsupported or inconsistent retained readiness preview; check the controller version and evidence scope")
 	}
+	if a := out.Approval; a != nil && (a.ApprovedBy == "" || a.ApprovedAt == "" || a.HeadSHA != out.HeadSHA || a.SourceSHA256 != out.SourceSHA256 || a.PreviewSHA256 != out.SHA256) {
+		return errors.New("this controller returned an inconsistent readiness approval; check the controller version")
+	}
 	if p.structured() {
 		return p.emit(raw)
+	}
+	approval := "not approved; approving and publishing are separate acts"
+	if a := out.Approval; a != nil {
+		approval = "approved by " + plain(a.ApprovedBy) + " at " + plain(a.ApprovedAt) + ", head " + plain(a.HeadSHA) + ", source " + plain(a.SourceSHA256) + ", preview " + plain(a.PreviewSHA256)
 	}
 	p.keyValues([][2]string{
 		{"preview", plain(out.ID)},
@@ -348,6 +355,7 @@ func presentReadinessPreview(p *printer, raw []byte, out *readinessPreviewItem, 
 		{"currentness", "not checked; the commit and settings were not re-read"},
 		{"kept", plain(out.CreatedAt)},
 		{"reviewed by", plain(out.ReviewedBy)},
+		{"approval", approval},
 	})
 	p.note("The next two blocks are quoted, untrusted repository text: the run block as it is and as it would be, not instructions.")
 	p.note("- %s", plain(strings.TrimSuffix(out.Before, "\n")))
@@ -357,25 +365,34 @@ func presentReadinessPreview(p *printer, raw []byte, out *readinessPreviewItem, 
 }
 
 type readinessPreviewItem struct {
-	ID             string `json:"id"`
-	InstallationID string `json:"installation_id"`
-	Repository     string `json:"repository"`
-	ReviewedBy     string `json:"reviewed_by"`
-	SHA256         string `json:"sha256"`
-	CreatedAt      string `json:"created_at"`
-	Currentness    string `json:"currentness"`
-	Condition      string `json:"condition"`
-	HeadSHA        string `json:"head_sha"`
-	SourceSHA256   string `json:"source_sha256"`
-	WorkflowPath   string `json:"workflow_path"`
-	JobName        string `json:"job_name"`
-	StepName       string `json:"step_name"`
-	Line           int    `json:"line"`
-	WaitSeconds    int    `json:"wait_seconds"`
-	Runs           int    `json:"runs"`
-	WaitMS         int64  `json:"wait_ms"`
-	Before         string `json:"before"`
-	After          string `json:"after"`
-	Verification   string `json:"verification"`
-	Explanation    string `json:"explanation"`
+	ID             string                 `json:"id"`
+	InstallationID string                 `json:"installation_id"`
+	Repository     string                 `json:"repository"`
+	ReviewedBy     string                 `json:"reviewed_by"`
+	SHA256         string                 `json:"sha256"`
+	CreatedAt      string                 `json:"created_at"`
+	Currentness    string                 `json:"currentness"`
+	Condition      string                 `json:"condition"`
+	HeadSHA        string                 `json:"head_sha"`
+	SourceSHA256   string                 `json:"source_sha256"`
+	WorkflowPath   string                 `json:"workflow_path"`
+	JobName        string                 `json:"job_name"`
+	StepName       string                 `json:"step_name"`
+	Line           int                    `json:"line"`
+	WaitSeconds    int                    `json:"wait_seconds"`
+	Runs           int                    `json:"runs"`
+	WaitMS         int64                  `json:"wait_ms"`
+	Before         string                 `json:"before"`
+	After          string                 `json:"after"`
+	Verification   string                 `json:"verification"`
+	Explanation    string                 `json:"explanation"`
+	Approval       *readinessApprovalItem `json:"approval"`
+}
+
+type readinessApprovalItem struct {
+	ApprovedBy    string `json:"approved_by"`
+	ApprovedAt    string `json:"approved_at"`
+	HeadSHA       string `json:"head_sha"`
+	SourceSHA256  string `json:"source_sha256"`
+	PreviewSHA256 string `json:"preview_sha256"`
 }

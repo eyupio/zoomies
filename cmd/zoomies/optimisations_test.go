@@ -125,7 +125,7 @@ const cliReadinessPreview = `{
 func TestOptimisationsReadinessPrintsTheConditionAndChangedBlock(t *testing.T) {
 	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/readiness/previews/opr_1": cliReadinessPreview})
 	out, _ := runCLI(t, "optimisations", "readiness", "opr_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL)
-	for _, want := range []string{"opr_1", "acme/repo", "Wait for the API", "curl -fsS", "timeout 30 sh -c", "4 runs", "not a saving", "operator-supplied"} {
+	for _, want := range []string{"opr_1", "acme/repo", "Wait for the API", "curl -fsS", "timeout 30 sh -c", "4 runs", "not approved", "not a saving", "operator-supplied"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not say %q:\n%s", want, out)
 		}
@@ -160,5 +160,14 @@ func TestOptimisationsReadinessRefusesInvalidScopeBeforeAnyRequest(t *testing.T)
 		if code := dispatch(context.Background(), e, args); code == 0 || out.Len() != 0 {
 			t.Fatalf("accepted %v: %s", args, errOut.String())
 		}
+	}
+}
+
+func TestOptimisationsReadinessShowsWhoApprovedIt(t *testing.T) {
+	approved := strings.Replace(cliReadinessPreview, `"explanation":`, `"approval":{"approved_by":"usr_approver","approved_at":"2026-10-24T10:02:00Z","head_sha":"`+strings.Repeat("c", 40)+`","source_sha256":"`+strings.Repeat("e", 64)+`","preview_sha256":"`+strings.Repeat("a", 64)+`"},"explanation":`, 1)
+	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/readiness/previews/opr_1": approved})
+	out, _ := runCLI(t, "optimisations", "readiness", "opr_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL)
+	if !strings.Contains(out, "approved by usr_approver") || strings.Contains(out, "not approved") {
+		t.Errorf("approval not shown:\n%s", out)
 	}
 }

@@ -421,6 +421,8 @@ func (s *Server) optimisationError(w http.ResponseWriter, r *http.Request, err e
 		conflict(w, "Approve this preview before publishing it.")
 	case errors.Is(err, controller.ErrOptimisationApproval):
 		conflict(w, "The commit and source digest do not match this retained preview. Open it again and approve exactly what it shows.")
+	case errors.Is(err, controller.ErrOptimisationReadinessApproval):
+		conflict(w, "The commit and source digest do not match this retained readiness preview. Open it again and approve exactly what it shows.")
 	case errors.Is(err, controller.ErrOptimisationCacheApproval):
 		conflict(w, "The commit and source digest do not match this retained cache preview. Open it again and approve exactly what it shows.")
 	case errors.Is(err, github.ErrSetupCacheNotFound):

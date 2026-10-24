@@ -434,7 +434,8 @@ block is untrusted repository text. Requires an operator and a token with
 a kept bounded readiness preview without a GitHub read, an approval or a
 publication. It shows the repository, file and wait step, the operator-supplied
 command, the commit and digests, the bound, the wait time over the retained runs,
-and the one run block the preview would change. The full workflow was shown once
+whether the preview was approved and by whom, and the one run block the preview
+would change. The full workflow was shown once
 at inspection and is never returned. Verification is always inconclusive and
 currentness not checked, the time is descriptive rather than a saving, and the
 block is untrusted repository text. Requires an operator and a token with

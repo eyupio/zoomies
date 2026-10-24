@@ -46,6 +46,14 @@ const retained = {
     "        run: |\n          timeout 4 sh -c 'until curl -fsS http://127.0.0.1:8080/health; do sleep 1; done'\n",
   verification: 'inconclusive',
   explanation: 'Replace a fixed 4s sleep with a bounded poll of the operator command.',
+  approval: null,
+};
+const approval = {
+  approved_by: 'usr_operator',
+  approved_at: '2026-10-24T09:02:00Z',
+  head_sha: 'a'.repeat(40),
+  source_sha256: 'b'.repeat(64),
+  preview_sha256: 'd'.repeat(64),
 };
 const enablement = {
   source_reads: true,
@@ -92,6 +100,11 @@ test('pick a job, supply the readiness command and review the bounded wait', asy
   await mocks(page);
   let body: Record<string, unknown> | undefined;
   let retainBody: Record<string, unknown> | undefined;
+  let approveBody: Record<string, unknown> | undefined;
+  await page.route('**/api/v1/optimisations/readiness/previews/*/approval', async (route) => {
+    approveBody = route.request().postDataJSON();
+    await route.fulfill({ json: { ...retained, approval } });
+  });
   await page.route('**/api/v1/optimisations/readiness/inspections', async (route) => {
     body = route.request().postDataJSON();
     await route.fulfill({ json: inspection });
@@ -127,7 +140,20 @@ test('pick a job, supply the readiness command and review the bounded wait', asy
     head_sha: 'a'.repeat(40),
     source_sha256: 'b'.repeat(64),
   });
-  await expect(page.getByText('Nothing was approved or published.')).toBeVisible();
+  await expect(page.getByText('Nothing was published.')).toBeVisible();
+
+  const approve = page.getByRole('button', { name: 'Approve preview' });
+  await expect(approve).toBeDisabled();
+  await page.getByLabel(/I approve this exact readiness preview/).check();
+  await approve.click();
+  await expect(page.getByRole('heading', { name: 'Approved' })).toBeVisible();
+  expect(approveBody).toEqual({
+    installation_id: 'ins_fixture',
+    repository: 'acme/repo',
+    head_sha: 'a'.repeat(40),
+    source_sha256: 'b'.repeat(64),
+  });
+  await expect(page.getByText(/did not publish anything/)).toBeVisible();
 });
 
 test('a kept readiness preview opens from its link', async ({ page }) => {
@@ -143,6 +169,24 @@ test('a kept readiness preview opens from its link', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Retained readiness preview' })).toBeVisible();
   await expect(page.getByText('opr_fixture')).toBeVisible();
   await expect(page.getByText('timeout 4 sh -c')).toBeVisible();
+});
+
+test('an approved readiness preview fits a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 700 });
+  await mocks(page);
+  await page.route('**/api/v1/optimisations/readiness/previews/*?*', (route) =>
+    route.fulfill({ json: { ...retained, approval } }),
+  );
+  await goto(
+    page,
+    '/optimisations/readiness?id=opr_fixture&installation_id=ins_fixture&repo=acme%2Frepo',
+    'Readiness preview',
+  );
+  await expect(page.getByRole('heading', { name: 'Approved' })).toBeVisible();
+  const approvedOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(approvedOverflow).toBe(false);
 });
 
 test('a readiness preview fits a phone', async ({ page }) => {

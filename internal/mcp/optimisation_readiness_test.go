@@ -20,6 +20,7 @@ func readinessPreviewFixture() string {
 	  "job_name":"Build","step_name":"Wait for the API","line":12,"wait_seconds":30,"runs":4,"wait_ms":31000,
 	  "before":"        run: sleep 30\n","after":"        run: |\n          timeout 30 sh -c 'until curl -fsS http://127.0.0.1:8080/health; do sleep 1; done'\n",
 	  "verification":"inconclusive","explanation":"Replace a fixed 30s sleep with a bounded poll of the operator command.",
+	  "approval":{"approved_by":"private-approver","approved_at":"2026-10-24T10:02:00Z","head_sha":"` + strings.Repeat("c", 40) + `","source_sha256":"` + strings.Repeat("e", 64) + `","preview_sha256":"` + strings.Repeat("a", 64) + `"},
 	  "content":"private workflow source that must not leave","future_private":"hidden"
 	}`
 }
@@ -40,14 +41,14 @@ func TestReadinessPreviewToolReadsOnceAndQuotesTheChangedBlock(t *testing.T) {
 	if len(content) != 2 || !strings.Contains(content[0].Text, "untrusted") || strings.Contains(content[0].Text, "timeout 30") || !strings.Contains(content[1].Text, "timeout 30 sh -c") || !strings.Contains(content[1].Text, "curl -fsS") {
 		t.Fatalf("unsafe blocks: %+v", content)
 	}
-	if strings.Contains(content[1].Text, "private workflow source") || strings.Contains(content[1].Text, "private-reviewer") || strings.Contains(content[1].Text, "future_private") || strings.Contains(content[1].Text, `"run_id"`) {
+	if strings.Contains(content[1].Text, "private workflow source") || strings.Contains(content[1].Text, "private-reviewer") || strings.Contains(content[1].Text, "private-approver") || strings.Contains(content[1].Text, "future_private") || strings.Contains(content[1].Text, `"run_id"`) {
 		t.Fatal("passed source, actor identity, selection or an unreviewed field")
 	}
 	encoded, _ := json.Marshal(value)
 	if string(encoded) != content[1].Text {
 		t.Fatal("structured/text evidence differs")
 	}
-	if p := value.(readinessPreviewProjection); p.Condition != "curl -fsS http://127.0.0.1:8080/health" || p.WaitSeconds != 30 || p.Runs != 4 || p.WaitMS != 31000 || p.JobName != "Build" || p.StepName != "Wait for the API" {
+	if p := value.(readinessPreviewProjection); p.Condition != "curl -fsS http://127.0.0.1:8080/health" || p.WaitSeconds != 30 || p.Runs != 4 || p.WaitMS != 31000 || p.JobName != "Build" || p.StepName != "Wait for the API" || p.Approval == nil || p.Approval.ApprovedAt.IsZero() || p.Approval.HeadSHA != p.HeadSHA || p.Approval.SourceSHA256 != p.SourceSHA256 || p.Approval.PreviewSHA256 == "" {
 		t.Fatalf("projection %+v", p)
 	}
 }
@@ -77,5 +78,13 @@ func TestReadinessPreviewToolRefusesUnavailableOrInconsistentEvidence(t *testing
 				t.Fatal("accepted")
 			}
 		})
+	}
+}
+
+func TestReadinessPreviewToolRefusesAnApprovalForADifferentHead(t *testing.T) {
+	body := strings.Replace(readinessPreviewFixture(), `"approval":{"approved_by":"private-approver","approved_at":"2026-10-24T10:02:00Z","head_sha":"`+strings.Repeat("c", 40), `"approval":{"approved_by":"private-approver","approved_at":"2026-10-24T10:02:00Z","head_sha":"`+strings.Repeat("d", 40), 1)
+	api := &kennelAPI{body: body}
+	if _, _, err := kennelTool(t, "get_readiness_preview").run(t.Context(), api, json.RawMessage(readinessPreviewArgs)); !errors.Is(err, errReadinessPreviewShape) {
+		t.Fatalf("accepted a mismatched approval: %v", err)
 	}
 }

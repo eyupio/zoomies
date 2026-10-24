@@ -9198,6 +9198,49 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /optimisations/readiness/previews/{id}/approval:
+    parameters: [{ $ref: '#/components/parameters/PathID' }]
+    post:
+      operationId: approveReadinessPreview
+      tags: [jobs]
+      summary: Approve one retained bounded readiness preview
+      description: >-
+        Requires operator, jobs:read and optimisations:write; public visitors
+        are refused. Records an attributed approval of the exact retained
+        readiness preview named by its commit and source digest. It reads no
+        source, calls no GitHub reader, opens no pull request and runs no job.
+        The approval expires with the preview. A repeated approval of the same
+        binding is a no-op with no second audit row; a different head, source or
+        preview is refused.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReadinessApprovalRequest' }
+      responses:
+        '200':
+          description: The retained preview with its approval; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReadinessPreview' }
+        '400':
+          description: Invalid request, scope or digest.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: The preview is unavailable, expired or outside this scope.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409':
+          description: The preview, its stored evidence or an earlier approval does not match the request.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   /optimisations/cache/previews/{id}/approval:
     parameters: [{ $ref: '#/components/parameters/PathID' }]
     post:
@@ -16999,7 +17042,29 @@ components:
         after: { type: string, description: "The bounded poll, untrusted operator text inside a reviewed edit." }
         verification: { type: string, enum: [inconclusive] }
         explanation: { type: string }
-      required: [id, installation_id, repository, reviewed_by, sha256, created_at, currentness, selection, condition, head_sha, workflow_path, job_name, step_name, line, wait_seconds, runs, wait_ms, before, after, verification, explanation]
+        approval: { $ref: '#/components/schemas/ReadinessApproval' }
+      required: [id, installation_id, repository, reviewed_by, sha256, created_at, currentness, selection, condition, head_sha, source_sha256, workflow_path, job_name, step_name, line, wait_seconds, runs, wait_ms, before, after, verification, explanation, approval]
+      type: object
+    ReadinessApproval:
+      additionalProperties: false
+      nullable: true
+      description: An attributed approval of the exact retained readiness preview, or null when none was given.
+      properties:
+        approved_by: { type: string }
+        approved_at: { type: string, format: date-time }
+        head_sha: { type: string }
+        source_sha256: { type: string }
+        preview_sha256: { type: string, description: "The digest of the immutable retained record this approval binds." }
+      required: [approved_by, approved_at, head_sha, source_sha256, preview_sha256]
+      type: object
+    ReadinessApprovalRequest:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string, minLength: 1, maxLength: 128 }
+        repository: { type: string, minLength: 1, maxLength: 1024 }
+        head_sha: { type: string, description: "The commit the readiness preview names." }
+        source_sha256: { type: string, description: "The workflow digest the readiness preview names." }
+      required: [installation_id, repository, head_sha, source_sha256]
       type: object
     ReadinessInspectionRequest:
       additionalProperties: false
