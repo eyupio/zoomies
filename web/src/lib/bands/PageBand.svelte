@@ -6,10 +6,10 @@
   for one theme is never wrong on the other. The grid or the list under it is the
   evidence; this is the headline over it.
 
-  Two sizes. Standard is the Overview's full stage; Compact is the slim one the working
-  pages use, where the rows are the point. Each page has a default and the operator's
-  choice, per page, is in Appearance. The dog can be hidden, or drawn at a chosen size,
-  whichever cut the band takes; that choice applies to every band.
+  Four sizes, from Slim (the shortest) through Compact and Standard to Expanded. Each page
+  has a default, and the operator's choice is per page: the same four sizes sit on the band,
+  as Eli's panel sizes do, and in Appearance. The dog can be hidden, or drawn at a chosen
+  size, whichever cut the band takes; that choice applies to every band.
 
   A band can carry figures (`stats`) in a strip along its lower edge, which is how a
   page gives up the panel it used to spend a row of its height on. They are never lost
@@ -22,14 +22,21 @@
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { X } from '@lucide/svelte';
+  import {
+    Minus,
+    RectangleHorizontal,
+    RectangleVertical,
+    Square,
+    X,
+    type LucideIcon,
+  } from '@lucide/svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import BrandStage from '$lib/public/BrandStage.svelte';
   import { prefs } from '$lib/state/prefs.svelte';
   import BandStats from './BandStats.svelte';
   import { figuresPlacement } from './placement';
-  import { BAND_PAGES, type BandPage } from './pages';
+  import { BAND_PAGES, BAND_SIZES, type BandPage, type BandSize } from './pages';
   import type { BandLine } from './lines';
   import type { BandMore, BandStat } from './stats';
 
@@ -48,6 +55,18 @@
     actions?: Snippet;
   }
   let { page, line, stats = [], more, eyebrow = 'Right now', testid, actions }: Props = $props();
+
+  /*
+    One glyph for each cut, read as a scale: a line, a short bar, a square
+    and a tall bar. The words would take the width the band needs for its
+    sentence, and the tooltip and accessible name carry the name.
+  */
+  const BAND_SIZE_ICONS: Record<BandSize, LucideIcon> = {
+    slim: Minus,
+    compact: RectangleHorizontal,
+    standard: Square,
+    expanded: RectangleVertical,
+  };
 
   const shown = $derived(prefs.bandShown(page));
   const size = $derived(prefs.bandSize(page));
@@ -80,16 +99,34 @@
         <div class="figures"><BandStats {stats} {more} variant="band" /></div>
       {/if}
     </BrandStage>
-    <Tooltip bare text={`Hide the ${name} band`} placement="left">
-      <button
-        type="button"
-        class="dismiss"
-        aria-label={`Hide the ${name} band`}
-        onclick={() => (confirming = true)}
-      >
-        <X size={14} aria-hidden="true" />
-      </button>
-    </Tooltip>
+    <div class="tools">
+      <div class="sizes" role="group" aria-label={`${name} band size`}>
+        {#each BAND_SIZES as option (option.key)}
+          {@const SizeIcon = BAND_SIZE_ICONS[option.key]}
+          <Tooltip bare text={option.name} placement="bottom">
+            <button
+              type="button"
+              class="size"
+              aria-label={option.label}
+              aria-pressed={size === option.key}
+              onclick={() => prefs.setBandSize(page, option.key)}
+            >
+              <SizeIcon size={16} aria-hidden="true" />
+            </button>
+          </Tooltip>
+        {/each}
+      </div>
+      <Tooltip bare text={`Hide the ${name} band`} placement="left">
+        <button
+          type="button"
+          class="dismiss"
+          aria-label={`Hide the ${name} band`}
+          onclick={() => (confirming = true)}
+        >
+          <X size={14} aria-hidden="true" />
+        </button>
+      </Tooltip>
+    </div>
   </div>
 {/if}
 
@@ -133,6 +170,37 @@
     margin-top: var(--z-space-5);
   }
 
+  /* Slim: the least air, so the rows begin right under it. */
+  .band[data-size='slim'] :global(.stage) {
+    padding-block: var(--z-space-3);
+    padding-inline: var(--z-space-8);
+  }
+  .band[data-size='slim'] :global(.art) {
+    width: clamp(3rem, 7%, 5rem);
+  }
+  .band[data-size='slim'] :global(.headline) {
+    font-size: var(--z-text-xl);
+    line-height: var(--z-leading-xl);
+  }
+  .band[data-size='slim'] :global(.eyebrow) {
+    margin-bottom: var(--z-space-2);
+  }
+  .band[data-size='slim'] :global(.rule) {
+    margin-block: var(--z-space-2);
+  }
+  .band[data-size='slim'] :global(.lede) {
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+  }
+  .band[data-size='slim'] .actions,
+  .band[data-size='slim'] .figures {
+    margin-top: var(--z-space-3);
+  }
+  .band[data-size='slim'] .figures :global(.value) {
+    font-size: var(--z-text-base);
+    line-height: var(--z-leading-base);
+  }
+
   /* Compact: less air above and below, a smaller dog and a smaller headline. */
   .band[data-size='compact'] :global(.stage) {
     padding-block: var(--z-space-6);
@@ -152,17 +220,92 @@
   .band[data-size='compact'] .figures {
     margin-top: var(--z-space-4);
   }
-  /* Standard: the strip's figures are the size of the page's own tiles. */
-  .band[data-size='standard'] .figures :global(.value) {
+
+  /* Standard and Expanded: the strip's figures are the size of the page's own
+     tiles, and stay on one line while the cut around them grows. */
+  .band[data-size='standard'] .figures :global(.value),
+  .band[data-size='expanded'] .figures :global(.value) {
     font-size: var(--z-text-2xl);
     line-height: var(--z-leading-2xl);
   }
 
-  /* Discreet until it is looked for: faint at rest, plain on hover and on focus. */
-  .dismiss {
+  /* Expanded: more air, a larger dog and a headline that can carry a quiet page. */
+  .band[data-size='expanded'] :global(.stage) {
+    padding-block: var(--z-space-12);
+  }
+  .band[data-size='expanded'] :global(.art) {
+    width: clamp(10rem, 28%, 16rem);
+  }
+  .band[data-size='expanded'] :global(.headline) {
+    font-size: calc(var(--z-text-3xl) * 1.2);
+    line-height: calc(var(--z-leading-3xl) * 1.2);
+  }
+  .band[data-size='expanded'] :global(.rule) {
+    margin-block: var(--z-space-8);
+  }
+  .band[data-size='expanded'] :global(.lede) {
+    max-width: 36rem;
+    font-size: var(--z-text-lg);
+    line-height: var(--z-leading-lg);
+  }
+  .band[data-size='expanded'] .actions,
+  .band[data-size='expanded'] .figures {
+    margin-top: var(--z-space-6);
+  }
+
+  /* The band's own controls, as Eli's panel carries its sizes: faint at rest,
+     plain when the band is looked at or one of them has focus. */
+  .tools {
     position: absolute;
     inset-block-start: var(--z-space-3);
     inset-inline-end: var(--z-space-3);
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+  }
+  .sizes {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-1);
+  }
+  .size {
+    display: grid;
+    place-items: center;
+    width: var(--z-space-6);
+    height: var(--z-space-6);
+    padding: 0;
+    border: var(--z-border-width) solid transparent;
+    border-radius: var(--z-radius-sm);
+    background: transparent;
+    color: var(--z-panel-text-muted);
+    opacity: 0.7;
+    cursor: pointer;
+    transition:
+      opacity var(--z-motion-fast) var(--z-ease),
+      background-color var(--z-motion-fast) var(--z-ease),
+      border-color var(--z-motion-fast) var(--z-ease),
+      color var(--z-motion-fast) var(--z-ease);
+  }
+  .band:hover .size,
+  .band:focus-within .size {
+    opacity: 1;
+  }
+  .size:hover {
+    background: var(--z-panel-raised);
+    color: var(--z-panel-text);
+  }
+  .size[aria-pressed='true'] {
+    border-color: var(--z-brand-runner-blue);
+    background: var(--z-panel-raised);
+    color: var(--z-panel-text);
+    opacity: 1;
+  }
+  .size:focus-visible {
+    outline: var(--z-focus-width) solid var(--z-brand-runner-blue);
+    outline-offset: var(--z-focus-offset);
+  }
+  .dismiss {
     display: grid;
     place-items: center;
     width: var(--z-space-6);
@@ -191,13 +334,17 @@
     outline: var(--z-focus-width) solid var(--z-brand-runner-blue);
     outline-offset: var(--z-focus-offset);
   }
-  /* The target is larger than the glyph, which is a fingertip's problem and not a mouse's. */
+  /* The targets are larger than the text and glyph, which is a fingertip's
+     problem and not a mouse's. */
   @media (pointer: coarse) {
+    .tools {
+      inset-block-start: 0;
+      inset-inline-end: 0;
+    }
+    .size,
     .dismiss {
       width: var(--z-control-touch);
       height: var(--z-control-touch);
-      inset-block-start: 0;
-      inset-inline-end: 0;
     }
   }
 

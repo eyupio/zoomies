@@ -115,10 +115,10 @@
       <p class="label" id="bands-label">Page bands</p>
       <p class="description">
         The dark band at the top of a page that says its answer in a sentence, with the page's key
-        figures in a strip along its lower edge. Standard is the full-height band the Overview opens
-        on; Compact is the slim one that leaves the rows more room. Switch off the ones you do not
-        want, and their figures stay on the page in a plain panel. A phone never shows the bands,
-        and the choices stay in this browser.
+        figures in a strip along its lower edge. Four sizes, from Slim (the shortest) through
+        Compact and Standard to Expanded (the tallest); the same four sizes are on the band itself.
+        Switch off the ones you do not want, and their figures stay on the page in a plain panel. A
+        phone never shows the bands, and the choices stay in this browser.
       </p>
       <div class="bands" role="group" aria-labelledby="bands-label">
         {#each BAND_PAGES as page (page.key)}
@@ -147,7 +147,7 @@
       <p class="label">Logo in the band</p>
       <p class="description">
         The dog beside a band's headline, and how large it is drawn. Auto follows the band's size,
-        Compact or Standard; the three named sizes pin it whichever the cut. Hiding it gives the
+        from Slim to Expanded; the three named sizes pin it whichever the cut. Hiding it gives the
         sentence the whole band. The backdrop follows the Logo style above.
       </p>
     </div>

@@ -24,10 +24,15 @@ export function isBandPage(value: unknown): value is BandPage {
   return BAND_PAGES.some((page) => page.key === value);
 }
 
-/** How tall a band stands: Standard is the Overview's, Compact the other pages'. */
+/**
+ * How tall a band stands, from the shortest cut to the tallest. The order is the
+ * order the choices appear in, so the control reads as a scale rather than a list.
+ */
 export const BAND_SIZES = [
-  { key: 'compact', label: 'Compact' },
-  { key: 'standard', label: 'Standard' },
+  { key: 'slim', label: 'Slim', name: 'The shortest cut, for a page with rows to show' },
+  { key: 'compact', label: 'Compact', name: 'The working pages cut' },
+  { key: 'standard', label: 'Standard', name: 'The Overview cut' },
+  { key: 'expanded', label: 'Expanded', name: 'The tallest cut, for a page with room' },
 ] as const;
 
 export type BandSize = (typeof BAND_SIZES)[number]['key'];
@@ -39,7 +44,7 @@ export function isBandSize(value: unknown): value is BandSize {
 /**
  * The size a page's band has until somebody chooses another. The Overview is the
  * front door and keeps its full stage; every page under it is a working page, where
- * the rows are the point, so its band is the slim one.
+ * the rows are the point, so its band is the compact one.
  */
 export function defaultBandSize(page: BandPage): BandSize {
   return page === 'overview' ? 'standard' : 'compact';
