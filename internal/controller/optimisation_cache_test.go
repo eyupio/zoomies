@@ -375,3 +375,41 @@ func TestCaptureReadinessPreviewKeepsExactlyWhatWasInspectedAndReplaysIt(t *test
 		t.Fatalf("moved source accepted: %v", err)
 	}
 }
+
+func TestApproveReadinessPreviewRecordsTheExactPreviewWithoutReadingGitHub(t *testing.T) {
+	h, inst, reader, selection, jobID := cacheControllerFixture(t)
+	condition := "curl -fsS http://127.0.0.1:8080/health"
+	preview, err := h.c.InspectReadinessPreview(h.ctx, inst.ID, inst.Target, selection, jobID, condition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := &store.AuditEvent{ActorID: "usr_readiness", ActorKind: "user"}
+	retained, err := h.c.CaptureReadinessPreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, condition, preview.HeadSHA, preview.SourceSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approver := &store.AuditEvent{ActorID: "usr_approver", ActorKind: "user"}
+	approved, err := h.c.ApproveReadinessPreview(h.ctx, approver, inst.ID, inst.Target, retained.ID, preview.HeadSHA, preview.SourceSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Approval == nil || approved.Approval.ApprovedBy != "usr_approver" || approved.Approval.HeadSHA != preview.HeadSHA || approved.Approval.SourceSHA256 != preview.SourceSHA256 || approved.Approval.PreviewSHA256 != retained.SHA256 {
+		t.Fatalf("approval %+v", approved)
+	}
+	if reader.calls != 2 {
+		t.Fatalf("approval read GitHub: %d", reader.calls)
+	}
+	replayed, err := h.c.ReplayReadinessPreview(h.ctx, inst.ID, inst.Target, retained.ID)
+	if err != nil || replayed.Approval == nil || replayed.Approval.ApprovedBy != "usr_approver" {
+		t.Fatalf("replay lost the approval: %+v %v", replayed, err)
+	}
+	if _, total, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"optimisation.readiness_preview_approved"}}, store.Page{Limit: 10}); err != nil || total != 1 {
+		t.Fatalf("audit total=%d err=%v", total, err)
+	}
+	if _, err := h.c.ApproveReadinessPreview(h.ctx, approver, inst.ID, inst.Target, retained.ID, strings.Repeat("f", 40), preview.SourceSHA256); !errors.Is(err, ErrOptimisationReadinessApproval) {
+		t.Fatalf("wrong head accepted: %v", err)
+	}
+	if _, err := h.c.ApproveReadinessPreview(h.ctx, approver, inst.ID, inst.Target, retained.ID, preview.HeadSHA, strings.Repeat("f", 64)); !errors.Is(err, ErrOptimisationReadinessApproval) {
+		t.Fatalf("wrong source accepted: %v", err)
+	}
+}

@@ -11,7 +11,10 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-var ErrOptimisationReadiness = errors.New("readiness preview evidence is unavailable, inconsistent or unsupported")
+var (
+	ErrOptimisationReadiness         = errors.New("readiness preview evidence is unavailable, inconsistent or unsupported")
+	ErrOptimisationReadinessApproval = errors.New("the readiness preview's head and source digest do not match the retained preview")
+)
 
 // ReadinessInspection is what an operator is shown before keeping a readiness
 // preview. It carries the source identity, the retained wait evidence and the

@@ -1557,6 +1557,15 @@ export const getReadinessPreview = (
       new globalThis.URLSearchParams({ installation_id: installationId, repo }).toString(),
     { signal },
   );
+export const approveReadinessPreview = (
+  id: string,
+  body: import('./types').ReadinessApprovalRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').ReadinessPreview>(
+    '/optimisations/readiness/previews/' + encodeURIComponent(id) + '/approval',
+    { body, signal },
+  );
 export const inspectReadinessPreview = (
   body: import('./types').ReadinessInspectionRequest,
   signal?: AbortSignal,

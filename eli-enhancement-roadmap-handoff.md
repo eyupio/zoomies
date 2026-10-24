@@ -185,6 +185,14 @@ publication arrived on 23 October:
   evidence and the one changed run block. They never return the full workflow or
   actor identities and neither approves nor publishes. No new route, migration or
   setting.
+* **Readiness approval (24 October).** Migration 0127 stores one attributed
+  approval per readiness preview, cascading with it. `POST
+  /optimisations/readiness/previews/{id}/approval` binds the preview's head,
+  workflow digest and retained hash, is audited as
+  `optimisation.readiness_preview_approved`, reads no GitHub and publishes
+  nothing. The readiness page offers a declaration and **Approve preview**; the CLI
+  shows the approver; `get_readiness_preview` projects the time and digests and
+  drops `approved_by`.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval, draft publication and read access from the CLI, MCP and Eli have since
@@ -205,8 +213,8 @@ been built (see the 23 October sections at the end). The rest remains.
    history, bounded source binding, private retention/API, web page and
    CLI/MCP/Eli replay, attributed approval, draft publication, the pure bounded
    readiness polling foundation, its source/inspection route, inspection page,
-   private retention/API and bounded CLI/MCP/Eli replay are described above. Next
-   is readiness approval and publication, then test sharding, each with its own
+   private retention/API, bounded CLI/MCP/Eli replay and attributed approval are
+   described above. Next is readiness publication, then test sharding, each with its own
    evidence and refusals. Do not lead with test removal, relaxed assertions or
    blanket retries.
 
@@ -2553,7 +2561,7 @@ Next agent: run the whole flow against one real repository first. The published
 preview now links to the E2 comparison page; capturing a real control and
 candidate after merge is the remaining verification step, and it stays
 inconclusive without them. CLI and MCP/Eli access still wait on the
-private-envelope contract decision. The cache approval took 0123, publication 0124, the host sample change 0125 and readiness retention 0126; the next free migration is 0127.
+private-envelope contract decision. The cache approval took 0123, publication 0124, the host sample change 0125 and readiness retention 0126; readiness approval took 0127; the next free migration is 0128.
 
 
 ### E3 verification link, 23 October 2026
@@ -2979,3 +2987,30 @@ fields, invalid arguments and unavailable or inconsistent evidence.
 
 Next agent: add readiness approval and publication, then test sharding. Do not
 infer the condition or expose the full retained envelope to a model.
+
+
+### E3 readiness approval, 24 October 2026
+
+A readiness preview kept from `/optimisations/readiness` can now be approved as a
+separate, attributed act, mirroring the cache slice. Migration 0127 stores one
+approval per preview, cascading with it; `GetOptimisationReadinessPreview` joins
+and validates it, and a partial or mismatched row is corrupt evidence.
+`ApproveReadinessPreview` replays the retained preview, requires the named head
+and source digest, and never reads GitHub. `POST
+/optimisations/readiness/previews/{id}/approval` needs operator,
+`optimisations:write` and `jobs:read`; visitors are refused. A repeat by the same
+binding is a no-op with no second audit row; anything else is a conflict.
+
+The web card offers a declaration and **Approve preview**, then shows the
+approver, time, commit and digests, and says nothing was published. The CLI shows
+the approval line; the MCP/Eli projection keeps the time and digests and drops
+`approved_by`. `ReadinessPreview.source_sha256` is now required in the OpenAPI
+schema because approval depends on it.
+
+The design is in
+[the plan](roadmap/plans/2026-10-24-eli-e3-readiness-approval.md). Validation:
+store, controller, API and auth-matrix tests, CLI and MCP tests, and browser
+specs on desktop and phone.
+
+Next agent: add readiness publication (migration 0128) from the retained
+provenance, then write the test sharding contract for the owner to accept.

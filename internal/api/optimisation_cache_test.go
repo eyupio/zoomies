@@ -226,6 +226,33 @@ func TestReadinessInspectionBindsTheCommandAndWaitEvidenceWithoutRetaining(t *te
 	if replayed != saved || f.readinessReads.Load() != 2 || strings.Contains(string(read.body), "on: push") || replayed.SourceSHA256 == "" || replayed.SourceSHA256 != f.readinessSource.WorkflowSHA256 {
 		t.Fatalf("replay changed, lost the source digest, or exposed source: %s", read.body)
 	}
+	approvePath := "/api/v1/optimisations/readiness/previews/" + saved.ID + "/approval"
+	approveBody := map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.HeadSHA, "source_sha256": saved.SourceSHA256}
+	approved := h.do(request{method: http.MethodPost, path: approvePath, token: token, body: approveBody})
+	approved.mustStatus(t, 200, "readiness approval")
+	var decided ReadinessPreviewView
+	if err := json.Unmarshal(approved.body, &decided); err != nil {
+		t.Fatal(err)
+	}
+	if decided.Approval == nil || decided.Approval.ApprovedBy != saved.ReviewedBy || decided.Approval.HeadSHA != saved.HeadSHA || decided.Approval.SourceSHA256 != saved.SourceSHA256 || decided.Approval.PreviewSHA256 != saved.SHA256 {
+		t.Fatalf("approval %s", approved.body)
+	}
+	assertShape(t, loadSpec(t), "ReadinessPreview", approved.body)
+	if auditCount(t, h, "optimisation.readiness_preview_approved") != 1 || f.readinessReads.Load() != 2 {
+		t.Fatal("approval audited wrongly or read GitHub")
+	}
+	after := h.do(request{method: http.MethodGet, path: readPath, token: token})
+	after.mustStatus(t, 200, "replay after approval")
+	var replayedAfter ReadinessPreviewView
+	if err := json.Unmarshal(after.body, &replayedAfter); err != nil || replayedAfter.Approval == nil || replayedAfter.Approval.ApprovedBy != saved.ReviewedBy {
+		t.Fatalf("replay lost the approval: %v %s", err, after.body)
+	}
+	h.do(request{method: http.MethodPost, path: approvePath, token: token, body: approveBody}).mustStatus(t, 200, "repeat approval")
+	if auditCount(t, h, "optimisation.readiness_preview_approved") != 1 {
+		t.Fatal("a repeat approval wrote a second audit row")
+	}
+	approveBody["head_sha"] = strings.Repeat("f", 40)
+	h.do(request{method: http.MethodPost, path: approvePath, token: token, body: approveBody}).mustStatus(t, 409, "wrong head")
 	bad := map[string]any{"installation_id": instID, "repository": "acme/repo", "selection": selection, "condition": " "}
 	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/readiness/inspections", token: token, body: bad}).mustStatus(t, 400, "empty condition")
 }
