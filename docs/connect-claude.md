@@ -293,9 +293,10 @@ call them:
   is, or why jobs wait while a pool has room.
 * `fleet_samples` is the fleet's minute-by-minute counts, as the Overview's
   sparklines draw them, and `host_samples` is one row per host per minute: its
-  slots, CPU, load, available memory, what the scheduler had promised away on
-  it, and its disk. A measurement a host did not make is absent rather than
-  zero, which is how a host that stopped reporting is told from an idle one.
+  slots, CPU, I/O wait, load, available memory, what the scheduler had promised
+  away on it, and its disk. A measurement a host did not make is absent rather
+  than zero, which is how a host that stopped reporting is told from an idle
+  one.
 * `runner_timeline` is one runner's states and when it moved through each, while
   the runner exists.
 * `list_workflow_runs` is runs rather than jobs: one row per run, as GitHub's

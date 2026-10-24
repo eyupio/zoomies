@@ -252,7 +252,7 @@ func windowTools() []*tool {
 		{
 			Name:  "host_samples",
 			Title: "Host samples",
-			Description: "One row per host per minute: its slots, what its agent measured (CPU, load average, available memory), what the scheduler had promised away on it, and its disk. " +
+			Description: "One row per host per minute: its slots, what its agent measured (CPU, I/O wait, load average, available memory), what the scheduler had promised away on it, and its disk. " +
 				"A measurement the host had not made is absent rather than zero. Use it to tell a host that is full from one that is merely busy, or one that stopped reporting. " +
 				"At most the newest 200 rows are returned, across all hosts, with a note saying how many there were when the window held more; the older rows cannot be read through this tool, so pass host_id to see more of one host.",
 			InputSchema: object(nil, map[string]any{

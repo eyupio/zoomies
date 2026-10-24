@@ -136,6 +136,32 @@ func gatherHistogram(t *testing.T, c *Controller, name string, labels map[string
 	return 0, 0, false
 }
 
+// A finished job's CPU throttling is the evidence that decides whether a host's
+// high load is a CPU quota or a disk. It is observed once, at completion, so a
+// job sampled many times does not weight the histogram by how long it ran.
+func TestFinishedJobsReportTheShareOfPeriodsTheyWereThrottledIn(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "zoomies-linux-x64")
+
+	h.c.observeJobCompletion(&store.Job{PoolID: pool.ID, Conclusion: "success", CPUPeriods: 100, CPUThrottledPeriods: 60})
+	labels := map[string]string{"pool": pool.Name}
+	count, sum, ok := gatherHistogram(t, h.c, "zoomies_job_cpu_throttled_share", labels)
+	if !ok || count != 1 {
+		t.Fatalf("throttled-share observations = %d (present=%v), want one", count, ok)
+	}
+	if sum < 0.6-0.001 || sum > 0.6+0.001 {
+		t.Errorf("throttled share sum = %v, want 0.6", sum)
+	}
+
+	// A job whose agent sent no counters is absent rather than recorded at
+	// zero, which would read as a job that was never throttled.
+	h.c.observeJobCompletion(&store.Job{PoolID: pool.ID, Conclusion: "success"})
+	if count, _, _ := gatherHistogram(t, h.c, "zoomies_job_cpu_throttled_share", labels); count != 1 {
+		t.Errorf("a job with no counters added an observation: count = %d", count)
+	}
+}
+
 func TestImagePrewarmReportsCacheEfficiencyAndDuration(t *testing.T) {
 	h := newHarness(t)
 	_, pool, host := h.fleet()

@@ -86,11 +86,18 @@ type HostView struct {
 	// HealthCheck is the last "Check now" asked of this host's agent, in memory
 	// only and omitted when there is nothing to say: no request, or one old
 	// enough that the page has no use for it.
-	HealthCheck     *HostCheckView   `json:"health_check,omitempty"`
-	Doctor          *DoctorView      `json:"doctor,omitempty"`
-	Usage           *store.HostUsage `json:"usage,omitempty"`
-	UsageFresh      bool             `json:"usage_fresh"`
-	AdmissionReason string           `json:"admission_reason,omitempty"`
+	HealthCheck *HostCheckView   `json:"health_check,omitempty"`
+	Doctor      *DoctorView      `json:"doctor,omitempty"`
+	Usage       *store.HostUsage `json:"usage,omitempty"`
+	UsageFresh  bool             `json:"usage_fresh"`
+	// DiskBound is true while the host has been waiting on its disk for a
+	// sustained stretch (I/O wait above 20% for ten minutes), the condition the
+	// in-memory scratch advice rests on. It is worked out here rather than
+	// stored because it is a judgement about now; usage_fresh says whether
+	// there is a measurement behind it, so false here is not proof of a calm
+	// disk on a silent host.
+	DiskBound       bool   `json:"disk_bound"`
+	AdmissionReason string `json:"admission_reason,omitempty"`
 	// Throttle is the rung the controller has stepped this host down to after
 	// sustained pressure, absent when it is on none, and ThrottleReason is the
 	// same thing as the sentence the host card shows: what it took, why, what
@@ -330,6 +337,7 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		CPUs:                h.CPUs,
 		MemoryMB:            h.MemoryMB,
 		UsageFresh:          h.Usage.Fresh(c.Now()),
+		DiskBound:           h.Usage.DiskBound(c.Now()),
 		AdmissionReason:     scheduler.HostAdmissionReason(h, c.Now()),
 		DiskTotalMB:         h.DiskTotalMB,
 		DiskFreeMB:          h.DiskFreeMB,

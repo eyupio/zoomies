@@ -19,9 +19,9 @@ func TestSamplingRecordsEveryHostAndLeavesStaleMeasurementsAsGaps(t *testing.T) 
 	stale := h.host("vm-stale")
 	now := h.c.Now()
 
-	cpu, load, mem := 72.5, 3.2, int64(20_000)
+	cpu, ioWait, load, mem := 72.5, 41.0, 3.2, int64(20_000)
 	if err := h.st.SetHostUsage(h.ctx, fresh.ID, store.HostUsage{
-		CPUPercent: &cpu, LoadAverage1: &load, MemoryAvailableMB: &mem, SampledAt: now,
+		CPUPercent: &cpu, IOWaitPercent: &ioWait, LoadAverage1: &load, MemoryAvailableMB: &mem, SampledAt: now,
 	}); err != nil {
 		t.Fatalf("SetHostUsage: %v", err)
 	}
@@ -50,11 +50,14 @@ func TestSamplingRecordsEveryHostAndLeavesStaleMeasurementsAsGaps(t *testing.T) 
 	if got.CPUPercent == nil || *got.CPUPercent != cpu || got.MemoryAvailableMB == nil || *got.MemoryAvailableMB != mem {
 		t.Errorf("fresh host sample = %+v, want the measurement it just reported", got)
 	}
+	if got.IOWaitPercent == nil || *got.IOWaitPercent != ioWait {
+		t.Errorf("fresh host sample I/O wait = %v, want %v", got.IOWaitPercent, ioWait)
+	}
 	if got.Capacity != 4 || got.CPUs != 16 || got.AllocatableCPUs <= 0 {
 		t.Errorf("fresh host sample = %+v, want its slots and size carried", got)
 	}
-	if s := byHost[stale.ID]; s.CPUPercent != nil {
-		t.Errorf("stale host sample carries CPU %v, want a gap", *s.CPUPercent)
+	if s := byHost[stale.ID]; s.CPUPercent != nil || s.IOWaitPercent != nil {
+		t.Errorf("stale host sample carries CPU %v and I/O wait %v, want gaps", s.CPUPercent, s.IOWaitPercent)
 	}
 }
 

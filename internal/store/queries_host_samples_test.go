@@ -13,12 +13,12 @@ func TestRecordingHostSamplesReplacesTheMinute(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	at := time.Date(2026, 3, 1, 9, 0, 20, 0, time.UTC)
-	cpu := 40.0
-	if err := s.RecordHostSamples(ctx, []HostSample{{HostID: "host_a", At: at, Capacity: 4, ActiveRunners: 1, CPUPercent: &cpu}}); err != nil {
+	cpu, ioWait := 40.0, 10.0
+	if err := s.RecordHostSamples(ctx, []HostSample{{HostID: "host_a", At: at, Capacity: 4, ActiveRunners: 1, CPUPercent: &cpu, IOWaitPercent: &ioWait}}); err != nil {
 		t.Fatalf("RecordHostSamples: %v", err)
 	}
-	later := 85.0
-	if err := s.RecordHostSamples(ctx, []HostSample{{HostID: "host_a", At: at.Add(30 * time.Second), Capacity: 4, ActiveRunners: 3, CPUPercent: &later}}); err != nil {
+	later, laterWait := 85.0, 35.0
+	if err := s.RecordHostSamples(ctx, []HostSample{{HostID: "host_a", At: at.Add(30 * time.Second), Capacity: 4, ActiveRunners: 3, CPUPercent: &later, IOWaitPercent: &laterWait}}); err != nil {
 		t.Fatalf("RecordHostSamples again: %v", err)
 	}
 	got, err := s.ListHostSamples(ctx, at.Add(-time.Hour), "")
@@ -30,6 +30,9 @@ func TestRecordingHostSamplesReplacesTheMinute(t *testing.T) {
 	}
 	if got[0].ActiveRunners != 3 || got[0].CPUPercent == nil || *got[0].CPUPercent != 85 {
 		t.Errorf("sample = %+v, want the later measurement", got[0])
+	}
+	if got[0].IOWaitPercent == nil || *got[0].IOWaitPercent != 35 {
+		t.Errorf("sample I/O wait = %v, want the later 35", got[0].IOWaitPercent)
 	}
 	if !got[0].At.Equal(at.Truncate(time.Minute)) {
 		t.Errorf("at = %s, want the minute %s", got[0].At, at.Truncate(time.Minute))
@@ -60,7 +63,7 @@ func TestHostSamplesKeepUnmeasuredFiguresAsGaps(t *testing.T) {
 	for _, h := range got {
 		byHost[h.HostID] = h
 	}
-	if old := byHost["host_old"]; old.CPUPercent != nil || old.MemoryAvailableMB != nil || old.ReservedCPUs != nil {
+	if old := byHost["host_old"]; old.CPUPercent != nil || old.IOWaitPercent != nil || old.MemoryAvailableMB != nil || old.ReservedCPUs != nil {
 		t.Errorf("unmeasured host came back with figures: %+v", old)
 	}
 	if fresh := byHost["host_new"]; fresh.MemoryAvailableMB == nil || *fresh.MemoryAvailableMB != 0 {
