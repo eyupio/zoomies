@@ -35,7 +35,7 @@ var AssistantFleetTools = []string{
 	"fleet_status", "list_problems", "list_jobs", "get_job", "job_stats",
 	"list_runners", "list_pools", "list_hosts", "host_health", "label_advice",
 	"get_runner_log", "kennel_overview", "kennel_repository", "kennel_findings",
-	"list_providers", "provider_pairings", "list_machines", "get_catalog", "get_usage", "get_pr_delay", "get_retained_comparison", "get_checkout_preview",
+	"list_providers", "provider_pairings", "list_machines", "get_catalog", "get_usage", "get_pr_delay", "get_retained_comparison", "get_checkout_preview", "get_cache_preview",
 	"recent_events", "wait_for_change", "scaling_decisions", "fleet_samples",
 	"host_samples", "runner_timeline", "list_workflow_runs",
 	"queue_wait_breakdown", "compare_periods", "host_pressure", "startup_failures",

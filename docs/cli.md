@@ -418,6 +418,18 @@ descriptive, not a saving. Requires an operator and a token with
 `optimisations:read` and `jobs:read`; a public visitor is refused. Use
 `--output json` for the controller's answer unchanged.
 
+`optimisations cache <preview-id> --installation ID --repo OWNER/REPO` replays a
+kept setup cache preview without a GitHub read, an approval or a publication. It
+shows the repository, file and step position, package manager and root lockfile,
+commit and digests, the setup time over the retained runs, whether the preview
+was approved and by whom, and the one `with:` block the preview would change.
+The full workflow and lockfile were shown once at inspection and are never
+returned. Verification is always inconclusive and
+currentness not checked, the time is descriptive rather than a saving, and the
+block is untrusted repository text. Requires an operator and a token with
+`optimisations:read` and `jobs:read`; a public visitor is refused. Use
+`--output json` for the controller's answer unchanged.
+
 ### `zoomies why`
 
 `why <job>` is the one question "why did this job fail, stall or run slow",

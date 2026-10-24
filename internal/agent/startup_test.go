@@ -139,6 +139,38 @@ func TestARunnerWithoutADaemonDoesNotWaitBehindADinDStart(t *testing.T) {
 	})
 }
 
+// The DinD lane belongs to the agent, not to a pool: two pools with a daemon
+// each still initialise one daemon at a time on the host.
+func TestDinDStartsAreSerialAcrossPools(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, tr, b := startupAgent(t)
+		ctx := context.Background()
+		first := dindCreateTask("dind-first", "run-dind-first")
+		first.Spec.PoolID = "pool-a"
+		a.dispatch(ctx, first)
+		synctest.Wait()
+		startupEntered(t, b, "run-dind-first")
+
+		second := dindCreateTask("dind-second", "run-dind-second")
+		second.Spec.PoolID = "pool-b"
+		a.dispatch(ctx, second)
+		synctest.Wait()
+		startupBlocked(t, b)
+
+		b.finish <- nil
+		synctest.Wait()
+		startupEntered(t, b, "run-dind-second")
+		b.finish <- nil
+		synctest.Wait()
+		for range 2 {
+			if res := <-tr.results; !res.OK {
+				t.Fatalf("a start failed: %+v", res)
+			}
+		}
+		a.tasks.Wait()
+	})
+}
+
 func TestPrewarmingDoesNotHoldADinDStart(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		a, _, b := startupAgent(t)

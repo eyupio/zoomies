@@ -23,8 +23,11 @@ probe succeeds, tolerating transient failed probes and reporting early
 OOM/exit. Failure uses the existing cleanup path. The runner image retains
 its readiness check for older agents, host sockets and intervening failures.
 No consumed JIT configuration is retried. A runner that starts no daemon is
-admitted on a slot of its own, beside the DinD one, so a host still starts at
-most one daemon at a time without making those runners wait for it.
+admitted on a lane of its own, beside the DinD one, so a host still starts at
+most one daemon at a time without making those runners wait for it. The two
+lanes can prepare images at the same time, so a cold pull on one can run beside
+a pull on the other or beside a daemon still booting; with `if-not-present`
+that is the first pull of an image and the timed refresh, not every create.
 
 The per-container throttle base now matches creation and adoption. A bounded
 CPU grace protects registration from an additional pressure reduction. A job

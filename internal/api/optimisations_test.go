@@ -37,13 +37,15 @@ func (f *checkoutAPIFactory) For(ctx context.Context, inst *store.Installation, 
 
 type checkoutAPIReader struct {
 	github.Client
-	evidence   *github.CheckoutEvidence
-	reads      atomic.Int32
-	err        error
-	publishes  int
-	publishPR  *github.PullRequest
-	publishErr error
-	publishReq github.OptimisationPublishRequest
+	evidence    *github.CheckoutEvidence
+	reads       atomic.Int32
+	err         error
+	publishes   int
+	publishPR   *github.PullRequest
+	publishErr  error
+	publishReq  github.OptimisationPublishRequest
+	cacheSource *github.SetupCacheSource
+	cacheReads  atomic.Int32
 }
 
 func (f *checkoutAPIReader) RateLimit(context.Context) (*github.RateLimit, error) {
@@ -57,6 +59,10 @@ func (f *checkoutAPIReader) PublishOptimisation(_ context.Context, req github.Op
 	f.publishes++
 	f.publishReq = req
 	return f.publishPR, f.publishErr
+}
+func (f *checkoutAPIReader) ReadSetupCacheSource(context.Context, string, github.SetupCacheSelection) (*github.SetupCacheSource, error) {
+	f.cacheReads.Add(1)
+	return f.cacheSource, f.err
 }
 
 func checkoutAPIEvidence(repo string, sel github.CheckoutSelection) *github.CheckoutEvidence {

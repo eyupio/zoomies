@@ -14,12 +14,14 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@` + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + `
+      - name: Checkout
+        uses: actions/checkout@` + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + `
       - name: Node
         uses: actions/setup-node@` + "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" + `
         with:
           node-version: 20
-      - run: npm test
+      - name: Test
+        run: npm test
 `
 
 func cacheFixture(t *testing.T) (CacheSource, SetupEvidence) {
@@ -44,10 +46,10 @@ func TestCachePreviewInsertsTheManagerAndKeepsTheRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Version != "cache-preview-v1" || p.Kind != "dependency_cache" || p.PackageManager != "npm" || p.JobIndex != 0 || p.StepIndex != 1 || p.Line != 11 || p.Runs != 4 || p.SetupMS != 4200 || p.Verification != "inconclusive" || p.LockfilePath != "package-lock.json" || p.LockfileSHA256 != hash(source.Lockfile.Content) {
+	if p.Version != "cache-preview-v1" || p.Kind != "dependency_cache" || p.PackageManager != "npm" || p.JobIndex != 0 || p.StepIndex != 1 || p.Line != 12 || p.Runs != 4 || p.SetupMS != 4200 || p.Verification != "inconclusive" || p.LockfilePath != "package-lock.json" || p.LockfileSHA256 != hash(source.Lockfile.Content) {
 		t.Fatalf("preview %+v", p)
 	}
-	if !strings.Contains(p.File.Content, "        with:\n          cache: npm\n          node-version: 20\n") || !strings.Contains(p.File.Content, "      - run: npm test\n") || p.AfterSHA256 == p.SourceSHA256 {
+	if !strings.Contains(p.File.Content, "        with:\n          cache: npm\n          node-version: 20\n") || !strings.Contains(p.File.Content, "      - name: Test\n        run: npm test\n") || p.AfterSHA256 == p.SourceSHA256 {
 		t.Fatalf("source edit = %q", p.File.Content)
 	}
 	if !strings.Contains(p.Explanation, "4 runs") || !strings.Contains(p.Explanation, "4.2s") || !strings.Contains(p.Explanation, "unverified") {
@@ -109,7 +111,7 @@ func TestCachePreviewRefusesUnsupportedEvidenceOrSource(t *testing.T) {
 				source.Workflow.Content = strings.Replace(source.Workflow.Content, "          node-version: 20\n", "          node-version: 20\n          cache: npm\n", 1)
 				evidence.SourceSHA256 = hash(source.Workflow.Content)
 			case "two setup nodes":
-				source.Workflow.Content = strings.Replace(source.Workflow.Content, "      - run: npm test\n", "      - uses: actions/setup-node@"+strings.Repeat("c", 40)+"\n        with:\n          node-version: 20\n      - run: npm test\n", 1)
+				source.Workflow.Content = strings.Replace(source.Workflow.Content, "      - name: Test\n        run: npm test\n", "      - uses: actions/setup-node@"+strings.Repeat("c", 40)+"\n        with:\n          node-version: 20\n      - name: Test\n        run: npm test\n", 1)
 				evidence.SourceSHA256 = hash(source.Workflow.Content)
 			case "unpinned":
 				source.Workflow.Content = strings.Replace(source.Workflow.Content, "actions/setup-node@"+strings.Repeat("b", 40), "actions/setup-node@v4", 1)
@@ -183,5 +185,21 @@ func TestSetupEvidenceFromSamplesRefusesThinOrMalformedHistory(t *testing.T) {
 				t.Fatal("accepted")
 			}
 		})
+	}
+}
+
+func TestCachePreviewComputesFromTheLockfileDigestWhenTheFileIsNotRetained(t *testing.T) {
+	source, evidence := cacheFixture(t)
+	digest := hash(source.Lockfile.Content)
+	source.Lockfile.Content = ""
+	source.LockfileSHA256 = digest
+	p, err := PreviewCache(source, evidence, Policy{SourceAllowed: true, WorkflowEditsAllowed: true})
+	if err != nil || p.PackageManager != "npm" || p.LockfileSHA256 != digest || p.AfterSHA256 == "" {
+		t.Fatalf("preview %+v, %v", p, err)
+	}
+	// A digest that no longer matches the supplied bytes is refused.
+	source.Lockfile.Content = `{"lockfileVersion":2}`
+	if _, err := PreviewCache(source, evidence, Policy{SourceAllowed: true, WorkflowEditsAllowed: true}); err == nil {
+		t.Fatal("mismatched bytes and digest accepted")
 	}
 }

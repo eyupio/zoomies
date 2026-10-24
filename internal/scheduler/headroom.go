@@ -100,5 +100,15 @@ func (hs *hostSet) readyDelay(h *store.Host, p *store.Pool) time.Duration {
 		d = time.Minute
 	}
 	d = min(max(d, 5*time.Second), 10*time.Minute)
-	return time.Duration(hs.warming[h.ID]+1) * d
+	warming := hs.warming[h.ID]
+	// The agent starts DinD creates and everything else on separate lanes, so
+	// a pool that starts no daemon of its own is not behind a warming one.
+	// Counting the whole host made a host look slow to every pool whenever its
+	// DinD lane was busy, and could place a runner elsewhere for no reason.
+	if p.DockerMode == store.DockerDinD {
+		warming = hs.warmingDinD[h.ID]
+	} else {
+		warming -= hs.warmingDinD[h.ID]
+	}
+	return time.Duration(warming+1) * d
 }

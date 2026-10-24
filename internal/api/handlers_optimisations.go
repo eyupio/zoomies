@@ -421,6 +421,16 @@ func (s *Server) optimisationError(w http.ResponseWriter, r *http.Request, err e
 		conflict(w, "Approve this preview before publishing it.")
 	case errors.Is(err, controller.ErrOptimisationApproval):
 		conflict(w, "The commit and source digest do not match this retained preview. Open it again and approve exactly what it shows.")
+	case errors.Is(err, controller.ErrOptimisationCacheApproval):
+		conflict(w, "The commit and source digest do not match this retained cache preview. Open it again and approve exactly what it shows.")
+	case errors.Is(err, github.ErrSetupCacheNotFound):
+		conflict(w, "No supported root lockfile was found at the selected commit. Cache previews need package-lock.json, npm-shrinkwrap.json, yarn.lock or pnpm-lock.yaml at the repository root.")
+	case errors.Is(err, github.ErrSetupCacheAmbiguous):
+		conflict(w, "More than one supported root lockfile was found at the selected commit. Remove or rename the extra lockfile before previewing a cache change.")
+	case errors.Is(err, github.ErrSetupCacheChanged):
+		conflict(w, "The attempt changed while its source was read. Try the preview again.")
+	case errors.Is(err, controller.ErrOptimisationCache):
+		conflict(w, "This cache preview cannot be computed from the selected job. It needs a successful push job the fleet ran, one pinned actions/setup-node step with literal job and step names, one root lockfile, and at least two matching setup timings from the last ninety days.")
 	case errors.Is(err, controller.ErrOptimisationPublish):
 		conflict(w, err.Error())
 	case errors.Is(err, controller.ErrOptimisationVerification):

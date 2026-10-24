@@ -416,6 +416,24 @@ changed line, never the full file, and neither approves nor publishes. Actor
 identities are left out of what a model is shown. The path and line are untrusted
 repository text.
 
+### Previewing a setup cache
+
+**Cache preview** (`/optimisations/cache`) applies the same review to a Node
+build's setup cache. Choose a successful push job; Zoomies reads the workflow and
+the one root lockfile at that commit, finds the pinned `actions/setup-node` step
+and the package manager the lockfile names, and shows the exact `with:` block it
+would add `cache: npm`, `cache: yarn` or `cache: pnpm` to. The setup step's mean
+time over the fleet's recent successful runs is descriptive, not a saving.
+
+Confirm that you reviewed the block, then **Keep a preview for 14 days**. The
+kept card shows the insertion, the commit and digests, the lockfile path and
+digest, the setup summary and who kept it. An operator can then approve that
+exact preview: approval names its commit and source digest, records who approved,
+expires with the preview and publishes nothing. Verification is always
+`inconclusive` and currentness `not_checked`; the cache is the setup action's own,
+and nothing is published. The full workflow and lockfile are never returned after
+the inspection.
+
 The step must use a commit-pinned `actions/checkout` with a literal
 `fetch-depth: 0`, in a root workflow with literal job and step names. Matrix,
 generated or reusable names are refused rather than guessed. If the file changed

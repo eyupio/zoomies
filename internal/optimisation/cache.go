@@ -26,6 +26,9 @@ type CacheSource struct {
 	HeadSHA  string
 	Workflow prrepair.File
 	Lockfile prrepair.File
+	// LockfileSHA256 is the content digest when the lockfile itself is not
+	// retained, as replay does. When Content is present it must match.
+	LockfileSHA256 string
 }
 
 // SetupEvidence is caller-supplied, not independently attested. It says the
@@ -55,6 +58,8 @@ type CachePreview struct {
 	EvidenceID     string
 	JobIndex       int
 	StepIndex      int
+	JobName        string
+	StepName       string
 	Line           int
 	Runs           int
 	SetupMS        int64
@@ -76,8 +81,14 @@ func cacheManager(lockfile string) string {
 	return ""
 }
 
-func cacheLockfile(file prrepair.File) bool {
-	return (file.Path == "package-lock.json" || file.Path == "npm-shrinkwrap.json" || file.Path == "yarn.lock" || file.Path == "pnpm-lock.yaml") && (file.Mode == "100644" || file.Mode == "100755") && !file.Partial && file.StartLine == 0 && len(file.Content) > 0 && len(file.Content) <= MaxLockfileBytes && utf8.ValidString(file.Content)
+func cacheLockfile(file prrepair.File, digest string) bool {
+	if (file.Path != "package-lock.json" && file.Path != "npm-shrinkwrap.json" && file.Path != "yarn.lock" && file.Path != "pnpm-lock.yaml") || (file.Mode != "100644" && file.Mode != "100755") || file.Partial || file.StartLine != 0 || len(digest) != 64 || digest != strings.ToLower(digest) {
+		return false
+	}
+	if file.Content == "" {
+		return true
+	}
+	return len(file.Content) <= MaxLockfileBytes && utf8.ValidString(file.Content) && hash(file.Content) == digest
 }
 
 func cacheWorkflow(file prrepair.File) bool {
@@ -89,16 +100,30 @@ func cacheWorkflow(file prrepair.File) bool {
 // steps, a cache already named, unsupported YAML, stale evidence and disabled
 // policy. It reads nothing and calls no model.
 func PreviewCache(source CacheSource, evidence SetupEvidence, policy Policy) (CachePreview, error) {
-	if !policy.SourceAllowed || !policy.WorkflowEditsAllowed || !commit(source.HeadSHA) || !cacheWorkflow(source.Workflow) || !cacheLockfile(source.Lockfile) {
+	if !policy.SourceAllowed || !policy.WorkflowEditsAllowed || !commit(source.HeadSHA) || !cacheWorkflow(source.Workflow) {
 		return CachePreview{}, ErrCacheUnsupported
 	}
 	sourceDigest := hash(source.Workflow.Content)
-	lockfileDigest := hash(source.Lockfile.Content)
+	lockfileDigest := source.LockfileSHA256
+	if source.Lockfile.Content != "" {
+		computed := hash(source.Lockfile.Content)
+		if lockfileDigest != "" && lockfileDigest != computed {
+			return CachePreview{}, ErrCacheUnsupported
+		}
+		lockfileDigest = computed
+	}
+	if !cacheLockfile(source.Lockfile, lockfileDigest) {
+		return CachePreview{}, ErrCacheUnsupported
+	}
 	manager := cacheManager(source.Lockfile.Path)
 	if manager == "" || evidence.HeadSHA != source.HeadSHA || evidence.SourceSHA256 != sourceDigest || evidence.LockfileSHA256 != lockfileDigest || evidence.EvidenceID == "" || len(evidence.EvidenceID) > 128 || strings.ContainsAny(evidence.EvidenceID, " \t\r\n\x00") || evidence.Runs < 2 || evidence.Runs > 100 || evidence.SetupMS == nil || *evidence.SetupMS <= 0 || *evidence.SetupMS > 7*24*60*60*1000 {
 		return CachePreview{}, ErrCacheUnsupported
 	}
 	job, step, err := workflow.FindSetupNode([]byte(source.Workflow.Content))
+	if err != nil {
+		return CachePreview{}, ErrCacheUnsupported
+	}
+	jobName, stepName, err := workflow.SetupNames([]byte(source.Workflow.Content), job, step)
 	if err != nil {
 		return CachePreview{}, ErrCacheUnsupported
 	}
@@ -115,7 +140,7 @@ func PreviewCache(source CacheSource, evidence SetupEvidence, policy Policy) (Ca
 		Version: "cache-preview-v1", Kind: "dependency_cache", State: "preview_ready",
 		HeadSHA: source.HeadSHA, SourceSHA256: sourceDigest, AfterSHA256: hash(files[0].Content),
 		LockfilePath: source.Lockfile.Path, LockfileSHA256: lockfileDigest, PackageManager: manager,
-		EvidenceID: evidence.EvidenceID, JobIndex: job, StepIndex: step, Line: line,
+		EvidenceID: evidence.EvidenceID, JobIndex: job, StepIndex: step, JobName: jobName, StepName: stepName, Line: line,
 		Runs: evidence.Runs, SetupMS: *evidence.SetupMS, Edit: edit, File: files[0],
 		Verification: "inconclusive",
 		Explanation:  "Enable the setup action's " + manager + " cache using the root " + source.Lockfile.Path + ". The setup step averaged " + setupSeconds(*evidence.SetupMS) + " over " + runCount(evidence.Runs) + "; the saving is unverified and the cache is the action's own, shared with whoever can write this repository's cache. Passing CI alone cannot establish improvement.",
@@ -147,7 +172,7 @@ func CheckCacheCurrent(p CachePreview, source CacheSource, evidence SetupEvidenc
 	if err != nil {
 		return err
 	}
-	if current.HeadSHA != p.HeadSHA || current.SourceSHA256 != p.SourceSHA256 || current.AfterSHA256 != p.AfterSHA256 || current.LockfilePath != p.LockfilePath || current.LockfileSHA256 != p.LockfileSHA256 || current.PackageManager != p.PackageManager || current.JobIndex != p.JobIndex || current.StepIndex != p.StepIndex || current.Line != p.Line || current.Edit != p.Edit || current.File != p.File {
+	if current.HeadSHA != p.HeadSHA || current.SourceSHA256 != p.SourceSHA256 || current.AfterSHA256 != p.AfterSHA256 || current.LockfilePath != p.LockfilePath || current.LockfileSHA256 != p.LockfileSHA256 || current.PackageManager != p.PackageManager || current.JobIndex != p.JobIndex || current.StepIndex != p.StepIndex || current.JobName != p.JobName || current.StepName != p.StepName || current.Line != p.Line || current.Edit != p.Edit || current.File != p.File {
 		return ErrCacheUnsupported
 	}
 	return nil

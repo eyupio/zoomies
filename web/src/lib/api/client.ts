@@ -1518,6 +1518,34 @@ export const linkCheckoutVerification = (
     '/optimisations/checkout/previews/' + encodeURIComponent(id) + '/verification',
     { body, signal },
   );
+export const approveCachePreview = (
+  id: string,
+  body: import('./types').CacheApprovalRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').CachePreview>(
+    '/optimisations/cache/previews/' + encodeURIComponent(id) + '/approval',
+    { body, signal },
+  );
+export const inspectCachePreview = (
+  body: import('./types').CacheInspectionRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').CacheInspection>('/optimisations/cache/inspections', { body, signal });
+export const retainCachePreview = (
+  body: import('./types').CacheCaptureRequest,
+  signal?: AbortSignal,
+) => api.post<import('./types').CachePreview>('/optimisations/cache/previews', { body, signal });
+export const getCachePreview = (
+  id: string,
+  installation: string,
+  repo: string,
+  signal?: AbortSignal,
+) =>
+  api.get<import('./types').CachePreview>(
+    '/optimisations/cache/previews/' + encodeURIComponent(id),
+    { query: { installation_id: installation, repo }, signal },
+  );
 
 export const getOptimisationEnablement = (signal?: AbortSignal) =>
   api.get<import('./types').OptimisationEnablement>('/optimisations/enablement', { signal });

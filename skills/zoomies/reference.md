@@ -1078,20 +1078,21 @@ Examples:
 Read kept checkout optimisation previews
 
 ```text
-Read kept checkout optimisation previews.
+Read kept checkout and cache optimisation previews.
 
 Usage:
   zoomies optimisations <subcommand> [flags]
 
 Subcommands:
-  get <preview-id>                   Read a retained preview, its status and its one changed line
+  get <preview-id>                   Read a retained checkout preview, its status and its one changed line
+  cache <preview-id>                 Read a retained setup cache preview, its evidence and its one changed block
 
 Run "zoomies optimisations <subcommand> --help" for the flags each one takes.
 ```
 
 #### zoomies optimisations get
 
-Read a retained preview, its status and its one changed line
+Read a retained checkout preview, its status and its one changed line
 
 ```text
 Replay a retained checkout preview without reading GitHub, approving it or publishing it. Requires operator, optimisations:read and jobs:read. Returns metadata and the one changed line, never the full workflow file. Verification is always inconclusive; the checkout time is descriptive, not a saving.
@@ -1112,6 +1113,31 @@ Flags:
 Examples:
   zoomies optimisations get opv_01abc --installation ins_01abc --repo acme/widgets
   zoomies optimisations get opv_01abc --installation ins_01abc --repo acme/widgets --output json
+```
+
+#### zoomies optimisations cache
+
+Read a retained setup cache preview, its evidence and its one changed block
+
+```text
+Replay a retained setup cache preview without reading GitHub, approving it or publishing it. Requires operator, optimisations:read and jobs:read. Returns metadata, the setup evidence and the one changed with block, never the full workflow or lockfile. Verification is always inconclusive; the setup time is descriptive, not a saving.
+
+Usage:
+  zoomies optimisations cache <preview-id> --installation ID --repo OWNER/REPO
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --installation             installation ID owning the retained preview (required)
+  --output=table             table, json or yaml
+  --repo                     repository owning the retained preview, OWNER/REPO (required)
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies optimisations cache opc_01abc --installation ins_01abc --repo acme/widgets
+  zoomies optimisations cache opc_01abc --installation ins_01abc --repo acme/widgets --output json
 ```
 
 ### zoomies why

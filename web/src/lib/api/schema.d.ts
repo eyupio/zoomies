@@ -5809,6 +5809,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/optimisations/cache/inspections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compute a setup cache preview from one selected job
+         * @description Requires operator, jobs:read and optimisations:write; public visitors are refused. Refused with 403 unless optimisation.source_reads and optimisation.workflow_edits are on. Reads one completed successful push attempt, its complete commit tree, the root workflow and the one root lockfile at the commit, with at most eight GitHub requests under 20 seconds, the shared diagnostic flight and the half-core-quota reserve. The fleet job row must match the attempt's installation, repository, run, attempt and head, be successful, and carry one completed setup step with the workflow's literal name. Repeated setup cost comes from the fleet's retained job history (2 to 100 samples from the last 90 days). Returns the package manager, the exact insertion block, the setup evidence summary and an inconclusive verification; never the full workflow or lockfile.
+         */
+        post: operations["inspectCachePreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/optimisations/cache/previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retain a reviewed setup cache preview
+         * @description Requires operator, jobs:read and optimisations:write; public visitors are refused. Repeats the bounded source read and setup-history query, then requires the same head, workflow digest and lockfile digest the operator inspected. Keeps an immutable private preview for fourteen days with an audit row. It changes one block in one workflow, publishes nothing and calls no model. Verification is always inconclusive and currentness is not_checked.
+         */
+        post: operations["captureCachePreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/optimisations/cache/previews/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Replay a retained setup cache preview without GitHub reads
+         * @description Requires operator, jobs:read and optimisations:read; public visitors are refused. Supply exactly one installation_id and repo and nothing else. Verifies the stored digest and recomputes the preview from retained input only. The answer carries the insertion block, evidence summary and metadata, never the full workflow or lockfile. currentness is always not_checked and verification inconclusive.
+         */
+        get: operations["getCachePreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/optimisations/cache/previews/{id}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve one retained setup cache preview
+         * @description Requires operator, jobs:read and optimisations:write; public visitors are refused. Records an attributed approval of the exact retained cache preview named by its commit and source digest. It reads no source, calls no GitHub reader, opens no pull request and runs no job. The approval expires with the preview. A repeated approval of the same binding is a no-op with no second audit row; a different head, source or preview is refused.
+         */
+        post: operations["approveCachePreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -12445,6 +12531,105 @@ export interface components {
             pull_number: number;
             pull_url: string;
         } | null;
+        CacheSelection: {
+            run_id: string;
+            attempt: number;
+            github_job_id: string;
+        };
+        CacheInspectionRequest: {
+            installation_id: string;
+            repository: string;
+            selection: components["schemas"]["CacheSelection"];
+        };
+        CacheCaptureRequest: {
+            installation_id: string;
+            repository: string;
+            selection: components["schemas"]["CacheSelection"];
+            /** @description The commit the operator reviewed. */
+            head_sha: string;
+            /** @description The workflow digest the operator reviewed. */
+            source_sha256: string;
+            /** @description The lockfile digest the operator reviewed. */
+            lockfile_sha256: string;
+        };
+        CacheInspection: {
+            installation_id: string;
+            repository: string;
+            selection: components["schemas"]["CacheSelection"];
+            head_sha: string;
+            workflow_path: string;
+            lockfile_path: string;
+            lockfile_sha256: string;
+            source_sha256: string;
+            /** @enum {string} */
+            package_manager: "npm" | "yarn" | "pnpm";
+            job_name: string;
+            step_name: string;
+            line: number;
+            runs: number;
+            /** Format: int64 */
+            setup_ms: number;
+            /** @description The with block as it is, untrusted repository text. */
+            before: string;
+            /** @description The with block with the cache key, untrusted repository text. */
+            after: string;
+            /** @enum {string} */
+            verification: "inconclusive";
+            explanation: string;
+            /** Format: date-time */
+            inspected_at: string;
+        };
+        CachePreview: {
+            id: string;
+            installation_id: string;
+            repository: string;
+            reviewed_by: string;
+            sha256: string;
+            /** Format: date-time */
+            created_at: string;
+            /** @enum {string} */
+            currentness: "not_checked";
+            head_sha: string;
+            workflow_path: string;
+            lockfile_path: string;
+            lockfile_sha256: string;
+            source_sha256: string;
+            after_sha256: string;
+            /** @enum {string} */
+            package_manager: "npm" | "yarn" | "pnpm";
+            job_name: string;
+            step_name: string;
+            line: number;
+            runs: number;
+            /** Format: int64 */
+            setup_ms: number;
+            /** @description The with block as it is, untrusted repository text. */
+            before: string;
+            /** @description The with block with the cache key, untrusted repository text. */
+            after: string;
+            /** @enum {string} */
+            verification: "inconclusive";
+            explanation: string;
+            approval: components["schemas"]["CacheApproval"];
+        };
+        /** @description An attributed approval of the exact retained cache preview, or null when none was given. */
+        CacheApproval: {
+            approved_by: string;
+            /** Format: date-time */
+            approved_at: string;
+            head_sha: string;
+            source_sha256: string;
+            /** @description The digest of the immutable retained record this approval binds. */
+            preview_sha256: string;
+        } | null;
+        CacheApprovalRequest: {
+            installation_id: string;
+            repository: string;
+            /** @description The commit the cache preview names. */
+            head_sha: string;
+            /** @description The workflow digest the cache preview names. */
+            source_sha256: string;
+        };
         CheckoutVerificationRequest: {
             installation_id: string;
             repository: string;
@@ -22168,6 +22353,228 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             /** @description The preview is unpublished, or the comparison is unrelated, unsupported or already different. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    inspectCachePreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CacheInspectionRequest"];
+            };
+        };
+        responses: {
+            /** @description The computed preview and descriptive evidence; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CacheInspection"];
+                };
+            };
+            /** @description Invalid request or selection. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The job, lockfile or setup evidence is unsupported or changed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Diagnostic or GitHub quota refusal; Retry-After says when to retry manually. */
+            429: {
+                headers: {
+                    "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    captureCachePreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CacheCaptureRequest"];
+            };
+        };
+        responses: {
+            /** @description Audited retained cache preview; Cache-Control is no-store. */
+            201: {
+                headers: {
+                    Location: components["headers"]["Location"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CachePreview"];
+                };
+            };
+            /** @description Invalid request or selection. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The source moved, the job or lockfile is unsupported, or the preview cannot be kept. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Diagnostic or GitHub quota refusal; Retry-After says when to retry manually. */
+            429: {
+                headers: {
+                    "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getCachePreview: {
+        parameters: {
+            query: {
+                installation_id: string;
+                repo: string;
+            };
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Verified retained cache preview; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CachePreview"];
+                };
+            };
+            /** @description Invalid query or preview ID. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The preview is unavailable, expired or outside this scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Stored content integrity cannot be verified. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    approveCachePreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CacheApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description The retained preview with its approval; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CachePreview"];
+                };
+            };
+            /** @description Invalid request, scope or digest. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The preview is unavailable, expired or outside this scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The preview, its stored evidence or an earlier approval does not match the request. */
             409: {
                 headers: {
                     [name: string]: unknown;

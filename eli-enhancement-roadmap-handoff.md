@@ -27,7 +27,7 @@ as the record of how each slice landed.
 | --- | --- | --- |
 | E1 (ZF-242) | Merged and used: `internal/analysis` (`merge_delay.go`), `get_pr_delay` on Eli's allowlist, CLI, contextual UI | None. ROADMAP.md still lists `in_progress` because live-model evaluation and a real performance experiment have not run |
 | E2 (ZF-243) | Descriptive milestone merged (#1020); `get_retained_comparison` on Eli's allowlist; ZF-241's period comparison, queue breakdown, host pressure and startup failures are `implemented` | None. Controlled-experiment proof and dispatch stay deferred by the owner |
-| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and a pure supplied-evidence cache preview foundation, all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, cache evidence/retention/routes, and write access from the CLI, MCP or Eli (deliberately web-only) |
+| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and the wider catalogue's setup cache preview through its pure foundation, retained history, bounded source, private retention/API, web page, bounded CLI/MCP/Eli replay and attributed approval (migration 0123), all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, cache publication, and write access from the CLI, MCP or Eli (deliberately web-only) |
 | E4 | Not started as a track. Kennel's evaluator, waivers and guidance exist, but no fix preview or publication path does | Unchanged |
 | E5 | ZF-241's `startup_failures` covers runner-startup recurrence. No workflow/test failure fingerprinting exists | Unchanged |
 | E6 | Not started. `internal/prrepair/mention` (ZF-239 slice 1) is only the command matcher | Unchanged |
@@ -109,6 +109,40 @@ publication arrived on 23 October:
   GitHub-reported step timings with their exact local job identities, skips
   ambiguous or untimed steps, and a pure helper turns them into the preview's
   mean setup time and a deterministic evidence ID. No extra GitHub read.
+* **Cache source binding (23 October).** `ReadSetupCacheSource` reads one
+  completed successful push attempt, its commit tree, the root workflow and the
+  one root lockfile at the commit, and matches literal job and setup step names.
+  The controller binds it to the selected fleet job row and the retained setup
+  history, then returns the pure cache preview. At most eight GitHub requests
+  under the shared diagnostic admission.
+* **Cache retention and API (23 October).** Migration 0122 adds a separate
+  bounded, installation-scoped cache preview history with the same fourteen-day
+  lifetime and twenty/one-hundred caps as checkout. `POST
+  /optimisations/cache/inspections` computes and returns the insertion block and
+  evidence summary without retaining; `POST /optimisations/cache/previews`
+  re-reads and requires the same head, workflow digest and lockfile digest
+  before keeping it; `GET .../{id}` replays from stored input. The full workflow
+  source and setup samples stay private; the lockfile is kept as path, mode and
+  SHA-256, never content.
+* **Cache web page (23 October).** `/optimisations/cache` reuses the checkout run
+  picker and optimisation gate. It shows the package manager, root lockfile,
+  literal setup step, commit and digests, and the exact `with:` block as untrusted
+  text. A declaration gates keeping; the kept card shows the insertion, evidence
+  summary, preview ID and reviewer, says verification is inconclusive and
+  currentness not checked, and publishes nothing.
+* **Cache read surfaces (23 October).** `zoomies optimisations cache <preview-id>`
+  and the MCP/Eli tool `get_cache_preview` read the same bounded route as the
+  cache web page: metadata, the package manager, root lockfile, setup evidence,
+  digests and the one `with:` block. They never return the full workflow or
+  lockfile, drop actor identities from model output, and neither approve nor
+  publish. The path and block are untrusted repository text; verification is
+  inconclusive. No new route besides approval; no new setting.
+* **Cache approval (23 October).** Migration 0123 stores one attributed approval
+  per retained cache preview, cascading with it. The web card offers a
+  declaration and approval after keeping; the approval names the exact commit,
+  workflow digest and preview hash, is audited, expires with the preview and
+  publishes nothing. The CLI shows the approval; MCP/Eli project its time and
+  digests but drop who approved. No publication yet.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval, draft publication and read access from the CLI, MCP and Eli have since
@@ -125,13 +159,12 @@ been built (see the 23 October sections at the end). The rest remains.
    time before and after through the E2 comparison. The result is "inconclusive"
    unless a suitable control and candidate exist, and CI passing is never evidence of
    a saving. Projected savings stay estimates.
-3. **Wider catalogue.** The dependency/build cache foundation is the pure
-   `actions/setup-node` preview and the fleet's retained setup history described
-   above. Next is binding that evidence to one selected run and reading the
-   workflow and root lockfile at its commit, then retention, approval,
-   publication and the read surfaces it needs. Bounded readiness polling and
-   sharding follow, each with its own evidence and refusals. Do not lead with
-   test removal, relaxed assertions or blanket retries.
+3. **Wider catalogue.** The dependency/build cache foundation, retained setup
+   history, bounded source binding, private retention/API, web page and
+   CLI/MCP/Eli replay and attributed approval are described above. Next is cache
+   publication. Bounded readiness polling and sharding follow, each with its own
+   evidence and refusals. Do not lead with test removal, relaxed assertions or
+   blanket retries.
 
 Owner decisions still open: whether a different person than the reviewer must
 approve (the 23 October slice keeps the recommended default, that the same
@@ -2476,7 +2509,7 @@ Next agent: run the whole flow against one real repository first. The published
 preview now links to the E2 comparison page; capturing a real control and
 candidate after merge is the remaining verification step, and it stays
 inconclusive without them. CLI and MCP/Eli access still wait on the
-private-envelope contract decision. The next free migration is 0122.
+private-envelope contract decision. The cache approval took 0123; the next free migration is 0124.
 
 
 ### E3 verification link, 23 October 2026
@@ -2593,3 +2626,140 @@ or malformed history. All against the test store only.
 Next agent: bind this history to one selected run and read the workflow and root
 lockfile at its commit before adding retention or a route. Do not describe the
 cache optimisation as usable yet.
+
+
+### E3 cache source binding, 23 October 2026
+
+The cache preview can now be computed from one selected fleet job and its exact
+GitHub attempt without retaining anything. `ReadSetupCacheSource` reads a
+completed successful push attempt, its complete commit tree, the root workflow
+and the one root lockfile at that commit. It refuses redirects, non-push
+attempts, a truncated tree, zero or two root lockfiles, oversized or non-UTF-8
+files, a changed final attempt, and a setup step without one literal job and
+step name. At most eight requests.
+
+The controller binds that source to the selected fleet job row: same installation
+and repository, run, attempt and head, successful, one completed step with the
+literal name and a positive duration. It then uses the retained setup samples
+from the last ninety days, requiring the selected job among them, and runs the
+pure cache preview. The read takes one of the shared twenty-hourly diagnostic
+admissions and the half-quota reserve. No model is called.
+
+There is no retention, approval, publication, route, CLI, MCP, Eli or UI. The
+design is in [the plan](roadmap/plans/2026-10-23-eli-e3-cache-source.md). Tests
+cover the source, lockfile, literal names, push/success, tree/file refusals, the
+selected job binding, history, policy, quota and reader failures. All against
+fakes.
+
+Next agent: add retention and the API/web surface for this preview before
+considering CLI/MCP/Eli or publication. Do not describe the cache optimisation as
+usable yet.
+
+
+### E3 cache retention and API, 23 October 2026
+
+Cache previews now have their own private, bounded history. Migration 0122 adds
+`optimisation_cache_previews` with a fourteen-day lifetime, twenty per
+installation and one hundred globally, an `opc_` ID, an atomic
+`optimisation.cache_preview_retained` audit row and cascade on installation
+deletion. The envelope retains the before workflow source, the setup evidence
+and its samples, and the preview; the lockfile is kept as path, mode and
+SHA-256, never content.
+
+`POST /optimisations/cache/inspections` computes a preview without retaining and
+returns the `with:` block, package manager, head, workflow digest, lockfile
+digest, setup summary and explanation. `POST /optimisations/cache/previews`
+re-reads the source and history and requires the same head and both digests,
+then keeps it. `GET /optimisations/cache/previews/{id}` replays from stored
+input. The views never carry the full workflow or lockfile. Replay verifies the
+storage digest, strict-decodes the envelope, recomputes setup evidence from its
+samples and compares the complete preview. The source/edit settings still gate
+inspection and capture; visitors are refused.
+
+The design is in
+[the plan](roadmap/plans/2026-10-23-eli-e3-cache-retention-api.md). Store,
+controller and API tests cover scope, immutability, audit rollback, caps,
+expiry, global bound, installation deletion, corruption, backup, exact
+inspect-then-capture, a moved source, an altered envelope, a disabled setting
+and replay without GitHub. All against fakes.
+
+Next agent: add the cache web page before CLI/MCP/Eli, then approval and
+publication. Do not put the retained envelope on Eli's allowlist.
+
+
+### E3 cache web page, 23 October 2026
+
+`/optimisations/cache` is the first web surface for the wider catalogue. It
+reuses the checkout run picker and one-press gate, lists successful push jobs,
+and on **Review** asks the inspect route for the cache preview. The review shows
+the package manager, root lockfile, literal setup step, commit and both digests,
+the mean setup time over the fleet's retained runs, and the exact `with:` block
+as untrusted text. The full workflow and lockfile are never returned by the API
+or rendered.
+
+The operator must declare that they reviewed the block; **Keep a preview for 14
+days** sends the exact selection, head, workflow digest and lockfile digest the
+server showed. The kept card shows the insertion, evidence summary, preview ID
+and reviewer, says verification is inconclusive and currentness not checked, and
+publishes nothing. The page opens a kept preview from an `opc_` link and is
+linked from Checkout preview.
+
+The design is in [the plan](roadmap/plans/2026-10-23-eli-e3-cache-web.md).
+Validation: desktop and phone browser tests cover picking a job without typing
+IDs, the exact inspect and capture bodies, the escaped insertion block, the
+declaration gating the button, opening a kept preview from its link and no
+horizontal overflow. No live GitHub, model or fleet.
+
+Next agent: add cache CLI/MCP/Eli read access, then approval and publication.
+Do not expose the retained envelope to a model.
+
+
+### E3 cache read surfaces, 23 October 2026
+
+The owner's bounded view applies to the cache too: metadata, the package manager,
+the root lockfile, the setup evidence, the digests and the one `with:` block,
+never the full workflow or lockfile. `zoomies optimisations cache <preview-id>
+--installation ID --repo OWNER/REPO` and the MCP/Eli tool `get_cache_preview`
+read the existing replay route through the caller's token, needing
+`optimisations:read` and `jobs:read`. They neither approve nor publish. The
+MCP/Eli projection drops `reviewed_by` and any future field, and the block is
+quoted untrusted text because it came from a repository. Verification is always
+inconclusive; the setup time is descriptive, not a saving.
+
+The design is in
+[the plan](roadmap/plans/2026-10-23-eli-e3-cache-read.md). Validation: CLI tests
+cover the human view, unchanged JSON and invalid scope before a request; MCP
+tests cover one scoped GET, the exact projection, dropped actor/source fields,
+invalid arguments and unavailable or inconsistent evidence.
+
+Next agent: add cache approval and publication, then bounded readiness polling
+and sharding. Real-repository validation and a real E2 comparison remain the
+owner's after merge. Do not expose the full retained envelope to a model.
+
+
+### E3 cache approval, 23 October 2026
+
+A cache preview can now be approved as a separate, attributed act. Migration
+0123 stores one approval per retained cache preview, cascading with it; the
+store joins and validates it, and a partial row is corrupt evidence. The route
+is `POST /optimisations/cache/previews/{id}/approval`, needing
+`optimisations:write` and `jobs:read`; visitors are refused. It reads no source,
+opens no pull request and runs no job.
+
+The kept card asks for a declaration, then shows the approver, time, commit and
+digests and says nothing was published. A repeated approval of the same binding
+is a no-op with no second audit row; a different head, source or preview is a
+conflict. `zoomies optimisations cache` shows the approval, and
+`get_cache_preview` projects its time and digests while dropping who approved.
+OpenAPI and both generated clients carry the new route and nullable approval.
+
+The design is in
+[the plan](roadmap/plans/2026-10-23-eli-e3-cache-approval.md). Validation:
+store tests cover binding, repeat, audit, foreign scope and expiry; API tests
+cover the route, audit, replay and a mismatched head; browser tests cover the
+disabled button, declaration, request body and approved card on desktop and
+phone.
+
+Next agent: add cache publication, then bounded readiness polling and sharding.
+Real-repository validation and a real E2 comparison remain the owner's after
+merge. Approval is not publication; do not describe it as applying the change.
