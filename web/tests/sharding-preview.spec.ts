@@ -127,7 +127,7 @@ test('pick a job, review the shards and the extra runner time, and keep the prev
   });
   await expect(page.getByText('4 shards', { exact: false }).first()).toBeVisible();
   await expect(page.getByText(/rises because every shard repeats the setup/)).toBeVisible();
-  await expect(page.getByText(/an upper bound at one moment, not a reservation/)).toBeVisible();
+  await expect(page.getByText(/an upper bound\s+at one moment, not a reservation/)).toBeVisible();
   await expect(page.getByText(/estimate from medians, not a saving/)).toBeVisible();
   const keep = page.getByRole('button', { name: 'Keep a preview for 14 days' });
   await expect(keep).toBeDisabled();
@@ -160,14 +160,11 @@ test('a kept sharding preview opens from its link', async ({ page }) => {
   await expect(page.getByText(/which together run the whole Playwright suite/)).toBeVisible();
 });
 
-test('a sharding preview fits a phone, kept and under review', async ({ page }) => {
+test('a kept sharding preview fits a phone', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 700 });
   await mocks(page);
   await page.route('**/api/v1/optimisations/sharding/previews/*?*', (route) =>
     route.fulfill({ json: retained }),
-  );
-  await page.route('**/api/v1/optimisations/sharding/inspections', (route) =>
-    route.fulfill({ json: inspection }),
   );
   await goto(
     page,
@@ -175,10 +172,18 @@ test('a sharding preview fits a phone, kept and under review', async ({ page }) 
     'Sharding preview',
   );
   await expect(page.getByRole('heading', { name: 'Retained sharding preview' })).toBeVisible();
-  const overflowKept = await page.evaluate(
+  const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
   );
-  expect(overflowKept).toBe(false);
+  expect(overflow).toBe(false);
+});
+
+test('a sharding preview under review fits a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 700 });
+  await mocks(page);
+  await page.route('**/api/v1/optimisations/sharding/inspections', (route) =>
+    route.fulfill({ json: inspection }),
+  );
   await goto(page, '/optimisations/sharding', 'Sharding preview');
   await page.getByRole('combobox', { name: 'Repository' }).selectOption('acme/repo');
   await page
@@ -187,8 +192,8 @@ test('a sharding preview fits a phone, kept and under review', async ({ page }) 
     .click();
   await page.getByRole('button', { name: 'Read this workflow' }).click();
   await expect(page.getByRole('heading', { name: '2. Review the shards' })).toBeVisible();
-  const overflowReview = await page.evaluate(
+  const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
   );
-  expect(overflowReview).toBe(false);
+  expect(overflow).toBe(false);
 });
