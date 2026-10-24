@@ -10,13 +10,21 @@
     onapprove,
     canApprove = false,
     approving = false,
+    canPublish = false,
+    publishing = false,
+    onpublish,
   }: {
     preview: ReadinessPreview;
     onapprove?: () => void;
     canApprove?: boolean;
     approving?: boolean;
+    canPublish?: boolean;
+    publishing?: boolean;
+    onpublish?: () => void;
   } = $props();
   let confirmed = $state(false);
+  const approval = $derived(preview.approval);
+  const publication = $derived(preview.publication);
 </script>
 
 <section class="card" aria-labelledby="readiness-preview-title">
@@ -80,14 +88,14 @@
     <pre class="added"><span aria-hidden="true">+ </span><span class="sr"
         >Added: </span>{preview.after.replace(/\n$/, '')}</pre>
   </div>
-  {#if preview.approval}
+  {#if approval}
     <div class="approval">
       <h3>Approved</h3>
       <p>
-        Approved by <strong>{preview.approval.approved_by}</strong>
-        <RelativeTime value={preview.approval.approved_at} /> at commit
-        <span class="mono">{preview.approval.head_sha}</span>, source digest
-        <span class="mono">{preview.approval.source_sha256}</span>.
+        Approved by <strong>{approval.approved_by}</strong>
+        <RelativeTime value={approval.approved_at} /> at commit
+        <span class="mono">{approval.head_sha}</span>, source digest
+        <span class="mono">{approval.source_sha256}</span>.
       </p>
       <p>
         This approval expires with the preview. It did not publish anything: no pull request was
@@ -113,9 +121,46 @@
       </div>
     </div>
   {/if}
+  {#if publication}
+    <div class="approval">
+      <h3>Draft pull request opened</h3>
+      <p>
+        <a href={publication.pull_url}>#{publication.pull_number}</a> from
+        <span class="mono">{publication.branch}</span> into
+        <span class="mono">{publication.base_branch}</span>, opened by
+        <strong>{publication.published_by}</strong>
+        <RelativeTime value={publication.published_at} />.
+      </p>
+      <p>
+        Nothing was merged. Zoomies does not merge pull requests; review the draft, confirm the
+        readiness command really means the service is ready, and let the repository's own checks
+        decide. Verification remains inconclusive until a baseline and candidate comparison exists.
+      </p>
+    </div>
+  {:else if approval && canPublish}
+    <div class="approval">
+      <h3>Publish a draft pull request</h3>
+      <p>
+        This commits the reviewed run block on a new branch and opens a draft pull request against
+        the branch the run came from. It never merges, never force-pushes and runs no job. No
+        measurement shows the change saves time.
+      </p>
+      <div class="approval-actions">
+        <Button onclick={() => onpublish?.()} loading={publishing} disabled={publishing}
+          >Open a draft pull request</Button
+        >
+      </div>
+    </div>
+  {/if}
   <p>
-    Nothing was published. There is no pull request and no job run. Keeping or approving a preview
-    does not apply it.
+    {#if publication}
+      The draft pull request is open; nothing was merged and no job was run.
+    {:else if approval}
+      The approval is recorded, but nothing was published.
+    {:else}
+      Nothing was published. There is no pull request and no job run. Keeping or approving a preview
+      does not apply it.
+    {/if}
   </p>
 </section>
 

@@ -21,6 +21,7 @@ func readinessPreviewFixture() string {
 	  "before":"        run: sleep 30\n","after":"        run: |\n          timeout 30 sh -c 'until curl -fsS http://127.0.0.1:8080/health; do sleep 1; done'\n",
 	  "verification":"inconclusive","explanation":"Replace a fixed 30s sleep with a bounded poll of the operator command.",
 	  "approval":{"approved_by":"private-approver","approved_at":"2026-10-24T10:02:00Z","head_sha":"` + strings.Repeat("c", 40) + `","source_sha256":"` + strings.Repeat("e", 64) + `","preview_sha256":"` + strings.Repeat("a", 64) + `"},
+	  "publication":{"published_by":"private-publisher","published_at":"2026-10-24T10:03:00Z","branch":"zoomies/readiness-opr_1","base_branch":"main","base_sha":"` + strings.Repeat("c", 40) + `","head_sha":"` + strings.Repeat("c", 40) + `","source_sha256":"` + strings.Repeat("e", 64) + `","preview_sha256":"` + strings.Repeat("a", 64) + `","pull_number":12,"pull_url":"https://github.com/acme/repo/pull/12"},
 	  "content":"private workflow source that must not leave","future_private":"hidden"
 	}`
 }
@@ -41,14 +42,14 @@ func TestReadinessPreviewToolReadsOnceAndQuotesTheChangedBlock(t *testing.T) {
 	if len(content) != 2 || !strings.Contains(content[0].Text, "untrusted") || strings.Contains(content[0].Text, "timeout 30") || !strings.Contains(content[1].Text, "timeout 30 sh -c") || !strings.Contains(content[1].Text, "curl -fsS") {
 		t.Fatalf("unsafe blocks: %+v", content)
 	}
-	if strings.Contains(content[1].Text, "private workflow source") || strings.Contains(content[1].Text, "private-reviewer") || strings.Contains(content[1].Text, "private-approver") || strings.Contains(content[1].Text, "future_private") || strings.Contains(content[1].Text, `"run_id"`) {
+	if strings.Contains(content[1].Text, "private workflow source") || strings.Contains(content[1].Text, "private-reviewer") || strings.Contains(content[1].Text, "private-approver") || strings.Contains(content[1].Text, "private-publisher") || strings.Contains(content[1].Text, "future_private") || strings.Contains(content[1].Text, `"run_id"`) {
 		t.Fatal("passed source, actor identity, selection or an unreviewed field")
 	}
 	encoded, _ := json.Marshal(value)
 	if string(encoded) != content[1].Text {
 		t.Fatal("structured/text evidence differs")
 	}
-	if p := value.(readinessPreviewProjection); p.Condition != "curl -fsS http://127.0.0.1:8080/health" || p.WaitSeconds != 30 || p.Runs != 4 || p.WaitMS != 31000 || p.JobName != "Build" || p.StepName != "Wait for the API" || p.Approval == nil || p.Approval.ApprovedAt.IsZero() || p.Approval.HeadSHA != p.HeadSHA || p.Approval.SourceSHA256 != p.SourceSHA256 || p.Approval.PreviewSHA256 == "" {
+	if p := value.(readinessPreviewProjection); p.Condition != "curl -fsS http://127.0.0.1:8080/health" || p.WaitSeconds != 30 || p.Runs != 4 || p.WaitMS != 31000 || p.JobName != "Build" || p.StepName != "Wait for the API" || p.Approval == nil || p.Approval.ApprovedAt.IsZero() || p.Approval.HeadSHA != p.HeadSHA || p.Approval.SourceSHA256 != p.SourceSHA256 || p.Approval.PreviewSHA256 == "" || p.Publication == nil || p.Publication.PullNumber != 12 || p.Publication.Branch != "zoomies/readiness-opr_1" || p.Publication.PullURL != "https://github.com/acme/repo/pull/12" || p.Publication.PublishedAt.IsZero() {
 		t.Fatalf("projection %+v", p)
 	}
 }
@@ -86,5 +87,13 @@ func TestReadinessPreviewToolRefusesAnApprovalForADifferentHead(t *testing.T) {
 	api := &kennelAPI{body: body}
 	if _, _, err := kennelTool(t, "get_readiness_preview").run(t.Context(), api, json.RawMessage(readinessPreviewArgs)); !errors.Is(err, errReadinessPreviewShape) {
 		t.Fatalf("accepted a mismatched approval: %v", err)
+	}
+}
+
+func TestReadinessPreviewToolRefusesAPublicationForADifferentSource(t *testing.T) {
+	body := strings.Replace(readinessPreviewFixture(), `"source_sha256":"`+strings.Repeat("e", 64)+`","preview_sha256":"`+strings.Repeat("a", 64)+`","pull_number"`, `"source_sha256":"`+strings.Repeat("d", 64)+`","preview_sha256":"`+strings.Repeat("a", 64)+`","pull_number"`, 1)
+	api := &kennelAPI{body: body}
+	if _, _, err := kennelTool(t, "get_readiness_preview").run(t.Context(), api, json.RawMessage(readinessPreviewArgs)); !errors.Is(err, errReadinessPreviewShape) {
+		t.Fatalf("accepted a mismatched publication: %v", err)
 	}
 }

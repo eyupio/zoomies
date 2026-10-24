@@ -30,6 +30,7 @@ type cacheSourceReader struct {
 	publishRequest  github.OptimisationPublishRequest
 	publishPR       *github.PullRequest
 	publishErr      error
+	probeInfo       *github.AppInfo
 	readinessSource *github.ReadinessSource
 	readinessErr    error
 }
@@ -46,6 +47,13 @@ func (f *cacheSourceReader) ReadReadinessSource(context.Context, string, github.
 	f.calls++
 	return f.readinessSource, f.readinessErr
 }
+func (f *cacheSourceReader) Probe(ctx context.Context) (*github.AppInfo, error) {
+	if f.probeInfo != nil {
+		return f.probeInfo, nil
+	}
+	return f.Client.Probe(ctx)
+}
+
 func (f *cacheSourceReader) PublishOptimisation(_ context.Context, req github.OptimisationPublishRequest) (*github.PullRequest, error) {
 	f.publishes++
 	f.publishRequest = req
@@ -411,5 +419,150 @@ func TestApproveReadinessPreviewRecordsTheExactPreviewWithoutReadingGitHub(t *te
 	}
 	if _, err := h.c.ApproveReadinessPreview(h.ctx, approver, inst.ID, inst.Target, retained.ID, preview.HeadSHA, strings.Repeat("f", 64)); !errors.Is(err, ErrOptimisationReadinessApproval) {
 		t.Fatalf("wrong source accepted: %v", err)
+	}
+}
+
+func readinessPublishFixture(t *testing.T) (*harness, *store.Installation, *cacheSourceReader, *RetainedReadinessPreview, *store.AuditEvent, OptimisationPolicyCheck) {
+	t.Helper()
+	h, inst, reader, selection, jobID := cacheControllerFixture(t)
+	condition := "curl -fsS http://127.0.0.1:8080/health"
+	preview, err := h.c.InspectReadinessPreview(h.ctx, inst.ID, inst.Target, selection, jobID, condition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := &store.AuditEvent{ActorID: "usr_readiness", ActorKind: "user"}
+	retained, err := h.c.CaptureReadinessPreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, condition, preview.HeadSHA, preview.SourceSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.publishPR = &github.PullRequest{Number: 12, HTMLURL: "https://github.com/" + inst.Target + "/pull/12", Branch: "zoomies/readiness-" + retained.ID}
+	check := func(context.Context) (optimisation.Policy, error) {
+		return optimisation.Policy{SourceAllowed: true, WorkflowEditsAllowed: true, PublishAllowed: true}, nil
+	}
+	return h, inst, reader, retained, actor, check
+}
+
+func approveReadinessForTest(t *testing.T, h *harness, inst *store.Installation, retained *RetainedReadinessPreview, actor *store.AuditEvent) {
+	t.Helper()
+	if _, err := h.c.ApproveReadinessPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, retained.Preview.HeadSHA, retained.Preview.SourceSHA256); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPublishReadinessPreviewOpensOneDraftFromTheApprovedBinding(t *testing.T) {
+	h, inst, reader, retained, actor, check := readinessPublishFixture(t)
+	approveReadinessForTest(t, h, inst, retained, actor)
+	p := retained.Preview
+	published, err := h.c.PublishReadinessPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, check)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Publication == nil || published.Publication.PullNumber != 12 || published.Publication.PullURL != reader.publishPR.HTMLURL || reader.publishes != 1 {
+		t.Fatalf("publication %+v publishes=%d", published.Publication, reader.publishes)
+	}
+	req := reader.publishRequest
+	if req.Path != p.Edit.Path || req.Mode != p.File.Mode || req.Content != p.File.Content || req.SourceSHA256 != p.SourceSHA256 || req.Base != "main" || req.BaseCommit != p.HeadSHA || req.Head != "zoomies/readiness-"+retained.ID || !strings.Contains(req.Body, "Zoomies will not merge") || !strings.Contains(req.Body, "operator supplied") {
+		t.Fatalf("publish request %+v", req)
+	}
+	if reader.calls != 3 {
+		t.Fatalf("publish read GitHub %d times", reader.calls)
+	}
+	if _, total, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"optimisation.readiness_preview_published"}}, store.Page{Limit: 10}); err != nil || total != 1 {
+		t.Fatalf("audit total=%d err=%v", total, err)
+	}
+	calls := reader.calls
+	again, err := h.c.PublishReadinessPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, check)
+	if err != nil || again.Publication == nil || reader.publishes != 1 || reader.calls != calls {
+		t.Fatalf("repeat wrote or read again: %v %+v publishes=%d", err, again, reader.publishes)
+	}
+}
+
+func TestPublishReadinessPreviewRefusesWithoutApprovalOrWithAForeignBinding(t *testing.T) {
+	h, inst, reader, retained, actor, check := readinessPublishFixture(t)
+	p := retained.Preview
+	if _, err := h.c.PublishReadinessPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, check); !errors.Is(err, ErrOptimisationNotApproved) {
+		t.Fatalf("unapproved publish: %v", err)
+	}
+	approveReadinessForTest(t, h, inst, retained, actor)
+	if _, err := h.c.PublishReadinessPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, strings.Repeat("f", 40), p.SourceSHA256, check); !errors.Is(err, ErrOptimisationReadinessApproval) {
+		t.Fatalf("foreign head publish: %v", err)
+	}
+	if reader.publishes != 0 {
+		t.Fatal("a refused publish reached GitHub")
+	}
+}
+
+func TestPublishReadinessPreviewRefusesWhatMovedSinceTheReview(t *testing.T) {
+	for name, move := range map[string]func(*cacheSourceReader){
+		"head": func(r *cacheSourceReader) {
+			r.readinessSource.HeadSHA = strings.Repeat("c", 40)
+		},
+		"branch": func(r *cacheSourceReader) {
+			r.readinessSource.HeadBranch = "release"
+		},
+		"workflow": func(r *cacheSourceReader) {
+			w := r.readinessSource.Workflow
+			w.Content += "# edited\n"
+			r.readinessSource.Workflow = w
+			r.readinessSource.WorkflowSHA256 = cacheSHA256(w.Content)
+		},
+		"bound": func(r *cacheSourceReader) {
+			r.readinessSource.WaitSeconds = 9
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, inst, reader, retained, actor, check := readinessPublishFixture(t)
+			approveReadinessForTest(t, h, inst, retained, actor)
+			move(reader)
+			p := retained.Preview
+			_, err := h.c.PublishReadinessPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, check)
+			if err == nil || reader.publishes != 0 {
+				t.Fatalf("published after %s moved: err=%v publishes=%d", name, err, reader.publishes)
+			}
+			if got, replayErr := h.c.ReplayReadinessPreview(h.ctx, inst.ID, inst.Target, retained.ID); replayErr != nil || got.Publication != nil {
+				t.Fatalf("a refused publish left a record: %+v %v", got, replayErr)
+			}
+		})
+	}
+}
+
+func TestPublishReadinessPreviewRefusesAWithdrawnSettingAndMissingPermission(t *testing.T) {
+	h, inst, reader, retained, actor, check := readinessPublishFixture(t)
+	approveReadinessForTest(t, h, inst, retained, actor)
+	p := retained.Preview
+	off := func(context.Context) (optimisation.Policy, error) {
+		return optimisation.Policy{SourceAllowed: true, WorkflowEditsAllowed: true}, nil
+	}
+	if _, err := h.c.PublishReadinessPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, off); !errors.Is(err, ErrOptimisationPublishPolicy) {
+		t.Fatalf("publish setting off: %v", err)
+	}
+	// A setting withdrawn while the source is being re-read must also stop it.
+	calls := 0
+	flipping := func(ctx context.Context) (optimisation.Policy, error) {
+		calls++
+		return optimisation.Policy{SourceAllowed: true, WorkflowEditsAllowed: true, PublishAllowed: calls < 2}, nil
+	}
+	if _, err := h.c.PublishReadinessPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, flipping); !errors.Is(err, ErrOptimisationPublishPolicy) {
+		t.Fatalf("setting withdrawn mid-flight: %v", err)
+	}
+	reader.probeInfo = &github.AppInfo{Permissions: map[string]string{"contents": "read"}}
+	if _, err := h.c.PublishReadinessPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, check); !errors.Is(err, ErrOptimisationPublishPermission) {
+		t.Fatalf("missing permission: %v", err)
+	}
+	if reader.publishes != 0 {
+		t.Fatal("a refused publish reached GitHub")
+	}
+}
+
+func TestPublishReadinessPreviewKeepsADifferentExistingDraftOutOfTheRecord(t *testing.T) {
+	h, inst, reader, retained, actor, check := readinessPublishFixture(t)
+	approveReadinessForTest(t, h, inst, retained, actor)
+	p := retained.Preview
+	reader.publishErr = github.ErrOptimisationPublishConflict
+	if _, err := h.c.PublishReadinessPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, check); !errors.Is(err, ErrOptimisationPublish) {
+		t.Fatalf("conflicting draft: %v", err)
+	}
+	if got, err := h.c.ReplayReadinessPreview(h.ctx, inst.ID, inst.Target, retained.ID); err != nil || got.Publication != nil {
+		t.Fatalf("a conflicting draft was recorded: %+v %v", got, err)
 	}
 }

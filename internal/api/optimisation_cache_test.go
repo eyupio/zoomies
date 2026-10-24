@@ -253,6 +253,37 @@ func TestReadinessInspectionBindsTheCommandAndWaitEvidenceWithoutRetaining(t *te
 	}
 	approveBody["head_sha"] = strings.Repeat("f", 40)
 	h.do(request{method: http.MethodPost, path: approvePath, token: token, body: approveBody}).mustStatus(t, 409, "wrong head")
+	publishPath := "/api/v1/optimisations/readiness/previews/" + saved.ID + "/publication"
+	publishBody := map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.HeadSHA, "source_sha256": saved.SourceSHA256}
+	h.do(request{method: http.MethodPost, path: publishPath, token: token, body: publishBody}).mustStatus(t, 403, "operator without the publish scope")
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Optimisation.Publish = true })
+	f.publishPR = &github.PullRequest{Number: 21, HTMLURL: "https://github.com/acme/repo/pull/21", Branch: "zoomies/readiness-" + saved.ID}
+	publishToken := h.token("publisher", store.RoleOperator, "jobs:read", "optimisations:write", "optimisations:read", "optimisations:publish")
+	published := h.do(request{method: http.MethodPost, path: publishPath, token: publishToken, body: publishBody})
+	published.mustStatus(t, 200, "readiness publication")
+	var drafted ReadinessPreviewView
+	if err := json.Unmarshal(published.body, &drafted); err != nil {
+		t.Fatal(err)
+	}
+	if drafted.Publication == nil || drafted.Publication.PullNumber != 21 || drafted.Publication.PullURL != "https://github.com/acme/repo/pull/21" || drafted.Publication.Branch != "zoomies/readiness-"+saved.ID || drafted.Publication.PublishedBy == "" {
+		t.Fatalf("publication %s", published.body)
+	}
+	if f.publishReq.Path != saved.WorkflowPath || f.publishReq.Content == "" || f.publishReq.SourceSHA256 != saved.SourceSHA256 || f.publishReq.Base != "main" || f.publishReq.Head != "zoomies/readiness-"+saved.ID {
+		t.Fatalf("publish request %+v", f.publishReq)
+	}
+	assertShape(t, loadSpec(t), "ReadinessPreview", published.body)
+	if auditCount(t, h, "optimisation.readiness_preview_published") != 1 || f.readinessReads.Load() != 3 {
+		t.Fatal("publication audit or read count")
+	}
+	h.do(request{method: http.MethodPost, path: publishPath, token: publishToken, body: publishBody}).mustStatus(t, 200, "repeat publication")
+	if f.publishes != 1 || f.readinessReads.Load() != 3 {
+		t.Fatal("repeat publication reached GitHub")
+	}
+	replayedPublished := h.do(request{method: http.MethodGet, path: readPath, token: token})
+	var kept ReadinessPreviewView
+	if err := json.Unmarshal(replayedPublished.body, &kept); err != nil || kept.Publication == nil || kept.Publication.PullNumber != 21 {
+		t.Fatalf("replay lost the publication: %v %s", err, replayedPublished.body)
+	}
 	bad := map[string]any{"installation_id": instID, "repository": "acme/repo", "selection": selection, "condition": " "}
 	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/readiness/inspections", token: token, body: bad}).mustStatus(t, 400, "empty condition")
 }

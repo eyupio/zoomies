@@ -1566,6 +1566,15 @@ export const approveReadinessPreview = (
     '/optimisations/readiness/previews/' + encodeURIComponent(id) + '/approval',
     { body, signal },
   );
+export const publishReadinessPreview = (
+  id: string,
+  body: import('./types').ReadinessPublicationRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').ReadinessPreview>(
+    '/optimisations/readiness/previews/' + encodeURIComponent(id) + '/publication',
+    { body, signal },
+  );
 export const inspectReadinessPreview = (
   body: import('./types').ReadinessInspectionRequest,
   signal?: AbortSignal,
