@@ -444,7 +444,10 @@ shows the exact before and after block: the old duration becomes the bound, and 
 timeout fails the step. Zoomies never infers the command. Confirm the block and
 **Keep a preview for 14 days**; the kept card shows the exact source, command,
 bound and evidence. Keeping approves and publishes nothing and opens no pull
-request.
+request. The same retained view is available from `zoomies optimisations
+readiness <preview-id> --installation ID --repo OWNER/REPO`, and to Eli as
+`get_readiness_preview`; both show the command, evidence and one changed block,
+never the full workflow, and neither approves nor publishes.
 
 The step must use a commit-pinned `actions/checkout` with a literal
 `fetch-depth: 0`, in a root workflow with literal job and step names. Matrix,

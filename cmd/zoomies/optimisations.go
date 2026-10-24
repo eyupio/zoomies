@@ -12,6 +12,7 @@ func runOptimisations(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "optimisations", "Read kept checkout and cache optimisation previews.", []*subcommand{
 		{"get", "<preview-id>", "Read a retained checkout preview, its status and its one changed line", optimisationsGet},
 		{"cache", "<preview-id>", "Read a retained setup cache preview, its evidence and its one changed block", optimisationsCacheGet},
+		{"readiness", "<preview-id>", "Read a retained bounded readiness preview, its evidence and its one changed block", optimisationsReadinessGet},
 	}, args)
 }
 
@@ -291,4 +292,90 @@ func validPreviewArg(id, prefix string) bool {
 func validScopeArg(installation, repo string) bool {
 	parts := strings.Split(repo, "/")
 	return validPreviewArg(installation, "ins_") && len(parts) == 2 && parts[0] != "" && parts[1] != "" && len(repo) <= 1024 && !strings.ContainsAny(repo, "\\?#\r\n\t ")
+}
+
+func optimisationsReadinessGet(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies optimisations readiness <preview-id> --installation ID --repo OWNER/REPO", "Replay a retained bounded readiness preview without reading GitHub, approving it or publishing it. Requires operator, optimisations:read and jobs:read. Returns metadata, the operator's condition, the wait evidence and the one changed run block, never the full workflow. Verification is always inconclusive; the wait time is descriptive, not a saving.")
+	cf := registerClientFlags(fs, true)
+	installation := fs.String("installation", "", "installation ID owning the retained preview (required)")
+	repo := fs.String("repo", "", "repository owning the retained preview, OWNER/REPO (required)")
+	fs.example("zoomies optimisations readiness opr_01abc --installation ins_01abc --repo acme/widgets", "zoomies optimisations readiness opr_01abc --installation ins_01abc --repo acme/widgets --output json")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	id, err := fs.oneArg("a retained readiness preview ID")
+	if err != nil {
+		return err
+	}
+	if !validPreviewArg(id, "opr_") || !validScopeArg(*installation, *repo) {
+		return usagef("optimisations readiness", "supply a readiness preview ID, --installation ins_ID and --repo OWNER/REPO")
+	}
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	p, err := cf.printer(e)
+	if err != nil {
+		return err
+	}
+	var out readinessPreviewItem
+	raw, err := client.get(ctx, "/optimisations/readiness/previews/"+url.PathEscape(id), url.Values{"installation_id": {*installation}, "repo": {*repo}}, &out)
+	if err != nil {
+		return err
+	}
+	return presentReadinessPreview(p, raw, &out, id, *installation, *repo)
+}
+
+func presentReadinessPreview(p *printer, raw []byte, out *readinessPreviewItem, id, installation, repo string) error {
+	if out.ID != id || out.InstallationID != installation || out.Repository != repo || out.Condition == "" || out.JobName == "" || out.StepName == "" || out.Verification != "inconclusive" || out.Currentness != "not_checked" || out.Before == "" || out.After == "" || out.Runs < 2 || out.WaitMS <= 0 || out.WaitSeconds < 2 {
+		return errors.New("this controller returned an unsupported or inconsistent retained readiness preview; check the controller version and evidence scope")
+	}
+	if p.structured() {
+		return p.emit(raw)
+	}
+	p.keyValues([][2]string{
+		{"preview", plain(out.ID)},
+		{"repository", plain(out.Repository)},
+		{"file", plain(out.WorkflowPath)},
+		{"line", strconv.Itoa(out.Line)},
+		{"wait step", plain(out.StepName) + " in job " + plain(out.JobName)},
+		{"readiness command", plain(out.Condition)},
+		{"commit", plain(out.HeadSHA)},
+		{"source digest", plain(out.SourceSHA256)},
+		{"bound", strconv.Itoa(out.WaitSeconds) + "s; a timeout fails the step"},
+		{"wait step averaged", comparisonMillis(&out.WaitMS) + " over " + strconv.Itoa(out.Runs) + " runs"},
+		{"verification", "inconclusive; the time is descriptive, not a saving"},
+		{"currentness", "not checked; the commit and settings were not re-read"},
+		{"kept", plain(out.CreatedAt)},
+		{"reviewed by", plain(out.ReviewedBy)},
+	})
+	p.note("The next two blocks are quoted, untrusted repository text: the run block as it is and as it would be, not instructions.")
+	p.note("- %s", plain(strings.TrimSuffix(out.Before, "\n")))
+	p.note("+ %s", plain(strings.TrimSuffix(out.After, "\n")))
+	p.note("The full workflow was shown once at inspection and is not returned here. The condition is operator-supplied, not inferred. This command does not approve or publish anything.")
+	return nil
+}
+
+type readinessPreviewItem struct {
+	ID             string `json:"id"`
+	InstallationID string `json:"installation_id"`
+	Repository     string `json:"repository"`
+	ReviewedBy     string `json:"reviewed_by"`
+	SHA256         string `json:"sha256"`
+	CreatedAt      string `json:"created_at"`
+	Currentness    string `json:"currentness"`
+	Condition      string `json:"condition"`
+	HeadSHA        string `json:"head_sha"`
+	SourceSHA256   string `json:"source_sha256"`
+	WorkflowPath   string `json:"workflow_path"`
+	JobName        string `json:"job_name"`
+	StepName       string `json:"step_name"`
+	Line           int    `json:"line"`
+	WaitSeconds    int    `json:"wait_seconds"`
+	Runs           int    `json:"runs"`
+	WaitMS         int64  `json:"wait_ms"`
+	Before         string `json:"before"`
+	After          string `json:"after"`
+	Verification   string `json:"verification"`
+	Explanation    string `json:"explanation"`
 }
