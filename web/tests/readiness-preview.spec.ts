@@ -7,6 +7,7 @@ const inspection = {
   selection: { run_id: '9007199254740', attempt: 2, github_job_id: '100' },
   condition: 'curl -fsS http://127.0.0.1:8080/health',
   head_sha: 'a'.repeat(40),
+  source_sha256: 'b'.repeat(64),
   workflow_path: '.github/workflows/ci.yml',
   job_name: 'Build',
   step_name: 'Wait for the API',
@@ -20,6 +21,31 @@ const inspection = {
   verification: 'inconclusive',
   explanation: 'Replace a fixed 4s sleep with a bounded poll of the operator command.',
   inspected_at: '2026-10-24T09:00:00Z',
+};
+const retained = {
+  id: 'opr_fixture',
+  installation_id: 'ins_fixture',
+  repository: 'acme/repo',
+  reviewed_by: 'usr_operator',
+  sha256: 'd'.repeat(64),
+  created_at: '2026-10-24T09:01:00Z',
+  currentness: 'not_checked',
+  selection: { run_id: '9007199254740', attempt: 2, github_job_id: '100' },
+  condition: inspection.condition,
+  head_sha: 'a'.repeat(40),
+  source_sha256: 'b'.repeat(64),
+  workflow_path: '.github/workflows/ci.yml',
+  job_name: 'Build',
+  step_name: 'Wait for the API',
+  line: 12,
+  wait_seconds: 4,
+  runs: 4,
+  wait_ms: 4200,
+  before: '        run: sleep 4\n',
+  after:
+    "        run: |\n          timeout 4 sh -c 'until curl -fsS http://127.0.0.1:8080/health; do sleep 1; done'\n",
+  verification: 'inconclusive',
+  explanation: 'Replace a fixed 4s sleep with a bounded poll of the operator command.',
 };
 const enablement = {
   source_reads: true,
@@ -65,9 +91,14 @@ async function mocks(page: import('@playwright/test').Page) {
 test('pick a job, supply the readiness command and review the bounded wait', async ({ page }) => {
   await mocks(page);
   let body: Record<string, unknown> | undefined;
+  let retainBody: Record<string, unknown> | undefined;
   await page.route('**/api/v1/optimisations/readiness/inspections', async (route) => {
     body = route.request().postDataJSON();
     await route.fulfill({ json: inspection });
+  });
+  await page.route('**/api/v1/optimisations/readiness/previews', async (route) => {
+    retainBody = route.request().postDataJSON();
+    await route.fulfill({ status: 201, json: retained });
   });
   await goto(page, '/optimisations/readiness', 'Readiness preview');
   await page.getByRole('combobox', { name: 'Repository' }).selectOption('acme/repo');
@@ -83,7 +114,35 @@ test('pick a job, supply the readiness command and review the bounded wait', asy
   });
   await expect(page.getByText('timeout 4 sh -c')).toBeVisible();
   await expect(page.getByText('The old fixed wait was')).toBeVisible();
-  await expect(page.getByText(/Nothing was retained, approved or published/)).toBeVisible();
+  const keep = page.getByRole('button', { name: 'Keep a preview for 14 days' });
+  await expect(keep).toBeDisabled();
+  await page.getByLabel(/I reviewed this run block/).check();
+  await keep.click();
+  await expect(page.getByRole('heading', { name: 'Retained readiness preview' })).toBeVisible();
+  expect(retainBody).toEqual({
+    installation_id: 'ins_fixture',
+    repository: 'acme/repo',
+    selection: { run_id: '9007199254740', attempt: 2, github_job_id: '100' },
+    condition: inspection.condition,
+    head_sha: 'a'.repeat(40),
+    source_sha256: 'b'.repeat(64),
+  });
+  await expect(page.getByText('Nothing was approved or published.')).toBeVisible();
+});
+
+test('a kept readiness preview opens from its link', async ({ page }) => {
+  await mocks(page);
+  await page.route('**/api/v1/optimisations/readiness/previews/*?*', (route) =>
+    route.fulfill({ json: retained }),
+  );
+  await goto(
+    page,
+    '/optimisations/readiness?id=opr_fixture&installation_id=ins_fixture&repo=acme%2Frepo',
+    'Readiness preview',
+  );
+  await expect(page.getByRole('heading', { name: 'Retained readiness preview' })).toBeVisible();
+  await expect(page.getByText('opr_fixture')).toBeVisible();
+  await expect(page.getByText('timeout 4 sh -c')).toBeVisible();
 });
 
 test('a readiness preview fits a phone', async ({ page }) => {

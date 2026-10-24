@@ -33,6 +33,9 @@ const (
 	PrefixEliOpportunity           = "eop"
 	PrefixOptimisationPreview      = "opv"
 	PrefixOptimisationCachePreview = "opc"
+	// PrefixOptimisationReadinessPreview names one retained bounded readiness
+	// preview, separate from the cache history.
+	PrefixOptimisationReadinessPreview = "opr"
 	// PrefixProviderSetup names a short-lived Proxmox connection enrolment.
 	PrefixProviderSetup = "pvs"
 	// PrefixBackupRemote names an offsite backup destination kept in the

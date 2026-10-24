@@ -27,7 +27,7 @@ as the record of how each slice landed.
 | --- | --- | --- |
 | E1 (ZF-242) | Merged and used: `internal/analysis` (`merge_delay.go`), `get_pr_delay` on Eli's allowlist, CLI, contextual UI | None. ROADMAP.md still lists `in_progress` because live-model evaluation and a real performance experiment have not run |
 | E2 (ZF-243) | Descriptive milestone merged (#1020); `get_retained_comparison` on Eli's allowlist; ZF-241's period comparison, queue breakdown, host pressure and startup failures are `implemented` | None. Controlled-experiment proof and dispatch stay deferred by the owner |
-| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and the wider catalogue's setup cache preview through its pure foundation, retained history, bounded source, private retention/API, web page, bounded CLI/MCP/Eli replay, attributed approval (migration 0123), one reconciled draft pull request (migration 0124), a pure bounded readiness polling foundation, its bounded source/inspection route and the readiness inspection page, all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, and write access from the CLI, MCP or Eli (deliberately web-only) |
+| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and the wider catalogue's setup cache preview through its pure foundation, retained history, bounded source, private retention/API, web page, bounded CLI/MCP/Eli replay, attributed approval (migration 0123), one reconciled draft pull request (migration 0124), a pure bounded readiness polling foundation, its bounded source/inspection route, the readiness inspection page and private retention/API, all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, and write access from the CLI, MCP or Eli (deliberately web-only) |
 | E4 | Not started as a track. Kennel's evaluator, waivers and guidance exist, but no fix preview or publication path does | Unchanged |
 | E5 | ZF-241's `startup_failures` covers runner-startup recurrence. No workflow/test failure fingerprinting exists | Unchanged |
 | E6 | Not started. `internal/prrepair/mention` (ZF-239 slice 1) is only the command matcher | Unchanged |
@@ -169,7 +169,16 @@ publication arrived on 23 October:
   the checkout run picker and optimisation gate. The operator picks a job and
   types the readiness command; the page shows the bound, wait evidence and the
   exact before/after block. It says the condition is never inferred and that
-  nothing was retained, approved or published. No keep, CLI, MCP or Eli surface.
+  nothing was retained, approved or published.
+* **Readiness retention and API (24 October).** Migration 0126 adds a separate
+  bounded, installation-scoped readiness preview history with the same
+  fourteen-day lifetime and twenty/one-hundred caps as cache. `POST
+  /optimisations/readiness/previews` re-reads the source and requires the same
+  head, workflow digest and condition before keeping it; `GET .../{id}` replays
+  from stored input. The full workflow stays private; the transport shows the
+  before/after block, condition and evidence. The web page keeps the reviewed
+  preview and opens it from an `opr_` link. No approval, publication, CLI, MCP
+  or Eli access yet.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval, draft publication and read access from the CLI, MCP and Eli have since
@@ -189,9 +198,10 @@ been built (see the 23 October sections at the end). The rest remains.
 3. **Wider catalogue.** The dependency/build cache foundation, retained setup
    history, bounded source binding, private retention/API, web page and
    CLI/MCP/Eli replay, attributed approval, draft publication, the pure bounded
-   readiness polling foundation, its source/inspection route and its inspection
-   page are described above. Next is readiness retention, approval and
-   publication, then test sharding, each with its own evidence and refusals. Do not lead with test removal, relaxed assertions or
+   readiness polling foundation, its source/inspection route, inspection page and
+   private retention/API are described above. Next is readiness CLI/MCP/Eli,
+   approval and publication, then test sharding, each with its own evidence and
+   refusals. Do not lead with test removal, relaxed assertions or
    blanket retries.
 
 Owner decisions still open: whether a different person than the reviewer must
@@ -2446,7 +2456,7 @@ opt-in and fresh head, policy and source rechecks (non-force, never merges, rest
 reconciliation), then E2 verification. CLI and MCP/Eli access wait on a contract
 decision because the retained envelope is private source; do not add the routes to
 Eli's allowlist without it. Approval and draft publication have since merged;
-the next free migration number is 0121.
+the next free migration number is 0121 at that time; it is 0127 now.
 
 
 ### E3 preview approval, 23 October 2026
@@ -2537,7 +2547,7 @@ Next agent: run the whole flow against one real repository first. The published
 preview now links to the E2 comparison page; capturing a real control and
 candidate after merge is the remaining verification step, and it stays
 inconclusive without them. CLI and MCP/Eli access still wait on the
-private-envelope contract decision. The cache approval took 0123 and publication 0124; the next free migration is 0125.
+private-envelope contract decision. The cache approval took 0123, publication 0124, the host sample change 0125 and readiness retention 0126; the next free migration is 0127.
 
 
 ### E3 verification link, 23 October 2026
@@ -2913,3 +2923,29 @@ fleet.
 Next agent: add readiness retention, then CLI/MCP/Eli, approval and publication.
 Do not add a keep button before the retained envelope exists, and do not infer
 the condition. Test sharding remains separate.
+
+
+### E3 readiness retention and web keep, 24 October 2026
+
+Migration 0126 adds a separate, bounded, installation-scoped readiness preview
+history with the same fourteen-day lifetime and twenty/one-hundred caps as the
+cache history. The envelope keeps the exact workflow source, the operator's
+condition, the wait samples and the computed edit privately; the API returns the
+before/after block, condition, bound and evidence, never the full workflow.
+
+`POST /optimisations/readiness/previews` re-reads the source and wait history and
+requires the same head, workflow digest and condition the operator reviewed
+before keeping it. `GET .../{id}` recomputes from stored input alone. The web page
+adds a declaration and **Keep a preview for 14 days**, then shows the retained
+card and opens it from an `opr_` link. It says nothing was approved or published.
+
+The design is in
+[the plan](roadmap/plans/2026-10-24-eli-e3-readiness-retention.md). Validation:
+store tests cover immutability, scope, audit and expiry; the controller test
+covers capture, provenance and replay; API tests cover the route, shape, one
+read, audit and replay; browser tests cover the disabled keep button,
+declaration, exact body, retained card and opening from a link.
+
+Next agent: add readiness CLI/MCP/Eli read access, then approval and publication.
+Do not infer the condition or apply the change from a read surface. Test sharding
+remains separate.

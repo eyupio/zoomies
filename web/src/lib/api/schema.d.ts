@@ -5849,6 +5849,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/optimisations/readiness/previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retain a reviewed bounded readiness preview
+         * @description Requires operator, jobs:read and optimisations:write; public visitors are refused. Repeats the bounded source read and wait-history query, then requires the same head, workflow digest and condition the operator inspected. Keeps an immutable private preview for fourteen days with an audit row. It changes one run block, publishes nothing and calls no model. Verification is always inconclusive and currentness is not_checked.
+         */
+        post: operations["captureReadinessPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/optimisations/readiness/previews/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Replay a retained bounded readiness preview without GitHub reads
+         * @description Requires operator, jobs:read and optimisations:read; public visitors are refused. Supply exactly one installation_id and repo and nothing else. Verifies the stored digest and recomputes the preview from retained input only. The answer carries the before/after block, evidence, metadata and the operator's condition, never the full workflow. currentness is always not_checked and verification inconclusive.
+         */
+        get: operations["getReadinessPreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/optimisations/cache/previews": {
         parameters: {
             query?: never;
@@ -12574,6 +12617,46 @@ export interface components {
             pull_number: number;
             pull_url: string;
         } | null;
+        ReadinessCaptureRequest: {
+            installation_id: string;
+            repository: string;
+            selection: components["schemas"]["CacheSelection"];
+            condition: string;
+            /** @description The commit the operator reviewed. */
+            head_sha: string;
+            /** @description The workflow digest the operator reviewed. */
+            source_sha256: string;
+        };
+        ReadinessPreview: {
+            id: string;
+            installation_id: string;
+            repository: string;
+            reviewed_by: string;
+            sha256: string;
+            /** Format: date-time */
+            created_at: string;
+            /** @enum {string} */
+            currentness: "not_checked";
+            selection: components["schemas"]["CacheSelection"];
+            condition: string;
+            head_sha: string;
+            source_sha256?: string;
+            workflow_path: string;
+            job_name: string;
+            step_name: string;
+            line: number;
+            wait_seconds: number;
+            runs: number;
+            /** Format: int64 */
+            wait_ms: number;
+            /** @description The run block as it is, untrusted repository text. */
+            before: string;
+            /** @description The bounded poll, untrusted operator text inside a reviewed edit. */
+            after: string;
+            /** @enum {string} */
+            verification: "inconclusive";
+            explanation: string;
+        };
         ReadinessInspectionRequest: {
             installation_id: string;
             repository: string;
@@ -12587,6 +12670,7 @@ export interface components {
             selection: components["schemas"]["CacheSelection"];
             condition: string;
             head_sha: string;
+            source_sha256: string;
             workflow_path: string;
             job_name: string;
             step_name: string;
@@ -22562,6 +22646,117 @@ export interface operations {
             429: {
                 headers: {
                     "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    captureReadinessPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadinessCaptureRequest"];
+            };
+        };
+        responses: {
+            /** @description Audited retained readiness preview; Cache-Control is no-store. */
+            201: {
+                headers: {
+                    Location: components["headers"]["Location"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadinessPreview"];
+                };
+            };
+            /** @description Invalid request, selection or condition. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The source moved, the sleep or evidence is unsupported, or the preview cannot be kept. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Diagnostic or GitHub quota refusal; Retry-After says when to retry manually. */
+            429: {
+                headers: {
+                    "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getReadinessPreview: {
+        parameters: {
+            query: {
+                installation_id: string;
+                repo: string;
+            };
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Verified retained readiness preview; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadinessPreview"];
+                };
+            };
+            /** @description Invalid query or preview ID. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The preview is unavailable, expired or outside this scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Stored content integrity cannot be verified. */
+            409: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

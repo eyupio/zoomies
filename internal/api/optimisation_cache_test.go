@@ -202,6 +202,30 @@ func TestReadinessInspectionBindsTheCommandAndWaitEvidenceWithoutRetaining(t *te
 	if auditCount(t, h, "optimisation.readiness_preview_retained") != 0 {
 		t.Fatal("inspection retained something")
 	}
+	capture := map[string]any{"installation_id": instID, "repository": "acme/repo", "selection": selection, "condition": got.Condition, "head_sha": got.HeadSHA, "source_sha256": got.SourceSHA256}
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/readiness/previews", token: token, body: capture})
+	created.mustStatus(t, 201, "capture readiness")
+	var saved ReadinessPreviewView
+	if err := json.Unmarshal(created.body, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(saved.ID, "opr_") || saved.WaitSeconds != 4 || saved.Runs != 2 || saved.WaitMS != 5000 || saved.Condition != got.Condition || saved.Currentness != "not_checked" || saved.Verification != "inconclusive" || strings.Contains(string(created.body), "on: push") {
+		t.Fatalf("capture %s", created.body)
+	}
+	assertShape(t, loadSpec(t), "ReadinessPreview", created.body)
+	if f.readinessReads.Load() != 2 || auditCount(t, h, "optimisation.readiness_preview_retained") != 1 {
+		t.Fatal("capture read or audit count")
+	}
+	readPath := fmt.Sprintf("/api/v1/optimisations/readiness/previews/%s?installation_id=%s&repo=acme/repo", saved.ID, instID)
+	read := h.do(request{method: http.MethodGet, path: readPath, token: token})
+	read.mustStatus(t, 200, "replay readiness")
+	var replayed ReadinessPreviewView
+	if err := json.Unmarshal(read.body, &replayed); err != nil {
+		t.Fatal(err)
+	}
+	if replayed != saved || f.readinessReads.Load() != 2 || strings.Contains(string(read.body), "on: push") {
+		t.Fatalf("replay changed or exposed source: %s", read.body)
+	}
 	bad := map[string]any{"installation_id": instID, "repository": "acme/repo", "selection": selection, "condition": " "}
 	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/readiness/inspections", token: token, body: bad}).mustStatus(t, 400, "empty condition")
 }
