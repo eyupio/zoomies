@@ -200,7 +200,7 @@ const cliShardingPreview = `{
 func TestOptimisationsShardingPrintsTheDisclosureAndTheChangedBlock(t *testing.T) {
 	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/sharding/previews/ops_1": cliShardingPreview})
 	out, _ := runCLI(t, "optimisations", "sharding", "ops_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL)
-	for _, want := range []string{"ops_1", "acme/repo", "Browser tests", "4, which together run the whole Playwright suite", "every shard repeats the setup", "4 of 4", "upper bound", "estimate from medians", "not a saving", "shard: [1, 2, 3, 4]"} {
+	for _, want := range []string{"ops_1", "acme/repo", "Browser tests", "4, which together run the whole Playwright suite", "every shard repeats the setup", "4 of 4", "upper bound", "estimate from medians", "not a saving", "not approved", "shard: [1, 2, 3, 4]"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not say %q:\n%s", want, out)
 		}
@@ -242,5 +242,14 @@ func TestOptimisationsShardingRefusesInvalidScopeAndInconsistentAnswers(t *testi
 	e, out, errOut := newTestEnv(t)
 	if code := dispatch(context.Background(), e, []string{"optimisations", "sharding", "ops_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL}); code == 0 || out.Len() != 0 || !strings.Contains(errOut.String(), "inconsistent") {
 		t.Fatalf("an inconsistent answer was printed: %s %s", out.String(), errOut.String())
+	}
+}
+
+func TestOptimisationsShardingShowsWhoApprovedIt(t *testing.T) {
+	approved := strings.Replace(cliShardingPreview, `"explanation":`, `"approval":{"approved_by":"usr_approver","approved_at":"2026-10-24T10:02:00Z","head_sha":"`+strings.Repeat("c", 40)+`","source_sha256":"`+strings.Repeat("e", 64)+`","preview_sha256":"`+strings.Repeat("a", 64)+`"},"explanation":`, 1)
+	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/sharding/previews/ops_1": approved})
+	out, _ := runCLI(t, "optimisations", "sharding", "ops_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL)
+	if !strings.Contains(out, "approved by usr_approver") || strings.Contains(out, "not approved") {
+		t.Errorf("approval not shown:\n%s", out)
 	}
 }

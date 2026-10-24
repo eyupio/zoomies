@@ -256,3 +256,40 @@ func TestReplayShardingPreviewRefusesAnAlteredEnvelope(t *testing.T) {
 		}
 	}
 }
+
+func TestApproveShardingPreviewRecordsTheExactPreviewWithoutReadingGitHub(t *testing.T) {
+	h, inst, reader, selection, jobID := shardControllerFixture(t, 12)
+	preview, err := h.c.InspectShardingPreview(h.ctx, inst.ID, inst.Target, selection, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := &store.AuditEvent{ActorID: "usr_sharding", ActorKind: "user"}
+	retained, err := h.c.CaptureShardingPreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, preview.HeadSHA, preview.SourceSHA256, preview.Shards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approver := &store.AuditEvent{ActorID: "usr_approver", ActorKind: "user"}
+	approved, err := h.c.ApproveShardingPreview(h.ctx, approver, inst.ID, inst.Target, retained.ID, preview.HeadSHA, preview.SourceSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Approval == nil || approved.Approval.ApprovedBy != "usr_approver" || approved.Approval.HeadSHA != preview.HeadSHA || approved.Approval.SourceSHA256 != preview.SourceSHA256 || approved.Approval.PreviewSHA256 != retained.SHA256 {
+		t.Fatalf("approval %+v", approved)
+	}
+	if reader.calls != 2 {
+		t.Fatalf("approval read GitHub: %d", reader.calls)
+	}
+	replayed, err := h.c.ReplayShardingPreview(h.ctx, inst.ID, inst.Target, retained.ID)
+	if err != nil || replayed.Approval == nil || replayed.Approval.ApprovedBy != "usr_approver" {
+		t.Fatalf("replay lost the approval: %+v %v", replayed, err)
+	}
+	if _, total, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"optimisation.sharding_preview_approved"}}, store.Page{Limit: 10}); err != nil || total != 1 {
+		t.Fatalf("audit total=%d err=%v", total, err)
+	}
+	if _, err := h.c.ApproveShardingPreview(h.ctx, approver, inst.ID, inst.Target, retained.ID, strings.Repeat("f", 40), preview.SourceSHA256); !errors.Is(err, ErrOptimisationShardingApproval) {
+		t.Fatalf("wrong head accepted: %v", err)
+	}
+	if _, err := h.c.ApproveShardingPreview(h.ctx, approver, inst.ID, inst.Target, retained.ID, preview.HeadSHA, strings.Repeat("f", 64)); !errors.Is(err, ErrOptimisationShardingApproval) {
+		t.Fatalf("wrong source accepted: %v", err)
+	}
+}

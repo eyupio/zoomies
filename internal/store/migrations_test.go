@@ -141,6 +141,7 @@ var shippedMigrations = []string{
 	"0127_optimisation_readiness_preview_approvals.sql",
 	"0128_optimisation_readiness_publications.sql",
 	"0129_optimisation_sharding_previews.sql",
+	"0130_optimisation_sharding_preview_approvals.sql",
 }
 
 // The prefixes shared by pairs of files that already shipped. They sort by what

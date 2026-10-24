@@ -129,6 +129,32 @@ func TestShardingCaptureAndReplayKeepTheSourcePrivate(t *testing.T) {
 		t.Fatalf("replay changed, lost the source digest, or exposed source: %s", read.body)
 	}
 	h.do(request{method: http.MethodGet, path: strings.Replace(readPath, "repo=acme/repo", "repo=other/repo", 1), token: token}).mustStatus(t, 404, "wrong scope")
+	approvePath := "/api/v1/optimisations/sharding/previews/" + saved.ID + "/approval"
+	approveBody := map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.HeadSHA, "source_sha256": saved.SourceSHA256}
+	approved := h.do(request{method: http.MethodPost, path: approvePath, token: token, body: approveBody})
+	approved.mustStatus(t, 200, "sharding approval")
+	var decided ShardingPreviewView
+	if err := json.Unmarshal(approved.body, &decided); err != nil {
+		t.Fatal(err)
+	}
+	if decided.Approval == nil || decided.Approval.ApprovedBy != saved.ReviewedBy || decided.Approval.HeadSHA != saved.HeadSHA || decided.Approval.SourceSHA256 != saved.SourceSHA256 || decided.Approval.PreviewSHA256 != saved.SHA256 {
+		t.Fatalf("approval %s", approved.body)
+	}
+	assertShape(t, loadSpec(t), "ShardingPreview", approved.body)
+	if auditCount(t, h, "optimisation.sharding_preview_approved") != 1 || f.shardReads.Load() != 2 {
+		t.Fatal("approval audited wrongly or read GitHub")
+	}
+	h.do(request{method: http.MethodPost, path: approvePath, token: token, body: approveBody}).mustStatus(t, 200, "repeat approval")
+	if auditCount(t, h, "optimisation.sharding_preview_approved") != 1 {
+		t.Fatal("a repeat approval wrote a second audit row")
+	}
+	after := h.do(request{method: http.MethodGet, path: readPath, token: token})
+	var replayedAfter ShardingPreviewView
+	if err := json.Unmarshal(after.body, &replayedAfter); err != nil || replayedAfter.Approval == nil || replayedAfter.Approval.ApprovedBy != saved.ReviewedBy {
+		t.Fatalf("replay lost the approval: %v %s", err, after.body)
+	}
+	approveBody["head_sha"] = strings.Repeat("f", 40)
+	h.do(request{method: http.MethodPost, path: approvePath, token: token, body: approveBody}).mustStatus(t, 409, "wrong head")
 	capture["shards"] = got.Shards - 1
 	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/sharding/previews", token: token, body: capture}).mustStatus(t, 409, "a count that was not reviewed")
 	capture["shards"] = 9

@@ -3133,3 +3133,17 @@ approves nor publishes. See
 [the plan](roadmap/plans/2026-10-24-eli-e3-sharding-read.md).
 
 Next agent: attributed approval (migration 0130), then publication (0131).
+
+
+### E3 sharding approval, 24 October 2026
+
+Migration 0130 stores one attributed approval per sharding preview, bound to its head,
+workflow digest and retained hash, audited as `optimisation.sharding_preview_approved`.
+It reads no GitHub and publishes nothing. The page offers a declaration that names the
+shard count and the extra runner time; the CLI shows the approver; the model
+projection keeps the time and digests and drops `approved_by`. See
+[the plan](roadmap/plans/2026-10-24-eli-e3-sharding-approval.md).
+
+Next agent: publication (migration 0131): one reconciled draft pull request that
+re-reads the job, branch and workflow and refuses any change, then the sharding
+work is complete bar the owner's real-repository validation.
