@@ -5849,6 +5849,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/optimisations/sharding/previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retain a reviewed Playwright sharding preview
+         * @description Requires operator, jobs:read and optimisations:write; public visitors are refused. Repeats the bounded source read, the history query and the headroom read, then requires the same head, workflow digest and shard count the operator inspected. Keeps an immutable private preview for fourteen days with an audit row. It changes one job, publishes nothing and calls no model. Verification is always inconclusive and currentness is not_checked.
+         */
+        post: operations["captureShardingPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/optimisations/sharding/previews/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Replay a retained Playwright sharding preview without GitHub reads
+         * @description Requires operator, jobs:read and optimisations:read; public visitors are refused. Supply exactly one installation_id and repo and nothing else. Verifies the stored digest and recomputes the preview from retained input only. The answer carries the before/after job block, evidence and metadata, never the full workflow. currentness is always not_checked and verification inconclusive.
+         */
+        get: operations["getShardingPreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/optimisations/readiness/previews": {
         parameters: {
             query?: never;
@@ -12796,6 +12839,61 @@ export interface components {
             explanation: string;
             /** Format: date-time */
             inspected_at: string;
+        };
+        ShardingCaptureRequest: {
+            installation_id: string;
+            repository: string;
+            selection: components["schemas"]["CacheSelection"];
+            /** @description The commit the operator reviewed. */
+            head_sha: string;
+            /** @description The workflow digest the operator reviewed. */
+            source_sha256: string;
+            /** @description The shard count the operator reviewed; a different count is a different change. */
+            shards: number;
+        };
+        ShardingPreview: {
+            id: string;
+            installation_id: string;
+            repository: string;
+            reviewed_by: string;
+            sha256: string;
+            /** Format: date-time */
+            created_at: string;
+            /** @enum {string} */
+            currentness: "not_checked";
+            selection: components["schemas"]["CacheSelection"];
+            head_sha: string;
+            source_sha256: string;
+            workflow_path: string;
+            job_name: string;
+            step_name: string;
+            line: number;
+            shards: number;
+            runs: number;
+            /** Format: int64 */
+            test_ms: number;
+            /** Format: int64 */
+            setup_ms: number;
+            /** @description The pool headroom when the preview was kept. An upper bound at one moment, not a reservation. */
+            headroom: number;
+            /** Format: int64 */
+            runner_ms_before: number;
+            /** Format: int64 */
+            runner_ms_after: number;
+            /** Format: int64 */
+            wall_ms_before: number;
+            /**
+             * Format: int64
+             * @description An estimate from medians, not a measured saving.
+             */
+            wall_ms_after: number;
+            /** @description The job block as it is, untrusted repository text. */
+            before: string;
+            /** @description The shard job and the aggregator, untrusted repository text inside a reviewed edit. */
+            after: string;
+            /** @enum {string} */
+            verification: "inconclusive";
+            explanation: string;
         };
         ShardingInspectionRequest: {
             installation_id: string;
@@ -22810,6 +22908,117 @@ export interface operations {
             429: {
                 headers: {
                     "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    captureShardingPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShardingCaptureRequest"];
+            };
+        };
+        responses: {
+            /** @description Audited retained sharding preview; Cache-Control is no-store. */
+            201: {
+                headers: {
+                    Location: components["headers"]["Location"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShardingPreview"];
+                };
+            };
+            /** @description Invalid request, selection, digest or shard count. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The source, history or headroom moved, the job is unsupported, or the preview cannot be kept. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Diagnostic or GitHub quota refusal; Retry-After says when to retry manually. */
+            429: {
+                headers: {
+                    "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getShardingPreview: {
+        parameters: {
+            query: {
+                installation_id: string;
+                repo: string;
+            };
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Verified retained sharding preview; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShardingPreview"];
+                };
+            };
+            /** @description Invalid query or preview ID. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The preview is unavailable, expired or outside this scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Stored content integrity cannot be verified. */
+            409: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

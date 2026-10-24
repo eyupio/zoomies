@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -158,5 +159,100 @@ func TestInspectShardingPreviewTellsTheOperatorWhatToChangeInTheWorkflow(t *test
 	var refusal *optimisation.ShardingRefusal
 	if !errors.As(err, &refusal) || !strings.Contains(refusal.Reason, "--grep") {
 		t.Fatalf("the workflow's reason was lost: %v", err)
+	}
+}
+
+func TestCaptureShardingPreviewKeepsExactlyWhatWasInspectedAndReplaysIt(t *testing.T) {
+	h, inst, reader, selection, jobID := shardControllerFixture(t, 12)
+	preview, err := h.c.InspectShardingPreview(h.ctx, inst.ID, inst.Target, selection, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := &store.AuditEvent{ActorID: "usr_sharding", ActorKind: "user"}
+	retained, err := h.c.CaptureShardingPreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, preview.HeadSHA, preview.SourceSHA256, preview.Shards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retained.ID == "" || !strings.HasPrefix(retained.ID, "ops_") || retained.ReviewedBy != "usr_sharding" || retained.Currentness != "not_checked" || retained.Provenance.Selection != selection || retained.Provenance.GitHubJobID != jobID || retained.Provenance.HeadBranch != "main" {
+		t.Fatalf("retained %+v", retained)
+	}
+	if reader.calls != 2 {
+		t.Fatalf("capture reads=%d", reader.calls)
+	}
+	replayed, err := h.c.ReplayShardingPreview(h.ctx, inst.ID, inst.Target, retained.ID)
+	if err != nil || replayed.Preview.Edit != preview.Edit || replayed.Preview.Shards != preview.Shards || replayed.Preview.Headroom != preview.Headroom {
+		t.Fatalf("replay %+v %v", replayed, err)
+	}
+	if reader.calls != 2 {
+		t.Fatalf("replay read GitHub: %d", reader.calls)
+	}
+	if _, total, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"optimisation.sharding_preview_retained"}}, store.Page{Limit: 10}); err != nil || total != 1 {
+		t.Fatalf("audit total=%d err=%v", total, err)
+	}
+}
+
+func TestCaptureShardingPreviewRefusesWhatIsNotWhatWasReviewed(t *testing.T) {
+	h, inst, _, selection, jobID := shardControllerFixture(t, 12)
+	preview, err := h.c.InspectShardingPreview(h.ctx, inst.ID, inst.Target, selection, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := &store.AuditEvent{ActorID: "usr_sharding", ActorKind: "user"}
+	for name, c := range map[string]struct {
+		head, source string
+		shards       int
+	}{
+		"moved source":       {preview.HeadSHA, strings.Repeat("f", 64), preview.Shards},
+		"moved head":         {strings.Repeat("f", 40), preview.SourceSHA256, preview.Shards},
+		"different count":    {preview.HeadSHA, preview.SourceSHA256, preview.Shards - 1},
+		"count out of range": {preview.HeadSHA, preview.SourceSHA256, 9},
+	} {
+		if _, err := h.c.CaptureShardingPreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, c.head, c.source, c.shards); !errors.Is(err, ErrOptimisationSharding) {
+			t.Errorf("%s accepted: %v", name, err)
+		}
+	}
+	if _, total, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"optimisation.sharding_preview_retained"}}, store.Page{Limit: 10}); total != 0 {
+		t.Fatalf("a refused capture was retained: %d", total)
+	}
+}
+
+func TestReplayShardingPreviewRefusesAnAlteredEnvelope(t *testing.T) {
+	h, inst, _, selection, jobID := shardControllerFixture(t, 12)
+	preview, err := h.c.InspectShardingPreview(h.ctx, inst.ID, inst.Target, selection, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := &store.AuditEvent{ActorID: "usr_sharding", ActorKind: "user"}
+	retained, err := h.c.CaptureShardingPreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, preview.HeadSHA, preview.SourceSHA256, preview.Shards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := h.st.GetOptimisationShardingPreview(h.ctx, inst.ID, inst.Target, retained.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, alter := range map[string]func(*optimisationShardingRetainedEnvelope){
+		"after digest":   func(e *optimisationShardingRetainedEnvelope) { e.Preview.AfterSHA256 = strings.Repeat("f", 64) },
+		"shard count":    func(e *optimisationShardingRetainedEnvelope) { e.Preview.Shards = 2 },
+		"headroom":       func(e *optimisationShardingRetainedEnvelope) { e.Evidence.Headroom = 8 },
+		"a sample":       func(e *optimisationShardingRetainedEnvelope) { e.Samples[0].TestMS = 1 },
+		"no provenance":  func(e *optimisationShardingRetainedEnvelope) { e.Provenance.GitHubJobID = 0 },
+		"another branch": func(e *optimisationShardingRetainedEnvelope) { e.Provenance.HeadBranch = "bad branch name" },
+	} {
+		var e optimisationShardingRetainedEnvelope
+		if err := json.Unmarshal(row.Payload, &e); err != nil {
+			t.Fatal(err)
+		}
+		alter(&e)
+		copyRow := *row
+		copyRow.ID = store.NewID(store.PrefixOptimisationShardingPreview)
+		e.ID = copyRow.ID
+		copyRow.Payload, _ = json.Marshal(e)
+		if err := h.st.PutOptimisationShardingPreview(h.ctx, &copyRow, actor); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.c.ReplayShardingPreview(h.ctx, inst.ID, inst.Target, copyRow.ID); !errors.Is(err, ErrOptimisationSharding) {
+			t.Errorf("%s: altered preview accepted: %v", name, err)
+		}
 	}
 }
