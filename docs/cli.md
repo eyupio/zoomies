@@ -438,8 +438,10 @@ and the one run block the preview would change. The full workflow was shown once
 at inspection and is never returned. Verification is always inconclusive and
 currentness not checked, the time is descriptive rather than a saving, and the
 block is untrusted repository text. Requires an operator and a token with
-`optimisations:read` and `jobs:read`; a public visitor is refused.
+`optimisations:read` and `jobs:read`; a public visitor is refused. Use
+`--output json` for the controller's answer unchanged.
 
+### `zoomies why`
 
 `why <job>` is the one question "why did this job fail, stall or run slow",
 answered from the controller's explanation: the sentence, then the **class**
