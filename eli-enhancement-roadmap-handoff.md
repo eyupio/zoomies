@@ -3061,3 +3061,25 @@ Next agent: test sharding has no implementation contract. Write the dated plan
 and decision record in `roadmap/plans/2026-10-24-eli-e3-test-sharding-contract.md`
 and ask the owner to accept it before any code. Real-repository validation and a
 real E2 comparison remain the owner's.
+
+
+### E3 test sharding foundation, 24 October 2026
+
+The owner accepted the sharding contract for a Playwright-only first slice
+([decision 0014](roadmap/decisions/0014-test-sharding-is-offered-for-one-native-shard-flag-and-preserves-the-whole-suite.md),
+[the contract](roadmap/plans/2026-10-24-eli-e3-test-sharding-contract.md)). The
+pure foundation is in `internal/kennel/workflow/sharding.go` and
+`internal/optimisation/sharding.go`: it finds one Playwright test step, refuses
+by name anything that shards, filters, narrows, uploads artifacts or coverage or
+already has a matrix, and rewrites the job into a shard matrix plus an
+aggregator that keeps the original job name. The count is the largest that keeps
+every shard at least 90 seconds, within eight and the pool's headroom. The
+contract's first wording ("smallest") was corrected: it was always two.
+
+It has no source read, route, migration or surface yet. See
+[the plan](roadmap/plans/2026-10-24-eli-e3-sharding-foundation.md).
+
+Next agent: bounded source binding and inspection for sharding, then retention
+and replay, the web page, CLI/MCP/Eli replay, approval and publication, each as
+its own slice mirroring readiness. The next free migration is 0129. Do not widen
+beyond Playwright, and do not drop the aggregator.

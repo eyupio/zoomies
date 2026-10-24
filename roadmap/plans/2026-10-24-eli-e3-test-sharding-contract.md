@@ -1,8 +1,16 @@
 # Test sharding: a contract for the owner to accept
 
-**Status:** proposed. Nothing here is built. No code, migration, route or
-workflow edit follows until the owner accepts or amends
-[decision 0014](../decisions/0014-test-sharding-is-offered-for-one-native-shard-flag-and-preserves-the-whole-suite.md).
+**Status:** accepted on 24 October 2026 for the Playwright-only first slice
+([decision 0014](../decisions/0014-test-sharding-is-offered-for-one-native-shard-flag-and-preserves-the-whole-suite.md)).
+The owner answered question 1 (Playwright only) and left the others at the
+defaults written below. Implementation proceeds in slices, the first being
+[the pure preview](2026-10-24-eli-e3-sharding-foundation.md).
+
+**Correction made while writing the rule as code.** The count section below
+first said "the smallest N" for which per-shard test time is at least the floor.
+That is always 2 whenever sharding is eligible, so it chose nothing from the
+evidence. The rule as built is the largest N, up to the cap and the pool's
+headroom, that keeps every shard at or above the floor.
 
 ## Why a contract first
 
@@ -68,9 +76,9 @@ Evidence, all from the fleet's retained history and never from a model:
   every shard pays it again;
 * the pool's queue wait and the pool's free capacity for the job's labels.
 
-Rule: choose the smallest `N` from 2 to 8 for which the per-shard test time is at
-least a stated floor (proposed: 90 seconds, so setup does not dominate) and
-`N` concurrent runners fit in the pool's current headroom without making shards
+Rule: choose the largest `N` from 2 to 8 for which the per-shard test time is
+still at least the floor (90 seconds, so setup does not dominate) and `N`
+concurrent runners fit in the pool's current headroom without making shards
 queue behind each other. If no `N` satisfies both, there is no preview and the
 reason says which condition failed. Zoomies never chooses `N` from the size of the
 repository or the number of test files.
@@ -127,7 +135,7 @@ approval; one reconciled draft pull request. Approval and publication stay
 web-only, and the draft is never merged or force-pushed. The existing settings
 (`source_reads`, `workflow_edits`, `publish`) gate it; no new setting is proposed.
 
-## Questions for the owner
+## Questions for the owner (answered 24 October 2026: 1 as above, the rest at the defaults)
 
 1. Which runners in the first slice: Playwright only (recommended), or Playwright,
    Jest and Vitest together?
