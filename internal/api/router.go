@@ -317,6 +317,7 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/cache/previews", s.handleCaptureCache)
 		r.With(s.require(auth.ActionOptimisationsRead), s.require(auth.ActionJobsRead), s.refuseVisitors).Get("/optimisations/cache/previews/{id}", s.handleGetCachePreview)
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/cache/previews/{id}/approval", s.handleApproveCache)
+		r.With(s.require(auth.ActionOptimisationsPublish), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/cache/previews/{id}/publication", s.handlePublishCache)
 
 		// Jobs.
 		r.With(s.require(auth.ActionUsageRead)).Get("/usage", s.handleUsage)

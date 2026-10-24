@@ -47,6 +47,7 @@ const retained = {
   verification: 'inconclusive',
   explanation: 'Enable the setup action npm cache. The saving is unverified.',
   approval: null,
+  publication: null,
 };
 const approval = {
   approved_by: 'usr_operator',
@@ -58,11 +59,23 @@ const approval = {
 const enablement = {
   source_reads: true,
   workflow_edits: true,
-  publish: false,
+  publish: true,
   enabled: true,
-  publish_enabled: false,
+  publish_enabled: true,
   can_change: true,
   can_publish: true,
+};
+const publication = {
+  published_by: 'usr_operator',
+  published_at: '2026-10-23T09:03:00Z',
+  branch: 'zoomies/cache-opc_fixture',
+  base_branch: 'main',
+  base_sha: 'a'.repeat(40),
+  head_sha: 'a'.repeat(40),
+  source_sha256: 'b'.repeat(64),
+  preview_sha256: 'd'.repeat(64),
+  pull_number: 12,
+  pull_url: 'https://github.com/acme/repo/pull/12',
 };
 const job = {
   id: 'job_1',
@@ -106,6 +119,7 @@ test('pick a run, review the cache line, declare, keep: no IDs typed', async ({ 
   let inspectBody: { selection: Record<string, unknown> } | undefined;
   let retainBody: Record<string, unknown> | undefined;
   let approveBody: Record<string, unknown> | undefined;
+  let publishBody: Record<string, unknown> | undefined;
   await page.route('**/api/v1/optimisations/cache/inspections', async (route) => {
     inspectBody = route.request().postDataJSON();
     await route.fulfill({ json: inspection });
@@ -117,6 +131,10 @@ test('pick a run, review the cache line, declare, keep: no IDs typed', async ({ 
   await page.route('**/api/v1/optimisations/cache/previews/*/approval', async (route) => {
     approveBody = route.request().postDataJSON();
     await route.fulfill({ json: { ...retained, approval } });
+  });
+  await page.route('**/api/v1/optimisations/cache/previews/*/publication', async (route) => {
+    publishBody = route.request().postDataJSON();
+    await route.fulfill({ json: { ...retained, approval, publication } });
   });
   await goto(page, '/optimisations/cache', 'Cache preview');
   await page.getByRole('combobox', { name: 'Repository' }).selectOption('acme/repo');
@@ -155,6 +173,18 @@ test('pick a run, review the cache line, declare, keep: no IDs typed', async ({ 
     source_sha256: 'b'.repeat(64),
   });
   await expect(page.getByText(/did not publish anything/)).toBeVisible();
+  await page.getByRole('button', { name: 'Open a draft pull request' }).click();
+  await expect(page.getByRole('heading', { name: 'Draft pull request opened' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '#12' })).toHaveAttribute(
+    'href',
+    'https://github.com/acme/repo/pull/12',
+  );
+  expect(publishBody).toEqual({
+    installation_id: 'ins_fixture',
+    repository: 'acme/repo',
+    head_sha: 'a'.repeat(40),
+    source_sha256: 'b'.repeat(64),
+  });
 });
 
 test('a kept cache preview opens from its link and the page fits a phone', async ({ page }) => {

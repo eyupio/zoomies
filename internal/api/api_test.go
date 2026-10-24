@@ -876,6 +876,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "POST", path: "/api/v1/optimisations/cache/previews", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "GET", path: "/api/v1/optimisations/cache/previews/opc_missing?installation_id=ins_missing&repo=acme/repo", role: store.RoleOperator, action: auth.ActionOptimisationsRead, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "POST", path: "/api/v1/optimisations/cache/previews/opc_missing/approval", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
+		{method: "POST", path: "/api/v1/optimisations/cache/previews/opc_missing/publication", role: store.RoleOperator, action: auth.ActionOptimisationsPublish, additionalScopes: []string{"jobs:read"}, visitorDenied: true},
 		{method: "GET", path: "/api/v1/jobs", role: store.RoleViewer, action: auth.ActionJobsRead},
 		{method: "GET", path: "/api/v1/workflow-runs", role: store.RoleViewer, action: auth.ActionJobsRead},
 		{method: "POST", path: "/api/v1/workflow-runs/cancel", role: store.RoleOperator, action: auth.ActionJobsCancel,

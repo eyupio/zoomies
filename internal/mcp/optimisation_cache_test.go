@@ -21,6 +21,7 @@ func cachePreviewFixture() string {
 	  "before":"        with:\n          node-version: 20\n","after":"        with:\n          cache: npm\n          node-version: 20\n",
 	  "verification":"inconclusive","explanation":"Enable the setup action npm cache. The saving is unverified.",
 	  "approval":{"approved_by":"private-approver","approved_at":"2026-10-23T10:02:00Z","head_sha":"` + strings.Repeat("c", 40) + `","source_sha256":"` + strings.Repeat("e", 64) + `","preview_sha256":"` + strings.Repeat("a", 64) + `"},
+	  "publication":{"published_by":"private-publisher","published_at":"2026-10-23T10:03:00Z","branch":"zoomies/cache-opc_1","base_branch":"main","base_sha":"` + strings.Repeat("c", 40) + `","head_sha":"` + strings.Repeat("c", 40) + `","source_sha256":"` + strings.Repeat("e", 64) + `","preview_sha256":"` + strings.Repeat("a", 64) + `","pull_number":12,"pull_url":"https://github.com/acme/repo/pull/12"},
 	  "content":"private workflow source that must not leave","future_private":"hidden"
 	}`
 }
@@ -41,14 +42,14 @@ func TestCachePreviewToolReadsOnceAndQuotesTheChangedBlock(t *testing.T) {
 	if len(content) != 2 || !strings.Contains(content[0].Text, "untrusted") || strings.Contains(content[0].Text, "cache: npm") || !strings.Contains(content[1].Text, "cache: npm") || !strings.Contains(content[1].Text, "node-version: 20") {
 		t.Fatalf("unsafe blocks: %+v", content)
 	}
-	if strings.Contains(content[1].Text, "private workflow source") || strings.Contains(content[1].Text, "private-reviewer") || strings.Contains(content[1].Text, "private-approver") || strings.Contains(content[1].Text, "future_private") {
+	if strings.Contains(content[1].Text, "private workflow source") || strings.Contains(content[1].Text, "private-reviewer") || strings.Contains(content[1].Text, "private-approver") || strings.Contains(content[1].Text, "private-publisher") || strings.Contains(content[1].Text, "future_private") {
 		t.Fatal("passed source, actor identity or an unreviewed field")
 	}
 	encoded, _ := json.Marshal(value)
 	if string(encoded) != content[1].Text {
 		t.Fatal("structured/text evidence differs")
 	}
-	if p := value.(cachePreviewProjection); p.PackageManager != "npm" || p.Runs != 4 || p.SetupMS != 4200 || p.Before != "        with:\n          node-version: 20\n" || p.After != "        with:\n          cache: npm\n          node-version: 20\n" || p.JobName != "Build" || p.StepName != "Node" || p.Approval == nil || p.Approval.ApprovedAt.IsZero() || p.Approval.HeadSHA != p.HeadSHA || p.Approval.SourceSHA256 != p.SourceSHA256 || p.Approval.PreviewSHA256 == "" {
+	if p := value.(cachePreviewProjection); p.PackageManager != "npm" || p.Runs != 4 || p.SetupMS != 4200 || p.Before != "        with:\n          node-version: 20\n" || p.After != "        with:\n          cache: npm\n          node-version: 20\n" || p.JobName != "Build" || p.StepName != "Node" || p.Approval == nil || p.Approval.ApprovedAt.IsZero() || p.Approval.HeadSHA != p.HeadSHA || p.Approval.SourceSHA256 != p.SourceSHA256 || p.Approval.PreviewSHA256 == "" || p.Publication == nil || p.Publication.PullNumber != 12 || p.Publication.PullURL != "https://github.com/acme/repo/pull/12" || p.Publication.Branch != "zoomies/cache-opc_1" {
 		t.Fatalf("projection %+v", p)
 	}
 }

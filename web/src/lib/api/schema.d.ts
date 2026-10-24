@@ -5895,6 +5895,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/optimisations/cache/previews/{id}/publication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open one draft pull request for an approved cache preview
+         * @description Requires operator, jobs:read and optimisations:publish; public visitors are refused. Refused with 403 unless optimisation.source_reads, optimisation.workflow_edits and optimisation.publish are on. Re-reads the selected job, its branch, the workflow and the lockfile, rechecks the live settings and the approval, and requires the same head, source digest and after block. Commits the reviewed file on a new branch and opens one draft pull request against the run's branch. Never merges, never force-pushes and runs no job. A retry reconciles the branch and pull request an earlier attempt left behind. Verification remains inconclusive; no saving is claimed.
+         */
+        post: operations["publishCachePreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -12607,6 +12630,29 @@ export interface components {
             verification: "inconclusive";
             explanation: string;
             approval: components["schemas"]["CacheApproval"];
+            publication: components["schemas"]["CachePublication"];
+        };
+        /** @description The one draft pull request opened for an approved cache preview, or null when none was opened. */
+        CachePublication: {
+            published_by: string;
+            /** Format: date-time */
+            published_at: string;
+            branch: string;
+            base_branch: string;
+            base_sha: string;
+            head_sha: string;
+            source_sha256: string;
+            preview_sha256: string;
+            pull_number: number;
+            pull_url: string;
+        } | null;
+        CachePublicationRequest: {
+            installation_id: string;
+            repository: string;
+            /** @description The approved commit the cache preview names. */
+            head_sha: string;
+            /** @description The approved workflow digest the cache preview names. */
+            source_sha256: string;
         };
         /** @description An attributed approval of the exact retained cache preview, or null when none was given. */
         CacheApproval: {
@@ -22573,6 +22619,72 @@ export interface operations {
             /** @description The preview, its stored evidence or an earlier approval does not match the request. */
             409: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    publishCachePreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CachePublicationRequest"];
+            };
+        };
+        responses: {
+            /** @description The retained preview with its draft pull request; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CachePreview"];
+                };
+            };
+            /** @description Invalid request, scope or digest. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The preview is unavailable, expired or outside this scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The preview is not approved, its source moved, the settings changed, or GitHub refused or changed the draft. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Diagnostic or GitHub quota refusal; Retry-After says when to retry manually. */
+            429: {
+                headers: {
+                    "Retry-After"?: string;
                     [name: string]: unknown;
                 };
                 content: {

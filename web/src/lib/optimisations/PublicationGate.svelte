@@ -48,7 +48,7 @@
     if (refreshKey > 0) void load();
   });
   const request =
-    'Please turn on optimisation.source_reads, optimisation.workflow_edits and optimisation.publish (Settings, Optimisation) so I can open a draft pull request for an approved checkout preview in Zoomies.';
+    'Please turn on optimisation.source_reads, optimisation.workflow_edits and optimisation.publish (Settings, Optimisation) so I can open a draft pull request for an approved optimisation preview in Zoomies.';
 </script>
 
 {#if enablement && !enablement.publish_enabled}
@@ -56,7 +56,7 @@
     <h2 id="publish-gate-title">Turn on draft publishing</h2>
     <p>
       This lets an operator open one draft pull request for an approved preview. Zoomies commits the
-      one reviewed line on a new branch and opens the draft against the branch the run came from. It
+      reviewed change on a new branch and opens the draft against the branch the run came from. It
       never merges, never force-pushes and runs no job, and no measurement shows the change saves
       time. It also needs the two preview grants.
     </p>

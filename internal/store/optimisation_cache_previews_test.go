@@ -247,3 +247,65 @@ func TestOptimisationCacheApprovalExpiresWithThePreviewAndRefusesForeignScope(t 
 		t.Fatalf("expired preview approved: %v", err)
 	}
 }
+
+func TestOptimisationCachePublicationRecordsOneApprovedDraft(t *testing.T) {
+	s := newTestStore(t)
+	r := optimisationCachePreviewFixture(t, s)
+	ctx := context.Background()
+	if err := s.PutOptimisationCachePreview(ctx, r, optimisationAudit()); err != nil {
+		t.Fatal(err)
+	}
+	head, source := strings.Repeat("a", 40), strings.Repeat("b", 64)
+	if _, err := s.ApproveOptimisationCachePreview(ctx, r.InstallationID, r.Repository, r.ID, head, source, r.SHA256, optimisationAudit()); err != nil {
+		t.Fatal(err)
+	}
+	pub := &OptimisationCachePublication{
+		PreviewID: r.ID, InstallationID: r.InstallationID, Repository: r.Repository, PublishedBy: "usr_actor",
+		Branch: "zoomies/cache-" + r.ID, BaseBranch: "main", BaseSHA: head, HeadSHA: head, SourceSHA256: source, PreviewSHA256: r.SHA256,
+		PullNumber: 12, PullURL: "https://github.com/acme/repo/pull/12",
+	}
+	if err := s.PutOptimisationCachePublication(ctx, pub, optimisationAudit()); err != nil {
+		t.Fatal(err)
+	}
+	if pub.CreatedAt.IsZero() {
+		t.Fatal("publication was not timestamped")
+	}
+	if err := s.PutOptimisationCachePublication(ctx, pub, optimisationAudit()); err != nil {
+		t.Fatalf("repeat: %v", err)
+	}
+	got, err := s.GetOptimisationCachePreview(ctx, r.InstallationID, r.Repository, r.ID)
+	if err != nil || got.Publication == nil || got.Publication.PullNumber != 12 || got.Publication.PublishedBy != "usr_actor" {
+		t.Fatalf("read %+v %v", got, err)
+	}
+	events, total, err := s.ListAudit(ctx, AuditFilter{TargetID: r.ID}, Page{Limit: 10})
+	if err != nil || total != 3 || events[0].Action != "optimisation.cache_preview_published" {
+		t.Fatalf("audit %+v total=%d err=%v", events, total, err)
+	}
+	other := *pub
+	other.PullURL = "https://github.com/acme/repo/pull/13"
+	if err := s.PutOptimisationCachePublication(ctx, &other, optimisationAudit()); !errors.Is(err, ErrConflict) {
+		t.Fatalf("different draft accepted: %v", err)
+	}
+}
+
+func TestOptimisationCachePublicationRequiresAnApprovalAndLivePreview(t *testing.T) {
+	now := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
+	s := newTestStoreAt(t, func() time.Time { return now })
+	r := optimisationCachePreviewFixture(t, s)
+	ctx := context.Background()
+	if err := s.PutOptimisationCachePreview(ctx, r, optimisationAudit()); err != nil {
+		t.Fatal(err)
+	}
+	head, source := strings.Repeat("a", 40), strings.Repeat("b", 64)
+	pub := &OptimisationCachePublication{PreviewID: r.ID, InstallationID: r.InstallationID, Repository: r.Repository, PublishedBy: "usr_actor", Branch: "zoomies/cache-" + r.ID, BaseBranch: "main", BaseSHA: head, HeadSHA: head, SourceSHA256: source, PreviewSHA256: r.SHA256, PullNumber: 12, PullURL: "https://github.com/acme/repo/pull/12"}
+	if err := s.PutOptimisationCachePublication(ctx, pub, optimisationAudit()); !errors.Is(err, ErrConflict) {
+		t.Fatalf("unapproved preview published: %v", err)
+	}
+	if _, err := s.ApproveOptimisationCachePreview(ctx, r.InstallationID, r.Repository, r.ID, head, source, r.SHA256, optimisationAudit()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(OptimisationCachePreviewRetention)
+	if err := s.PutOptimisationCachePublication(ctx, pub, optimisationAudit()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expired preview published: %v", err)
+	}
+}

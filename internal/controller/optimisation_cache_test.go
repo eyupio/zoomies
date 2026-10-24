@@ -14,17 +14,22 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/optimisation"
 	"github.com/eyupio/zoomies/internal/prrepair"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
 type cacheSourceReader struct {
 	github.Client
-	source     *github.SetupCacheSource
-	quota      *github.RateLimit
-	calls      int
-	quotaCalls int
-	err        error
+	source         *github.SetupCacheSource
+	quota          *github.RateLimit
+	calls          int
+	quotaCalls     int
+	err            error
+	publishes      int
+	publishRequest github.OptimisationPublishRequest
+	publishPR      *github.PullRequest
+	publishErr     error
 }
 
 func (f *cacheSourceReader) RateLimit(context.Context) (*github.RateLimit, error) {
@@ -34,6 +39,11 @@ func (f *cacheSourceReader) RateLimit(context.Context) (*github.RateLimit, error
 func (f *cacheSourceReader) ReadSetupCacheSource(context.Context, string, github.SetupCacheSelection) (*github.SetupCacheSource, error) {
 	f.calls++
 	return f.source, f.err
+}
+func (f *cacheSourceReader) PublishOptimisation(_ context.Context, req github.OptimisationPublishRequest) (*github.PullRequest, error) {
+	f.publishes++
+	f.publishRequest = req
+	return f.publishPR, f.publishErr
 }
 
 func cacheBlobSHA(s string) string {
@@ -239,5 +249,71 @@ func TestReplayCachePreviewRefusesAnAlteredEnvelope(t *testing.T) {
 	}
 	if _, err := h.c.ReplayCachePreview(h.ctx, inst.ID, inst.Target, row.ID); !errors.Is(err, ErrOptimisationCache) {
 		t.Fatalf("altered preview accepted: %v", err)
+	}
+}
+
+func TestPublishCachePreviewOpensOneDraftFromTheApprovedBinding(t *testing.T) {
+	h, inst, reader, selection, jobID := cacheControllerFixture(t)
+	preview, err := h.c.InspectCachePreview(h.ctx, inst.ID, inst.Target, selection, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := &store.AuditEvent{ActorID: "usr_cache", ActorKind: "user"}
+	retained, err := h.c.CaptureCachePreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, preview.HeadSHA, preview.SourceSHA256, preview.LockfileSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.c.ApproveCachePreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, preview.HeadSHA, preview.SourceSHA256); err != nil {
+		t.Fatal(err)
+	}
+	reader.publishPR = &github.PullRequest{Number: 12, HTMLURL: "https://github.com/" + inst.Target + "/pull/12", Branch: "zoomies/cache-" + retained.ID}
+	check := func(context.Context) (optimisation.Policy, error) {
+		return optimisation.Policy{SourceAllowed: true, WorkflowEditsAllowed: true, PublishAllowed: true}, nil
+	}
+	published, err := h.c.PublishCachePreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, preview.HeadSHA, preview.SourceSHA256, check)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Publication == nil || published.Publication.PullNumber != 12 || published.Publication.PullURL != reader.publishPR.HTMLURL || reader.publishes != 1 {
+		t.Fatalf("publication %+v publishes=%d", published.Publication, reader.publishes)
+	}
+	req := reader.publishRequest
+	if req.Path != preview.Edit.Path || req.Mode != preview.File.Mode || req.Content != preview.File.Content || req.SourceSHA256 != preview.SourceSHA256 || req.Base != "main" || req.BaseCommit != preview.HeadSHA || req.Head != "zoomies/cache-"+retained.ID || !strings.Contains(req.Body, retained.ID) || !strings.Contains(req.Body, "no saving") {
+		t.Fatalf("publish request %+v", req)
+	}
+	if reader.calls != 3 {
+		t.Fatalf("publish read GitHub %d times", reader.calls)
+	}
+	if _, total, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"optimisation.cache_preview_published"}}, store.Page{Limit: 10}); err != nil || total != 1 {
+		t.Fatalf("audit total=%d err=%v", total, err)
+	}
+	again, err := h.c.PublishCachePreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, preview.HeadSHA, preview.SourceSHA256, check)
+	if err != nil || again.Publication == nil || reader.publishes != 1 {
+		t.Fatalf("repeat published again: %v %+v", err, again)
+	}
+}
+
+func TestPublishCachePreviewRefusesWithoutApprovalOrWithAForeignBinding(t *testing.T) {
+	h, inst, reader, selection, jobID := cacheControllerFixture(t)
+	preview, err := h.c.InspectCachePreview(h.ctx, inst.ID, inst.Target, selection, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := &store.AuditEvent{ActorID: "usr_cache", ActorKind: "user"}
+	retained, err := h.c.CaptureCachePreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, preview.HeadSHA, preview.SourceSHA256, preview.LockfileSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(context.Context) (optimisation.Policy, error) {
+		return optimisation.Policy{SourceAllowed: true, WorkflowEditsAllowed: true, PublishAllowed: true}, nil
+	}
+	if _, err := h.c.PublishCachePreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, preview.HeadSHA, preview.SourceSHA256, check); !errors.Is(err, ErrOptimisationNotApproved) {
+		t.Fatalf("unapproved publish: %v", err)
+	}
+	if reader.publishes != 0 {
+		t.Fatal("unapproved publish reached GitHub")
+	}
+	if _, err := h.c.PublishCachePreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, strings.Repeat("f", 40), preview.SourceSHA256, check); !errors.Is(err, ErrOptimisationCacheApproval) {
+		t.Fatalf("foreign head publish: %v", err)
 	}
 }

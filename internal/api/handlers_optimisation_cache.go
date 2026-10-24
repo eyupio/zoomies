@@ -62,6 +62,26 @@ type CacheApprovalRequest struct {
 	SourceSHA256   string `json:"source_sha256"`
 }
 
+type CachePublicationRequest struct {
+	InstallationID string `json:"installation_id"`
+	Repository     string `json:"repository"`
+	HeadSHA        string `json:"head_sha"`
+	SourceSHA256   string `json:"source_sha256"`
+}
+
+type CachePublicationView struct {
+	PublishedBy   string    `json:"published_by"`
+	PublishedAt   time.Time `json:"published_at"`
+	Branch        string    `json:"branch"`
+	BaseBranch    string    `json:"base_branch"`
+	BaseSHA       string    `json:"base_sha"`
+	HeadSHA       string    `json:"head_sha"`
+	SourceSHA256  string    `json:"source_sha256"`
+	PreviewSHA256 string    `json:"preview_sha256"`
+	PullNumber    int       `json:"pull_number"`
+	PullURL       string    `json:"pull_url"`
+}
+
 type CacheApprovalView struct {
 	ApprovedBy    string    `json:"approved_by"`
 	ApprovedAt    time.Time `json:"approved_at"`
@@ -71,30 +91,31 @@ type CacheApprovalView struct {
 }
 
 type CachePreviewView struct {
-	ID             string             `json:"id"`
-	InstallationID string             `json:"installation_id"`
-	Repository     string             `json:"repository"`
-	ReviewedBy     string             `json:"reviewed_by"`
-	SHA256         string             `json:"sha256"`
-	CreatedAt      time.Time          `json:"created_at"`
-	Currentness    string             `json:"currentness"`
-	HeadSHA        string             `json:"head_sha"`
-	WorkflowPath   string             `json:"workflow_path"`
-	LockfilePath   string             `json:"lockfile_path"`
-	LockfileSHA256 string             `json:"lockfile_sha256"`
-	SourceSHA256   string             `json:"source_sha256"`
-	AfterSHA256    string             `json:"after_sha256"`
-	PackageManager string             `json:"package_manager"`
-	JobName        string             `json:"job_name"`
-	StepName       string             `json:"step_name"`
-	Line           int                `json:"line"`
-	Runs           int                `json:"runs"`
-	SetupMS        int64              `json:"setup_ms"`
-	Before         string             `json:"before"`
-	After          string             `json:"after"`
-	Verification   string             `json:"verification"`
-	Explanation    string             `json:"explanation"`
-	Approval       *CacheApprovalView `json:"approval"`
+	ID             string                `json:"id"`
+	InstallationID string                `json:"installation_id"`
+	Repository     string                `json:"repository"`
+	ReviewedBy     string                `json:"reviewed_by"`
+	SHA256         string                `json:"sha256"`
+	CreatedAt      time.Time             `json:"created_at"`
+	Currentness    string                `json:"currentness"`
+	HeadSHA        string                `json:"head_sha"`
+	WorkflowPath   string                `json:"workflow_path"`
+	LockfilePath   string                `json:"lockfile_path"`
+	LockfileSHA256 string                `json:"lockfile_sha256"`
+	SourceSHA256   string                `json:"source_sha256"`
+	AfterSHA256    string                `json:"after_sha256"`
+	PackageManager string                `json:"package_manager"`
+	JobName        string                `json:"job_name"`
+	StepName       string                `json:"step_name"`
+	Line           int                   `json:"line"`
+	Runs           int                   `json:"runs"`
+	SetupMS        int64                 `json:"setup_ms"`
+	Before         string                `json:"before"`
+	After          string                `json:"after"`
+	Verification   string                `json:"verification"`
+	Explanation    string                `json:"explanation"`
+	Approval       *CacheApprovalView    `json:"approval"`
+	Publication    *CachePublicationView `json:"publication"`
 }
 
 func (b CacheSelectionBody) parse() (github.SetupCacheSelection, int64, bool) {
@@ -125,6 +146,9 @@ func cachePreviewView(p *controller.RetainedCachePreview) CachePreviewView {
 	}
 	if a := p.Approval; a != nil {
 		v.Approval = &CacheApprovalView{ApprovedBy: a.ApprovedBy, ApprovedAt: a.ApprovedAt, HeadSHA: a.HeadSHA, SourceSHA256: a.SourceSHA256, PreviewSHA256: a.PreviewSHA256}
+	}
+	if x := p.Publication; x != nil {
+		v.Publication = &CachePublicationView{PublishedBy: x.PublishedBy, PublishedAt: x.PublishedAt, Branch: x.Branch, BaseBranch: x.BaseBranch, BaseSHA: x.BaseSHA, HeadSHA: x.HeadSHA, SourceSHA256: x.SourceSHA256, PreviewSHA256: x.PreviewSHA256, PullNumber: x.PullNumber, PullURL: x.PullURL}
 	}
 	return v
 }
@@ -231,4 +255,32 @@ func (s *Server) handleApproveCache(w http.ResponseWriter, r *http.Request) {
 
 func validCachePreviewID(id string) bool {
 	return strings.HasPrefix(id, store.PrefixOptimisationCachePreview+"_") && len(id) <= 128 && !strings.ContainsAny(id, " /\r\n\x00")
+}
+
+// handlePublishCache opens one draft pull request for an approved cache
+// preview. The server re-reads the source, policy and approval before writing;
+// the request names only the preview binding, never GitHub objects.
+func (s *Server) handlePublishCache(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	id := Identity(r.Context())
+	if id == nil || id.ID == "" {
+		unauthorized(w, "An identified caller is required to publish a cache preview.")
+		return
+	}
+	previewID := chiURLParam(r, "id")
+	var in CachePublicationRequest
+	if !decodeOptimisationBody(w, r, &in) {
+		return
+	}
+	if !validCachePreviewID(previewID) || !validScope(in.InstallationID, in.Repository) || !validDigest(in.HeadSHA, 40) || !validDigest(in.SourceSHA256, 64) {
+		badRequest(w, "Supply a cache preview ID, an installation, a repository and the commit and source digest the preview names.")
+		return
+	}
+	actor := &store.AuditEvent{ActorID: id.ID, ActorName: id.Name, ActorKind: id.Kind, IP: id.IP}
+	out, err := s.ctrl.PublishCachePreview(r.Context(), actor, in.InstallationID, in.Repository, previewID, in.HeadSHA, in.SourceSHA256, s.ctrl.OptimisationPolicy)
+	if err != nil {
+		s.optimisationError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, cachePreviewView(out))
 }

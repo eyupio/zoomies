@@ -123,6 +123,31 @@ func TestCacheOptimisationInspectorCaptureAndReplayKeepTheSourcePrivate(t *testi
 	}
 	approveBody["head_sha"] = strings.Repeat("f", 40)
 	h.do(request{method: http.MethodPost, path: path[:strings.Index(path, "?")] + "/approval", token: token, body: approveBody}).mustStatus(t, 409, "wrong head")
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Optimisation.Publish = true })
+	f.publishPR = &github.PullRequest{Number: 21, HTMLURL: "https://github.com/acme/repo/pull/21", Branch: "zoomies/cache-" + saved.ID}
+	publishToken := h.token("publisher", store.RoleOperator, "jobs:read", "optimisations:write", "optimisations:read", "optimisations:publish")
+	publishBody := map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.HeadSHA, "source_sha256": saved.SourceSHA256}
+	published := h.do(request{method: http.MethodPost, path: path[:strings.Index(path, "?")] + "/publication", token: publishToken, body: publishBody})
+	published.mustStatus(t, 200, "publication")
+	var drafted CachePreviewView
+	if err := json.Unmarshal(published.body, &drafted); err != nil {
+		t.Fatal(err)
+	}
+	if drafted.Publication == nil || drafted.Publication.PullNumber != 21 || drafted.Publication.PullURL != "https://github.com/acme/repo/pull/21" || drafted.Publication.Branch != "zoomies/cache-"+saved.ID || drafted.Publication.PublishedBy == "" || f.publishes != 1 {
+		t.Fatalf("publication %s", published.body)
+	}
+	if f.publishReq.Path != saved.WorkflowPath || f.publishReq.Content == "" || f.publishReq.SourceSHA256 != saved.SourceSHA256 || f.publishReq.Base != "main" || f.publishReq.Head != "zoomies/cache-"+saved.ID {
+		t.Fatalf("publish request %+v", f.publishReq)
+	}
+	assertShape(t, loadSpec(t), "CachePreview", published.body)
+	if auditCount(t, h, "optimisation.cache_preview_published") != 1 || f.cacheReads.Load() != 3 {
+		t.Fatal("publication audit or read count")
+	}
+	again := h.do(request{method: http.MethodPost, path: path[:strings.Index(path, "?")] + "/publication", token: publishToken, body: publishBody})
+	again.mustStatus(t, 200, "repeat publication")
+	if f.publishes != 1 {
+		t.Fatal("repeat publication reached GitHub")
+	}
 }
 
 func TestCacheOptimisationRefusesUntilEnabledAndAMovedSource(t *testing.T) {
