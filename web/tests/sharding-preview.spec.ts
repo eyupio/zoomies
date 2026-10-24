@@ -200,11 +200,12 @@ test('a sharding preview under review fits a phone', async ({ page }) => {
 
 test('the other previews link to the sharding preview', async ({ page }) => {
   await mocks(page);
-  for (const [path, heading] of [
+  const pages: [string, string][] = [
     ['/optimisations/cache', 'Cache preview'],
     ['/optimisations/checkout', 'Checkout preview'],
     ['/optimisations/readiness', 'Readiness preview'],
-  ]) {
+  ];
+  for (const [path, heading] of pages) {
     await goto(page, path, heading);
     await expect(page.getByRole('link', { name: 'Sharding preview' })).toHaveAttribute(
       'href',
