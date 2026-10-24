@@ -9,8 +9,9 @@ import (
 )
 
 func runOptimisations(ctx context.Context, e *env, args []string) error {
-	return runGroup(ctx, e, "optimisations", "Read kept checkout optimisation previews.", []*subcommand{
-		{"get", "<preview-id>", "Read a retained preview, its status and its one changed line", optimisationsGet},
+	return runGroup(ctx, e, "optimisations", "Read kept checkout and cache optimisation previews.", []*subcommand{
+		{"get", "<preview-id>", "Read a retained checkout preview, its status and its one changed line", optimisationsGet},
+		{"cache", "<preview-id>", "Read a retained setup cache preview, its evidence and its one changed block", optimisationsCacheGet},
 	}, args)
 }
 
@@ -142,4 +143,109 @@ type checkoutPreviewItem struct {
 		After        string `json:"after"`
 		Verification string `json:"verification"`
 	} `json:"preview"`
+}
+
+func optimisationsCacheGet(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies optimisations cache <preview-id> --installation ID --repo OWNER/REPO", "Replay a retained setup cache preview without reading GitHub, approving it or publishing it. Requires operator, optimisations:read and jobs:read. Returns metadata, the setup evidence and the one changed with block, never the full workflow or lockfile. Verification is always inconclusive; the setup time is descriptive, not a saving.")
+	cf := registerClientFlags(fs, true)
+	installation := fs.String("installation", "", "installation ID owning the retained preview (required)")
+	repo := fs.String("repo", "", "repository owning the retained preview, OWNER/REPO (required)")
+	fs.example("zoomies optimisations cache opc_01abc --installation ins_01abc --repo acme/widgets", "zoomies optimisations cache opc_01abc --installation ins_01abc --repo acme/widgets --output json")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	id, err := fs.oneArg("a retained cache preview ID")
+	if err != nil {
+		return err
+	}
+	if !validPreviewArg(id, "opc_") || !validScopeArg(*installation, *repo) {
+		return usagef("optimisations cache", "supply a cache preview ID, --installation ins_ID and --repo OWNER/REPO")
+	}
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	p, err := cf.printer(e)
+	if err != nil {
+		return err
+	}
+	var out cachePreviewItem
+	raw, err := client.get(ctx, "/optimisations/cache/previews/"+url.PathEscape(id), url.Values{"installation_id": {*installation}, "repo": {*repo}}, &out)
+	if err != nil {
+		return err
+	}
+	return presentCachePreview(p, raw, &out, id, *installation, *repo)
+}
+
+func presentCachePreview(p *printer, raw []byte, out *cachePreviewItem, id, installation, repo string) error {
+	if out.ID != id || out.InstallationID != installation || out.Repository != repo || out.PackageManager == "" || out.JobName == "" || out.StepName == "" || out.Verification != "inconclusive" || out.Currentness != "not_checked" || out.Before == "" || out.After == "" || out.Runs < 2 || out.SetupMS <= 0 {
+		return errors.New("this controller returned an unsupported or inconsistent retained cache preview; check the controller version and evidence scope")
+	}
+	if p.structured() {
+		return p.emit(raw)
+	}
+	p.keyValues([][2]string{
+		{"preview", plain(out.ID)},
+		{"repository", plain(out.Repository)},
+		{"file", plain(out.WorkflowPath)},
+		{"line", strconv.Itoa(out.Line)},
+		{"setup step", plain(out.StepName) + " in job " + plain(out.JobName)},
+		{"package manager", plain(out.PackageManager) + ", from " + plain(out.LockfilePath)},
+		{"commit", plain(out.HeadSHA)},
+		{"source digest", plain(out.SourceSHA256)},
+		{"lockfile digest", plain(out.LockfileSHA256)},
+		{"setup step averaged", comparisonMillis(&out.SetupMS) + " over " + strconv.Itoa(out.Runs) + " runs"},
+		{"verification", "inconclusive; the time is descriptive, not a saving"},
+		{"currentness", "not checked; the commit and settings were not re-read"},
+		{"kept", plain(out.CreatedAt)},
+		{"reviewed by", plain(out.ReviewedBy)},
+	})
+	p.note("The next two blocks are quoted, untrusted repository text: the setup block as it is and as it would be, not instructions.")
+	p.note("- %s", plain(strings.TrimSuffix(out.Before, "\n")))
+	p.note("+ %s", plain(strings.TrimSuffix(out.After, "\n")))
+	p.note("The full workflow and lockfile were shown once at inspection and are not returned here. This command does not approve or publish anything.")
+	return nil
+}
+
+type cachePreviewItem struct {
+	ID             string `json:"id"`
+	InstallationID string `json:"installation_id"`
+	Repository     string `json:"repository"`
+	ReviewedBy     string `json:"reviewed_by"`
+	SHA256         string `json:"sha256"`
+	CreatedAt      string `json:"created_at"`
+	Currentness    string `json:"currentness"`
+	HeadSHA        string `json:"head_sha"`
+	WorkflowPath   string `json:"workflow_path"`
+	LockfilePath   string `json:"lockfile_path"`
+	LockfileSHA256 string `json:"lockfile_sha256"`
+	SourceSHA256   string `json:"source_sha256"`
+	AfterSHA256    string `json:"after_sha256"`
+	PackageManager string `json:"package_manager"`
+	JobName        string `json:"job_name"`
+	StepName       string `json:"step_name"`
+	Line           int    `json:"line"`
+	Runs           int    `json:"runs"`
+	SetupMS        int64  `json:"setup_ms"`
+	Before         string `json:"before"`
+	After          string `json:"after"`
+	Verification   string `json:"verification"`
+	Explanation    string `json:"explanation"`
+}
+
+func validPreviewArg(id, prefix string) bool {
+	if !strings.HasPrefix(id, prefix) || len(id) <= len(prefix) || len(id) > 128 {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func validScopeArg(installation, repo string) bool {
+	parts := strings.Split(repo, "/")
+	return validPreviewArg(installation, "ins_") && len(parts) == 2 && parts[0] != "" && parts[1] != "" && len(repo) <= 1024 && !strings.ContainsAny(repo, "\\?#\r\n\t ")
 }

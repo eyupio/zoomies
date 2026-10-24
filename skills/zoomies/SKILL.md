@@ -92,7 +92,7 @@ These change nothing. Run them as the question needs.
 * `zoomies problems list`
 * `zoomies events recent` (with `--wait` it holds a request for the next change, for 25 seconds at most, and changes nothing)
 * `zoomies comparisons get`
-* `zoomies optimisations get`
+* `zoomies optimisations get`, `zoomies optimisations cache`
 * `zoomies jobs list`, `zoomies jobs stats`, `zoomies jobs get`, `zoomies jobs why`, `zoomies jobs advice`, `zoomies jobs pr-delay`
 * `zoomies analyse queue-wait`, `zoomies analyse compare`, `zoomies analyse host-pressure`, `zoomies analyse startup-failures`
 * `zoomies size-pins list`
