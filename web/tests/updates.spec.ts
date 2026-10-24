@@ -128,9 +128,10 @@ test('the platform role sees the mode, the soak and the check interval as contro
   // The words beside the choice are the ones everybody is shown.
   await expect(mode(page)).toContainText('24 hours');
   await expect(mode(page)).toContainText('Only auto waits; manual and off ignore it.');
-  // The soak and the check interval are the Configuration page's own rows, so a
-  // value the environment holds is pinned here as it is there.
-  await expect(mode(page)).toContainText('check_interval');
+  // The soak and the check interval are the Configuration page's own rows, so
+  // they carry their labels and their controls here too.
+  await expect(mode(page)).toContainText('Release update soak');
+  await expect(mode(page)).toContainText('Update check interval');
   await expect(mode(page).getByRole('button', { name: 'Change' })).toHaveCount(2);
   // The seeded controller has the mode from its environment, which the page
   // says rather than letting a press fail.

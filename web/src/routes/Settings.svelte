@@ -83,7 +83,7 @@
       <SettingsRail current={wanted} />
     {/if}
 
-    <div class="page">
+    <div class="page" class:wide={page?.id === 'configuration'}>
       {#if phone}
         <a class="back" href="/settings">
           <ChevronLeft size={14} aria-hidden="true" />
@@ -149,6 +149,9 @@
     flex: 1;
     min-width: 0;
     max-width: var(--z-settings-page-max);
+  }
+  .page.wide {
+    max-width: var(--z-settings-page-wide);
   }
   .back {
     display: inline-flex;

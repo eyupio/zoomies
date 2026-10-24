@@ -9,6 +9,10 @@
   process, and "I changed it and nothing happened" is what that looks like from
   the outside.
 
+  The raw key is not part of that scan. It is shown once somebody chooses to
+  edit, where it is the thing they would look up in the configuration
+  reference; on a hundred-row page, repeating it under every name was noise.
+
   The editor is typed. A switch is a switch, a list is a list of chips, a choice
   is a menu. The row used to send whatever was in a text box, which for a
   boolean meant sending the string "on" and for a list meant sending the
@@ -16,7 +20,7 @@
 
   Any finding the validator produced about this setting is shown right here: a
   warning three screens away from the thing it is about is a warning nobody
-  acts on.
+  acts on. Its title stays visible; the explanation opens under it.
 -->
 <script lang="ts">
   import { Check, Pencil, RotateCcw, X } from '@lucide/svelte';
@@ -93,8 +97,6 @@
 
   let { setting, findings = [], sought = false, onsave, class: className = '' }: Props = $props();
 
-  /* The section is already the heading above, so the row shows what is left. */
-  const leaf = $derived(setting.key.split('.').slice(1).join('.') || setting.key);
   const shown = $derived(displayValue(setting));
   const unset = $derived(isUnset(setting));
   const source = $derived(describeSource(setting));
@@ -245,7 +247,9 @@
 >
   <div class="key">
     <span class="label">{setting.label}</span>
-    <span class="leaf mono">{leaf}</span>
+    {#if editing}
+      <span class="key-line mono">{setting.key}</span>
+    {/if}
     {#if setting.summary}
       <p class="summary">
         {setting.summary}
@@ -346,7 +350,7 @@
     </div>
     <div class="actions">
       {#if setting.editable}
-        <Button size="sm" variant="ghost" icon={Pencil} onclick={start}>Change</Button>
+        <Button size="sm" variant="secondary" icon={Pencil} onclick={start}>Change</Button>
         {#if resettable}
           <Tooltip
             text="Forget the stored value, so this goes back to the configuration file or the built-in default."
@@ -373,24 +377,28 @@
         {@const meta = severityStatus(finding.severity)}
         <li>
           <Badge status={meta} size="sm" />
-          <div>
+          <div class="finding-copy">
             <p class="finding-title">{finding.title}</p>
-            {#if finding.detail}<p class="finding-detail">{finding.detail}</p>{/if}
-            {#if finding.fix}<p class="finding-fix"><strong>Fix:</strong> {finding.fix}</p>{/if}
-            <!--
-              A stored value the validator is unhappy with is the one that can
-              lock somebody out: this page is behind the controller, and a
-              value that stops it starting cannot be undone from here. The way
-              back is said now, while the page still loads, rather than found
-              at the moment it does not.
-            -->
-            {#if finding.undo && finding.source === 'database'}
-              <p class="finding-detail">
-                Stored here. If it ever stops the controller starting, this page will not load, run <code
-                  >{finding.undo}</code
-                > against the stopped controller.
-              </p>
-            {/if}
+            <details class="finding-more">
+              <summary>What this means and how to fix it</summary>
+              {#if finding.detail}<p class="finding-detail">{finding.detail}</p>{/if}
+              {#if finding.fix}
+                <p class="finding-fix"><strong>To fix:</strong> {finding.fix}</p>
+              {/if}
+              <!--
+                A stored value the validator is unhappy with is the one that can
+                lock somebody out: this page is behind the controller, and a
+                value that stops it starting cannot be undone from here. The way
+                back is said now, while the page still loads, rather than found
+                at the moment it does not.
+              -->
+              {#if finding.undo && finding.source === 'database'}
+                <p class="finding-detail">
+                  Stored here. If it ever stops the controller starting, this page will not load,
+                  run <code>{finding.undo}</code> against the stopped controller.
+                </p>
+              {/if}
+            </details>
           </div>
         </li>
       {/each}
@@ -401,16 +409,15 @@
 <style>
   /*
     Three columns, so that every Change button on the page lands on the same
-    vertical line however long the value beside it is. A ragged right edge down
-    eighty-eight rows reads as carelessness, and it makes the one action on the
-    row harder to find than it should be.
+    vertical line however long the value beside it is. The name and its
+    description take the room that is left, which is the part a person reads.
   */
   .row {
     display: grid;
-    grid-template-columns: minmax(0, 24rem) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(9rem, 19rem) auto;
     align-items: start;
     gap: var(--z-space-2) var(--z-space-4);
-    padding: var(--z-space-3) var(--z-space-5);
+    padding: var(--z-space-4) var(--z-space-5);
     border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .row.has-findings {
@@ -453,10 +460,10 @@
   .label {
     font-size: var(--z-text-sm);
     line-height: var(--z-leading-sm);
-    font-weight: var(--z-weight-medium);
+    font-weight: var(--z-weight-semibold);
     color: var(--z-text);
   }
-  .leaf {
+  .key-line {
     font-size: var(--z-text-2xs);
     color: var(--z-text-subtle);
     overflow-wrap: anywhere;
@@ -466,9 +473,9 @@
   }
   .summary {
     margin: 0;
-    max-width: 52ch;
-    font-size: var(--z-text-2xs);
-    line-height: var(--z-leading-2xs);
+    max-width: 64ch;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
   }
   .value,
@@ -476,7 +483,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--z-space-2);
+    gap: var(--z-space-1) var(--z-space-2);
     min-width: 0;
     /* Line the value up with the key's first line rather than its baseline. */
     min-height: var(--z-space-6);
@@ -490,10 +497,12 @@
   }
   .shown {
     font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-medium);
     color: var(--z-text);
     overflow-wrap: anywhere;
   }
   .shown.unset {
+    font-weight: var(--z-weight-normal);
     color: var(--z-text-subtle);
     font-style: italic;
   }
@@ -537,10 +546,25 @@
     align-items: flex-start;
     gap: var(--z-space-2);
   }
+  .finding-copy {
+    min-width: 0;
+  }
   .finding-title {
     margin: 0;
     font-size: var(--z-text-sm);
     color: var(--z-text);
+  }
+  .finding-more {
+    margin-top: var(--z-space-1);
+  }
+  .finding-more summary {
+    width: fit-content;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+    cursor: pointer;
+  }
+  .finding-more summary:hover {
+    color: var(--z-accent);
   }
   .finding-detail,
   .finding-fix {
@@ -550,19 +574,31 @@
     line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
   }
+  .finding-detail code {
+    font-size: var(--z-text-2xs);
+    overflow-wrap: anywhere;
+  }
   /*
-    The key column leaves a phone about forty pixels to hold a value and the
+    The name column leaves a phone about forty pixels to hold a value and the
     button that changes it. Change kept its own width, sat past the right edge
     where it could not be pressed, and took the page sideways with it -- and the
     fixed navigation, which is laid out against the document, went with it. So
     the two stack.
   */
   @media (max-width: 768px) {
+    /*
+      The name and its description take the full width, but the value and the
+      one control that changes it share the line beneath: stacking all three
+      made a phone read one setting per screen.
+    */
     .row {
-      grid-template-columns: minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .key {
+      grid-column: 1 / -1;
     }
     .actions {
-      justify-content: flex-start;
+      justify-content: flex-end;
     }
   }
 </style>

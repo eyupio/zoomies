@@ -10,6 +10,45 @@ import type { Setting, SettingSource } from '$lib/api/types';
 import type { StatusTone } from '$lib/status';
 import { formatQuantity, parseQuantity, type Quantity } from '$lib/units';
 
+/**
+ * The section's name as a person reads it.
+ *
+ * The section key is the first half of every setting's dotted key and is the
+ * right word for a terminal, but "oidc" and "capacity_demand" are not headings
+ * on a settings page. The map is exhaustive where it matters: an unmapped
+ * section still gets a title, from the key, so a section added to the API can
+ * never disappear from the page.
+ */
+export const SECTION_TITLES: Record<string, string> = {
+  server: 'Server',
+  database: 'Database',
+  security: 'Security',
+  github: 'GitHub',
+  agent: 'Agent',
+  runners: 'Runners',
+  scheduler: 'Scheduler',
+  log: 'Logging',
+  oidc: 'Single sign-on',
+  metrics: 'Metrics',
+  status: 'Public status page',
+  retention: 'Retention',
+  limits: 'Fleet limits',
+  backup: 'Backups',
+  images: 'Images',
+  updates: 'Updates',
+  capacity_demand: 'Capacity demand',
+  provider: 'Providers',
+  kennel: 'Kennel Club',
+  optimisation: 'Optimisation',
+  ui: 'Web UI',
+  assistant: 'Eli assistant',
+};
+
+/** The heading for a section key, falling back to the key itself. */
+export function sectionTitle(name: string): string {
+  return SECTION_TITLES[name] ?? name;
+}
+
 /** A section heading, and one line about what the section is for. */
 export const SECTION_BLURB: Record<string, string> = {
   server: 'How Zoomies listens, and the URL GitHub and the agents use to reach it.',
@@ -38,7 +77,11 @@ export const SECTION_BLURB: Record<string, string> = {
   provider: 'Renting machines from a hypervisor, and when to give them back.',
   kennel:
     "Whether Kennel Club checks the repositories this fleet serves, and how much of GitHub's request budget it may spend.",
+  optimisation:
+    'Previews of workflow changes, computed from evidence and never applied, merged or run without an operator approving them.',
   ui: 'What the web UI opens with. An operator can pick differently on the page itself, and that browser remembers the pick; these are what somebody who has never chosen sees.',
+  assistant:
+    'Which model providers Eli may reach, and whether it may read this fleet and act on its behalf.',
 };
 
 /**

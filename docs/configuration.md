@@ -114,9 +114,9 @@ configuration is not valid:
       server.bind` puts the file or the default back in charge
 ```
 
-The same sentence appears on the problems drawer and the Configuration tab, for
-the settings that are merely unwise rather than fatal, so "I changed it and
-nothing happened" is answered before it is asked.
+The same sentence appears on the problems drawer and each row of the
+Configuration page, for the settings that are merely unwise rather than fatal,
+so "I changed it and nothing happened" is answered before it is asked.
 
 A value the environment is pinning gets the other instruction, because there is
 nothing stored to unset: `ZOOMIES_*` is the last word, and the variable has to
