@@ -200,7 +200,7 @@ const cliShardingPreview = `{
 func TestOptimisationsShardingPrintsTheDisclosureAndTheChangedBlock(t *testing.T) {
 	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/sharding/previews/ops_1": cliShardingPreview})
 	out, _ := runCLI(t, "optimisations", "sharding", "ops_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL)
-	for _, want := range []string{"ops_1", "acme/repo", "Browser tests", "4, which together run the whole Playwright suite", "every shard repeats the setup", "4 of 4", "upper bound", "estimate from medians", "not a saving", "not approved", "shard: [1, 2, 3, 4]"} {
+	for _, want := range []string{"ops_1", "acme/repo", "Browser tests", "4, which together run the whole Playwright suite", "every shard repeats the setup", "4 of 4", "upper bound", "estimate from medians", "not a saving", "not approved", "not published", "shard: [1, 2, 3, 4]"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not say %q:\n%s", want, out)
 		}
@@ -251,5 +251,15 @@ func TestOptimisationsShardingShowsWhoApprovedIt(t *testing.T) {
 	out, _ := runCLI(t, "optimisations", "sharding", "ops_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL)
 	if !strings.Contains(out, "approved by usr_approver") || strings.Contains(out, "not approved") {
 		t.Errorf("approval not shown:\n%s", out)
+	}
+}
+
+func TestOptimisationsShardingShowsTheDraftPullRequest(t *testing.T) {
+	head, source, preview := strings.Repeat("c", 40), strings.Repeat("e", 64), strings.Repeat("a", 64)
+	body := strings.Replace(cliShardingPreview, `"explanation":`, `"approval":{"approved_by":"usr_approver","approved_at":"2026-10-24T10:02:00Z","head_sha":"`+head+`","source_sha256":"`+source+`","preview_sha256":"`+preview+`"},"publication":{"published_by":"usr_publisher","published_at":"2026-10-24T10:03:00Z","branch":"zoomies/sharding-ops_1","base_branch":"main","base_sha":"`+head+`","head_sha":"`+head+`","source_sha256":"`+source+`","preview_sha256":"`+preview+`","pull_number":12,"pull_url":"https://github.com/acme/repo/pull/12"},"explanation":`, 1)
+	srv := jsonRoutes(t, map[string]string{"/api/v1/optimisations/sharding/previews/ops_1": body})
+	out, _ := runCLI(t, "optimisations", "sharding", "ops_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL)
+	if !strings.Contains(out, "draft pull request #12") || !strings.Contains(out, "zoomies/sharding-ops_1") || !strings.Contains(out, "usr_publisher") {
+		t.Errorf("publication not shown:\n%s", out)
 	}
 }

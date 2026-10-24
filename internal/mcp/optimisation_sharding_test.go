@@ -20,6 +20,7 @@ func shardingPreviewFixture() string {
 	  "before":"  e2e:\n    runs-on: ubuntu-latest\n","after":"  e2e-shards:\n    strategy:\n      matrix:\n        shard: [1, 2, 3, 4]\n        run: npx playwright test --shard=${{ matrix.shard }}/4\n",
 	  "verification":"inconclusive","explanation":"Split the Browser tests step into 4 Playwright shards.",
 	  "approval":{"approved_by":"private-approver","approved_at":"2026-10-24T10:02:00Z","head_sha":"` + strings.Repeat("c", 40) + `","source_sha256":"` + strings.Repeat("e", 64) + `","preview_sha256":"` + strings.Repeat("a", 64) + `"},
+	  "publication":{"published_by":"private-publisher","published_at":"2026-10-24T10:03:00Z","branch":"zoomies/sharding-ops_1","base_branch":"main","base_sha":"` + strings.Repeat("c", 40) + `","head_sha":"` + strings.Repeat("c", 40) + `","source_sha256":"` + strings.Repeat("e", 64) + `","preview_sha256":"` + strings.Repeat("a", 64) + `","pull_number":12,"pull_url":"https://github.com/acme/repo/pull/12"},
 	  "content":"private workflow source that must not leave","future_private":"hidden"
 	}`
 }
@@ -40,14 +41,14 @@ func TestShardingPreviewToolReadsOnceAndQuotesTheChangedBlock(t *testing.T) {
 	if len(content) != 2 || !strings.Contains(content[0].Text, "untrusted") || strings.Contains(content[0].Text, "--shard=") || !strings.Contains(content[1].Text, "--shard=") || !strings.Contains(content[1].Text, "shard: [1, 2, 3, 4]") {
 		t.Fatalf("unsafe blocks: %+v", content)
 	}
-	if strings.Contains(content[1].Text, "private workflow source") || strings.Contains(content[1].Text, "private-reviewer") || strings.Contains(content[1].Text, "private-approver") || strings.Contains(content[1].Text, "future_private") || strings.Contains(content[1].Text, `"run_id"`) {
+	if strings.Contains(content[1].Text, "private workflow source") || strings.Contains(content[1].Text, "private-reviewer") || strings.Contains(content[1].Text, "private-approver") || strings.Contains(content[1].Text, "private-publisher") || strings.Contains(content[1].Text, "future_private") || strings.Contains(content[1].Text, `"run_id"`) {
 		t.Fatal("passed source, actor identity, selection or an unreviewed field")
 	}
 	encoded, _ := json.Marshal(value)
 	if string(encoded) != content[1].Text {
 		t.Fatal("structured/text evidence differs")
 	}
-	if p := value.(shardingPreviewProjection); p.Shards != 4 || p.Runs != 12 || p.Headroom != 4 || p.RunnerMSAfter <= p.RunnerMSBefore || p.WallMSAfter >= p.WallMSBefore || p.JobName != "End to end" || p.StepName != "Browser tests" || p.Approval == nil || p.Approval.ApprovedAt.IsZero() || p.Approval.HeadSHA != p.HeadSHA || p.Approval.SourceSHA256 != p.SourceSHA256 || p.Approval.PreviewSHA256 == "" {
+	if p := value.(shardingPreviewProjection); p.Shards != 4 || p.Runs != 12 || p.Headroom != 4 || p.RunnerMSAfter <= p.RunnerMSBefore || p.WallMSAfter >= p.WallMSBefore || p.JobName != "End to end" || p.StepName != "Browser tests" || p.Approval == nil || p.Approval.ApprovedAt.IsZero() || p.Approval.HeadSHA != p.HeadSHA || p.Approval.SourceSHA256 != p.SourceSHA256 || p.Approval.PreviewSHA256 == "" || p.Publication == nil || p.Publication.PullNumber != 12 || p.Publication.Branch != "zoomies/sharding-ops_1" || p.Publication.PullURL != "https://github.com/acme/repo/pull/12" || p.Publication.PublishedAt.IsZero() {
 		t.Fatalf("projection %+v", p)
 	}
 }
@@ -93,5 +94,13 @@ func TestShardingPreviewToolRefusesAnApprovalForADifferentHead(t *testing.T) {
 	api := &kennelAPI{body: body}
 	if _, _, err := kennelTool(t, "get_sharding_preview").run(t.Context(), api, json.RawMessage(shardingPreviewArgs)); !errors.Is(err, errShardingPreviewShape) {
 		t.Fatalf("accepted a mismatched approval: %v", err)
+	}
+}
+
+func TestShardingPreviewToolRefusesAPublicationForADifferentSource(t *testing.T) {
+	body := strings.Replace(shardingPreviewFixture(), `"source_sha256":"`+strings.Repeat("e", 64)+`","preview_sha256":"`+strings.Repeat("a", 64)+`","pull_number"`, `"source_sha256":"`+strings.Repeat("d", 64)+`","preview_sha256":"`+strings.Repeat("a", 64)+`","pull_number"`, 1)
+	api := &kennelAPI{body: body}
+	if _, _, err := kennelTool(t, "get_sharding_preview").run(t.Context(), api, json.RawMessage(shardingPreviewArgs)); !errors.Is(err, errShardingPreviewShape) {
+		t.Fatalf("accepted a mismatched publication: %v", err)
 	}
 }

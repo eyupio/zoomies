@@ -56,6 +56,7 @@ type RetainedShardingPreview struct {
 	Preview        optimisation.ShardPreview
 	Provenance     ShardingProvenance
 	Approval       *RetainedShardingApproval
+	Publication    *RetainedShardingPublication
 }
 
 // RetainedShardingApproval is one attributed decision about the exact retained
@@ -162,7 +163,25 @@ func retainedShardingView(row *store.OptimisationShardingPreview, preview optimi
 	if a := row.Approval; a != nil {
 		v.Approval = &RetainedShardingApproval{ApprovedBy: a.ApprovedBy, ApprovedAt: a.CreatedAt, HeadSHA: a.HeadSHA, SourceSHA256: a.SourceSHA256, PreviewSHA256: a.PreviewSHA256}
 	}
+	if p := row.Publication; p != nil {
+		v.Publication = &RetainedShardingPublication{PublishedBy: p.PublishedBy, PublishedAt: p.CreatedAt, Branch: p.Branch, BaseBranch: p.BaseBranch, BaseSHA: p.BaseSHA, HeadSHA: p.HeadSHA, SourceSHA256: p.SourceSHA256, PreviewSHA256: p.PreviewSHA256, PullNumber: p.PullNumber, PullURL: p.PullURL}
+	}
 	return v
+}
+
+// RetainedShardingPublication is the one draft pull request opened for an
+// approved sharding preview. It is not a merge and does not claim a saving.
+type RetainedShardingPublication struct {
+	PublishedBy   string
+	PublishedAt   time.Time
+	Branch        string
+	BaseBranch    string
+	BaseSHA       string
+	HeadSHA       string
+	SourceSHA256  string
+	PreviewSHA256 string
+	PullNumber    int
+	PullURL       string
 }
 
 // ApproveShardingPreview records an operator's explicit approval of the exact

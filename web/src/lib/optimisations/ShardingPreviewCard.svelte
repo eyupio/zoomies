@@ -10,14 +10,21 @@
     onapprove,
     canApprove = false,
     approving = false,
+    canPublish = false,
+    publishing = false,
+    onpublish,
   }: {
     preview: ShardingPreview;
     onapprove?: () => void;
     canApprove?: boolean;
     approving?: boolean;
+    canPublish?: boolean;
+    publishing?: boolean;
+    onpublish?: () => void;
   } = $props();
   let confirmed = $state(false);
   const approval = $derived(preview.approval);
+  const publication = $derived(preview.publication);
 </script>
 
 <section class="card" aria-labelledby="sharding-preview-title">
@@ -129,8 +136,42 @@
       </div>
     </div>
   {/if}
+  {#if publication}
+    <div class="approval">
+      <h3>Draft pull request opened</h3>
+      <p>
+        <a href={publication.pull_url}>#{publication.pull_number}</a> from
+        <span class="mono">{publication.branch}</span> into
+        <span class="mono">{publication.base_branch}</span>, opened by
+        <strong>{publication.published_by}</strong>
+        <RelativeTime value={publication.published_at} />.
+      </p>
+      <p>
+        Nothing was merged. Zoomies does not merge pull requests; review the draft and let the
+        repository's own checks decide. It costs more runner time, not less, and verification
+        remains inconclusive until a baseline and candidate comparison exists.
+      </p>
+    </div>
+  {:else if approval && canPublish}
+    <div class="approval">
+      <h3>Publish a draft pull request</h3>
+      <p>
+        This commits the reviewed job block on a new branch and opens a draft pull request against
+        the branch the run came from. It re-reads the job, the history and the pool first and
+        refuses if any of them no longer supports {preview.shards} shards. It never merges, never force-pushes
+        and runs no job. No measurement shows the change saves time.
+      </p>
+      <div class="approval-actions">
+        <Button onclick={() => onpublish?.()} loading={publishing} disabled={publishing}
+          >Open a draft pull request</Button
+        >
+      </div>
+    </div>
+  {/if}
   <p>
-    {#if approval}
+    {#if publication}
+      The draft pull request is open; nothing was merged and no job was run.
+    {:else if approval}
       The approval is recorded, but nothing was published.
     {:else}
       Nothing was published. There is no pull request and no job run. Keeping or approving a preview

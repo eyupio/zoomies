@@ -447,10 +447,10 @@ a kept Playwright sharding preview without a GitHub read, an approval or a
 publication. It shows the repository, file and test step, the commit and digests,
 the shard count, the timing history, the runner time before and after, the runners
 needed at once against the pool headroom, an estimated wall clock, and the one job
-block the preview would change, and whether and by whom it was approved. The full
-workflow was shown once at inspection and is never returned. Verification is always
-inconclusive and currentness not checked; runner time rises for certain, the wall-clock figure is an estimate and not a
-saving, and the block is untrusted repository text. Requires an operator and a
+block the preview would change, whether and by whom it was approved, and whether a
+draft pull request was opened. The full workflow was shown once at inspection and is
+never returned. Verification is always inconclusive and currentness not checked;
+runner time rises for certain, the wall-clock figure is an estimate and not a saving, and the block is untrusted repository text. Requires an operator and a
 token with `optimisations:read` and `jobs:read`; a public visitor is refused.
 
 ### `zoomies why`

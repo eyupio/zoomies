@@ -147,3 +147,69 @@ func TestOptimisationShardingApprovalWithAMismatchedRowIsCorruptEvidence(t *test
 		t.Fatalf("mismatched approval read as valid: %v", err)
 	}
 }
+
+func TestOptimisationShardingPublicationRecordsOneApprovedDraft(t *testing.T) {
+	s := newTestStore(t)
+	r := shardingPreviewFixture(t, s)
+	ctx := context.Background()
+	if err := s.PutOptimisationShardingPreview(ctx, r, optimisationAudit()); err != nil {
+		t.Fatal(err)
+	}
+	head, source := strings.Repeat("a", 40), strings.Repeat("b", 64)
+	if _, err := s.ApproveOptimisationShardingPreview(ctx, r.InstallationID, r.Repository, r.ID, head, source, r.SHA256, optimisationAudit()); err != nil {
+		t.Fatal(err)
+	}
+	pub := &OptimisationShardingPublication{
+		PreviewID: r.ID, InstallationID: r.InstallationID, Repository: r.Repository, PublishedBy: "usr_actor",
+		Branch: "zoomies/sharding-" + r.ID, BaseBranch: "main", BaseSHA: head, HeadSHA: head, SourceSHA256: source, PreviewSHA256: r.SHA256,
+		PullNumber: 12, PullURL: "https://github.com/acme/repo/pull/12",
+	}
+	if err := s.PutOptimisationShardingPublication(ctx, pub, optimisationAudit()); err != nil {
+		t.Fatal(err)
+	}
+	if pub.CreatedAt.IsZero() {
+		t.Fatal("publication was not timestamped")
+	}
+	if err := s.PutOptimisationShardingPublication(ctx, pub, optimisationAudit()); err != nil {
+		t.Fatalf("repeat: %v", err)
+	}
+	got, err := s.GetOptimisationShardingPreview(ctx, r.InstallationID, r.Repository, r.ID)
+	if err != nil || got.Publication == nil || got.Publication.PullNumber != 12 || got.Publication.PublishedBy != "usr_actor" {
+		t.Fatalf("read %+v %v", got, err)
+	}
+	events, total, err := s.ListAudit(ctx, AuditFilter{TargetID: r.ID}, Page{Limit: 10})
+	published := false
+	for _, e := range events {
+		published = published || e.Action == "optimisation.sharding_preview_published" && e.TargetKind == "optimisation_sharding_preview"
+	}
+	if err != nil || total != 3 || !published {
+		t.Fatalf("audit %+v total=%d err=%v", events, total, err)
+	}
+	other := *pub
+	other.PullURL = "https://github.com/acme/repo/pull/13"
+	if err := s.PutOptimisationShardingPublication(ctx, &other, optimisationAudit()); !errors.Is(err, ErrConflict) {
+		t.Fatalf("different draft accepted: %v", err)
+	}
+}
+
+func TestOptimisationShardingPublicationRequiresAnApprovalAndLivePreview(t *testing.T) {
+	now := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
+	s := newTestStoreAt(t, func() time.Time { return now })
+	r := shardingPreviewFixture(t, s)
+	ctx := context.Background()
+	if err := s.PutOptimisationShardingPreview(ctx, r, optimisationAudit()); err != nil {
+		t.Fatal(err)
+	}
+	head, source := strings.Repeat("a", 40), strings.Repeat("b", 64)
+	pub := &OptimisationShardingPublication{PreviewID: r.ID, InstallationID: r.InstallationID, Repository: r.Repository, PublishedBy: "usr_actor", Branch: "zoomies/sharding-" + r.ID, BaseBranch: "main", BaseSHA: head, HeadSHA: head, SourceSHA256: source, PreviewSHA256: r.SHA256, PullNumber: 12, PullURL: "https://github.com/acme/repo/pull/12"}
+	if err := s.PutOptimisationShardingPublication(ctx, pub, optimisationAudit()); !errors.Is(err, ErrConflict) {
+		t.Fatalf("unapproved preview published: %v", err)
+	}
+	if _, err := s.ApproveOptimisationShardingPreview(ctx, r.InstallationID, r.Repository, r.ID, head, source, r.SHA256, optimisationAudit()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(OptimisationShardingPreviewRetention)
+	if err := s.PutOptimisationShardingPublication(ctx, pub, optimisationAudit()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expired preview published: %v", err)
+	}
+}

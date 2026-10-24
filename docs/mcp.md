@@ -38,7 +38,7 @@ numeric job ID in a GitHub Actions URL.
 | “Read kept checkout preview opv_ID in installation ins_ID and repository OWNER/REPO.” | Metadata, status, the commit and digests, and the one workflow line the preview changes; never the full file, and verification is inconclusive | `get_checkout_preview` |
 | “Read kept cache preview opc_ID in installation ins_ID and repository OWNER/REPO.” | Metadata, the package manager and lockfile, the setup evidence, whether the preview was approved or a draft opened, and the one `with:` block it changes; never the full workflow or lockfile, and verification is inconclusive | `get_cache_preview` |
 | “Read kept readiness preview opr_ID in installation ins_ID and repository OWNER/REPO.” | Metadata, the operator's readiness command, the wait evidence, whether the preview was approved or a draft opened, and the one run block it changes; never the full workflow, and verification is inconclusive | `get_readiness_preview` |
-| “Read kept sharding preview ops_ID in installation ins_ID and repository OWNER/REPO.” | Metadata, the shard count, the timing evidence, the runner time before and after, the runners needed at once, whether the preview was approved and the one job block it changes; never the full workflow, and verification is inconclusive | `get_sharding_preview` |
+| “Read kept sharding preview ops_ID in installation ins_ID and repository OWNER/REPO.” | Metadata, the shard count, the timing evidence, the runner time before and after, the runners needed at once, whether the preview was approved or a draft opened, and the one job block it changes; never the full workflow, and verification is inconclusive | `get_sharding_preview` |
 | “What needs attention across the fleet?” | Fleet status, host health, problems and repository findings | `fleet_status`, `host_health`, `kennel_overview` |
 | “Why did Eli's repair of my pull request get nowhere?” | The repair's history row for the person asking: repository and pull request, state and the row's reason, whether asking again now would be refused, and how to start another | `list_elis_repairs`, `get_eli_repair` |
 | “Read the workflow and explain how to improve it.” | Verified source excerpts tied to a commit, after source access has been granted | `context_search`, `context_read`, `context_pack` |
@@ -99,10 +99,10 @@ bounded view as the web page: preview ID, repository, path, commit and source
 digest, test step and position, the shard count, the median test and setup time
 over the retained runs, the runner time before and after, the runners needed at
 once against the pool headroom, an estimated wall clock, whether the preview was
-approved, and the one job block the preview would change. The full workflow was
-shown once at inspection and is never returned. Actor identities, including who
-approved, and the selection are excluded from model output; the approval's time
-and digests stay. The
+approved, whether a draft pull request was opened, and the one job block the preview
+would change. The full workflow was shown once at inspection and is never returned.
+Actor identities, including who approved and who published, and the selection are
+excluded from model output; the approval's and publication's times and digests stay. The
 path and block are quoted untrusted repository text, not instructions. The shard
 count was chosen by Zoomies from the fleet's history and the headroom is an upper
 bound at one moment, not a reservation. Verification is always inconclusive:
