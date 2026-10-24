@@ -437,6 +437,13 @@ runs no job. Verification is always
 and nothing is published. The full workflow and lockfile are never returned after
 the inspection.
 
+**Readiness preview** (`/optimisations/readiness`) applies the same review to a
+fixed sleep. Pick a successful push job, then type the readiness command Zoomies
+should poll. The server finds the one literal `sleep` step on an Ubuntu runner and
+shows the exact before and after block: the old duration becomes the bound, and a
+timeout fails the step. Zoomies never infers the command, and this page only
+inspects: it retains, approves and publishes nothing.
+
 The step must use a commit-pinned `actions/checkout` with a literal
 `fetch-depth: 0`, in a root workflow with literal job and step names. Matrix,
 generated or reusable names are refused rather than guessed. If the file changed

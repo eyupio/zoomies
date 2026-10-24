@@ -27,7 +27,7 @@ as the record of how each slice landed.
 | --- | --- | --- |
 | E1 (ZF-242) | Merged and used: `internal/analysis` (`merge_delay.go`), `get_pr_delay` on Eli's allowlist, CLI, contextual UI | None. ROADMAP.md still lists `in_progress` because live-model evaluation and a real performance experiment have not run |
 | E2 (ZF-243) | Descriptive milestone merged (#1020); `get_retained_comparison` on Eli's allowlist; ZF-241's period comparison, queue breakdown, host pressure and startup failures are `implemented` | None. Controlled-experiment proof and dispatch stay deferred by the owner |
-| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and the wider catalogue's setup cache preview through its pure foundation, retained history, bounded source, private retention/API, web page, bounded CLI/MCP/Eli replay, attributed approval (migration 0123), one reconciled draft pull request (migration 0124), a pure bounded readiness polling foundation and its bounded source/inspection route, all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, and write access from the CLI, MCP or Eli (deliberately web-only) |
+| E3 (ZF-244) | The first operator slice is on main: pure preview (`internal/optimisation`), private retention (migration 0107), admitted checkout evidence ([#1024](https://github.com/eyupio/zoomies/pull/1024)), the policy, routes and web flow from [#1171](https://github.com/eyupio/zoomies/pull/1171), attributed approval (migration 0119), reconciled draft publication (migration 0120), the two-way link between a published preview and E2's comparison (migration 0121), read access from the CLI, MCP and Eli, and the wider catalogue's setup cache preview through its pure foundation, retained history, bounded source, private retention/API, web page, bounded CLI/MCP/Eli replay, attributed approval (migration 0123), one reconciled draft pull request (migration 0124), a pure bounded readiness polling foundation, its bounded source/inspection route and the readiness inspection page, all described under "E3: what is built, and what is not" below | The rows further down that call #1024 or the policy and web flow "pending" are out of date; both merged. Still absent: a real E2 comparison of a published change, any run against a real repository, and write access from the CLI, MCP or Eli (deliberately web-only) |
 | E4 | Not started as a track. Kennel's evaluator, waivers and guidance exist, but no fix preview or publication path does | Unchanged |
 | E5 | ZF-241's `startup_failures` covers runner-startup recurrence. No workflow/test failure fingerprinting exists | Unchanged |
 | E6 | Not started. `internal/prrepair/mention` (ZF-239 slice 1) is only the command matcher | Unchanged |
@@ -165,6 +165,11 @@ publication arrived on 23 October:
   /optimisations/readiness/inspections` returns the exact before/after block,
   the bound, the condition and the evidence summary. It retains nothing and has
   no web page, CLI, MCP or Eli surface.
+* **Readiness inspection page (24 October).** `/optimisations/readiness` reuses
+  the checkout run picker and optimisation gate. The operator picks a job and
+  types the readiness command; the page shows the bound, wait evidence and the
+  exact before/after block. It says the condition is never inferred and that
+  nothing was retained, approved or published. No keep, CLI, MCP or Eli surface.
 
 Not built, in the order to do it. The list below was the record on 19 October;
 approval, draft publication and read access from the CLI, MCP and Eli have since
@@ -184,9 +189,9 @@ been built (see the 23 October sections at the end). The rest remains.
 3. **Wider catalogue.** The dependency/build cache foundation, retained setup
    history, bounded source binding, private retention/API, web page and
    CLI/MCP/Eli replay, attributed approval, draft publication, the pure bounded
-   readiness polling foundation and its source/inspection route are described
-   above. Next is the readiness web page, then test sharding, each with its own
-   evidence and refusals. Do not lead with test removal, relaxed assertions or
+   readiness polling foundation, its source/inspection route and its inspection
+   page are described above. Next is readiness retention, approval and
+   publication, then test sharding, each with its own evidence and refusals. Do not lead with test removal, relaxed assertions or
    blanket retries.
 
 Owner decisions still open: whether a different person than the reviewer must
@@ -2882,3 +2887,29 @@ shape, one read and no retention.
 Next agent: add the readiness web page with the run picker and a condition field,
 then CLI/MCP/Eli, retention, approval and publication. Do not infer the condition
 or present the preview as a verified saving; test sharding remains separate.
+
+
+### E3 readiness inspection page, 24 October 2026
+
+`/optimisations/readiness` is the first web surface for bounded readiness
+polling. It reuses the checkout run picker and optimisation gate. The operator
+picks a successful push job, types the readiness command, and the page asks the
+inspection route for the preview. The review shows the file, commit, the one
+wait step, the old fixed duration (which becomes the bound), the observed wait
+mean, and the exact before and after block as untrusted text.
+
+The condition is operator-supplied, never inferred. The page says the old wait's
+duration is the bound, so a service that never becomes ready fails where the old
+wait stopped waiting, and that passing CI alone cannot establish a saving. It
+retains, approves and publishes nothing; there is no keep button, CLI, MCP or Eli
+surface yet.
+
+The design is in
+[the plan](roadmap/plans/2026-10-24-eli-e3-readiness-web.md). Validation: browser
+tests cover picking a job without typing IDs, the exact inspect body, the bounded
+block, the no-retention statement, and phone width. No live GitHub, model or
+fleet.
+
+Next agent: add readiness retention, then CLI/MCP/Eli, approval and publication.
+Do not add a keep button before the retained envelope exists, and do not infer
+the condition. Test sharding remains separate.
