@@ -5869,6 +5869,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/optimisations/sharding/inspections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compute a Playwright sharding preview from one selected job
+         * @description Requires operator, jobs:read and optimisations:write; public visitors are refused. Refused with 403 unless optimisation.source_reads and optimisation.workflow_edits are on. Reads one completed successful push attempt, its complete commit tree and the root workflow, with at most four GitHub requests under 20 seconds, the shared diagnostic flight and the half-core-quota reserve. The fleet job row must match the attempt's installation, repository, run, attempt and head and be successful. The test step's duration and the time before it come from the fleet's retained job history (10 to 100 runs from the last 90 days, medians). The shard count is chosen from that evidence and the pool's headroom alone, never from the request: the largest count up to eight that leaves each shard at least 90 seconds of test and that the pool could start at once. Refused, with the reason, for a command that already shards, filters or narrows, a job with a strategy, services, outputs or a condition, and any artifact or coverage upload. Returns the exact before and after job block, the runner time and runners needed, a wall-clock estimate and an inconclusive verification. Nothing is kept.
+         */
+        post: operations["inspectShardingPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/optimisations/readiness/previews/{id}": {
         parameters: {
             query?: never;
@@ -12770,6 +12790,62 @@ export interface components {
             /** @description The run block as it is, untrusted repository text. */
             before: string;
             /** @description The bounded poll, untrusted operator text inside a reviewed edit. */
+            after: string;
+            /** @enum {string} */
+            verification: "inconclusive";
+            explanation: string;
+            /** Format: date-time */
+            inspected_at: string;
+        };
+        ShardingInspectionRequest: {
+            installation_id: string;
+            repository: string;
+            selection: components["schemas"]["CacheSelection"];
+        };
+        ShardingInspection: {
+            installation_id: string;
+            repository: string;
+            selection: components["schemas"]["CacheSelection"];
+            head_sha: string;
+            source_sha256: string;
+            workflow_path: string;
+            job_name: string;
+            step_name: string;
+            line: number;
+            shards: number;
+            runs: number;
+            /**
+             * Format: int64
+             * @description Median duration of the test step over the retained runs.
+             */
+            test_ms: number;
+            /**
+             * Format: int64
+             * @description Median time the job ran before the test step began; every shard repeats it.
+             */
+            setup_ms: number;
+            /** @description How many more runners the best matching pool could start now. An upper bound read at one moment, not a reservation. */
+            headroom: number;
+            /**
+             * Format: int64
+             * @description Estimated runner time per run today.
+             */
+            runner_ms_before: number;
+            /**
+             * Format: int64
+             * @description Estimated runner time per run when sharded, before one short aggregator job.
+             */
+            runner_ms_after: number;
+            /** Format: int64 */
+            wall_ms_before: number;
+            /**
+             * Format: int64
+             * @description An estimate from medians if the shards start together, not a measured saving.
+             */
+            wall_ms_after: number;
+            /** @description The job block as it is, untrusted repository text. */
+            before: string;
+            /** @description The shard job and the aggregator that keeps the original job name, untrusted repository text inside a reviewed edit. */
             after: string;
             /** @enum {string} */
             verification: "inconclusive";
@@ -22778,6 +22854,61 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             /** @description The source moved, the sleep or evidence is unsupported, or the preview cannot be kept. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Diagnostic or GitHub quota refusal; Retry-After says when to retry manually. */
+            429: {
+                headers: {
+                    "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    inspectShardingPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShardingInspectionRequest"];
+            };
+        };
+        responses: {
+            /** @description The computed preview and descriptive evidence; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShardingInspection"];
+                };
+            };
+            /** @description Invalid request or selection. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The job, its test step or the evidence is unsupported or changed; the message says what to change. */
             409: {
                 headers: {
                     [name: string]: unknown;

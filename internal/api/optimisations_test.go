@@ -47,6 +47,8 @@ type checkoutAPIReader struct {
 	cacheSource     *github.SetupCacheSource
 	cacheReads      atomic.Int32
 	readinessSource *github.ReadinessSource
+	shardSource     *github.ShardSource
+	shardReads      atomic.Int32
 	readinessReads  atomic.Int32
 }
 
@@ -65,6 +67,10 @@ func (f *checkoutAPIReader) PublishOptimisation(_ context.Context, req github.Op
 func (f *checkoutAPIReader) ReadSetupCacheSource(context.Context, string, github.SetupCacheSelection) (*github.SetupCacheSource, error) {
 	f.cacheReads.Add(1)
 	return f.cacheSource, f.err
+}
+func (f *checkoutAPIReader) ReadShardSource(context.Context, string, github.SetupCacheSelection) (*github.ShardSource, error) {
+	f.shardReads.Add(1)
+	return f.shardSource, f.err
 }
 func (f *checkoutAPIReader) ReadReadinessSource(context.Context, string, github.SetupCacheSelection) (*github.ReadinessSource, error) {
 	f.readinessReads.Add(1)

@@ -9059,6 +9059,61 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /optimisations/sharding/inspections:
+    post:
+      operationId: inspectShardingPreview
+      tags: [jobs]
+      summary: Compute a Playwright sharding preview from one selected job
+      description: >-
+        Requires operator, jobs:read and optimisations:write; public visitors are
+        refused. Refused with 403 unless optimisation.source_reads and
+        optimisation.workflow_edits are on. Reads one completed successful push
+        attempt, its complete commit tree and the root workflow, with at most
+        four GitHub requests under 20 seconds, the shared diagnostic flight and
+        the half-core-quota reserve. The fleet job row must match the attempt's
+        installation, repository, run, attempt and head and be successful. The
+        test step's duration and the time before it come from the fleet's
+        retained job history (10 to 100 runs from the last 90 days, medians).
+        The shard count is chosen from that evidence and the pool's headroom
+        alone, never from the request: the largest count up to eight that
+        leaves each shard at least 90 seconds of test and that the pool could
+        start at once. Refused, with the reason, for a command that already
+        shards, filters or narrows, a job with a strategy, services, outputs or
+        a condition, and any artifact or coverage upload. Returns the exact
+        before and after job block, the runner time and runners needed, a
+        wall-clock estimate and an inconclusive verification. Nothing is kept.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShardingInspectionRequest' }
+      responses:
+        '200':
+          description: The computed preview and descriptive evidence; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShardingInspection' }
+        '400':
+          description: Invalid request or selection.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The job, its test step or the evidence is unsupported or changed; the message says what to change.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429':
+          description: Diagnostic or GitHub quota refusal; Retry-After says when to retry manually.
+          headers:
+            Retry-After: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   /optimisations/readiness/previews/{id}:
     parameters: [{ $ref: '#/components/parameters/PathID' }]
     get:
@@ -17180,6 +17235,42 @@ components:
         explanation: { type: string }
         inspected_at: { type: string, format: date-time }
       required: [installation_id, repository, selection, condition, head_sha, source_sha256, workflow_path, job_name, step_name, line, wait_seconds, runs, wait_ms, before, after, verification, explanation, inspected_at]
+      type: object
+    ShardingInspectionRequest:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string, minLength: 1, maxLength: 128 }
+        repository: { type: string, minLength: 1, maxLength: 1024 }
+        selection: { $ref: '#/components/schemas/CacheSelection' }
+      required: [installation_id, repository, selection]
+      type: object
+    ShardingInspection:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string }
+        repository: { type: string }
+        selection: { $ref: '#/components/schemas/CacheSelection' }
+        head_sha: { type: string }
+        source_sha256: { type: string }
+        workflow_path: { type: string }
+        job_name: { type: string }
+        step_name: { type: string }
+        line: { type: integer, minimum: 1 }
+        shards: { type: integer, minimum: 2, maximum: 8 }
+        runs: { type: integer, minimum: 10, maximum: 100 }
+        test_ms: { type: integer, format: int64, description: "Median duration of the test step over the retained runs." }
+        setup_ms: { type: integer, format: int64, description: "Median time the job ran before the test step began; every shard repeats it." }
+        headroom: { type: integer, minimum: 2, description: "How many more runners the best matching pool could start now. An upper bound read at one moment, not a reservation." }
+        runner_ms_before: { type: integer, format: int64, description: "Estimated runner time per run today." }
+        runner_ms_after: { type: integer, format: int64, description: "Estimated runner time per run when sharded, before one short aggregator job." }
+        wall_ms_before: { type: integer, format: int64 }
+        wall_ms_after: { type: integer, format: int64, description: "An estimate from medians if the shards start together, not a measured saving." }
+        before: { type: string, description: "The job block as it is, untrusted repository text." }
+        after: { type: string, description: "The shard job and the aggregator that keeps the original job name, untrusted repository text inside a reviewed edit." }
+        verification: { type: string, enum: [inconclusive] }
+        explanation: { type: string }
+        inspected_at: { type: string, format: date-time }
+      required: [installation_id, repository, selection, head_sha, source_sha256, workflow_path, job_name, step_name, line, shards, runs, test_ms, setup_ms, headroom, runner_ms_before, runner_ms_after, wall_ms_before, wall_ms_after, before, after, verification, explanation, inspected_at]
       type: object
     CacheSelection:
       additionalProperties: false
