@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -92,4 +93,47 @@ func TestShardingInspectionExplainsEveryRefusal(t *testing.T) {
 	h2.do(request{method: http.MethodPost, path: "/api/v1/optimisations/sharding/inspections", token: h2.token("operator", store.RoleOperator, "jobs:read", "optimisations:write", "optimisations:read"), body: map[string]any{"installation_id": instID2, "repository": "acme/repo", "selection": selection2}}).mustStatus(t, 409, "refused workflow")
 	h2.do(request{method: http.MethodPost, path: "/api/v1/optimisations/sharding/inspections", token: h2.token("viewer", store.RoleViewer, "jobs:read", "optimisations:read"), body: map[string]any{"installation_id": instID2, "repository": "acme/repo", "selection": selection2}}).mustStatus(t, 403, "viewer")
 	h2.do(request{method: http.MethodPost, path: "/api/v1/optimisations/sharding/inspections", token: h2.token("operator2", store.RoleOperator, "jobs:read", "optimisations:write"), body: map[string]any{"installation_id": instID2, "repository": "acme/repo", "selection": map[string]any{"run_id": 10, "attempt": 2, "github_job_id": "100"}}}).mustStatus(t, 400, "numeric run ID")
+}
+
+func TestShardingCaptureAndReplayKeepTheSourcePrivate(t *testing.T) {
+	h, instID, f, selection := shardingAPIHarness(t, 12)
+	token := h.token("operator", store.RoleOperator, "jobs:read", "optimisations:write", "optimisations:read")
+	inspect := h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/sharding/inspections", token: token, body: map[string]any{"installation_id": instID, "repository": "acme/repo", "selection": selection}})
+	inspect.mustStatus(t, 200, "inspect")
+	var got ShardingInspectionView
+	if err := json.Unmarshal(inspect.body, &got); err != nil {
+		t.Fatal(err)
+	}
+	capture := map[string]any{"installation_id": instID, "repository": "acme/repo", "selection": selection, "head_sha": got.HeadSHA, "source_sha256": got.SourceSHA256, "shards": got.Shards}
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/sharding/previews", token: token, body: capture})
+	created.mustStatus(t, 201, "capture sharding")
+	var saved ShardingPreviewView
+	if err := json.Unmarshal(created.body, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(saved.ID, "ops_") || saved.Shards != got.Shards || saved.Runs != 12 || saved.Headroom != got.Headroom || saved.Currentness != "not_checked" || saved.Verification != "inconclusive" || strings.Contains(string(created.body), "on: push") {
+		t.Fatalf("capture %s", created.body)
+	}
+	assertShape(t, loadSpec(t), "ShardingPreview", created.body)
+	if f.shardReads.Load() != 2 || auditCount(t, h, "optimisation.sharding_preview_retained") != 1 {
+		t.Fatal("capture read or audit count")
+	}
+	readPath := fmt.Sprintf("/api/v1/optimisations/sharding/previews/%s?installation_id=%s&repo=acme/repo", saved.ID, instID)
+	read := h.do(request{method: http.MethodGet, path: readPath, token: token})
+	read.mustStatus(t, 200, "replay sharding")
+	var replayed ShardingPreviewView
+	if err := json.Unmarshal(read.body, &replayed); err != nil {
+		t.Fatal(err)
+	}
+	if replayed != saved || f.shardReads.Load() != 2 || strings.Contains(string(read.body), "on: push") || replayed.SourceSHA256 == "" || replayed.SourceSHA256 != f.shardSource.WorkflowSHA256 {
+		t.Fatalf("replay changed, lost the source digest, or exposed source: %s", read.body)
+	}
+	h.do(request{method: http.MethodGet, path: strings.Replace(readPath, "repo=acme/repo", "repo=other/repo", 1), token: token}).mustStatus(t, 404, "wrong scope")
+	capture["shards"] = got.Shards - 1
+	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/sharding/previews", token: token, body: capture}).mustStatus(t, 409, "a count that was not reviewed")
+	capture["shards"] = 9
+	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/sharding/previews", token: token, body: capture}).mustStatus(t, 400, "count out of range")
+	if auditCount(t, h, "optimisation.sharding_preview_retained") != 1 {
+		t.Fatal("a refused capture was retained")
+	}
 }

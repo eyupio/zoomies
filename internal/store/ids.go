@@ -36,6 +36,9 @@ const (
 	// PrefixOptimisationReadinessPreview names one retained bounded readiness
 	// preview, separate from the cache history.
 	PrefixOptimisationReadinessPreview = "opr"
+	// PrefixOptimisationShardingPreview names one retained Playwright sharding
+	// preview, separate from the cache and readiness histories.
+	PrefixOptimisationShardingPreview = "ops"
 	// PrefixProviderSetup names a short-lived Proxmox connection enrolment.
 	PrefixProviderSetup = "pvs"
 	// PrefixBackupRemote names an offsite backup destination kept in the
