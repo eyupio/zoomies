@@ -42,6 +42,7 @@
 -->
 <script lang="ts">
   import PageBand from '$lib/bands/PageBand.svelte';
+  import { revealHash } from '$lib/bands/jump';
   import { jobsLine, windowPhrase } from '$lib/bands/lines';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { Check } from '@lucide/svelte';
@@ -750,43 +751,45 @@
         <UnmatchedNote count={unmatchedOnPage} />
       {/if}
 
-      <DataGrid
-        gridId="jobs"
-        label="Jobs"
-        {columns}
-        fetcher={fetchJobs}
-        {rowId}
-        {filters}
-        defaultSort="queued_at"
-        defaultOrder="desc"
-        noun="jobs"
-        {liveKey}
-        onopen={open}
-        onrows={takePage}
-        {emptyTitle}
-        {emptyDescription}
-      >
-        {#snippet emptyAction()}
-          {#if narrowed}
-            <Button variant="secondary" onclick={clearFilters}>Clear filters</Button>
-          {:else if view !== '' && view !== 'all'}
-            <!--
+      <div id="jobs-list" class="jump-target" tabindex="-1" use:revealHash>
+        <DataGrid
+          gridId="jobs"
+          label="Jobs"
+          {columns}
+          fetcher={fetchJobs}
+          {rowId}
+          {filters}
+          defaultSort="queued_at"
+          defaultOrder="desc"
+          noun="jobs"
+          {liveKey}
+          onopen={open}
+          onrows={takePage}
+          {emptyTitle}
+          {emptyDescription}
+        >
+          {#snippet emptyAction()}
+            {#if narrowed}
+              <Button variant="secondary" onclick={clearFilters}>Clear filters</Button>
+            {:else if view !== '' && view !== 'all'}
+              <!--
           A narrowed status view that came back empty is the one case where the
           way out is not another filter but the same page without this one, so
           it is offered as a button rather than left to be found in the row.
         -->
-            <Button variant="secondary" onclick={() => setView('all')}>Show every status</Button>
-          {:else if !filters.unmatched}
-            {#if filters.all}
-              <Button variant="secondary" href="/installations">Check webhook delivery</Button>
-            {:else}
-              <Button variant="secondary" onclick={() => patch({ all: true })}>
-                Include other runners
-              </Button>
+              <Button variant="secondary" onclick={() => setView('all')}>Show every status</Button>
+            {:else if !filters.unmatched}
+              {#if filters.all}
+                <Button variant="secondary" href="/installations">Check webhook delivery</Button>
+              {:else}
+                <Button variant="secondary" onclick={() => patch({ all: true })}>
+                  Include other runners
+                </Button>
+              {/if}
             {/if}
-          {/if}
-        {/snippet}
-      </DataGrid>
+          {/snippet}
+        </DataGrid>
+      </div>
 
       {#if compact}{@render queuedCard()}{/if}
 
@@ -915,6 +918,9 @@
 <JobDrawer bind:open={drawerOpen} job={selected} onclose={() => (selected = null)} />
 
 <style>
+  .jump-target {
+    scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
+  }
   .job-inspect {
     text-align: left;
     color: var(--z-accent);

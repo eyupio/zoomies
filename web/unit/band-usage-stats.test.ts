@@ -50,6 +50,14 @@ test('the figures are the page: queued, success, failures, hours and the average
   );
 });
 
+test('every figure points at the report on the page when a section is given', () => {
+  const stats = usageStats(usageTotals([row()]), true, 'usage-detail');
+  assert.deepEqual(
+    stats.map((s) => s.section),
+    Array.from({ length: stats.length }, () => 'usage-detail'),
+  );
+});
+
 test('a grouping that cannot attribute runner time has no busy share', () => {
   const stats = usageStats(usageTotals([row({ allocated_runner_seconds: null })]), false);
   assert.equal(

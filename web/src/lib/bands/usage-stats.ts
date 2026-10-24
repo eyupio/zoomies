@@ -65,12 +65,18 @@ export function usageTotals(rows: readonly UsageRow[]): UsageTotals {
  * runner has no owner to charge, so the busy share is left out rather than
  * claimed.
  */
-export function usageStats(total: UsageTotals, attributable: boolean): BandStat[] {
+export function usageStats(
+  total: UsageTotals,
+  attributable: boolean,
+  section?: string,
+): BandStat[] {
+  const onPage = section === undefined ? {} : { section };
   const stats: BandStat[] = [
     {
       label: 'Jobs queued',
       value: formatNumber(total.jobs),
       hint: `${formatNumber(total.started)} started inside this range.`,
+      ...onPage,
     },
     {
       label: 'Success rate',
@@ -80,6 +86,7 @@ export function usageStats(total: UsageTotals, attributable: boolean): BandStat[
       hint: total.completed
         ? `${formatNumber(total.succeeded)} of ${formatNumber(total.completed)} completed jobs succeeded.`
         : 'Nothing has finished in this range yet.',
+      ...onPage,
     },
     {
       label: 'Failed jobs',
@@ -87,16 +94,19 @@ export function usageStats(total: UsageTotals, attributable: boolean): BandStat[
       hint: `${formatNumber(total.cancelled)} cancelled or skipped, ${formatNumber(
         total.unknown,
       )} with no outcome on record.`,
+      ...onPage,
     },
     {
       label: 'Execution hours',
       value: (total.seconds / 3600).toFixed(2),
       hint: 'Running time inside this range.',
+      ...onPage,
     },
     {
       label: 'Average queue wait',
       value: total.started ? formatDuration((1000 * total.wait) / total.started) : NO_VALUE,
       hint: 'Weighted across the jobs that started.',
+      ...onPage,
     },
   ];
   if (attributable) {
@@ -113,6 +123,7 @@ export function usageStats(total: UsageTotals, attributable: boolean): BandStat[
         total.allocated && total.allocated < total.seconds
           ? 'Runner records for part of this range are no longer retained.'
           : `${(total.allocated / 3600).toFixed(2)} allocated runner-hours.`,
+      ...onPage,
     });
   }
   return stats;

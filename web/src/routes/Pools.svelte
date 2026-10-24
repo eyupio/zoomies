@@ -8,6 +8,7 @@
 <script lang="ts">
   import PageBand from '$lib/bands/PageBand.svelte';
   import { poolSignals } from '$lib/insights/signals';
+  import { revealHash } from '$lib/bands/jump';
   import { poolsLine } from '$lib/bands/lines';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import PoolPressure from '$lib/insights/PoolPressure.svelte';
@@ -719,40 +720,42 @@
 
 <AutoPoolsPanel status={autoStatus} />
 
-<DataGrid
-  gridId="pools"
-  label="Pools"
-  {columns}
-  {filters}
-  fetcher={fetchPools}
-  rowId={(row) => row.id ?? ''}
-  defaultSort="name"
-  defaultOrder="asc"
-  selectable={canOperate}
-  {bulkActions}
-  liveKey={fleet.shape}
-  noun="pools"
-  onopen={(row) => navigate(`/pools/${row.id ?? ''}`)}
-  onrows={takeRows}
-  emptyTitle={filtering ? 'No pools match those filters' : 'No pools yet'}
-  emptyDescription={filtering
-    ? 'Every pool is hidden by the search or the status filter currently applied.'
-    : noInstallation
-      ? 'A pool decides what labels your runners answer to and how many of them exist. It registers those runners with a GitHub App installation, so that comes first.'
-      : 'A pool decides what labels your runners answer to and how many of them exist.'}
->
-  {#snippet emptyAction()}
-    {#if filtering}
-      <Button onclick={clearFilters}>Clear filters</Button>
-    {:else if canOperate && noInstallation}
-      <Button variant="primary" icon={Plug} href="/installations">Connect GitHub</Button>
-    {:else if canOperate}
-      <Button variant="primary" icon={Plus} href="/pools/new">Create a pool</Button>
-    {:else}
-      <p class="no-permission">Ask an operator to create one.</p>
-    {/if}
-  {/snippet}
-</DataGrid>
+<div id="pools-list" class="jump-target" tabindex="-1" use:revealHash>
+  <DataGrid
+    gridId="pools"
+    label="Pools"
+    {columns}
+    {filters}
+    fetcher={fetchPools}
+    rowId={(row) => row.id ?? ''}
+    defaultSort="name"
+    defaultOrder="asc"
+    selectable={canOperate}
+    {bulkActions}
+    liveKey={fleet.shape}
+    noun="pools"
+    onopen={(row) => navigate(`/pools/${row.id ?? ''}`)}
+    onrows={takeRows}
+    emptyTitle={filtering ? 'No pools match those filters' : 'No pools yet'}
+    emptyDescription={filtering
+      ? 'Every pool is hidden by the search or the status filter currently applied.'
+      : noInstallation
+        ? 'A pool decides what labels your runners answer to and how many of them exist. It registers those runners with a GitHub App installation, so that comes first.'
+        : 'A pool decides what labels your runners answer to and how many of them exist.'}
+  >
+    {#snippet emptyAction()}
+      {#if filtering}
+        <Button onclick={clearFilters}>Clear filters</Button>
+      {:else if canOperate && noInstallation}
+        <Button variant="primary" icon={Plug} href="/installations">Connect GitHub</Button>
+      {:else if canOperate}
+        <Button variant="primary" icon={Plus} href="/pools/new">Create a pool</Button>
+      {:else}
+        <p class="no-permission">Ask an operator to create one.</p>
+      {/if}
+    {/snippet}
+  </DataGrid>
+</div>
 
 <!-- The table is what a person came for, and it carries every pool's own figures. The
      tiles that repeated them are gone, and how demand compares with headroom is one
@@ -788,6 +791,9 @@
 </ConfirmDialog>
 
 <style>
+  .jump-target {
+    scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
+  }
   .demand {
     margin: 0 0 var(--z-space-4);
   }

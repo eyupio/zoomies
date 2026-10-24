@@ -27,6 +27,6 @@ test('the band figures show the loaded connections and stay once the page has lo
   await expect(tile('Low API quota').locator('.value')).toHaveText('1');
   // The quota reading is the figure's help, where a screen reader reaches it.
   await expect(
-    page.getByTestId('band-installations').getByText('1 quota readings. Below 10% remaining.'),
-  ).toHaveCount(1);
+    page.getByTestId('band-installations').getByRole('link', { name: /^Low API quota/ }),
+  ).toHaveAccessibleDescription('1 quota readings. Below 10% remaining.');
 });

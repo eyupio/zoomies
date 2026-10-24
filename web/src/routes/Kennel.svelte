@@ -160,6 +160,10 @@
       more: Math.max(0, overview.states.attention - overview.attention.length),
     });
   });
+  // The band counts repositories, so its links land on the repositories list
+  // rather than at the top of the page that also holds the summary.
+  const toRepositories = (filter: KennelListFilter) =>
+    `${kennelListHref(filter)}#kennel-repositories`;
   const bandStats = $derived.by<BandStat[]>(() => {
     if (!overview || !overview.enabled || overview.repositories === 0) return [];
     const partly = overview.states.partial + overview.states.pending;
@@ -170,20 +174,20 @@
         hint: 'Nothing worse than a note is open.',
         href:
           overview.states.best_in_show > 0
-            ? kennelListHref({ state: 'best_in_show', everything: true })
+            ? toRepositories({ state: 'best_in_show', everything: true })
             : undefined,
       },
       {
         label: 'Partly checked',
         value: formatNumber(partly),
         hint: 'Something could not be read, or not looked at yet.',
-        href: partly > 0 ? kennelListHref({ incomplete: true, everything: true }) : undefined,
+        href: partly > 0 ? toRepositories({ incomplete: true, everything: true }) : undefined,
       },
       {
         label: 'Repositories',
         value: formatNumber(overview.repositories),
         hint: overview.scope === 'served' ? 'This fleet has run jobs for.' : 'The App can see.',
-        href: kennelListHref({ everything: true }),
+        href: toRepositories({ everything: true }),
       },
     ];
   });
@@ -191,7 +195,7 @@
     overview && overview.enabled && overview.states.attention > 0
       ? {
           label: 'See all findings',
-          href: kennelListHref({ state: 'attention', everything: true }),
+          href: toRepositories({ state: 'attention', everything: true }),
         }
       : undefined,
   );

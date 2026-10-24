@@ -245,17 +245,19 @@
             label: installations.length === 1 ? 'GitHub connection' : 'GitHub connections',
             value: formatNumber(installations.length),
             hint: 'Installed GitHub Apps.',
+            section: 'installations-list',
           },
           {
             label: 'Healthy connections',
             value: formatNumber(healthy),
             hint: `${unhealthy} failing · ${unchecked} not checked.`,
+            section: 'installations-list',
           },
           {
             label: 'Connected pools',
             value: formatNumber(pools),
             hint: 'Pools depending on these connections.',
-            href: '/pools',
+            href: '/pools#pools-list',
           },
           {
             label: 'Low API quota',
@@ -264,6 +266,7 @@
               ? `${Object.keys(rates).length} quota readings. Below 10% remaining.`
               : 'No quota readings yet.',
             tone: lowQuota > 0 ? 'warning' : undefined,
+            section: 'installations-list',
           },
         ]
       : [],
@@ -284,7 +287,7 @@
 
 <PageBand page="installations" line={bandLine} stats={bandFigures} />
 
-<div class="content">
+<div id="installations-list" class="content jump-target" tabindex="-1">
   <LoadingBoundary
     {loading}
     {error}
@@ -397,6 +400,9 @@
 />
 
 <style>
+  .jump-target {
+    scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
+  }
   .content {
     display: flex;
     flex-direction: column;

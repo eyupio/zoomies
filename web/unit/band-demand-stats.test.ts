@@ -28,8 +28,8 @@ test('the strip says how much is queued, what is running, then each provisioning
     ],
   );
   assert.equal(stats[0]?.tone, 'warning');
-  assert.equal(stats[1]?.href, '/runners?state=busy');
-  assert.equal(stats[2]?.href, '/queue?provisioning=ready');
+  assert.equal(stats[1]?.href, '/runners?state=busy#runners-list');
+  assert.equal(stats[2]?.href, '/queue?provisioning=ready#queue-list');
 });
 
 test('a count that has not arrived is not drawn as zero', () => {
@@ -51,11 +51,34 @@ test('one queued job is singular, and the oldest shows only when there is one', 
   assert.equal(withOldest.at(-1)?.since, '2026-01-01T00:00:00Z');
 });
 
+test('on the runners page, Running narrows the list on this page instead of opening one', () => {
+  let selected = 0;
+  const stats = demandStats({
+    ...base,
+    onPageRunning: {
+      section: 'runners-list',
+      active: true,
+      onselect: () => {
+        selected += 1;
+      },
+    },
+  });
+  assert.equal(stats[1]?.href, undefined);
+  assert.equal(stats[1]?.section, 'runners-list');
+  assert.equal(stats[1]?.active, true);
+  assert.match(stats[1]?.hint ?? '', /below/);
+  stats[1]?.onselect?.();
+  assert.equal(selected, 1);
+  // Every other figure still goes where it did.
+  assert.equal(stats[0]?.href, '/jobs?state=queued#jobs-list');
+  assert.equal(stats[2]?.href, '/queue?provisioning=ready#queue-list');
+});
+
 test('a pool filter narrows every link to that pool', () => {
   const stats = demandStats({ ...base, poolId: 'pool 1' });
-  assert.equal(stats[0]?.href, '/jobs?state=queued&pool_id=pool%201');
-  assert.equal(stats[1]?.href, '/runners?state=busy&pool_id=pool%201');
-  assert.equal(stats[3]?.href, '/queue?provisioning=expedited&pool_id=pool%201');
-  assert.equal(demandMore('pool 1').href, '/queue?pool_id=pool%201');
-  assert.equal(demandMore('').href, '/queue');
+  assert.equal(stats[0]?.href, '/jobs?state=queued&pool_id=pool%201#jobs-list');
+  assert.equal(stats[1]?.href, '/runners?state=busy&pool_id=pool%201#runners-list');
+  assert.equal(stats[3]?.href, '/queue?provisioning=expedited&pool_id=pool%201#queue-list');
+  assert.equal(demandMore('pool 1').href, '/queue?pool_id=pool%201#queue-list');
+  assert.equal(demandMore('').href, '/queue#queue-list');
 });

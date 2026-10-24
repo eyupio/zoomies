@@ -160,6 +160,7 @@
 <div class="overview">
   <PageHeader
     title="Overview"
+    subtitle="What this fleet is doing right now, and what needs a person."
     onrefresh={() =>
       Promise.all([fleet.reconcile(), activity?.reload(), failures?.reload()]).then(
         () => undefined,
@@ -290,20 +291,6 @@
 <style>
   .overview :global(.page-header) {
     margin-bottom: var(--z-space-3);
-  }
-  /* The connection state sits beside the title, so the title's rule is drawn
-     after the pair and not between them. */
-  .overview :global(.page-header .titles) {
-    display: flex;
-    align-items: baseline;
-    gap: var(--z-space-3);
-    flex-wrap: wrap;
-  }
-  .overview :global(.page-header .rule) {
-    display: none;
-  }
-  .overview :global(.page-header .meta) {
-    margin: 0;
   }
   .scope {
     max-width: 100%;
