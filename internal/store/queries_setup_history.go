@@ -13,14 +13,19 @@ var ErrInvalidSetupHistory = errors.New("invalid setup step history request")
 // local job identity and the GitHub-reported timing. It is what the cache
 // preview uses for repeated setup cost.
 type SetupStepSample struct {
-	JobID       string    `json:"job_id"`
-	GitHubJobID int64     `json:"github_job_id"`
-	GitHubRunID int64     `json:"github_run_id"`
-	RunAttempt  int       `json:"run_attempt"`
-	HeadSHA     string    `json:"head_sha"`
-	StepNumber  int       `json:"step_number"`
-	StepName    string    `json:"step_name"`
-	SetupMS     int64     `json:"setup_ms"`
+	JobID       string `json:"job_id"`
+	GitHubJobID int64  `json:"github_job_id"`
+	GitHubRunID int64  `json:"github_run_id"`
+	RunAttempt  int    `json:"run_attempt"`
+	HeadSHA     string `json:"head_sha"`
+	StepNumber  int    `json:"step_number"`
+	StepName    string `json:"step_name"`
+	SetupMS     int64  `json:"setup_ms"`
+	// LeadMS is how long the job had been running when the matched step began:
+	// the earliest recorded step start to this step's start. A sharding preview
+	// needs it because every shard repeats that work. Zero when no earlier step
+	// has a recorded start.
+	LeadMS      int64     `json:"lead_ms"`
 	StartedAt   time.Time `json:"started_at"`
 	CompletedAt time.Time `json:"completed_at"`
 }
@@ -63,10 +68,20 @@ func (s *Store) RecentSetupStepSamples(ctx context.Context, repo, workflow, jobN
 		if match == nil {
 			continue
 		}
+		var first *time.Time
+		for i := range j.Steps {
+			if st := j.Steps[i].StartedAt; st != nil && (first == nil || st.Before(*first)) {
+				first = st
+			}
+		}
+		var lead int64
+		if first != nil && match.StartedAt.After(*first) {
+			lead = match.StartedAt.Sub(*first).Milliseconds()
+		}
 		out = append(out, SetupStepSample{
 			JobID: j.ID, GitHubJobID: j.GitHubJobID, GitHubRunID: j.GitHubRunID, RunAttempt: j.RunAttempt,
 			HeadSHA: j.HeadSHA, StepNumber: match.Number, StepName: match.Name,
-			SetupMS:   match.CompletedAt.Sub(*match.StartedAt).Milliseconds(),
+			SetupMS: match.CompletedAt.Sub(*match.StartedAt).Milliseconds(), LeadMS: lead,
 			StartedAt: *match.StartedAt, CompletedAt: *match.CompletedAt,
 		})
 	}

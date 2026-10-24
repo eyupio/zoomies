@@ -15,6 +15,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/optimisation"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -410,6 +411,7 @@ func validDigest(s string, n int) bool {
 
 func (s *Server) optimisationError(w http.ResponseWriter, r *http.Request, err error) {
 	var admission *controller.PRDelayAdmissionError
+	var shardingRefusal *optimisation.ShardingRefusal
 	switch {
 	case errors.Is(err, controller.ErrOptimisationPolicy):
 		forbidden(w, "Reviewed workflow optimisations are off. An administrator turns on optimisation.source_reads and optimisation.workflow_edits in Settings.")
@@ -433,6 +435,10 @@ func (s *Server) optimisationError(w http.ResponseWriter, r *http.Request, err e
 		conflict(w, "The attempt changed while its source was read. Try the preview again.")
 	case errors.Is(err, controller.ErrOptimisationCache):
 		conflict(w, "This cache preview cannot be computed from the selected job. It needs a successful push job the fleet ran, one pinned actions/setup-node step with literal job and step names, one root lockfile, and at least two matching setup timings from the last ninety days.")
+	case errors.As(err, &shardingRefusal):
+		conflict(w, "This job cannot be sharded: "+shardingRefusal.Reason+".")
+	case errors.Is(err, optimisation.ErrShardingUnsupported), errors.Is(err, controller.ErrOptimisationSharding):
+		conflict(w, "This sharding preview cannot be computed from the selected job. It needs a successful push job the fleet ran, one Playwright test step on an Ubuntu runner, at least ten matching successful runs from the last ninety days, and a pool that could start at least two runners at once.")
 	case errors.Is(err, controller.ErrOptimisationReadiness):
 		conflict(w, "This readiness preview cannot be computed from the selected job. It needs a successful push job the fleet ran, one literal sleep step on an Ubuntu runner, an operator-supplied readiness command, and at least two matching wait timings from the last ninety days.")
 	case errors.Is(err, controller.ErrOptimisationPublish):
