@@ -14,7 +14,7 @@
  * that it did before asserting what it did not do.
  */
 import { expect, test, type Dialog, type Page } from '@playwright/test';
-import { expectNoSidewaysScroll, FIXTURE, goto } from './support/fixtures';
+import { expectNoSidewaysScroll, FIXTURE, goto, readThrough } from './support/fixtures';
 import {
   automaticPolicy,
   automaticRow,
@@ -49,8 +49,9 @@ test('a pool named with markup is shown as text, not run as it', async ({ page }
   // is given, and this gives it one.
   const name = 'zoomies-<img src=x onerror=alert(1)><script>alert(2)</script>';
   await page.route('**/api/v1/pools**', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response, body } = read;
     // Every row rather than the first: another spec may have added a pool
     // before this one runs, and which rows the grid has drawn is then not
     // something this test should depend on.

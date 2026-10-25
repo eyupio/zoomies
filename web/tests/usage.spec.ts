@@ -12,7 +12,7 @@
  * the page they can send to somebody else.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { FIXTURE, goto } from './support/fixtures';
+import { FIXTURE, goto, readThrough } from './support/fixtures';
 
 // The report itself, named by its caption. The page has a second table, "By
 // release", and a bare role would match both.
@@ -382,8 +382,9 @@ test('the average queue wait is written the same way in the tile and in the tabl
   page,
 }) => {
   await page.route('**/api/v1/usage?**', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     body.items = (body.items ?? []).map((row: object) => ({
       ...row,
       jobs_started: 4,
@@ -412,8 +413,9 @@ test('a page with no completed jobs marks its missing figures the way the rest o
   page,
 }) => {
   await page.route('**/api/v1/usage?**', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     body.items = (body.items ?? []).map((row: object) => ({
       ...row,
       jobs_completed: 0,

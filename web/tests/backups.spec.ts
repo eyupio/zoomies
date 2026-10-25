@@ -12,7 +12,7 @@
  * process exit the Go tests cover.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { goto, dialog } from './support/fixtures';
+import { dialog, goto, readThrough } from './support/fixtures';
 
 async function openBackups(page: Page): Promise<void> {
   await goto(page, '/settings/backups', 'Backups');
@@ -311,8 +311,9 @@ test('a retention pass that only partly worked interrupts rather than waits', as
  */
 test('a long list of backups is paged rather than scrolled', async ({ page }) => {
   await page.route('**/api/v1/backups', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response, body } = read;
     const one = body.items?.[0];
     test.skip(!one, 'the fixture has no backup to make a long list out of');
     body.items = Array.from({ length: 24 }, (_, i) => ({

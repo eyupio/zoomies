@@ -10,13 +10,14 @@
  * that no pull request started.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { goto, signedInAs } from './support/fixtures';
+import { goto, readThrough, signedInAs } from './support/fixtures';
 
 /** The real failures the fixture holds, with the trigger of each chosen by position. */
 async function triggeredBy(page: Page, events: (index: number) => string | undefined) {
   await page.route('**/api/v1/jobs?*', async (route) => {
-    const response = await route.fetch();
-    const body = (await response.json()) as { items: Record<string, unknown>[] };
+    const read = await readThrough<{ items: Record<string, unknown>[] }>(route);
+    if (!read) return;
+    const { response, body } = read;
     body.items.forEach((job, index) => {
       job.github_run_id = job.github_run_id || 9000 + index;
       job.repo = job.repo || 'acme/site';

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { goto, tokenPixels } from './support/fixtures';
+import { goto, readThrough, tokenPixels } from './support/fixtures';
 
 test('private enrolment explains unavailable configuration in an auth-disabled demo', async ({
   page,
@@ -16,10 +16,11 @@ test('private enrolment hides address configuration and sends the selected conne
   page,
 }) => {
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
+    const read = await readThrough(route);
+    if (!read) return;
     await route.fulfill({
-      response,
-      json: { ...(await response.json()), tailcat_available: true },
+      response: read.response,
+      json: { ...read.body, tailcat_available: true },
     });
   });
   let requested: Record<string, unknown> | undefined;

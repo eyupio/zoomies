@@ -15,7 +15,7 @@ import { test, expect } from '@playwright/test';
 // The bootstrap route asks for the token the controller printed at startup, so
 // a test creating the first account fetches it the way an operator reads
 // `docker compose logs`. The fixture captures the line into a file.
-import { setupToken } from './support/fixtures';
+import { readThrough, setupToken } from './support/fixtures';
 
 const ADMIN = { username: 'ada', password: 'correct horse battery staple' };
 
@@ -374,8 +374,9 @@ test('a private address can still be connected, once the operator says so', asyn
   // produces. The guard is the dialog's alone -- the server only refuses an
   // empty address -- which is why this needs no second controller.
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
-    const meta = (await response.json()) as Record<string, unknown>;
+    const read = await readThrough<Record<string, unknown>>(route);
+    if (!read) return;
+    const { response, body: meta } = read;
     await route.fulfill({
       response,
       json: {

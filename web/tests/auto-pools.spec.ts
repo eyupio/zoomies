@@ -29,6 +29,7 @@ import {
   openEventsFeed,
   openFleetContext,
   openHostCard,
+  readThrough,
   tokenPixels,
 } from './support/fixtures';
 
@@ -396,8 +397,9 @@ async function keepPool(
 
   await page.route(/\/api\/v1\/pools(\?.*)?$/, async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
-    const response = await route.fetch();
-    const body = (await response.json()) as { items: PoolRow[] };
+    const read = await readThrough<{ items: PoolRow[] }>(route);
+    if (!read) return;
+    const { response, body } = read;
     await route.fulfill({ response, json: { ...body, items: body.items.map(lay) } });
   });
   await page.route(new RegExp(`/api/v1/pools/${pool.id}$`), async (route) => {
@@ -406,8 +408,9 @@ async function keepPool(
       return onPatch(route.request().postDataJSON() as Record<string, unknown>, route);
     }
     if (method !== 'GET') return route.continue();
-    const response = await route.fetch();
-    await route.fulfill({ response, json: lay((await response.json()) as PoolRow) });
+    const read = await readThrough<PoolRow>(route);
+    if (!read) return;
+    await route.fulfill({ response: read.response, json: lay(read.body) });
   });
 }
 
@@ -728,8 +731,9 @@ const jobs = (page: Page) => grid(page, 'Jobs');
 /** Lay size facts over the jobs a list returns, and leave everything else about them alone. */
 async function classJobs(page: Page, size: Record<string, unknown>): Promise<void> {
   await page.route(/\/api\/v1\/jobs\?/, async (route) => {
-    const response = await route.fetch();
-    const body = (await response.json()) as { items: Record<string, unknown>[] };
+    const read = await readThrough<{ items: Record<string, unknown>[] }>(route);
+    if (!read) return;
+    const { response, body } = read;
     await route.fulfill({
       response,
       json: { ...body, items: body.items.map((job) => ({ ...job, ...size })) },

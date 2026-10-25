@@ -27,11 +27,12 @@ import { expect, test, type Page } from '@playwright/test';
 import type { UpdatesStatus } from '../src/lib/api/types';
 import {
   expectNoReload,
+  expectNoSidewaysScroll,
   goto,
   pageHeading,
   plantMarker,
+  readThrough,
   reload,
-  expectNoSidewaysScroll,
   signedInAs,
 } from './support/fixtures';
 
@@ -143,8 +144,9 @@ test('choosing auto asks first, and cancelling leaves the mode as it was', async
   // The same settings with the mode held by the file and not the environment,
   // which is the state in which it can be chosen here.
   await page.route('**/api/v1/settings', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response, body } = read;
     for (const row of body.settings ?? []) {
       if (row.key === 'updates.mode') Object.assign(row, { source: 'file', editable: true });
     }

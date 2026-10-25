@@ -17,10 +17,11 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { shapeDiffers } from '../src/lib/state/fleet-shape';
 import {
   expectNoReload,
+  expectNoSidewaysScroll,
   goto,
   plantMarker,
+  readThrough,
   reload,
-  expectNoSidewaysScroll,
   signedInAs,
 } from './support/fixtures';
 import { enrolAgent, type Credentials } from './support/fake-agent';
@@ -439,8 +440,9 @@ async function withUpdatingOff(page: Page, hostID: string): Promise<void> {
       ? { ...host, update: { state: 'none', reason: MODE_OFF, can_update: false, attempt_id: '' } }
       : host;
   await page.route(/\/api\/v1\/hosts(\?.*)?$/, async (route) => {
-    const response = await route.fetch();
-    const body = (await response.json()) as { items?: Record<string, unknown>[] };
+    const read = await readThrough<{ items?: Record<string, unknown>[] }>(route);
+    if (!read) return;
+    const { response, body } = read;
     return route.fulfill({ response, json: { ...body, items: (body.items ?? []).map(off) } });
   });
   // And no stream, or a host frame from the real controller replaces the rewrite.
@@ -452,11 +454,9 @@ async function withUpdatingOff(page: Page, hostID: string): Promise<void> {
     }),
   );
   await page.route(`**/api/v1/hosts/${hostID}`, async (route) => {
-    const response = await route.fetch();
-    return route.fulfill({
-      response,
-      json: off((await response.json()) as Record<string, unknown>),
-    });
+    const read = await readThrough<Record<string, unknown>>(route);
+    if (!read) return;
+    return route.fulfill({ response: read.response, json: off(read.body) });
   });
 }
 
@@ -802,8 +802,9 @@ test('an operator is offered no rollout, and with updating off an administrator 
     await page.unroute('**/api/v1/events*');
     await withUpdatingOff(page, credentials.host_id);
     await page.route('**/api/v1/updates', async (route) => {
-      const response = await route.fetch();
-      return route.fulfill({ response, json: { ...(await response.json()), mode: 'off' } });
+      const read = await readThrough(route);
+      if (!read) return;
+      return route.fulfill({ response: read.response, json: { ...read.body, mode: 'off' } });
     });
     await reload(page, 'Hosts');
     const start = page.getByRole('button', { name: 'Update hosts', exact: true });
@@ -836,11 +837,12 @@ async function serveHaltedRollout(page: Page): Promise<void> {
   const reason =
     "The update of build-host-with-a-very-long-name-that-has-no-break-at-all to v1.3.0 did not succeed, so the rollout is halted. Read why on the host's card, then resume the rollout or cancel it.";
   await page.route('**/api/v1/updates', async (route) => {
-    const response = await route.fetch();
+    const read = await readThrough(route);
+    if (!read) return;
     return route.fulfill({
-      response,
+      response: read.response,
       json: {
-        ...(await response.json()),
+        ...read.body,
         rollout: {
           id: 'rol_e2erollout01',
           target: TARGET,

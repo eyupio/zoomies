@@ -13,7 +13,7 @@
  * Both the desktop and the phone project run this file, one after the other, so
  * nothing here may depend on a controller that has not been used before.
  */
-import { expect, test, type APIResponse, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   dataRows,
   documentWidth,
@@ -26,7 +26,9 @@ import {
   navEntry,
   openNavMenu,
   plantMarker,
+  readThrough,
   rowCount,
+  withoutTheStream,
 } from './support/fixtures';
 
 test.describe.configure({ mode: 'serial' });
@@ -58,40 +60,6 @@ function tile(page: Page, label: string) {
   return page
     .locator('dl.metrics > div')
     .filter({ has: page.getByRole('term').filter({ hasText: new RegExp(`^${label}↗?$`) }) });
-}
-
-/**
- * The server's own answer to a request, for a handler that changes a little of
- * it, or null when the page gave up on the request while the handler was
- * waiting for the server.
- *
- * A grid that asks again, or a navigation, abandons the read it had out. A
- * handler that then parses a disposed body throws, the request is never
- * answered, and the test fails on a page that did nothing wrong. The request is
- * handed on instead, and the caller has nothing left to answer.
- */
-async function readThrough<T>(route: Route): Promise<{ response: APIResponse; body: T } | null> {
-  try {
-    const response = await route.fetch();
-    return { response, body: (await response.json()) as T };
-  } catch {
-    await route.fallback().catch(() => undefined);
-    return null;
-  }
-}
-
-/**
- * Take the event stream away, for a test that decides what the page reads.
- *
- * The page replaces its Overview from a `kennel.summary` frame and clears its
- * stale notice on one, so with the stream live the test races it: a frame that
- * lands first leaves the real document on the page and the one the test wrote
- * is never shown. A stream that is down cannot send, and the pages that read the
- * REST route again on their own when it comes back are not what these tests are
- * about.
- */
-async function withoutTheStream(page: Page): Promise<void> {
-  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
 }
 
 /** The demo's repositories are read within moments of the setting being turned on. */
@@ -1696,7 +1664,7 @@ test.describe('with Kennel Club on', () => {
       await page.route(`**/api/v1/kennel/repositories/${id}`, async (route) => {
         const read = await readThrough<Record<string, unknown> & { findings: unknown[] }>(route);
         if (!read) return;
-        const { response: response, body } = read;
+        const { response, body } = read;
         body.findings = [...body.findings, full(warning)];
         body.waived = [
           {
@@ -1722,7 +1690,7 @@ test.describe('with Kennel Club on', () => {
         await page.route('**/api/v1/meta', async (route) => {
           const read = await readThrough<Record<string, unknown>>(route);
           if (!read) return;
-          const { response: response, body } = read;
+          const { response, body } = read;
           return route.fulfill({
             response,
             json: { ...body, auth_disabled: false, bootstrap_required: false },
@@ -1972,7 +1940,7 @@ test.describe('with Kennel Club on', () => {
       await page.route('**/api/v1/meta', async (route) => {
         const read = await readThrough<Record<string, unknown>>(route);
         if (!read) return;
-        const { response: response, body } = read;
+        const { response, body } = read;
         return route.fulfill({
           response,
           json: { ...body, auth_disabled: false, bootstrap_required: false },
@@ -2608,7 +2576,7 @@ test.describe('with Kennel Club on', () => {
       await page.route('**/api/v1/kennel/repositories?*', async (route) => {
         const read = await readThrough<{ items: Row[]; total: number }>(route);
         if (!read) return;
-        const { response: response, body } = read;
+        const { response, body } = read;
         const items = [...body.items];
         for (let i = 0; items.length < 11; i++)
           items.push({ ...first, id: `${first.id}-copy-${i}`, name: `acme/copy-${i}` });
@@ -2664,7 +2632,7 @@ test.describe('the side menu and the switch', () => {
     await page.route('**/api/v1/meta', async (route) => {
       const read = await readThrough<Record<string, unknown>>(route);
       if (!read) return;
-      const { response: response, body } = read;
+      const { response, body } = read;
       return route.fulfill({
         response,
         json: { ...body, auth_disabled: false, bootstrap_required: false },
@@ -3105,7 +3073,7 @@ test.describe('the side menu and the switch', () => {
     await page.route('**/api/v1/kennel', async (route) => {
       const read = await readThrough<Record<string, unknown>>(route);
       if (!read) return;
-      const { response: response, body } = read;
+      const { response, body } = read;
       return route.fulfill({ response, json: { ...body, enabled: false } });
     });
     await page.evaluate(() => {
@@ -3255,7 +3223,7 @@ test.describe('the cards on the Overview', () => {
     await page.route('**/api/v1/kennel', async (route) => {
       const read = await readThrough<Overview>(route);
       if (!read) return;
-      const { response: response, body } = read;
+      const { response, body } = read;
       const some = (n: number) => (alone === n ? 3 : 0);
       return route.fulfill({
         response,
@@ -3465,7 +3433,7 @@ test.describe('the AI Context row in the side menu', () => {
     await page.route('**/api/v1/problems', async (route) => {
       const read = await readThrough<{ items?: unknown[] }>(route);
       if (!read) return;
-      const { response: response, body } = read;
+      const { response, body } = read;
       return route.fulfill({ response, json: { ...body, items } });
     });
   }
@@ -4005,7 +3973,7 @@ test.describe('the list of repositories shows the ones being served', () => {
       const params = new URL(route.request().url()).searchParams;
       const read = await readThrough<{ items?: unknown[]; total: number }>(route);
       if (!read) return;
-      const { response: response, body } = read;
+      const { response, body } = read;
       // Anything that is not a list -- an answer that Kennel Club is off, once a test
       // has finished with it -- is passed on as it came.
       if (!Array.isArray(body.items)) return route.fulfill({ response, json: body });

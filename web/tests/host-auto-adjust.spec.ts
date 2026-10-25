@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { goto } from './support/fixtures';
+import { goto, readThrough } from './support/fixtures';
 
 // The Adjust dialog shows the controller's own recommendation, which counts the
 // disk as well as the cores and memory, and lets an operator choose whether the
@@ -28,8 +28,9 @@ test('the dialog uses the controller recommendation, says when the disk sets it,
   await page.route(/\/api\/v1\/hosts\/[^/?]+$/, async (route) => {
     if (route.request().method() !== 'PATCH') return route.fallback();
     patched = route.request().postDataJSON();
-    const real = await route.fetch({ method: 'GET' });
-    return route.fulfill({ response: real });
+    const read = await readThrough(route, { method: 'GET' });
+    if (!read) return;
+    return route.fulfill({ response: read.response });
   });
   await goto(page, '/hosts', 'Hosts');
   const card = page.getByRole('article', { name: 'demo-builder-1', exact: true });

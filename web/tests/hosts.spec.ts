@@ -18,6 +18,7 @@ import {
   openHostCard,
   pageHeading,
   plantMarker,
+  readThrough,
   reload,
 } from './support/fixtures';
 
@@ -916,8 +917,9 @@ test('an older remote agent offers a copyable upgrade command without a join tok
     });
   });
   await page.route(/\/api\/v1\/hosts(?:\?.*)?$/, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     body.items = body.items.map((host: { name: string }) =>
       host.name === 'demo-builder-1'
         ? {
@@ -985,8 +987,9 @@ test("a host's memory to lend opens its ledger from the keyboard and from a tap"
     at: new Date().toISOString(),
   };
   await page.route(/\/api\/v1\/hosts(?:\?.*)?$/, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     body.items = body.items.map((host: { name: string }) =>
       host.name === 'demo-builder-1' ? { ...host, memory_pool: pool } : host,
     );
@@ -1283,8 +1286,9 @@ test('a health filter that matches nothing says so, and offers every host back',
   // page has to say why that is not good news. The list response is rewritten
   // rather than the fleet changed, because the demo fleet is shared.
   await page.route(/\/api\/v1\/hosts(?:\?.*)?$/, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     body.items = body.items.map(({ doctor: _doctor, ...host }: { doctor?: unknown }) => host);
     await route.fulfill({ json: body });
   });

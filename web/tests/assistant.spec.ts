@@ -5,7 +5,7 @@
  * again once saved, and removing a provider takes its name typed out.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { goto, dialog } from './support/fixtures';
+import { dialog, goto, readThrough } from './support/fixtures';
 
 /** Open Eli from the corner of whatever page this is. */
 async function openEli(page: Page): Promise<void> {
@@ -706,8 +706,9 @@ test('somebody else’s Claude subscription is on the list, marked, and can be r
 }) => {
   await page.route('**/api/v1/assistant/personal/providers', async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
-    const res = await route.fetch();
-    const body = await res.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     body.items.push({
       id: 'prov_alices',
       name: 'Alice’s Claude',

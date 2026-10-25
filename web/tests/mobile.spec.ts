@@ -12,21 +12,23 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
   dataRows,
   documentWidth,
+  expectNoSidewaysScroll,
   FIXTURE,
   goto,
   grid,
-  nav,
   menuEntry,
+  nav,
   navEntry,
   navMenu,
   openHostCapacityMap,
   openNavMenu,
   pageHeading,
   PRIMARY_SECTIONS,
-  useClassic,
-  SECTIONS,
+  readThrough,
   sectionHeading,
-  expectNoSidewaysScroll,
+  SECTIONS,
+  useClassic,
+  withoutTheStream,
 } from './support/fixtures';
 import {
   automaticPolicy,
@@ -765,15 +767,20 @@ test('a name nobody chose wraps rather than taking the page or Close off the scr
   await page.setViewportSize({ width: 360, height: 780 });
   const hostile = 'ip-10-0-31-44.eu-west-1.compute.internal.example.invalid';
 
+  // The fleet sends every host's real record every thirty seconds, which would
+  // put the real names back over the ones this test wrote.
+  await withoutTheStream(page);
   await page.route('**/api/v1/hosts**', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response, body } = read;
     if (Array.isArray(body.items)) for (const host of body.items) host.name = hostile;
     await route.fulfill({ response, json: body });
   });
   await page.route('**/api/v1/jobs**', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response, body } = read;
     if (Array.isArray(body.items)) for (const job of body.items) job.job_name = hostile;
     await route.fulfill({ response, json: body });
   });
@@ -819,8 +826,9 @@ test('a backup destination with a long address stays inside the screen', async (
   const endpoint = 'https://0c3c36183dc3e0714e8de12c040ba3d5.r2.cloudflarestorage.com';
 
   await page.route('**/api/v1/backups', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response, body } = read;
     body.remotes = [
       {
         name: 'zoomies',
@@ -864,9 +872,12 @@ test('the capacity reading keeps its figures on the card whatever the hosts are 
   await page.setViewportSize({ width: 360, height: 780 });
   const names = ['zoomies-12vcpu-31gb-debian-12-zoomies', 'zoomies-8vcpu-31gb-ubuntu-2404-ollama1'];
 
+  // The fleet sends every host's real record every thirty seconds (see above).
+  await withoutTheStream(page);
   await page.route('**/api/v1/hosts**', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response, body } = read;
     if (Array.isArray(body.items)) {
       body.items.forEach((host: { name: string }, i: number) => (host.name = names[i % 2]!));
     }

@@ -20,6 +20,7 @@ import {
   grid,
   pageHeading,
   plantMarker,
+  readThrough,
   reload,
   waitForRows,
 } from './support/fixtures';
@@ -103,8 +104,9 @@ test('a provider whose last check failed says on the card what the check found',
   const complaint =
     'the token cannot see node pve-3: grant it VM.Allocate on /nodes/pve-3, or drop that node from the settings.';
   await page.route(/\/api\/v1\/providers(?:\?.*)?$/, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     body.items = body.items.map((provider: { name: string }) =>
       provider.name === FIXTURE.provider ? { ...provider, last_check_error: complaint } : provider,
     );
@@ -124,8 +126,9 @@ test('a provider whose last check failed says on the card what the check found',
 test('a failed check opens on the detail and the fix, not only the title', async ({ page }) => {
   const title = 'node pve-1 has no bridge called "vmbr0"';
   await page.route(/\/api\/v1\/providers(?:\?.*)?$/, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     body.items = body.items.map((provider: { name: string }) =>
       provider.name === FIXTURE.provider
         ? {
@@ -636,8 +639,9 @@ test('a quarantined machine offers release where it cannot be deleted, and needs
     "Nothing further has been attempted: check the provider's console, then either release this row, " +
     'which forgets the resource without touching it, or delete the resource by hand.';
   await page.route(new RegExp(`/api/v1/machines/${FIXTURE.readyMachineId}$`), async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     await route.fulfill({
       json: {
         ...body,
@@ -751,8 +755,9 @@ test("a machine in flight hands over the id that finds it in the provider's task
     });
   });
   await page.route(new RegExp(`/api/v1/machines/${FIXTURE.buildingMachineId}$`), async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     await route.fulfill({
       json: {
         ...body,
@@ -875,10 +880,11 @@ test('a private connection is offered only where the controller can make one, an
   await expect(page.getByText(/Private connections need authentication/)).toBeVisible();
 
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
+    const read = await readThrough(route);
+    if (!read) return;
     await route.fulfill({
-      response,
-      json: { ...(await response.json()), tailcat_available: true },
+      response: read.response,
+      json: { ...read.body, tailcat_available: true },
     });
   });
   await goto(page, '/providers/new', 'Add a provider');
@@ -913,14 +919,16 @@ test('a ceiling of one machine is written in the singular on the card and the pr
 }) => {
   const one = { max_machines: 1 };
   await page.route(/\/api\/v1\/providers(?:\?.*)?$/, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     body.items = body.items.map((provider: object) => ({ ...provider, ...one }));
     await route.fulfill({ json: body });
   });
   await page.route(/\/api\/v1\/providers\/[^/?]+$/, async (route) => {
-    const response = await route.fetch();
-    await route.fulfill({ json: { ...(await response.json()), ...one } });
+    const read = await readThrough(route);
+    if (!read) return;
+    await route.fulfill({ json: { ...read.body, ...one } });
   });
 
   await goto(page, '/providers', 'Providers');
@@ -955,8 +963,9 @@ test('Proxmox onboarding waits for one command and fills the connection without 
   let hostConnected = false;
   let discoveryBody: Record<string, unknown> | undefined;
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
-    const meta = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response, body: meta } = read;
     await route.fulfill({ response, json: { ...meta, tailcat_available: true } });
   });
   await page.route('**/api/v1/provider-setups', (route) =>
@@ -1044,8 +1053,9 @@ test('Proxmox offers an existing Tailcat gateway without hiding it behind manual
   page,
 }) => {
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
-    const meta = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response, body: meta } = read;
     await route.fulfill({ response, json: { ...meta, tailcat_available: true } });
   });
   await goto(page, '/providers/new', 'Add a provider');
@@ -1138,8 +1148,9 @@ function testMachineRow(
 async function listTestMachine(page: Page, machine: Record<string, unknown>): Promise<void> {
   await page.route('**/api/v1/machines?*', async (route) => {
     try {
-      const response = await route.fetch();
-      const data = (await response.json()) as { items: unknown[] };
+      const read = await readThrough<{ items: unknown[] }>(route);
+      if (!read) return;
+      const { response, body: data } = read;
       await route.fulfill({ response, json: { ...data, items: [...data.items, machine] } });
     } catch {
       // A request still out when the spec ends finds the page gone, and an error

@@ -7,7 +7,7 @@
  * request needs -- so the last step must refuse rather than get halfway.
  */
 import { expect, test } from '@playwright/test';
-import { FIXTURE, goto, navEntry, pageHeading } from './support/fixtures';
+import { FIXTURE, goto, navEntry, pageHeading, readThrough } from './support/fixtures';
 
 test.skip(({ isMobile }) => isMobile, 'the wizard interactions are covered by the mobile suite');
 
@@ -17,10 +17,11 @@ test('an empty first batch continues scanning and finds repositories on later pa
   let releasePage!: () => void;
   const gate = new Promise<void>((resolve) => (releasePage = resolve));
   await page.route('**/api/v1/migrations/plan', async (route) => {
-    const response = await route.fetch({
+    const read = await readThrough(route, {
       postData: { installation_id: route.request().postDataJSON().installation_id },
     });
-    const plan = await response.json();
+    if (!read) return;
+    const plan = read.body;
     const cursor = route.request().postDataJSON().cursor;
     if (!cursor) {
       await route.fulfill({
@@ -68,10 +69,11 @@ test('a failed later batch keeps choices and can resume without selecting a clea
       });
       return;
     }
-    const response = await route.fetch({
+    const read = await readThrough(route, {
       postData: { installation_id: route.request().postDataJSON().installation_id },
     });
-    const plan = await response.json();
+    if (!read) return;
+    const plan = read.body;
     const first = plan.repositories.find((r: { repo: string }) => r.repo === FIXTURE.repos[0]);
     const second = { ...first, repo: 'acme/later' };
     await route.fulfill({
@@ -97,10 +99,11 @@ test('large scans keep the migration within the API limit and search preserves t
   page,
 }) => {
   await page.route('**/api/v1/migrations/plan', async (route) => {
-    const response = await route.fetch({
+    const read = await readThrough(route, {
       postData: { installation_id: route.request().postDataJSON().installation_id },
     });
-    const plan = await response.json();
+    if (!read) return;
+    const plan = read.body;
     const example = plan.repositories.find((r: { repo: string }) => r.repo === FIXTURE.repos[0]);
     await route.fulfill({
       json: {
@@ -353,8 +356,11 @@ test('pausing a multi-page scan finishes the current batch and keeps unchecked r
     const request = route.request().postDataJSON();
     const cursor = request.cursor ?? '';
     cursors.push(cursor);
-    const response = await route.fetch({ postData: { installation_id: request.installation_id } });
-    const plan = await response.json();
+    const read = await readThrough(route, {
+      postData: { installation_id: request.installation_id },
+    });
+    if (!read) return;
+    const { body: plan } = read;
     const example = plan.repositories.find((r: { repo: string }) => r.repo === FIXTURE.repos[0]);
     if (cursor === 'second') await gate;
     await route.fulfill({

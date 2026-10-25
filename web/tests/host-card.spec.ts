@@ -9,7 +9,13 @@
  * hide a reason.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { clearStoredPreferences, expectNoSidewaysScroll, goto, reload } from './support/fixtures';
+import {
+  clearStoredPreferences,
+  expectNoSidewaysScroll,
+  goto,
+  readThrough,
+  reload,
+} from './support/fixtures';
 
 const card = (page: Page, name: string): Locator =>
   page.getByRole('article', { name, exact: true });
@@ -50,8 +56,9 @@ async function rewriteHosts(
   change: (hosts: Record<string, unknown>[]) => Record<string, unknown>[],
 ): Promise<void> {
   await page.route(/\/api\/v1\/hosts(?:\?.*)?$/, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     body.items = change(body.items);
     await route.fulfill({ json: body });
   });
@@ -617,8 +624,9 @@ test('a card that a filter takes off the page comes back as it was left', async 
   // demo fleet is shared, and there is no stream, or a heartbeat's host frame
   // would put a report back.
   await page.route(/\/api\/v1\/hosts(?:\?.*)?$/, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     body.items = body.items.map(({ doctor: _doctor, ...host }: { doctor?: unknown }) => host);
     await route.fulfill({ json: body });
   });

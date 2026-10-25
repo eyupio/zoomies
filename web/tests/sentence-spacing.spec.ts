@@ -8,7 +8,7 @@
  * fails when there is none.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { goto } from './support/fixtures';
+import { goto, readThrough } from './support/fixtures';
 
 /**
  * A sentence as a pattern. The markup wraps long sentences across lines, so the
@@ -43,14 +43,16 @@ async function openPool(page: Page, overlay: Record<string, unknown>): Promise<v
     pool.id === id ? { ...pool, ...overlay } : pool;
   await page.route(/\/api\/v1\/pools(\?.*)?$/, async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
-    const response = await route.fetch();
-    const body = (await response.json()) as { items: { id: string }[] };
+    const read = await readThrough<{ items: { id: string }[] }>(route);
+    if (!read) return;
+    const { response, body } = read;
     await route.fulfill({ response, json: { ...body, items: body.items.map(lay) } });
   });
   await page.route(new RegExp(`/api/v1/pools/${id}$`), async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
-    const response = await route.fetch();
-    await route.fulfill({ response, json: lay((await response.json()) as { id: string }) });
+    const read = await readThrough<{ id: string }>(route);
+    if (!read) return;
+    await route.fulfill({ response: read.response, json: lay(read.body) });
   });
   await goto(page, `/pools/${id}`, name);
 }

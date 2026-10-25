@@ -5,6 +5,7 @@ import {
   goto,
   openHostCard,
   plantMarker,
+  readThrough,
   reload,
   signedInAs,
 } from './support/fixtures';
@@ -488,8 +489,9 @@ test('the host page does not call a host with runners on it safe to reboot', asy
     // its host from the list the app already holds, and a real runner would
     // need a job and a pool and a workflow behind it.
     await page.route(/\/api\/v1\/hosts(?:\?.*)?$/, async (route) => {
-      const response = await route.fetch();
-      const body = await response.json();
+      const read = await readThrough(route);
+      if (!read) return;
+      const { body } = read;
       body.items = body.items.map((host: { id: string }) =>
         host.id === credentials.host_id ? { ...host, active_runners: 2 } : host,
       );

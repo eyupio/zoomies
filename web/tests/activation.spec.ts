@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { goto } from './support/fixtures';
+import { goto, readThrough } from './support/fixtures';
 
 for (const [width, style] of [
   [1440, 'classic'],
@@ -14,8 +14,9 @@ for (const [width, style] of [
     await page.addInitScript((style) => localStorage.setItem('zoomies.ui-style', style), style);
     await page.route('**/api/v1/events**', (route) => route.abort());
     await page.route('**/api/v1/stats**', async (route) => {
-      const response = await route.fetch();
-      const body = await response.json();
+      const read = await readThrough(route);
+      if (!read) return;
+      const { response, body } = read;
       body.fleet = { ...body.fleet, running_jobs: 0, completed: 0 };
       await route.fulfill({ response, json: body });
     });

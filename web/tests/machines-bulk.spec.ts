@@ -15,7 +15,7 @@
  * controller's own rules are the Go tests', which run the real route.
  */
 import { expect, test, type Page, type Route } from '@playwright/test';
-import { FIXTURE, goto } from './support/fixtures';
+import { FIXTURE, goto, readThrough } from './support/fixtures';
 
 interface Row {
   id: string;
@@ -73,8 +73,9 @@ async function arrange(page: Page, refuse: Record<string, string> = {}): Promise
   const asked: Asked[] = [];
   await page.route(/\/api\/v1\/machines(?:\?.*)?$/, async (route: Route) => {
     if (route.request().method() !== 'GET') return route.fallback();
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { body } = read;
     body.items = [...body.items, ...[NO_VM_A, NO_VM_B, WITH_VM, DOUBTFUL].map(view)];
     return route.fulfill({ json: body });
   });

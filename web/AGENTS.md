@@ -30,7 +30,10 @@ Scoped guidance for the UI, read in addition to the root [AGENTS.md](../AGENTS.m
   takes the stream away first (`route.abort('connectionfailed')` on
   `**/api/v1/events*`). A frame lands whenever the fleet changes, which in a long
   run on one shared controller is any moment, and it replaces what the test
-  wrote. A route handler that rewrites a response reads it through a guard, since
+  wrote. Measured on an idle fixture controller: every thirty seconds a
+  `host.updated` for each host, two or three `runner.updated` and a `stats`,
+  and the Kennel summary once, about ten minutes in; pools and providers send
+  nothing until something changes. A route handler that rewrites a response reads it through a guard, since
   a page that asks again abandons the read the handler is waiting on.
 - `npm run check` type-checks `web/unit/` as well (`tsconfig.unit.json`). The unit
   tests run on Node with types stripped, so a fixture that has fallen behind the
