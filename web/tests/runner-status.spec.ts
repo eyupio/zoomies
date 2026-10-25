@@ -56,7 +56,7 @@ async function runStatusChecks(
   await page.route('**/api/v1/runners?*', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body: data } = read;
+    const { response, body: data } = read;
     data.items = data.items.map((row: Record<string, unknown>) => {
       if (row.state !== 'busy') return row;
       const updated = withCPU(row);

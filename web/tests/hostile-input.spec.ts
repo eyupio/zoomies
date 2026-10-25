@@ -51,7 +51,7 @@ test('a pool named with markup is shown as text, not run as it', async ({ page }
   await page.route('**/api/v1/pools**', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     // Every row rather than the first: another spec may have added a pool
     // before this one runs, and which rows the grid has drawn is then not
     // something this test should depend on.

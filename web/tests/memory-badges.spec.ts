@@ -113,7 +113,7 @@ async function giveRunners(page: Page, extras: Row[]): Promise<Row[]> {
   await page.route('**/api/v1/runners?*', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body: data } = read;
+    const { response, body: data } = read;
     changed.length = 0;
     data.items = data.items.map((row: Row, index: number) => {
       // Whatever the demo fleet says of memory is replaced: the test hands the
@@ -328,7 +328,7 @@ test("the runner's page repeats it in a panel, and counts a loan in the memory i
   await page.route(`**/api/v1/runners/${target.id}`, async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body: data } = read;
+    const { response, body: data } = read;
     await route.fulfill({
       response,
       json: {
@@ -373,7 +373,7 @@ test("a frame that says the runner holds no loan takes the loan off the runner's
   await page.route(`**/api/v1/runners/${target.id}`, async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body: data } = read;
+    const { response, body: data } = read;
     await route.fulfill({ response, json: { ...data, memory_resource: lent, scratch: folders } });
   });
   await goto(page, `/runners/${target.id}`, String(target.name));

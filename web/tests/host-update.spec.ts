@@ -442,7 +442,7 @@ async function withUpdatingOff(page: Page, hostID: string): Promise<void> {
   await page.route(/\/api\/v1\/hosts(\?.*)?$/, async (route) => {
     const read = await readThrough<{ items?: Record<string, unknown>[] }>(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     return route.fulfill({ response, json: { ...body, items: (body.items ?? []).map(off) } });
   });
   // And no stream, or a host frame from the real controller replaces the rewrite.

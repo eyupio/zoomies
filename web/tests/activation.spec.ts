@@ -16,7 +16,7 @@ for (const [width, style] of [
     await page.route('**/api/v1/stats**', async (route) => {
       const read = await readThrough(route);
       if (!read) return;
-      const { response: response, body } = read;
+      const { response, body } = read;
       body.fleet = { ...body.fleet, running_jobs: 0, completed: 0 };
       await route.fulfill({ response, json: body });
     });

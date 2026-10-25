@@ -332,7 +332,7 @@ test('viewer can read but cannot capture', async ({ page }) => {
   await page.route('**/api/v1/auth/session', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     body.role = 'viewer';
     if (body.identity) body.identity.role = 'viewer';
     await route.fulfill({ response, json: body });
@@ -342,7 +342,7 @@ test('viewer can read but cannot capture', async ({ page }) => {
   await page.route('**/api/v1/meta', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     body.auth_disabled = false;
     body.bootstrap_required = false;
     await route.fulfill({ response, json: body });
@@ -362,7 +362,7 @@ test('public visitors make no history request', async ({ page }) => {
   await page.route('**/api/v1/meta', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     body.auth_disabled = false;
     body.bootstrap_required = false;
     body.public_view = true;
@@ -371,7 +371,7 @@ test('public visitors make no history request', async ({ page }) => {
   await page.route('**/api/v1/auth/session', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     body.role = 'viewer';
     body.kind = 'public';
     await route.fulfill({ response, json: body });

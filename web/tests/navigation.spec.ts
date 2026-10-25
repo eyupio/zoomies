@@ -223,7 +223,7 @@ test('a tab that has been open across an upgrade moves to the new build', async 
     asked += 1;
     const read = await readThrough<Record<string, unknown>>(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     await route.fulfill({
       response,
       json: { ...body, version: `build-${asked}`, commit: `commit${asked}` },
@@ -271,7 +271,7 @@ test('a tab that cannot remember a reload does not spend one', async ({ page }) 
   await page.route('**/api/v1/meta', async (route) => {
     const read = await readThrough<Record<string, unknown>>(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     await route.fulfill({ response, json: { ...body, version: 'a-newer-build' } });
   });
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));

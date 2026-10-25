@@ -1093,7 +1093,7 @@ test("the one-line failures panel's link to the failed view keeps the scope", as
   await page.route(/\/api\/v1\/jobs\?.*attention=true/, async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     await route.fulfill({ response, json: { ...body, items: [], total: 0 } });
   });
   await reload(page, 'Overview');
@@ -1145,7 +1145,7 @@ test('marking the only failure as known moves focus to the page heading', async 
   await page.route(/\/api\/v1\/jobs\?.*attention=true/, async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     const items = acknowledged ? [] : (body.items ?? []).slice(0, 1);
     await route.fulfill({ response, json: { ...body, items, total: items.length } });
   });

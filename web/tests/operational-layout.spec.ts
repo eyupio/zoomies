@@ -173,7 +173,7 @@ test('Mission Control keeps first-run guidance first when this fleet has not run
   await page.route('**/api/v1/stats*', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body: stats } = read;
+    const { response, body: stats } = read;
     await route.fulfill({
       response,
       json: { ...stats, fleet: { ...stats.fleet, running_jobs: 0, completed: 0 } },

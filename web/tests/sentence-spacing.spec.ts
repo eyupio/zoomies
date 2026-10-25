@@ -45,7 +45,7 @@ async function openPool(page: Page, overlay: Record<string, unknown>): Promise<v
     if (route.request().method() !== 'GET') return route.continue();
     const read = await readThrough<{ items: { id: string }[] }>(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     await route.fulfill({ response, json: { ...body, items: body.items.map(lay) } });
   });
   await page.route(new RegExp(`/api/v1/pools/${id}$`), async (route) => {

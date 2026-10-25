@@ -785,7 +785,7 @@ test('text a host or a workflow wrote is shown as text', async ({ page }) => {
   await page.route('**/api/v1/analysis/startup-failures**', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     for (const group of body.evidence.groups) {
       group.last_message = message;
       group.name = '<b>loud</b>';
@@ -816,7 +816,7 @@ test('withheld job names are skipped, and the step that says so is shown', async
   await page.route('**/api/v1/analysis/host-pressure**', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     for (const e of body.evidence.events) {
       e.repo = '';
       e.workflow = '';
@@ -845,7 +845,7 @@ async function asVisitor(page: Page): Promise<void> {
   await page.route('**/api/v1/meta', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     body.auth_disabled = false;
     body.bootstrap_required = false;
     body.public_view = true;
@@ -854,7 +854,7 @@ async function asVisitor(page: Page): Promise<void> {
   await page.route('**/api/v1/auth/session', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     body.role = 'viewer';
     body.kind = 'public';
     await route.fulfill({ response, json: body });

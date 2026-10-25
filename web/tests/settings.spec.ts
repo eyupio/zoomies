@@ -106,7 +106,7 @@ test('an administrator is not offered changes to an account that outranks them',
   await page.route(/\/api\/v1\/meta(\?.*)?$/, async (route) => {
     const read = await readThrough<Record<string, unknown>>(route);
     if (!read) return;
-    const { response: response, body: meta } = read;
+    const { response, body: meta } = read;
     await route.fulfill({
       response,
       json: { ...meta, auth_disabled: false, bootstrap_required: false },
@@ -131,7 +131,7 @@ test('an administrator is not offered changes to an account that outranks them',
     if (route.request().method() !== 'GET') return route.continue();
     const read = await readThrough<{ items: Record<string, unknown>[] }>(route);
     if (!read) return;
-    const { response: response, body: list } = read;
+    const { response, body: list } = read;
     list.items.push({
       id: 'usr_platform',
       username: 'platform',

@@ -965,7 +965,7 @@ test('Proxmox onboarding waits for one command and fills the connection without 
   await page.route('**/api/v1/meta', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body: meta } = read;
+    const { response, body: meta } = read;
     await route.fulfill({ response, json: { ...meta, tailcat_available: true } });
   });
   await page.route('**/api/v1/provider-setups', (route) =>
@@ -1055,7 +1055,7 @@ test('Proxmox offers an existing Tailcat gateway without hiding it behind manual
   await page.route('**/api/v1/meta', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body: meta } = read;
+    const { response, body: meta } = read;
     await route.fulfill({ response, json: { ...meta, tailcat_available: true } });
   });
   await goto(page, '/providers/new', 'Add a provider');
@@ -1150,7 +1150,7 @@ async function listTestMachine(page: Page, machine: Record<string, unknown>): Pr
     try {
       const read = await readThrough<{ items: unknown[] }>(route);
       if (!read) return;
-      const { response: response, body: data } = read;
+      const { response, body: data } = read;
       await route.fulfill({ response, json: { ...data, items: [...data.items, machine] } });
     } catch {
       // A request still out when the spec ends finds the page gone, and an error

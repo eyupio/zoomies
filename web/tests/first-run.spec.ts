@@ -376,7 +376,7 @@ test('a private address can still be connected, once the operator says so', asyn
   await page.route('**/api/v1/meta', async (route) => {
     const read = await readThrough<Record<string, unknown>>(route);
     if (!read) return;
-    const { response: response, body: meta } = read;
+    const { response, body: meta } = read;
     await route.fulfill({
       response,
       json: {

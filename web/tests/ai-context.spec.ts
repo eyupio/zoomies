@@ -922,7 +922,7 @@ test.describe("setup opened from a repository's page", () => {
       await page.route('**/api/v1/ai-context/discovery*', async (route) => {
         const read = await readThrough(route);
         if (!read) return;
-        const { response: response, body } = read;
+        const { response, body } = read;
         body.repositories = body.repositories.map((r: Discovered) =>
           r.id === widgets.id ? { ...r, archived: true } : r,
         );

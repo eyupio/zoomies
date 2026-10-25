@@ -1664,7 +1664,7 @@ test.describe('with Kennel Club on', () => {
       await page.route(`**/api/v1/kennel/repositories/${id}`, async (route) => {
         const read = await readThrough<Record<string, unknown> & { findings: unknown[] }>(route);
         if (!read) return;
-        const { response: response, body } = read;
+        const { response, body } = read;
         body.findings = [...body.findings, full(warning)];
         body.waived = [
           {
@@ -1690,7 +1690,7 @@ test.describe('with Kennel Club on', () => {
         await page.route('**/api/v1/meta', async (route) => {
           const read = await readThrough<Record<string, unknown>>(route);
           if (!read) return;
-          const { response: response, body } = read;
+          const { response, body } = read;
           return route.fulfill({
             response,
             json: { ...body, auth_disabled: false, bootstrap_required: false },
@@ -1940,7 +1940,7 @@ test.describe('with Kennel Club on', () => {
       await page.route('**/api/v1/meta', async (route) => {
         const read = await readThrough<Record<string, unknown>>(route);
         if (!read) return;
-        const { response: response, body } = read;
+        const { response, body } = read;
         return route.fulfill({
           response,
           json: { ...body, auth_disabled: false, bootstrap_required: false },
@@ -2576,7 +2576,7 @@ test.describe('with Kennel Club on', () => {
       await page.route('**/api/v1/kennel/repositories?*', async (route) => {
         const read = await readThrough<{ items: Row[]; total: number }>(route);
         if (!read) return;
-        const { response: response, body } = read;
+        const { response, body } = read;
         const items = [...body.items];
         for (let i = 0; items.length < 11; i++)
           items.push({ ...first, id: `${first.id}-copy-${i}`, name: `acme/copy-${i}` });
@@ -2632,7 +2632,7 @@ test.describe('the side menu and the switch', () => {
     await page.route('**/api/v1/meta', async (route) => {
       const read = await readThrough<Record<string, unknown>>(route);
       if (!read) return;
-      const { response: response, body } = read;
+      const { response, body } = read;
       return route.fulfill({
         response,
         json: { ...body, auth_disabled: false, bootstrap_required: false },
@@ -3073,7 +3073,7 @@ test.describe('the side menu and the switch', () => {
     await page.route('**/api/v1/kennel', async (route) => {
       const read = await readThrough<Record<string, unknown>>(route);
       if (!read) return;
-      const { response: response, body } = read;
+      const { response, body } = read;
       return route.fulfill({ response, json: { ...body, enabled: false } });
     });
     await page.evaluate(() => {
@@ -3223,7 +3223,7 @@ test.describe('the cards on the Overview', () => {
     await page.route('**/api/v1/kennel', async (route) => {
       const read = await readThrough<Overview>(route);
       if (!read) return;
-      const { response: response, body } = read;
+      const { response, body } = read;
       const some = (n: number) => (alone === n ? 3 : 0);
       return route.fulfill({
         response,
@@ -3433,7 +3433,7 @@ test.describe('the AI Context row in the side menu', () => {
     await page.route('**/api/v1/problems', async (route) => {
       const read = await readThrough<{ items?: unknown[] }>(route);
       if (!read) return;
-      const { response: response, body } = read;
+      const { response, body } = read;
       return route.fulfill({ response, json: { ...body, items } });
     });
   }
@@ -3973,7 +3973,7 @@ test.describe('the list of repositories shows the ones being served', () => {
       const params = new URL(route.request().url()).searchParams;
       const read = await readThrough<{ items?: unknown[]; total: number }>(route);
       if (!read) return;
-      const { response: response, body } = read;
+      const { response, body } = read;
       // Anything that is not a list -- an answer that Kennel Club is off, once a test
       // has finished with it -- is passed on as it came.
       if (!Array.isArray(body.items)) return route.fulfill({ response, json: body });

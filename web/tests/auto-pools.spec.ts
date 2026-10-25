@@ -399,7 +399,7 @@ async function keepPool(
     if (route.request().method() !== 'GET') return route.continue();
     const read = await readThrough<{ items: PoolRow[] }>(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     await route.fulfill({ response, json: { ...body, items: body.items.map(lay) } });
   });
   await page.route(new RegExp(`/api/v1/pools/${pool.id}$`), async (route) => {
@@ -733,7 +733,7 @@ async function classJobs(page: Page, size: Record<string, unknown>): Promise<voi
   await page.route(/\/api\/v1\/jobs\?/, async (route) => {
     const read = await readThrough<{ items: Record<string, unknown>[] }>(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     await route.fulfill({
       response,
       json: { ...body, items: body.items.map((job) => ({ ...job, ...size })) },

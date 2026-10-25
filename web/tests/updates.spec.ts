@@ -146,7 +146,7 @@ test('choosing auto asks first, and cancelling leaves the mode as it was', async
   await page.route('**/api/v1/settings', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     for (const row of body.settings ?? []) {
       if (row.key === 'updates.mode') Object.assign(row, { source: 'file', editable: true });
     }

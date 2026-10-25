@@ -17,7 +17,7 @@ async function triggeredBy(page: Page, events: (index: number) => string | undef
   await page.route('**/api/v1/jobs?*', async (route) => {
     const read = await readThrough<{ items: Record<string, unknown>[] }>(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     body.items.forEach((job, index) => {
       job.github_run_id = job.github_run_id || 9000 + index;
       job.repo = job.repo || 'acme/site';

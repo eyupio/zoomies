@@ -313,7 +313,7 @@ test('a long list of backups is paged rather than scrolled', async ({ page }) =>
   await page.route('**/api/v1/backups', async (route) => {
     const read = await readThrough(route);
     if (!read) return;
-    const { response: response, body } = read;
+    const { response, body } = read;
     const one = body.items?.[0];
     test.skip(!one, 'the fixture has no backup to make a long list out of');
     body.items = Array.from({ length: 24 }, (_, i) => ({
