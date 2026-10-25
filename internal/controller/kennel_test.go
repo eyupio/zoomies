@@ -243,6 +243,39 @@ func TestAPublicRepositoryOnAPersistentPoolIsAnErrorAndOnAnEphemeralOneOnlyAWarn
 	})
 }
 
+// The score is worked out when a repository is read and not stored, so what a
+// person sees is the published formula applied to the findings on the page,
+// and the fleet's figure is the median of those with the lowest beside it.
+func TestTheRepositoryScoreIsTheFormulaOverItsFindingsAndTheFleetFigureRollsThemUp(t *testing.T) {
+	f := newKennelFixture(t)
+	f.repo("acme/widgets", "public")
+	f.ran("acme/widgets", 11, f.pool)
+	f.trigger("acme/widgets", 11, "push", false)
+	f.pass()
+
+	v := f.view("acme/widgets")
+	if v.Score == nil {
+		t.Fatal("an evaluated repository has no score")
+	}
+	if v.Score.Open.Warning != 1 || v.Score.Value != kennel.ScoreWarningCap {
+		t.Errorf("one open warning scored %+v, want the warning ceiling of %d", *v.Score, kennel.ScoreWarningCap)
+	}
+	o, err := f.c.KennelOverview(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Score == nil || o.Score.Scored != 1 || o.Score.Median != v.Score.Value || o.Score.Lowest != v.Score.Value || o.Score.LowestName != "acme/widgets" || o.Score.Under60 != 0 {
+		t.Errorf("fleet score = %+v, want the one repository's score as median and lowest", o.Score)
+	}
+}
+
+func TestARepositoryNothingHasEvaluatedHasNoScore(t *testing.T) {
+	v := newKennelRepositoryView(&store.KennelRepository{ID: "kcr_x", FullName: "acme/new", State: string(kennel.StatePending), NextDueAt: time.Unix(0, 0)})
+	if v.Score != nil {
+		t.Errorf("a pending repository scored %+v", *v.Score)
+	}
+}
+
 // A private repository costs no read from GitHub beyond the listing every
 // repository shares, and no workflow run is asked about for it (mutation 9).
 func TestAPrivateRepositoryCostsNoReadBeyondTheListing(t *testing.T) {

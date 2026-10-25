@@ -142,5 +142,20 @@
       "code": "protection.required_check_never_reports",
       "reason": "needs what only a controller knows: what the fleet observed"
     }
-  ]
+  ],
+  "score": {
+    "version": 1,
+    "value": 88,
+    "checked": 11,
+    "unread": 22,
+    "disabled": 1,
+    "waived": 0,
+    "open": {
+      "error": 0,
+      "warning": 2,
+      "info": 0,
+      "waived": 0
+    },
+    "cap": 0
+  }
 }

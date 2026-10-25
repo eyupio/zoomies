@@ -86,6 +86,10 @@ type Report struct {
 	Unreadable []File       `json:"unreadable"`
 	Findings   []Finding    `json:"findings"`
 	NotChecked []NotChecked `json:"not_checked"`
+	// Score is the published formula's number for what was found. It is of the
+	// workflow checks alone: the checks only a controller can run are counted in
+	// Unread, so it is never a repository's whole score.
+	Score kennel.ScoreResult `json:"score"`
 }
 
 // Convert turns the parser's facts about one file into the evaluator's. The
@@ -184,6 +188,7 @@ func Check(root string, o Options) (Report, error) {
 		disabled[k] = v
 	}
 	ev := kennel.Evaluate(snap, kennel.Policy{Disabled: disabled})
+	r.Score = kennel.Score(ev)
 
 	paths := make(map[string]string, len(r.Files))
 	for _, f := range r.Files {

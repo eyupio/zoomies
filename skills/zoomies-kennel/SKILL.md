@@ -52,8 +52,8 @@ get it (zoomies.sh); do not try to reimplement the checks by hand.
 ## Reading the report
 
 The JSON has `files` (each workflow by its Git blob SHA and its path, or an
-empty path where the name was not a plain one), `findings`, `not_checked`
-and `unreadable`.
+empty path where the name was not a plain one), `findings`, `not_checked`,
+`unreadable` and `score`.
 
 Summarise with **security first**: findings in the `exposure` area, then
 warnings, then the rest, each as its code, its title and the file and line
@@ -63,6 +63,12 @@ run history, the repository's tree as GitHub lists it), and the controller's
 own Kennel Club page or `zoomies kennel repository <id>` has them. Then
 `unreadable`, if any: a file over the limits or one the parser refused, which
 is not an all clear for that file.
+
+Give the `score` last, with what it is of: a number out of 100 under the
+formula in the Kennel Club guide, of the `checked` checks that could be read
+here, with `unread` more left to a controller. It is a measure of
+configuration, so do not call it a measure of speed, and do not compare it
+with a score from another formula `version`.
 
 A finding's `prompt` is the task for an agent: the code, the sentences, the
 evidence quoted in a fenced block headed as repository data, and how to go

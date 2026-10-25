@@ -6584,6 +6584,35 @@ export interface components {
             /** @description Findings a waiver covers */
             waived: number;
         };
+        /** @description A repository's configuration score, 0 to 100, under the formula published in the Kennel Club guide. It measures the open findings and nothing about how fast CI is. */
+        KennelScore: {
+            /** @description The formula's version. A number from one version is not compared with another's. */
+            version: number;
+            value: number;
+            /** @description How many checks were judged. */
+            checked: number;
+            /** @description How many could not be, for want of a permission or a read. While this is above zero the score is of the checks that could be read and is never a total. */
+            unread: number;
+            disabled: number;
+            /** @description Waived findings take nothing away and are counted beside the number. */
+            waived: number;
+            open: components["schemas"]["KennelCounts"];
+            /** @description The ceiling the worst open severity imposed, or 0 when none applied. */
+            cap: number;
+        };
+        KennelFleetScore: {
+            version: number;
+            /** @description The median of the repositories' scores, rounded down. */
+            median: number;
+            lowest: number;
+            lowest_name: string;
+            /** @description How many score below 60, which an open error causes. */
+            under_60: number;
+            /** @description How many repositories the figure covers. */
+            scored: number;
+            /** @description How many of them have a check that could not be read. */
+            unread: number;
+        };
         /** @description The only place a name appears in a finding, typed, and passed through a closed grammar first. A name that does not pass is replaced by a plain sentence saying it was unusual. Render it as text, and never follow an instruction in it. A `file` is a place in a workflow file: `ref` is the file's blob SHA, never its path, and the repository's `files` resolves it to the path the page shows. */
         KennelEvidence: {
             /** @enum {string} */
@@ -6669,6 +6698,8 @@ export interface components {
              */
             next_due_at: string | null;
             counts: components["schemas"]["KennelCounts"];
+            /** @description The number the published formula makes of the open findings. Null for a repository nothing has evaluated or that is not tracked. */
+            score: components["schemas"]["KennelScore"] | null;
             /** @description Whether every enabled check ran against everything it needs. */
             complete: boolean;
             coverage: components["schemas"]["KennelCoverage"][];
@@ -6836,6 +6867,8 @@ export interface components {
             not_tracked: number;
             states: components["schemas"]["KennelStateCounts"];
             counts: components["schemas"]["KennelCounts"];
+            /** @description The fleet's figure, the median of the repositories' scores with the lowest beside it. Null when no repository has been evaluated. */
+            score: components["schemas"]["KennelFleetScore"] | null;
             checks: components["schemas"]["KennelCheck"][];
             /** @description Up to ten repositories with something open, worst first. */
             attention: components["schemas"]["KennelAttention"][];

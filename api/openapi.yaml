@@ -10297,6 +10297,32 @@ components:
         warning: { type: integer }
         info: { type: integer }
         waived: { type: integer, description: Findings a waiver covers, which are not in the open counts. }
+    KennelScore:
+      type: object
+      required: [version, value, checked, unread, disabled, waived, open, cap]
+      description: >-
+        A repository's configuration score, 0 to 100, under the formula published in the Kennel Club
+        guide. It measures the open findings and nothing about how fast CI is.
+      properties:
+        version: { type: integer, description: The formula's version. A number from one version is not compared with another's. }
+        value: { type: integer, minimum: 0, maximum: 100 }
+        checked: { type: integer, description: How many checks were judged. }
+        unread: { type: integer, description: "How many could not be, for want of a permission or a read. While this is above zero the score is of the checks that could be read and is never a total." }
+        disabled: { type: integer }
+        waived: { type: integer, description: Waived findings take nothing away and are counted beside the number. }
+        open: { $ref: "#/components/schemas/KennelCounts" }
+        cap: { type: integer, description: "The ceiling the worst open severity imposed, or 0 when none applied." }
+    KennelFleetScore:
+      type: object
+      required: [version, median, lowest, lowest_name, under_60, scored, unread]
+      properties:
+        version: { type: integer }
+        median: { type: integer, description: "The median of the repositories' scores, rounded down." }
+        lowest: { type: integer }
+        lowest_name: { type: string }
+        under_60: { type: integer, description: "How many score below 60, which an open error causes." }
+        scored: { type: integer, description: How many repositories the figure covers. }
+        unread: { type: integer, description: How many of them have a check that could not be read. }
     KennelEvidence:
       type: object
       required: [kind, ref]
@@ -10382,7 +10408,7 @@ components:
         reason: { type: string }
     KennelRepository:
       type: object
-      required: [id, name, repository_id, installation_id, visibility, state, evaluated_at, next_due_at, counts, complete, coverage, findings, waived, lapsed, skipped, disabled, files, tracking]
+      required: [id, name, repository_id, installation_id, visibility, state, evaluated_at, next_due_at, counts, score, complete, coverage, findings, waived, lapsed, skipped, disabled, files, tracking]
       properties:
         id: { type: string, examples: [kcr_k3f9qz2m] }
         name: { type: string, examples: [acme/widgets] }
@@ -10393,6 +10419,11 @@ components:
         evaluated_at: { type: [string, "null"], format: date-time }
         next_due_at: { type: [string, "null"], format: date-time, description: When the reads from GitHub are next due. Null means they are due now, or that the repository is not tracked and is due for nothing; `tracking` says which. }
         counts: { $ref: "#/components/schemas/KennelCounts" }
+        score:
+          oneOf:
+            - { $ref: "#/components/schemas/KennelScore" }
+            - { type: "null" }
+          description: The number the published formula makes of the open findings. Null for a repository nothing has evaluated or that is not tracked.
         complete: { type: boolean, description: Whether every enabled check ran against everything it needs. }
         coverage:
           type: array
@@ -10557,7 +10588,7 @@ components:
         since: { type: string, format: date-time }
     KennelOverview:
       type: object
-      required: [enabled, scope, repositories, not_tracked, states, counts, checks, attention, coverage, unavailable, oldest_evaluation, disabled_checks]
+      required: [enabled, scope, repositories, not_tracked, states, counts, score, checks, attention, coverage, unavailable, oldest_evaluation, disabled_checks]
       properties:
         enabled: { type: boolean, description: False when Kennel Club is off, and then nothing else is filled. }
         scope: { type: string, enum: [served, installation] }
@@ -10565,6 +10596,11 @@ components:
         not_tracked: { type: integer, description: The repositories it has been told not to look at, counted here and in nothing else, so they never read as repositories nothing has looked at yet. }
         states: { $ref: "#/components/schemas/KennelStateCounts" }
         counts: { $ref: "#/components/schemas/KennelCounts" }
+        score:
+          oneOf:
+            - { $ref: "#/components/schemas/KennelFleetScore" }
+            - { type: "null" }
+          description: The fleet's figure, the median of the repositories' scores with the lowest beside it. Null when no repository has been evaluated.
         checks:
           type: array
           items: { $ref: "#/components/schemas/KennelCheck" }
