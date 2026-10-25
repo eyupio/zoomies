@@ -1,6 +1,6 @@
 # Skills: one published install command, tried before it is claimed
 
-**Status:** proposed.
+**Status:** proposed. Task 1 is blocked: the sandbox this was planned in refused to run the installer, so the run is the owner's, or needs the permission given. The findings below are from reading, not from a run.
 
 ## Goal
 
@@ -29,6 +29,26 @@ docs follow. If the build environment cannot reach the network, that run is the
 owner's, and the docs wait for it. A published command nobody has run is the one
 failure this plan exists to avoid.
 
+## What reading found, 25 October
+
+The installer's own documentation says it searches `skills/` and a list of agent
+folders, `.claude/skills/` among them, walks each up to three levels deep, and
+requires `name` and `description` in a skill's frontmatter. Three consequences, none
+of them tried:
+
+* **The command must name the skills.** This repository also tracks
+  `.claude/skills/babysit` and `.claude/skills/steward`, which are maintenance
+  skills for people working on Zoomies, not for users of it. A bare `skills add
+  eyupio/zoomies` would find four skills and offer them all. The command to publish
+  is `npx skills add eyupio/zoomies --skill zoomies --skill zoomies-kennel`.
+* **The provenance test accepts that text.** A throwaway line with the command in
+  `README.md` passed `go test ./internal/provenance/`, so naming the installer is
+  not blocked by it.
+* **Task 3's second test already exists.** `TestEverySkillNamesItselfAndSaysWhenToUseIt`
+  holds that every folder under `skills/` has a `SKILL.md`, that `name` is the
+  folder's name and that the description says when to use the skill. Only the first
+  test in Task 3, the docs naming the command and both skills, is new.
+
 ## Owner inputs
 
 * **Name the installer in the docs?** It is a third-party tool, and no page names
@@ -46,7 +66,8 @@ failure this plan exists to avoid.
 Files: none changed. The result goes in the pull request's description: the exact
 command, the directory it ran in, the files it wrote and the agents it found.
 
-* Run it with `HOME` pointing at an empty directory and the working directory empty.
+* Run it with `HOME` pointing at an empty directory and the working directory empty,
+  naming both skills as above, and once with `--list` to see everything it finds.
 * Run `zoomies kennel check` from one installed copy against a checkout, and `zoomies
   status` from the other against `zoomies demo`, to show the installed files work
   where the installer put them.
