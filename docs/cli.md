@@ -958,6 +958,27 @@ Install it as the first: copy `skills/zoomies-kennel/` into the agent's skills
 directory, or take `eyupio/zoomies` with an installer that reads a
 repository's `skills/` folder, which installs both.
 
+### The zoomies-optimise skill
+
+`skills/zoomies-optimise` is the third skill, for the question "why is this slow,
+and what could change?". It reads the controller's evidence for one job, workflow
+or pull request in a fixed order: whether the job failed (`zoomies why`), how long
+it takes (`zoomies jobs stats`), whether it waited for a runner
+(`zoomies analyse queue-wait`), a pull request's wait on its required checks
+(`zoomies jobs pr-delay`), a runner size that does not fit (`zoomies jobs advice`)
+and the shape of the workflow (`zoomies kennel check`). It then says which of the
+four changes Zoomies can preview, a shallower checkout, a dependency cache, a
+bounded readiness poll in place of a fixed sleep or Playwright sharding, fits what
+it found, or that none does and why. It hands you to the page that makes the
+preview (`/optimisations/checkout`, `/cache`, `/readiness` or `/sharding`) with
+the evidence it gathered.
+
+It starts, approves and publishes nothing: those are the operator's, in the web,
+and there is no command or tool that does them. It never says a change saved time:
+the preview's figures are descriptive and its verification is inconclusive until a
+comparison is captured. A test holds it to those sentences, and holds every command
+and flag it names to the binary's.
+
 ## Setting up and looking around
 
 | Command | What it does |

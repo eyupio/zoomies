@@ -17,7 +17,7 @@ it.
 | --- | --- |
 | The live fleet: jobs, queue, pools, hosts, runners, capacity, what is wrong | `zoomies`, or the Zoomies MCP tools when they are connected |
 | GitHub itself: a workflow run, a pull request, a repository setting | `gh`, not Zoomies |
-| A workflow file in a repository | Read the file; a skill for auditing workflows is a separate install |
+| A workflow file in a repository | Read the file. The `zoomies-kennel` skill checks it for what Kennel Club looks at, and `zoomies-optimise` works out why a job is slow and which preview fits; both are separate installs |
 | Installing, configuring or upgrading Zoomies | The documentation at https://zoomies.sh, and the user's own hands |
 
 ## Preflight

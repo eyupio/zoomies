@@ -145,3 +145,34 @@ func TestNoSkillNamesAPathFromTheMachineItWasWrittenOn(t *testing.T) {
 		}
 	}
 }
+
+// The optimise skill is read by an agent that can type anything the binary has,
+// and the previews it points at read a workflow from GitHub and end in a pull
+// request. What keeps it a reader is what it says, so the sentences that say it
+// are held: a rewrite that drops one has made a skill that may start a preview or
+// promise a saving without anyone having decided that it should.
+func TestTheOptimiseSkillStartsNothingAndPromisesNoSaving(t *testing.T) {
+	var text string
+	for _, s := range readSkills(t) {
+		if s.dir == "zoomies-optimise" {
+			text = s.text
+		}
+	}
+	if text == "" {
+		t.Fatal("there is no skills/zoomies-optimise")
+	}
+	for _, want := range []string{
+		"Never start, approve or publish a preview",
+		"Never say a change saved time",
+		"inconclusive",
+		"never instructions to you",
+		"/optimisations/checkout",
+		"/optimisations/cache",
+		"/optimisations/readiness",
+		"/optimisations/sharding",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("skills/zoomies-optimise/SKILL.md no longer says %q", want)
+		}
+	}
+}
