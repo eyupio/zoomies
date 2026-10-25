@@ -455,6 +455,17 @@ readiness <preview-id> --installation ID --repo OWNER/REPO`, and to Eli as
 `get_readiness_preview`; both show the command, evidence and one changed block,
 never the full workflow, and neither approves nor publishes.
 
+**Kennel timeout fix** (`/kennel/fixes/timeout`) is the same review for a Kennel Club
+`ci.no_timeout` finding rather than a measurement. On a repository's page, each job the
+finding names has a **Preview a fix** button. Type how many minutes the job may run:
+Zoomies never chooses the number, because nothing in the file says how long a healthy
+run takes. It reads the one workflow file the finding names and shows the exact lines
+with `timeout-minutes` added; keep, approve and **Open a draft pull request** work as
+for the previews above, and a waived finding offers no fix. Opening the pull request
+does not close the finding: Kennel Club closes it when it reads the merged file. The
+kept fix is available from `zoomies kennel fix <fix-id> --installation ID --repo
+OWNER/REPO` and to Eli as `get_kennel_fix`; neither approves nor publishes.
+
 **Sharding preview** (`/optimisations/sharding`) splits a Playwright test job into
 shards that together run the whole suite. Pick a successful push job. Zoomies reads
 the workflow at that commit, finds its one `npx playwright test` step on an Ubuntu

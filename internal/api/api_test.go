@@ -1059,6 +1059,11 @@ func routeTable(ids fixtureIDs) []route {
 		// kennel_test.go's.
 		{method: "GET", path: "/api/v1/kennel", role: store.RoleViewer, action: auth.ActionKennelRead},
 		{method: "GET", path: "/api/v1/kennel/checks", role: store.RoleViewer, action: auth.ActionKennelRead},
+		{method: "POST", path: "/api/v1/kennel/fixes/timeout/inspections", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"kennel:read"}, visitorDenied: true},
+		{method: "POST", path: "/api/v1/kennel/fixes/timeout/previews", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"kennel:read"}, visitorDenied: true},
+		{method: "GET", path: "/api/v1/kennel/fixes/timeout/previews/kfp_missing?installation_id=ins_missing&repo=acme/repo", role: store.RoleOperator, action: auth.ActionOptimisationsRead, additionalScopes: []string{"kennel:read"}, visitorDenied: true},
+		{method: "POST", path: "/api/v1/kennel/fixes/timeout/previews/kfp_missing/approval", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"kennel:read"}, visitorDenied: true},
+		{method: "POST", path: "/api/v1/kennel/fixes/timeout/previews/kfp_missing/publication", role: store.RoleOperator, action: auth.ActionOptimisationsPublish, additionalScopes: []string{"kennel:read"}, visitorDenied: true},
 		{method: "GET", path: "/api/v1/kennel/repositories", role: store.RoleViewer, action: auth.ActionKennelRead},
 		{method: "GET", path: "/api/v1/kennel/repositories/kcr_x", role: store.RoleViewer, action: auth.ActionKennelRead},
 		{method: "GET", path: "/api/v1/kennel/repositories/kcr_x/agent-guidance", role: store.RoleAdmin, action: auth.ActionKennelGuidancePreview},
@@ -1476,7 +1481,7 @@ func normalisePath(p string) string {
 		}
 		if strings.HasPrefix(part, "ins_") || strings.HasPrefix(part, "pool_") ||
 			strings.HasPrefix(part, "run_") || strings.HasPrefix(part, "host_") ||
-			strings.HasPrefix(part, "job_") || strings.HasPrefix(part, "cmp_") || strings.HasPrefix(part, "opv_") || strings.HasPrefix(part, "opc_") || strings.HasPrefix(part, "opr_") || strings.HasPrefix(part, "ops_") || strings.HasPrefix(part, "prv_") ||
+			strings.HasPrefix(part, "job_") || strings.HasPrefix(part, "cmp_") || strings.HasPrefix(part, "opv_") || strings.HasPrefix(part, "opc_") || strings.HasPrefix(part, "opr_") || strings.HasPrefix(part, "ops_") || strings.HasPrefix(part, "kfp_") || strings.HasPrefix(part, "prv_") ||
 			strings.HasPrefix(part, "mach_") || strings.HasPrefix(part, "zoomies-") || part == "missing" {
 			parts[i] = "{id}"
 		}

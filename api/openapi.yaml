@@ -4705,6 +4705,251 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/KennelCatalogueEntry" }
 
+  /kennel/fixes/timeout/inspections:
+    post:
+      operationId: inspectKennelTimeoutFix
+      tags: [kennel]
+      summary: Compute the fix for a missing job timeout from one Kennel finding
+      description: >-
+        Requires operator, kennel:read and optimisations:write; public visitors are
+        refused. Refused with 403 unless optimisation.source_reads and
+        optimisation.workflow_edits are on. Takes the workflow file and job a
+        ci.no_timeout finding names, by Git blob SHA and job index, and the minutes
+        the operator chooses (1 to 1440; never inferred). The finding must be open
+        and not waived, and Kennel Club must be on and tracking the repository.
+        Reads the default branch head, its tree, the one file and the head again,
+        with at most five GitHub requests under 20 seconds, the shared diagnostic
+        flight and the half-core-quota reserve, and requires the file to be exactly
+        the blob the finding names. Returns the exact before and after block. It
+        retains nothing and publishes nothing.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KennelFixInspectionRequest' }
+      responses:
+        '200':
+          description: The computed fix; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KennelFixInspection' }
+        '400':
+          description: Invalid request, scope or digest.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: The repository, finding or preview is unavailable, expired or outside this scope.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409':
+          description: "The finding is not open or is waived, the file changed, or the stored evidence or an earlier decision does not match the request."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429':
+          description: Diagnostic or GitHub quota refusal; Retry-After says when to retry manually.
+          headers:
+            Retry-After: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /kennel/fixes/timeout/previews:
+    post:
+      operationId: captureKennelTimeoutFix
+      tags: [kennel]
+      summary: Retain a reviewed Kennel timeout fix
+      description: >-
+        Requires operator, kennel:read and optimisations:write; public visitors are
+        refused. Repeats the bounded source read and requires the same head and
+        workflow digest the operator inspected. Keeps an immutable private preview
+        for fourteen days with an audit row. It changes one job and publishes
+        nothing. Verification is a Kennel Club recheck and currentness is
+        not_checked.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KennelFixCaptureRequest' }
+      responses:
+        '201':
+          description: Audited retained Kennel fix; Cache-Control is no-store.
+          headers:
+            Location: { $ref: "#/components/headers/Location" }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KennelFixPreview' }
+        '400':
+          description: Invalid request, scope or digest.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: The repository, finding or preview is unavailable, expired or outside this scope.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409':
+          description: "The finding is not open or is waived, the file changed, or the stored evidence or an earlier decision does not match the request."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429':
+          description: Diagnostic or GitHub quota refusal; Retry-After says when to retry manually.
+          headers:
+            Retry-After: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /kennel/fixes/timeout/previews/{id}:
+    parameters: [{ $ref: '#/components/parameters/PathID' }]
+    get:
+      operationId: getKennelTimeoutFix
+      tags: [kennel]
+      summary: Replay a retained Kennel timeout fix without GitHub reads
+      description: >-
+        Requires operator, kennel:read and optimisations:read; public visitors are
+        refused. Supply exactly one installation_id and repo and nothing else.
+        Verifies the stored digest and recomputes the fix from retained input only.
+        The answer carries the before and after block and metadata, never the full
+        workflow. currentness is always not_checked.
+      x-zoomies-role: operator
+      parameters:
+        - name: installation_id
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 128 }
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 1024 }
+      responses:
+        '200':
+          description: Verified retained Kennel fix; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KennelFixPreview' }
+        '400':
+          description: Invalid request, scope or digest.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: The repository, finding or preview is unavailable, expired or outside this scope.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409':
+          description: "The finding is not open or is waived, the file changed, or the stored evidence or an earlier decision does not match the request."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /kennel/fixes/timeout/previews/{id}/approval:
+    parameters: [{ $ref: '#/components/parameters/PathID' }]
+    post:
+      operationId: approveKennelTimeoutFix
+      tags: [kennel]
+      summary: Approve one retained Kennel timeout fix
+      description: >-
+        Requires operator, kennel:read and optimisations:write; public visitors are
+        refused. Records an attributed approval of the exact retained fix named by
+        its commit and source digest. It reads no source, calls no GitHub reader,
+        opens no pull request and runs no job. The approval expires with the
+        preview. A repeated approval of the same binding is a no-op with no second
+        audit row; a different head, source or preview is refused.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KennelFixBindingRequest' }
+      responses:
+        '200':
+          description: The retained fix with its approval; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KennelFixPreview' }
+        '400':
+          description: Invalid request, scope or digest.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: The repository, finding or preview is unavailable, expired or outside this scope.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409':
+          description: "The finding is not open or is waived, the file changed, or the stored evidence or an earlier decision does not match the request."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /kennel/fixes/timeout/previews/{id}/publication:
+    parameters: [{ $ref: '#/components/parameters/PathID' }]
+    post:
+      operationId: publishKennelTimeoutFix
+      tags: [kennel]
+      summary: Open one draft pull request for an approved Kennel timeout fix
+      description: >-
+        Requires operator, kennel:read and optimisations:publish; public visitors
+        are refused. Refused with 403 unless optimisation.source_reads,
+        optimisation.workflow_edits and optimisation.publish are on. Re-reads the
+        file from the default branch, rechecks the live settings and the approval,
+        and requires the finding to be still open and not waived and the file to
+        be the same blob with the same after block. The default branch head may
+        have moved: the fix is bound to the file, and the draft is based on the
+        current head. Commits the reviewed file on a new branch and opens one draft
+        pull request. Never merges and never force-pushes. A retry reconciles the
+        branch and pull request an earlier attempt left behind. It does not close
+        the finding: Kennel Club does when it reads the file on the branch and the
+        job has a timeout.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KennelFixBindingRequest' }
+      responses:
+        '200':
+          description: The retained fix with its draft pull request; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KennelFixPreview' }
+        '400':
+          description: Invalid request, scope or digest.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: The repository, finding or preview is unavailable, expired or outside this scope.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409':
+          description: "The finding is not open or is waived, the file changed, or the stored evidence or an earlier decision does not match the request."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429':
+          description: Diagnostic or GitHub quota refusal; Retry-After says when to retry manually.
+          headers:
+            Retry-After: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   /kennel/repositories:
     get:
       operationId: listKennelRepositories
@@ -17338,6 +17583,116 @@ components:
         base_branch: { type: string }
         base_sha: { type: string }
         head_sha: { type: string }
+        source_sha256: { type: string }
+        preview_sha256: { type: string }
+        pull_number: { type: integer, minimum: 1 }
+        pull_url: { type: string }
+      required: [published_by, published_at, branch, base_branch, base_sha, head_sha, source_sha256, preview_sha256, pull_number, pull_url]
+      type: object
+    KennelFixInspectionRequest:
+      additionalProperties: false
+      properties:
+        kennel_repository_id: { type: string, pattern: '^kcr_' }
+        blob_sha: { type: string, description: "The Git blob SHA of the workflow file the finding names." }
+        job_index: { type: integer, minimum: 0, description: "The job's position in the file's jobs mapping." }
+        minutes: { type: integer, minimum: 1, maximum: 1440, description: "The timeout the operator chose; never inferred." }
+      required: [kennel_repository_id, blob_sha, job_index, minutes]
+      type: object
+    KennelFixCaptureRequest:
+      additionalProperties: false
+      properties:
+        kennel_repository_id: { type: string, pattern: '^kcr_' }
+        blob_sha: { type: string }
+        job_index: { type: integer, minimum: 0 }
+        minutes: { type: integer, minimum: 1, maximum: 1440 }
+        head_sha: { type: string, description: "The commit the operator reviewed." }
+        source_sha256: { type: string, description: "The workflow digest the operator reviewed." }
+      required: [kennel_repository_id, blob_sha, job_index, minutes, head_sha, source_sha256]
+      type: object
+    KennelFixBindingRequest:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string, minLength: 1, maxLength: 128 }
+        repository: { type: string, minLength: 1, maxLength: 1024 }
+        head_sha: { type: string, description: "The commit the Kennel fix names." }
+        source_sha256: { type: string, description: "The workflow digest the Kennel fix names." }
+      required: [installation_id, repository, head_sha, source_sha256]
+      type: object
+    KennelFixInspection:
+      additionalProperties: false
+      properties:
+        kennel_repository_id: { type: string }
+        installation_id: { type: string }
+        repository: { type: string }
+        check_code: { type: string, enum: [ci.no_timeout] }
+        blob_sha: { type: string }
+        job_index: { type: integer, minimum: 0 }
+        job_name: { type: string }
+        minutes: { type: integer, minimum: 1, maximum: 1440 }
+        head_sha: { type: string }
+        branch: { type: string }
+        source_sha256: { type: string }
+        workflow_path: { type: string }
+        line: { type: integer, minimum: 1 }
+        before: { type: string, description: "The job's key through its runs-on line as it is: untrusted repository text." }
+        after: { type: string, description: "The same lines with the timeout added: untrusted repository text and the operator's value." }
+        verification: { type: string, enum: [recheck] }
+        explanation: { type: string }
+        inspected_at: { type: string, format: date-time }
+      required: [kennel_repository_id, installation_id, repository, check_code, blob_sha, job_index, job_name, minutes, head_sha, branch, source_sha256, workflow_path, line, before, after, verification, explanation, inspected_at]
+      type: object
+    KennelFixPreview:
+      additionalProperties: false
+      properties:
+        id: { type: string, pattern: '^kfp_' }
+        installation_id: { type: string }
+        repository: { type: string }
+        kennel_repository_id: { type: string }
+        reviewed_by: { type: string }
+        sha256: { type: string }
+        created_at: { type: string, format: date-time }
+        currentness: { type: string, enum: [not_checked] }
+        check_code: { type: string, enum: [ci.no_timeout] }
+        blob_sha: { type: string }
+        job_index: { type: integer, minimum: 0 }
+        job_name: { type: string }
+        minutes: { type: integer, minimum: 1, maximum: 1440 }
+        head_sha: { type: string }
+        branch: { type: string }
+        source_sha256: { type: string }
+        workflow_path: { type: string }
+        line: { type: integer, minimum: 1 }
+        before: { type: string, description: "The job's key through its runs-on line as it is: untrusted repository text." }
+        after: { type: string, description: "The same lines with the timeout added: untrusted repository text and the operator's value." }
+        verification: { type: string, enum: [recheck] }
+        explanation: { type: string }
+        approval: { $ref: '#/components/schemas/KennelFixApproval' }
+        publication: { $ref: '#/components/schemas/KennelFixPublication' }
+      required: [id, installation_id, repository, kennel_repository_id, reviewed_by, sha256, created_at, currentness, check_code, blob_sha, job_index, job_name, minutes, head_sha, branch, source_sha256, workflow_path, line, before, after, verification, explanation, approval, publication]
+      type: object
+    KennelFixApproval:
+      additionalProperties: false
+      nullable: true
+      description: An attributed approval of the exact retained Kennel fix, or null when none was given.
+      properties:
+        approved_by: { type: string }
+        approved_at: { type: string, format: date-time }
+        head_sha: { type: string }
+        source_sha256: { type: string }
+        preview_sha256: { type: string, description: "The digest of the immutable retained record this approval binds." }
+      required: [approved_by, approved_at, head_sha, source_sha256, preview_sha256]
+      type: object
+    KennelFixPublication:
+      additionalProperties: false
+      nullable: true
+      description: The one draft pull request opened for an approved Kennel fix, or null when none was opened.
+      properties:
+        published_by: { type: string }
+        published_at: { type: string, format: date-time }
+        branch: { type: string }
+        base_branch: { type: string }
+        base_sha: { type: string, description: "The branch head the draft was opened from; it may be newer than head_sha." }
+        head_sha: { type: string, description: "The commit the fix was previewed at." }
         source_sha256: { type: string }
         preview_sha256: { type: string }
         pull_number: { type: integer, minimum: 1 }

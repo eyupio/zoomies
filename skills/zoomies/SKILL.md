@@ -106,7 +106,7 @@ These change nothing. Run them as the question needs.
 * `zoomies transfer status`
 * `zoomies doctor`, `zoomies healthcheck`, `zoomies logs`
 * `zoomies deployment status`, `zoomies deployment logs`
-* `zoomies kennel overview`, `zoomies kennel repositories`, `zoomies kennel repository`, `zoomies kennel checks`, `zoomies kennel check` (it reads a checkout on this machine and sends nothing unless `--controller` names a repository to read from the controller)
+* `zoomies kennel overview`, `zoomies kennel repositories`, `zoomies kennel repository`, `zoomies kennel checks`, `zoomies kennel fix` (a kept timeout fix; it approves and publishes nothing), `zoomies kennel check` (it reads a checkout on this machine and sends nothing unless `--controller` names a repository to read from the controller)
 * `zoomies release verify` (it checks a downloaded release's signature against the key compiled into this binary, and changes nothing)
 
 ### Changes: show the command, wait for a yes

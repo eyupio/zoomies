@@ -37,6 +37,7 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Finding from '$lib/kennel/Finding.svelte';
+  import { kennelTimeoutFixHref } from '$lib/kennel/pages';
   import { isProtectionCheck } from '$lib/kennel/protection';
   import RepositoryOverview from '$lib/kennel/RepositoryOverview.svelte';
   import RepositoryAgentGuidance from '$lib/kennel/RepositoryAgentGuidance.svelte';
@@ -47,6 +48,7 @@
   import {
     ERROR_WAIVER_SENTENCE,
     openFindingsText,
+    timeoutFixTargets,
     scoreBasis,
     scoreText,
     waiverRole,
@@ -450,6 +452,18 @@
                     <Finding {finding} files={current.files} repository={current.name}>
                       {#snippet actions()}
                         {#if session.can('operator')}
+                          {#if !session.visitor}
+                            {#each timeoutFixTargets(finding, current.files) as target (target.blob + ':' + target.job)}
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                href={kennelTimeoutFixHref(current.id, target.blob, target.job)}
+                                ariaLabel="Preview a timeout fix: {target.label}"
+                              >
+                                Preview a fix
+                              </Button>
+                            {/each}
+                          {/if}
                           {#if session.can(waiverRole(finding.severity))}
                             <Button
                               size="sm"

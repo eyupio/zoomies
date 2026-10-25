@@ -263,3 +263,55 @@ func TestOptimisationsShardingShowsTheDraftPullRequest(t *testing.T) {
 		t.Errorf("publication not shown:\n%s", out)
 	}
 }
+
+const cliKennelFix = `{
+  "id":"kfp_1","installation_id":"ins_1","repository":"acme/repo","kennel_repository_id":"kcr_1","reviewed_by":"usr_reviewer",
+  "sha256":"` + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + `","created_at":"2026-10-25T10:00:00Z","currentness":"not_checked",
+  "check_code":"ci.no_timeout","blob_sha":"` + "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" + `","job_index":0,"job_name":"Build","minutes":30,
+  "head_sha":"` + "cccccccccccccccccccccccccccccccccccccccc" + `","branch":"main",
+  "source_sha256":"` + "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" + `","workflow_path":".github/workflows/ci.yml","line":5,
+  "before":"  build:\n    runs-on: ubuntu-latest\n","after":"  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n",
+  "verification":"recheck","explanation":"Give Build a timeout of 30 minutes.","approval":null,"publication":null
+}`
+
+func TestKennelFixPrintsTheMinutesAndTheChangedLines(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{"/api/v1/kennel/fixes/timeout/previews/kfp_1": cliKennelFix})
+	out, _ := runCLI(t, "kennel", "fix", "kfp_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL)
+	for _, want := range []string{"kfp_1", "acme/repo", "ci.no_timeout in job Build", "30 minutes, chosen by the operator", "timeout-minutes: 30", "not approved", "Kennel Club recheck", "does not approve or publish"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "on: push") {
+		t.Error("the full workflow source was printed")
+	}
+}
+
+func TestKennelFixStructuredOutputPreservesTheControllerAnswer(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{"/api/v1/kennel/fixes/timeout/previews/kfp_1": cliKennelFix})
+	out, _ := runCLI(t, "kennel", "fix", "kfp_1", "--installation", "ins_1", "--repo", "acme/repo", "--url", srv.URL, "--output", "json")
+	var got, want bytes.Buffer
+	if err := json.Compact(&got, []byte(out)); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Compact(&want, []byte(cliKennelFix)); err != nil {
+		t.Fatal(err)
+	}
+	if got.String() != want.String() {
+		t.Fatalf("structured output changed the answer:\n%s\nwant\n%s", got.String(), want.String())
+	}
+}
+
+func TestKennelFixRefusesInvalidScopeBeforeAnyRequest(t *testing.T) {
+	for _, args := range [][]string{
+		{"kennel", "fix", "preview", "--installation", "ins_1", "--repo", "acme/repo"},
+		{"kennel", "fix", "opr_1", "--installation", "ins_1", "--repo", "acme/repo"},
+		{"kennel", "fix", "kfp_1", "--installation", "installation", "--repo", "acme/repo"},
+		{"kennel", "fix", "kfp_1", "--installation", "ins_1", "--repo", "acme"},
+	} {
+		e, out, errOut := newTestEnv(t)
+		if code := dispatch(context.Background(), e, args); code == 0 || out.Len() != 0 {
+			t.Fatalf("accepted %v: %s", args, errOut.String())
+		}
+	}
+}

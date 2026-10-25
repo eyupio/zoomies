@@ -1367,6 +1367,7 @@ Subcommands:
   repository <id> [--prompts]        One repository: its standing, what could be read, and each finding
   checks                             What is checked, and what is turned off
   recheck <id>                       Ask for a repository to be read again when the budget allows
+  fix <fix-id> --installation ID --repo OWNER/REPO  Read a kept Kennel timeout fix, the finding it is for and its one changed block
   check [path] [--controller owner/name]  Run the workflow checks over a checkout on this machine; nothing leaves it unless a controller is named
 
 Run "zoomies kennel <subcommand> --help" for the flags each one takes.
@@ -1484,6 +1485,31 @@ Flags:
   --timeout=30s              how long to wait for one request
   --token                    an API token (or ZOOMIES_TOKEN)
   --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+```
+
+#### zoomies kennel fix
+
+Read a kept Kennel timeout fix, the finding it is for and its one changed block
+
+```text
+Replay a kept Kennel timeout fix without reading GitHub, approving it or publishing it. Requires operator, kennel:read and optimisations:read. Returns metadata, the finding it is for, the minutes the operator chose and the one changed block, never the full workflow. Approving and publishing are separate acts on the web page.
+
+Usage:
+  zoomies kennel fix <fix-id> --installation ID --repo OWNER/REPO
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --installation             installation ID owning the kept fix (required)
+  --output=table             table, json or yaml
+  --repo                     repository owning the kept fix, OWNER/REPO (required)
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies kennel fix kfp_01abc --installation ins_01abc --repo acme/widgets
+  zoomies kennel fix kfp_01abc --installation ins_01abc --repo acme/widgets --output json
 ```
 
 #### zoomies kennel check

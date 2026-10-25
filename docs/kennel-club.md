@@ -994,6 +994,35 @@ A check that is turned off is **shown as turned off**, not hidden, so nobody
 reads its silence as a clean bill of health. And a repository with every check
 turned off is never given the *Best in show* badge.
 
+## Fixing a missing job timeout
+
+A `ci.no_timeout` finding can be fixed from its repository's page. Each job the
+finding names has a **Preview a fix** button. The page asks one question, how many
+minutes the job may run, from 1 to 1440, and nothing fills it in: a timeout is a fact
+about the job, and a value that is too small fails a healthy run.
+
+Zoomies then reads the one workflow file the finding names, at the head of the default
+branch, and checks that it is exactly the file the finding was made from. If the file
+has changed since, the fix is refused and you start again from the finding Kennel Club
+then reports. The page shows the job's lines with `timeout-minutes` added after
+`runs-on`, and the rest of the file is untouched. Keeping the fix retains the exact
+file and change privately for fourteen days. Approving it is a separate, attributed
+decision, and **Open a draft pull request** is a third, which needs
+`optimisation.publish` as well as `optimisation.source_reads` and
+`optimisation.workflow_edits`. The pull request is a draft, is never merged by
+Zoomies, and is based on the branch head as it is when you publish.
+
+Opening a pull request does not close the finding. Kennel Club closes it when it next
+reads the file on the default branch and the job has a timeout, so a draft that is
+never merged leaves the finding open. A waived finding offers no fix; remove the
+waiver on the finding first. Only jobs with a one-line `runs-on` and no `timeout-minutes`
+are offered, and a job in a reusable workflow, a flow-style job or a `runs-on` over
+several lines is refused rather than guessed at.
+
+The fix reads and writes with the same settings as the optimisation previews. From a
+terminal, `zoomies kennel fix` reads a kept fix, and Eli reads it as `get_kennel_fix`;
+neither approves or publishes.
+
 ## Waiving a finding
 
 Some findings are decisions you have made. A repository that deliberately runs

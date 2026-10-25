@@ -550,6 +550,11 @@ each finding's prompt for a coding agent, the same text the page's **Copy
 prompt** button copies. `kennel checks` is the catalogue, with what is turned
 off. `kennel recheck <id>` asks for the repository to be read again when the
 budget allows, and a second ask inside the cooldown is told how long to wait.
+`kennel fix <fix-id> --installation ID --repo OWNER/REPO` reads a kept
+[timeout fix](kennel-club.md#fixing-a-missing-job-timeout): the finding it is for,
+the minutes the operator chose, the one changed block, and whether it was approved
+or a draft pull request opened. It reads local history only, never the full
+workflow, and approves and publishes nothing.
 `--output json` on any of them is the route's document as the controller sent
 it.
 

@@ -780,6 +780,63 @@ test.describe('with Kennel Club on', () => {
     await expect(page.locator('a', { hasText: '.github/workflows/ci.yml' })).toHaveCount(0);
   });
 
+  test('a missing-timeout finding offers a fix for each job it names and none for the rest', async ({
+    page,
+  }) => {
+    await withoutTheStream(page);
+    const row = await repository(page, PUBLIC_REPO);
+    const sha = 'c'.repeat(40);
+    await page.route(`**/api/v1/kennel/repositories/${row.id}`, async (route) => {
+      const read = await readThrough<Row & { files: Array<{ sha: string; path: string }> }>(route);
+      if (!read) return;
+      const { response: real, body } = read;
+      body.findings = [
+        {
+          code: 'ci.no_timeout',
+          severity: 'warning',
+          subject: sha.slice(0, 12),
+          title: 'Jobs have no explicit timeout',
+          detail: 'Two executable jobs in this workflow have no timeout-minutes.',
+          fix: 'Set timeout-minutes on each.',
+          evidence: [
+            { kind: 'file', ref: sha, job_index: 0, line: 4 },
+            { kind: 'file', ref: sha, job_index: 2, line: 14 },
+            { kind: 'file', ref: sha, job_index: -1, line: 1 },
+          ],
+        },
+        {
+          code: 'ci.no_concurrency',
+          severity: 'info',
+          subject: sha.slice(0, 12),
+          title: 'Pull request workflows do not cancel superseded runs',
+          detail: 'A workflow keeps running superseded work.',
+          fix: 'Add a concurrency group.',
+          evidence: [{ kind: 'file', ref: sha, job_index: -1, line: 1 }],
+        },
+      ] as unknown as Row['findings'];
+      body.files = [{ sha, path: '.github/workflows/ci.yml' }];
+      return route.fulfill({ response: real, json: body });
+    });
+    await goto(page, `/kennel/repositories/${row.id}/ci`, PUBLIC_REPO);
+    const first = page.getByRole('link', {
+      name: 'Preview a timeout fix: .github/workflows/ci.yml:4 (job 1)',
+    });
+    await expect(first).toBeVisible();
+    await expect(
+      page.getByRole('link', {
+        name: 'Preview a timeout fix: .github/workflows/ci.yml:14 (job 3)',
+      }),
+    ).toBeVisible();
+    // The job the whole file is about has no job to fix, and another check has no fix at all.
+    await expect(page.getByRole('link', { name: /Preview a timeout fix/ })).toHaveCount(2);
+    await expect(first).toHaveAttribute(
+      'href',
+      `/kennel/fixes/timeout?repository=${row.id}&blob=${sha}&job=0`,
+    );
+    await first.click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Timeout fix' })).toBeVisible();
+  });
+
   test('it fits a phone', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'the phone project checks the narrow widths');
     const row = await repository(page, PUBLIC_REPO);

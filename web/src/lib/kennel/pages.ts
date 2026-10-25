@@ -88,3 +88,21 @@ export function kennelListHref(filter: KennelListFilter = {}): string {
   const text = query.toString();
   return text ? `${base}?${text}` : base;
 }
+
+/**
+ * The address of the page that previews a fix for a missing job timeout. The
+ * finding's evidence names the file by blob and the job by position, and the
+ * page reads both from the address, so the link is the whole of "fix this one".
+ */
+export function kennelTimeoutFixHref(
+  repositoryId: string,
+  blobSha: string,
+  jobIndex: number,
+): string {
+  const query = new URLSearchParams({
+    repository: repositoryId,
+    blob: blobSha,
+    job: String(jobIndex),
+  });
+  return `/kennel/fixes/timeout?${query.toString()}`;
+}

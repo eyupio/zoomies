@@ -8,6 +8,11 @@ import {
   fleetScoreDetail,
   floorSentence,
   scoreBasis,
+  appendedLines,
+  timeoutFixTargets,
+  timeoutMinutes,
+  timeoutMinutesHint,
+  TIMEOUT_MINUTES_MAX,
   scoreText,
   openFindingsText,
   planStop,
@@ -371,4 +376,65 @@ test('the fleet figure names the lowest repository and how many are under sixty'
     'Median of 12 repositories. Lowest 59 (acme/widgets). 1 under 60.',
   );
   assert.match(fleetScoreDetail({ ...base, unread: 3 }), /3 not fully read\.$/);
+});
+
+test('minutes for a timeout are a whole number from one to a day, and never guessed', () => {
+  assert.equal(timeoutMinutes('30'), 30);
+  assert.equal(timeoutMinutes(' 45 '), 45);
+  assert.equal(timeoutMinutes('1'), 1);
+  assert.equal(timeoutMinutes(String(TIMEOUT_MINUTES_MAX)), TIMEOUT_MINUTES_MAX);
+  for (const bad of ['', '0', '1441', '-5', '1.5', '30m', '1e2', '0x10', 'abc', '00000']) {
+    assert.equal(timeoutMinutes(bad), null, bad);
+  }
+});
+
+test('the minutes hint says what to change, and is empty when the value is usable', () => {
+  assert.match(timeoutMinutesHint(''), /how many minutes/);
+  assert.match(timeoutMinutesHint('1.5'), /whole number of minutes from 1 to 1440/);
+  assert.equal(timeoutMinutesHint('30'), '');
+});
+
+test('a fix that adds lines after the ones that stay is shown as a change', () => {
+  const before = '  build:\n    runs-on: ubuntu-latest\n';
+  assert.deepEqual(appendedLines(before, before + '    timeout-minutes: 30\n'), {
+    context: ['  build:', '    runs-on: ubuntu-latest'],
+    added: ['    timeout-minutes: 30'],
+  });
+  // The file ended on the last line, so the added key follows a line break the original did not have.
+  assert.deepEqual(appendedLines('    runs-on: x', '    runs-on: x\n    timeout-minutes: 5\n'), {
+    context: ['    runs-on: x'],
+    added: ['    timeout-minutes: 5'],
+  });
+  assert.deepEqual(appendedLines('a\r\n', 'a\r\nb\r\n'), { context: ['a'], added: ['b'] });
+});
+
+test('a change that is not an addition at the end is not drawn as a diff', () => {
+  assert.equal(appendedLines('a\n', 'b\n'), null);
+  assert.equal(appendedLines('a\n', 'a\n'), null);
+  assert.equal(appendedLines('a\nb\n', 'a\n'), null);
+});
+
+test('only a ci.no_timeout finding names jobs a fix can be previewed for, once each', () => {
+  const blob = 'a'.repeat(40);
+  const finding = {
+    code: 'ci.no_timeout',
+    evidence: [
+      { kind: 'file' as const, ref: blob, job_index: 0, line: 3 },
+      { kind: 'file' as const, ref: blob, job_index: 2, line: 14 },
+      { kind: 'file' as const, ref: blob, job_index: 2, line: 14 },
+      { kind: 'file' as const, ref: blob, job_index: -1, line: 1 },
+      { kind: 'file' as const, ref: 'not a blob', job_index: 0, line: 1 },
+      { kind: 'pool' as const, ref: 'pool_x' },
+    ],
+  };
+  const files = [{ sha: blob, path: '.github/workflows/ci.yml' }];
+  assert.deepEqual(timeoutFixTargets(finding, files), [
+    { blob, job: 0, label: '.github/workflows/ci.yml:3 (job 1)' },
+    { blob, job: 2, label: '.github/workflows/ci.yml:14 (job 3)' },
+  ]);
+  assert.deepEqual(timeoutFixTargets({ ...finding, code: 'ci.no_concurrency' }, files), []);
+  assert.equal(
+    timeoutFixTargets(finding, [])[0]?.label,
+    'a workflow with an unusual name, line 3 (job 1)',
+  );
 });

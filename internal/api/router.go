@@ -403,6 +403,17 @@ func (s *Server) apiRoutes() chi.Router {
 		r.Route("/kennel", func(r chi.Router) {
 			r.With(s.require(auth.ActionKennelRead)).Get("/", s.handleKennelOverview)
 			r.With(s.require(auth.ActionKennelRead)).Get("/checks", s.handleKennelChecks)
+			// A reviewed fix for a ci.no_timeout finding. Reading and writing are the
+			// optimisation actions, because the fix reads and writes a workflow file
+			// under the same settings; Kennel read is also required, because it is a
+			// fix for a Kennel finding.
+			r.Route("/fixes/timeout", func(r chi.Router) {
+				r.With(s.require(auth.ActionKennelRead), s.require(auth.ActionOptimisationsWrite), s.refuseVisitors).Post("/inspections", s.handleInspectKennelFix)
+				r.With(s.require(auth.ActionKennelRead), s.require(auth.ActionOptimisationsWrite), s.refuseVisitors).Post("/previews", s.handleCaptureKennelFix)
+				r.With(s.require(auth.ActionKennelRead), s.require(auth.ActionOptimisationsRead), s.refuseVisitors).Get("/previews/{id}", s.handleGetKennelFix)
+				r.With(s.require(auth.ActionKennelRead), s.require(auth.ActionOptimisationsWrite), s.refuseVisitors).Post("/previews/{id}/approval", s.handleApproveKennelFix)
+				r.With(s.require(auth.ActionKennelRead), s.require(auth.ActionOptimisationsPublish), s.refuseVisitors).Post("/previews/{id}/publication", s.handlePublishKennelFix)
+			})
 			r.Route("/repositories", func(r chi.Router) {
 				r.With(s.require(auth.ActionKennelRead)).Get("/", s.handleListKennelRepositories)
 				r.With(s.require(auth.ActionKennelRead)).Get("/{id}", s.handleGetKennelRepository)

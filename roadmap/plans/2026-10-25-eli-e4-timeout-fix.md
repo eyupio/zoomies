@@ -1,7 +1,8 @@
 # E4: a reviewed fix for a missing job timeout
 
 **Status:** accepted by the owner on 25 October as the first useful slice of E4.
-Step 1, the pure foundation, is built; the rest follow in order.
+Steps 1 to 4 are built; step 5 is shown on the page and the finding's own recheck
+does the closing, so nothing more is stored.
 
 ## Goal
 
@@ -52,8 +53,21 @@ it is made again, never applied to other bytes.
    messages. The CLI, MCP and Eli read the same bounded preview.
 4. **Approval and publication.** Attributed approval bound to the blob and digests,
    then one reconciled draft pull request through the existing publisher.
-5. **Recheck.** The finding's page shows a published fix, and says it is closed only
-   when a Kennel read after the merge no longer reports the job.
+5. **Recheck.** The kept fix's page says that the finding is not closed by opening a
+   pull request, and that Kennel Club closes it when a read after the merge no longer
+   reports the job. Nothing is stored for this: the existing recheck is the closing.
+
+What was built, against the steps:
+
+* Step 2: `store` (migrations 0132 to 0134, retention, approval and publication, with the
+  publication allowed to be based on a newer branch head than the preview was made at),
+  `github.ReadKennelFixSource` (the default branch's head, tree, the one file and the
+  head again, five requests, the file required to be the blob the finding names) and the
+  controller's inspect, capture, replay, approve and publish.
+* Step 3: the routes under `/kennel/fixes/timeout`, the `/kennel/fixes/timeout` page, a
+  **Preview a fix** button per job on a `ci.no_timeout` finding, `zoomies kennel fix` and
+  `get_kennel_fix`.
+* Step 4: approval and publication, through the existing single-file draft publisher.
 
 ## Refusals
 
