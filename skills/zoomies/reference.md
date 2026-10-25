@@ -1078,7 +1078,7 @@ Examples:
 Read kept checkout optimisation previews
 
 ```text
-Read kept checkout and cache optimisation previews.
+Read kept checkout, cache, readiness and sharding optimisation previews.
 
 Usage:
   zoomies optimisations <subcommand> [flags]
@@ -1087,6 +1087,7 @@ Subcommands:
   get <preview-id>                   Read a retained checkout preview, its status and its one changed line
   cache <preview-id>                 Read a retained setup cache preview, its evidence and its one changed block
   readiness <preview-id>             Read a retained bounded readiness preview, its evidence and its one changed block
+  sharding <preview-id>              Read a retained Playwright sharding preview, its evidence and its one changed job block
 
 Run "zoomies optimisations <subcommand> --help" for the flags each one takes.
 ```
@@ -1164,6 +1165,31 @@ Flags:
 Examples:
   zoomies optimisations readiness opr_01abc --installation ins_01abc --repo acme/widgets
   zoomies optimisations readiness opr_01abc --installation ins_01abc --repo acme/widgets --output json
+```
+
+#### zoomies optimisations sharding
+
+Read a retained Playwright sharding preview, its evidence and its one changed job block
+
+```text
+Replay a retained Playwright sharding preview without reading GitHub, approving it or publishing it. Requires operator, optimisations:read and jobs:read. Returns metadata, the shard count, the timing evidence, the runner time before and after, the runners needed at once and the one changed job block, never the full workflow. Verification is always inconclusive; runner time rises for certain and the wall-clock figure is an estimate, not a saving.
+
+Usage:
+  zoomies optimisations sharding <preview-id> --installation ID --repo OWNER/REPO
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --installation             installation ID owning the retained preview (required)
+  --output=table             table, json or yaml
+  --repo                     repository owning the retained preview, OWNER/REPO (required)
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies optimisations sharding ops_01abc --installation ins_01abc --repo acme/widgets
+  zoomies optimisations sharding ops_01abc --installation ins_01abc --repo acme/widgets --output json
 ```
 
 ### zoomies why
