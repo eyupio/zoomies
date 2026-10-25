@@ -527,6 +527,11 @@ test.describe('the shared tooltip', () => {
       '/hosts/new',
       ...detail,
     ];
+    // One visit per page, about a second each when nothing else is running and
+    // several when something is: the budget grows with the list, because a fixed
+    // thirty seconds for a list that gains a section every few weeks is a test
+    // that fails on the day the runners are busy.
+    test.setTimeout(30_000 + paths.length * 6_000);
     for (const path of paths) {
       await goto(page, path);
       await page.waitForLoadState('networkidle');
