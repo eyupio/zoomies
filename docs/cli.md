@@ -930,10 +930,20 @@ that `zoomies commands` prints, and [an MCP reference](https://github.com/eyupio
 that `zoomies mcp --describe` prints: every tool with its arguments, which
 change the fleet and what unlocks them, and the resources and prompts.
 
-To install it, copy the folder into the agent's skills directory:
+To install it, and the other two skills below, into a project:
+
+```sh
+npx skills add eyupio/zoomies --skill zoomies --skill zoomies-kennel --skill zoomies-optimise
+```
+
+That writes each skill to `.agents/skills/` in the current directory and links it
+into `.claude/skills/` for Claude Code, and records what it installed in
+`skills-lock.json`. Name the skills with `--skill`: the repository also carries two
+skills for working on Zoomies itself (`babysit` and `steward`), which a bare
+`eyupio/zoomies` would offer beside these and which your agent should not pick up.
+To do it by hand instead, copy the folder into the agent's skills directory:
 `.claude/skills/zoomies/` in a project, or `~/.claude/skills/zoomies/` for every
-project, for Claude Code. An installer that takes a repository and reads its
-`skills/` folder takes `eyupio/zoomies`. The skill does not give an agent any
+project, for Claude Code. The skill does not give an agent any
 authority it did not have: the token in `ZOOMIES_TOKEN` still decides what the
 controller will do, and a viewer token cannot make a change whatever the agent
 is asked.
@@ -954,9 +964,8 @@ never edits a workflow file without a selection, and it says what it read and
 that nothing left the machine. A test holds it to those sentences, and holds
 every command either skill names to one the binary has.
 
-Install it as the first: copy `skills/zoomies-kennel/` into the agent's skills
-directory, or take `eyupio/zoomies` with an installer that reads a
-repository's `skills/` folder, which installs both.
+Install it with the command under [the zoomies skill](#the-zoomies-skill), or copy
+`skills/zoomies-kennel/` into the agent's skills directory by hand.
 
 ### The zoomies-optimise skill
 

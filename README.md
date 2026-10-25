@@ -458,9 +458,17 @@ claude mcp add --transport http zoomies https://zoomies.example.com/mcp \
 An agent that drives the `zoomies` command instead can be taught it with the
 `zoomies` skill, [`skills/zoomies`](skills/zoomies/SKILL.md). It reads the
 fleet freely, asks before it changes anything and leaves the commands that
-reshape a host to you. Copy the folder into the agent's skills directory
-(`.claude/skills/` in a project, or `~/.claude/skills/` for every project, for
-Claude Code); an installer that takes a repository takes `eyupio/zoomies`. See
+reshape a host to you. Install the three skills below into a project with
+
+```sh
+npx skills add eyupio/zoomies --skill zoomies --skill zoomies-kennel --skill zoomies-optimise
+```
+
+which writes them to `.agents/skills/` and links them into `.claude/skills/` for
+Claude Code. Name the skills with `--skill`: the repository also carries two skills
+for working on Zoomies itself, which your agent should not pick up. Or copy a
+folder by hand into the agent's skills directory (`.claude/skills/` in a project,
+or `~/.claude/skills/` for every project, for Claude Code). See
 [the CLI reference](docs/cli.md#the-zoomies-skill). A second skill,
 [`skills/zoomies-kennel`](skills/zoomies-kennel/SKILL.md), runs
 `zoomies kennel check` over a checkout's workflow files with nothing sent
