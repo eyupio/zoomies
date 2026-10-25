@@ -713,8 +713,8 @@ export async function openEventsFeed(page: Page): Promise<Locator> {
  *
  * A grid that asks again, or a navigation, abandons the read it had out. A
  * handler that then parses a disposed body throws, the request is never
- * answered, and the test fails on a page that did nothing wrong. The request is
- * handed on instead, and the caller has nothing left to answer.
+ * answered, and the test fails on a page that did nothing wrong. A read is
+ * handed on instead, a write dropped, and the caller has nothing left to answer.
  *
  * `T` defaults to `any` because a handler that rewrites a response knows its
  * shape better than this file can, and the ones that say nothing read it as
@@ -729,7 +729,15 @@ export async function readThrough<T = any>(
     const response = await route.fetch(options);
     return { response, body: (await response.json()) as T };
   } catch {
-    await route.fallback().catch(() => undefined);
+    // Handing the request on is only safe when it is the request that was read:
+    // a GET the handler fetched as itself. A handler that answers a write with a
+    // read (the page's PATCH, fetched as a GET so the controller never sees it)
+    // would send the write to the real controller, which the test chose not to
+    // do, so anything else is dropped. The page had given up on it anyway.
+    const asked = route.request().method();
+    const same = (asked === 'GET' || asked === 'HEAD') && (options?.method ?? asked) === asked;
+    if (same) await route.fallback().catch(() => undefined);
+    else await route.abort().catch(() => undefined);
     return null;
   }
 }
