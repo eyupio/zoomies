@@ -468,6 +468,14 @@
       cell: standingCell,
     },
     {
+      id: 'score',
+      header: 'Score',
+      width: '6rem',
+      // Not sortable: the number is worked out when a row is read and is not a
+      // column the server can order by. Standing already puts the worst first.
+      value: (row) => (row.score ? String(row.score.value) : NO_VALUE),
+    },
+    {
       id: 'findings',
       header: 'Open findings',
       value: (row) => openFindingsText(row.counts),

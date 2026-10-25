@@ -47,6 +47,7 @@
   import {
     coverageStatesText,
     countsAreAFloor,
+    fleetScoreDetail,
     floorSentence,
     openFindingsText,
     worstCoverageState,
@@ -218,6 +219,19 @@
         detail: overview.scope === 'served' ? 'This fleet has run jobs for' : 'The App can see',
         ...opens(overview.repositories),
       },
+      // The fleet's figure is the median with the lowest beside it, and the card
+      // says what it is of, so a good median never reads as a clean fleet.
+      ...(overview.score
+        ? [
+            {
+              label: 'Score',
+              value: formatNumber(overview.score.median),
+              detail: fleetScoreDetail(overview.score),
+              tone: overview.score.under_60 > 0 ? ('danger' as const) : ('neutral' as const),
+              ...opens(overview.score.under_60, { state: 'attention' }),
+            },
+          ]
+        : []),
       // Only when there are some: a card of zero for a feature most fleets never use
       // is a number to learn to ignore. It opens the ones Kennel Club was told not to
       // look at, which the list leaves out unless asked.

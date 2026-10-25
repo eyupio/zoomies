@@ -4167,3 +4167,71 @@ test.describe('the list of repositories shows the ones being served', () => {
     }
   });
 });
+
+test.describe('the score', () => {
+  interface Scored {
+    id: string;
+    name: string;
+    score: { value: number; checked: number; unread: number } | null;
+  }
+  const off = { 'kennel.enabled': false };
+
+  test.beforeEach(async ({ page }) => {
+    await patchSettings(page, { 'kennel.enabled': true });
+    await untilRead(page);
+  });
+  test.afterEach(async ({ page }) => patchSettings(page, off));
+
+  async function repositoryNamed(page: Page, name: string): Promise<Scored | undefined> {
+    const body = (await page.request
+      .get(`/api/v1/kennel/repositories?q=${encodeURIComponent(name)}`)
+      .then((r) => r.json())) as { items: Scored[] };
+    return body.items.find((r) => r.name === name);
+  }
+
+  test('the Overview shows the fleet figure with the lowest beside it', async ({ page }) => {
+    const fleet = (await page.request.get('/api/v1/kennel').then((r) => r.json())) as {
+      score: { median: number; lowest: number; lowest_name: string; scored: number } | null;
+    };
+    expect(fleet.score, 'an evaluated fleet has a figure').not.toBeNull();
+    // The stream is cut so a later summary frame cannot replace the card mid-check.
+    await withoutTheStream(page);
+    await goto(page, '/kennel', 'Kennel Club');
+    const score = page
+      .locator('dl.metrics > div')
+      .filter({ has: page.getByRole('term').filter({ hasText: /^Score↗?$/ }) });
+    await expect(score.getByRole('definition').first()).toContainText(String(fleet.score!.median));
+    await expect(score).toContainText(
+      `Lowest ${fleet.score!.lowest} (${fleet.score!.lowest_name})`,
+    );
+    await expect(score).toContainText('under 60');
+  });
+
+  test('a repository says its score and what it is of', async ({ page }) => {
+    const repo = await repositoryNamed(page, PUBLIC_REPO);
+    expect(repo?.score, `${PUBLIC_REPO} has a score`).toBeTruthy();
+    await withoutTheStream(page);
+    await goto(page, `/kennel/repositories/${encodeURIComponent(repo!.id)}`, PUBLIC_REPO);
+    await expect(page.getByText(`Score ${repo!.score!.value} of 100`)).toBeVisible();
+    // The basis sits under the number in text, never only in a tooltip.
+    await expect(
+      page.getByText(
+        repo!.score!.unread > 0
+          ? /that could be read; \d+ more could not be\./
+          : /^Of \d+ checks?\.$/,
+      ),
+    ).toBeVisible();
+  });
+
+  test('the list has a Score column and each row carries its repository’s number', async ({
+    page,
+  }) => {
+    const repo = await repositoryNamed(page, PUBLIC_REPO);
+    await withoutTheStream(page);
+    await goto(page, '/kennel/repositories?active=all', 'Repositories');
+    const list = grid(page, 'Repositories');
+    await expect(list.getByRole('columnheader', { name: 'Score' })).toBeVisible();
+    const row = dataRows(list).filter({ hasText: PUBLIC_REPO });
+    await expect(row).toContainText(String(repo!.score!.value));
+  });
+});
