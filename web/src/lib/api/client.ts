@@ -1591,6 +1591,15 @@ export const retainShardingPreview = (
     body,
     signal,
   });
+export const approveShardingPreview = (
+  id: string,
+  body: import('./types').ShardingApprovalRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').ShardingPreview>(
+    '/optimisations/sharding/previews/' + encodeURIComponent(id) + '/approval',
+    { body, signal },
+  );
 export const getShardingPreview = (
   id: string,
   installationId: string,

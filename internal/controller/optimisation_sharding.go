@@ -13,7 +13,10 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-var ErrOptimisationSharding = errors.New("sharding preview evidence is unavailable, inconsistent or unsupported")
+var (
+	ErrOptimisationSharding         = errors.New("sharding preview evidence is unavailable, inconsistent or unsupported")
+	ErrOptimisationShardingApproval = errors.New("the sharding preview's head and source digest do not match the retained preview")
+)
 
 // ShardingInspection is what an operator is shown before keeping a sharding
 // preview. It carries the source identity, the retained timing evidence and the

@@ -55,6 +55,17 @@ type RetainedShardingPreview struct {
 	Currentness    string
 	Preview        optimisation.ShardPreview
 	Provenance     ShardingProvenance
+	Approval       *RetainedShardingApproval
+}
+
+// RetainedShardingApproval is one attributed decision about the exact retained
+// sharding preview. It is not a publication and expires with the preview.
+type RetainedShardingApproval struct {
+	ApprovedBy    string
+	ApprovedAt    time.Time
+	HeadSHA       string
+	SourceSHA256  string
+	PreviewSHA256 string
 }
 
 // ShardingProvenance is the selected fleet job and branch a kept preview was
@@ -144,8 +155,34 @@ func (c *Controller) ReplayShardingPreview(ctx context.Context, installation, re
 }
 
 func retainedShardingView(row *store.OptimisationShardingPreview, preview optimisation.ShardPreview, p optimisationShardingRetainedProvenance) *RetainedShardingPreview {
-	return &RetainedShardingPreview{
+	v := &RetainedShardingPreview{
 		ID: row.ID, InstallationID: row.InstallationID, Repository: row.Repository, ReviewedBy: row.InitiatingUser, SHA256: row.SHA256, CreatedAt: row.CreatedAt, Currentness: "not_checked", Preview: preview,
 		Provenance: ShardingProvenance{Selection: github.SetupCacheSelection{RunID: p.SelectionRunID, Attempt: p.SelectionAttempt}, GitHubJobID: p.GitHubJobID, HeadBranch: p.HeadBranch},
 	}
+	if a := row.Approval; a != nil {
+		v.Approval = &RetainedShardingApproval{ApprovedBy: a.ApprovedBy, ApprovedAt: a.CreatedAt, HeadSHA: a.HeadSHA, SourceSHA256: a.SourceSHA256, PreviewSHA256: a.PreviewSHA256}
+	}
+	return v
+}
+
+// ApproveShardingPreview records an operator's explicit approval of the exact
+// retained sharding preview they name. It reads no source and calls no GitHub
+// reader, so an approval cannot publish, edit a workflow or start a job.
+func (c *Controller) ApproveShardingPreview(ctx context.Context, actor *store.AuditEvent, installation, repo, id, headSHA, sourceSHA256 string) (*RetainedShardingPreview, error) {
+	if actor == nil || actor.ActorID == "" || installation == "" || repo == "" || id == "" || !knownHash(headSHA, 40) || !knownHash(sourceSHA256, 64) {
+		return nil, ErrOptimisationShardingApproval
+	}
+	current, err := c.ReplayShardingPreview(ctx, installation, repo, id)
+	if err != nil {
+		return nil, err
+	}
+	if current.Preview.HeadSHA != headSHA || current.Preview.SourceSHA256 != sourceSHA256 {
+		return nil, ErrOptimisationShardingApproval
+	}
+	approval, err := c.st.ApproveOptimisationShardingPreview(ctx, installation, repo, id, headSHA, sourceSHA256, current.SHA256, actor)
+	if err != nil {
+		return nil, err
+	}
+	current.Approval = &RetainedShardingApproval{ApprovedBy: approval.ApprovedBy, ApprovedAt: approval.CreatedAt, HeadSHA: approval.HeadSHA, SourceSHA256: approval.SourceSHA256, PreviewSHA256: approval.PreviewSHA256}
+	return current, nil
 }

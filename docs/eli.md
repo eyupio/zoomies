@@ -468,6 +468,8 @@ every shard passed, so a required check that names the job still resolves. A com
 that already shards or filters, a job with a matrix, services or outputs, and any
 artifact or coverage upload are refused with the reason. **Keep a preview for 14
 days** retains the exact source, history and shard count privately; it approves and
+publishes nothing. An operator can then approve that exact preview: approval names
+its commit and source digest, records who approved, expires with the preview and
 publishes nothing. The same retained view is available from `zoomies optimisations
 sharding <preview-id> --installation ID --repo OWNER/REPO`, and to Eli as
 `get_sharding_preview`; both show the shard count, the evidence, the extra runner

@@ -2,8 +2,22 @@
   import type { ShardingPreview } from '../api/types';
   import { checkoutSeconds } from './input';
   import RelativeTime from '../components/RelativeTime.svelte';
+  import Button from '../components/Button.svelte';
+  import Checkbox from '../components/Checkbox.svelte';
 
-  let { preview }: { preview: ShardingPreview } = $props();
+  let {
+    preview,
+    onapprove,
+    canApprove = false,
+    approving = false,
+  }: {
+    preview: ShardingPreview;
+    onapprove?: () => void;
+    canApprove?: boolean;
+    approving?: boolean;
+  } = $props();
+  let confirmed = $state(false);
+  const approval = $derived(preview.approval);
 </script>
 
 <section class="card" aria-labelledby="sharding-preview-title">
@@ -82,9 +96,46 @@
     <pre class="added"><span aria-hidden="true">+ </span><span class="sr"
         >Added: </span>{preview.after.replace(/\n$/, '')}</pre>
   </div>
+  {#if approval}
+    <div class="approval">
+      <h3>Approved</h3>
+      <p>
+        Approved by <strong>{approval.approved_by}</strong>
+        <RelativeTime value={approval.approved_at} /> at commit
+        <span class="mono">{approval.head_sha}</span>, source digest
+        <span class="mono">{approval.source_sha256}</span>.
+      </p>
+      <p>
+        This approval expires with the preview. It did not publish anything: no pull request was
+        opened and no job was run.
+      </p>
+    </div>
+  {:else if canApprove}
+    <div class="approval">
+      <h3>Approve this preview</h3>
+      <p>
+        Approval names this exact preview, its commit and its source digest. Neither is re-read, and
+        approval publishes nothing: no pull request is opened and no job is run.
+      </p>
+      <Checkbox
+        bind:checked={confirmed}
+        label="I approve this exact sharding preview, including the extra runner time and the shard count, at the commit and source digest above."
+        disabled={approving}
+      />
+      <div class="approval-actions">
+        <Button onclick={() => onapprove?.()} loading={approving} disabled={approving || !confirmed}
+          >Approve preview</Button
+        >
+      </div>
+    </div>
+  {/if}
   <p>
-    Nothing was approved or published. There is no pull request and no job run. Keeping a preview
-    does not apply it.
+    {#if approval}
+      The approval is recorded, but nothing was published.
+    {:else}
+      Nothing was published. There is no pull request and no job run. Keeping or approving a preview
+      does not apply it.
+    {/if}
   </p>
 </section>
 
@@ -139,6 +190,21 @@
   .added {
     font-weight: var(--z-weight-semibold);
     background: var(--z-surface-sunken);
+  }
+  .approval {
+    margin-block: var(--z-space-4);
+    padding-block: var(--z-space-3);
+    border-top: var(--z-border-width) solid var(--z-border);
+  }
+  .approval p {
+    overflow-wrap: anywhere;
+  }
+  .approval h3 {
+    font-size: var(--z-text-base);
+    font-weight: var(--z-weight-semibold);
+  }
+  .approval-actions {
+    margin-block: var(--z-space-3);
   }
   .sr {
     position: absolute;

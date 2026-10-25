@@ -55,6 +55,14 @@ const retained = {
   after: inspection.after,
   verification: 'inconclusive',
   explanation: inspection.explanation,
+  approval: null,
+};
+const approval = {
+  approved_by: 'usr_operator',
+  approved_at: '2026-10-24T09:02:00Z',
+  head_sha: 'a'.repeat(40),
+  source_sha256: 'b'.repeat(64),
+  preview_sha256: 'd'.repeat(64),
 };
 const enablement = {
   source_reads: true,
@@ -103,6 +111,11 @@ test('pick a job, review the shards and the extra runner time, and keep the prev
   await mocks(page);
   let inspectBody: Record<string, unknown> | undefined;
   let retainBody: Record<string, unknown> | undefined;
+  let approveBody: Record<string, unknown> | undefined;
+  await page.route('**/api/v1/optimisations/sharding/previews/*/approval', async (route) => {
+    approveBody = route.request().postDataJSON();
+    await route.fulfill({ json: { ...retained, approval } });
+  });
   await page.route('**/api/v1/optimisations/sharding/inspections', async (route) => {
     inspectBody = route.request().postDataJSON();
     await route.fulfill({ json: inspection });
@@ -142,7 +155,20 @@ test('pick a job, review the shards and the extra runner time, and keep the prev
     source_sha256: 'b'.repeat(64),
     shards: 4,
   });
-  await expect(page.getByText('Nothing was approved or published.')).toBeVisible();
+  await expect(page.getByText('Nothing was published.')).toBeVisible();
+
+  const approve = page.getByRole('button', { name: 'Approve preview' });
+  await expect(approve).toBeDisabled();
+  await page.getByLabel(/I approve this exact sharding preview/).check();
+  await approve.click();
+  await expect(page.getByRole('heading', { name: 'Approved' })).toBeVisible();
+  expect(approveBody).toEqual({
+    installation_id: 'ins_fixture',
+    repository: 'acme/repo',
+    head_sha: 'a'.repeat(40),
+    source_sha256: 'b'.repeat(64),
+  });
+  await expect(page.getByText(/did not publish anything/)).toBeVisible();
 });
 
 test('a kept sharding preview opens from its link', async ({ page }) => {
@@ -172,6 +198,24 @@ test('a kept sharding preview fits a phone', async ({ page }) => {
     'Sharding preview',
   );
   await expect(page.getByRole('heading', { name: 'Retained sharding preview' })).toBeVisible();
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(overflow).toBe(false);
+});
+
+test('an approved sharding preview fits a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 700 });
+  await mocks(page);
+  await page.route('**/api/v1/optimisations/sharding/previews/*?*', (route) =>
+    route.fulfill({ json: { ...retained, approval } }),
+  );
+  await goto(
+    page,
+    '/optimisations/sharding?id=ops_fixture&installation_id=ins_fixture&repo=acme%2Frepo',
+    'Sharding preview',
+  );
+  await expect(page.getByRole('heading', { name: 'Approved' })).toBeVisible();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
   );

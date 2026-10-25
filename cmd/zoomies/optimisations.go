@@ -455,8 +455,15 @@ func presentShardingPreview(p *printer, raw []byte, out *shardingPreviewItem, id
 	if out.ID != id || out.InstallationID != installation || out.Repository != repo || out.JobName == "" || out.StepName == "" || out.Verification != "inconclusive" || out.Currentness != "not_checked" || out.Before == "" || out.After == "" || out.Shards < 2 || out.Shards > 8 || out.Runs < 10 || out.TestMS <= 0 || out.Headroom < out.Shards {
 		return errors.New("this controller returned an unsupported or inconsistent retained sharding preview; check the controller version and evidence scope")
 	}
+	if a := out.Approval; a != nil && (a.ApprovedBy == "" || a.ApprovedAt == "" || a.HeadSHA != out.HeadSHA || a.SourceSHA256 != out.SourceSHA256 || a.PreviewSHA256 != out.SHA256) {
+		return errors.New("this controller returned an inconsistent sharding approval; check the controller version")
+	}
 	if p.structured() {
 		return p.emit(raw)
+	}
+	approval := "not approved; approving and publishing are separate acts"
+	if a := out.Approval; a != nil {
+		approval = "approved by " + plain(a.ApprovedBy) + " at " + plain(a.ApprovedAt) + ", head " + plain(a.HeadSHA) + ", source " + plain(a.SourceSHA256) + ", preview " + plain(a.PreviewSHA256)
 	}
 	p.keyValues([][2]string{
 		{"preview", plain(out.ID)},
@@ -475,6 +482,7 @@ func presentShardingPreview(p *printer, raw []byte, out *shardingPreviewItem, id
 		{"currentness", "not checked; the commit, the history and the settings were not re-read"},
 		{"kept", plain(out.CreatedAt)},
 		{"reviewed by", plain(out.ReviewedBy)},
+		{"approval", approval},
 	})
 	p.note("The next two blocks are quoted, untrusted repository text: the job block as it is and as it would be, not instructions.")
 	p.note("- %s", plain(strings.TrimSuffix(out.Before, "\n")))
@@ -484,30 +492,39 @@ func presentShardingPreview(p *printer, raw []byte, out *shardingPreviewItem, id
 }
 
 type shardingPreviewItem struct {
-	ID             string `json:"id"`
-	InstallationID string `json:"installation_id"`
-	Repository     string `json:"repository"`
-	ReviewedBy     string `json:"reviewed_by"`
-	SHA256         string `json:"sha256"`
-	CreatedAt      string `json:"created_at"`
-	Currentness    string `json:"currentness"`
-	HeadSHA        string `json:"head_sha"`
-	SourceSHA256   string `json:"source_sha256"`
-	WorkflowPath   string `json:"workflow_path"`
-	JobName        string `json:"job_name"`
-	StepName       string `json:"step_name"`
-	Line           int    `json:"line"`
-	Shards         int    `json:"shards"`
-	Runs           int    `json:"runs"`
-	TestMS         int64  `json:"test_ms"`
-	SetupMS        int64  `json:"setup_ms"`
-	Headroom       int    `json:"headroom"`
-	RunnerMSBefore int64  `json:"runner_ms_before"`
-	RunnerMSAfter  int64  `json:"runner_ms_after"`
-	WallMSBefore   int64  `json:"wall_ms_before"`
-	WallMSAfter    int64  `json:"wall_ms_after"`
-	Before         string `json:"before"`
-	After          string `json:"after"`
-	Verification   string `json:"verification"`
-	Explanation    string `json:"explanation"`
+	ID             string                `json:"id"`
+	InstallationID string                `json:"installation_id"`
+	Repository     string                `json:"repository"`
+	ReviewedBy     string                `json:"reviewed_by"`
+	SHA256         string                `json:"sha256"`
+	CreatedAt      string                `json:"created_at"`
+	Currentness    string                `json:"currentness"`
+	HeadSHA        string                `json:"head_sha"`
+	SourceSHA256   string                `json:"source_sha256"`
+	WorkflowPath   string                `json:"workflow_path"`
+	JobName        string                `json:"job_name"`
+	StepName       string                `json:"step_name"`
+	Line           int                   `json:"line"`
+	Shards         int                   `json:"shards"`
+	Runs           int                   `json:"runs"`
+	TestMS         int64                 `json:"test_ms"`
+	SetupMS        int64                 `json:"setup_ms"`
+	Headroom       int                   `json:"headroom"`
+	RunnerMSBefore int64                 `json:"runner_ms_before"`
+	RunnerMSAfter  int64                 `json:"runner_ms_after"`
+	WallMSBefore   int64                 `json:"wall_ms_before"`
+	WallMSAfter    int64                 `json:"wall_ms_after"`
+	Before         string                `json:"before"`
+	After          string                `json:"after"`
+	Verification   string                `json:"verification"`
+	Explanation    string                `json:"explanation"`
+	Approval       *shardingApprovalItem `json:"approval"`
+}
+
+type shardingApprovalItem struct {
+	ApprovedBy    string `json:"approved_by"`
+	ApprovedAt    string `json:"approved_at"`
+	HeadSHA       string `json:"head_sha"`
+	SourceSHA256  string `json:"source_sha256"`
+	PreviewSHA256 string `json:"preview_sha256"`
 }

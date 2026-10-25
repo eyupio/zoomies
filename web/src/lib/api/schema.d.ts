@@ -5892,6 +5892,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/optimisations/sharding/previews/{id}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve one retained Playwright sharding preview
+         * @description Requires operator, jobs:read and optimisations:write; public visitors are refused. Records an attributed approval of the exact retained sharding preview named by its commit and source digest. It reads no source, calls no GitHub reader, opens no pull request and runs no job. The approval expires with the preview. A repeated approval of the same binding is a no-op with no second audit row; a different head, source or preview is refused.
+         */
+        post: operations["approveShardingPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/optimisations/readiness/previews": {
         parameters: {
             query?: never;
@@ -12894,6 +12917,25 @@ export interface components {
             /** @enum {string} */
             verification: "inconclusive";
             explanation: string;
+            approval: components["schemas"]["ShardingApproval"];
+        };
+        /** @description An attributed approval of the exact retained sharding preview, or null when none was given. */
+        ShardingApproval: {
+            approved_by: string;
+            /** Format: date-time */
+            approved_at: string;
+            head_sha: string;
+            source_sha256: string;
+            /** @description The digest of the immutable retained record this approval binds. */
+            preview_sha256: string;
+        } | null;
+        ShardingApprovalRequest: {
+            installation_id: string;
+            repository: string;
+            /** @description The commit the sharding preview names. */
+            head_sha: string;
+            /** @description The workflow digest the sharding preview names. */
+            source_sha256: string;
         };
         ShardingInspectionRequest: {
             installation_id: string;
@@ -23017,6 +23059,62 @@ export interface operations {
                 };
             };
             /** @description Stored content integrity cannot be verified. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    approveShardingPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShardingApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description The retained preview with its approval; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShardingPreview"];
+                };
+            };
+            /** @description Invalid request, scope or digest. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The preview is unavailable, expired or outside this scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The preview, its stored evidence or an earlier approval does not match the request. */
             409: {
                 headers: {
                     [name: string]: unknown;
