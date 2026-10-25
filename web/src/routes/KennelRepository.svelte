@@ -632,7 +632,7 @@
     color: var(--z-text-muted);
   }
   .score-value {
-    font-weight: 600;
+    font-weight: var(--z-weight-semibold);
     color: var(--z-text);
   }
   .meta {
