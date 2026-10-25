@@ -2,7 +2,10 @@
 
 **Status:** accepted by the owner on 25 October as proposed (weights 20/6/1, caps
 59/89, median with the lowest beside it, scores shown with unread checks, no letter
-grades). Tasks 1, 2 and 4 are built. Task 3 (the UI) and Task 5 (the record) remain.
+grades). Tasks 1, 2, 3 and 4 are built. Task 5 (the record) remains.
+Task 3 departed from the plan in one place: the repositories list's Score column is
+not sortable, because the number is worked out when a row is read and the server
+sorts only on stored columns. The Standing column already orders the worst first.
 
 ## Goal
 

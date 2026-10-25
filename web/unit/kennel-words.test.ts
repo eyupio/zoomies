@@ -5,7 +5,10 @@ import {
   fileEvidenceText,
   countsAreAFloor,
   coverageStatesText,
+  fleetScoreDetail,
   floorSentence,
+  scoreBasis,
+  scoreText,
   openFindingsText,
   planStop,
   reasonHint,
@@ -338,4 +341,34 @@ test('file evidence reads as the path, the line and the job, and an ungated path
   assert.equal(fileEvidenceText('.github/workflows/big.yml', -1, 0), '.github/workflows/big.yml');
   assert.equal(fileEvidenceText('', -1, 0), 'a workflow with an unusual name');
   assert.equal(fileEvidenceText('', 2, 7), 'a workflow with an unusual name, line 7 (job 3)');
+});
+
+test('a score is said as a number out of a hundred', () => {
+  assert.equal(scoreText({ value: 89 }), '89 of 100');
+});
+
+test('a score says what it is of, and never reads as a total while checks are unread', () => {
+  assert.equal(scoreBasis({ checked: 33, unread: 0 }), 'Of 33 checks.');
+  assert.equal(
+    scoreBasis({ checked: 11, unread: 22 }),
+    'Of the 11 checks that could be read; 22 more could not be.',
+  );
+  assert.equal(scoreBasis({ checked: 1, unread: 0 }), 'Of 1 check.');
+});
+
+test('the fleet figure names the lowest repository and how many are under sixty', () => {
+  const base = {
+    version: 1,
+    median: 94,
+    lowest: 59,
+    lowest_name: 'acme/widgets',
+    under_60: 1,
+    scored: 12,
+    unread: 0,
+  };
+  assert.equal(
+    fleetScoreDetail(base),
+    'Median of 12 repositories. Lowest 59 (acme/widgets). 1 under 60.',
+  );
+  assert.match(fleetScoreDetail({ ...base, unread: 3 }), /3 not fully read\.$/);
 });

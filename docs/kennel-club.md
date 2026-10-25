@@ -864,7 +864,11 @@ score and how many repositories are under 60 beside it. It is not the mean:
 twenty clean repositories would average one with an open error up to a
 good-looking figure.
 
-`zoomies kennel check` prints the score for what it can read in a checkout, and
+On the web, the Overview has a **Score** card with the fleet's median, the lowest
+repository and how many are under 60, the repositories list has a **Score**
+column, and a repository's page puts its score under the standing with the
+sentence saying what it is of. `zoomies kennel check` prints the score for what it
+can read in a checkout, and
 the API carries it as `score` with the formula's `version`. The version changes
 whenever a weight, a ceiling or the way findings are counted does, and a score
 from one version is not compared with another's. This is version 1.

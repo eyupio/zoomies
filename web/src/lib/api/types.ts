@@ -374,6 +374,8 @@ export type AIContextSetupPreview = Schemas['AIContextSetupPreview'];
 
 export type KennelOverview = Schemas['KennelOverview'];
 export type KennelRepository = Schemas['KennelRepository'];
+export type KennelScore = Schemas['KennelScore'];
+export type KennelFleetScore = Schemas['KennelFleetScore'];
 export type KennelFinding = Schemas['KennelFinding'];
 export type KennelEvidence = Schemas['KennelEvidence'];
 export type KennelFile = Schemas['KennelFile'];

@@ -47,6 +47,8 @@
   import {
     ERROR_WAIVER_SENTENCE,
     openFindingsText,
+    scoreBasis,
+    scoreText,
     waiverRole,
     worstSeverity,
   } from '$lib/kennel/words';
@@ -341,6 +343,12 @@
           </span>
         </p>
       {/if}
+      {#if repo && repo.score}
+        <p class="score">
+          <span class="score-value">Score {scoreText(repo.score)}</span>
+          <span class="score-basis">{scoreBasis(repo.score)}</span>
+        </p>
+      {/if}
       {#if repo}
         <!-- A constant, because a snippet does not keep what the branch learned about `repo`. -->
         {@const current = repo}
@@ -613,6 +621,19 @@
     display: flex;
     flex-direction: column;
     gap: var(--z-space-5);
+  }
+  .score {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--z-space-2);
+    margin: 0;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+  .score-value {
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
   }
   .meta {
     display: flex;

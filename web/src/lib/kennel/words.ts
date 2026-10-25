@@ -5,7 +5,13 @@
  * of what are open, whether a number is a floor or a total -- are tested once
  * and the same on every page.
  */
-import type { KennelCounts, KennelOverview, Severity } from '../api/types';
+import type {
+  KennelCounts,
+  KennelFleetScore,
+  KennelOverview,
+  KennelScore,
+  Severity,
+} from '../api/types';
 import { joinWords, pluralise } from '../format';
 import { REASON_MAX, REASON_MIN, reasonHint, reasonLength } from '../reason';
 
@@ -29,6 +35,35 @@ export function openFindingsText(counts: Pick<KennelCounts, 'error' | 'warning' 
   if (counts.warning > 0) parts.push(pluralise(counts.warning, 'warning'));
   if (counts.info > 0) parts.push(pluralise(counts.info, 'note'));
   return parts.length > 0 ? joinWords(parts) : 'No open findings';
+}
+
+/** A repository's score, as the number it is out of. */
+export function scoreText(score: Pick<KennelScore, 'value'>): string {
+  return `${score.value} of 100`;
+}
+
+/**
+ * What a score is of. It is of the checks that could be read, and the sentence
+ * says so whenever some could not, so the number is never taken for a total.
+ */
+export function scoreBasis(score: Pick<KennelScore, 'checked' | 'unread'>): string {
+  if (score.unread === 0) return `Of ${pluralise(score.checked, 'check')}.`;
+  return `Of the ${pluralise(score.checked, 'check')} that could be read; ${score.unread} more could not be.`;
+}
+
+/**
+ * The fleet's figure beside the number: how many it covers, the lowest and who
+ * has it, and how many are under 60, which is what stops a good median hiding a
+ * repository with an open error.
+ */
+export function fleetScoreDetail(score: KennelFleetScore): string {
+  const parts = [
+    `Median of ${pluralise(score.scored, 'repository', 'repositories')}`,
+    `Lowest ${score.lowest} (${score.lowest_name})`,
+    `${score.under_60} under 60`,
+  ];
+  if (score.unread > 0) parts.push(`${score.unread} not fully read`);
+  return `${parts.join('. ')}.`;
 }
 
 /**
