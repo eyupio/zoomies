@@ -3083,3 +3083,18 @@ Next agent: bounded source binding and inspection for sharding, then retention
 and replay, the web page, CLI/MCP/Eli replay, approval and publication, each as
 its own slice mirroring readiness. The next free migration is 0129. Do not widen
 beyond Playwright, and do not drop the aggregator.
+
+
+### E3 sharding source and inspection, 24 October 2026
+
+`github.ReadShardSource` binds one selected push attempt's root workflow to the one
+Playwright step, `Controller.InspectShardingPreview` takes the test and lead timings
+from the fleet's retained history and the headroom from the matching pool, and
+`POST /optimisations/sharding/inspections` returns the preview without keeping
+anything. The shared root-workflow read is now one helper that readiness also uses.
+`store.SetupStepSample.LeadMS` is the work every shard repeats. See
+[the plan](roadmap/plans/2026-10-24-eli-e3-sharding-source.md).
+
+Next agent: retention and replay for sharding (migration 0129), then the web page,
+CLI/MCP/Eli replay, approval and publication. Do not accept a shard count or command
+from a request.

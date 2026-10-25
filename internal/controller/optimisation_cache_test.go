@@ -32,6 +32,7 @@ type cacheSourceReader struct {
 	publishErr      error
 	probeInfo       *github.AppInfo
 	readinessSource *github.ReadinessSource
+	shardSource     *github.ShardSource
 	readinessErr    error
 }
 
@@ -42,6 +43,10 @@ func (f *cacheSourceReader) RateLimit(context.Context) (*github.RateLimit, error
 func (f *cacheSourceReader) ReadSetupCacheSource(context.Context, string, github.SetupCacheSelection) (*github.SetupCacheSource, error) {
 	f.calls++
 	return f.source, f.err
+}
+func (f *cacheSourceReader) ReadShardSource(context.Context, string, github.SetupCacheSelection) (*github.ShardSource, error) {
+	f.calls++
+	return f.shardSource, f.readinessErr
 }
 func (f *cacheSourceReader) ReadReadinessSource(context.Context, string, github.SetupCacheSelection) (*github.ReadinessSource, error) {
 	f.calls++

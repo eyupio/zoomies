@@ -65,3 +65,26 @@ func TestRecentSetupStepSamplesRefusesInvalidQueries(t *testing.T) {
 		}
 	}
 }
+
+func TestRecentSetupStepSamplesReportsHowLongTheJobRanBeforeTheStep(t *testing.T) {
+	s := newTestStore(t)
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	begin := now.Add(-100 * time.Second)
+	setupHistoryJob(t, s, 1, "success", now,
+		setupStep("Set up job", 1, begin, begin.Add(2*time.Second)),
+		setupStep("Install", 2, begin.Add(2*time.Second), begin.Add(40*time.Second)),
+		setupStep("Browser tests", 3, begin.Add(40*time.Second), now),
+	)
+	// A step that is the first the job recorded has nothing before it.
+	setupHistoryJob(t, s, 2, "success", now.Add(-time.Hour), setupStep("Browser tests", 1, now.Add(-90*time.Minute), now.Add(-time.Hour)))
+	samples, err := s.RecentSetupStepSamples(context.Background(), "acme/repo", "CI", "build", "Browser tests", now.Add(-30*24*time.Hour), 10)
+	if err != nil || len(samples) != 2 {
+		t.Fatalf("samples %+v, %v", samples, err)
+	}
+	if samples[0].GitHubJobID != 1 || samples[0].LeadMS != 40_000 || samples[0].SetupMS != 60_000 {
+		t.Fatalf("lead %+v", samples[0])
+	}
+	if samples[1].LeadMS != 0 {
+		t.Fatalf("a first step reported lead %d", samples[1].LeadMS)
+	}
+}
