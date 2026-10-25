@@ -830,7 +830,8 @@ MCP ([Connect Claude](connect-claude.md)) and from the command line
 ([Command line](cli.md)); `zoomies commands` prints every command with its
 help, and the same text ships as a reference with the `zoomies` skill; its
 sibling, `zoomies-kennel`, runs the workflow checks over a checkout with
-nothing sent anywhere (see [the CLI page](cli.md#the-zoomies-kennel-skill)). For a
+nothing sent anywhere (see [the CLI page](cli.md#the-zoomies-kennel-skill), which also
+has the install command). For a
 job that failed, stalled or is waiting, `zoomies why <job>`, the explanation
 route and `get_job` over MCP give the same answer: a `class` from a closed set,
 the evidence that decides it, the catalog code and the next steps in order, so

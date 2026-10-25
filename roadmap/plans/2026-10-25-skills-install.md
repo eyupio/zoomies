@@ -1,6 +1,20 @@
 # Skills: one published install command, tried before it is claimed
 
-**Status:** proposed. Task 1 is blocked: the sandbox this was planned in refused to run the installer, so the run is the owner's, or needs the permission given. The findings below are from reading, not from a run.
+**Status:** built on 25 October. The owner allowed the list and the install runs in
+throwaway directories, and the installer's name in the docs; the provenance test
+accepts it. Tasks 1 to 3 are done, and Task 4 is this record.
+
+**What the run showed.** With `HOME` and the working directory both empty, listing
+the repository finds five skills: the three that ship, and `babysit` and `steward`
+from `.claude/skills`, which are for working on Zoomies and must not reach a user's
+agent. So the command names the skills with `--skill`. Installing the three wrote
+them to `.agents/skills/<name>/`, linked each into `.claude/skills/<name>`, wrote
+`skills-lock.json`, and wrote a second copy under `agent/skills/` with the
+frontmatter description re-wrapped across lines (the installer's own
+re-serialisation, same words). The files under `.agents/skills/` match the
+repository byte for byte, and the link resolves. Nothing was written outside the
+two directories and the npm cache. It installs into the current project; the
+global form was not run, so the docs do not claim it.
 
 ## Goal
 

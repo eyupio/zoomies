@@ -176,3 +176,34 @@ func TestTheOptimiseSkillStartsNothingAndPromisesNoSaving(t *testing.T) {
 		}
 	}
 }
+
+// The install command is only worth publishing if it stays true. It names every
+// skill under skills/ with --skill, because the bare repository would also offer
+// the two skills for working on Zoomies itself, and a skill added later with no
+// word in the docs would be installed by nobody.
+func TestTheInstallDocsNameTheCommandAndEveryShippedSkill(t *testing.T) {
+	const installer = "npx skills add eyupio/zoomies"
+	var flags []string
+	for _, s := range readSkills(t) {
+		flags = append(flags, "--skill "+s.meta.Name)
+	}
+	if len(flags) == 0 {
+		t.Fatal("no skills were found under skills/")
+	}
+	want := installer + " " + strings.Join(flags, " ")
+	for _, page := range []string{"../../README.md", "../../docs/cli.md"} {
+		b, err := os.ReadFile(page)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(b)
+		if !strings.Contains(text, want) {
+			t.Errorf("%s does not carry the install command %q", filepath.Base(page), want)
+		}
+		for _, maintainer := range []string{"--skill babysit", "--skill steward"} {
+			if strings.Contains(text, maintainer) {
+				t.Errorf("%s tells a user to install %q, a skill for working on Zoomies itself", filepath.Base(page), maintainer)
+			}
+		}
+	}
+}

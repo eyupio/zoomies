@@ -1510,7 +1510,14 @@ Depends on ZF-230. Size M.
 command reference from ZF-230 pinned and tested, lint tests in `internal/docs`
 and `cmd/zoomies` that hold every skill to what an installer needs, every
 command it names to the binary, and the zoomies skill's three lists to every
-command there is, and install docs in the README and `docs/cli.md`.
+command there is, and install docs in the README and `docs/cli.md`. A third
+skill, `skills/zoomies-optimise/` (#1278, #1281), reads a slow job's evidence and
+says which of the four previewable changes fits, and starts nothing. On
+25 October the published install command was run against this repository from an
+empty directory and home: it finds the three skills (and, unless they are named
+with `--skill`, the two for working on Zoomies itself), writes them to
+`.agents/skills/` and links them into `.claude/skills/`, and the files match the
+repository's byte for byte; a test holds both pages to that command.
 [agent-readiness.md](roadmap/agent-readiness.md) section 7 is the design.
 
 **Open:** gate row 15's second agent for the kennel skill: one agent's smoke
