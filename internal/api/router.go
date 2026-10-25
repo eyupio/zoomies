@@ -316,6 +316,8 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/cache/inspections", s.handleInspectCache)
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/readiness/inspections", s.handleInspectReadiness)
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/sharding/inspections", s.handleInspectSharding)
+		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/sharding/previews", s.handleCaptureSharding)
+		r.With(s.require(auth.ActionOptimisationsRead), s.require(auth.ActionJobsRead), s.refuseVisitors).Get("/optimisations/sharding/previews/{id}", s.handleGetSharding)
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/readiness/previews", s.handleCaptureReadiness)
 		r.With(s.require(auth.ActionOptimisationsRead), s.require(auth.ActionJobsRead), s.refuseVisitors).Get("/optimisations/readiness/previews/{id}", s.handleGetReadiness)
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/readiness/previews/{id}/approval", s.handleApproveReadiness)

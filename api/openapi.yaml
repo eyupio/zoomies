@@ -9013,6 +9013,98 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /optimisations/sharding/previews:
+    post:
+      operationId: captureShardingPreview
+      tags: [jobs]
+      summary: Retain a reviewed Playwright sharding preview
+      description: >-
+        Requires operator, jobs:read and optimisations:write; public visitors are
+        refused. Repeats the bounded source read, the history query and the headroom
+        read, then requires the same head, workflow digest and shard count the
+        operator inspected. Keeps an immutable private preview for fourteen days
+        with an audit row. It changes one job, publishes nothing and calls no
+        model. Verification is always inconclusive and currentness is not_checked.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShardingCaptureRequest' }
+      responses:
+        '201':
+          description: Audited retained sharding preview; Cache-Control is no-store.
+          headers:
+            Location: { $ref: "#/components/headers/Location" }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShardingPreview' }
+        '400':
+          description: Invalid request, selection, digest or shard count.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The source, history or headroom moved, the job is unsupported, or the preview cannot be kept.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429':
+          description: Diagnostic or GitHub quota refusal; Retry-After says when to retry manually.
+          headers:
+            Retry-After: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /optimisations/sharding/previews/{id}:
+    parameters: [{ $ref: '#/components/parameters/PathID' }]
+    get:
+      operationId: getShardingPreview
+      tags: [jobs]
+      summary: Replay a retained Playwright sharding preview without GitHub reads
+      description: >-
+        Requires operator, jobs:read and optimisations:read; public visitors are
+        refused. Supply exactly one installation_id and repo and nothing else.
+        Verifies the stored digest and recomputes the preview from retained input
+        only. The answer carries the before/after job block, evidence and
+        metadata, never the full workflow. currentness is always
+        not_checked and verification inconclusive.
+      x-zoomies-role: operator
+      parameters:
+        - name: installation_id
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 128 }
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 1024 }
+      responses:
+        '200':
+          description: Verified retained sharding preview; Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShardingPreview' }
+        '400':
+          description: Invalid query or preview ID.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: The preview is unavailable, expired or outside this scope.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409':
+          description: Stored content integrity cannot be verified.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   /optimisations/readiness/previews:
     post:
       operationId: captureReadinessPreview
@@ -17235,6 +17327,49 @@ components:
         explanation: { type: string }
         inspected_at: { type: string, format: date-time }
       required: [installation_id, repository, selection, condition, head_sha, source_sha256, workflow_path, job_name, step_name, line, wait_seconds, runs, wait_ms, before, after, verification, explanation, inspected_at]
+      type: object
+    ShardingCaptureRequest:
+      additionalProperties: false
+      properties:
+        installation_id: { type: string, minLength: 1, maxLength: 128 }
+        repository: { type: string, minLength: 1, maxLength: 1024 }
+        selection: { $ref: '#/components/schemas/CacheSelection' }
+        head_sha: { type: string, description: "The commit the operator reviewed." }
+        source_sha256: { type: string, description: "The workflow digest the operator reviewed." }
+        shards: { type: integer, minimum: 2, maximum: 8, description: "The shard count the operator reviewed; a different count is a different change." }
+      required: [installation_id, repository, selection, head_sha, source_sha256, shards]
+      type: object
+    ShardingPreview:
+      additionalProperties: false
+      properties:
+        id: { type: string, pattern: '^ops_' }
+        installation_id: { type: string }
+        repository: { type: string }
+        reviewed_by: { type: string }
+        sha256: { type: string }
+        created_at: { type: string, format: date-time }
+        currentness: { type: string, enum: [not_checked] }
+        selection: { $ref: '#/components/schemas/CacheSelection' }
+        head_sha: { type: string }
+        source_sha256: { type: string }
+        workflow_path: { type: string }
+        job_name: { type: string }
+        step_name: { type: string }
+        line: { type: integer, minimum: 1 }
+        shards: { type: integer, minimum: 2, maximum: 8 }
+        runs: { type: integer, minimum: 10, maximum: 100 }
+        test_ms: { type: integer, format: int64 }
+        setup_ms: { type: integer, format: int64 }
+        headroom: { type: integer, minimum: 2, description: "The pool headroom when the preview was kept. An upper bound at one moment, not a reservation." }
+        runner_ms_before: { type: integer, format: int64 }
+        runner_ms_after: { type: integer, format: int64 }
+        wall_ms_before: { type: integer, format: int64 }
+        wall_ms_after: { type: integer, format: int64, description: "An estimate from medians, not a measured saving." }
+        before: { type: string, description: "The job block as it is, untrusted repository text." }
+        after: { type: string, description: "The shard job and the aggregator, untrusted repository text inside a reviewed edit." }
+        verification: { type: string, enum: [inconclusive] }
+        explanation: { type: string }
+      required: [id, installation_id, repository, reviewed_by, sha256, created_at, currentness, selection, head_sha, source_sha256, workflow_path, job_name, step_name, line, shards, runs, test_ms, setup_ms, headroom, runner_ms_before, runner_ms_after, wall_ms_before, wall_ms_after, before, after, verification, explanation]
       type: object
     ShardingInspectionRequest:
       additionalProperties: false

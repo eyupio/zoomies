@@ -3098,3 +3098,26 @@ anything. The shared root-workflow read is now one helper that readiness also us
 Next agent: retention and replay for sharding (migration 0129), then the web page,
 CLI/MCP/Eli replay, approval and publication. Do not accept a shard count or command
 from a request.
+
+
+### E3 sharding retention and API, 24 October 2026
+
+Migration 0129 keeps one immutable, private, fourteen-day sharding preview with its
+exact source, samples, evidence and provenance. Capture requires the head, workflow
+digest and shard count the operator reviewed; replay recomputes the evidence and
+preview and reads no GitHub. See
+[the plan](roadmap/plans/2026-10-24-eli-e3-sharding-retention.md). The next free
+migration is 0130.
+
+Next agent: the sharding page and keep flow, then CLI/MCP/Eli replay, approval and
+publication.
+
+
+### E3 sharding page, 24 October 2026
+
+`/optimisations/sharding` reviews and keeps a sharding preview: choose a run, read
+the workflow, review the shards, the extra runner time, the runners needed and the
+estimated wall clock, then keep it for fourteen days. No count or command is a
+field. See [the plan](roadmap/plans/2026-10-24-eli-e3-sharding-web.md).
+
+Next agent: CLI, MCP and Eli replay, then approval and publication.
