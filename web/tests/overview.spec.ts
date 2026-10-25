@@ -10,7 +10,7 @@
  * and pressing it changes nothing about what the page says.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { FIXTURE, goto, reload, useClassic } from './support/fixtures';
+import { FIXTURE, goto, readThrough, reload, useClassic } from './support/fixtures';
 
 test.beforeEach(async ({ page }) => {
   // These checks exercise the detailed panels. Default disclosure state and
@@ -1091,8 +1091,9 @@ test("the failures panel's link to the rest keeps the scope the panel counted", 
 // reached from, the same way the link under a full panel would.
 test("the one-line failures panel's link to the failed view keeps the scope", async ({ page }) => {
   await page.route(/\/api\/v1\/jobs\?.*attention=true/, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body } = read;
     await route.fulfill({ response, json: { ...body, items: [], total: 0 } });
   });
   await reload(page, 'Overview');
@@ -1142,8 +1143,9 @@ test('marking a failure as known moves focus to the failure that takes its place
 test('marking the only failure as known moves focus to the page heading', async ({ page }) => {
   let acknowledged = false;
   await page.route(/\/api\/v1\/jobs\?.*attention=true/, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body } = read;
     const items = acknowledged ? [] : (body.items ?? []).slice(0, 1);
     await route.fulfill({ response, json: { ...body, items, total: items.length } });
   });

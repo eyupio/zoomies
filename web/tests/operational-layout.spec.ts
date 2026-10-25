@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { goto, useClassic } from './support/fixtures';
+import { goto, readThrough, useClassic } from './support/fixtures';
 
 async function mission(page: import('@playwright/test').Page, prefs?: Record<string, unknown>) {
   await page.setViewportSize({ width: 375, height: 900 });
@@ -171,8 +171,9 @@ test('Mission Control keeps first-run guidance first when this fleet has not run
   await mission(page);
   await page.route('**/api/v1/events*', (route) => route.abort());
   await page.route('**/api/v1/stats*', async (route) => {
-    const response = await route.fetch();
-    const stats = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body: stats } = read;
     await route.fulfill({
       response,
       json: { ...stats, fleet: { ...stats.fleet, running_jobs: 0, completed: 0 } },

@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { goto, grid, waitForRows } from './support/fixtures';
+import { goto, grid, readThrough, waitForRows } from './support/fixtures';
 
 /*
  * The words each style draws the same two moments with. Off is what a browser
@@ -54,8 +54,9 @@ async function runStatusChecks(
     },
   });
   await page.route('**/api/v1/runners?*', async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body: data } = read;
     data.items = data.items.map((row: Record<string, unknown>) => {
       if (row.state !== 'busy') return row;
       const updated = withCPU(row);

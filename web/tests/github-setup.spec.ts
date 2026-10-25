@@ -8,7 +8,7 @@
  * on GitHub was "Page not found" with the single-use code in the address bar.
  */
 import { expect, test } from '@playwright/test';
-import { goto, pageHeading } from './support/fixtures';
+import { goto, pageHeading, readThrough } from './support/fixtures';
 
 test('the App creation callback lands on Installations with the code in hand', async ({ page }) => {
   await goto(page, '/settings/github/setup?code=abc123&state=xyz789', 'Installations');
@@ -40,8 +40,9 @@ test('GitHub creation and installation use direct native forms and survive a rel
   page,
 }) => {
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
-    const meta = (await response.json()) as Record<string, unknown>;
+    const read = await readThrough<Record<string, unknown>>(route);
+    if (!read) return;
+    const { response: response, body: meta } = read;
     // The shared fixture is loopback-only, which is the right truth for most of
     // the suite. This path is about the browser handoff itself, so it needs the
     // public URL the dialog now insists on before it will build a manifest.
@@ -137,8 +138,9 @@ test('the App asks for write access to code only when the operator ticks the box
 }) => {
   const asked: Record<string, unknown>[] = [];
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
-    const meta = (await response.json()) as Record<string, unknown>;
+    const read = await readThrough<Record<string, unknown>>(route);
+    if (!read) return;
+    const { response: response, body: meta } = read;
     meta.external_url = 'https://zoomies.example.test';
     meta.webhook_url = 'https://zoomies.example.test/webhooks/github';
     await route.fulfill({ response, json: meta });
@@ -199,8 +201,9 @@ test('an organisation App asks for administration read only when the operator ti
 }) => {
   const asked: Record<string, unknown>[] = [];
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
-    const meta = (await response.json()) as Record<string, unknown>;
+    const read = await readThrough<Record<string, unknown>>(route);
+    if (!read) return;
+    const { response: response, body: meta } = read;
     meta.external_url = 'https://zoomies.example.test';
     meta.webhook_url = 'https://zoomies.example.test/webhooks/github';
     await route.fulfill({ response, json: meta });
@@ -269,8 +272,9 @@ test('the App asks for read access to contents only when the operator ticks the 
 }) => {
   const asked: Record<string, unknown>[] = [];
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
-    const meta = (await response.json()) as Record<string, unknown>;
+    const read = await readThrough<Record<string, unknown>>(route);
+    if (!read) return;
+    const { response: response, body: meta } = read;
     meta.external_url = 'https://zoomies.example.test';
     meta.webhook_url = 'https://zoomies.example.test/webhooks/github';
     await route.fulfill({ response, json: meta });
@@ -328,8 +332,9 @@ test('the first step asks for one thing, and keeps the two optional answers behi
   page,
 }) => {
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
-    const meta = (await response.json()) as Record<string, unknown>;
+    const read = await readThrough<Record<string, unknown>>(route);
+    if (!read) return;
+    const { response: response, body: meta } = read;
     meta.external_url = 'https://zoomies.example.test';
     meta.webhook_url = 'https://zoomies.example.test/webhooks/github';
     await route.fulfill({ response, json: meta });

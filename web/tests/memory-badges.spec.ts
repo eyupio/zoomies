@@ -10,7 +10,7 @@
  * runner, and a runner with nothing to say is not given a pill to say it with.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { goto, grid, waitForRows } from './support/fixtures';
+import { goto, grid, readThrough, waitForRows } from './support/fixtures';
 
 const lent = {
   state: 'lent',
@@ -111,8 +111,9 @@ async function giveRunners(page: Page, extras: Row[]): Promise<Row[]> {
   const changed: Row[] = [];
   await quietEvents(page);
   await page.route('**/api/v1/runners?*', async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body: data } = read;
     changed.length = 0;
     data.items = data.items.map((row: Row, index: number) => {
       // Whatever the demo fleet says of memory is replaced: the test hands the
@@ -325,8 +326,9 @@ test("the runner's page repeats it in a panel, and counts a loan in the memory i
   const runners = await page.request.get('/api/v1/runners?limit=1').then((r) => r.json());
   const target = (runners.items as Row[])[0]!;
   await page.route(`**/api/v1/runners/${target.id}`, async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body: data } = read;
     await route.fulfill({
       response,
       json: {
@@ -369,8 +371,9 @@ test("a frame that says the runner holds no loan takes the loan off the runner's
   const runners = await page.request.get('/api/v1/runners?limit=1').then((r) => r.json());
   const target = (runners.items as Row[])[0]!;
   await page.route(`**/api/v1/runners/${target.id}`, async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body: data } = read;
     await route.fulfill({ response, json: { ...data, memory_resource: lent, scratch: folders } });
   });
   await goto(page, `/runners/${target.id}`, String(target.name));

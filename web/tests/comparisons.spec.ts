@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { goto } from './support/fixtures';
+import { goto, readThrough } from './support/fixtures';
 
 const distribution = (zero = false) => ({
   samples: zero ? 1 : 0,
@@ -330,8 +330,9 @@ test('missing history and rate limiting do not capture or automatically retry', 
 
 test('viewer can read but cannot capture', async ({ page }) => {
   await page.route('**/api/v1/auth/session', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body } = read;
     body.role = 'viewer';
     if (body.identity) body.identity.role = 'viewer';
     await route.fulfill({ response, json: body });
@@ -339,8 +340,9 @@ test('viewer can read but cannot capture', async ({ page }) => {
   // Auth-disabled sessions bypass /auth/session, so use the real identity path
   // by reporting auth enabled while the fixture controller serves viewer data.
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body } = read;
     body.auth_disabled = false;
     body.bootstrap_required = false;
     await route.fulfill({ response, json: body });
@@ -358,16 +360,18 @@ test('viewer can read but cannot capture', async ({ page }) => {
 test('public visitors make no history request', async ({ page }) => {
   let reads = 0;
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body } = read;
     body.auth_disabled = false;
     body.bootstrap_required = false;
     body.public_view = true;
     await route.fulfill({ response, json: body });
   });
   await page.route('**/api/v1/auth/session', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body } = read;
     body.role = 'viewer';
     body.kind = 'public';
     await route.fulfill({ response, json: body });

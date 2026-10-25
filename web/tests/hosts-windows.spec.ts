@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { goto, useSystemTheme } from './support/fixtures';
+import { goto, readThrough, useSystemTheme } from './support/fixtures';
 
 const LINUX =
   "curl -fsSL https://zoomies.sh/install.sh | sh -s -- --mode agent --controller 'https://zoomies.example.com' --join-token 'zoojoin_fixture_only'";
@@ -117,10 +117,11 @@ test('a browser on Windows starts on the Windows command', async ({ page }) => {
 
 test('the private connection works with the Windows command', async ({ page }) => {
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
+    const read = await readThrough(route);
+    if (!read) return;
     await route.fulfill({
-      response,
-      json: { ...(await response.json()), tailcat_available: true },
+      response: read.response,
+      json: { ...read.body, tailcat_available: true },
     });
   });
   await mockJoinToken(page, TAILCAT_WINDOWS);

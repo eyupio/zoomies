@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { chooseTheme, goto } from './support/fixtures';
+import { chooseTheme, goto, readThrough } from './support/fixtures';
 
 test('Kennel Club previews guidance and opens a draft without installing AI Context', async ({
   page,
@@ -920,8 +920,9 @@ test.describe("setup opened from a repository's page", () => {
         (r) => r.full_name === 'acme/widgets',
       )!;
       await page.route('**/api/v1/ai-context/discovery*', async (route) => {
-        const response = await route.fetch();
-        const body = await response.json();
+        const read = await readThrough(route);
+        if (!read) return;
+        const { response: response, body } = read;
         body.repositories = body.repositories.map((r: Discovered) =>
           r.id === widgets.id ? { ...r, archived: true } : r,
         );

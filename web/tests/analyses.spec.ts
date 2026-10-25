@@ -18,7 +18,7 @@
  * range, and is opened on thirty days so the demo's two releases are in it.
  */
 import { expect, test, type Dialog, type Page } from '@playwright/test';
-import { expectNoSidewaysScroll, FIXTURE, goto } from './support/fixtures';
+import { expectNoSidewaysScroll, FIXTURE, goto, readThrough } from './support/fixtures';
 
 /** Every analysis request the page sends, in order, so the last is the one on screen. */
 function watchAnalysis(page: Page, route: string): string[] {
@@ -690,10 +690,11 @@ test('a host group that counts one pool’s starts alone says which pool', async
   };
   const pool = pools.items[0]!;
   await page.route('**/api/v1/analysis/startup-failures**', async (route) => {
-    const response = await route.fetch();
-    const body = (await response.json()) as {
+    const read = await readThrough<{
       evidence: { groups: Record<string, unknown>[] };
-    };
+    }>(route);
+    if (!read) return;
+    const { response, body } = read;
     const host = body.evidence.groups[0]!;
     body.evidence.groups = [
       { ...host, scope: 'pool', id: pool.id, name: pool.name, pool_id: '' },
@@ -782,8 +783,9 @@ test('text a host or a workflow wrote is shown as text', async ({ page }) => {
   const dialogs = watchForDialogs(page);
   const message = 'pull failed <img src=x onerror=alert(1)><script>alert(2)</script>';
   await page.route('**/api/v1/analysis/startup-failures**', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body } = read;
     for (const group of body.evidence.groups) {
       group.last_message = message;
       group.name = '<b>loud</b>';
@@ -812,8 +814,9 @@ test('withheld job names are skipped, and the step that says so is shown', async
   // What a token without jobs:read is sent: the route blanks the names and
   // adds a step with neither a setting nor a code.
   await page.route('**/api/v1/analysis/host-pressure**', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body } = read;
     for (const e of body.evidence.events) {
       e.repo = '';
       e.workflow = '';
@@ -840,16 +843,18 @@ test('withheld job names are skipped, and the step that says so is shown', async
  */
 async function asVisitor(page: Page): Promise<void> {
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body } = read;
     body.auth_disabled = false;
     body.bootstrap_required = false;
     body.public_view = true;
     await route.fulfill({ response, json: body });
   });
   await page.route('**/api/v1/auth/session', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response: response, body } = read;
     body.role = 'viewer';
     body.kind = 'public';
     await route.fulfill({ response, json: body });

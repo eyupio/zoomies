@@ -13,7 +13,7 @@
  * Both the desktop and the phone project run this file, one after the other, so
  * nothing here may depend on a controller that has not been used before.
  */
-import { expect, test, type APIResponse, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   dataRows,
   documentWidth,
@@ -26,7 +26,9 @@ import {
   navEntry,
   openNavMenu,
   plantMarker,
+  readThrough,
   rowCount,
+  withoutTheStream,
 } from './support/fixtures';
 
 test.describe.configure({ mode: 'serial' });
@@ -58,40 +60,6 @@ function tile(page: Page, label: string) {
   return page
     .locator('dl.metrics > div')
     .filter({ has: page.getByRole('term').filter({ hasText: new RegExp(`^${label}↗?$`) }) });
-}
-
-/**
- * The server's own answer to a request, for a handler that changes a little of
- * it, or null when the page gave up on the request while the handler was
- * waiting for the server.
- *
- * A grid that asks again, or a navigation, abandons the read it had out. A
- * handler that then parses a disposed body throws, the request is never
- * answered, and the test fails on a page that did nothing wrong. The request is
- * handed on instead, and the caller has nothing left to answer.
- */
-async function readThrough<T>(route: Route): Promise<{ response: APIResponse; body: T } | null> {
-  try {
-    const response = await route.fetch();
-    return { response, body: (await response.json()) as T };
-  } catch {
-    await route.fallback().catch(() => undefined);
-    return null;
-  }
-}
-
-/**
- * Take the event stream away, for a test that decides what the page reads.
- *
- * The page replaces its Overview from a `kennel.summary` frame and clears its
- * stale notice on one, so with the stream live the test races it: a frame that
- * lands first leaves the real document on the page and the one the test wrote
- * is never shown. A stream that is down cannot send, and the pages that read the
- * REST route again on their own when it comes back are not what these tests are
- * about.
- */
-async function withoutTheStream(page: Page): Promise<void> {
-  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
 }
 
 /** The demo's repositories are read within moments of the setting being turned on. */

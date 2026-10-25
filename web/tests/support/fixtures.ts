@@ -14,7 +14,7 @@
  *    The tests cannot add `data-testid`: the Svelte source is not theirs.
  */
 import { readFileSync } from 'node:fs';
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type APIResponse, type Locator, type Page, type Route } from '@playwright/test';
 
 /**
  * Where the first-run fixture leaves the setup token it saw the controller
@@ -704,4 +704,45 @@ export async function openEventsFeed(page: Page): Promise<Locator> {
   if (await expand.isVisible().catch(() => false)) await expand.click();
   await expect(feed.getByRole('button', { name: 'Show fewer events' })).toBeVisible();
   return feed;
+}
+
+/**
+ * The server's own answer to a request, for a handler that changes a little of
+ * it, or null when the page gave up on the request while the handler was
+ * waiting for the server.
+ *
+ * A grid that asks again, or a navigation, abandons the read it had out. A
+ * handler that then parses a disposed body throws, the request is never
+ * answered, and the test fails on a page that did nothing wrong. The request is
+ * handed on instead, and the caller has nothing left to answer.
+ *
+ * `T` defaults to `any` because a handler that rewrites a response knows its
+ * shape better than this file can, and the ones that say nothing read it as
+ * loosely as `response.json()` always has.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function readThrough<T = any>(
+  route: Route,
+  options?: Parameters<Route['fetch']>[0],
+): Promise<{ response: APIResponse; body: T } | null> {
+  try {
+    const response = await route.fetch(options);
+    return { response, body: (await response.json()) as T };
+  } catch {
+    await route.fallback().catch(() => undefined);
+    return null;
+  }
+}
+
+/**
+ * Take the event stream away, for a test that decides what the page reads.
+ *
+ * A page that replaces what it holds from a stream frame is raced by one: a
+ * frame that lands first leaves the real document on the page and the one the
+ * test wrote is never shown, and one that lands later removes what the test was
+ * about to act on. A stream that is down cannot send. Do not use it where the
+ * test needs the stream, a dispatched `resync` or a held read, say.
+ */
+export async function withoutTheStream(page: Page): Promise<void> {
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
 }

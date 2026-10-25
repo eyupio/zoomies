@@ -20,10 +20,11 @@ import {
   openSection,
   pageHeading,
   readTheme,
+  readThrough,
   reload,
-  SECTIONS,
   sectionHeading,
   sectionLanding,
+  SECTIONS,
 } from './support/fixtures';
 
 // These run in both projects: the phone's navigation is a bar at the bottom
@@ -220,8 +221,9 @@ test('a tab that has been open across an upgrade moves to the new build', async 
   let asked = 0;
   await page.route('**/api/v1/meta', async (route) => {
     asked += 1;
-    const response = await route.fetch();
-    const body = (await response.json()) as Record<string, unknown>;
+    const read = await readThrough<Record<string, unknown>>(route);
+    if (!read) return;
+    const { response: response, body } = read;
     await route.fulfill({
       response,
       json: { ...body, version: `build-${asked}`, commit: `commit${asked}` },
@@ -267,8 +269,9 @@ test('a tab that cannot remember a reload does not spend one', async ({ page }) 
   await page.evaluate(() => ((window as unknown as { marker?: string }).marker = 'kept'));
 
   await page.route('**/api/v1/meta', async (route) => {
-    const response = await route.fetch();
-    const body = (await response.json()) as Record<string, unknown>;
+    const read = await readThrough<Record<string, unknown>>(route);
+    if (!read) return;
+    const { response: response, body } = read;
     await route.fulfill({ response, json: { ...body, version: 'a-newer-build' } });
   });
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));

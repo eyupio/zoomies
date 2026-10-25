@@ -13,11 +13,12 @@
 import { randomBytes } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import {
+  dialog,
   goto,
   openAccountMenu,
   openEventsFeed,
   pageHeading,
-  dialog,
+  readThrough,
   useSystemTheme,
 } from './support/fixtures';
 
@@ -103,8 +104,9 @@ test('an administrator is not offered changes to an account that outranks them',
   // platform account cannot be created -- an administrator minting one is the
   // very thing the role refuses -- so the row is added to the list response.
   await page.route(/\/api\/v1\/meta(\?.*)?$/, async (route) => {
-    const response = await route.fetch();
-    const meta = (await response.json()) as Record<string, unknown>;
+    const read = await readThrough<Record<string, unknown>>(route);
+    if (!read) return;
+    const { response: response, body: meta } = read;
     await route.fulfill({
       response,
       json: { ...meta, auth_disabled: false, bootstrap_required: false },
@@ -127,8 +129,9 @@ test('an administrator is not offered changes to an account that outranks them',
   let deletes = 0;
   await page.route(/\/api\/v1\/users(\?.*)?$/, async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
-    const response = await route.fetch();
-    const list = (await response.json()) as { items: Record<string, unknown>[] };
+    const read = await readThrough<{ items: Record<string, unknown>[] }>(route);
+    if (!read) return;
+    const { response: response, body: list } = read;
     list.items.push({
       id: 'usr_platform',
       username: 'platform',
