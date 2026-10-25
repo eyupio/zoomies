@@ -757,7 +757,13 @@ test.describe('with Kennel Club on', () => {
       [`/kennel/repositories/${row.id}/ci`, payload],
     ] as const) {
       await goto(page, path, heading);
-      await expect(page.getByText(payload, { exact: true }).first(), path).toBeVisible();
+      // The phone's top bar also names the page, and hides that name when the
+      // connection indicator needs the room, so the first match is not always
+      // the one a person reads: the question is whether one that is shown says it.
+      await expect(
+        page.getByText(payload, { exact: true }).filter({ visible: true }).first(),
+        path,
+      ).toBeVisible();
       await expect(page.locator('img[src="x"]'), `${path} made an image`).toHaveCount(0);
     }
     await expect(
