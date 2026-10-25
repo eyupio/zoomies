@@ -1754,7 +1754,8 @@ Depends on ZF-240, ZF-231, ZF-226. Size M.
 
 ### ZF-242: explain a PR's observed required-check delay
 
-**Classification: new; M; started 12 October at the owner's request.**
+**Classification: new; M; started 12 October at the owner's request; implemented,
+closed by the owner on 25 October 2026.**
 Eli enhancement handoff track E1. Start with a pure, bounded calculation over
 an explicitly pinned PR head, target branch, applicable required-check identities
 and observed job attempts. This extends the analysis boundary ZF-241 establishes;
@@ -1775,6 +1776,13 @@ feature from the pure core alone.
 Plan and baseline evidence: [E1 calculation core](roadmap/plans/2026-10-12-eli-merge-delay-core.md).
 The core needs no ZF-240 transport. Integration reuses ZF-241 and ZF-236 contracts
 where present. No publication, model call, job dispatch or new authority.
+
+**Closed 25 October 2026, at the owner's direction.** The core, evidence, snapshot,
+collector, API, CLI, MCP and Eli tool, and contextual UI with scripted scenarios are
+all merged (see the row in [roadmap/progress.md](roadmap/progress.md)). Never run, and
+not claimed: a live model evaluation of Eli's use of the result, and a real
+performance experiment against a production fleet. Both stay the owner's and reopen
+this package only if they find a defect.
 
 ### ZF-243: compare selected historical runner or workflow runs
 
@@ -1844,7 +1852,8 @@ observed reports stay inconclusive.
 
 ### ZF-244: preview a reviewed checkout optimisation
 
-**Classification: new; M; started 14 October at the owner's request to continue E3.**
+**Classification: new; M; started 14 October at the owner's request to continue E3;
+implemented, closed by the owner on 25 October 2026.**
 
 **Why:** a healthy workflow can spend time fetching history it does not need.
 E2 descriptive measurements do not establish that a proposed change saves time.
@@ -1869,6 +1878,15 @@ introduced in the core.
 **Acceptance:** exact preview and currentness refusal for one supported change;
 subsequent scoped web preview, draft PR, linked explanation and honest E2 result.
 Passing CI alone cannot establish improvement. Publication never merges.
+
+**Closed 25 October 2026, at the owner's direction.** All four previews (checkout
+depth, setup cache, bounded readiness poll, Playwright sharding) are built end to end
+and merged: web page, private retention, bounded CLI, MCP and Eli replay, attributed
+approval and one reconciled draft pull request each, with writes web-only. Everything
+was verified against fakes and mocked routes. Never run, and not claimed: a run
+against one real repository with a real GitHub App, and an E2 comparison of a real
+published change, so no preview has a verified saving and verification stays
+inconclusive until someone captures one. Both stay the owner's.
 
 Depends on ZF-242 and ZF-243's descriptive milestone. Size M.
 [Preview foundation](roadmap/plans/2026-10-14-eli-e3-checkout-preview.md),
@@ -2015,9 +2033,9 @@ every package in section 8 was re-read on 19 September against the code.
 | 18 | ZF-239 slice 2, the controller's side of a shared App, with no network | An `own` installation is unchanged; a `shared` one completes a repair against the fake relay and holds no private key |
 | 19 | ZF-240 the fleet as it moves, over MCP, implemented, 12 October | One call answers what changed; a second with the cursor blocks until a seeded event; Eli's three scenarios hold and the three reads for whoever runs the fleet are left off its list |
 | 20 | ZF-241 the analyses, implemented, 17 October | Each seeded cause is named as dominant at high confidence; a small sample is said to be small; the card and the tool show one answer |
-| 21 | ZF-242 PR required-check delay, starting with its independent pure core | Pinned heads and coverage survive every surface; missing/ambiguous checks stay visible; no merge-readiness claim |
+| 21 | ZF-242 PR required-check delay, implemented, 25 October | Pinned heads and coverage survive every surface; missing/ambiguous checks stay visible; no merge-readiness claim |
 | 22 | ZF-243 selected historical comparison | Descriptive milestone merged; controlled-experiment proof deferred, incomplete evidence stays inconclusive |
-| 23 | ZF-244 reviewed checkout optimisation | Pure supplied-evidence preview first, then scoped web inspection and separately approved draft publication; no verified savings without measurements |
+| 23 | ZF-244 reviewed optimisations (checkout, cache, readiness, sharding), implemented, 25 October | Pure supplied-evidence preview first, then scoped web inspection and separately approved draft publication; no verified savings without measurements |
 | - | ZF-239 slices 3 to 5, the relay itself | After the owner's answers and a ruling on delivery rule 15 |
 | - | ZF-215, ZF-212, ZF-403's rotation, and section 9 | When a fleet asks |
 
