@@ -495,6 +495,12 @@ yet. Reading source, keeping previews and publishing spend GitHub requests from 
 installation's own quota, share the PR check delay allowance, and wait for a manual
 retry when it is exhausted.
 
+An agent connected to the controller can do the reading half of this without Eli.
+The `zoomies-optimise` skill (see
+[the CLI reference](cli.md#the-zoomies-optimise-skill)) reads the same evidence in a
+fixed order, says which of the four changes fits a slow job, or that none does, and
+hands you to the page. It starts, approves and publishes nothing.
+
 ## Measuring Eli
 
 A prompt change is measured before it is trusted. `internal/api/eli_eval_test.go`

@@ -466,6 +466,11 @@ Claude Code); an installer that takes a repository takes `eyupio/zoomies`. See
 `zoomies kennel check` over a checkout's workflow files with nothing sent
 anywhere, summarises the findings with security first, and fixes only the ones
 you choose; see [the zoomies-kennel skill](docs/cli.md#the-zoomies-kennel-skill).
+A third, [`skills/zoomies-optimise`](skills/zoomies-optimise/SKILL.md), reads the
+fleet's evidence for one slow job or pull request and says which of the four
+workflow changes Zoomies can preview fits it, or that none does. It makes no
+preview and never claims a saving; see
+[the zoomies-optimise skill](docs/cli.md#the-zoomies-optimise-skill).
 
 ## Configuration
 

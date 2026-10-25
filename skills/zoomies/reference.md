@@ -1075,7 +1075,7 @@ Examples:
 
 ### zoomies optimisations
 
-Read kept checkout optimisation previews
+Read kept checkout, cache, readiness and sharding optimisation previews
 
 ```text
 Read kept checkout, cache, readiness and sharding optimisation previews.
