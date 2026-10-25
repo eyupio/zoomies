@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agentguidance"
@@ -66,6 +67,12 @@ type KennelRepositoryView struct {
 	// due now.
 	NextDueAt *time.Time    `json:"next_due_at"`
 	Counts    kennel.Counts `json:"counts"`
+	// Score is the number the published formula makes of the open findings, or
+	// null for a repository nothing has evaluated or Kennel Club is not
+	// tracking, which has no findings to score. It is worked out here from the
+	// stored evaluation and not kept, so a change to the formula changes every
+	// number at once and says so through its version.
+	Score *kennel.ScoreResult `json:"score"`
 	// Complete is whether every enabled check ran against everything it needs.
 	Complete bool                   `json:"complete"`
 	Coverage []KennelCoverageView   `json:"coverage"`
@@ -132,6 +139,10 @@ func newKennelRepositoryView(r *store.KennelRepository) KennelRepositoryView {
 	_ = json.Unmarshal(r.Coverage, &cov)
 
 	v.Counts = kennel.Counts{Error: r.OpenErrors, Warning: r.OpenWarnings, Info: r.OpenInfos, Waived: r.Waived}
+	if r.Untracked == nil && r.EvaluatedAt != nil {
+		sc := kennel.Score(ev)
+		v.Score = &sc
+	}
 	v.Complete = ev.Complete
 	v.Waived = nonNilSlice(ev.Waived)
 	v.Lapsed = nonNilSlice(ev.Lapsed)
@@ -251,7 +262,10 @@ type KennelOverviewView struct {
 	States     KennelStateCounts `json:"states"`
 	// Counts are the open findings across every repository, by severity, and the
 	// waived ones beside them.
-	Counts           kennel.Counts            `json:"counts"`
+	Counts kennel.Counts `json:"counts"`
+	// Score is the fleet's figure: the median of the repositories' scores with
+	// the lowest beside it. Null when no repository has been evaluated.
+	Score            *KennelFleetScore        `json:"score"`
 	Checks           []KennelCheckView        `json:"checks"`
 	Attention        []KennelAttentionView    `json:"attention"`
 	Coverage         []KennelCoverageSummary  `json:"coverage"`
@@ -259,6 +273,83 @@ type KennelOverviewView struct {
 	OldestEvaluation *time.Time               `json:"oldest_evaluation"`
 	// DisabledChecks are the names the operator turned off, as written.
 	DisabledChecks []string `json:"disabled_checks"`
+}
+
+// KennelFleetScore rolls the repositories' scores up. It is the median and not
+// the mean: twenty clean repositories would average one with an open error up
+// to a good-looking figure, and the lowest score beside the median is what
+// stops that.
+type KennelFleetScore struct {
+	Version int `json:"version"`
+	// Median is rounded down, so the figure is never better than the middle
+	// repository's.
+	Median int `json:"median"`
+	Lowest int `json:"lowest"`
+	// LowestName is the repository that scored it, the first by name on a tie.
+	LowestName string `json:"lowest_name"`
+	// Under60 is how many score below 60, which is where an open error puts one.
+	Under60 int `json:"under_60"`
+	// Scored is how many repositories the figure covers, and Unread how many of
+	// them have a check that could not be read, so the page never shows it as a
+	// total.
+	Scored int `json:"scored"`
+	Unread int `json:"unread"`
+}
+
+// kennelFleetScore scores every evaluated, tracked repository.
+func (c *Controller) kennelFleetScore(ctx context.Context) (*KennelFleetScore, error) {
+	type scored struct {
+		name  string
+		value int
+	}
+	var all []scored
+	out := &KennelFleetScore{Version: kennel.ScoreVersion}
+	const page = 500
+	for off := 0; ; off += page {
+		rows, total, err := c.st.ListKennelRepositories(ctx, store.KennelFilter{}, store.Page{Limit: page, Offset: off})
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			if r.Untracked != nil || r.EvaluatedAt == nil {
+				continue
+			}
+			v := newKennelRepositoryView(r)
+			if v.Score == nil {
+				continue
+			}
+			all = append(all, scored{r.FullName, v.Score.Value})
+			if v.Score.Unread > 0 {
+				out.Unread++
+			}
+		}
+		if off+page >= total || len(rows) == 0 {
+			break
+		}
+	}
+	if len(all) == 0 {
+		return nil, nil
+	}
+	slices.SortFunc(all, func(a, b scored) int {
+		if a.value != b.value {
+			return a.value - b.value
+		}
+		return strings.Compare(strings.ToLower(a.name), strings.ToLower(b.name))
+	})
+	out.Scored = len(all)
+	out.Lowest, out.LowestName = all[0].value, all[0].name
+	n := len(all)
+	if n%2 == 1 {
+		out.Median = all[n/2].value
+	} else {
+		out.Median = (all[n/2-1].value + all[n/2].value) / 2
+	}
+	for _, s := range all {
+		if s.value < 60 {
+			out.Under60++
+		}
+	}
+	return out, nil
 }
 
 // kennelAttentionLines is how many repositories the Overview names.
@@ -340,6 +431,9 @@ func (c *Controller) KennelOverview(ctx context.Context) (*KennelOverviewView, e
 	}
 	out.Counts = kennel.Counts{Error: counts.OpenErrors, Warning: counts.OpenWarnings, Info: counts.OpenInfos, Waived: counts.Waived}
 	out.OldestEvaluation = counts.OldestEvaluation
+	if out.Score, err = c.kennelFleetScore(ctx); err != nil {
+		return nil, fmt.Errorf("scoring the repositories: %w", err)
+	}
 
 	disabled := kennelDisabled(cfg)
 	for _, ck := range kennel.Checks() {

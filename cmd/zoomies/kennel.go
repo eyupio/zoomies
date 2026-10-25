@@ -418,6 +418,11 @@ func printKennelReport(e *env, r offline.Report, severity string) {
 		fmt.Fprintf(e.out, "Nothing found at %s or worse.\n", severity)
 	}
 	printKennelFindings(e, r.Findings, paths)
+	fmt.Fprintf(e.out, "\nScore %d of 100 (formula version %d), of the %d checks that could be read here", r.Score.Value, r.Score.Version, r.Score.Checked)
+	if len(r.NotChecked) > 0 {
+		fmt.Fprintf(e.out, "; %d more need a controller and are not counted", len(r.NotChecked))
+	}
+	fmt.Fprintln(e.out, ".")
 	if len(r.NotChecked) > 0 {
 		fmt.Fprintln(e.out, "\nNot checked here:")
 		for _, n := range r.NotChecked {

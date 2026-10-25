@@ -813,6 +813,62 @@ excused is no longer the finding there is. A finding about the repository as a
 whole, such as pins that no updater moves, has no file and a waiver of it covers
 the repository.
 
+## The score
+
+A repository's standing is a word. The **score** is a number beside it, from 0 to
+100, made by a rule that is published here so that anyone can recompute it from
+the findings by hand. It measures configuration, the findings Kennel Club's
+checks open, and nothing else: it says nothing about how fast CI is, how often it
+fails or what it costs.
+
+Start at 100 and take away, for each open finding that is not waived:
+
+| Severity | Taken away |
+| --- | --- |
+| Error | 20 |
+| Warning | 6 |
+| Note | 1 |
+
+Two findings with the same check and the same subject count once. The result is
+never below 0, and the worst severity open puts a ceiling on it:
+
+* any open **error**: at most **59**
+* any open **warning**, and no error: at most **89**
+
+The ceilings are there because a lone exposed repository with nothing else wrong
+would otherwise score 80, which reads like a good grade. It is the rule that an
+open error is never hidden, in numbers.
+
+Three examples, each worked out by the same rule:
+
+| Open findings | Score |
+| --- | --- |
+| One warning | 89 |
+| One error and one note | 59 |
+| Three warnings and two notes | 80 |
+
+Things the number does not do:
+
+* **It is of the checks that could be read.** The score carries how many checks
+  ran and how many could not (for want of a permission or a read), and while any
+  could not, the page says "of the checks that could be read" and never shows it
+  as a total.
+* **A waived finding takes nothing away**, and the Overview counts the waived
+  findings beside the number, as it does beside the badge.
+* **A check turned off is not counted** as run or as unread.
+* **There are no letter grades.** A letter invites an argument about the line
+  between two letters that the formula does not settle.
+
+The fleet's figure is the **median** of the repositories' scores, with the lowest
+score and how many repositories are under 60 beside it. It is not the mean:
+twenty clean repositories would average one with an open error up to a
+good-looking figure.
+
+`zoomies kennel check` prints the score for what it can read in a checkout, and
+the API carries it as `score` with the formula's `version`. The version changes
+whenever a weight, a ceiling or the way findings are counted does, and a score
+from one version is not compared with another's. This is version 1.
+
 ## What it reads
 
 Every check names the facts it needs, and a check whose facts cannot be read is

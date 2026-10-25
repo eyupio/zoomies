@@ -1,7 +1,8 @@
 # A Kennel score, with the formula published
 
-**Status:** proposed. The weights, the caps and the roll-up below are the owner's to
-accept, and nothing is built until they are.
+**Status:** accepted by the owner on 25 October as proposed (weights 20/6/1, caps
+59/89, median with the lowest beside it, scores shown with unread checks, no letter
+grades). Tasks 1, 2 and 4 are built. Task 3 (the UI) and Task 5 (the record) remain.
 
 ## Goal
 
