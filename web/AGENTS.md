@@ -26,6 +26,12 @@ Scoped guidance for the UI, read in addition to the root [AGENTS.md](../AGENTS.m
   [docs/api-surface.md](../docs/api-surface.md).
 - Playwright specs in `web/tests/` run against the real binary, including
   accessibility and mobile passes.
+- A spec that rewrites a read the page also receives as an event-stream frame
+  takes the stream away first (`route.abort('connectionfailed')` on
+  `**/api/v1/events*`). A frame lands whenever the fleet changes, which in a long
+  run on one shared controller is any moment, and it replaces what the test
+  wrote. A route handler that rewrites a response reads it through a guard, since
+  a page that asks again abandons the read the handler is waiting on.
 - `npm run check` type-checks `web/unit/` as well (`tsconfig.unit.json`). The unit
   tests run on Node with types stripped, so a fixture that has fallen behind the
   API's shape would otherwise go on passing; build a fixture to the generated

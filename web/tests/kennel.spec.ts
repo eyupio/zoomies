@@ -13,7 +13,7 @@
  * Both the desktop and the phone project run this file, one after the other, so
  * nothing here may depend on a controller that has not been used before.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type APIResponse, type Page, type Route } from '@playwright/test';
 import {
   dataRows,
   documentWidth,
@@ -58,6 +58,40 @@ function tile(page: Page, label: string) {
   return page
     .locator('dl.metrics > div')
     .filter({ has: page.getByRole('term').filter({ hasText: new RegExp(`^${label}↗?$`) }) });
+}
+
+/**
+ * The server's own answer to a request, for a handler that changes a little of
+ * it, or null when the page gave up on the request while the handler was
+ * waiting for the server.
+ *
+ * A grid that asks again, or a navigation, abandons the read it had out. A
+ * handler that then parses a disposed body throws, the request is never
+ * answered, and the test fails on a page that did nothing wrong. The request is
+ * handed on instead, and the caller has nothing left to answer.
+ */
+async function readThrough<T>(route: Route): Promise<{ response: APIResponse; body: T } | null> {
+  try {
+    const response = await route.fetch();
+    return { response, body: (await response.json()) as T };
+  } catch {
+    await route.fallback().catch(() => undefined);
+    return null;
+  }
+}
+
+/**
+ * Take the event stream away, for a test that decides what the page reads.
+ *
+ * The page replaces its Overview from a `kennel.summary` frame and clears its
+ * stale notice on one, so with the stream live the test races it: a frame that
+ * lands first leaves the real document on the page and the one the test wrote
+ * is never shown. A stream that is down cannot send, and the pages that read the
+ * REST route again on their own when it comes back are not what these tests are
+ * about.
+ */
+async function withoutTheStream(page: Page): Promise<void> {
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
 }
 
 /** The demo's repositories are read within moments of the setting being turned on. */
@@ -279,12 +313,14 @@ test.describe('with Kennel Club on', () => {
     // What a held read looks like: one repository only partly read, and an
     // installation whose reads are not getting through. The numbers above must
     // not read as totals, and the page says why.
+    await withoutTheStream(page);
     await page.route('**/api/v1/kennel', async (route) => {
-      const real = await route.fetch();
-      const body = (await real.json()) as {
+      const read = await readThrough<{
         states: Record<string, number>;
         unavailable: unknown[];
-      };
+      }>(route);
+      if (!read) return;
+      const { response: real, body } = read;
       body.states = { ...body.states, partial: 1 };
       body.unavailable = [
         {
@@ -311,6 +347,9 @@ test.describe('with Kennel Club on', () => {
   });
 
   test('a refresh that fails keeps what the page had, says so, and recovers', async ({ page }) => {
+    // With the stream live, a frame clears the notice this test is looking at, and
+    // the page asks again when the stream comes back: the button it clicks goes.
+    await withoutTheStream(page);
     await goto(page, '/kennel', 'Kennel Club');
     const repositories = tile(page, 'Repositories');
     await expect(repositories).toContainText('3');
@@ -463,8 +502,9 @@ test.describe('with Kennel Club on', () => {
     // what an installation under a rate limit looks like, which Kennel Club
     // reports as a state and never as a fault.
     await page.route(`**/api/v1/kennel/repositories/${quiet.id}`, async (route) => {
-      const real = await route.fetch();
-      const body = (await real.json()) as Record<string, unknown>;
+      const read = await readThrough<Record<string, unknown>>(route);
+      if (!read) return;
+      const { response: real, body } = read;
       body.state = 'partial';
       body.complete = false;
       body.coverage = [
@@ -680,21 +720,25 @@ test.describe('with Kennel Club on', () => {
     // A repository's name, in the Overview and the list, and the label on a piece
     // of evidence, in the repository's CI section: the places a name reaches this
     // page.
+    await withoutTheStream(page);
     await page.route('**/api/v1/kennel', async (route) => {
-      const real = await route.fetch();
-      const body = (await real.json()) as { attention: Array<{ name: string }> };
+      const read = await readThrough<{ attention: Array<{ name: string }> }>(route);
+      if (!read) return;
+      const { response: real, body } = read;
       for (const a of body.attention) a.name = payload;
       return route.fulfill({ response: real, json: body });
     });
     await page.route('**/api/v1/kennel/repositories?*', async (route) => {
-      const real = await route.fetch();
-      const body = (await real.json()) as { items: Array<{ name: string }> };
+      const read = await readThrough<{ items: Array<{ name: string }> }>(route);
+      if (!read) return;
+      const { response: real, body } = read;
       for (const item of body.items) item.name = payload;
       return route.fulfill({ response: real, json: body });
     });
     await page.route(`**/api/v1/kennel/repositories/${row.id}`, async (route) => {
-      const real = await route.fetch();
-      const body = (await real.json()) as Row;
+      const read = await readThrough<Row>(route);
+      if (!read) return;
+      const { response: real, body } = read;
       body.name = payload;
       for (const finding of body.findings)
         for (const item of finding.evidence) {
@@ -730,8 +774,9 @@ test.describe('with Kennel Club on', () => {
     const sha = 'a'.repeat(40);
     const odd = 'b'.repeat(40);
     await page.route(`**/api/v1/kennel/repositories/${row.id}`, async (route) => {
-      const real = await route.fetch();
-      const body = (await real.json()) as Row & { files: Array<{ sha: string; path: string }> };
+      const read = await readThrough<Row & { files: Array<{ sha: string; path: string }> }>(route);
+      if (!read) return;
+      const { response: real, body } = read;
       body.findings.unshift({
         code: 'ci.no_timeout',
         severity: 'warning',
@@ -968,8 +1013,9 @@ test.describe('with Kennel Club on', () => {
       const row = await repository(page, PUBLIC_REPO);
       let answer = stub({ count: 3, failed: 3, fleet_failed: 1 });
       await page.route('**/api/v1/jobs/stats?*', async (route) => {
-        const real = await route.fetch();
-        const body = (await real.json()) as { groups: Group[] };
+        const read = await readThrough<{ groups: Group[] }>(route);
+        if (!read) return;
+        const { response: real, body } = read;
         if (!new URL(route.request().url()).searchParams.has('group_by')) body.groups = [answer];
         return route.fulfill({ response: real, json: body });
       });
@@ -1139,8 +1185,9 @@ test.describe('with Kennel Club on', () => {
             }),
           });
         }
-        const real = await route.fetch();
-        const body = (await real.json()) as { groups: Group[] };
+        const read = await readThrough<{ groups: Group[] }>(route);
+        if (!read) return;
+        const { response: real, body } = read;
         const since = Date.parse(new URL(route.request().url()).searchParams.get('since') ?? '');
         if (Date.now() - since < 8 * DAY) body.groups = [];
         return route.fulfill({ response: real, json: body });
@@ -1321,12 +1368,15 @@ test.describe('with Kennel Club on', () => {
         evidence: [],
       });
       await page.route(`**/api/v1/kennel/repositories/${row.id}`, async (route) => {
-        const response = await route.fetch();
-        const body = (await response.json()) as Record<string, unknown> & {
-          findings: unknown[];
-          coverage: unknown[];
-          disabled: string[];
-        };
+        const read = await readThrough<
+          Record<string, unknown> & {
+            findings: unknown[];
+            coverage: unknown[];
+            disabled: string[];
+          }
+        >(route);
+        if (!read) return;
+        const { response, body } = read;
         body.disabled = body.disabled.filter(
           (code) =>
             ![
@@ -1638,8 +1688,9 @@ test.describe('with Kennel Club on', () => {
         title: 'A job ran until GitHub stopped it at six hours',
       };
       await page.route(`**/api/v1/kennel/repositories/${id}`, async (route) => {
-        const response = await route.fetch();
-        const body = (await response.json()) as Record<string, unknown> & { findings: unknown[] };
+        const read = await readThrough<Record<string, unknown> & { findings: unknown[] }>(route);
+        if (!read) return;
+        const { response: response, body } = read;
         body.findings = [...body.findings, full(warning)];
         body.waived = [
           {
@@ -1663,8 +1714,9 @@ test.describe('with Kennel Club on', () => {
       // different questions of the controller.
       const actAs = async (role: 'viewer' | 'operator') => {
         await page.route('**/api/v1/meta', async (route) => {
-          const response = await route.fetch();
-          const body = (await response.json()) as Record<string, unknown>;
+          const read = await readThrough<Record<string, unknown>>(route);
+          if (!read) return;
+          const { response: response, body } = read;
           return route.fulfill({
             response,
             json: { ...body, auth_disabled: false, bootstrap_required: false },
@@ -1912,8 +1964,9 @@ test.describe('with Kennel Club on', () => {
     // administrator. The page is told who it is talking to.
     async function actAs(page: Page, role: 'viewer' | 'operator'): Promise<void> {
       await page.route('**/api/v1/meta', async (route) => {
-        const response = await route.fetch();
-        const body = (await response.json()) as Record<string, unknown>;
+        const read = await readThrough<Record<string, unknown>>(route);
+        if (!read) return;
+        const { response: response, body } = read;
         return route.fulfill({
           response,
           json: { ...body, auth_disabled: false, bootstrap_required: false },
@@ -2547,8 +2600,9 @@ test.describe('with Kennel Club on', () => {
       // The fixture has three repositories, so the list is handed more of them.
       const first = await repository(page, API);
       await page.route('**/api/v1/kennel/repositories?*', async (route) => {
-        const response = await route.fetch();
-        const body = (await response.json()) as { items: Row[]; total: number };
+        const read = await readThrough<{ items: Row[]; total: number }>(route);
+        if (!read) return;
+        const { response: response, body } = read;
         const items = [...body.items];
         for (let i = 0; items.length < 11; i++)
           items.push({ ...first, id: `${first.id}-copy-${i}`, name: `acme/copy-${i}` });
@@ -2602,8 +2656,9 @@ test.describe('the side menu and the switch', () => {
   // questions of the controller.
   async function pretendToBe(page: Page, role: 'viewer' | 'operator'): Promise<void> {
     await page.route('**/api/v1/meta', async (route) => {
-      const response = await route.fetch();
-      const body = (await response.json()) as Record<string, unknown>;
+      const read = await readThrough<Record<string, unknown>>(route);
+      if (!read) return;
+      const { response: response, body } = read;
       return route.fulfill({
         response,
         json: { ...body, auth_disabled: false, bootstrap_required: false },
@@ -3042,8 +3097,9 @@ test.describe('the side menu and the switch', () => {
     await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'true');
 
     await page.route('**/api/v1/kennel', async (route) => {
-      const response = await route.fetch();
-      const body = (await response.json()) as Record<string, unknown>;
+      const read = await readThrough<Record<string, unknown>>(route);
+      if (!read) return;
+      const { response: response, body } = read;
       return route.fulfill({ response, json: { ...body, enabled: false } });
     });
     await page.evaluate(() => {
@@ -3191,8 +3247,9 @@ test.describe('the cards on the Overview', () => {
     // have something to count except when this says they do not.
     let nothing = false;
     await page.route('**/api/v1/kennel', async (route) => {
-      const response = await route.fetch();
-      const body = (await response.json()) as Overview;
+      const read = await readThrough<Overview>(route);
+      if (!read) return;
+      const { response: response, body } = read;
       const some = (n: number) => (alone === n ? 3 : 0);
       return route.fulfill({
         response,
@@ -3400,8 +3457,9 @@ test.describe('the AI Context row in the side menu', () => {
   async function sayProblemsAre(page: Page, items: ReturnType<typeof problem>[]): Promise<void> {
     await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
     await page.route('**/api/v1/problems', async (route) => {
-      const response = await route.fetch();
-      const body = (await response.json()) as { items?: unknown[] };
+      const read = await readThrough<{ items?: unknown[] }>(route);
+      if (!read) return;
+      const { response: response, body } = read;
       return route.fulfill({ response, json: { ...body, items } });
     });
   }
@@ -3939,8 +3997,9 @@ test.describe('the list of repositories shows the ones being served', () => {
   async function fleetWithQuietOnes(page: Page, quiet: number): Promise<void> {
     await page.route('**/api/v1/kennel/repositories?*', async (route) => {
       const params = new URL(route.request().url()).searchParams;
-      const response = await route.fetch();
-      const body = (await response.json()) as { items?: unknown[]; total: number };
+      const read = await readThrough<{ items?: unknown[]; total: number }>(route);
+      if (!read) return;
+      const { response: response, body } = read;
       // Anything that is not a list -- an answer that Kennel Club is off, once a test
       // has finished with it -- is passed on as it came.
       if (!Array.isArray(body.items)) return route.fulfill({ response, json: body });
@@ -4047,15 +4106,9 @@ test.describe('the list of repositories shows the ones being served', () => {
   }) => {
     await page.route('**/api/v1/kennel/repositories?*', async (route) => {
       const params = new URL(route.request().url()).searchParams;
-      const response = await route.fetch();
-      // The grid can give up on a read while this handler is between the fetch
-      // and the parse, and a disposed body is that, not a failure of the page.
-      let body: { items?: unknown[]; total: number };
-      try {
-        body = (await response.json()) as { items?: unknown[]; total: number };
-      } catch {
-        return route.fallback();
-      }
+      const read = await readThrough<{ items?: unknown[]; total: number }>(route);
+      if (!read) return;
+      const { response, body } = read;
       if (!Array.isArray(body.items)) return route.fulfill({ response, json: body });
       return route.fulfill({
         response,
