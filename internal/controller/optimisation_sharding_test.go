@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -291,5 +292,156 @@ func TestApproveShardingPreviewRecordsTheExactPreviewWithoutReadingGitHub(t *tes
 	}
 	if _, err := h.c.ApproveShardingPreview(h.ctx, approver, inst.ID, inst.Target, retained.ID, preview.HeadSHA, strings.Repeat("f", 64)); !errors.Is(err, ErrOptimisationShardingApproval) {
 		t.Fatalf("wrong source accepted: %v", err)
+	}
+}
+
+func shardingPublishFixture(t *testing.T) (*harness, *store.Installation, *cacheSourceReader, *RetainedShardingPreview, *store.AuditEvent, OptimisationPolicyCheck) {
+	t.Helper()
+	h, inst, reader, selection, jobID := shardControllerFixture(t, 12)
+	preview, err := h.c.InspectShardingPreview(h.ctx, inst.ID, inst.Target, selection, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := &store.AuditEvent{ActorID: "usr_sharding", ActorKind: "user"}
+	retained, err := h.c.CaptureShardingPreview(h.ctx, actor, inst.ID, inst.Target, selection, jobID, preview.HeadSHA, preview.SourceSHA256, preview.Shards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.publishPR = &github.PullRequest{Number: 12, HTMLURL: "https://github.com/" + inst.Target + "/pull/12", Branch: "zoomies/sharding-" + retained.ID}
+	check := func(context.Context) (optimisation.Policy, error) {
+		return optimisation.Policy{SourceAllowed: true, WorkflowEditsAllowed: true, PublishAllowed: true}, nil
+	}
+	return h, inst, reader, retained, actor, check
+}
+
+func approveShardingForTest(t *testing.T, h *harness, inst *store.Installation, retained *RetainedShardingPreview, actor *store.AuditEvent) {
+	t.Helper()
+	if _, err := h.c.ApproveShardingPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, retained.Preview.HeadSHA, retained.Preview.SourceSHA256); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPublishShardingPreviewOpensOneDraftOfTheApprovedChange(t *testing.T) {
+	h, inst, reader, retained, actor, check := shardingPublishFixture(t)
+	approveShardingForTest(t, h, inst, retained, actor)
+	p := retained.Preview
+	published, err := h.c.PublishShardingPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, check)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Publication == nil || published.Publication.PullNumber != 12 || published.Publication.PullURL != reader.publishPR.HTMLURL || reader.publishes != 1 {
+		t.Fatalf("publication %+v publishes=%d", published.Publication, reader.publishes)
+	}
+	req := reader.publishRequest
+	if req.Path != p.Edit.Path || req.Mode != p.File.Mode || req.Content != p.File.Content || req.SourceSHA256 != p.SourceSHA256 || req.Base != "main" || req.BaseCommit != p.HeadSHA || req.Head != "zoomies/sharding-"+retained.ID {
+		t.Fatalf("publish request %+v", req)
+	}
+	for _, want := range []string{"Zoomies will not merge", "costs more runner time, not less", "estimate from medians", "A job with the original name stays behind", "needs 4 runners at once"} {
+		if !strings.Contains(req.Body, want) {
+			t.Errorf("the pull request body does not say %q:\n%s", want, req.Body)
+		}
+	}
+	if !strings.Contains(req.Content, "--shard=${{ matrix.shard }}/4") {
+		t.Fatal("the published file is not the approved change")
+	}
+	if reader.calls != 3 {
+		t.Fatalf("publish read GitHub %d times", reader.calls)
+	}
+	if _, total, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"optimisation.sharding_preview_published"}}, store.Page{Limit: 10}); err != nil || total != 1 {
+		t.Fatalf("audit total=%d err=%v", total, err)
+	}
+	calls := reader.calls
+	again, err := h.c.PublishShardingPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, check)
+	if err != nil || again.Publication == nil || reader.publishes != 1 || reader.calls != calls {
+		t.Fatalf("repeat wrote or read again: %v %+v publishes=%d", err, again, reader.publishes)
+	}
+}
+
+func TestPublishShardingPreviewRefusesWithoutApprovalOrWithAForeignBinding(t *testing.T) {
+	h, inst, reader, retained, actor, check := shardingPublishFixture(t)
+	p := retained.Preview
+	if _, err := h.c.PublishShardingPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, check); !errors.Is(err, ErrOptimisationNotApproved) {
+		t.Fatalf("unapproved publish: %v", err)
+	}
+	approveShardingForTest(t, h, inst, retained, actor)
+	if _, err := h.c.PublishShardingPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, strings.Repeat("f", 40), p.SourceSHA256, check); !errors.Is(err, ErrOptimisationShardingApproval) {
+		t.Fatalf("foreign head publish: %v", err)
+	}
+	if reader.publishes != 0 {
+		t.Fatal("a refused publish reached GitHub")
+	}
+}
+
+func TestPublishShardingPreviewRefusesWhatMovedSinceTheReview(t *testing.T) {
+	for name, move := range map[string]func(*harness, *cacheSourceReader){
+		"head":   func(_ *harness, r *cacheSourceReader) { r.shardSource.HeadSHA = strings.Repeat("c", 40) },
+		"branch": func(_ *harness, r *cacheSourceReader) { r.shardSource.HeadBranch = "release" },
+		"workflow": func(_ *harness, r *cacheSourceReader) {
+			w := r.shardSource.Workflow
+			w.Content += "# edited\n"
+			r.shardSource.Workflow = w
+			r.shardSource.WorkflowSHA256 = cacheSHA256(w.Content)
+		},
+		"pool no longer supports the count": func(h *harness, _ *cacheSourceReader) {
+			pool := shardPool(t, h)
+			pool.MaxRunners = 2
+			if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, inst, reader, retained, actor, check := shardingPublishFixture(t)
+			approveShardingForTest(t, h, inst, retained, actor)
+			move(h, reader)
+			p := retained.Preview
+			_, err := h.c.PublishShardingPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, check)
+			if err == nil || reader.publishes != 0 {
+				t.Fatalf("published after %s moved: err=%v publishes=%d", name, err, reader.publishes)
+			}
+			if got, replayErr := h.c.ReplayShardingPreview(h.ctx, inst.ID, inst.Target, retained.ID); replayErr != nil || got.Publication != nil {
+				t.Fatalf("a refused publish left a record: %+v %v", got, replayErr)
+			}
+		})
+	}
+}
+
+func TestPublishShardingPreviewRefusesAWithdrawnSettingAndMissingPermission(t *testing.T) {
+	h, inst, reader, retained, actor, check := shardingPublishFixture(t)
+	approveShardingForTest(t, h, inst, retained, actor)
+	p := retained.Preview
+	off := func(context.Context) (optimisation.Policy, error) {
+		return optimisation.Policy{SourceAllowed: true, WorkflowEditsAllowed: true}, nil
+	}
+	if _, err := h.c.PublishShardingPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, off); !errors.Is(err, ErrOptimisationPublishPolicy) {
+		t.Fatalf("publish setting off: %v", err)
+	}
+	calls := 0
+	flipping := func(context.Context) (optimisation.Policy, error) {
+		calls++
+		return optimisation.Policy{SourceAllowed: true, WorkflowEditsAllowed: true, PublishAllowed: calls < 2}, nil
+	}
+	if _, err := h.c.PublishShardingPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, flipping); !errors.Is(err, ErrOptimisationPublishPolicy) {
+		t.Fatalf("setting withdrawn mid-flight: %v", err)
+	}
+	reader.probeInfo = &github.AppInfo{Permissions: map[string]string{"contents": "read"}}
+	if _, err := h.c.PublishShardingPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, check); !errors.Is(err, ErrOptimisationPublishPermission) {
+		t.Fatalf("missing permission: %v", err)
+	}
+	if reader.publishes != 0 {
+		t.Fatal("a refused publish reached GitHub")
+	}
+}
+
+func TestPublishShardingPreviewKeepsADifferentExistingDraftOutOfTheRecord(t *testing.T) {
+	h, inst, reader, retained, actor, check := shardingPublishFixture(t)
+	approveShardingForTest(t, h, inst, retained, actor)
+	p := retained.Preview
+	reader.publishErr = github.ErrOptimisationPublishConflict
+	if _, err := h.c.PublishShardingPreview(h.ctx, actor, inst.ID, inst.Target, retained.ID, p.HeadSHA, p.SourceSHA256, check); !errors.Is(err, ErrOptimisationPublish) {
+		t.Fatalf("conflicting draft: %v", err)
+	}
+	if got, err := h.c.ReplayShardingPreview(h.ctx, inst.ID, inst.Target, retained.ID); err != nil || got.Publication != nil {
+		t.Fatalf("a conflicting draft was recorded: %+v %v", got, err)
 	}
 }

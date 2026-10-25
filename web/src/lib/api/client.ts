@@ -1600,6 +1600,15 @@ export const approveShardingPreview = (
     '/optimisations/sharding/previews/' + encodeURIComponent(id) + '/approval',
     { body, signal },
   );
+export const publishShardingPreview = (
+  id: string,
+  body: import('./types').ShardingPublicationRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').ShardingPreview>(
+    '/optimisations/sharding/previews/' + encodeURIComponent(id) + '/publication',
+    { body, signal },
+  );
 export const getShardingPreview = (
   id: string,
   installationId: string,

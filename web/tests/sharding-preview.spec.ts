@@ -56,6 +56,19 @@ const retained = {
   verification: 'inconclusive',
   explanation: inspection.explanation,
   approval: null,
+  publication: null,
+};
+const publication = {
+  published_by: 'usr_operator',
+  published_at: '2026-10-24T09:03:00Z',
+  branch: 'zoomies/sharding-ops_fixture',
+  base_branch: 'main',
+  base_sha: 'a'.repeat(40),
+  head_sha: 'a'.repeat(40),
+  source_sha256: 'b'.repeat(64),
+  preview_sha256: 'd'.repeat(64),
+  pull_number: 12,
+  pull_url: 'https://github.com/acme/repo/pull/12',
 };
 const approval = {
   approved_by: 'usr_operator',
@@ -67,9 +80,9 @@ const approval = {
 const enablement = {
   source_reads: true,
   workflow_edits: true,
-  publish: false,
+  publish: true,
   enabled: true,
-  publish_enabled: false,
+  publish_enabled: true,
   can_change: true,
   can_publish: true,
 };
@@ -112,6 +125,11 @@ test('pick a job, review the shards and the extra runner time, and keep the prev
   let inspectBody: Record<string, unknown> | undefined;
   let retainBody: Record<string, unknown> | undefined;
   let approveBody: Record<string, unknown> | undefined;
+  let publishBody: Record<string, unknown> | undefined;
+  await page.route('**/api/v1/optimisations/sharding/previews/*/publication', async (route) => {
+    publishBody = route.request().postDataJSON();
+    await route.fulfill({ json: { ...retained, approval, publication } });
+  });
   await page.route('**/api/v1/optimisations/sharding/previews/*/approval', async (route) => {
     approveBody = route.request().postDataJSON();
     await route.fulfill({ json: { ...retained, approval } });
@@ -169,6 +187,20 @@ test('pick a job, review the shards and the extra runner time, and keep the prev
     source_sha256: 'b'.repeat(64),
   });
   await expect(page.getByText(/did not publish anything/)).toBeVisible();
+  await page.getByRole('button', { name: 'Open a draft pull request' }).click();
+  await expect(page.getByRole('heading', { name: 'Draft pull request opened' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '#12' })).toHaveAttribute(
+    'href',
+    'https://github.com/acme/repo/pull/12',
+  );
+  // The request names the reviewed binding and never a shard count.
+  expect(publishBody).toEqual({
+    installation_id: 'ins_fixture',
+    repository: 'acme/repo',
+    head_sha: 'a'.repeat(40),
+    source_sha256: 'b'.repeat(64),
+  });
+  await expect(page.getByText(/nothing was merged/i).first()).toBeVisible();
 });
 
 test('a kept sharding preview opens from its link', async ({ page }) => {
@@ -204,18 +236,18 @@ test('a kept sharding preview fits a phone', async ({ page }) => {
   expect(overflow).toBe(false);
 });
 
-test('an approved sharding preview fits a phone', async ({ page }) => {
+test('a published sharding preview fits a phone', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 700 });
   await mocks(page);
   await page.route('**/api/v1/optimisations/sharding/previews/*?*', (route) =>
-    route.fulfill({ json: { ...retained, approval } }),
+    route.fulfill({ json: { ...retained, approval, publication } }),
   );
   await goto(
     page,
     '/optimisations/sharding?id=ops_fixture&installation_id=ins_fixture&repo=acme%2Frepo',
     'Sharding preview',
   );
-  await expect(page.getByRole('heading', { name: 'Approved' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Draft pull request opened' })).toBeVisible();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
   );

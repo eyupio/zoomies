@@ -5,6 +5,7 @@
     inspectShardingPreview,
     retainShardingPreview,
     approveShardingPreview,
+    publishShardingPreview,
     getShardingPreview,
   } from '$lib/api/client';
   import type {
@@ -23,6 +24,7 @@
   import Checkbox from '$lib/components/Checkbox.svelte';
   import CheckoutRunPicker from '$lib/optimisations/CheckoutRunPicker.svelte';
   import OptimisationGate from '$lib/optimisations/OptimisationGate.svelte';
+  import PublicationGate from '$lib/optimisations/PublicationGate.svelte';
   import ShardingPreviewCard from '$lib/optimisations/ShardingPreviewCard.svelte';
   import { router } from '$lib/router';
 
@@ -165,6 +167,28 @@
     const current = begin();
     try {
       const result = await approveShardingPreview(
+        preview.id,
+        {
+          installation_id: preview.installation_id,
+          repository: preview.repository,
+          head_sha: preview.head_sha,
+          source_sha256: preview.source_sha256,
+        },
+        controller?.signal,
+      );
+      if (current !== operation) return;
+      preview = result;
+    } catch (e) {
+      if (current === operation) failed(e);
+    } finally {
+      if (current === operation) busy = false;
+    }
+  }
+  async function publish() {
+    if (busy || retryBlocked || !canCapture || !preview) return;
+    const current = begin();
+    try {
+      const result = await publishShardingPreview(
         preview.id,
         {
           installation_id: preview.installation_id,
@@ -367,11 +391,17 @@
     {/if}
 
     {#if preview}
+      {#if canCapture && preview.approval && !preview.publication}
+        <PublicationGate bind:enablement refreshKey={gateRefresh} />
+      {/if}
       <ShardingPreviewCard
         {preview}
         canApprove={canCapture}
         approving={busy}
         onapprove={() => void approve()}
+        canPublish={canCapture && enablement?.publish_enabled === true}
+        publishing={busy}
+        onpublish={() => void publish()}
       />
     {/if}
 

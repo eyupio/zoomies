@@ -3147,3 +3147,20 @@ projection keeps the time and digests and drops `approved_by`. See
 Next agent: publication (migration 0131): one reconciled draft pull request that
 re-reads the job, branch and workflow and refuses any change, then the sharding
 work is complete bar the owner's real-repository validation.
+
+
+### E3 sharding publication, 24 October 2026
+
+Migration 0131 stores one draft pull request per approved sharding preview.
+`PublishShardingPreview` re-reads the job, branch, workflow and history with the stored
+provenance, requires all three live settings, probes the App's permissions and opens
+one draft on `zoomies/sharding-<preview-id>`; it never merges, never force-pushes and
+reconciles a retry. The shard count may only rise on the fresh read, so a busy pool
+does not refuse a good change, but a count that is no longer supported is refused.
+The request carries no count. See
+[the plan](roadmap/plans/2026-10-24-eli-e3-sharding-publication.md).
+
+Test sharding is built end to end for Playwright, which is all decision 0014 covers.
+The next free migration is 0132. What remains is the owner's: a run against one real
+repository and a real E2 comparison of a published change. Jest and Vitest would be
+separate, equally reviewed slices if the owner wants them.

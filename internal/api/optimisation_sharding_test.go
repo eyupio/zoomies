@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/prrepair"
 	"github.com/eyupio/zoomies/internal/store"
@@ -155,6 +156,33 @@ func TestShardingCaptureAndReplayKeepTheSourcePrivate(t *testing.T) {
 	}
 	approveBody["head_sha"] = strings.Repeat("f", 40)
 	h.do(request{method: http.MethodPost, path: approvePath, token: token, body: approveBody}).mustStatus(t, 409, "wrong head")
+
+	publishPath := "/api/v1/optimisations/sharding/previews/" + saved.ID + "/publication"
+	publishBody := map[string]any{"installation_id": instID, "repository": "acme/repo", "head_sha": saved.HeadSHA, "source_sha256": saved.SourceSHA256}
+	h.do(request{method: http.MethodPost, path: publishPath, token: token, body: publishBody}).mustStatus(t, 403, "operator without the publish scope")
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Optimisation.Publish = true })
+	f.publishPR = &github.PullRequest{Number: 21, HTMLURL: "https://github.com/acme/repo/pull/21", Branch: "zoomies/sharding-" + saved.ID}
+	publishToken := h.token("publisher", store.RoleOperator, "jobs:read", "optimisations:write", "optimisations:read", "optimisations:publish")
+	published := h.do(request{method: http.MethodPost, path: publishPath, token: publishToken, body: publishBody})
+	published.mustStatus(t, 200, "sharding publication")
+	var drafted ShardingPreviewView
+	if err := json.Unmarshal(published.body, &drafted); err != nil {
+		t.Fatal(err)
+	}
+	if drafted.Publication == nil || drafted.Publication.PullNumber != 21 || drafted.Publication.PullURL != "https://github.com/acme/repo/pull/21" || drafted.Publication.Branch != "zoomies/sharding-"+saved.ID || drafted.Publication.PublishedBy == "" || f.publishes != 1 {
+		t.Fatalf("publication %s", published.body)
+	}
+	if f.publishReq.Path != saved.WorkflowPath || !strings.Contains(f.publishReq.Content, "--shard=${{ matrix.shard }}/") || f.publishReq.SourceSHA256 != saved.SourceSHA256 || f.publishReq.Base != "main" || f.publishReq.Head != "zoomies/sharding-"+saved.ID {
+		t.Fatalf("publish request %+v", f.publishReq)
+	}
+	assertShape(t, loadSpec(t), "ShardingPreview", published.body)
+	if auditCount(t, h, "optimisation.sharding_preview_published") != 1 || f.shardReads.Load() != 3 {
+		t.Fatal("publication audit or read count")
+	}
+	h.do(request{method: http.MethodPost, path: publishPath, token: publishToken, body: publishBody}).mustStatus(t, 200, "repeat publication")
+	if f.publishes != 1 || f.shardReads.Load() != 3 {
+		t.Fatal("repeat publication reached GitHub")
+	}
 	capture["shards"] = got.Shards - 1
 	h.do(request{method: http.MethodPost, path: "/api/v1/optimisations/sharding/previews", token: token, body: capture}).mustStatus(t, 409, "a count that was not reviewed")
 	capture["shards"] = 9

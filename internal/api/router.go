@@ -319,6 +319,7 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/sharding/previews", s.handleCaptureSharding)
 		r.With(s.require(auth.ActionOptimisationsRead), s.require(auth.ActionJobsRead), s.refuseVisitors).Get("/optimisations/sharding/previews/{id}", s.handleGetSharding)
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/sharding/previews/{id}/approval", s.handleApproveSharding)
+		r.With(s.require(auth.ActionOptimisationsPublish), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/sharding/previews/{id}/publication", s.handlePublishSharding)
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/readiness/previews", s.handleCaptureReadiness)
 		r.With(s.require(auth.ActionOptimisationsRead), s.require(auth.ActionJobsRead), s.refuseVisitors).Get("/optimisations/readiness/previews/{id}", s.handleGetReadiness)
 		r.With(s.require(auth.ActionOptimisationsWrite), s.require(auth.ActionJobsRead), s.refuseVisitors).Post("/optimisations/readiness/previews/{id}/approval", s.handleApproveReadiness)

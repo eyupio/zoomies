@@ -470,8 +470,14 @@ artifact or coverage upload are refused with the reason. **Keep a preview for 14
 days** retains the exact source, history and shard count privately; it approves and
 publishes nothing. An operator can then approve that exact preview: approval names
 its commit and source digest, records who approved, expires with the preview and
-publishes nothing. The same retained view is available from `zoomies optimisations
-sharding <preview-id> --installation ID --repo OWNER/REPO`, and to Eli as
+publishes nothing. After approval, **Open a draft pull request** commits the
+reviewed file on a new branch and opens one draft against the branch the run came
+from. It re-reads the job, branch, workflow and history first and refuses if the
+head, workflow, branch or test step moved, or if the pool or the history no longer
+supports the approved shard count; the count is never taken from the request. It
+never merges, never force-pushes and runs no job, and the draft's description says
+plainly that runner time rises and no saving was measured. The same retained view
+is available from `zoomies optimisations sharding <preview-id> --installation ID --repo OWNER/REPO`, and to Eli as
 `get_sharding_preview`; both show the shard count, the evidence, the extra runner
 time and one changed block, never the full workflow, and neither approves nor
 publishes.
