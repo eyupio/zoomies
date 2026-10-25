@@ -1,6 +1,7 @@
 # A skill that takes an agent from evidence to a previewed change
 
-**Status:** proposed.
+**Status:** built (the skill merged in #1278). Task 4, the trial in two agents, was run on
+25 October and is recorded in the pull request that fixed what it found.
 
 ## Goal
 

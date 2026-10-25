@@ -33,24 +33,38 @@ for any flag you are unsure of.
    which of the `zoomies` skill's four causes it is; do not try other commands to get
    round it.
 2. **Ask what is slow.** One job, one workflow or one pull request, not the fleet.
-   Find the job with `zoomies jobs list --repo <owner>/<repo> --job-name <name>`; its
-   ID is what the next commands take.
+   If the person has not named one, ask. If they cannot, rank the fleet's jobs by how
+   long they run with `zoomies jobs stats --group-by job_name --since 30d` (the
+   default window is seven days, which misses a nightly job), and say how many runs
+   each figure rests on: a job with one run is not evidence that it is slow. Find the
+   job with `zoomies jobs list --repo <owner>/<repo> --job-name <name> --output json`;
+   the table does not show IDs, and the `id` in the JSON is what the next commands
+   take. The JSON's `steps` hold the time each step took, which is where a slow job's
+   time went.
 3. **Read, in this order, and say what each returned.**
 
    ```sh
-   zoomies why <job-id>                      # failed? a failed job is not a slow one
+   zoomies why <job-id>                      # failed? a failed job is not a slow one; skip it for a job that succeeded
    zoomies jobs stats --repo <owner>/<repo> --group-by job_name   # how long it takes, p50 and p95
-   zoomies analyse queue-wait --pool <pool-id>   # did it wait for a runner, and why
-   zoomies jobs pr-delay <job-id> --pull-number N   # a pull request's wait on required checks
+   zoomies analyse queue-wait --pool <pool-id>   # did it wait for a runner, and why (IDs: zoomies pools list)
+   zoomies jobs pr-delay <job-id> --pull-number N   # only for a job that ran on a pull request
    zoomies jobs advice --repo <owner>/<repo>     # a runner size that does not fit
-   zoomies kennel check --output json            # the workflow's shape, run in a checkout
+   zoomies kennel check <checkout> --output json # the workflow's shape, in a checkout of that repository
    ```
+
+   `zoomies kennel check` reads the directory you give it, or the current one, so run
+   it only on a checkout of the repository in question; with none, say you could not
+   read the workflow and do not guess its shape. Exit code 4 means it found
+   something, not that it failed. Kennel Club can also be off on a controller, which
+   is the controller's to turn on.
 
    Report the figures with their counts. A command that says the installation cannot
    read that evidence (a pull request's wait needs a GitHub App permission an
    installation may not have) has told you something: say so and carry on with the
-   rest. A job that mostly waits is a capacity
-   question for `zoomies analyse queue-wait`, and none of the four changes touches it.
+   rest. A job that mostly waits (its wait against its run time, in `jobs stats`) is
+   a capacity question for `zoomies analyse queue-wait`, and none of the four changes
+   touches it. Time the controller says went to waiting is time spent waiting, not a
+   saving anyone has had.
    A job that runs long is where a change might help. After a release,
    `zoomies analyse compare` says whether the job got slower; a regression is not a
    candidate for a change to the workflow.
