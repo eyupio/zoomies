@@ -169,3 +169,66 @@ func TestPublishOptimisationValidatesTheReviewedChangeBeforeWriting(t *testing.T
 		}
 	}
 }
+
+// A response or a record lost after the branch was made, and an unrelated push
+// to the base before the retry, must not strand the draft: the same reviewed
+// change on an earlier base is the same act, and the retry adopts it.
+func TestPublishOptimisationAdoptsItsOwnBranchAfterTheBaseMoved(t *testing.T) {
+	f, c, base := publishFake(t)
+	req := publishRequest(base)
+	req.Body = "Read at " + base + ". Review this draft. Preview opv_test."
+	first, err := c.PublishOptimisation(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := f.AdvanceContextBranch("acme/widgets", "README.md", "unrelated\n")
+	retry := publishRequest(moved)
+	retry.Body = "Read at " + moved + ". Review this draft. Preview opv_test."
+	again, err := c.PublishOptimisation(context.Background(), retry)
+	if err != nil {
+		t.Fatalf("the retry after the base moved was refused: %v", err)
+	}
+	if again.Number != first.Number || len(f.Branches("acme/widgets")) != 2 || len(f.repoLocked("acme/widgets").contextGit().Pulls) != 1 {
+		t.Fatalf("retry = %+v, branches %v: it opened a second branch or pull request", again, f.Branches("acme/widgets"))
+	}
+}
+
+// Adopting is for the same change only. A branch whose content differs, or a
+// pull request that is not for this preview, is still preserved and refused.
+func TestPublishOptimisationStillPreservesADifferentBranchAfterTheBaseMoved(t *testing.T) {
+	f, c, base := publishFake(t)
+	req := publishRequest(base)
+	if _, err := c.PublishOptimisation(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	moved := f.AdvanceContextBranch("acme/widgets", "README.md", "unrelated\n")
+	other := publishRequest(moved)
+	other.Content = strings.Replace(publishAfter, "fetch-depth: 1", "fetch-depth: 0", 1)
+	if _, err := c.PublishOptimisation(context.Background(), other); !errors.Is(err, ErrOptimisationPublishConflict) {
+		t.Fatalf("a different change was adopted: %v", err)
+	}
+	// The same change, but a pull request that is not for this preview.
+	f.repoLocked("acme/widgets").contextGit().Pulls[0].Body = gh.Ptr("somebody else's pull request")
+	retry := publishRequest(moved)
+	retry.Body = "Read at " + moved + ". Review this draft."
+	if _, err := c.PublishOptimisation(context.Background(), retry); !errors.Is(err, ErrOptimisationPublishConflict) {
+		t.Fatalf("another pull request was adopted: %v", err)
+	}
+}
+
+// An earlier base that is further back than the walk reaches is not adopted;
+// the branch is preserved and the operator can look at it.
+func TestPublishOptimisationDoesNotAdoptABranchFromAFarEarlierBase(t *testing.T) {
+	f, c, base := publishFake(t)
+	req := publishRequest(base)
+	if _, err := c.PublishOptimisation(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	var moved string
+	for i := range maxAdoptedBaseDepth + 2 {
+		moved = f.AdvanceContextBranch("acme/widgets", "README.md", strings.Repeat("x", i+1))
+	}
+	if _, err := c.PublishOptimisation(context.Background(), publishRequest(moved)); !errors.Is(err, ErrOptimisationPublishConflict) {
+		t.Fatalf("a branch from a far earlier base was adopted: %v", err)
+	}
+}

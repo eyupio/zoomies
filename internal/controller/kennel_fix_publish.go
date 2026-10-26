@@ -137,7 +137,7 @@ func (c *Controller) PublishKennelFix(ctx context.Context, actor *store.AuditEve
 	}
 	if err := c.st.PutKennelFixPublication(ctx, record, actor); err != nil {
 		c.log.Error("recording a Kennel fix publication", "error", err, "preview", id, "pull_request", pr.Number)
-		return nil, fmt.Errorf("%w: the draft pull request #%d was opened, but its record could not be saved; press publish again to reconcile it, and if the default branch has moved since, check the pull request and the branch %s before publishing again", ErrOptimisationPublish, pr.Number, branch)
+		return nil, fmt.Errorf("%w: the draft pull request #%d was opened, but its record could not be saved; press publish again to reconcile it", ErrOptimisationPublish, pr.Number)
 	}
 	latest.Publication = &RetainedKennelFixPublication{
 		PublishedBy: record.PublishedBy, PublishedAt: record.CreatedAt, Branch: record.Branch, BaseBranch: record.BaseBranch,
