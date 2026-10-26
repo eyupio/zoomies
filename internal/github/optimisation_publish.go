@@ -127,12 +127,27 @@ func (c *appClient) PublishOptimisation(ctx context.Context, req OptimisationPub
 		return nil, c.optimisationPublishError("prepare optimisation file", classify(resp, err))
 	}
 	message := strings.TrimSpace(req.CommitMessage)
+	// adopted says the branch an earlier attempt left sits on an older base than
+	// the one this attempt read. The same reviewed change on an ancestor of the
+	// current base is the same act, retried after the base moved.
+	adopted := false
 	if existingErr == nil {
 		previous, resp, err := c.asInstallation.Git.GetCommit(ctx, owner, name, existing.GetObject().GetSHA())
 		if err != nil {
 			return nil, c.fail("verify existing optimisation branch", resp, err)
 		}
-		if previous.GetTree().GetSHA() != tree.GetSHA() || previous.GetMessage() != message || len(previous.Parents) != 1 || previous.Parents[0].GetSHA() != req.BaseCommit {
+		switch {
+		case previous.GetTree().GetSHA() == tree.GetSHA() && previous.GetMessage() == message && len(previous.Parents) == 1 && previous.Parents[0].GetSHA() == req.BaseCommit:
+		case previous.GetMessage() == message && len(previous.Parents) == 1:
+			ok, err := c.sameChangeOnAnEarlierBase(ctx, owner, name, req, previous)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				return nil, fmt.Errorf("%w: an existing branch differs from this preview or its base; it has been preserved", ErrOptimisationPublishConflict)
+			}
+			adopted = true
+		default:
 			return nil, fmt.Errorf("%w: an existing branch differs from this preview or its base; it has been preserved", ErrOptimisationPublishConflict)
 		}
 	} else {
@@ -182,7 +197,10 @@ func (c *appClient) PublishOptimisation(ctx context.Context, req OptimisationPub
 		return nil, fmt.Errorf("%w: too many pull requests to reconcile safely", ErrOptimisationPublishConflict)
 	}
 	if len(pulls) > 0 {
-		if len(pulls) != 1 || pulls[0].GetTitle() != req.Title || pulls[0].GetBody() != req.Body {
+		// A pull request opened from an older base carries a body written then,
+		// which can name that base. It is ours when it is for this preview.
+		sameBody := pulls[0].GetBody() == req.Body || adopted && strings.Contains(pulls[0].GetBody(), req.PreviewID)
+		if len(pulls) != 1 || pulls[0].GetTitle() != req.Title || !sameBody {
 			return nil, fmt.Errorf("%w: an existing pull request differs from this preview; it has been preserved", ErrOptimisationPublishConflict)
 		}
 		if pulls[0].GetState() != "open" {
@@ -235,4 +253,65 @@ func (c *appClient) optimisationPublishError(op string, e error) error {
 		return fmt.Errorf("github: %s: %w; %s", op, e, OptimisationPublishPermissionHint)
 	}
 	return errorf(op, e)
+}
+
+// maxAdoptedBaseCommits bounds the commits read to find an earlier attempt's
+// base in the base branch's history, however many parents a merge brings in.
+// It bounds requests, so a merge-heavy history cannot spend the installation's
+// quota or the publisher's time. A branch not found within it is preserved and
+// refused: the operator can look at it, and nothing is overwritten.
+const maxAdoptedBaseCommits = 20
+
+// sameChangeOnAnEarlierBase says whether previous is this request's reviewed
+// change applied to its own parent: that parent's tree plus the reviewed file
+// gives exactly previous's tree, and the parent is an ancestor of the current
+// base. It reads and creates objects only; no ref is touched.
+func (c *appClient) sameChangeOnAnEarlierBase(ctx context.Context, owner, name string, req OptimisationPublishRequest, previous *gh.Commit) (bool, error) {
+	parentSHA := previous.Parents[0].GetSHA()
+	if !validDelaySHA(parentSHA) {
+		return false, nil
+	}
+	parent, resp, err := c.asInstallation.Git.GetCommit(ctx, owner, name, parentSHA)
+	if err != nil {
+		return false, c.fail("read the earlier optimisation base", resp, err)
+	}
+	if parent.GetTree().GetSHA() == "" {
+		return false, nil
+	}
+	again, resp, err := c.asInstallation.Git.CreateTree(ctx, owner, name, parent.GetTree().GetSHA(), []*gh.TreeEntry{{
+		Path: gh.Ptr(req.Path), Mode: gh.Ptr(req.Mode), Type: gh.Ptr("blob"), Content: gh.Ptr(req.Content),
+	}})
+	if err != nil {
+		return false, c.optimisationPublishError("prepare the earlier optimisation file", classify(resp, err))
+	}
+	if again.GetSHA() != previous.GetTree().GetSHA() {
+		return false, nil
+	}
+	// The earlier base must be reachable from the current one, so the branch
+	// is this repository's own history and not another line.
+	queue := []string{req.BaseCommit}
+	seen := map[string]bool{}
+	for fetched := 0; len(queue) > 0; {
+		sha := queue[0]
+		queue = queue[1:]
+		if sha == parentSHA {
+			return true, nil
+		}
+		if seen[sha] {
+			continue
+		}
+		seen[sha] = true
+		if fetched == maxAdoptedBaseCommits {
+			return false, nil
+		}
+		fetched++
+		commit, resp, err := c.asInstallation.Git.GetCommit(ctx, owner, name, sha)
+		if err != nil {
+			return false, c.fail("walk the base branch's history", resp, err)
+		}
+		for _, p := range commit.Parents {
+			queue = append(queue, p.GetSHA())
+		}
+	}
+	return false, nil
 }

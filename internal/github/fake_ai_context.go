@@ -88,7 +88,15 @@ func (r *fakeRepo) pinContextSource() {
 	}
 	tree := g.treeOf(files)
 	sha := blobSHA("source:" + tree.GetSHA())
-	g.Commits[sha] = &gh.Commit{SHA: gh.Ptr(sha), Tree: tree, Message: gh.Ptr("Source commit")}
+	if g.Commits[sha] == nil {
+		commit := &gh.Commit{SHA: gh.Ptr(sha), Tree: tree, Message: gh.Ptr("Source commit")}
+		// A source that changed is a later commit on the one before it, as a
+		// push would make it, so history can be walked.
+		if prev := r.branches[r.defaultBranch]; prev != "" && prev != sha {
+			commit.Parents = []*gh.Commit{{SHA: gh.Ptr(prev)}}
+		}
+		g.Commits[sha] = commit
+	}
 	r.branches[r.defaultBranch] = sha
 }
 
@@ -341,4 +349,16 @@ func (f *FakeGitHub) SetContextBranch(repo, branch string, contents map[string]s
 	sha := blobSHA("publication:" + tree.GetSHA())
 	g.Commits[sha] = &gh.Commit{SHA: gh.Ptr(sha), Tree: tree}
 	r.branches[branch] = sha
+}
+
+// AdvanceContextBranch changes one file on the default branch and nothing else,
+// as an unrelated push would, and returns the new head. The new commit has the
+// old head as its parent.
+func (f *FakeGitHub) AdvanceContextBranch(repo, path, content string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r := f.repoLocked(repo)
+	r.files[path] = content
+	r.pinContextSource()
+	return r.branches[r.defaultBranch]
 }
