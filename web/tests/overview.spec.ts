@@ -99,7 +99,7 @@ test("the metric tiles are this fleet's work, and the switch widens them", async
     .toBeGreaterThan(ours);
 
   // The tile leads to the busy runners, whichever scope it counts.
-  await expect(running).toHaveAttribute('href', '/runners?state=busy');
+  await expect(running).toHaveAttribute('href', '/runners?state=busy#runners-list');
 
   // The single page scope controls the list and the headline together.
   await expect(page.getByRole('region', { name: 'Active jobs', exact: true })).toContainText(
@@ -108,7 +108,7 @@ test("the metric tiles are this fleet's work, and the switch widens them", async
 
   await toggle.selectOption('fleet');
   await expect(toggle).toHaveValue('fleet');
-  await expect(running).toHaveAttribute('href', '/runners?state=busy');
+  await expect(running).toHaveAttribute('href', '/runners?state=busy#runners-list');
   await expect
     .poll(async () => Number((await running.getByText(COUNT).innerText()).replace(/,/g, '')))
     .toBe(ours);
@@ -139,6 +139,23 @@ test('the queued tile leads to the queue it just counted', async ({ page }) => {
   await toggle.selectOption('fleet');
   await expect(toggle).toHaveValue('fleet');
   await expect(queued).toHaveAttribute('href', '/queue');
+});
+
+/**
+ * The running tile is a shortcut into the rows it counted, not a trip to the
+ * top of the Runners page.
+ *
+ * Landing at the top leaves the reader to scroll past a band of figures and a
+ * provisioning strip to reach the busy runners the number was counting, which
+ * is the one thing they came for; the anchor means the list arrives already
+ * under the eye and holding the keyboard. The Runners band's own Running
+ * figure has always worked that way on its own page.
+ */
+test('the running tile lands on the busy runners themselves', async ({ page }) => {
+  await page.getByRole('link', { name: /^Running jobs/ }).click();
+  await expect(page).toHaveURL(/\/runners\?state=busy#runners-list$/);
+  await expect(page.getByRole('heading', { name: 'Runners', level: 1 })).toBeVisible();
+  await expect(page.locator('#runners-list')).toBeFocused();
 });
 
 test('each trend tile carries a described sparkline', async ({ page }) => {
