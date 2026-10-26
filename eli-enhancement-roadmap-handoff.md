@@ -31,6 +31,7 @@ as the record of how each slice landed.
 | E4 | First slice merged on 26 October 2026 ([#1288](https://github.com/eyupio/zoomies/pull/1288), [plan](roadmap/plans/2026-10-25-eli-e4-timeout-fix.md)): one reviewed fix, a missing `timeout-minutes` on a `ci.no_timeout` finding, with operator-supplied minutes, a blob-bound preview, attributed approval and one reconciled draft pull request (migrations 0132 to 0134). Read from the CLI, MCP and Eli; approval and publication are web-only | No other Kennel fix (pins, concurrency, permissions). Nothing has run against a real GitHub App or repository. A retry after a lost publication record now adopts the earlier branch and pull request when the default branch has moved (the shared publisher accepts the same reviewed change on an ancestor base within twenty commits, and still preserves and refuses anything that differs). No ZF package number is allocated |
 | E5 | First slice merged on 26 October 2026 ([#1290](https://github.com/eyupio/zoomies/pull/1290), [plan](roadmap/plans/2026-10-26-eli-e5-recurring-failures.md)): a fifth analysis, `recurring_failures`, over finished job outcomes (route, CLI, MCP, Eli's allowlist and a Failed-view card). It reports the step, branch spread, runner faults, passes on a rerun of the same workflow run and whether a job has passed since, and classes a job as infrastructure, flaky, persistent or intermittent | No log is read, so it never says why a test failed, and there is no fingerprinting of messages or test names. Nothing has run against a real fleet's history. No ZF package number is allocated |
 | E6 | First slice merged on 26 October 2026 ([#1291](https://github.com/eyupio/zoomies/pull/1291), [plan](roadmap/plans/2026-10-26-eli-e6-ci-review.md)): a findings-only review of what a pull request changes in the workflows, with Kennel's own checks over a pinned merge base and head. Route, CLI and an MCP tool; the tool is deliberately off Eli's list because each call spends GitHub quota. Rules are built in, changed instruction files are reported and never applied, and every changed file not judged is listed | No model, no comment on the pull request, no stored review or supersession, no fleet capacity evidence on findings, no Ask Eli route. Nothing has run against a real GitHub App or pull request. No ZF package number is allocated |
+| Kennel score, optimise skill, install command | Merged 25 October 2026 ([#1279](https://github.com/eyupio/zoomies/pull/1279), [#1280](https://github.com/eyupio/zoomies/pull/1280), [#1281](https://github.com/eyupio/zoomies/pull/1281), [#1282](https://github.com/eyupio/zoomies/pull/1282)): the Kennel score formula with its API, CLI and UI; the optimise skill's trial fixes; the published command that installs the skills, tested on a throwaway machine | Not in the roadmap's package table yet: the plans under `roadmap/plans/2026-10-25-*` still need coordinator package numbers. The second-agent run of the Kennel skill (the ZF-233 gate) has not happened |
 | E7 | Eli's repair history tools, repair identity relink, repair pages, automatic-repair visibility and stop controls (18 October), Eli protected-read recovery (19 October) and the analysis cards are all on main | The two E7 rows marked "Implemented, branch ..." are merged. Automatic repairs are repair-mode work, not Optimise or Review mode, and give those modes no new authority |
 
 Newer work that this handoff did not plan but that later tracks should reuse:
@@ -253,9 +254,8 @@ stay on the web page.
 * **Overview feed specs** now open the feed before asserting (#1177); the panel
   previews three entries.
 
-Hold E4 to E6 until the E3 steps above are decided. E4 (one deterministic Kennel fix
-preview) can run in parallel only if a second owner is free; it shares no files with
-E3 beyond the coordinator-owned registries.
+This held E4 to E6 until the E3 steps above were decided. They were decided, and the
+first slice of each of E4 to E6 has since merged (see the reconciliation table).
 
 ## Execution status, updated 13 October 2026
 
@@ -382,8 +382,9 @@ claim the original full command passed. No validation command remains running.
 
 See the [validation record](roadmap/validation/2026-10-12-eli-pr-delay-validation.md)
 for commands, tested changes, environment and limits. A live model evaluation
-and a real performance experiment remain unrun. E2 to E6 remain unstarted;
-reconcile the E2 comparison contract with ZF-241 before activating new work.
+and a real performance experiment remain unrun. E2 was left at its descriptive milestone, and E3 to E6 have since
+merged their first slices (see the reconciliation table). Reconcile the E2 comparison
+contract with ZF-241 before activating new work.
 
 The next agent should start from the stack tip, check which parent PRs have
 merged and preserve each PR's focused diff. Never merge or retarget a parent
