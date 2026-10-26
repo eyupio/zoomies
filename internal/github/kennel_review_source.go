@@ -165,7 +165,11 @@ func (c *appClient) ReadKennelReviewSource(ctx context.Context, repo string, num
 				out.Head = append(out.Head, offline.ReviewFile{Path: ch.path, Data: data})
 			}
 		}
-		if ch.status != "added" {
+		// A file renamed into the workflows folder from somewhere else (a
+		// template, say) is a new workflow: what was at the old path was never
+		// one, and using it as the base would hide every finding it shares.
+		newlyEnabled := ch.previous != "" && offline.GatePath(ch.previous) == ""
+		if ch.status != "added" && !newlyEnabled {
 			from := ch.path
 			if ch.previous != "" {
 				from = ch.previous

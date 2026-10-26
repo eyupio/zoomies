@@ -166,3 +166,21 @@ func TestReadKennelReviewSourceRefusesAnIdentityItDoesNotKnow(t *testing.T) {
 		}
 	}
 }
+
+// A template renamed into the workflows folder turns a file on that was never a
+// workflow. Its old content is not the new workflow's base, or every finding it
+// shares with the template would be hidden.
+func TestReadKennelReviewSourceTreatsARenameIntoTheWorkflowsFolderAsNew(t *testing.T) {
+	b := strings.Repeat("b", 40)
+	srv := reviewServer(t, reviewServerOptions{
+		files: []map[string]any{{"filename": ".github/workflows/ci.yml", "status": "renamed", "previous_filename": "templates/ci.yml"}},
+		at:    map[string]string{b + ":.github/workflows/ci.yml": reviewHead, strings.Repeat("a", 40) + ":templates/ci.yml": reviewHead},
+	})
+	src, err := cacheSourceClient(t, srv).ReadKennelReviewSource(context.Background(), "acme/repo", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(src.Base) != 0 || len(src.Head) != 1 || len(src.Unreadable) != 0 {
+		t.Fatalf("base %d head %d unreadable %v, want a head and no base", len(src.Base), len(src.Head), src.Unreadable)
+	}
+}
