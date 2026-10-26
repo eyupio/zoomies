@@ -54,11 +54,17 @@
   import {
     acknowledgeJob,
     analyseQueueWait,
+    analyseRecurringFailures,
     getJobFacets,
     listJobs,
     reopenJobAttention,
   } from '$lib/api/client';
-  import { PROVISIONING_STATUSES, type Job, type QueueWaitFinding } from '$lib/api/types';
+  import {
+    PROVISIONING_STATUSES,
+    type Job,
+    type QueueWaitFinding,
+    type RecurringFailuresFinding,
+  } from '$lib/api/types';
   import AnalysisCard from '$lib/insights/AnalysisCard.svelte';
   import { router } from '$lib/router';
   import {
@@ -66,9 +72,11 @@
     refusalOf,
     type AnalysisNarrowing,
     CAUSE_WORDS,
+    FAILURE_CLASS_WORDS,
     jobWords,
     longestWaits,
     queueWaitScope,
+    recurringFailuresScope,
     whyNoWindow,
     wordFor,
   } from '$lib/insights/analysis';
@@ -272,6 +280,49 @@
   const waitNarrowed = $derived<AnalysisNarrowing>(
     waitPool ? { pool: { id: waitPool, name: fleet.pool(waitPool)?.name } } : {},
   );
+
+  /* Which jobs keep failing ---------------------------------------------------
+   * The Failed view is where "why do these keep failing?" is asked, so the
+   * recurring-failures analysis sits there. It reads the page's own dates, or
+   * the day before now, and nothing else the list is narrowed by.
+   * ------------------------------------------------------------------------ */
+
+  let failing = $state.raw<RecurringFailuresFinding | null>(null);
+  let failingError = $state<{ message: string; refused: boolean } | null>(null);
+  let failingLoading = $state(false);
+  // Never for a public view's visitor, as the queue card is not.
+  const failingShown = $derived(!session.visitor && filters.failed);
+
+  $effect(() => {
+    if (!failingShown) return;
+    void adviceKey;
+    const since = startOfMoment(waitSince);
+    const until = endOfMoment(waitUntil);
+    const period = analysisWindow(since, until, Date.now());
+    const controller = new AbortController();
+    failing = null;
+    failingError = null;
+    if (!period) {
+      failingError = { message: whyNoWindow(since, until), refused: true };
+      failingLoading = false;
+      return;
+    }
+    failingLoading = true;
+    analyseRecurringFailures(period, controller.signal)
+      .then((next) => {
+        if (!controller.signal.aborted) failing = next;
+      })
+      .catch((cause: unknown) => {
+        if (controller.signal.aborted) return;
+        failingError = refusalOf(cause);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) failingLoading = false;
+      });
+    return () => controller.abort();
+  });
+
+  const failingScope = $derived(recurringFailuresScope({ ...filters, provisioning: [] }));
 
   /** Every pool's longest waits, longest first, as one list. */
   const longest = $derived(longestWaits(wait?.evidence.pools ?? []));
@@ -745,7 +796,7 @@
       <!-- Before the list, where its question is asked; on a Mission Control
            phone after it, since records come before supplementary analytics
            there (docs/ui-guidelines.md). -->
-      {#if !compact}{@render queuedCard()}{/if}
+      {#if !compact}{@render queuedCard()}{@render failingCard()}{/if}
 
       {#if filters.unmatched && unmatchedOnPage > 0}
         <UnmatchedNote count={unmatchedOnPage} />
@@ -791,7 +842,7 @@
         </DataGrid>
       </div>
 
-      {#if compact}{@render queuedCard()}{/if}
+      {#if compact}{@render queuedCard()}{@render failingCard()}{/if}
 
       <p class="footnote">
         Sort by queue wait to find work that waited, or by duration to find work that took its time.
@@ -898,6 +949,66 @@
         {#if ev.jobs_truncated || ev.runners_truncated}
           <p class="evidence-note">
             A read stopped at its limit, so the newest records were read; a shorter period reads all
+            of them.
+          </p>
+        {/if}
+      {/if}
+    </AnalysisCard>
+  {/if}
+{/snippet}
+
+{#snippet failingCard()}
+  {#if failingShown}
+    <AnalysisCard
+      title="Which jobs keep failing"
+      finding={failing}
+      error={failingError}
+      loading={failingLoading}
+      scope={failingScope.scope}
+      narrowedTo={{}}
+      note={failingScope.unapplied}
+    >
+      {#if failing}
+        {@const ev = failing.evidence}
+        <dl class="facts">
+          <div>
+            <dt>Jobs</dt>
+            <dd class="figure">
+              {formatNumber(ev.jobs)} finished with a pass or a failure, {formatNumber(ev.failures)} failed
+            </dd>
+          </div>
+        </dl>
+        {#if ev.groups.length}
+          <p class="rows-label" id="failing-jobs">Jobs that failed three times or more</p>
+          <ul class="rows" aria-labelledby="failing-jobs">
+            {#each ev.groups as g (g.last_job_id)}
+              <li>
+                <span class="quoted"
+                  >{jobWords({ repo: g.repository, workflow: g.workflow, job_name: g.job }) ||
+                    g.last_job_id}</span
+                >
+                <span class="figure muted"
+                  >{g.failures} of {g.runs} runs, {pluralise(
+                    g.branches,
+                    'branch',
+                    'branches',
+                  )}{g.failed_step ? `, usually at ${readableJobText(g.failed_step)}` : ''}; {wordFor(
+                    FAILURE_CLASS_WORDS,
+                    g.class,
+                  ).toLowerCase()}{g.still_failing ? ', still failing' : ''}</span
+                >
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if ev.groups_cut > 0}
+          <p class="evidence-note">
+            {pluralise(ev.groups_cut, 'job')} left out above; a shorter period reads fewer.
+          </p>
+        {/if}
+        {#if ev.truncated}
+          <p class="evidence-note">
+            The read stopped at its limit, so the newest jobs were read; a shorter period reads all
             of them.
           </p>
         {/if}

@@ -144,9 +144,14 @@ export type QueueWaitFinding = Schemas['QueueWaitFinding'];
 export type CompareFinding = Schemas['CompareFinding'];
 export type HostPressureFinding = Schemas['HostPressureFinding'];
 export type StartupFailuresFinding = Schemas['StartupFailuresFinding'];
-/** Any of the four, for the card that renders the fields they share. */
+export type RecurringFailuresFinding = Schemas['RecurringFailuresFinding'];
+/** Any of the five, for the card that renders the fields they share. */
 export type Finding =
-  QueueWaitFinding | CompareFinding | HostPressureFinding | StartupFailuresFinding;
+  | QueueWaitFinding
+  | CompareFinding
+  | HostPressureFinding
+  | StartupFailuresFinding
+  | RecurringFailuresFinding;
 export type AnalysisNextStep = Schemas['AnalysisNextStep'];
 export type WorkflowRun = Schemas['WorkflowRun'];
 export type JobStep = Schemas['JobStep'];

@@ -160,6 +160,41 @@ export function queueWaitScope(
 }
 
 /**
+ * What the Failed view's card covers, and which of the list's filters it does
+ * not. The route reads every job this fleet had a hand in over the period and
+ * takes no other narrowing, so a list narrowed to one repository sits above an
+ * answer about all of them; the card says so rather than borrowing the list's
+ * meaning.
+ */
+export function recurringFailuresScope(f: QueueListFilters): {
+  scope: string;
+  unapplied: string | null;
+} {
+  const left = [
+    f.pool_id.length ? 'pool' : '',
+    f.repo.length ? 'repository' : '',
+    f.workflow.length ? 'workflow' : '',
+    f.host_id.length ? 'host' : '',
+    f.label.length ? 'label' : '',
+    f.q.trim() ? 'search' : '',
+  ].filter((w) => w !== '');
+  return {
+    scope: 'Every repository and workflow',
+    unapplied: left.length
+      ? `The list's ${joinWords(left)} ${left.length === 1 ? 'filter is' : 'filters are'} not applied here: this analysis reads every job this fleet ran in the period.`
+      : null,
+  };
+}
+
+/** What a job's failures look like, as the finding classes them. */
+export const FAILURE_CLASS_WORDS: Record<string, string> = {
+  infrastructure: 'Mostly runner faults',
+  flaky: 'Passes when rerun',
+  persistent: 'Has not passed since',
+  intermittent: 'Passes between failures',
+};
+
+/**
  * What the failed runners' card covers, and which of the list's filters it
  * does not. The route reads every start in the period, narrowed to the pool
  * and host the page chose; the list beside it also takes a search, which an

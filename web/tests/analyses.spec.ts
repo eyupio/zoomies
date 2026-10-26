@@ -114,6 +114,82 @@ test('the Queued view says why jobs waited, as the route does', async ({ page })
   await expectAccessible(page, 'Why jobs waited');
 });
 
+test('the Failed view says which jobs keep failing, as the route does', async ({ page }) => {
+  const requests = watchAnalysis(page, 'recurring-failures');
+  await goto(page, '/jobs?failed=true', 'Jobs');
+  const title = 'Which jobs keep failing';
+  const finding = await expectOneAnswer(page, title, requests);
+  expect(finding.summary.length).toBeGreaterThan(0);
+  await expectAccessible(page, title);
+});
+
+test('the card is the Failed view’s alone', async ({ page }) => {
+  await goto(page, '/jobs', 'Jobs');
+  await expect(page.locator('tbody tr[data-row]').first()).toBeVisible();
+  await expect(card(page, 'Which jobs keep failing')).toHaveCount(0);
+});
+
+// A job's repository, workflow, name and step are a workflow's words: shown as
+// text, with the figures the route computed beside them, and with the list's
+// own filters named as not applied because the answer is about every job.
+test('the Failed card lists each job as text with its figures, and names the filters it leaves out', async ({
+  page,
+}) => {
+  const finding = {
+    analysis: 'recurring_failures',
+    version: 'recurring-failures-v1',
+    since: '2026-10-25T00:00:00Z',
+    until: '2026-10-26T00:00:00Z',
+    summary: 'The job that fails most failed 4 of its 9 runs (job job_9).',
+    dominant: 'job_9',
+    confidence: 'high',
+    next_steps: [
+      {
+        text: 'Read the failed step’s log from one failed run and one rerun of the same revision.',
+      },
+    ],
+    codes: [],
+    evidence: {
+      groups: [
+        {
+          repository: 'acme/app',
+          workflow: 'ci.yml',
+          job: '<img src=x onerror=alert(1)>',
+          runs: 9,
+          failures: 4,
+          branches: 2,
+          first_failure_at: '2026-10-25T01:00:00Z',
+          last_failure_at: '2026-10-25T03:00:00Z',
+          failed_step: 'Run tests',
+          step_failures: 3,
+          runner_faults: 0,
+          retry_passes: 3,
+          still_failing: false,
+          class: 'flaky',
+          last_job_id: 'job_9',
+        },
+      ],
+      groups_cut: 0,
+      jobs: 40,
+      failures: 6,
+      truncated: false,
+    },
+  };
+  await page.route('**/api/v1/analysis/recurring-failures**', (route) =>
+    route.fulfill({ json: finding }),
+  );
+  await goto(page, `/jobs?failed=true&repo=${encodeURIComponent(FIXTURE.repos[0])}`, 'Jobs');
+  const found = card(page, 'Which jobs keep failing');
+  await expect(found.getByTestId('analysis-summary')).toHaveText(finding.summary);
+  await found.getByText('Evidence', { exact: true }).click();
+  await expect(
+    found.getByText('4 of 9 runs, 2 branches, usually at Run tests; passes when rerun'),
+  ).toBeAttached();
+  await expect(found.getByText('<img src=x onerror=alert(1)>', { exact: false })).toBeAttached();
+  await expect(found.getByText("The list's repository filter is not applied here")).toBeAttached();
+  expect(await found.locator('img').count()).toBe(0);
+});
+
 test('the Queued card says it covers every pool when the list is narrowed further', async ({
   page,
 }) => {
@@ -890,6 +966,12 @@ test("a public view's visitor gets no analysis card and no analysis request", as
       heading: 'Usage',
       title: 'What got worse and what got better',
       read: '/api/v1/jobs/stats',
+    },
+    {
+      path: '/jobs?failed=true',
+      heading: 'Jobs',
+      title: 'Which jobs keep failing',
+      read: '/api/v1/jobs?',
     },
     {
       path: `/hosts/${host.id}`,

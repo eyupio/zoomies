@@ -11,6 +11,7 @@ import {
   jobWords,
   longestWaits,
   queueWaitScope,
+  recurringFailuresScope,
   refusalOf,
   startupFailuresScope,
   stepLine,
@@ -504,4 +505,24 @@ test('the longest waits name the unclaimed jobs as unclaimed', () => {
     ],
   );
   assert.equal(UNCLAIMED_POOL, 'unclaimed (no pool claimed these jobs)');
+});
+
+// The Failed view's list can be narrowed by much more than the analysis reads,
+// and an answer about every job under a list of one repository would read as
+// that repository's.
+test('the Failed card says it covers every job and names the filters it leaves out', () => {
+  const none = { pool_id: [], repo: [], workflow: [], host_id: [], label: [], q: '' };
+  assert.deepEqual(recurringFailuresScope(none), {
+    scope: 'Every repository and workflow',
+    unapplied: null,
+  });
+  assert.equal(
+    recurringFailuresScope({ ...none, repo: ['acme/app'] }).unapplied,
+    "The list's repository filter is not applied here: this analysis reads every job this fleet ran in the period.",
+  );
+  assert.equal(
+    recurringFailuresScope({ ...none, repo: ['a/b'], q: 'build' }).unapplied,
+    "The list's repository and search filters are not applied here: this analysis reads every job this fleet ran in the period.",
+  );
+  assert.equal(recurringFailuresScope({ ...none, q: '  ' }).unapplied, null);
 });

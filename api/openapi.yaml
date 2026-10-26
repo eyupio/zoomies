@@ -14189,7 +14189,7 @@ components:
         `evidence`.
       required: [analysis, version, since, until, summary, dominant, confidence, next_steps, codes]
       properties:
-        analysis: { type: string, enum: [queue_wait, compare, host_pressure, startup_failures] }
+        analysis: { type: string, enum: [queue_wait, compare, host_pressure, startup_failures, recurring_failures] }
         version:
           type: string
           description: >-

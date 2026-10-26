@@ -9940,7 +9940,7 @@ export interface components {
         /** @description The one shape every analysis answers in, so the API, the CLI, the MCP tools and the UI render the same answer. Each finding below is these fields with its own `evidence`. */
         AnalysisFinding: {
             /** @enum {string} */
-            analysis: "queue_wait" | "compare" | "host_pressure" | "startup_failures";
+            analysis: "queue_wait" | "compare" | "host_pressure" | "startup_failures" | "recurring_failures";
             /** @description The evidence's version. A reader refuses a version it does not know rather than misreading its evidence. */
             version: string;
             /**
