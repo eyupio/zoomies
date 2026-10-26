@@ -1395,6 +1395,7 @@ Subcommands:
   checks                             What is checked, and what is turned off
   recheck <id>                       Ask for a repository to be read again when the budget allows
   fix <fix-id> --installation ID --repo OWNER/REPO  Read a kept Kennel timeout fix, the finding it is for and its one changed block
+  review <repository-id> --pull N    Review what a pull request changes in the workflows: only what it introduced, and what was not looked at
   check [path] [--controller owner/name]  Run the workflow checks over a checkout on this machine; nothing leaves it unless a controller is named
 
 Run "zoomies kennel <subcommand> --help" for the flags each one takes.
@@ -1537,6 +1538,30 @@ Flags:
 Examples:
   zoomies kennel fix kfp_01abc --installation ins_01abc --repo acme/widgets
   zoomies kennel fix kfp_01abc --installation ins_01abc --repo acme/widgets --output json
+```
+
+#### zoomies kennel review
+
+Review what a pull request changes in the workflows: only what it introduced, and what was not looked at
+
+```text
+Review what a pull request changes in the repository's workflows, with Kennel Club's own checks. It reports only what the head has that the merge base did not, names every changed file it did not judge, and lists changed instruction files without applying them. It reads the pull request from GitHub now, at two pinned commits, and executes nothing, calls no model, posts nothing and keeps nothing. Requires operator, kennel:read and optimisations:read.
+
+Usage:
+  zoomies kennel review <repository-id> --pull N
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --output=table             table, json or yaml
+  --pull=0                   the pull request's number (required)
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies kennel review kcr_01abc --pull 42
+  zoomies kennel review kcr_01abc --pull 42 --output json
 ```
 
 #### zoomies kennel check
