@@ -98,9 +98,8 @@ test("the metric tiles are this fleet's work, and the switch widens them", async
     })
     .toBeGreaterThan(ours);
 
-  // The tile links to the same jobs it just counted, or the number and the
-  // list it leads to disagree.
-  await expect(running).toHaveAttribute('href', /all=true/);
+  // The tile leads to the busy runners, whichever scope it counts.
+  await expect(running).toHaveAttribute('href', '/runners?state=busy');
 
   // The single page scope controls the list and the headline together.
   await expect(page.getByRole('region', { name: 'Active jobs', exact: true })).toContainText(
@@ -109,7 +108,7 @@ test("the metric tiles are this fleet's work, and the switch widens them", async
 
   await toggle.selectOption('fleet');
   await expect(toggle).toHaveValue('fleet');
-  await expect(running).toHaveAttribute('href', /^\/jobs\?state=in_progress$/);
+  await expect(running).toHaveAttribute('href', '/runners?state=busy');
   await expect
     .poll(async () => Number((await running.getByText(COUNT).innerText()).replace(/,/g, '')))
     .toBe(ours);
