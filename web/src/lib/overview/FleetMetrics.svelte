@@ -187,6 +187,16 @@
    */
   const queuedHref = $derived(others ? jobsHref('queued') : '/queue');
   /**
+   * Where the running tile goes.
+   *
+   * The Runners page narrowed to the busy ones, and the anchor that lands the
+   * list itself rather than the top of the page: the number counted rows, so
+   * the rows are what the reader should be looking at, not the band of figures
+   * above them. The Runners band's own Running figure points at the same place
+   * for the same reason.
+   */
+  const runningHref = '/runners?state=busy#runners-list';
+  /**
    * Where the capacity actually is.
    *
    * Four tiles about work and none about capacity leaves the operator's real
@@ -254,7 +264,7 @@
   <MetricTile
     label="Running jobs"
     value={formatNumber(running)}
-    href="/runners?state=busy"
+    href={runningHref}
     tone="busy"
     delta={delta(runningSeries, running)}
     deltaLabel="in the hour"
