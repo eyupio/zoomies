@@ -985,3 +985,35 @@ func TestTheAnalysisReadsSeekTheirIndexes(t *testing.T) {
 		assertSearches(t, r.name, plan)
 	}
 }
+
+// A cancelled job stops when somebody says so, and a job still running has no
+// outcome: only a pass or a failure that completed in the window is read, with
+// the commit and the steps the analysis groups and names a stage by.
+func TestJobOutcomesReadsOnlyPassesAndFailuresCompletedInTheWindow(t *testing.T) {
+	s := newTestStoreAt(t, func() time.Time { return analysisStart })
+	at := func(m int) time.Time { return analysisStart.Add(time.Duration(m) * time.Minute) }
+	failed := analysisJob(t, s, 1, "pool_a", "", at(1), func(j *Job) {
+		completed(at(2), at(10), "failure")(j)
+		j.HeadSHA, j.HeadBranch, j.RunAttempt = "abc", "main", 1
+		j.Steps = JobSteps{{Number: 1, Name: "Run tests", Status: "completed", Conclusion: "failure"}}
+	})
+	analysisJob(t, s, 2, "pool_a", "", at(1), completed(at(2), at(11), "success"))
+	analysisJob(t, s, 3, "pool_a", "", at(1), completed(at(2), at(12), "cancelled"))
+	analysisJob(t, s, 4, "pool_a", "", at(1), completed(at(2), analysisStart.Add(-time.Minute), "failure"))
+	analysisJob(t, s, 5, "pool_a", "", at(1), completed(at(2), analysisEnd, "failure"))
+
+	got, more, err := s.JobOutcomes(context.Background(), analysisStart, analysisEnd, 10)
+	if err != nil || more || len(got) != 2 {
+		t.Fatalf("outcomes = %v, more %v, err %v; want the success and the failure", got, more, err)
+	}
+	if got[0].Conclusion != "success" || got[1].ID != failed.ID || got[1].HeadSHA != "abc" ||
+		got[1].RunAttempt != 1 || len(got[1].Steps) != 1 || got[1].Steps[0].Name != "Run tests" || !got[1].CompletedAt.Equal(at(10)) {
+		t.Errorf("outcomes = %+v", got)
+	}
+	if one, more, _ := s.JobOutcomes(context.Background(), analysisStart, analysisEnd, 1); len(one) != 1 || !more {
+		t.Errorf("limit 1: %d, more %v; want one and more", len(one), more)
+	}
+	if _, _, err := s.JobOutcomes(context.Background(), analysisStart, analysisEnd, 0); err == nil {
+		t.Error("a limit of zero was accepted")
+	}
+}

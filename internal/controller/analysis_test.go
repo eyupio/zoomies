@@ -1660,3 +1660,34 @@ func TestAnEarlierSideWhollyInsideTheLaterSidesFirstDayIsRefused(t *testing.T) {
 		t.Errorf("%v, want the earlier period refused", err)
 	}
 }
+
+// The snapshot names the step a failed job stopped at from the steps GitHub
+// reported, and carries the rerun's attempt so a pass on the same commit can
+// separate a flaky job from a broken one.
+func TestAnalyseRecurringFailuresReadsTheFailedStepAndTheRerun(t *testing.T) {
+	f := newAnalysisFleet(t)
+	pool := f.pool("linux", nil)
+	for i := range 3 {
+		sha := fmt.Sprintf("sha%d", i)
+		f.job(pool.ID, at(i*20), func(j *store.Job) {
+			ran(at(i*20+1), at(i*20+5), "failure")(j)
+			j.HeadSHA, j.HeadBranch, j.RunAttempt = sha, "main", 1
+			j.Steps = store.JobSteps{{Number: 1, Name: "Set up", Conclusion: "success"}, {Number: 2, Name: "Run tests", Conclusion: "failure"}}
+		})
+		f.job(pool.ID, at(i*20+6), func(j *store.Job) {
+			ran(at(i*20+7), at(i*20+9), "success")(j)
+			j.HeadSHA, j.HeadBranch, j.RunAttempt = sha, "main", 2
+		})
+	}
+	got, err := f.c.AnalyseRecurringFailures(f.ctx, analysisPeriod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Evidence.Groups) != 1 {
+		t.Fatalf("finding = %+v", got)
+	}
+	g := got.Evidence.Groups[0]
+	if g.Class != analysis.ClassFlaky || g.FailedStep != "Run tests" || g.RetryPasses != 3 || g.Failures != 3 || g.Runs != 6 {
+		t.Errorf("group = %+v", g)
+	}
+}

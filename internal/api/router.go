@@ -332,7 +332,7 @@ func (s *Server) apiRoutes() chi.Router {
 		// Jobs.
 		r.With(s.require(auth.ActionUsageRead)).Get("/usage", s.handleUsage)
 		r.With(s.require(auth.ActionUsageRead)).Get("/usage.csv", s.handleUsageCSV)
-		// The four analyses, each gated on the read for what it is about. A
+		// The analyses, each gated on the read for what it is about. A
 		// visitor is refused before any read: a finding joins jobs, hosts,
 		// runners and the audit log, and the public view promises none of
 		// them together.
@@ -341,6 +341,7 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionJobsRead), s.refuseVisitors).Get("/compare", s.handleAnalyseCompare)
 			r.With(s.require(auth.ActionHostsRead), s.refuseVisitors).Get("/host-pressure", s.handleAnalyseHostPressure)
 			r.With(s.require(auth.ActionRunnersRead), s.refuseVisitors).Get("/startup-failures", s.handleAnalyseStartupFailures)
+			r.With(s.require(auth.ActionJobsRead), s.refuseVisitors).Get("/recurring-failures", s.handleAnalyseRecurringFailures)
 		})
 		r.With(s.require(auth.ActionJobsRead)).Get("/provisioning", s.handleListJobs)
 		r.With(s.require(auth.ActionJobsRead)).Get("/provisioning/selection", s.handleProvisioningSelection)
