@@ -64,12 +64,12 @@
 # deploy/Dockerfile.runner .` still produces the plain runner; the variant is
 # built with --target runner-docker.
 
-ARG RUNNER_VERSION=2.338.0
+ARG RUNNER_VERSION=2.338.1
 # The SHA-256 GitHub publishes for each release archive, from the release
 # notes; internal/backend/runner_digests.go carries the same values for the
 # process backend, and the runner-version workflow moves all of them together.
-ARG RUNNER_SHA256_X64=af4b794c1bc41d73d40535e3fe092a39f9679cd8d965954c2aca25a05ca41d32
-ARG RUNNER_SHA256_ARM64=628b4a7258487b80c1d3c221095a7ded349f5ae0175fd3dfab708d07428f041b
+ARG RUNNER_SHA256_X64=08e9ccb3604d2462c24b5e33604dc30810296ca15cc65f23cffd4317eb144c37
+ARG RUNNER_SHA256_ARM64=475e0c149fd3b611610127b9664ba5bacf5c6928795cc448ab520bb5f324bede
 # What a plain build of this file uses is the catalogue's default variant, on the
 # base the weekly refresh last pinned. The line between the markers is written by
 # internal/naming/gen_catalogue.go, so it moves with the table; a test compares

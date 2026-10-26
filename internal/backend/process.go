@@ -68,7 +68,7 @@ var listenerPath = "bin/Runner.Listener" + exeSuffix
 // the digests in runner_digests.go are its digests: bump all of them together
 // (.github/workflows/runner-version.yml does), or the process backend will
 // refuse to install the version it defaults to.
-const DefaultRunnerVersion = "2.338.0"
+const DefaultRunnerVersion = "2.338.1"
 
 // defaultRunnerDownloadURL is where actions/runner releases live.
 const defaultRunnerDownloadURL = "https://github.com/actions/runner/releases/download"

@@ -2,7 +2,7 @@
 //
 // Regenerate after bumping DefaultRunnerVersion:
 //
-//	go run internal/backend/gen_runner_digests.go 2.338.0
+//	go run internal/backend/gen_runner_digests.go 2.338.1
 
 package backend
 
@@ -12,11 +12,11 @@ package backend
 // the release notes, so a download that does not match them is refused rather
 // than executed.
 var knownRunnerSHA256 = map[string]string{
-	"2.338.0/actions-runner-linux-arm-2.338.0.tar.gz":   "1d6a7688d2aca1a1fecd4df5d473e4aa4226c1f1785ff915cf84049665a3483f",
-	"2.338.0/actions-runner-linux-arm64-2.338.0.tar.gz": "628b4a7258487b80c1d3c221095a7ded349f5ae0175fd3dfab708d07428f041b",
-	"2.338.0/actions-runner-linux-x64-2.338.0.tar.gz":   "af4b794c1bc41d73d40535e3fe092a39f9679cd8d965954c2aca25a05ca41d32",
-	"2.338.0/actions-runner-osx-arm64-2.338.0.tar.gz":   "df4cebda25c86a886ed204e49fee63f5c2e7cec5f447b5c98440a826bbdf9df2",
-	"2.338.0/actions-runner-osx-x64-2.338.0.tar.gz":     "dea7a58796ce215fc424a8b27c0fdd9b813fa5fc03d109a4a1d38131d6bfa1a3",
-	"2.338.0/actions-runner-win-arm64-2.338.0.zip":      "a57a4d29c0dcf02210a16b01906ed76cb8091b26d728c41232736c0f627a557e",
-	"2.338.0/actions-runner-win-x64-2.338.0.zip":        "f48e0750a21812bca5f82de5f7f5aeae71abee647fab5a582f1742d07eba455f",
+	"2.338.1/actions-runner-linux-arm-2.338.1.tar.gz":   "c338153388f2ac5b5610b28dc38979680b204be82a7edd8e45106d60f2c24e0c",
+	"2.338.1/actions-runner-linux-arm64-2.338.1.tar.gz": "475e0c149fd3b611610127b9664ba5bacf5c6928795cc448ab520bb5f324bede",
+	"2.338.1/actions-runner-linux-x64-2.338.1.tar.gz":   "08e9ccb3604d2462c24b5e33604dc30810296ca15cc65f23cffd4317eb144c37",
+	"2.338.1/actions-runner-osx-arm64-2.338.1.tar.gz":   "52c3fb801b931fbd454979bae5ec3443ea3da2c4a1b4c44fa546fb630d61a0a9",
+	"2.338.1/actions-runner-osx-x64-2.338.1.tar.gz":     "f06e329ffe90a2a4bda8b460a20b9e26dcb7525a093bf9b4f89125c72bc1f39e",
+	"2.338.1/actions-runner-win-arm64-2.338.1.zip":      "424fa096d48a7e082f13025fc5c01048520e39164e720a27130490f2dd86701d",
+	"2.338.1/actions-runner-win-x64-2.338.1.zip":        "478f533ac2c349040fbaea7e158f7f7d0235085cf35bc81f661af0c715207ff9",
 }
