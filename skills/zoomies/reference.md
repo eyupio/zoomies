@@ -1237,6 +1237,7 @@ Subcommands:
   compare [--by version|period] [--a v] [--b v]  What got worse and what got better between two releases, or a period and the one before
   host-pressure --host id            Whether one host's failures, OOM kills and slow starts came when it was busy
   startup-failures [--pool id] [--host id]  Which host or pool keeps failing to start runners, since when and why
+  recurring-failures                 Which jobs keep failing, at which step, and whether the fleet, a flaky job or a broken change is behind it
 
 Run "zoomies analyse <subcommand> --help" for the flags each one takes.
 ```
@@ -1349,6 +1350,32 @@ Examples:
   zoomies analyse startup-failures
   zoomies analyse startup-failures --host host_01abc --since 7d
   zoomies analyse startup-failures --pool pool_01abc --output json
+```
+
+#### zoomies analyse recurring-failures
+
+Which jobs keep failing, at which step, and whether the fleet, a flaky job or a broken change is behind it
+
+```text
+Which jobs keep failing: how often, since when, at which step, and whether the runner, a rerun of the same revision or a lasting break is behind it. It reads outcomes, so it cannot say why a test failed.
+
+Usage:
+  zoomies analyse recurring-failures [--since t] [--until t]
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --output=table             table, json or yaml
+  --since                    start of the period, included: a duration ago such as 6h or 7d, or a date (default 24 hours before --until)
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --until                    end of the period, not included, in the same forms (default now)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies analyse recurring-failures
+  zoomies analyse recurring-failures --since 7d
+  zoomies analyse recurring-failures --output json
 ```
 
 ### zoomies kennel

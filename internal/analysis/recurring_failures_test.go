@@ -35,10 +35,15 @@ func TestARecurringJobThatHasNotPassedSinceIsPersistent(t *testing.T) {
 	if g.Class != ClassPersistent || !g.StillFailing || g.FailedStep != "Run tests" || g.StepFailures != 2 || g.Failures != 3 || g.Runs != 4 {
 		t.Fatalf("group = %+v", g)
 	}
-	if f.Dominant != "acme/app/ci.yml/test" || f.Confidence != High || !strings.Contains(f.Summary, "has not passed since") {
+	if f.Dominant != "4" || f.Confidence != High || !strings.Contains(f.Summary, "has not passed since") {
 		t.Fatalf("finding = %+v", f)
 	}
 	assertNoCommand(t, f.NextSteps)
+	for _, name := range []string{"acme/app", "ci.yml", "Run tests"} {
+		if strings.Contains(f.Summary, name) {
+			t.Errorf("the summary quotes %q, a name a workflow wrote", name)
+		}
+	}
 }
 
 // A rerun of the same revision that passes is the only outcome-level evidence

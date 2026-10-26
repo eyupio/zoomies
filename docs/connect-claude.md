@@ -454,11 +454,16 @@ call them:
   how many of its starts failed, since when, at which stage and with which
   fault, and whether the image, an incident its host reports or a throttle
   explains it. `pool_id` and `host_id` narrow it.
+* `recurring_failures` says which jobs failed three times or more: how many of
+  their runs failed, on how many branches, since when, at which step, how many
+  recorded a runner fault, how many passed when the same revision ran again, and
+  whether each looks like a fleet problem, a flaky job, a lasting break or none
+  of those. It reads outcomes only and does not say why a test failed.
 
 Each reads the last 24 hours unless `since` and `until` say otherwise; both take
 a duration ago such as `6h` or a timestamp. A period is at most
 `limits.job_stats_window` (90 days unless set), and a longer one is refused with
-the sentence that says so. All four only read.
+the sentence that says so. All five only read.
 
 Every answer has the same shape: a summary, a **confidence** (`high`, `medium`
 or `low`) with its reason whenever it is not high, the next steps in order, the

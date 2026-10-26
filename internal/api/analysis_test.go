@@ -352,6 +352,7 @@ func TestAnAnalysisWindowDefaultsToTheLastDayAndIsBoundedByTheStatsLimit(t *test
 		"/api/v1/analysis/compare?by=period",
 		"/api/v1/analysis/host-pressure?host_id=" + host.ID,
 		"/api/v1/analysis/startup-failures",
+		"/api/v1/analysis/recurring-failures",
 	} {
 		before := time.Now()
 		resp := h.do(request{method: http.MethodGet, path: path, cookie: cookie})
@@ -423,7 +424,7 @@ func TestAnAnalysisRefusesAPeriodThatBeginsAfterNow(t *testing.T) {
 	host := h.host("vm-1")
 	_, cookie := h.user("viewer", store.RoleViewer)
 	ahead := time.Now().UTC().Truncate(time.Second).Add(time.Hour)
-	for _, path := range []string{"queue-wait", "compare", "host-pressure", "startup-failures"} {
+	for _, path := range []string{"queue-wait", "compare", "host-pressure", "startup-failures", "recurring-failures"} {
 		extra := url.Values{}
 		if path == "host-pressure" {
 			extra.Set("host_id", host.ID)

@@ -158,7 +158,7 @@ func RecurringFailures(s RecurringSnapshot) (RecurringFailuresFinding, error) {
 		f.Confidence = High
 	default:
 		top := groups[0]
-		f.Dominant = top.Repository + "/" + top.Workflow + "/" + top.Job
+		f.Dominant = top.LastJobID
 		f.Summary = recurringSentence(top)
 		f.NextSteps = recurringSteps(top)
 		f.Confidence = High
@@ -233,11 +233,13 @@ func recurringGroup(k recurringKey, jobs []JobOutcome) RecurringGroup {
 }
 
 func recurringSentence(g RecurringGroup) string {
-	what := fmt.Sprintf("%s/%s, job %s", g.Repository, g.Workflow, g.Job)
-	b := fmt.Sprintf("%s failed %d of its %d runs, first at %s and last at %s",
-		what, g.Failures, g.Runs, g.FirstFailureAt.UTC().Format(time.RFC3339), g.LastFailureAt.UTC().Format(time.RFC3339))
+	// Repository, workflow, job and step names are written by whoever controls
+	// the workflow, so the sentence points at the latest failed job by id and
+	// leaves the names to the evidence, which readers quote as untrusted.
+	b := fmt.Sprintf("The job that fails most failed %d of its %d runs, first at %s and last at %s (job %s)",
+		g.Failures, g.Runs, g.FirstFailureAt.UTC().Format(time.RFC3339), g.LastFailureAt.UTC().Format(time.RFC3339), g.LastJobID)
 	if g.FailedStep != "" {
-		b += fmt.Sprintf(", %d of them at step %s", g.StepFailures, g.FailedStep)
+		b += fmt.Sprintf(", %d of its failures at one step", g.StepFailures)
 	}
 	switch g.Class {
 	case ClassInfrastructure:
