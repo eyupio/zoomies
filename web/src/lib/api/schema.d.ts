@@ -2887,6 +2887,115 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/kennel/fixes/timeout/inspections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compute the fix for a missing job timeout from one Kennel finding
+         * @description Requires operator, kennel:read and optimisations:write; public visitors are refused. Refused with 403 unless optimisation.source_reads and optimisation.workflow_edits are on. Takes the workflow file and job a ci.no_timeout finding names, by Git blob SHA and job index, and the minutes the operator chooses (1 to 1440; never inferred). The finding must be open and not waived, and Kennel Club must be on and tracking the repository. Reads the default branch head, its tree, the one file and the head again, with at most five GitHub requests under 20 seconds, the shared diagnostic flight and the half-core-quota reserve, and requires the file to be exactly the blob the finding names. Returns the exact before and after block. It retains nothing and publishes nothing.
+         */
+        post: operations["inspectKennelTimeoutFix"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kennel/fixes/timeout/previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retain a reviewed Kennel timeout fix
+         * @description Requires operator, kennel:read and optimisations:write; public visitors are refused. Repeats the bounded source read and requires the same head and workflow digest the operator inspected. Keeps an immutable private preview for fourteen days with an audit row. It changes one job and publishes nothing. Verification is a Kennel Club recheck and currentness is not_checked.
+         */
+        post: operations["captureKennelTimeoutFix"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kennel/fixes/timeout/previews/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Replay a retained Kennel timeout fix without GitHub reads
+         * @description Requires operator, kennel:read and optimisations:read; public visitors are refused. Supply exactly one installation_id and repo and nothing else. Verifies the stored digest and recomputes the fix from retained input only. The answer carries the before and after block and metadata, never the full workflow. currentness is always not_checked.
+         */
+        get: operations["getKennelTimeoutFix"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kennel/fixes/timeout/previews/{id}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve one retained Kennel timeout fix
+         * @description Requires operator, kennel:read and optimisations:write; public visitors are refused. Records an attributed approval of the exact retained fix named by its commit and source digest. It reads no source, calls no GitHub reader, opens no pull request and runs no job. The approval expires with the preview. A repeated approval of the same binding is a no-op with no second audit row; a different head, source or preview is refused.
+         */
+        post: operations["approveKennelTimeoutFix"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kennel/fixes/timeout/previews/{id}/publication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open one draft pull request for an approved Kennel timeout fix
+         * @description Requires operator, kennel:read and optimisations:publish; public visitors are refused. Refused with 403 unless optimisation.source_reads, optimisation.workflow_edits and optimisation.publish are on. Re-reads the file from the default branch, rechecks the live settings and the approval, and requires the finding to be still open and not waived and the file to be the same blob with the same after block. The default branch head may have moved: the fix is bound to the file, and the draft is based on the current head. Commits the reviewed file on a new branch and opens one draft pull request. Never merges and never force-pushes. A retry reconciles the branch and pull request an earlier attempt left behind. It does not close the finding: Kennel Club does when it reads the file on the branch and the job has a timeout.
+         */
+        post: operations["publishKennelTimeoutFix"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/kennel/repositories": {
         parameters: {
             query?: never;
@@ -12805,6 +12914,116 @@ export interface components {
             pull_number: number;
             pull_url: string;
         } | null;
+        KennelFixInspectionRequest: {
+            kennel_repository_id: string;
+            /** @description The Git blob SHA of the workflow file the finding names. */
+            blob_sha: string;
+            /** @description The job's position in the file's jobs mapping. */
+            job_index: number;
+            /** @description The timeout the operator chose; never inferred. */
+            minutes: number;
+        };
+        KennelFixCaptureRequest: {
+            kennel_repository_id: string;
+            blob_sha: string;
+            job_index: number;
+            minutes: number;
+            /** @description The commit the operator reviewed. */
+            head_sha: string;
+            /** @description The workflow digest the operator reviewed. */
+            source_sha256: string;
+        };
+        KennelFixBindingRequest: {
+            installation_id: string;
+            repository: string;
+            /** @description The commit the Kennel fix names. */
+            head_sha: string;
+            /** @description The workflow digest the Kennel fix names. */
+            source_sha256: string;
+        };
+        KennelFixInspection: {
+            kennel_repository_id: string;
+            installation_id: string;
+            repository: string;
+            /** @enum {string} */
+            check_code: "ci.no_timeout";
+            blob_sha: string;
+            job_index: number;
+            job_name: string;
+            minutes: number;
+            head_sha: string;
+            branch: string;
+            source_sha256: string;
+            workflow_path: string;
+            line: number;
+            /** @description The job's key through its runs-on line as it is: untrusted repository text. */
+            before: string;
+            /** @description The same lines with the timeout added: untrusted repository text and the operator's value. */
+            after: string;
+            /** @enum {string} */
+            verification: "recheck";
+            explanation: string;
+            /** Format: date-time */
+            inspected_at: string;
+        };
+        KennelFixPreview: {
+            id: string;
+            installation_id: string;
+            repository: string;
+            kennel_repository_id: string;
+            reviewed_by: string;
+            sha256: string;
+            /** Format: date-time */
+            created_at: string;
+            /** @enum {string} */
+            currentness: "not_checked";
+            /** @enum {string} */
+            check_code: "ci.no_timeout";
+            blob_sha: string;
+            job_index: number;
+            job_name: string;
+            minutes: number;
+            head_sha: string;
+            branch: string;
+            source_sha256: string;
+            workflow_path: string;
+            line: number;
+            /** @description The job's key through its runs-on line as it is: untrusted repository text. */
+            before: string;
+            /** @description The same lines with the timeout added: untrusted repository text and the operator's value. */
+            after: string;
+            /** @enum {string} */
+            verification: "recheck";
+            explanation: string;
+            approval: components["schemas"]["KennelFixApproval"];
+            publication: components["schemas"]["KennelFixPublication"];
+        };
+        /** @description An attributed approval of the exact retained Kennel fix, or null when none was given. */
+        KennelFixApproval: {
+            approved_by: string;
+            /** Format: date-time */
+            approved_at: string;
+            head_sha: string;
+            source_sha256: string;
+            /** @description The digest of the immutable retained record this approval binds. */
+            preview_sha256: string;
+        } | null;
+        /** @description The one draft pull request opened for an approved Kennel fix, or null when none was opened. */
+        KennelFixPublication: {
+            published_by: string;
+            /** Format: date-time */
+            published_at: string;
+            branch: string;
+            base_branch: string;
+            /** @description The branch head the draft was opened from; it may be newer than head_sha. */
+            base_sha: string;
+            /** @description The commit the fix was previewed at. */
+            head_sha: string;
+            source_sha256: string;
+            preview_sha256: string;
+            pull_number: number;
+            pull_url: string;
+        } | null;
         ReadinessCaptureRequest: {
             installation_id: string;
             repository: string;
@@ -18341,6 +18560,310 @@ export interface operations {
                     "application/json": {
                         items: components["schemas"]["KennelCatalogueEntry"][];
                     };
+                };
+            };
+        };
+    };
+    inspectKennelTimeoutFix: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KennelFixInspectionRequest"];
+            };
+        };
+        responses: {
+            /** @description The computed fix; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelFixInspection"];
+                };
+            };
+            /** @description Invalid request, scope or digest. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The repository, finding or preview is unavailable, expired or outside this scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The finding is not open or is waived, the file changed, or the stored evidence or an earlier decision does not match the request. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Diagnostic or GitHub quota refusal; Retry-After says when to retry manually. */
+            429: {
+                headers: {
+                    "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    captureKennelTimeoutFix: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KennelFixCaptureRequest"];
+            };
+        };
+        responses: {
+            /** @description Audited retained Kennel fix; Cache-Control is no-store. */
+            201: {
+                headers: {
+                    Location: components["headers"]["Location"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelFixPreview"];
+                };
+            };
+            /** @description Invalid request, scope or digest. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The repository, finding or preview is unavailable, expired or outside this scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The finding is not open or is waived, the file changed, or the stored evidence or an earlier decision does not match the request. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Diagnostic or GitHub quota refusal; Retry-After says when to retry manually. */
+            429: {
+                headers: {
+                    "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getKennelTimeoutFix: {
+        parameters: {
+            query: {
+                installation_id: string;
+                repo: string;
+            };
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Verified retained Kennel fix; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelFixPreview"];
+                };
+            };
+            /** @description Invalid request, scope or digest. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The repository, finding or preview is unavailable, expired or outside this scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The finding is not open or is waived, the file changed, or the stored evidence or an earlier decision does not match the request. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    approveKennelTimeoutFix: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KennelFixBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description The retained fix with its approval; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelFixPreview"];
+                };
+            };
+            /** @description Invalid request, scope or digest. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The repository, finding or preview is unavailable, expired or outside this scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The finding is not open or is waived, the file changed, or the stored evidence or an earlier decision does not match the request. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    publishKennelTimeoutFix: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KennelFixBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description The retained fix with its draft pull request; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelFixPreview"];
+                };
+            };
+            /** @description Invalid request, scope or digest. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The repository, finding or preview is unavailable, expired or outside this scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The finding is not open or is waived, the file changed, or the stored evidence or an earlier decision does not match the request. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Diagnostic or GitHub quota refusal; Retry-After says when to retry manually. */
+            429: {
+                headers: {
+                    "Retry-After"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
         };

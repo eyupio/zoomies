@@ -1536,6 +1536,53 @@ export const publishCachePreview = (
     '/optimisations/cache/previews/' + encodeURIComponent(id) + '/publication',
     { body, signal },
   );
+export const inspectKennelFix = (
+  body: import('./types').KennelFixInspectionRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').KennelFixInspection>('/kennel/fixes/timeout/inspections', {
+    body,
+    signal,
+  });
+export const retainKennelFix = (
+  body: import('./types').KennelFixCaptureRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').KennelFixPreview>('/kennel/fixes/timeout/previews', {
+    body,
+    signal,
+  });
+export const getKennelFix = (
+  id: string,
+  installationId: string,
+  repo: string,
+  signal?: AbortSignal,
+) =>
+  api.get<import('./types').KennelFixPreview>(
+    '/kennel/fixes/timeout/previews/' +
+      encodeURIComponent(id) +
+      '?' +
+      new globalThis.URLSearchParams({ installation_id: installationId, repo }).toString(),
+    { signal },
+  );
+export const approveKennelFix = (
+  id: string,
+  body: import('./types').KennelFixBindingRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').KennelFixPreview>(
+    '/kennel/fixes/timeout/previews/' + encodeURIComponent(id) + '/approval',
+    { body, signal },
+  );
+export const publishKennelFix = (
+  id: string,
+  body: import('./types').KennelFixBindingRequest,
+  signal?: AbortSignal,
+) =>
+  api.post<import('./types').KennelFixPreview>(
+    '/kennel/fixes/timeout/previews/' + encodeURIComponent(id) + '/publication',
+    { body, signal },
+  );
 export const retainReadinessPreview = (
   body: import('./types').ReadinessCaptureRequest,
   signal?: AbortSignal,

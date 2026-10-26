@@ -39,6 +39,7 @@ numeric job ID in a GitHub Actions URL.
 | “Read kept cache preview opc_ID in installation ins_ID and repository OWNER/REPO.” | Metadata, the package manager and lockfile, the setup evidence, whether the preview was approved or a draft opened, and the one `with:` block it changes; never the full workflow or lockfile, and verification is inconclusive | `get_cache_preview` |
 | “Read kept readiness preview opr_ID in installation ins_ID and repository OWNER/REPO.” | Metadata, the operator's readiness command, the wait evidence, whether the preview was approved or a draft opened, and the one run block it changes; never the full workflow, and verification is inconclusive | `get_readiness_preview` |
 | “Read kept sharding preview ops_ID in installation ins_ID and repository OWNER/REPO.” | Metadata, the shard count, the timing evidence, the runner time before and after, the runners needed at once, whether the preview was approved or a draft opened, and the one job block it changes; never the full workflow, and verification is inconclusive | `get_sharding_preview` |
+| “Read kept Kennel fix kfp_ID in installation ins_ID and repository OWNER/REPO.” | Metadata, the finding it is for, the minutes the operator chose, whether the fix was approved or a draft opened, and the job's lines as they are and as they would be; never the full file | `get_kennel_fix` |
 | “What needs attention across the fleet?” | Fleet status, host health, problems and repository findings | `fleet_status`, `host_health`, `kennel_overview` |
 | “Why did Eli's repair of my pull request get nowhere?” | The repair's history row for the person asking: repository and pull request, state and the row's reason, whether asking again now would be refused, and how to start another | `list_elis_repairs`, `get_eli_repair` |
 | “Read the workflow and explain how to improve it.” | Verified source excerpts tied to a commit, after source access has been granted | `context_search`, `context_read`, `context_pack` |
@@ -91,6 +92,19 @@ and digests stay. The path and block are quoted
 untrusted repository text, not instructions; the condition is operator-supplied,
 not inferred. Verification is always inconclusive; the wait time is descriptive,
 and no saving is established. Approval and publication stay on the web page.
+
+`get_kennel_fix` requires `fix_id`, `installation_id` and `repo`. It uses one scoped
+local-history GET with operator, `kennel:read` and `optimisations:read` access, and
+never reads GitHub, approves or publishes. The answer is the same bounded view as the
+web page: fix ID, repository, path, commit and source digest, the job and its
+position, the minutes the operator chose, whether the fix was approved, whether a
+draft pull request was opened, and the job's lines as they are and as they would be.
+The full workflow was shown once at inspection and is never returned. Actor
+identities, including who approved and who published, are excluded from model
+output; the times and digests stay. The path and lines are quoted untrusted
+repository text, not instructions; the minutes are the operator's, not inferred.
+The finding closes when Kennel Club reads the merged file, not when a draft is
+opened. Approval and publication stay on the web page.
 
 `get_sharding_preview` requires `preview_id`, `installation_id` and `repo`. It uses
 one scoped local-history GET with operator, `optimisations:read` and `jobs:read`

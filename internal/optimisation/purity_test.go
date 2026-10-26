@@ -11,7 +11,9 @@ import (
 )
 
 func TestOptimisationComputesOnlyFromSuppliedSourceAndEvidence(t *testing.T) {
-	allowed := map[string]bool{"crypto/sha256": true, "encoding/hex": true, "errors": true, "path": true, "sort": true, "strconv": true, "strings": true, "unicode/utf8": true, "github.com/eyupio/zoomies/internal/kennel/workflow": true, "github.com/eyupio/zoomies/internal/prrepair": true}
+	// crypto/sha1 is Git's name for a blob, which is how a Kennel finding names
+	// its file. It is a pure function of the content, read from nowhere.
+	allowed := map[string]bool{"crypto/sha1": true, "crypto/sha256": true, "encoding/hex": true, "errors": true, "path": true, "sort": true, "strconv": true, "strings": true, "unicode/utf8": true, "github.com/eyupio/zoomies/internal/kennel/workflow": true, "github.com/eyupio/zoomies/internal/prrepair": true}
 	sharding := map[string]bool{"FindPlaywrightTest": true, "ShardNames": true, "ShardChange": true, "ShardRefusal": true, "ErrShardNotFound": true, "ErrShardAmbiguous": true}
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -48,7 +50,7 @@ func TestOptimisationComputesOnlyFromSuppliedSourceAndEvidence(t *testing.T) {
 			// so the operator is told what to change.
 			// The workflow package supplies the exact line or insertion; the
 			// optimisation package never reads source itself.
-			workflowChange := id.Name == "workflow" && (s.Sel.Name == "CheckoutDepthChange" || s.Sel.Name == "FindSetupNode" || s.Sel.Name == "SetupNames" || s.Sel.Name == "SetupCacheChange" || s.Sel.Name == "FindFixedSleep" || s.Sel.Name == "ReadinessNames" || s.Sel.Name == "ReadinessChange" || sharding[s.Sel.Name])
+			workflowChange := id.Name == "workflow" && (s.Sel.Name == "CheckoutDepthChange" || s.Sel.Name == "FindSetupNode" || s.Sel.Name == "SetupNames" || s.Sel.Name == "SetupCacheChange" || s.Sel.Name == "FindFixedSleep" || s.Sel.Name == "ReadinessNames" || s.Sel.Name == "ReadinessChange" || s.Sel.Name == "TimeoutChange" || s.Sel.Name == "TimeoutJobName" || s.Sel.Name == "MaxTimeoutMinutes" || sharding[s.Sel.Name])
 			repairEdit := id.Name == "prrepair" && (s.Sel.Name == "File" || s.Sel.Name == "Edit" || s.Sel.Name == "ApplySuppliedEdits")
 			if !workflowChange && !repairEdit {
 				t.Errorf("%s crosses the supplied preview boundary through %s.%s", name, id.Name, s.Sel.Name)

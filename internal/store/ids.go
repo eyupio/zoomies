@@ -39,6 +39,9 @@ const (
 	// PrefixOptimisationShardingPreview names one retained Playwright sharding
 	// preview, separate from the cache and readiness histories.
 	PrefixOptimisationShardingPreview = "ops"
+	// PrefixKennelFixPreview names one retained Kennel fix preview, separate from
+	// the optimisation histories.
+	PrefixKennelFixPreview = "kfp"
 	// PrefixProviderSetup names a short-lived Proxmox connection enrolment.
 	PrefixProviderSetup = "pvs"
 	// PrefixBackupRemote names an offsite backup destination kept in the

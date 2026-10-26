@@ -211,6 +211,12 @@ export const ROUTES: readonly RouteDef[] = [
     load: () => import('../routes/KennelRepository.svelte'),
   },
   {
+    name: 'kennel-fix-timeout',
+    path: '/kennel/fixes/timeout',
+    title: 'Timeout fix',
+    load: () => import('../routes/KennelFixTimeout.svelte'),
+  },
+  {
     name: 'kennel-ai-context',
     path: '/kennel/ai-context',
     title: 'AI Context',

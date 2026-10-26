@@ -7,6 +7,8 @@
  */
 import type {
   KennelCounts,
+  KennelFile,
+  KennelFinding,
   KennelFleetScore,
   KennelOverview,
   KennelScore,
@@ -462,4 +464,86 @@ export function fileEvidenceText(path: string, jobIndex: number, line: number): 
       : 'a workflow with an unusual name';
   }
   return line > 0 ? `${path}:${line}${job}` : path;
+}
+
+/** The most minutes a timeout fix may be given, as the API accepts. */
+export const TIMEOUT_MINUTES_MAX = 1440;
+
+/**
+ * The minutes a person typed, or null when it is not a whole number from 1 to
+ * 1440. A timeout is a fact about the job and nothing in the file says it, so the
+ * page never fills one in and a fraction or a unit is a mistake to be said, not
+ * rounded.
+ */
+export function timeoutMinutes(text: string): number | null {
+  const trimmed = text.trim();
+  if (!/^[0-9]{1,4}$/.test(trimmed)) return null;
+  const value = Number(trimmed);
+  return value >= 1 && value <= TIMEOUT_MINUTES_MAX ? value : null;
+}
+
+/** Why the minutes cannot be used yet, as a sentence, or '' when they can. */
+export function timeoutMinutesHint(text: string): string {
+  if (text.trim() === '') return 'Say how many minutes this job may run before it is stopped.';
+  return timeoutMinutes(text) === null
+    ? `Use a whole number of minutes from 1 to ${TIMEOUT_MINUTES_MAX}.`
+    : '';
+}
+
+/** A change that only adds lines after some that stay: what a timeout fix is. */
+export interface AppendedLines {
+  context: string[];
+  added: string[];
+}
+
+/**
+ * Split a fix's before and after into the lines that stay and the lines that are
+ * added, so the page can show a change as a change and not as two blocks to compare
+ * by eye. It answers null when the after is not the before with lines added at the
+ * end, and the page then shows both blocks whole rather than a diff it made up.
+ */
+export function appendedLines(before: string, after: string): AppendedLines | null {
+  if (!after.startsWith(before)) return null;
+  const lines = (text: string) => text.replace(/\r?\n$/, '').split(/\r?\n/);
+  const addedText = after.slice(before.length).replace(/^\r?\n/, '');
+  if (addedText === '') return null;
+  return { context: before === '' ? [] : lines(before), added: lines(addedText) };
+}
+
+/** One job a timeout fix can be previewed for: the file by blob, the job by position. */
+export interface TimeoutFixTarget {
+  blob: string;
+  job: number;
+  /** Where it is, in the words the evidence uses, for the button's name. */
+  label: string;
+}
+
+/**
+ * The jobs a ci.no_timeout finding names, each of which a fix can be previewed
+ * for. A fix needs the file's blob and the job's position, and only file
+ * evidence with both carries them; anything else, and any other check, offers
+ * none.
+ */
+export function timeoutFixTargets(
+  finding: Pick<KennelFinding, 'code' | 'evidence'>,
+  files: readonly Pick<KennelFile, 'sha' | 'path'>[],
+): TimeoutFixTarget[] {
+  if (finding.code !== 'ci.no_timeout') return [];
+  const paths = new Map(files.map((file) => [file.sha, file.path]));
+  const seen = new Set<string>();
+  const targets: TimeoutFixTarget[] = [];
+  for (const item of finding.evidence ?? []) {
+    if (item.kind !== 'file' || !/^[a-f0-9]{40}$/.test(item.ref)) continue;
+    const job = item.job_index ?? -1;
+    if (job < 0) continue;
+    const key = `${item.ref}:${job}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    targets.push({
+      blob: item.ref,
+      job,
+      label: fileEvidenceText(paths.get(item.ref) ?? '', job, item.line ?? 0),
+    });
+  }
+  return targets;
 }
