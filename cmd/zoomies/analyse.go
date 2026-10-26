@@ -30,7 +30,7 @@ const analyseNameWidth = 40
 // whole line and can quote a stack trace.
 const analyseMessageWidth = 160
 
-// runAnalyse is the four analyses in a terminal. Each is one read of the
+// runAnalyse is the analyses in a terminal. Each is one read of the
 // controller's route and nothing else: the CLI lays the finding out, it does
 // not reason about the fleet, so it, the page and Eli cannot disagree.
 func runAnalyse(ctx context.Context, e *env, args []string) error {
@@ -39,6 +39,7 @@ func runAnalyse(ctx context.Context, e *env, args []string) error {
 		{"compare", "[--by version|period] [--a v] [--b v]", "What got worse and what got better between two releases, or a period and the one before", analyseCompare},
 		{"host-pressure", "--host id", "Whether one host's failures, OOM kills and slow starts came when it was busy", analyseHostPressure},
 		{"startup-failures", "[--pool id] [--host id]", "Which host or pool keeps failing to start runners, since when and why", analyseStartupFailures},
+		{"recurring-failures", "", "Which jobs keep failing, at which step, and whether the fleet, a flaky job or a broken change is behind it", analyseRecurringFailures},
 	}, args)
 }
 
@@ -485,6 +486,66 @@ func analyseStartupFailures(ctx context.Context, e *env, args []string) error {
 			p.note("Each one's last failed start:")
 			p.keyValues(last)
 		}
+	}
+	printNextSteps(p, f.NextSteps, f.Codes)
+	return nil
+}
+
+func analyseRecurringFailures(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies analyse recurring-failures [--since t] [--until t]",
+		"Which jobs keep failing: how often, since when, at which step, and whether the runner, a rerun of the same revision or a lasting break is behind it. It reads outcomes, so it cannot say why a test failed.")
+	win := registerAnalyseWindow(fs)
+	cf := registerClientFlags(fs, true)
+	fs.example(
+		"zoomies analyse recurring-failures",
+		"zoomies analyse recurring-failures --since 7d",
+		"zoomies analyse recurring-failures --output json",
+	)
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	if err := fs.noMoreArgs(); err != nil {
+		return err
+	}
+	q := url.Values{}
+	if err := win.set("analyse recurring-failures", q); err != nil {
+		return err
+	}
+	p, err := cf.printer(e)
+	if err != nil {
+		return err
+	}
+	f, raw, err := readFinding[analysis.RecurringEvidence](ctx, cf, "/analysis/recurring-failures", q, "recurring_failures", analysis.RecurringFailuresVersion)
+	if err != nil {
+		return err
+	}
+	if p.structured() {
+		return p.emit(raw)
+	}
+
+	printFindingHead(p, f.Summary, period(f.Since, f.Until), f.Confidence, f.ConfidenceReason)
+	ev := f.Evidence
+	fmt.Fprintln(p.out)
+	p.keyValues([][2]string{{"Jobs", fmt.Sprintf("%d finished with a pass or a failure, %d failed", ev.Jobs, ev.Failures)}})
+	if ev.Truncated {
+		p.note("The job read was cut at the newest %d; a shorter period reads all of it.", analysis.MaxReadJobs)
+	}
+	if ev.GroupsCut > 0 {
+		p.note("Jobs left out of the evidence below: %d; a shorter period reads fewer.", ev.GroupsCut)
+	}
+	if len(ev.Groups) > 0 {
+		fmt.Fprintln(p.out)
+		rows := make([][]string, 0, len(ev.Groups))
+		for _, g := range ev.Groups {
+			now := "passed since"
+			if g.StillFailing {
+				now = "still failing"
+			}
+			rows = append(rows, []string{plain(g.Repository), plain(g.Workflow), plain(g.Job),
+				fmt.Sprintf("%d of %d", g.Failures, g.Runs), strconv.Itoa(g.Branches), instant(g.FirstFailureAt), now,
+				dash(plain(g.FailedStep)), strconv.Itoa(g.RunnerFaults), strconv.Itoa(g.RetryPasses), plain(g.Class)})
+		}
+		p.table([]string{"repository", "workflow", "job", "failed", "branches", "first failure", "now", "step", "runner faults", "rerun passed", "looks like"}, rows)
 	}
 	printNextSteps(p, f.NextSteps, f.Codes)
 	return nil

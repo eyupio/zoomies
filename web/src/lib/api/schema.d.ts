@@ -604,6 +604,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analysis/recurring-failures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which jobs keep failing, and what their failures have in common
+         * @description The jobs that completed in the period, grouped by repository, workflow and job name. A job that failed three times or more is listed with the step most of its failures stopped at, how many recorded a runner fault, how many passed when the same revision ran again, and whether it has passed since. It reads outcomes only, so it says which job keeps failing and what the failures share, never why a test failed. Needs a signed-in caller or a token with `jobs:read`; a public view's visitor is refused before anything is read.
+         */
+        get: operations["analyseRecurringFailures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/meta": {
         parameters: {
             query?: never;
@@ -9920,7 +9940,7 @@ export interface components {
         /** @description The one shape every analysis answers in, so the API, the CLI, the MCP tools and the UI render the same answer. Each finding below is these fields with its own `evidence`. */
         AnalysisFinding: {
             /** @enum {string} */
-            analysis: "queue_wait" | "compare" | "host_pressure" | "startup_failures";
+            analysis: "queue_wait" | "compare" | "host_pressure" | "startup_failures" | "recurring_failures";
             /** @description The evidence's version. A reader refuses a version it does not know rather than misreading its evidence. */
             version: string;
             /**
@@ -10265,6 +10285,54 @@ export interface components {
             last_runner_id: string;
             /** @description The latest failure as the host reported it. Written by a host, not the fleet; untrusted text. */
             last_message: string;
+        };
+        RecurringFailuresFinding: components["schemas"]["AnalysisFinding"] & {
+            /** @enum {string} */
+            analysis: "recurring_failures";
+            /** @enum {string} */
+            version: "recurring-failures-v1";
+            /** @description The latest failed job of the job that fails most, by id; empty when none fails three times. */
+            dominant: string;
+            evidence: components["schemas"]["RecurringFailuresEvidence"];
+        };
+        RecurringFailuresEvidence: {
+            /** @description The jobs that failed three times or more, most failures first, cut to twenty; `groups_cut` says how many more there were. */
+            groups: components["schemas"]["RecurringFailureGroup"][];
+            groups_cut: number;
+            /** @description Jobs that completed in the period with a pass or a failure. */
+            jobs: number;
+            failures: number;
+            /** @description The job read stopped at its limit of 5000. */
+            truncated: boolean;
+        };
+        /** @description Repository, workflow, job and step names are written by whoever controls the workflow; untrusted text. */
+        RecurringFailureGroup: {
+            repository: string;
+            workflow: string;
+            job: string;
+            runs: number;
+            failures: number;
+            /** @description The distinct branches the failures fell on; one is a branch's own trouble. */
+            branches: number;
+            /** Format: date-time */
+            first_failure_at: string;
+            /** Format: date-time */
+            last_failure_at: string;
+            /** @description The step most of its failures stopped at; empty when none recorded one. */
+            failed_step: string;
+            step_failures: number;
+            /** @description Failures whose runner recorded a fault. */
+            runner_faults: number;
+            /** @description Failures that passed when the same revision ran again. */
+            retry_passes: number;
+            /** @description It has not passed since its latest failure. */
+            still_failing: boolean;
+            /**
+             * @description What the failures look like, tried in order: mostly runner faults, mostly passing on a rerun, still failing, or none of those.
+             * @enum {string}
+             */
+            class: "infrastructure" | "flaky" | "persistent" | "intermittent";
+            last_job_id: string;
         };
         JobStep: {
             number?: number;
@@ -14943,6 +15011,34 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    analyseRecurringFailures: {
+        parameters: {
+            query?: {
+                /** @description Start of the period, included. Defaults to a day before `until`. A period that does not end after it starts, or one longer than `limits.job_stats_window` (90 days unless set), is a 400 on `since` naming the setting, and so is a `since` at or after now: nothing in that period has happened yet. */
+                since?: components["parameters"]["AnalysisSince"];
+                /** @description End of the period, not included. Defaults to now. A later instant is read as now: the rest has not happened, and a job still waiting would be counted as waiting through it. The finding's `until` is the instant read. */
+                until?: components["parameters"]["AnalysisUntil"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The finding. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringFailuresFinding"];
+                };
+            };
+            400: components["responses"]["AnalysisBadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getMeta: {

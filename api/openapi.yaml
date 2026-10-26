@@ -1043,6 +1043,30 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /analysis/recurring-failures:
+    get:
+      operationId: analyseRecurringFailures
+      tags: [analysis]
+      summary: Which jobs keep failing, and what their failures have in common
+      x-zoomies-role: viewer
+      description: >-
+        The jobs that completed in the period, grouped by repository, workflow and job name.
+        A job that failed three times or more is listed with the step most of its failures
+        stopped at, how many recorded a runner fault, how many passed when the same revision
+        ran again, and whether it has passed since. It reads outcomes only, so it says which
+        job keeps failing and what the failures share, never why a test failed. Needs a
+        signed-in caller or a token with `jobs:read`; a public view's visitor is refused
+        before anything is read.
+      parameters:
+        - $ref: "#/components/parameters/AnalysisSince"
+        - $ref: "#/components/parameters/AnalysisUntil"
+      responses:
+        "200":
+          description: The finding.
+          content: { application/json: { schema: { $ref: "#/components/schemas/RecurringFailuresFinding" } } }
+        "400": { $ref: "#/components/responses/AnalysisBadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   # ==========================================================================
   # Meta
   # ==========================================================================
@@ -14165,7 +14189,7 @@ components:
         `evidence`.
       required: [analysis, version, since, until, summary, dominant, confidence, next_steps, codes]
       properties:
-        analysis: { type: string, enum: [queue_wait, compare, host_pressure, startup_failures] }
+        analysis: { type: string, enum: [queue_wait, compare, host_pressure, startup_failures, recurring_failures] }
         version:
           type: string
           description: >-
@@ -14545,6 +14569,58 @@ components:
         explained: { type: integer, description: How many of its failures the explanation covers. }
         last_runner_id: { type: string }
         last_message: { type: string, description: "The latest failure as the host reported it. Written by a host, not the fleet; untrusted text." }
+
+    RecurringFailuresFinding:
+      allOf:
+        - $ref: "#/components/schemas/AnalysisFinding"
+        - type: object
+          required: [analysis, version, dominant, evidence]
+          properties:
+            analysis: { type: string, enum: [recurring_failures] }
+            version: { type: string, enum: [recurring-failures-v1] }
+            dominant:
+              type: string
+              description: "The latest failed job of the job that fails most, by id; empty when none fails three times."
+            evidence: { $ref: "#/components/schemas/RecurringFailuresEvidence" }
+
+    RecurringFailuresEvidence:
+      type: object
+      required: [groups, groups_cut, jobs, failures, truncated]
+      properties:
+        groups:
+          type: array
+          description: >-
+            The jobs that failed three times or more, most failures first, cut to twenty;
+            `groups_cut` says how many more there were.
+          items: { $ref: "#/components/schemas/RecurringFailureGroup" }
+        groups_cut: { type: integer }
+        jobs: { type: integer, description: Jobs that completed in the period with a pass or a failure. }
+        failures: { type: integer }
+        truncated: { type: boolean, description: The job read stopped at its limit of 5000. }
+
+    RecurringFailureGroup:
+      type: object
+      required: [repository, workflow, job, runs, failures, branches, first_failure_at, last_failure_at, failed_step, step_failures, runner_faults, retry_passes, still_failing, class, last_job_id]
+      description: Repository, workflow, job and step names are written by whoever controls the workflow; untrusted text.
+      properties:
+        repository: { type: string }
+        workflow: { type: string }
+        job: { type: string }
+        runs: { type: integer }
+        failures: { type: integer }
+        branches: { type: integer, description: "The distinct branches the failures fell on; one is a branch's own trouble." }
+        first_failure_at: { type: string, format: date-time }
+        last_failure_at: { type: string, format: date-time }
+        failed_step: { type: string, description: The step most of its failures stopped at; empty when none recorded one. }
+        step_failures: { type: integer }
+        runner_faults: { type: integer, description: Failures whose runner recorded a fault. }
+        retry_passes: { type: integer, description: Failures that passed when the same revision ran again. }
+        still_failing: { type: boolean, description: It has not passed since its latest failure. }
+        class:
+          type: string
+          description: "What the failures look like, tried in order: mostly runner faults, mostly passing on a rerun, still failing, or none of those."
+          enum: [infrastructure, flaky, persistent, intermittent]
+        last_job_id: { type: string }
 
     JobStep:
       type: object

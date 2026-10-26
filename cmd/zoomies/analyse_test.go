@@ -141,6 +141,40 @@ func fixtureStartup(message string) analysis.StartupFailuresFinding {
 	}
 }
 
+func fixtureRecurring(job string) analysis.RecurringFailuresFinding {
+	return analysis.RecurringFailuresFinding{
+		Analysis: "recurring_failures", Version: analysis.RecurringFailuresVersion, Since: analyseSince, Until: analyseUntil,
+		Summary:  "The job that fails most failed 4 of its 9 runs (job job_9).",
+		Dominant: "job_9", Confidence: analysis.High,
+		NextSteps: []analysis.NextStep{{Text: "Read the failed step's log from one failed run and one rerun of the same revision."}},
+		Codes:     []string{},
+		Evidence: analysis.RecurringEvidence{
+			Jobs: 40, Failures: 6,
+			Groups: []analysis.RecurringGroup{{Repository: "acme/app", Workflow: "ci.yml", Job: job, Runs: 9, Failures: 4, Branches: 2,
+				FirstFailureAt: analyseSince.Add(time.Hour), LastFailureAt: analyseSince.Add(3 * time.Hour), FailedStep: "Run tests",
+				StepFailures: 3, RetryPasses: 3, Class: analysis.ClassFlaky, LastJobID: "job_9"}},
+		},
+	}
+}
+
+func TestAnalyseRecurringFailuresPrintsEachJobAndWhatItLooksLike(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/analysis/recurring-failures" {
+			t.Errorf("unexpected request %s", r.URL)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(analyseBody(t, fixtureRecurring("test"))))
+	}))
+	t.Cleanup(srv.Close)
+	out, _ := runCLI(t, "analyse", "recurring-failures", "--url", srv.URL)
+	for _, want := range []string{"failed 4 of its 9 runs", "acme/app", "ci.yml", "4 of 9", "Run tests", "passed since", "flaky",
+		"1. Read the failed step's log"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("recurring-failures does not say %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestAnalyseQueueWaitPrintsTheSummaryTheStepsAndThePools(t *testing.T) {
 	var calls atomic.Int32
 	body := analyseBody(t, fixtureQueueWait("build"))
@@ -383,6 +417,7 @@ func TestAnalyseNeverPrintsAControlCharacterFromAName(t *testing.T) {
 		{"queue-wait", "/api/v1/analysis/queue-wait", []string{"queue-wait"}, func(n string) any { return fixtureQueueWait(n) }},
 		{"host-pressure", "/api/v1/analysis/host-pressure", []string{"host-pressure", "--host", "host_b"}, func(n string) any { return fixtureHostPressure(n) }},
 		{"startup-failures", "/api/v1/analysis/startup-failures", []string{"startup-failures"}, func(n string) any { return fixtureStartup(n) }},
+		{"recurring-failures", "/api/v1/analysis/recurring-failures", []string{"recurring-failures"}, func(n string) any { return fixtureRecurring(n) }},
 	}
 	for _, c := range cases {
 		run := func(name string) string {

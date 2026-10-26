@@ -1019,3 +1019,41 @@ func startOutcome(s store.RunnerSpan, until time.Time) string {
 	}
 	return analysis.StartUnknown
 }
+
+// AnalyseRecurringFailures names the jobs that keep failing in the period and
+// what their failures have in common.
+func (c *Controller) AnalyseRecurringFailures(ctx context.Context, w AnalysisWindow) (analysis.RecurringFailuresFinding, error) {
+	snap, err := c.recurringSnapshot(ctx, w)
+	if err != nil {
+		return analysis.RecurringFailuresFinding{}, err
+	}
+	f, err := analysis.RecurringFailures(snap)
+	linkSteps(f.NextSteps)
+	return f, err
+}
+
+func (c *Controller) recurringSnapshot(ctx context.Context, w AnalysisWindow) (analysis.RecurringSnapshot, error) {
+	w, err := c.readableWindow(w, c.Now())
+	snap := analysis.RecurringSnapshot{Since: w.Since, Until: w.Until}
+	if err != nil {
+		return snap, err
+	}
+	jobs, more, err := c.st.JobOutcomes(ctx, w.Since, w.Until, analysis.MaxReadJobs)
+	if err != nil {
+		return snap, fmt.Errorf("reading job outcomes: %w", err)
+	}
+	snap.Truncated = more
+	for _, j := range jobs {
+		o := analysis.JobOutcome{JobID: j.ID, Repository: j.Repo, Workflow: j.Workflow, Job: j.JobName,
+			HeadSHA: j.HeadSHA, HeadBranch: j.HeadBranch, RunID: j.GitHubRunID, RunAttempt: j.RunAttempt, Conclusion: j.Conclusion,
+			RunnerFault: j.RunnerFault != "", CompletedAt: j.CompletedAt}
+		for _, s := range j.Steps {
+			if s.Conclusion == "failure" {
+				o.FailedStep = s.Name
+				break
+			}
+		}
+		snap.Jobs = append(snap.Jobs, o)
+	}
+	return snap, nil
+}

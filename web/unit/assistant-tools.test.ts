@@ -36,4 +36,5 @@ test('the analysis tools are named for the question each answers', () => {
   assert.equal(toolLabel('compare_periods'), 'what got worse or better');
   assert.equal(toolLabel('host_pressure'), 'whether a host’s failures came under pressure');
   assert.equal(toolLabel('startup_failures'), 'what keeps failing to start');
+  assert.equal(toolLabel('recurring_failures'), 'which jobs keep failing');
 });

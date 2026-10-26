@@ -38,6 +38,7 @@ const LABELS: Record<string, string> = {
   compare_periods: 'what got worse or better',
   host_pressure: 'whether a host’s failures came under pressure',
   startup_failures: 'what keeps failing to start',
+  recurring_failures: 'which jobs keep failing',
 };
 
 export function toolLabel(name: string): string {

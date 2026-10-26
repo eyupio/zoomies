@@ -562,3 +562,54 @@ func (s *Store) HostThrottleChanges(ctx context.Context, from, to time.Time, lim
 	})
 	return append(starting, window...), more, nil
 }
+
+// JobOutcome is a finished job as the recurring failures analysis reads it:
+// what ran, for which commit, how it ended and which step it stopped at.
+type JobOutcome struct {
+	ID, Repo, Workflow, JobName, Conclusion string
+	HeadSHA, HeadBranch                     string
+	// GitHubRunID is the workflow run the job belongs to: attempt numbers count
+	// within one run, so a rerun is only another attempt of the same one.
+	GitHubRunID int64
+	RunAttempt  int
+	Steps       JobSteps
+	RunnerFault string
+	CompletedAt time.Time
+}
+
+// JobOutcomes returns the jobs this fleet had a hand in that completed in
+// [since, until) with a pass or a failure, newest first, at most limit of
+// them; more is true when more matched. Cancelled and skipped jobs stop when
+// somebody says so and say nothing about whether the job is sound.
+func (s *Store) JobOutcomes(ctx context.Context, since, until time.Time, limit int) (out []JobOutcome, more bool, err error) {
+	if err := needLimit(limit); err != nil {
+		return nil, false, err
+	}
+	rows, err := s.read.QueryContext(ctx, `SELECT j.id, j.repo, j.workflow, j.job_name, j.conclusion,
+		j.head_sha, j.head_branch, j.github_run_id, j.run_attempt, j.steps, j.runner_fault, j.completed_at
+		FROM jobs j
+		WHERE j.state = 'completed' AND j.conclusion IN ('success', 'failure')
+			AND j.completed_at >= ? AND j.completed_at < ? AND `+managedJobSQL("j")+`
+		ORDER BY j.completed_at DESC, j.id ASC LIMIT ?`, ms(since), ms(until), limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var o JobOutcome
+		var done int64
+		if err := rows.Scan(&o.ID, &o.Repo, &o.Workflow, &o.JobName, &o.Conclusion,
+			&o.HeadSHA, &o.HeadBranch, &o.GitHubRunID, &o.RunAttempt, &o.Steps, &o.RunnerFault, &done); err != nil {
+			return nil, false, err
+		}
+		o.CompletedAt = at(done)
+		out = append(out, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	if len(out) > limit {
+		return out[:limit], true, nil
+	}
+	return out, false, nil
+}

@@ -38,7 +38,7 @@ var AssistantFleetTools = []string{
 	"list_providers", "provider_pairings", "list_machines", "get_catalog", "get_usage", "get_pr_delay", "get_retained_comparison", "get_checkout_preview", "get_cache_preview", "get_readiness_preview", "get_kennel_fix", "get_sharding_preview",
 	"recent_events", "wait_for_change", "scaling_decisions", "fleet_samples",
 	"host_samples", "runner_timeline", "list_workflow_runs",
-	"queue_wait_breakdown", "compare_periods", "host_pressure", "startup_failures",
+	"queue_wait_breakdown", "compare_periods", "host_pressure", "startup_failures", "recurring_failures",
 	"list_elis_repairs", "get_eli_repair",
 }
 

@@ -187,3 +187,13 @@ func (s *Server) handleAnalyseStartupFailures(w http.ResponseWriter, r *http.Req
 	f, err := s.ctrl.AnalyseStartupFailures(r.Context(), win, q.Get("pool_id"), q.Get("host_id"))
 	s.answerAnalysis(w, r, "analysing startup failures", f, err)
 }
+
+// handleAnalyseRecurringFailures answers GET /api/v1/analysis/recurring-failures.
+func (s *Server) handleAnalyseRecurringFailures(w http.ResponseWriter, r *http.Request) {
+	win, ok := s.analysisWindow(w, r)
+	if !ok {
+		return
+	}
+	f, err := s.ctrl.AnalyseRecurringFailures(r.Context(), win)
+	s.answerAnalysis(w, r, "analysing recurring failures", f, err)
+}

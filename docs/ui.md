@@ -439,6 +439,15 @@ jobs it does not. It sits above the grid, and below it on a
 Mission Control phone, and it is the answer
 [`zoomies analyse queue-wait`](cli.md#zoomies-analyse) prints.
 
+On the *Failed* filter, a **Which jobs keep failing** card lists the jobs that
+failed three times or more in the page's dates (the last day when none are set):
+how many of their runs failed, on how many branches, the step most of them
+stopped at, and whether the failures look like the fleet's (runner faults), a
+flaky job (the same revision passed when run again), a lasting break (not passed
+since) or none of those. It reads outcomes, so it never says why a test failed,
+and it names any of the list's filters it does not apply. It is the answer
+[`zoomies analyse recurring-failures`](cli.md#zoomies-analyse) prints.
+
 None of those jobs is hidden: they are in the history under *All*, badged
 **Cancelling**, **Removed** or **Paused**. GitHub goes on calling all three
 `queued` or `in_progress`, because Zoomies can neither unqueue a job nor

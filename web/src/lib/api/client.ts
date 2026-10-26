@@ -517,6 +517,11 @@ export const analyseStartupFailures = (
   signal?: AbortSignal,
 ) => api.get<Result<'analyseStartupFailures'>>('/analysis/startup-failures', { query, signal });
 
+export const analyseRecurringFailures = (
+  query?: Query<'analyseRecurringFailures'>,
+  signal?: AbortSignal,
+) => api.get<Result<'analyseRecurringFailures'>>('/analysis/recurring-failures', { query, signal });
+
 export const getJobEvents = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getJobEvents'>>(`/jobs/${enc(id)}/events`, { signal });
 
