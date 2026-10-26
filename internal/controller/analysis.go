@@ -1045,7 +1045,7 @@ func (c *Controller) recurringSnapshot(ctx context.Context, w AnalysisWindow) (a
 	snap.Truncated = more
 	for _, j := range jobs {
 		o := analysis.JobOutcome{JobID: j.ID, Repository: j.Repo, Workflow: j.Workflow, Job: j.JobName,
-			HeadSHA: j.HeadSHA, HeadBranch: j.HeadBranch, RunAttempt: j.RunAttempt, Conclusion: j.Conclusion,
+			HeadSHA: j.HeadSHA, HeadBranch: j.HeadBranch, RunID: j.GitHubRunID, RunAttempt: j.RunAttempt, Conclusion: j.Conclusion,
 			RunnerFault: j.RunnerFault != "", CompletedAt: j.CompletedAt}
 		for _, s := range j.Steps {
 			if s.Conclusion == "failure" {

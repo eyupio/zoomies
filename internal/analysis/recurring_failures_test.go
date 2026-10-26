@@ -10,7 +10,7 @@ var recurringT0 = time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
 
 func recurringJob(id, conclusion string, minutes int, mod func(*JobOutcome)) JobOutcome {
 	j := JobOutcome{JobID: id, Repository: "acme/app", Workflow: "ci.yml", Job: "test", HeadSHA: "sha-" + id,
-		HeadBranch: "main", RunAttempt: 1, Conclusion: conclusion, CompletedAt: recurringT0.Add(time.Duration(minutes) * time.Minute)}
+		HeadBranch: "main", RunID: 1, RunAttempt: 1, Conclusion: conclusion, CompletedAt: recurringT0.Add(time.Duration(minutes) * time.Minute)}
 	if mod != nil {
 		mod(&j)
 	}
@@ -53,8 +53,8 @@ func TestFailuresThatPassedOnARerunOfTheSameRevisionAreFlaky(t *testing.T) {
 	for i := range 3 {
 		sha := string(rune('a' + i))
 		jobs = append(jobs,
-			recurringJob(sha+"1", JobFailed, i*20, func(j *JobOutcome) { j.HeadSHA = sha }),
-			recurringJob(sha+"2", JobSucceeded, i*20+5, func(j *JobOutcome) { j.HeadSHA, j.RunAttempt = sha, 2 }))
+			recurringJob(sha+"1", JobFailed, i*20, func(j *JobOutcome) { j.HeadSHA, j.RunID = sha, int64(i+10) }),
+			recurringJob(sha+"2", JobSucceeded, i*20+5, func(j *JobOutcome) { j.HeadSHA, j.RunID, j.RunAttempt = sha, int64(i+10), 2 }))
 	}
 	f, err := RecurringFailures(recurringSnap(jobs...))
 	if err != nil {
@@ -138,5 +138,32 @@ func TestGroupsAreRankedMostFailuresFirstAndCut(t *testing.T) {
 func TestARecurringFailuresPeriodNeedsAStartBeforeItsEnd(t *testing.T) {
 	if _, err := RecurringFailures(RecurringSnapshot{}); err == nil {
 		t.Fatal("want an error")
+	}
+}
+
+// Attempt numbers count within one workflow run. A pass in another run of the
+// same commit (another branch, another trigger) says nothing about whether this
+// run's failure was the code's, and must not make a broken job look flaky.
+func TestAPassInAnotherRunOfTheSameCommitIsNotARetry(t *testing.T) {
+	same := func(j *JobOutcome) { j.HeadSHA = "shared" }
+	f, _ := RecurringFailures(recurringSnap(
+		recurringJob("1", JobFailed, 1, func(j *JobOutcome) { same(j); j.RunID = 1 }),
+		recurringJob("2", JobFailed, 2, func(j *JobOutcome) { same(j); j.RunID = 2 }),
+		recurringJob("3", JobFailed, 3, func(j *JobOutcome) { same(j); j.RunID = 3 }),
+		recurringJob("4", JobSucceeded, 4, func(j *JobOutcome) { same(j); j.RunID = 4; j.RunAttempt = 2 }),
+	))
+	if g := f.Evidence.Groups[0]; g.RetryPasses != 0 || g.Class == ClassFlaky {
+		t.Fatalf("group = %+v, want no retry pass across runs", g)
+	}
+}
+
+func TestAJobWithNoRunIdentityCannotBeCountedAsARetry(t *testing.T) {
+	none := func(j *JobOutcome) { j.RunID = 0; j.HeadSHA = "s" }
+	f, _ := RecurringFailures(recurringSnap(
+		recurringJob("1", JobFailed, 1, none), recurringJob("2", JobFailed, 2, none), recurringJob("3", JobFailed, 3, none),
+		recurringJob("4", JobSucceeded, 4, func(j *JobOutcome) { none(j); j.RunAttempt = 2 }),
+	))
+	if g := f.Evidence.Groups[0]; g.RetryPasses != 0 {
+		t.Fatalf("group = %+v", g)
 	}
 }

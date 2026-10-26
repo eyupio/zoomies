@@ -1671,12 +1671,12 @@ func TestAnalyseRecurringFailuresReadsTheFailedStepAndTheRerun(t *testing.T) {
 		sha := fmt.Sprintf("sha%d", i)
 		f.job(pool.ID, at(i*20), func(j *store.Job) {
 			ran(at(i*20+1), at(i*20+5), "failure")(j)
-			j.HeadSHA, j.HeadBranch, j.RunAttempt = sha, "main", 1
+			j.HeadSHA, j.HeadBranch, j.RunAttempt, j.GitHubRunID = sha, "main", 1, int64(500+i)
 			j.Steps = store.JobSteps{{Number: 1, Name: "Set up", Conclusion: "success"}, {Number: 2, Name: "Run tests", Conclusion: "failure"}}
 		})
 		f.job(pool.ID, at(i*20+6), func(j *store.Job) {
 			ran(at(i*20+7), at(i*20+9), "success")(j)
-			j.HeadSHA, j.HeadBranch, j.RunAttempt = sha, "main", 2
+			j.HeadSHA, j.HeadBranch, j.RunAttempt, j.GitHubRunID = sha, "main", 2, int64(500+i)
 		})
 	}
 	got, err := f.c.AnalyseRecurringFailures(f.ctx, analysisPeriod)

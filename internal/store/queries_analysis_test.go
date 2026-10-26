@@ -994,7 +994,7 @@ func TestJobOutcomesReadsOnlyPassesAndFailuresCompletedInTheWindow(t *testing.T)
 	at := func(m int) time.Time { return analysisStart.Add(time.Duration(m) * time.Minute) }
 	failed := analysisJob(t, s, 1, "pool_a", "", at(1), func(j *Job) {
 		completed(at(2), at(10), "failure")(j)
-		j.HeadSHA, j.HeadBranch, j.RunAttempt = "abc", "main", 1
+		j.HeadSHA, j.HeadBranch, j.RunAttempt, j.GitHubRunID = "abc", "main", 1, 4242
 		j.Steps = JobSteps{{Number: 1, Name: "Run tests", Status: "completed", Conclusion: "failure"}}
 	})
 	analysisJob(t, s, 2, "pool_a", "", at(1), completed(at(2), at(11), "success"))
@@ -1007,7 +1007,7 @@ func TestJobOutcomesReadsOnlyPassesAndFailuresCompletedInTheWindow(t *testing.T)
 		t.Fatalf("outcomes = %v, more %v, err %v; want the success and the failure", got, more, err)
 	}
 	if got[0].Conclusion != "success" || got[1].ID != failed.ID || got[1].HeadSHA != "abc" ||
-		got[1].RunAttempt != 1 || len(got[1].Steps) != 1 || got[1].Steps[0].Name != "Run tests" || !got[1].CompletedAt.Equal(at(10)) {
+		got[1].RunAttempt != 1 || got[1].GitHubRunID != 4242 || len(got[1].Steps) != 1 || got[1].Steps[0].Name != "Run tests" || !got[1].CompletedAt.Equal(at(10)) {
 		t.Errorf("outcomes = %+v", got)
 	}
 	if one, more, _ := s.JobOutcomes(context.Background(), analysisStart, analysisEnd, 1); len(one) != 1 || !more {

@@ -45,8 +45,12 @@ const (
 type JobOutcome struct {
 	JobID, Repository, Workflow, Job string
 	HeadSHA, HeadBranch              string
-	RunAttempt                       int
-	Conclusion                       string
+	// RunID is the workflow run the job belongs to; 0 when unknown. Attempt
+	// numbers count within one run, so only the same run's later attempt is a
+	// retry of it.
+	RunID      int64
+	RunAttempt int
+	Conclusion string
 	// FailedStep is the step that failed; "" when none is recorded.
 	FailedStep string
 	// RunnerFault is true when the runner recorded a fault for this job.
@@ -203,9 +207,9 @@ func recurringGroup(k recurringKey, jobs []JobOutcome) RecurringGroup {
 		}
 		// A later attempt of the same revision that passed is the rerun that
 		// shows the failure was not the code's.
-		if j.HeadSHA != "" {
+		if j.HeadSHA != "" && j.RunID != 0 {
 			for _, later := range jobs[i+1:] {
-				if later.Conclusion == JobSucceeded && later.HeadSHA == j.HeadSHA && later.RunAttempt > j.RunAttempt {
+				if later.Conclusion == JobSucceeded && later.RunID == j.RunID && later.HeadSHA == j.HeadSHA && later.RunAttempt > j.RunAttempt {
 					g.RetryPasses++
 					break
 				}

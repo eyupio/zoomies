@@ -568,10 +568,13 @@ func (s *Store) HostThrottleChanges(ctx context.Context, from, to time.Time, lim
 type JobOutcome struct {
 	ID, Repo, Workflow, JobName, Conclusion string
 	HeadSHA, HeadBranch                     string
-	RunAttempt                              int
-	Steps                                   JobSteps
-	RunnerFault                             string
-	CompletedAt                             time.Time
+	// GitHubRunID is the workflow run the job belongs to: attempt numbers count
+	// within one run, so a rerun is only another attempt of the same one.
+	GitHubRunID int64
+	RunAttempt  int
+	Steps       JobSteps
+	RunnerFault string
+	CompletedAt time.Time
 }
 
 // JobOutcomes returns the jobs this fleet had a hand in that completed in
@@ -583,7 +586,7 @@ func (s *Store) JobOutcomes(ctx context.Context, since, until time.Time, limit i
 		return nil, false, err
 	}
 	rows, err := s.read.QueryContext(ctx, `SELECT j.id, j.repo, j.workflow, j.job_name, j.conclusion,
-		j.head_sha, j.head_branch, j.run_attempt, j.steps, j.runner_fault, j.completed_at
+		j.head_sha, j.head_branch, j.github_run_id, j.run_attempt, j.steps, j.runner_fault, j.completed_at
 		FROM jobs j
 		WHERE j.state = 'completed' AND j.conclusion IN ('success', 'failure')
 			AND j.completed_at >= ? AND j.completed_at < ? AND `+managedJobSQL("j")+`
@@ -596,7 +599,7 @@ func (s *Store) JobOutcomes(ctx context.Context, since, until time.Time, limit i
 		var o JobOutcome
 		var done int64
 		if err := rows.Scan(&o.ID, &o.Repo, &o.Workflow, &o.JobName, &o.Conclusion,
-			&o.HeadSHA, &o.HeadBranch, &o.RunAttempt, &o.Steps, &o.RunnerFault, &done); err != nil {
+			&o.HeadSHA, &o.HeadBranch, &o.GitHubRunID, &o.RunAttempt, &o.Steps, &o.RunnerFault, &done); err != nil {
 			return nil, false, err
 		}
 		o.CompletedAt = at(done)
