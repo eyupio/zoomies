@@ -3,7 +3,9 @@ package github
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/store"
@@ -225,10 +227,90 @@ func TestPublishOptimisationDoesNotAdoptABranchFromAFarEarlierBase(t *testing.T)
 		t.Fatal(err)
 	}
 	var moved string
-	for i := range maxAdoptedBaseDepth + 2 {
+	for i := range maxAdoptedBaseCommits + 2 {
 		moved = f.AdvanceContextBranch("acme/widgets", "README.md", strings.Repeat("x", i+1))
 	}
 	if _, err := c.PublishOptimisation(context.Background(), publishRequest(moved)); !errors.Is(err, ErrOptimisationPublishConflict) {
 		t.Fatalf("a branch from a far earlier base was adopted: %v", err)
 	}
+}
+
+type countingTransport struct {
+	base  http.RoundTripper
+	reads atomic.Int32
+}
+
+func (t *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/git/commits/") {
+		t.reads.Add(1)
+	}
+	return t.base.RoundTrip(r)
+}
+
+// A merge brings in several parents at once. The walk is bounded by the commits
+// it reads and not by how deep it goes, so a merge-heavy history is refused
+// after a fixed number of requests instead of spending the installation's quota.
+func TestPublishOptimisationBoundsTheCommitsItReadsInAMergeHeavyHistory(t *testing.T) {
+	f, c, base := publishFake(t)
+	req := publishRequest(base)
+	if _, err := c.PublishOptimisation(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	moved := f.AdvanceContextBranch("acme/widgets", "README.md", "x\n")
+	// A binary tree of merges ten levels deep: a thousand commits, none of them
+	// the branch's parent, below the current head.
+	git := f.repoLocked("acme/widgets").contextGit()
+	tree := git.Commits[moved].GetTree()
+	var build func(level int, tag string) string
+	build = func(level int, tag string) string {
+		sha := blobSHA("merge:" + tag)
+		commit := &gh.Commit{SHA: gh.Ptr(sha), Tree: tree}
+		if level > 0 {
+			commit.Parents = []*gh.Commit{{SHA: gh.Ptr(build(level-1, tag+"a"))}, {SHA: gh.Ptr(build(level-1, tag+"b"))}}
+		}
+		git.Commits[sha] = commit
+		return sha
+	}
+	head := blobSHA("merge-head")
+	git.Commits[head] = &gh.Commit{SHA: gh.Ptr(head), Tree: tree, Parents: []*gh.Commit{{SHA: gh.Ptr(build(10, "r"))}}}
+	f.repoLocked("acme/widgets").branches["main"] = head
+	f.repoLocked("acme/widgets").files["README.md"] = "x\n"
+
+	counter := &countingTransport{base: c.asInstallation.Client().Transport}
+	if counter.base == nil {
+		counter.base = http.DefaultTransport
+	}
+	hc := *c.asInstallation.Client()
+	hc.Transport = counter
+	client, err := newGitHubClient(&hc, c.asInstallation.BaseURL(), c.asInstallation.UploadURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bounded := *c
+	bounded.asInstallation = client
+	// pinContextSource re-pins the default branch to its source when read, so
+	// the head the publisher sees is the source commit; the merge history is
+	// reached from the commit the request names.
+	retry := publishRequest(head)
+	_, err = bounded.sameChangeOnAnEarlierBase(context.Background(), "acme", "widgets", retry, mustCommit(t, c, req))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := counter.reads.Load(); got > int32(maxAdoptedBaseCommits)+2 {
+		t.Fatalf("the walk read %d commits through a merge-heavy history, want a fixed bound near %d", got, maxAdoptedBaseCommits)
+	}
+}
+
+// mustCommit reads the commit an earlier attempt left on the request's branch.
+func mustCommit(t *testing.T, c *appClient, req OptimisationPublishRequest) *gh.Commit {
+	t.Helper()
+	ref, _, err := c.asInstallation.Git.GetRef(context.Background(), "acme", "widgets", "heads/"+req.Head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit, _, err := c.asInstallation.Git.GetCommit(context.Background(), "acme", "widgets", ref.GetObject().GetSHA())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return commit
 }

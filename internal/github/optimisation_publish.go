@@ -255,10 +255,12 @@ func (c *appClient) optimisationPublishError(op string, e error) error {
 	return errorf(op, e)
 }
 
-// maxAdoptedBaseDepth bounds how far back from the current base an earlier
-// attempt's base may be, in commits walked. A branch further back is preserved
-// and refused: the operator can look at it, and nothing is overwritten.
-const maxAdoptedBaseDepth = 20
+// maxAdoptedBaseCommits bounds the commits read to find an earlier attempt's
+// base in the base branch's history, however many parents a merge brings in.
+// It bounds requests, so a merge-heavy history cannot spend the installation's
+// quota or the publisher's time. A branch not found within it is preserved and
+// refused: the operator can look at it, and nothing is overwritten.
+const maxAdoptedBaseCommits = 20
 
 // sameChangeOnAnEarlierBase says whether previous is this request's reviewed
 // change applied to its own parent: that parent's tree plus the reviewed file
@@ -287,27 +289,29 @@ func (c *appClient) sameChangeOnAnEarlierBase(ctx context.Context, owner, name s
 	}
 	// The earlier base must be reachable from the current one, so the branch
 	// is this repository's own history and not another line.
-	frontier := []string{req.BaseCommit}
+	queue := []string{req.BaseCommit}
 	seen := map[string]bool{}
-	for depth := 0; depth < maxAdoptedBaseDepth && len(frontier) > 0; depth++ {
-		var next []string
-		for _, sha := range frontier {
-			if sha == parentSHA {
-				return true, nil
-			}
-			if seen[sha] {
-				continue
-			}
-			seen[sha] = true
-			commit, resp, err := c.asInstallation.Git.GetCommit(ctx, owner, name, sha)
-			if err != nil {
-				return false, c.fail("walk the base branch's history", resp, err)
-			}
-			for _, p := range commit.Parents {
-				next = append(next, p.GetSHA())
-			}
+	for fetched := 0; len(queue) > 0; {
+		sha := queue[0]
+		queue = queue[1:]
+		if sha == parentSHA {
+			return true, nil
 		}
-		frontier = next
+		if seen[sha] {
+			continue
+		}
+		seen[sha] = true
+		if fetched == maxAdoptedBaseCommits {
+			return false, nil
+		}
+		fetched++
+		commit, resp, err := c.asInstallation.Git.GetCommit(ctx, owner, name, sha)
+		if err != nil {
+			return false, c.fail("walk the base branch's history", resp, err)
+		}
+		for _, p := range commit.Parents {
+			queue = append(queue, p.GetSHA())
+		}
 	}
 	return false, nil
 }
