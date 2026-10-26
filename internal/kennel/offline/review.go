@@ -196,8 +196,13 @@ func Review(in ReviewInput) ReviewReport {
 		}
 		for key, list := range byKey {
 			sort.SliceStable(list, func(i, j int) bool { return list[i].line < list[j].line })
+			// A change that fixed some of a job's occurrences leaves no more than
+			// the base had, and so introduces none.
 			extra := len(list) - before[key]
-			for _, f := range list[max(len(list)-extra, 0):] {
+			if extra <= 0 {
+				continue
+			}
+			for _, f := range list[len(list)-extra:] {
 				r.Introduced = append(r.Introduced, ReviewFinding{Code: f.code, Severity: f.severity, Path: p, Job: f.job, Line: f.line,
 					Title: f.title, Detail: f.detail, Fix: f.fix, HeadSHA: now.sha})
 			}
@@ -275,9 +280,10 @@ func evaluateFile(data []byte, public bool, disabled map[string]bool) (reviewed,
 	if public {
 		visibility = kennel.VisibilityPublic
 	}
+	file := Convert(sha, parsed)
 	snap := kennel.Snapshot{
 		Repo:      kennel.Repo{Visibility: visibility},
-		Workflows: &kennel.WorkflowFacts{Files: []kennel.WorkflowFile{Convert(sha, parsed)}, Unreadable: []string{}},
+		Workflows: &kennel.WorkflowFacts{Files: []kennel.WorkflowFile{file}, Unreadable: []string{}},
 		Coverage: kennel.Coverage{
 			kennel.SourceMetadata:  {State: kennel.CoverageOK},
 			kennel.SourceWorkflows: {State: kennel.CoverageOK},
@@ -286,6 +292,15 @@ func evaluateFile(data []byte, public bool, disabled map[string]bool) (reviewed,
 	ev := kennel.Evaluate(snap, kennel.Policy{Disabled: disabled})
 	out := reviewed{sha: sha}
 	for _, f := range ev.Findings {
+		// A finding carries only its first few places, and a revision with
+		// more than that must still be compared place for place, so the
+		// file's complete list is read where the check has one.
+		if locs := file.Locations(f.Code); len(locs) > 0 {
+			for _, l := range locs {
+				out.findings = append(out.findings, reviewedFinding{code: f.Code, severity: f.Severity, job: l.JobIndex, line: max(l.Line, 1), title: f.Title, detail: f.Detail, fix: f.Fix})
+			}
+			continue
+		}
 		if len(f.Evidence) == 0 {
 			// A finding about the whole file has no place to point at; it is
 			// kept at the workflow level, line one.

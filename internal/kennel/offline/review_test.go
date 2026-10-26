@@ -197,3 +197,39 @@ func TestAFileTheCallerCouldNotReadIsUnreviewedNotDeleted(t *testing.T) {
 		t.Fatalf("report = %+v, want one unreviewed file and nothing resolved", r)
 	}
 }
+
+// A job with two unpinned actions at the base that the change partly fixes has
+// fewer than it had; slicing from the base's count past the head's list would
+// panic instead of answering.
+func TestAChangeThatPartlyFixesAJobsFindingsIntroducesNoneAndDoesNotPanic(t *testing.T) {
+	two := strings.Replace(reviewClean, "actions/checkout@0123456789abcdef0123456789abcdef01234567", "actions/checkout@v4", 1) + "      - uses: actions/cache@v4\n"
+	one := strings.Replace(two, "actions/cache@v4", "actions/cache@0123456789abcdef0123456789abcdef01234567", 1)
+	r := review(two, one)
+	if len(r.Introduced) != 0 || r.Resolved != 1 {
+		t.Fatalf("introduced %v, resolved %d, want none introduced and one resolved", codes(r), r.Resolved)
+	}
+}
+
+// The checks show a finding's first five places only. A sixth added to a job
+// that already had five must still be reported.
+func TestAPlaceBeyondTheFiveAFindingShowsIsStillComparedPlaceForPlace(t *testing.T) {
+	steps := func(n int) string {
+		var b strings.Builder
+		for range n {
+			b.WriteString("      - uses: actions/cache@v4\n")
+		}
+		return b.String()
+	}
+	base := strings.Replace(reviewClean, "      - run: make\n", steps(5), 1)
+	head := strings.Replace(reviewClean, "      - run: make\n", steps(6), 1)
+	r := review(base, head)
+	var pinned int
+	for _, f := range r.Introduced {
+		if f.Code == kennel.CodeActionNotPinned {
+			pinned++
+		}
+	}
+	if pinned != 1 {
+		t.Fatalf("introduced %d unpinned actions (%v), want the sixth", pinned, codes(r))
+	}
+}

@@ -72,9 +72,34 @@ func fixed(sev Severity) func(*Snapshot, *WorkflowFile) Severity {
 	return func(*Snapshot, *WorkflowFile) Severity { return sev }
 }
 
+// Locations is every place in the file a check's finding is about. A finding
+// carries at most maxEvidence of them, and a caller that compares two revisions
+// needs all of them: a change that adds a sixth must not vanish behind the
+// fifth. The checks and the review read the same lists, so they cannot differ.
+func (f *WorkflowFile) Locations(code Code) []Location {
+	switch code {
+	case CodeNoTimeout:
+		return f.NoTimeout
+	case CodeNoConcurrency:
+		if f.NoConcurrency == nil {
+			return nil
+		}
+		return []Location{*f.NoConcurrency}
+	case CodeActionNotPinned:
+		return append(append([]Location(nil), f.FirstPartyUnpinned...), f.OtherUnpinned...)
+	case CodePermissionsUnset:
+		return f.PermissionsUnset
+	case CodeTargetCheckoutPRHead:
+		return f.TargetCheckoutPRHead
+	case CodeSecretOnCommandLine:
+		return f.SecretOnCommandLine
+	}
+	return nil
+}
+
 func evalNoTimeout(s *Snapshot) result {
 	return perFile(s, CodeNoTimeout, fixed(SeverityWarning),
-		func(f *WorkflowFile) []Location { return f.NoTimeout },
+		func(f *WorkflowFile) []Location { return f.Locations(CodeNoTimeout) },
 		"Jobs have no explicit timeout",
 		func(n int) string {
 			return count(n, "executable job", "executable jobs") + " in this workflow " + has(n) + " no timeout-minutes; a hung job can hold a runner until the platform limit."
@@ -84,12 +109,7 @@ func evalNoTimeout(s *Snapshot) result {
 
 func evalNoConcurrency(s *Snapshot) result {
 	return perFile(s, CodeNoConcurrency, fixed(SeverityInfo),
-		func(f *WorkflowFile) []Location {
-			if f.NoConcurrency == nil {
-				return nil
-			}
-			return []Location{*f.NoConcurrency}
-		},
+		func(f *WorkflowFile) []Location { return f.Locations(CodeNoConcurrency) },
 		"Pull request workflows do not cancel superseded runs",
 		func(int) string {
 			return "This pull-request-only workflow has no cancelling concurrency group at workflow level or on every job; superseded work can keep consuming runners."
@@ -105,9 +125,7 @@ func evalActionNotPinned(s *Snapshot) result {
 			}
 			return SeverityInfo
 		},
-		func(f *WorkflowFile) []Location {
-			return append(append([]Location(nil), f.FirstPartyUnpinned...), f.OtherUnpinned...)
-		},
+		func(f *WorkflowFile) []Location { return f.Locations(CodeActionNotPinned) },
 		"External actions use mutable references",
 		func(n int) string {
 			return count(n, "external reference", "external references") + " in this workflow " + is(n) + " not a full commit pin, or a Docker action without an image digest; the code it runs may change without a repository change."
@@ -133,7 +151,7 @@ func evalPermissionsUnset(s *Snapshot) result {
 			}
 			return SeverityInfo
 		},
-		func(f *WorkflowFile) []Location { return f.PermissionsUnset },
+		func(f *WorkflowFile) []Location { return f.Locations(CodePermissionsUnset) },
 		"Jobs inherit undeclared token permissions",
 		func(n int) string {
 			if known {
@@ -178,7 +196,7 @@ func evalTargetCheckoutPRHead(s *Snapshot) result {
 			}
 			return SeverityWarning
 		},
-		func(f *WorkflowFile) []Location { return f.TargetCheckoutPRHead },
+		func(f *WorkflowFile) []Location { return f.Locations(CodeTargetCheckoutPRHead) },
 		"A workflow strangers can trigger checks out their code",
 		func(n int) string {
 			return count(n, "step", "steps") + " in this pull_request_target workflow " + checksOut(n) + " the pull request's head. The workflow runs on the default branch with the repository's token and its secrets, and the checked-out code runs with them."
@@ -241,7 +259,7 @@ func evalLabelUnserved(s *Snapshot) result {
 
 func evalSecretOnCommandLine(s *Snapshot) result {
 	return perFile(s, CodeSecretOnCommandLine, fixed(SeverityWarning),
-		func(f *WorkflowFile) []Location { return f.SecretOnCommandLine },
+		func(f *WorkflowFile) []Location { return f.Locations(CodeSecretOnCommandLine) },
 		"A secret is put on a command line",
 		func(n int) string {
 			return count(n, "step", "steps") + " in this workflow " + interpolates(n) + " a secret into a run line or a command-line argument, where it can reach the process list and the log."
