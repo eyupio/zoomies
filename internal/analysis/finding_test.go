@@ -53,7 +53,7 @@ func TestWordsSaysADurationTheWayAPersonWould(t *testing.T) {
 // and the generated TypeScript name every field in snake_case. A field left
 // untagged would marshal as PoolID and match neither.
 func TestEveryEvidenceFieldHasASnakeCaseJSONName(t *testing.T) {
-	for _, v := range []any{QueueWaitFinding{}, CompareFinding{}, HostPressureFinding{}, StartupFailuresFinding{}, Interval{}} {
+	for _, v := range []any{QueueWaitFinding{}, CompareFinding{}, HostPressureFinding{}, StartupFailuresFinding{}, RecurringFailuresFinding{}, Interval{}} {
 		checkJSONNames(t, reflect.TypeOf(v), map[reflect.Type]bool{})
 	}
 }
