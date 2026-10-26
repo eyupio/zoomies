@@ -254,7 +254,7 @@
   <MetricTile
     label="Running jobs"
     value={formatNumber(running)}
-    href={jobsHref('in_progress')}
+    href="/runners?state=busy"
     tone="busy"
     delta={delta(runningSeries, running)}
     deltaLabel="in the hour"
