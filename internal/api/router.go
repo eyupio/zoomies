@@ -418,6 +418,9 @@ func (s *Server) apiRoutes() chi.Router {
 			r.Route("/repositories", func(r chi.Router) {
 				r.With(s.require(auth.ActionKennelRead)).Get("/", s.handleListKennelRepositories)
 				r.With(s.require(auth.ActionKennelRead)).Get("/{id}", s.handleGetKennelRepository)
+				// A review reads a pull request's source from GitHub under the same
+				// optimisation setting a fix's source read is under, and writes nothing.
+				r.With(s.require(auth.ActionKennelRead), s.require(auth.ActionOptimisationsRead), s.refuseVisitors).Get("/{id}/pull-reviews/{number}", s.handleReviewKennelPullRequest)
 				r.With(s.require(auth.ActionKennelRecheck)).Post("/{id}/recheck", s.handleRecheckKennelRepository)
 				r.With(s.require(auth.ActionKennelGuidancePreview)).Get("/{id}/agent-guidance", s.handlePreviewKennelGuidance)
 				r.With(s.require(auth.ActionKennelGuidancePR)).Post("/{id}/agent-guidance", s.handleCreateKennelGuidancePR)

@@ -26,6 +26,7 @@ func runKennel(ctx context.Context, e *env, args []string) error {
 		{"checks", "", "What is checked, and what is turned off", kennelChecks},
 		{"recheck", "<id>", "Ask for a repository to be read again when the budget allows", kennelRecheck},
 		{"fix", "<fix-id> --installation ID --repo OWNER/REPO", "Read a kept Kennel timeout fix, the finding it is for and its one changed block", kennelFixGet},
+		{"review", "<repository-id> --pull N", "Review what a pull request changes in the workflows: only what it introduced, and what was not looked at", kennelReview},
 		{"check", "[path] [--controller owner/name]", "Run the workflow checks over a checkout on this machine; nothing leaves it unless a controller is named", kennelCheck},
 	}, args)
 }

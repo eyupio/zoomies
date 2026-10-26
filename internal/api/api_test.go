@@ -1060,6 +1060,7 @@ func routeTable(ids fixtureIDs) []route {
 		// kennel_test.go's.
 		{method: "GET", path: "/api/v1/kennel", role: store.RoleViewer, action: auth.ActionKennelRead},
 		{method: "GET", path: "/api/v1/kennel/checks", role: store.RoleViewer, action: auth.ActionKennelRead},
+		{method: "GET", path: "/api/v1/kennel/repositories/kcr_missing/pull-reviews/9", role: store.RoleOperator, action: auth.ActionOptimisationsRead, additionalScopes: []string{"kennel:read"}, visitorDenied: true},
 		{method: "POST", path: "/api/v1/kennel/fixes/timeout/inspections", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"kennel:read"}, visitorDenied: true},
 		{method: "POST", path: "/api/v1/kennel/fixes/timeout/previews", role: store.RoleOperator, action: auth.ActionOptimisationsWrite, additionalScopes: []string{"kennel:read"}, visitorDenied: true},
 		{method: "GET", path: "/api/v1/kennel/fixes/timeout/previews/kfp_missing?installation_id=ins_missing&repo=acme/repo", role: store.RoleOperator, action: auth.ActionOptimisationsRead, additionalScopes: []string{"kennel:read"}, visitorDenied: true},
@@ -1462,6 +1463,11 @@ func normalisePath(p string) string {
 		// A note is named by its slug, which the assistant chose.
 		if i > 0 && parts[i-1] == "notes" {
 			parts[i] = "{slug}"
+			continue
+		}
+		// A pull request is named by its number.
+		if i > 0 && parts[i-1] == "pull-reviews" {
+			parts[i] = "{number}"
 			continue
 		}
 		// A Kennel Club repository and its waivers have prefixed ids of their own,

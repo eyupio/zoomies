@@ -1023,6 +1023,38 @@ The fix reads and writes with the same settings as the optimisation previews. Fr
 terminal, `zoomies kennel fix` reads a kept fix, and Eli reads it as `get_kennel_fix`;
 neither approves or publishes.
 
+## Reviewing a pull request's workflow changes
+
+A pull request that touches `.github/workflows` can add the problems Kennel Club looks
+for: a job with no timeout, an action pinned to a moving tag, a workflow that checks
+out a fork's code with write access. `zoomies kennel review <repository-id> --pull N`
+(and the `review_pull_request` MCP tool, and `GET /api/v1/kennel/repositories/{id}/pull-reviews/{number}`)
+reads the pull request and says which of those the change introduced.
+
+The review is findings only, and what it will not do is part of what it is:
+
+* **It judges the change, not the file.** The pull request's merge base and its head
+  are each read at a pinned commit and run through the same checks as the repository
+  page. A finding the base already had is not reported; one the head has and the
+  base did not is, with the file, job and line in the head, what is wrong and what to
+  change. A finding the change removed is counted. Jobs are matched by position in the
+  file, so a pull request that reorders jobs can show a finding as new where it only
+  moved.
+* **Its rules are the controller's own.** A pull request cannot rewrite what judges it:
+  a changed `AGENTS.md`, `CLAUDE.md`, `CODEOWNERS`, `.zoomies/` or similar file is listed
+  as a rule change and is never applied.
+* **It says what it did not look at.** Every other changed path is listed with the reason,
+  so a review of a change that only touches scripts is not an all-clear. `complete` is
+  true only when every changed workflow was judged and nothing was cut or unreadable.
+  At most twenty workflow files, in path order, and three pages of changed files are read.
+* **It runs nothing and keeps nothing.** No repository script is executed, no model is
+  called, nothing is posted to the pull request, and nothing is stored: a later push is
+  a different review of a different head.
+
+It needs Kennel Club's workflow checks and `optimisation.source_reads` on, because it
+reads repository contents. Paths are the repository's own names for files and are shown
+as untrusted text.
+
 ## Waiving a finding
 
 Some findings are decisions you have made. A repository that deliberately runs
