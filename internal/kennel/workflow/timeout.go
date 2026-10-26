@@ -80,7 +80,43 @@ func TimeoutChange(data []byte, jobIndex, minutes int) (before, after string, li
 	if strings.Count(string(data), before) != 1 {
 		return "", "", 0, errTimeoutUnsupported
 	}
+	// The scalar's node starts on the key's line whether or not it ends there:
+	// a folded or literal block (`runs-on: >-`) or a quoted scalar that wraps
+	// holds its text on the lines after, and a key put between them breaks the
+	// file or is swallowed into the label. So the edit is read back, and is
+	// offered only if the job gained exactly the timeout and kept its runner.
+	if !timeoutEditHolds(data, before, after, jobIndex, minutes, runs.Value) {
+		return "", "", 0, errTimeoutUnsupported
+	}
 	return before, after, runsKey.Line + 1, nil
+}
+
+// timeoutEditHolds says whether the file with the edit applied is still the
+// same workflow with one added key on the same job: the document parses, no
+// job was added or lost, the job has the timeout and its runner label as
+// before, and it has exactly one key more.
+func timeoutEditHolds(data []byte, before, after string, jobIndex, minutes int, runner string) bool {
+	edited := []byte(strings.Replace(string(data), before, after, 1))
+	orig, err := parseRoot(data)
+	if err != nil {
+		return false
+	}
+	root, err := parseRoot(edited)
+	if err != nil {
+		return false
+	}
+	was, now := field(orig, "jobs"), field(root, "jobs")
+	if was == nil || now == nil || now.Kind != yaml.MappingNode || len(now.Content) != len(was.Content) || jobIndex*2+1 >= len(now.Content) {
+		return false
+	}
+	job, prior := now.Content[jobIndex*2+1], was.Content[jobIndex*2+1]
+	if job.Kind != yaml.MappingNode || len(job.Content) != len(prior.Content)+2 {
+		return false
+	}
+	_, timeout := keyAndValue(job, "timeout-minutes")
+	_, runs := keyAndValue(job, "runs-on")
+	return timeout != nil && timeout.Kind == yaml.ScalarNode && timeout.Value == strconv.Itoa(minutes) &&
+		runs != nil && runs.Kind == yaml.ScalarNode && runs.Value == runner
 }
 
 // TimeoutJobName is the job's own name for a preview to show: its literal name

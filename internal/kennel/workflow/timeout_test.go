@@ -90,6 +90,9 @@ func TestTimeoutChangeRefusesWhatItCouldNotChangeSafely(t *testing.T) {
 		{"a runs-on list over several lines", "on: push\njobs:\n  build:\n    runs-on:\n      - ubuntu-latest\n    steps:\n      - run: make\n", 0, 10},
 		{"a job written as a flow mapping", "on: push\njobs:\n  build: {runs-on: ubuntu-latest, steps: [{run: make}]}\n", 0, 10},
 		{"a reusable workflow job", "on: push\njobs:\n  call:\n    uses: ./.github/workflows/x.yml\n", 0, 10},
+		{"a folded runs-on scalar", "on: push\njobs:\n  build:\n    runs-on: >-\n      ubuntu-latest\n    steps:\n      - run: make\n", 0, 10},
+		{"a literal runs-on scalar", "on: push\njobs:\n  build:\n    runs-on: |\n      ubuntu-latest\n    steps:\n      - run: make\n", 0, 10},
+		{"a quoted runs-on scalar that wraps", "on: push\njobs:\n  build:\n    runs-on: \"ubuntu-\n      latest\"\n    steps:\n      - run: make\n", 0, 10},
 		{"a file the parser refuses", "on: push\njobs: [\n", 0, 10},
 	}
 	for _, tc := range tests {
