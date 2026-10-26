@@ -5055,6 +5055,37 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /kennel/repositories/{id}/pull-reviews/{number}:
+    parameters:
+      - $ref: "#/components/parameters/PathID"
+      - { name: number, in: path, required: true, description: The pull request's number., schema: { type: integer, minimum: 1 } }
+    get:
+      operationId: reviewKennelPullRequest
+      tags: [kennel]
+      summary: Review what a pull request changes in the repository's workflows
+      description: >-
+        Needs Kennel Club on with its workflow checks, a tracked repository, optimisation.source_reads,
+        operator, kennel:read and optimisations:read; a public view's visitor is refused. Reads the pull
+        request from GitHub now and pins two commits: the merge base and the head. It judges the root
+        workflow files the pull request changes with Kennel Club's own checks and reports only what the
+        head has that the base did not. The rules are built into the controller, so nothing the pull
+        request changes can alter them; changed instruction files are listed in rule_changes and never
+        applied. Every other changed path is listed in not_reviewed, so a review of unsupported files is
+        never an all-clear. It executes nothing, calls no model, posts nothing and keeps nothing: a later
+        push is a different review. Paths are the repository's own names for files; no file text is returned.
+      x-zoomies-role: operator
+      responses:
+        "200":
+          description: The review; Cache-Control is no-store.
+          content: { application/json: { schema: { $ref: "#/components/schemas/KennelReview" } } }
+        "400":
+          description: The pull request number is not a positive whole number.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
   /kennel/repositories/{id}/agent-guidance:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
     get:
@@ -17693,6 +17724,53 @@ components:
         head_sha: { type: string, description: "The commit the Kennel fix names." }
         source_sha256: { type: string, description: "The workflow digest the Kennel fix names." }
       required: [installation_id, repository, head_sha, source_sha256]
+      type: object
+    KennelReview:
+      additionalProperties: false
+      properties:
+        version: { type: integer }
+        kennel_repository_id: { type: string }
+        repository: { type: string }
+        pull_number: { type: integer, minimum: 1 }
+        open: { type: boolean }
+        base_branch: { type: string }
+        base_sha: { type: string, description: The merge base the pull request's diff is against. }
+        head_sha: { type: string, description: The head the review is bound to; a later push makes it a different review. }
+        read_at: { type: string, format: date-time }
+        files_cut: { type: boolean, description: The pull request changes more files than were listed. }
+        complete: { type: boolean, description: "True only when every changed workflow was judged, nothing was cut and nothing was unreadable." }
+        introduced:
+          type: array
+          description: Findings the head has that the merge base did not, worst first.
+          items: { $ref: "#/components/schemas/KennelReviewFinding" }
+        resolved: { type: integer, description: Findings the merge base had that the head does not. }
+        reviewed: { type: array, items: { type: string }, description: The workflow paths that were judged. }
+        rule_changes: { type: array, items: { type: string }, description: "Changed paths that steer a reviewer or an agent. Reported and never applied: the review used its built-in rules." }
+        not_reviewed:
+          type: array
+          items: { $ref: "#/components/schemas/KennelNotReviewed" }
+      required: [version, kennel_repository_id, repository, pull_number, open, base_branch, base_sha, head_sha, read_at, files_cut, complete, introduced, resolved, reviewed, rule_changes, not_reviewed]
+      type: object
+    KennelReviewFinding:
+      additionalProperties: false
+      properties:
+        code: { type: string, description: The Kennel Club check's code. }
+        severity: { type: string, enum: [error, warning, info] }
+        path: { type: string, description: The workflow file at the head. }
+        job: { type: integer, description: "The job's position in the file's jobs mapping, -1 for the workflow itself." }
+        line: { type: integer, minimum: 1, description: The line in the head file. }
+        title: { type: string }
+        detail: { type: string }
+        fix: { type: string }
+        head_sha: { type: string, description: The head file's Git blob SHA. }
+      required: [code, severity, path, job, line, title, detail, fix, head_sha]
+      type: object
+    KennelNotReviewed:
+      additionalProperties: false
+      properties:
+        path: { type: string }
+        reason: { type: string }
+      required: [path, reason]
       type: object
     KennelFixInspection:
       additionalProperties: false

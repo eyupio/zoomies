@@ -556,6 +556,12 @@ budget allows, and a second ask inside the cooldown is told how long to wait.
 the minutes the operator chose, the one changed block, and whether it was approved
 or a draft pull request opened. It reads local history only, never the full
 workflow, and approves and publishes nothing.
+`kennel review <repository-id> --pull N` reviews what a pull request changes in the
+repository's [workflows](kennel-club.md#reviewing-a-pull-requests-workflow-changes):
+only the findings the head has that the merge base did not, every changed file it did
+not judge, and any changed instruction file, which it reports and never applies. It
+reads the pull request from GitHub now, at two pinned commits, and executes nothing,
+calls no model, posts nothing and keeps nothing.
 `--output json` on any of them is the route's document as the controller sent
 it.
 

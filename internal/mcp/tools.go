@@ -97,7 +97,7 @@ func enum(description string, values ...string) map[string]any {
 func tools() []*tool {
 	read := contextTools()
 	for _, group := range [][]*tool{
-		comparisonTools(), prDelayTools(), optimisationTools(), optimisationCacheTools(), optimisationReadinessTools(), kennelFixTools(), optimisationShardingTools(), noteTools(),
+		comparisonTools(), prDelayTools(), optimisationTools(), optimisationCacheTools(), optimisationReadinessTools(), kennelFixTools(), kennelReviewTools(), optimisationShardingTools(), noteTools(),
 		kennelTools(), catalogTools(), usageTools(), providerTools(),
 		configTools(), adminConfigTools(), windowTools(), analysisTools(),
 		repairTools(),

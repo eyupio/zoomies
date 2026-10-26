@@ -3059,6 +3059,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/kennel/repositories/{id}/pull-reviews/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+                /** @description The pull request's number. */
+                number: number;
+            };
+            cookie?: never;
+        };
+        /**
+         * Review what a pull request changes in the repository's workflows
+         * @description Needs Kennel Club on with its workflow checks, a tracked repository, optimisation.source_reads, operator, kennel:read and optimisations:read; a public view's visitor is refused. Reads the pull request from GitHub now and pins two commits: the merge base and the head. It judges the root workflow files the pull request changes with Kennel Club's own checks and reports only what the head has that the base did not. The rules are built into the controller, so nothing the pull request changes can alter them; changed instruction files are listed in rule_changes and never applied. Every other changed path is listed in not_reviewed, so a review of unsupported files is never an all-clear. It executes nothing, calls no model, posts nothing and keeps nothing: a later push is a different review. Paths are the repository's own names for files; no file text is returned.
+         */
+        get: operations["reviewKennelPullRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/kennel/repositories/{id}/agent-guidance": {
         parameters: {
             query?: never;
@@ -13009,6 +13034,54 @@ export interface components {
             /** @description The workflow digest the Kennel fix names. */
             source_sha256: string;
         };
+        KennelReview: {
+            version: number;
+            kennel_repository_id: string;
+            repository: string;
+            pull_number: number;
+            open: boolean;
+            base_branch: string;
+            /** @description The merge base the pull request's diff is against. */
+            base_sha: string;
+            /** @description The head the review is bound to; a later push makes it a different review. */
+            head_sha: string;
+            /** Format: date-time */
+            read_at: string;
+            /** @description The pull request changes more files than were listed. */
+            files_cut: boolean;
+            /** @description True only when every changed workflow was judged, nothing was cut and nothing was unreadable. */
+            complete: boolean;
+            /** @description Findings the head has that the merge base did not, worst first. */
+            introduced: components["schemas"]["KennelReviewFinding"][];
+            /** @description Findings the merge base had that the head does not. */
+            resolved: number;
+            /** @description The workflow paths that were judged. */
+            reviewed: string[];
+            /** @description Changed paths that steer a reviewer or an agent. Reported and never applied: the review used its built-in rules. */
+            rule_changes: string[];
+            not_reviewed: components["schemas"]["KennelNotReviewed"][];
+        };
+        KennelReviewFinding: {
+            /** @description The Kennel Club check's code. */
+            code: string;
+            /** @enum {string} */
+            severity: "error" | "warning" | "info";
+            /** @description The workflow file at the head. */
+            path: string;
+            /** @description The job's position in the file's jobs mapping, -1 for the workflow itself. */
+            job: number;
+            /** @description The line in the head file. */
+            line: number;
+            title: string;
+            detail: string;
+            fix: string;
+            /** @description The head file's Git blob SHA. */
+            head_sha: string;
+        };
+        KennelNotReviewed: {
+            path: string;
+            reason: string;
+        };
         KennelFixInspection: {
             kennel_repository_id: string;
             installation_id: string;
@@ -19042,6 +19115,44 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    reviewKennelPullRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+                /** @description The pull request's number. */
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The review; Cache-Control is no-store. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelReview"];
+                };
+            };
+            /** @description The pull request number is not a positive whole number. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
         };
     };
     previewKennelGuidance: {

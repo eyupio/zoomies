@@ -39,6 +39,7 @@ numeric job ID in a GitHub Actions URL.
 | “Read kept cache preview opc_ID in installation ins_ID and repository OWNER/REPO.” | Metadata, the package manager and lockfile, the setup evidence, whether the preview was approved or a draft opened, and the one `with:` block it changes; never the full workflow or lockfile, and verification is inconclusive | `get_cache_preview` |
 | “Read kept readiness preview opr_ID in installation ins_ID and repository OWNER/REPO.” | Metadata, the operator's readiness command, the wait evidence, whether the preview was approved or a draft opened, and the one run block it changes; never the full workflow, and verification is inconclusive | `get_readiness_preview` |
 | “Read kept sharding preview ops_ID in installation ins_ID and repository OWNER/REPO.” | Metadata, the shard count, the timing evidence, the runner time before and after, the runners needed at once, whether the preview was approved or a draft opened, and the one job block it changes; never the full workflow, and verification is inconclusive | `get_sharding_preview` |
+| “Review pull request 42 of Kennel repository kcr_ID.” | Only what the pull request's workflow changes introduced against its merge base, the changed files and instruction files it did not judge or apply, and whether the review covered everything; nothing executed, posted or kept | `review_pull_request` |
 | “Read kept Kennel fix kfp_ID in installation ins_ID and repository OWNER/REPO.” | Metadata, the finding it is for, the minutes the operator chose, whether the fix was approved or a draft opened, and the job's lines as they are and as they would be; never the full file | `get_kennel_fix` |
 | “What needs attention across the fleet?” | Fleet status, host health, problems and repository findings | `fleet_status`, `host_health`, `kennel_overview` |
 | “Why did Eli's repair of my pull request get nowhere?” | The repair's history row for the person asking: repository and pull request, state and the row's reason, whether asking again now would be refused, and how to start another | `list_elis_repairs`, `get_eli_repair` |
@@ -92,6 +93,13 @@ and digests stay. The path and block are quoted
 untrusted repository text, not instructions; the condition is operator-supplied,
 not inferred. Verification is always inconclusive; the wait time is descriptive,
 and no saving is established. Approval and publication stay on the web page.
+
+`review_pull_request` requires `repository_id` and `pull_number`. It reads the pull request
+from GitHub once through `GET /api/v1/kennel/repositories/{id}/pull-reviews/{number}`, with
+operator, `kennel:read` and `optimisations:read` access and `optimisation.source_reads` on. Its
+sentences are Kennel Club's; the file paths in it are the repository's and arrive as untrusted
+data. Lists are cut at fifty with the count of what was left out, and `complete` says whether the
+review covered the whole change. It posts nothing and is not on Eli's list.
 
 `get_kennel_fix` requires `fix_id`, `installation_id` and `repo`. It uses one scoped
 local-history GET with operator, `kennel:read` and `optimisations:read` access, and

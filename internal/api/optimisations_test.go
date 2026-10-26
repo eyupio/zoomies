@@ -52,6 +52,9 @@ type checkoutAPIReader struct {
 	readinessReads  atomic.Int32
 	kennelFixSource *github.KennelFixSource
 	kennelFixReads  atomic.Int32
+
+	kennelReviewSource *github.KennelReviewSource
+	kennelReviewReads  atomic.Int32
 }
 
 func (f *checkoutAPIReader) RateLimit(context.Context) (*github.RateLimit, error) {
@@ -82,6 +85,11 @@ func (f *checkoutAPIReader) ReadReadinessSource(context.Context, string, github.
 func (f *checkoutAPIReader) ReadKennelFixSource(context.Context, string, string, string) (*github.KennelFixSource, error) {
 	f.kennelFixReads.Add(1)
 	return f.kennelFixSource, f.err
+}
+
+func (f *checkoutAPIReader) ReadKennelReviewSource(context.Context, string, int) (*github.KennelReviewSource, error) {
+	f.kennelReviewReads.Add(1)
+	return f.kennelReviewSource, f.err
 }
 
 func checkoutAPIEvidence(repo string, sel github.CheckoutSelection) *github.CheckoutEvidence {

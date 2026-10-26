@@ -496,6 +496,10 @@ func TestEveryReadToolIsOnElisListOrLeftOffOnPurpose(t *testing.T) {
 		"context_search":   "reads a repository's source",
 		"context_pack":     "reads a repository's source",
 		"context_notes":    "repository notes, written by people for agents",
+		// A review reads a pull request's source from GitHub each time it is
+		// asked, which spends the installation's quota; an operator asks for it,
+		// and a hosted model is not offered it.
+		"review_pull_request": "reads a pull request's source from GitHub on each call",
 		// These three are left off by the owner's choice, not by role: a viewer
 		// may read the audit, and still Eli is not offered it.
 		"list_webhook_deliveries": "a delivery is GitHub's whole payload",
