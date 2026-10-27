@@ -664,6 +664,100 @@ func TestReadinessKeepsThePullRequestWhenItIsClosed(t *testing.T) {
 	}
 }
 
+// A repair can be asked for a job this fleet never ran, so readiness names
+// what failed from GitHub's report of the run: the jobs, the step each stopped
+// at, and every step for the page's disclosure. A GitHub that cannot answer
+// leaves the list empty; it never blocks the readiness it rides on.
+func TestReadinessNamesTheFailedJobsGitHubReportsWhenTheFleetHasNoRecord(t *testing.T) {
+	s := readinessSetup(t)
+	s.fake.failedJobs = &github.RepairFailureRun{
+		RunID: 9, RunURL: "https://github.com/acme/repo/actions/runs/9", Workflow: "Publish", RunNumber: 1042,
+		Jobs: []github.RepairFailedJob{{
+			ID: 55, Name: "build-and-push", Conclusion: "failure",
+			URL:  "https://github.com/acme/repo/actions/runs/9/job/55",
+			Step: "Install dependencies and build", StepNumber: 8,
+			Steps: []github.RepairJobStep{{Number: 7, Name: "Checkout", Conclusion: "success"}, {Number: 8, Name: "Install dependencies and build", Conclusion: "failure"}},
+		}},
+	}
+
+	byRun := s.h.c.EliReadiness(s.h.ctx, s.user.ID, s.repo, 1, 9)
+	if len(byRun.FailedJobs) != 1 {
+		t.Fatalf("failed jobs: %+v", byRun.FailedJobs)
+	}
+	job := byRun.FailedJobs[0]
+	if job.ID != 55 || job.Name != "build-and-push" || job.StepNumber != 8 || job.Step != "Install dependencies and build" ||
+		job.URL != "https://github.com/acme/repo/actions/runs/9/job/55" || len(job.Steps) != 2 {
+		t.Errorf("job: %+v", job)
+	}
+	if got := s.fake.failedJobsAsked; len(got) != 1 || got[0][0] != int64(9) || got[0][1] != "" {
+		t.Errorf("the failure was asked for by %v, want its run alone", got)
+	}
+
+	s.fake.failedJobsAsked = nil
+	byPull := s.h.c.EliReadiness(s.h.ctx, s.user.ID, s.repo, 1, 0)
+	if len(byPull.FailedJobs) != 1 {
+		t.Fatalf("failed jobs by pull request: %+v", byPull.FailedJobs)
+	}
+	if got := s.fake.failedJobsAsked; len(got) != 1 || got[0][0] != int64(0) || got[0][1] != "old" {
+		t.Errorf("the failure was asked for by %v, want the pull request's head", got)
+	}
+}
+
+// The failed jobs sit behind the same write-access check as the pull request:
+// a person who may not see the repository is not told what is in it, and
+// GitHub is not asked.
+func TestReadinessTellsTheFailedJobsToNobodyWhoCannotWrite(t *testing.T) {
+	s := readinessSetup(t)
+	s.fake.noWrite = true
+	s.fake.failedJobs = &github.RepairFailureRun{
+		RunID: 9, Workflow: "Publish",
+		Jobs: []github.RepairFailedJob{{ID: 55, Name: "build-and-push", Conclusion: "failure"}},
+	}
+	ready := s.h.c.EliReadiness(s.h.ctx, s.user.ID, s.repo, 1, 9)
+	if len(ready.FailedJobs) != 0 {
+		t.Fatalf("failed jobs were shown to someone who cannot write: %+v", ready.FailedJobs)
+	}
+	if len(s.fake.failedJobsAsked) != 0 {
+		t.Errorf("GitHub was asked for jobs before access was shown: %v", s.fake.failedJobsAsked)
+	}
+}
+
+// A GitHub that does not answer the jobs read still answers readiness, and the
+// job names and addresses are workflow-author text, held to the same clipping
+// and link rules as everything else in the answer.
+func TestReadinessFailedJobsAreClippedAndNeverBlock(t *testing.T) {
+	s := readinessSetup(t)
+	long := strings.Repeat("é", 5000)
+	s.fake.failedJobs = &github.RepairFailureRun{
+		RunID: 9, Workflow: "CI",
+		Jobs: []github.RepairFailedJob{
+			{ID: 55, Name: long, Conclusion: "failure", URL: "javascript:alert(1)", Step: long, StepNumber: 8},
+			{ID: 56, Name: "second", Conclusion: "failure"},
+		},
+	}
+	ready := s.h.c.EliReadiness(s.h.ctx, s.user.ID, s.repo, 1, 9)
+	if len(ready.FailedJobs) != 2 {
+		t.Fatalf("failed jobs: %+v", ready.FailedJobs)
+	}
+	first := ready.FailedJobs[0]
+	if n := len([]rune(first.Name)); n != 200 {
+		t.Errorf("name is %d runes, want 200", n)
+	}
+	if n := len([]rune(first.Step)); n != 200 {
+		t.Errorf("step is %d runes, want 200", n)
+	}
+	if first.URL != "" {
+		t.Errorf("a scheme that runs script was kept as a link: %q", first.URL)
+	}
+
+	s.fake.failedJobsErr = errors.New("github: read failed jobs: not found")
+	s.fake.failedJobs = nil
+	ready = s.h.c.EliReadiness(s.h.ctx, s.user.ID, s.repo, 1, 9)
+	if !ready.Ready || len(ready.FailedJobs) != 0 {
+		t.Fatalf("an unreadable jobs list blocked readiness: %+v", ready)
+	}
+}
+
 // Checks that have passed, or have not finished, are not a failure to repair,
 // and the checklist says which of the two it is on the check that decided it.
 func TestReadinessSaysWhetherTheChecksHavePassedOrAreStillRunning(t *testing.T) {

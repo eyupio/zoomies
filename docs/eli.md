@@ -637,7 +637,10 @@ The repair page opens with the next step first and an **On this page**
 navigation for the next step, the setup when it is needed, the failure and the
 checks. It names the pull request, its branch, the commit and the run, each
 linked to GitHub, lists every failed job with the step it stopped at, and checks
-readiness without invoking a model. The checks show the blocked rows first, with
+readiness without invoking a model. A run this fleet did not run, so it has
+nothing recorded of, is named as GitHub reports it: `Fix with Eli` works for
+a job that never touched this fleet's runners, and the error output is read from
+GitHub when the job is opened. The checks show the blocked rows first, with
 **Show all 9 checks** for the rest. A person decides to spend an attempt once
 they can see what it would be spent on, so **Fix with Eli** is on that page.
 Missing account or repository setup opens the missing setup inline, under the
@@ -937,7 +940,10 @@ appears in the repair history.
 A repair keeps what it was about. When it starts it records the run whose failure
 you were looking at, and a short summary of the failure: the pull request's
 title, author and branch, the run's workflow and number, and up to ten of the
-failed jobs with the step each stopped at. Zoomies prunes its own job records
+failed jobs with the step each stopped at. The jobs come from Zoomies's own
+record of the run where it has one, and straight from GitHub's report of the run
+where it does not, so a failure the fleet never ran, on GitHub's own runners or
+in records since pruned, is named for the repair too. Zoomies prunes its own job records
 and a pull request's title changes, so the repair page and the history can still
 say what a repair was for long after the original has gone. The summary holds no
 log text. Every title and name in it is cut to 200 characters, and an address is

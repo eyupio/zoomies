@@ -960,7 +960,10 @@ this page** navigation moves between the next step, the setup when it is missing
 the failure and the checks. It shows the failure before anything is spent: the
 pull request's title, author, branch, commit and run, each linked to GitHub,
 where the job ran, and every job that failed, with the step it stopped at and
-whether the fault was the workflow's or this deployment's. Open a job to read the
+whether the fault was the workflow's or this deployment's. A run this fleet did
+not run is named as GitHub reports it, with the note that says so, and its jobs
+carry no blame or runner: the fleet has nothing recorded to read them from.
+Open a job to read the
 end of its log. Zoomies fetches the error lines from GitHub when you ask, takes
 out anything that looks like a credential and keeps nothing, and does so only for
 a person whose linked GitHub account can write to the repository. **Can Eli act

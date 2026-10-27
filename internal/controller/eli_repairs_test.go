@@ -88,6 +88,14 @@ type repairFake struct {
 	// onFailures, when set, answers a read of a job's error output, so a test
 	// chooses what comes back and counts the reads.
 	onFailures func(jobID int64) ([]string, error)
+	// failedJobs and failedJobsErr are what GitHub says the run's failed jobs
+	// were, for a failure this fleet has no record of. Nil is the ordinary
+	// answer: no failed jobs found.
+	failedJobs    *github.RepairFailureRun
+	failedJobsErr error
+	// failedJobsAsked is the run and head each read was made with, so a test
+	// can say which of the two the failure was known by.
+	failedJobsAsked [][2]any
 }
 
 func (f *repairFake) RepairActor(context.Context, string, string) (github.RepairActor, error) {
@@ -120,6 +128,10 @@ func (f *repairFake) RepairFailures(_ context.Context, _ string, _ github.Repair
 		return f.onFailures(jobID)
 	}
 	return []string{"main.go: test failed"}, nil
+}
+func (f *repairFake) RepairFailedJobs(_ context.Context, _ string, run int64, headSHA string) (*github.RepairFailureRun, error) {
+	f.failedJobsAsked = append(f.failedJobsAsked, [2]any{run, headSHA})
+	return f.failedJobs, f.failedJobsErr
 }
 func (f *repairFake) CommitRepair(_ context.Context, _ string, p github.RepairPull, plan prrepair.Plan) (string, error) {
 	if p.HeadSHA != "old" || len(plan.Files) != 1 || plan.Files[0].Content != "fixed" {

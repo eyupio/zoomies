@@ -22,16 +22,17 @@ const (
 
 // repairCase is what a repair was started for, in the words a person reading
 // the attempt later needs: the pull request, the run, and the jobs that failed
-// with the step each stopped at. It is read from the jobs the controller
-// already holds, so GitHub is not asked for anything the repair has not
-// already asked it, and it is a snapshot: the page shows the failure as it was
-// when the person decided, not as GitHub reads after a re-run.
+// with the step each stopped at. It prefers the jobs the controller already
+// holds, and falls back to GitHub for a failure this fleet never ran, so a
+// repair of somebody else's runner's job still says what it was asked about.
+// Both are a snapshot: the page shows the failure as it was when the person
+// decided, not as GitHub reads after a re-run.
 //
 // It never fails. Retention removes old jobs and an offer can outlive them, so
 // a case with no jobs is the pull request alone, which is still worth showing.
 // Everything in it was written by someone who can open a pull request, so each
 // text is clipped and each address is kept only if it is a plain web link.
-func (c *Controller) repairCase(ctx context.Context, repo string, pr github.RepairPull, runID int64) *store.EliRepairCase {
+func (c *Controller) repairCase(ctx context.Context, client github.RepairClient, repo string, pr github.RepairPull, runID int64) *store.EliRepairCase {
 	out := &store.EliRepairCase{
 		PullTitle: clipCaseText(pr.Title),
 		PullURL:   safeCaseLink(pr.URL),
@@ -50,6 +51,30 @@ func (c *Controller) repairCase(ctx context.Context, repo string, pr github.Repa
 	jobs, _, err := c.st.ListJobs(ctx, filter, store.Page{Limit: store.MaxEliRepairCaseJobs, Sort: "queued_at"})
 	if err != nil {
 		c.log.Warn("could not read the failed jobs for a repair's case", "repo", repo, "error", err)
+		return out
+	}
+	if len(jobs) == 0 && client != nil {
+		// Nothing on record: an older agent's run, a pruned one, or a job
+		// GitHub's own runners ran. GitHub's report of the run is what remains.
+		found, ferr := client.RepairFailedJobs(ctx, repo, runID, pr.HeadSHA)
+		if ferr != nil {
+			c.log.Warn("could not read the failed jobs of the run from GitHub for a repair's case", "repo", repo, "error", ferr)
+			return out
+		}
+		if found == nil {
+			return out
+		}
+		out.Workflow = clipCaseText(found.Workflow)
+		out.RunNumber = int64(found.RunNumber)
+		out.RunURL = safeCaseLink(found.RunURL)
+		for _, j := range found.Jobs {
+			if len(out.Jobs) == store.MaxEliRepairCaseJobs {
+				break
+			}
+			job := store.EliRepairCaseJob{Name: clipCaseText(j.Name), URL: safeCaseLink(j.URL), DurationMS: j.CompletedAt.Sub(j.StartedAt).Milliseconds()}
+			job.Step = clipCaseText(j.Step)
+			out.Jobs = append(out.Jobs, job)
+		}
 		return out
 	}
 	for i, j := range jobs {

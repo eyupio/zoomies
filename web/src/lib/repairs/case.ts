@@ -16,6 +16,7 @@ import { commitUrl, githubJobIdFromUrl, linksFromJobUrl, pullUrl, safeHttpUrl } 
 */
 
 type Readiness = Schemas['EliReadiness'];
+type GitHubJob = NonNullable<Readiness['failed_jobs']>[number];
 type Repair = Schemas['EliRepair'];
 
 /** One step of a failed job, as GitHub reported it. */
@@ -63,6 +64,8 @@ export interface CaseView {
   runLabel?: string;
   runUrl?: string;
   failedAt?: string;
+  /** The jobs GitHub reported rather than the fleet recorded, for a run it never ran. */
+  jobsFromGitHub?: boolean;
   ran?: { pool?: string; runner?: string; poolId?: string; runnerId?: string };
   jobs: CaseJob[];
 }
@@ -124,8 +127,53 @@ function liveJob(job: Job, index: number, openedJobId: string | undefined): Case
   return out;
 }
 
+/**
+ * A job GitHub reported to readiness, for a failure the fleet holds no record of:
+ * the run was another fleet's or GitHub's own runners', or the records are gone.
+ * It carries no blame and no pool, which a fleet job might, so none is claimed.
+ */
+function githubJob(job: GitHubJob, index: number): CaseJob {
+  const out: CaseJob = {
+    key: `gh-${job.id || index}`,
+    name: job.name ?? '',
+    domain: '',
+    opened: false,
+  };
+  if (job.step) {
+    out.step = job.step;
+    if (job.step_number) out.stepNumber = job.step_number;
+  }
+  const url = safeHttpUrl(job.url);
+  if (url) out.url = url;
+  const took =
+    job.started_at && job.completed_at
+      ? Date.parse(job.completed_at) - Date.parse(job.started_at)
+      : NaN;
+  if (took > 0) out.durationMs = took;
+  const id = job.id || githubJobIdFromUrl(job.url);
+  if (id) out.githubJobId = id;
+  if (job.steps?.length) {
+    out.steps = job.steps.map((step, stepIndex) => {
+      const outStep: CaseStep = {
+        number: step.number ?? stepIndex + 1,
+        name: step.name ?? '',
+        conclusion: step.conclusion ?? '',
+      };
+      const stepTook =
+        step.started_at && step.completed_at
+          ? Date.parse(step.completed_at) - Date.parse(step.started_at)
+          : NaN;
+      if (stepTook > 0) outStep.durationMs = stepTook;
+      return outStep;
+    });
+  }
+  return out;
+}
+
 /** The latest of the jobs' completion times, which is when the run's failure was settled. */
-function lastCompleted(jobs: readonly Job[]): string | undefined {
+function lastCompleted(
+  jobs: readonly { completed_at?: string | null | undefined }[],
+): string | undefined {
   let best: string | undefined;
   let bestAt = -Infinity;
   for (const job of jobs) {
@@ -158,8 +206,12 @@ export function caseFromLive(input: {
   run?: number;
 }): CaseView {
   const { repo, jobs, readiness, openedJobId, run } = input;
+  // GitHub's own report of the failed jobs comes with readiness, so a failure
+  // this fleet never ran still says what it was. The fleet's record is richer
+  // (blame, the runner it ran on) and wins wherever it exists.
+  const githubJobs = jobs.length === 0 ? (readiness?.failed_jobs ?? []) : [];
   const first = jobs[0];
-  const links = linksFromJobUrl(first?.html_url);
+  const links = linksFromJobUrl(first?.html_url ?? githubJobs[0]?.url);
   const pull = readiness?.pull;
   // A job's own address says which host the repository is on. With no job on
   // record, the pull request's does.
@@ -177,8 +229,12 @@ export function caseFromLive(input: {
       runTitle(first?.workflow, first?.run_number, branch) ||
       plainTitle(repo, pullNumber),
     hasPull: Boolean(pull),
-    jobs: jobs.map((job, index) => liveJob(job, index, openedJobId)),
+    jobs:
+      jobs.length > 0
+        ? jobs.map((job, index) => liveJob(job, index, openedJobId))
+        : githubJobs.map((job, index) => githubJob(job, index)),
   };
+  if (githubJobs.length > 0) view.jobsFromGitHub = true;
   if (repoUrl) view.repoUrl = repoUrl;
   if (pullNumber) view.pullNumber = pullNumber;
   const pullLink = safeHttpUrl(pull?.url) ?? pullUrl(repoUrl, pullNumber ?? 0);
@@ -195,7 +251,7 @@ export function caseFromLive(input: {
   if (label) view.runLabel = label;
   const runLink = links.run ?? (repoUrl && run ? `${repoUrl}/actions/runs/${run}` : undefined);
   if (runLink) view.runUrl = runLink;
-  const failedAt = lastCompleted(jobs);
+  const failedAt = lastCompleted(jobs.length > 0 ? jobs : githubJobs);
   if (failedAt) view.failedAt = failedAt;
   if (ranOn) {
     view.ran = {};

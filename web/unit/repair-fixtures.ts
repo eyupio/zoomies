@@ -93,6 +93,35 @@ export function readinessWithPull(over: Partial<Readiness> = {}): Readiness {
   });
 }
 
+/** The failed jobs readiness read from GitHub, for a run the fleet never ran. */
+export function githubFailedJobs(
+  over: Partial<NonNullable<Readiness['failed_jobs']>[number]> = {},
+): NonNullable<Readiness['failed_jobs']>[number][] {
+  return [
+    {
+      id: 7001,
+      name: 'Publish Latest Image / build-and-push',
+      step: 'Install dependencies and build',
+      step_number: 8,
+      url: JOB_URL.replace('9001', '7001'),
+      conclusion: 'failure',
+      started_at: '2026-10-23T10:00:00Z',
+      completed_at: '2026-10-23T10:05:00Z',
+      steps: [
+        { number: 1, name: 'Set up job', conclusion: 'success' },
+        { number: 8, name: 'Install dependencies and build', conclusion: 'failure' },
+      ],
+      ...over,
+    },
+    {
+      id: 7002,
+      name: 'Publish Latest Image / smoke',
+      conclusion: 'timed_out',
+      url: JOB_URL.replace('9001', '7002'),
+    },
+  ];
+}
+
 /** A job that failed in a workflow step, as Zoomies lists it. */
 export function failedJob(over: Job = {}): Job {
   return {

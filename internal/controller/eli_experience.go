@@ -37,6 +37,38 @@ type EliReadiness struct {
 	// Checks is every check readiness makes, in the order it makes them, so a
 	// page can show what passed as well as what did not.
 	Checks []EliCheck `json:"checks"`
+	// FailedJobs is the failing run's failed jobs, read from GitHub when the
+	// caller may see the repository: a run this fleet ran is on record and the
+	// page reads that, while a run it never ran exists only on GitHub. Like the
+	// pull request they sit behind the write-access check, and a check that
+	// stopped earlier leaves them out. Their absence says nothing was found or
+	// nothing could be read; it never says nothing failed.
+	FailedJobs []EliReadinessJob `json:"failed_jobs,omitempty"`
+}
+
+// EliReadinessJob is one failed job of the run a readiness answer is about, as
+// GitHub reports it. The id is GitHub's own, which is what a read of its error
+// output is asked with. Names and steps are workflow-author text, clipped; the
+// address is kept only when it is a plain web link.
+type EliReadinessJob struct {
+	ID          int64              `json:"id"`
+	Name        string             `json:"name"`
+	Step        string             `json:"step,omitempty"`
+	StepNumber  int                `json:"step_number,omitempty"`
+	URL         string             `json:"url,omitempty"`
+	Conclusion  string             `json:"conclusion"`
+	StartedAt   *time.Time         `json:"started_at,omitempty"`
+	CompletedAt *time.Time         `json:"completed_at,omitempty"`
+	Steps       []EliReadinessStep `json:"steps,omitempty"`
+}
+
+// EliReadinessStep is one step of a failed job, as GitHub reported it ended.
+type EliReadinessStep struct {
+	Number      int        `json:"number"`
+	Name        string     `json:"name"`
+	Conclusion  string     `json:"conclusion"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 type EliBlocker struct {
 	Code    string `json:"code"`
@@ -146,6 +178,57 @@ func (c *Controller) eliIdentity(ctx context.Context, user string) (*store.EliId
 	}
 	return nil, store.ErrNotFound
 }
+
+// eliFailedJobs names the failed jobs of the run a readiness answer is about,
+// read from GitHub: by the run itself when one was named, else by the failing
+// run at the pull request's head. It is what lets a repair be asked for a job
+// this fleet never ran, whose failure Zoomies holds no record of.
+//
+// It never blocks readiness: a GitHub that cannot answer leaves the field
+// empty, and the page says it has nothing to show rather than that nothing
+// failed.
+func (c *Controller) eliFailedJobs(ctx context.Context, client github.RepairClient, repo string, run int64, headSHA string) []EliReadinessJob {
+	found, err := client.RepairFailedJobs(ctx, repo, run, headSHA)
+	if err != nil {
+		c.log.Warn("could not read the failed jobs of the run for readiness", "repo", repo, "run", run, "error", err)
+		return nil
+	}
+	if found == nil {
+		return nil
+	}
+	out := make([]EliReadinessJob, 0, min(len(found.Jobs), store.MaxEliRepairCaseJobs))
+	for _, j := range found.Jobs {
+		if len(out) == store.MaxEliRepairCaseJobs {
+			break
+		}
+		job := EliReadinessJob{ID: j.ID, Name: clipCaseText(j.Name), Conclusion: j.Conclusion, URL: safeCaseLink(j.URL)}
+		if j.Step != "" {
+			job.Step, job.StepNumber = clipCaseText(j.Step), j.StepNumber
+		}
+		if !j.StartedAt.IsZero() {
+			started := j.StartedAt
+			job.StartedAt = &started
+		}
+		if !j.CompletedAt.IsZero() {
+			completed := j.CompletedAt
+			job.CompletedAt = &completed
+		}
+		for _, s := range j.Steps {
+			step := EliReadinessStep{Number: s.Number, Name: clipCaseText(s.Name), Conclusion: s.Conclusion}
+			if !s.StartedAt.IsZero() {
+				started := s.StartedAt
+				step.StartedAt = &started
+			}
+			if !s.CompletedAt.IsZero() {
+				completed := s.CompletedAt
+				step.CompletedAt = &completed
+			}
+			job.Steps = append(job.Steps, step)
+		}
+		out = append(out, job)
+	}
+	return out
+}
 func (c *Controller) EliReadiness(ctx context.Context, user, repo string, pull int, run int64) (out EliReadiness) {
 	out = EliReadiness{Repo: repo, PullNumber: pull, Blockers: []EliBlocker{}}
 	checks := eliChecks{}
@@ -194,6 +277,13 @@ func (c *Controller) EliReadiness(ctx context.Context, user, repo string, pull i
 		return out
 	}
 	checks.set("access", EliCheckOK, "@"+id.GitHubLogin+" can write to "+repo+".")
+	// A failure named by its run has its failed jobs read from GitHub straight
+	// away: they are the question's own subject, and a failure this fleet never
+	// ran is on record nowhere else. A pasted pull request says which commit it
+	// is once the pull request is found, and is read there.
+	if run > 0 {
+		out.FailedJobs = c.eliFailedJobs(ctx, client, repo, run, "")
+	}
 	policy, err := c.repairPolicy(ctx, repo, inst.ID)
 	if err != nil {
 		block("policy", "policy", "An administrator needs to enable repairs for this repository.")
@@ -251,6 +341,9 @@ func (c *Controller) EliReadiness(ctx context.Context, user, repo string, pull i
 		return out
 	}
 	checks.set("pull", EliCheckOK, fmt.Sprintf("#%d is open on %s and still at %s.", pr.Number, pr.Branch, shortSHA(pr.HeadSHA)))
+	if run == 0 {
+		out.FailedJobs = c.eliFailedJobs(ctx, client, repo, 0, pr.HeadSHA)
+	}
 	state, err := client.RepairChecks(ctx, repo, pr.HeadSHA)
 	if err != nil {
 		block("checks", "github", "GitHub could not check whether this failure still needs fixing. Try checking readiness again.")
