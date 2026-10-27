@@ -336,34 +336,10 @@ jobs:
         timeout-minutes: 10
         run: go mod download
 
-      # The checks that read the whole tree run once, in the shard that is
-      # otherwise the lightest.
-      - name: gofmt
-        if: matrix.shard == 'rest'
-        run: |
-          out=$(gofmt -l $(git ls-files '*.go'))
-          if [ -n "$out" ]; then
-            echo "These files need gofmt:"; echo "$out"; exit 1
-          fi
-
-      - name: go vet
-        if: matrix.shard == 'rest'
-        run: go vet ./...
-
-      # `go vet ./...` does not compile a suite behind a build tag, and the e2e
-      # and load suites are built by no other job (the drill suite is, by its
-      # own). A symbol one half of a package defines and the other half uses
-      # went unnoticed that way, with every gate green. `make lint` runs the
-      # same target.
-      - name: go vet the tagged suites
-        if: matrix.shard == 'rest'
-        run: make vet-tags
-
-      - name: go mod tidy is clean
-        if: matrix.shard == 'rest'
-        run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum
+      # gofmt, `go vet ./...`, the tagged suites and `go mod tidy` do not read
+      # this shard's packages; they read the whole tree, so they run once in
+      # `vet` beside these shards. They sat here until the shard's tests, which
+      # are the ones that gate the merge, waited 8 to 11 minutes for them.
 
       - name: Pick the shard's packages
         id: pkgs
@@ -428,6 +404,63 @@ jobs:
           path: ${{ runner.temp }}/covdata
           if-no-files-found: error
           retention-days: 3
+
+  # The checks that read the whole tree. They were four steps in the `rest`
+  # shard, in front of its tests, so the shard that gates the merge carried 8 to
+  # 11 minutes of work that has nothing to do with its packages: `go vet` took
+  # 6m33s to 8m27s across three measured runs and `make vet-tags` another 1m38s
+  # to 3m00s. Here they run beside every shard, and they still gate the merge
+  # through ci-gate.
+  #
+  # It runs when the Go shards run, which is what a Go change does. A change
+  # that only touches deploy/ runs the `rest` shard by itself and does not pay
+  # for these: no Go file changed, nothing under test/ embeds a deploy file, so
+  # none of the four can be wrong.
+  #
+  # `go vet ./...` does not compile a suite behind a build tag, and the e2e and
+  # load suites are built by no other job (the drill suite is, by its own). A
+  # symbol one half of a package defines and the other half uses went unnoticed
+  # that way, with every gate green. `make lint` runs the same target.
+  vet:
+    name: gofmt, vet and tidy
+    needs: [changes]
+    if: github.event.action != 'closed' && needs.changes.outputs.go == 'true'
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
+    timeout-minutes: 25 # the longest successful run seen was 11 minutes
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-go
+
+      # go:embed needs the directory to exist, and `go vet ./...` compiles the
+      # package that embeds it.
+      - name: Stub the embedded UI
+        timeout-minutes: 1
+        run: make ui-stub
+
+      # Fetching modules is the one step here that waits on the network, so it
+      # is on its own with a bound: a stalled proxy fails in minutes and says
+      # so, rather than eating the job's timeout inside go vet.
+      - name: Download modules
+        timeout-minutes: 10
+        run: go mod download
+
+      - name: gofmt
+        run: |
+          out=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$out" ]; then
+            echo "These files need gofmt:"; echo "$out"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go vet the tagged suites
+        run: make vet-tags
+
+      - name: go mod tidy is clean
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
 
   # One coverage number from four shards. Each shard instrumented every
   # package, so their counters are merged rather than concatenated -- see
@@ -866,9 +899,10 @@ jobs:
     needs: [changes]
     if: github.event.action != 'closed' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true')
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
-    timeout-minutes: 20 # the longest successful run seen was 3 minutes
+    timeout-minutes: 25 # the longest successful run seen was 3 minutes before it built the binary
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-go
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -898,10 +932,21 @@ jobs:
       # budget documented in docs/ui-guidelines.md.
       - run: npm run build
         working-directory: web
+      # The binary the Playwright legs drive, built once here and not in each
+      # of them. It has to follow the UI build, because it embeds webdist, and
+      # the legs already wait on this job, so this costs them no time: they
+      # start their suites instead of compiling the same binary three times.
+      - name: Build the binary the Playwright legs drive
+        run: go build -o zoomies ./cmd/zoomies
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: webdist
           path: internal/api/webdist
+          retention-days: 3
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: zoomies
+          path: zoomies
           retention-days: 3
 
   # The suite runs the whole UI twice (desktop, then a phone) and then six
@@ -926,8 +971,12 @@ jobs:
     # system-wide when sudo is not available.
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     timeout-minutes: 90 # the longest successful run seen was 46 minutes
-    # The suite drives the real binary, so a Go change can break it as
-    # surely as a web one.
+    # The suite drives the real binary, which `ui` builds and uploads, so a Go
+    # change can break it as surely as a web one. Only the binary is shared: the
+    # toolchain stays here because the connect project boots its fake GitHub with
+    # `go run ./test/fakegithub` (web/tests/support/serve-connect.mjs). What went
+    # is the 4 to 5 minute `go build` of the same binary in each of the three
+    # legs, about 13 runner minutes a run.
     needs: [changes, ui]
     if: github.event.action != 'closed' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true')
     steps:
@@ -953,7 +1002,23 @@ jobs:
         with:
           name: webdist
           path: internal/api/webdist
-      - run: go build -o zoomies ./cmd/zoomies
+      - name: Download the binary
+        id: download-zoomies
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: zoomies
+      # The same transient 403 again: only one leg of an otherwise identical
+      # matrix meets it, which is what says it is the request and not the file.
+      - name: Retry the binary download
+        if: steps.download-zoomies.outcome == 'failure'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: zoomies
+      # An artifact is carried as a zip and comes back without the executable
+      # bit, which would fail as "permission denied" inside the first boot.
+      - name: Make the binary executable
+        run: chmod +x zoomies
       - run: npm ci --no-audit --no-fund
         working-directory: web
       - name: Install Playwright Chromium
@@ -1025,7 +1090,15 @@ jobs:
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     timeout-minutes: 25 # the longest successful run seen was 8 minutes
     needs: [changes, ui]
-    if: github.event.action != 'closed' && needs.changes.outputs.go == 'true'
+    # On a main push that publishes, dev-binaries runs `make dist`, which builds
+    # these same five GOOS/GOARCH pairs with the same CGO_ENABLED=0 and
+    # -trimpath, and then checks that each file landed in dist/. Building them
+    # twice cost about 25 runner minutes a publishing push, on 3 of the 5 main
+    # pushes measured in a day. A pull request, and a dispatch on a ref that
+    # does not publish, still cross-compiles here, because dev-binaries does not
+    # run for them. TestTheDevChannelPublishesEveryBinaryDistBuilds holds this
+    # matrix and the Makefile's list to each other.
+    if: github.event.action != 'closed' && needs.changes.outputs.go == 'true' && needs.changes.outputs.publish != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -1942,6 +2015,7 @@ jobs:
     needs:
       - changes
       - go
+      - vet
       - ai-context-workflow
       - coverage
       - drill

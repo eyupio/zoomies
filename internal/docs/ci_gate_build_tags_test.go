@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -96,6 +97,12 @@ func TestEveryBuildTagIsVettedByTheVetTagsTarget(t *testing.T) {
 	}
 }
 
+// The vet-tags step used to sit in the `rest` shard, in front of its tests,
+// which made that shard the merge path: 8 to 11 minutes of whole-tree work
+// before the shard that gates the merge ran anything of its own. It lives in
+// `vet` now, beside the shards. What this holds is that exactly one job runs it,
+// unconditionally, and that ci-gate waits on that job, because a step in a job
+// outside the gate can run green or red without deciding a merge.
 func TestCIRunsTheVetTagsTarget(t *testing.T) {
 	raw, err := os.ReadFile("../../.github/workflows/ci.yml")
 	if err != nil {
@@ -103,6 +110,7 @@ func TestCIRunsTheVetTagsTarget(t *testing.T) {
 	}
 	var workflow struct {
 		Jobs map[string]struct {
+			Needs jobNeeds `yaml:"needs"`
 			Steps []struct {
 				Run             string `yaml:"run"`
 				If              string `yaml:"if"`
@@ -113,19 +121,32 @@ func TestCIRunsTheVetTagsTarget(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &workflow); err != nil {
 		t.Fatalf("ci.yml does not parse: %v", err)
 	}
-	for _, step := range workflow.Jobs["go"].Steps {
-		if strings.TrimSpace(step.Run) != "make vet-tags" {
-			continue
+	var runners []string
+	for id, job := range workflow.Jobs {
+		for _, step := range job.Steps {
+			if strings.TrimSpace(step.Run) != "make vet-tags" {
+				continue
+			}
+			runners = append(runners, id)
+			if step.If != "" {
+				t.Errorf("job %s runs the vet-tags step conditionally (%q), so a change it is meant to catch can skip it", id, step.If)
+			}
+			if step.ContinueOnError != nil {
+				t.Errorf("job %s's vet-tags step sets continue-on-error (%v), which makes it unable to fail the job", id, step.ContinueOnError)
+			}
 		}
-		if step.If != "matrix.shard == 'rest'" {
-			t.Errorf("the vet-tags step has the condition %q; it should run in the rest shard, once, beside `go vet`", step.If)
-		}
-		if step.ContinueOnError != nil {
-			t.Errorf("the vet-tags step sets continue-on-error (%v), which makes it unable to fail the job", step.ContinueOnError)
-		}
-		return
 	}
-	t.Error("the go job in ci.yml never runs `make vet-tags`, so a suite behind a build tag can stop compiling with every gate green")
+	sort.Strings(runners)
+	switch len(runners) {
+	case 0:
+		t.Fatal("no job in ci.yml runs `make vet-tags`, so a suite behind a build tag can stop compiling with every gate green")
+	case 1:
+	default:
+		t.Fatalf("these jobs run `make vet-tags`: %v; it compiles every tagged suite once and belongs in one job, which then gates the merge", runners)
+	}
+	if gate, ok := workflow.Jobs["ci-gate"]; ok && !slices.Contains([]string(gate.Needs), runners[0]) {
+		t.Errorf("the vet-tags check runs in job %s and ci-gate does not wait on it, so it can fail without blocking a merge", runners[0])
+	}
 }
 
 // buildTags returns the identifiers in a file's //go:build line, if it has one

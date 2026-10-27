@@ -771,6 +771,46 @@ func TestTheDevChannelPublishesEveryBinaryDistBuilds(t *testing.T) {
 			t.Errorf("make dist builds %s and the dev release does not publish it", name)
 		}
 	}
+
+	// The cross-compile matrix is the other place the platforms are listed, and
+	// since a push that publishes leaves them to `make dist` the two lists now
+	// decide different runs: a pull request cross-compiles in the matrix, a
+	// publishing push builds the same five in dev-binaries. One list drifting
+	// from the other would compile a platform twice on main, or on no pull
+	// request at all, and neither would fail anything else.
+	var workflow struct {
+		Jobs map[string]struct {
+			Strategy struct {
+				Matrix struct {
+					Include []struct {
+						GOOS   string `yaml:"goos"`
+						GOARCH string `yaml:"goarch"`
+					} `yaml:"include"`
+				} `yaml:"matrix"`
+			} `yaml:"strategy"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(ci), &workflow); err != nil {
+		t.Fatalf("parsing ci.yml: %v", err)
+	}
+	built := map[string]bool{}
+	for _, leg := range workflow.Jobs["build-matrix"].Strategy.Matrix.Include {
+		built[leg.GOOS+"/"+leg.GOARCH] = true
+	}
+	if len(built) == 0 {
+		t.Fatal("ci.yml's build-matrix job lists no goos/goarch legs; this test needs to follow how they are written")
+	}
+	dist := strings.Fields(string(platforms[1]))
+	for platform := range built {
+		if !slices.Contains(dist, platform) {
+			t.Errorf("ci.yml's Cross-compile matrix builds %s and the Makefile's dist target does not, so a publishing push builds fewer platforms than a pull request does", platform)
+		}
+	}
+	for _, platform := range dist {
+		if !built[platform] {
+			t.Errorf("make dist builds %s and ci.yml's Cross-compile matrix does not, so no pull request compiles that platform", platform)
+		}
+	}
 }
 
 // Scorecard's publishing service verifies the workflow that produced a result
