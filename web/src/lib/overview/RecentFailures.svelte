@@ -93,7 +93,6 @@
       const page = await listJobs(
         {
           attention: true,
-          eli_repairable: true,
           managed: all ? undefined : true,
           limit: SHOWN,
         },

@@ -48,10 +48,9 @@ func TestTheRunEventIsKeptOnEveryJobOfTheRunAndOnNoOther(t *testing.T) {
 	}
 }
 
-// The Overview offers Eli on every failure it lists, and Eli only repairs a
-// pull request's branch. A failure of a push or scheduled run has to leave that
-// list, while one whose trigger is not read yet stays: hiding it would lose a
-// real failure for as long as the controller takes to ask GitHub.
+// Repair discovery only offers PR runs, while the attention inbox must also
+// retain failed push and scheduled runs. Unknown triggers stay discoverable
+// until GitHub says what started them.
 func TestTheEliRepairableFilterKeepsPullRequestRunsAndUnreadOnes(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
@@ -66,6 +65,10 @@ func TestTheEliRepairableFilterKeepsPullRequestRunsAndUnreadOnes(t *testing.T) {
 		if err := s.SetRunEventForRun(ctx, "acme/site", run, event); err != nil {
 			t.Fatalf("SetRunEventForRun: %v", err)
 		}
+	}
+	_, attentionTotal, attentionErr := s.ListJobs(ctx, JobFilter{AttentionOnly: true}, Page{})
+	if attentionErr != nil || attentionTotal != 4 {
+		t.Fatalf("attention total %d (%v), want all four failures regardless of trigger", attentionTotal, attentionErr)
 	}
 	got, total, err := s.ListJobs(ctx, JobFilter{AttentionOnly: true, EliRepairableOnly: true}, Page{})
 	if err != nil {

@@ -1179,3 +1179,38 @@ test('marking the only failure as known moves focus to the page heading', async 
   await expect(failures.getByText('No failure is waiting on you')).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeFocused();
 });
+
+// A failure can need a person even when Eli cannot repair its trigger.
+test('the overview keeps failed push and scheduled runs in its attention inbox', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  await page.route(/\/api\/v1\/jobs\?.*attention=true/, async (route) => {
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response, body } = read;
+    const seed = body.items?.[0];
+    expect(seed, 'the fixture supplies a failed job').toBeTruthy();
+    const repairOnly = new URL(route.request().url()).searchParams.get('eli_repairable') === 'true';
+    const items = repairOnly
+      ? []
+      : [
+          { ...seed, id: 'job_push_failure', job_name: 'Failed push build', run_event: 'push' },
+          {
+            ...seed,
+            id: 'job_schedule_failure',
+            job_name: 'Failed scheduled build',
+            run_event: 'schedule',
+          },
+        ];
+    await route.fulfill({ response, json: { ...body, items, total: items.length } });
+  });
+  await reload(page, 'Overview');
+  const failures = page.getByRole('region', { name: 'Recent failures', exact: true });
+  await expect(failures.getByRole('button', { name: 'Inspect Failed push build' })).toBeVisible();
+  await expect(
+    failures.getByRole('button', { name: 'Inspect Failed scheduled build' }),
+  ).toBeVisible();
+  await expect(failures.getByText('No failure is waiting on you.')).toHaveCount(0);
+  await expect(failures.getByRole('link', { name: 'Fix with Eli' })).toHaveCount(0);
+});

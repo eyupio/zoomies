@@ -647,8 +647,8 @@ type JobFilter struct {
 	// EliRepairableOnly keeps the jobs of a run a pull request started, or whose
 	// trigger has not been read yet. Eli pushes one commit to an existing PR's
 	// branch and never raises one, so a failed push, merge or scheduled run is
-	// not something it can be asked to fix; the Overview's failures panel offers
-	// Eli on every row and so asks for only these.
+	// not something it can be asked to fix. This is a repair discovery filter,
+	// not a filter for failures that still need a person.
 	EliRepairableOnly bool
 	// FaultedOnly keeps only the jobs whose runner stopped under them. This is
 	// the fleet's own failure rate, as distinct from the workflows'.
