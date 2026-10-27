@@ -42,6 +42,9 @@ the row in `progress.md` is the record of what shipped.
 * [audit-2026-10-16.md](audit-2026-10-16.md): the repository audit of 15 and 16
   October 2026: what was found, what was changed and merged in #1088, and what
   was left open.
+* [ci-efficiency-2026-10-27.md](ci-efficiency-2026-10-27.md): what a `ci.yml`
+  run costs, measured from 25 runs on 26 and 27 October 2026, the three changes
+  worth making first, and what each is expected to save.
 * [candidates-from-hosted-services.md](candidates-from-hosted-services.md) and
   [competitive-review-2026-09.md](competitive-review-2026-09.md): what hosted
   runner services ship, compared with this repository.
