@@ -9,6 +9,7 @@
  * nothing, and only the button that says so spends an attempt.
  */
 import { expect, test, type Page } from '@playwright/test';
+import type { ReadinessJob } from './support/repairs';
 import {
   blockedAt,
   failedJob,
@@ -190,13 +191,7 @@ test('a run with no recorded jobs still explains itself', async ({ page }) => {
 // is named from what readiness read on GitHub: the jobs, the step each stopped
 // at, and the error lines of the one the person opens.
 test('a run the fleet never ran still names what failed, from GitHub', async ({ page }) => {
-  const job = (
-    id: number,
-    name: string,
-    step: string | undefined,
-  ): NonNullable<
-    import('../../src/lib/api/types').Schemas['EliReadiness']['failed_jobs']
-  >[number] => ({
+  const job = (id: number, name: string, step: string | undefined): ReadinessJob => ({
     id,
     name,
     conclusion: 'failure',

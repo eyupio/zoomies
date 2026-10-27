@@ -15,6 +15,7 @@ import type { Page } from '@playwright/test';
 import type { Job, Schemas } from '../../src/lib/api/types';
 
 export type Readiness = Schemas['EliReadiness'];
+export type ReadinessJob = NonNullable<Readiness['failed_jobs']>[number];
 export type Check = Schemas['EliReadinessCheck'];
 export type Repair = Schemas['EliRepair'];
 
