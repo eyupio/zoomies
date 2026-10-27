@@ -28,6 +28,7 @@ Single Go binary. SQLite. AGPL-3.0.
 test has actually run on from what merely builds. Read it before you put
 anything precious on this.*
 
+[![awesome-runners](https://img.shields.io/badge/listed%20on-awesome--runners-blue.svg)](https://github.com/jonico/awesome-runners)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-2F80ED?labelColor=080808)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/eyupio/zoomies?display_name=tag&include_prereleases&color=2F80ED&labelColor=080808)](https://github.com/eyupio/zoomies/releases)
 [![CI](https://github.com/eyupio/zoomies/actions/workflows/ci.yml/badge.svg)](https://github.com/eyupio/zoomies/actions/workflows/ci.yml)
