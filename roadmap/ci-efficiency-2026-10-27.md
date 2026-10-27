@@ -156,7 +156,9 @@ set up in 20 seconds, and let the legs download it.
 
 The legs no longer need Go at all: `web/tests/support/controller.mjs` spawns
 `join(root, "zoomies")` and nothing in the suite invokes `go`, so
-`./.github/actions/setup-go` can go from the job's steps with the build.
+`./.github/actions/setup-go` can go from the job's steps with the build. The
+ordering needs no change, because the legs already wait on `UI` (and are skipped
+when it is), so the artifact exists whenever they run.
 
 The gate time does not change, and saying so is the point: today `UI` ends at T
 and each leg spends 4.6 minutes building before a 16 to 45 minute suite;
