@@ -1085,10 +1085,12 @@ distribution's package. Those freeze whatever the release shipped (Node 18 on
 Ubuntu 24.04, which is out of support), and current tooling such as Playwright
 refuses anything below Node 20. It is the publisher's release from
 `deploy/toolcache.lock`, checked against the digest recorded there, unpacked
-into the tool cache where `setup-node` also looks and linked into
+into `/opt/default-node` (root-owned, outside the tool cache) and linked into
 `/usr/local/bin`; the build fails if `node` is not that major. Its global npm
 prefix is `/usr/local`, as with the distribution's package, so a tool added
-with `sudo npm install -g` is on `PATH`. To use another
+with `sudo npm install -g` is on `PATH`. A node that `setup-node` supplies, or
+finds in the `runner-full` tool cache, is separate and keeps its own prefix,
+where a global install needs no root. To use another
 major, run `actions/setup-node`, or build with `--build-arg DEFAULT_NODE_MAJOR=24`
 (the lock lists 22 and 24).
 

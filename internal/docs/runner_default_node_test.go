@@ -91,25 +91,36 @@ func TestTheRunnerImageInstallsItsDefaultNodeFromTheLockAndChecksIt(t *testing.T
 	}
 }
 
-// npm's global prefix is two directories above the node it runs under. The
-// default node lives in the tool cache, so without a setting of its own
-// `npm install -g` would put its executables in a directory nothing has on
-// PATH, and the install would succeed while the next step cannot find the tool.
-func TestTheRunnerImagesDefaultNodeInstallsGlobalToolsOntoPath(t *testing.T) {
+// npm's global prefix is two directories above the node it runs under, so the
+// default node needs a setting of its own or `npm install -g` would leave its
+// tools in a directory nothing has on PATH. Where that setting lives matters:
+// a tool-cache entry is setup-node's, reused by a job that asks for the same
+// version and expected to be runner-owned, so a prefix of /usr/local there
+// would make an unprivileged global install fail with a permissions error.
+func TestTheRunnerImagesDefaultNodeLivesOutsideTheToolCacheWithItsOwnPrefix(t *testing.T) {
 	script := readDeployFile(t, "runner-toolcache.sh")
 
-	if !regexp.MustCompile(`(?m)^\s+echo "prefix=/usr/local" > "\$\{toolcache\}/node/\$\{version\}/\$\{tc_arch\}/etc/npmrc"$`).MatchString(script) {
-		t.Error("the default node gets no global npm config setting the prefix to /usr/local, so `npm install -g` would leave its tools off PATH")
+	if !strings.Contains(script, `default_root="${DEFAULT_NODE_ROOT:-/opt/default-node}"`) {
+		t.Error("the default node is not given a tree of its own outside the tool cache")
+	}
+	if !strings.Contains(script, `tar -xzf "${archive}" -C "${default_root}" --strip-components=1`) {
+		t.Error("the default node is not unpacked into its own tree")
+	}
+	if !strings.Contains(script, `echo "prefix=/usr/local" > "${default_root}/etc/npmrc"`) {
+		t.Error("the default node's own global npm config does not set the prefix to /usr/local, so `npm install -g` would leave its tools off PATH")
 	}
 
-	// The setting is in the default node's own tree. An environment variable
-	// would reach the node setup-node downloads too and override its prefix.
+	// No cache entry may be given an npm config, which the plain mode used by
+	// the runner-full layers writes into.
+	for _, line := range strings.Split(script, "\n") {
+		if strings.Contains(line, "npmrc") && strings.Contains(line, "${toolcache}") {
+			t.Errorf("deploy/runner-toolcache.sh writes an npm config into a tool cache entry: %q", line)
+		}
+	}
+
+	// An environment variable would reach every npm, including the one a
+	// setup-node step installs.
 	if regexp.MustCompile(`(?m)^\s*(ENV|ARG)\s+NPM_CONFIG_PREFIX`).MatchString(readDeployFile(t, "Dockerfile.runner")) {
 		t.Error("deploy/Dockerfile.runner sets NPM_CONFIG_PREFIX, which applies to every npm including the one setup-node installs")
-	}
-
-	// Unpacking a version again deletes its directory, and the file with it.
-	if !strings.Contains(script, `if [ ! -e "${toolcache}/node/${version}/${tc_arch}.complete" ]; then`) {
-		t.Error("the node install unpacks over an existing entry, which would delete the npm config the default node was given")
 	}
 }

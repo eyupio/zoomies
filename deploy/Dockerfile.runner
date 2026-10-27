@@ -247,14 +247,14 @@ RUN /tmp/runner-shellcheck.sh "${TARGETARCH}" && rm /tmp/runner-shellcheck.sh
 # cache comes from, rather than the distribution's nodejs: that package is
 # whatever the release froze (Node 18 on Ubuntu 24.04, past its end of life),
 # and current tooling such as Playwright refuses anything below Node 20. It is
-# unpacked into the tool cache, where setup-node also finds it, and linked into
-# /usr/local/bin. The major is the one place to change when the next
-# long-term-support line becomes the default; the lock must list it.
+# unpacked into /opt/default-node, root-owned like the package it replaces and
+# deliberately outside the tool cache, and linked into /usr/local/bin. The
+# major is the one place to change when the next long-term-support line becomes
+# the default; the lock must list it.
 COPY --chmod=0755 deploy/runner-toolcache.sh /usr/local/lib/zoomies/runner-toolcache.sh
 COPY deploy/toolcache.lock /usr/local/lib/zoomies/toolcache.lock
 ARG DEFAULT_NODE_MAJOR=22
-RUN /usr/local/lib/zoomies/runner-toolcache.sh /usr/local/lib/zoomies/toolcache.lock "${OS_VERSION}" "${TARGETARCH}" node "${DEFAULT_NODE_MAJOR}" \
-    && chown -R runner:runner "${AGENT_TOOLSDIRECTORY}/node"
+RUN /usr/local/lib/zoomies/runner-toolcache.sh /usr/local/lib/zoomies/toolcache.lock "${OS_VERSION}" "${TARGETARCH}" node "${DEFAULT_NODE_MAJOR}"
 
 # Prove the toolchain is actually reachable, for the same reason the Docker
 # variant checks its client: a package that installed but left nothing on PATH

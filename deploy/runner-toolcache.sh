@@ -25,8 +25,9 @@
 # proxy between the build and the publisher is a place to substitute it.
 #
 # Node.js takes one more argument, a major version. That row alone is
-# unpacked, and node, npm, npx and corepack are linked into /usr/local/bin so
-# that it is the node a step finds when it never set one up. This is how every
+# unpacked, outside the tool cache into /opt/default-node, and node, npm, npx
+# and corepack are linked into /usr/local/bin so that it is the node a step
+# finds when it never set one up. This is how every
 # base image gets a supported default node without a distribution package: the
 # distributions' own nodejs is whatever their release froze, and the oldest of
 # them reached the end of its support before this image was rebuilt.
@@ -46,6 +47,11 @@ if [ -n "${default_major}" ] && [ "${tool}" != node ]; then
 fi
 
 toolcache="${AGENT_TOOLSDIRECTORY:?AGENT_TOOLSDIRECTORY must name the tool cache}"
+
+# Where the default node goes and where its links go; settable only so that a
+# test can run this script without being root.
+default_root="${DEFAULT_NODE_ROOT:-/opt/default-node}"
+default_links="${DEFAULT_NODE_LINKS:-/usr/local/bin}"
 
 # The name every tool cache uses for an architecture; setup-python,
 # setup-node, setup-go and setup-java all agree on it.
@@ -123,34 +129,39 @@ while read -r t version plat a digest url; do
       "${toolcache}/Python/${version}/${tc_arch}/python" --version
       ;;
     node)
-      # A version already here is left alone: the image's default node is
-      # unpacked early and carries a config file of its own, which unpacking
-      # again would delete, and the same version is the same pinned bytes.
-      if [ ! -e "${toolcache}/node/${version}/${tc_arch}.complete" ]; then
-        fetch "${url}" "${digest}" "${archive}"
-        cache node "${version}" "${archive}"
-      fi
-      "${toolcache}/node/${version}/${tc_arch}/bin/node" --version
+      fetch "${url}" "${digest}" "${archive}"
       if [ -n "${default_major}" ]; then
+        # The image's default node, in a tree of its own and not in the tool
+        # cache. A cache entry belongs to setup-node, which reuses it for a job
+        # that asks for the same version and expects the runner to own it, so
+        # npm's prefix there is the entry itself and a global install needs no
+        # root. Putting this node's settings in a cache entry would change that
+        # for those jobs.
+        rm -rf "${default_root}"
+        mkdir -p "${default_root}"
+        tar -xzf "${archive}" -C "${default_root}" --strip-components=1
+        "${default_root}/bin/node" --version
         # Links rather than a PATH entry, so that sudo, a login shell and a
         # step that resets PATH all find the same node. A setup-node step
         # still puts its own version first.
         for bin in node npm npx corepack; do
-          [ -x "${toolcache}/node/${version}/${tc_arch}/bin/${bin}" ] \
+          [ -x "${default_root}/bin/${bin}" ] \
             || { echo "runner-toolcache.sh: node ${version} has no ${bin}" >&2; exit 1; }
-          ln -sfn "${toolcache}/node/${version}/${tc_arch}/bin/${bin}" "/usr/local/bin/${bin}"
+          ln -sfn "${default_root}/bin/${bin}" "${default_links}/${bin}"
         done
         # npm's default global prefix is two levels above the node it runs
-        # under, which here is the tool cache entry, and that bin directory is
-        # on nobody's PATH: `npm install -g` would succeed and the tool it
-        # installed would not be found by the next step. This entry's own global
-        # config points the prefix at /usr/local instead, where the
-        # distribution's package put it, so global installs land on PATH as they
-        # did and still need root (the runner has sudo), as they did. It is in
-        # this node's tree and not an environment variable, so a node that
-        # setup-node downloads keeps its own prefix.
-        mkdir -p "${toolcache}/node/${version}/${tc_arch}/etc"
-        echo "prefix=/usr/local" > "${toolcache}/node/${version}/${tc_arch}/etc/npmrc"
+        # under, which here would be ${default_root}, on nobody's PATH:
+        # `npm install -g` would succeed and the tool it installed would not be
+        # found by the next step. This tree's own global config points the
+        # prefix at /usr/local instead, where the distribution's package put
+        # it, so global installs land on PATH and need root (the runner has
+        # sudo), as they did. It is a file in this tree and not an environment
+        # variable, so no other node is affected.
+        mkdir -p "${default_root}/etc"
+        echo "prefix=/usr/local" > "${default_root}/etc/npmrc"
+      else
+        cache node "${version}" "${archive}"
+        "${toolcache}/node/${version}/${tc_arch}/bin/node" --version
       fi
       ;;
     go)
