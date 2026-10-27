@@ -209,8 +209,9 @@ func newAppClient(asApp, asInstallation *gh.Client, target string, kind store.Ta
 }
 
 // enableConditionalReads gives the client a second go-github client over the
-// same installation token whose GETs are revalidated rather than repeated. If
-// it cannot be built the client simply keeps reading as it did.
+// same installation token whose GETs are revalidated rather than repeated.
+// Polling paths use it so an unchanged answer costs no primary quota. If it
+// cannot be built the client simply keeps reading as it did.
 func (c *appClient) enableConditionalReads(cache *conditionalCache, scope string) {
 	if cache == nil || c.asInstallation.BaseURL() == "" || c.asInstallation.UploadURL() == "" {
 		return
@@ -460,7 +461,7 @@ func (c *appClient) ListRunners(ctx context.Context) ([]Runner, error) {
 			return nil, errorf("list runners on "+c.target, err)
 		}
 		var body runnersPage
-		resp, err := c.asInstallation.Do(req, &body)
+		resp, err := c.readClient().Do(req, &body)
 		if err != nil {
 			return nil, c.fail("list runners on "+c.target, resp, err)
 		}
@@ -520,7 +521,7 @@ func (c *appClient) ListRunnerGroups(ctx context.Context) ([]RunnerGroup, error)
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		page, resp, err := c.asInstallation.Actions.ListOrganizationRunnerGroups(ctx, c.owner, opts)
+		page, resp, err := c.readClient().Actions.ListOrganizationRunnerGroups(ctx, c.owner, opts)
 		if err != nil {
 			return nil, c.fail("list runner groups on "+c.target, resp, err)
 		}
@@ -578,10 +579,11 @@ func (c *appClient) CreateRunnerGroup(ctx context.Context, in RunnerGroupCreate)
 //
 // GitHub has no endpoint that lists an organisation's queued jobs, so this
 // walks the repositories the installation can see and asks each for its
-// unfinished workflow runs, then for the jobs of those runs. The maxPollRepos
-// and maxPollRuns bounds keep one sweep of a busy organisation from spending
-// the installation's hourly quota, which would take the rest of the
-// integration down with it.
+// unfinished workflow runs, then for the jobs of those runs. Every read is
+// conditional: a quiet sweep still asks GitHub, but a 304 costs no primary
+// quota. The maxPollRepos and maxPollRuns bounds keep one changing sweep of a
+// busy organisation from spending the installation's hourly quota, which would
+// take the rest of the integration down with it.
 func (c *appClient) ListQueuedJobs(ctx context.Context) ([]QueuedJob, error) {
 	requests := maxPollRequests
 	repos, err := c.pollRepos(ctx, &requests)
@@ -610,7 +612,7 @@ func (c *appClient) ListQueuedJobs(ctx context.Context) ([]QueuedJob, error) {
 				return nil, err
 			}
 			requests--
-			runs, resp, err := c.asInstallation.Actions.ListRepositoryWorkflowRuns(ctx, owner, name,
+			runs, resp, err := c.readClient().Actions.ListRepositoryWorkflowRuns(ctx, owner, name,
 				&gh.ListWorkflowRunsOptions{
 					Status:      status,
 					ListOptions: gh.ListOptions{PerPage: min(budget, pollPerPage)},
@@ -666,7 +668,7 @@ func (c *appClient) pollRepos(ctx context.Context, requests *int) ([]string, err
 			return nil, err
 		}
 		*requests--
-		page, resp, err := c.asInstallation.Apps.ListRepos(ctx, opts)
+		page, resp, err := c.readClient().Apps.ListRepos(ctx, opts)
 		if err != nil {
 			return nil, c.fail("list repositories visible to the installation", resp, err)
 		}
@@ -705,7 +707,7 @@ func (c *appClient) queuedJobsForRun(ctx context.Context, owner, repo string, ru
 	full := owner + "/" + repo
 	var out []QueuedJob
 	for {
-		jobs, resp, err := c.asInstallation.Actions.ListWorkflowJobs(ctx, owner, repo, run.GetID(), opts)
+		jobs, resp, err := c.readClient().Actions.ListWorkflowJobs(ctx, owner, repo, run.GetID(), opts)
 		if err != nil {
 			e := classify(resp, err)
 			if errors.Is(e, ErrNotFound) {
@@ -962,7 +964,7 @@ func (c *appClient) GetWorkflowJob(ctx context.Context, repo string, id int64) (
 	if kind != store.TargetRepo {
 		return nil, fmt.Errorf("github: invalid job repository %q", repo)
 	}
-	job, resp, err := c.asInstallation.Actions.GetWorkflowJobByID(ctx, owner, name, id)
+	job, resp, err := c.readClient().Actions.GetWorkflowJobByID(ctx, owner, name, id)
 	if err != nil {
 		return nil, c.fail("read workflow job", resp, err)
 	}
@@ -983,7 +985,7 @@ func (c *appClient) GetWorkflowRun(ctx context.Context, repo string, runID int64
 	if kind != store.TargetRepo || runID <= 0 {
 		return nil, fmt.Errorf("github: invalid workflow run %q/%d", repo, runID)
 	}
-	run, resp, err := c.asInstallation.Actions.GetWorkflowRunByID(ctx, owner, name, runID)
+	run, resp, err := c.readClient().Actions.GetWorkflowRunByID(ctx, owner, name, runID)
 	if err != nil {
 		return nil, c.fail("read workflow run", resp, err)
 	}

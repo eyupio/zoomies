@@ -11,15 +11,13 @@ import (
 
 // The conditional-request transport makes a repeated read cost nothing against
 // GitHub's primary rate limit: a GET that carries If-None-Match and comes back
-// 304 is not counted. Kennel Club re-reads the same repositories every day and
-// almost nothing changes between reads, so without this its daily sweep would
-// spend the quota the poller and the JIT configurations live on.
+// 304 is not counted. The fallback poller, job reconciliation and Kennel Club
+// all re-read the same resources, so without this their sweeps would spend the
+// quota the JIT configurations live on.
 //
-// It is layered under Kennel Club's reads only. The poller and the runner calls
-// keep the transport they have, because a transport that quietly answered from
-// memory is the wrong default for code whose whole job is to see the queue as it
-// is now. A 304 means "unchanged", so what a caller gets is what it would have
-// got, and the only observable difference is the request count.
+// A cached body is never answered without asking GitHub first. A 304 means
+// "unchanged", so what a caller gets is what it would have got, and the only
+// observable difference is the request count.
 
 const (
 	// conditionalCacheBytes bounds everything the cache holds, across every
