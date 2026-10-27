@@ -432,21 +432,20 @@ func (c *appClient) RepairChecks(ctx context.Context, repo, sha string) (string,
 			Conclusion string `json:"conclusion"`
 		} `json:"check_runs"`
 	}
-	if err := c.repairRequest(ctx, http.MethodGet, base+"/commits/"+sha+"/check-runs?per_page=100", nil, &checks); err != nil {
-		return "", err
-	}
+	checksErr := c.repairRequest(ctx, http.MethodGet, base+"/commits/"+url.PathEscape(sha)+"/check-runs?per_page=100", nil, &checks)
 	var statuses struct {
 		Total int    `json:"total_count"`
 		State string `json:"state"`
 	}
-	if err := c.repairRequest(ctx, http.MethodGet, base+"/commits/"+url.PathEscape(sha)+"/status", nil, &statuses); err != nil {
-		return "", err
-	}
-	if statuses.Total > 0 && (statuses.State == "failure" || statuses.State == "error") {
+	statusesErr := c.repairRequest(ctx, http.MethodGet, base+"/commits/"+url.PathEscape(sha)+"/status", nil, &statuses)
+	if statusesErr == nil && statuses.Total > 0 && (statuses.State == "failure" || statuses.State == "error") {
 		return "failed", nil
 	}
 	pending := checks.Total > len(checks.Runs) || statuses.Total > 0 && statuses.State != "success"
 	passed := statuses.Total > 0 && statuses.State == "success"
+	if checksErr != nil {
+		checks.Runs = nil
+	}
 	for _, r := range checks.Runs {
 		if r.Status != "completed" {
 			pending = true
@@ -462,6 +461,45 @@ func (c *appClient) RepairChecks(ctx context.Context, repo, sha string) (string,
 			// A cancellation or missing outcome is not evidence of a fix.
 			pending = true
 		}
+	}
+	if checksErr != nil || statusesErr != nil {
+		// Runner Apps already have Actions read, but may lack Checks or
+		// Commit statuses read. A current failed run is enough to offer a
+		// repair; incomplete coverage must never certify a successful fix.
+		var runs struct {
+			Runs []struct {
+				WorkflowID int64  `json:"workflow_id"`
+				HeadSHA    string `json:"head_sha"`
+				Branch     string `json:"head_branch"`
+				Event      string `json:"event"`
+				Status     string `json:"status"`
+				Conclusion string `json:"conclusion"`
+			} `json:"workflow_runs"`
+		}
+		runsErr := c.repairRequest(ctx, http.MethodGet, base+"/actions/runs?head_sha="+url.QueryEscape(sha)+"&per_page=100", nil, &runs)
+		if runsErr == nil {
+			// GitHub lists newest first. An older failed run of the same
+			// workflow must not overrule its successful rerun.
+			type key struct {
+				workflow      int64
+				branch, event string
+			}
+			seen := map[key]bool{}
+			for _, run := range runs.Runs {
+				k := key{run.WorkflowID, run.Branch, run.Event}
+				if run.HeadSHA != sha || seen[k] {
+					continue
+				}
+				seen[k] = true
+				if run.Status == "completed" {
+					switch run.Conclusion {
+					case "failure", "timed_out", "action_required", "startup_failure":
+						return "failed", nil
+					}
+				}
+			}
+		}
+		return "", errors.Join(checksErr, statusesErr, runsErr)
 	}
 	if pending || !passed {
 		return "waiting", nil

@@ -308,3 +308,48 @@ func TestAPushRunGitHubLinksToItsPRIsStillResolved(t *testing.T) {
 		t.Fatalf("error %v; want the PR the run is linked to reported closed", err)
 	}
 }
+
+func TestRepairChecksKeepConfirmedFailuresWhenAnotherEndpointIsUnavailable(t *testing.T) {
+	for _, tc := range []struct{ name, checks, status, runs, want string }{
+		{"status denied", `{"total_count":1,"check_runs":[{"status":"completed","conclusion":"failure"}]}`, "", "", "failed"},
+		{"checks denied", "", `{"total_count":1,"state":"failure"}`, "", "failed"},
+		{"actions fallback", "", "", `{"workflow_runs":[{"workflow_id":1,"head_sha":"sha","status":"completed","conclusion":"failure"}]}`, "failed"},
+		{"actions timed out", "", "", `{"workflow_runs":[{"workflow_id":1,"head_sha":"sha","status":"completed","conclusion":"timed_out"}]}`, "failed"},
+		{"all endpoints denied", "", "", "", ""},
+		{"pending rerun", "", "", `{"workflow_runs":[{"workflow_id":1,"head_sha":"sha","status":"in_progress"},{"workflow_id":1,"head_sha":"sha","status":"completed","conclusion":"failure"}]}`, ""},
+		{"different workflows", "", "", `{"workflow_runs":[{"workflow_id":1,"head_sha":"sha","status":"completed","conclusion":"success"},{"workflow_id":2,"head_sha":"sha","status":"completed","conclusion":"failure"}]}`, "failed"},
+		{"wrong head", "", "", `{"workflow_runs":[{"workflow_id":1,"head_sha":"old","status":"completed","conclusion":"failure"}]}`, ""},
+		{"successful rerun", "", "", `{"workflow_runs":[{"workflow_id":1,"head_sha":"sha","status":"completed","conclusion":"success"},{"workflow_id":1,"head_sha":"sha","status":"completed","conclusion":"failure"}]}`, ""},
+		{"incomplete success", `{"total_count":1,"check_runs":[{"status":"completed","conclusion":"success"}]}`, "", `{"workflow_runs":[]}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				var body string
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/check-runs"):
+					body = tc.checks
+				case strings.HasSuffix(r.URL.Path, "/status"):
+					body = tc.status
+				case strings.HasSuffix(r.URL.Path, "/actions/runs"):
+					if r.URL.Query().Get("head_sha") != "sha" {
+						t.Error("Actions lookup was not pinned to the PR head")
+					}
+					body = tc.runs
+				default:
+					t.Errorf("unexpected request %s", r.URL)
+				}
+				if body == "" {
+					w.WriteHeader(http.StatusForbidden)
+					w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
+					return
+				}
+				w.Write([]byte(body))
+			})
+			got, err := c.RepairChecks(context.Background(), "acme/repo", "sha")
+			if got != tc.want || (err != nil) != (tc.want == "") {
+				t.Fatalf("got %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
+}
