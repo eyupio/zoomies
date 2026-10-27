@@ -5,6 +5,7 @@ import {
   JOB_URL,
   SHA,
   failedJob,
+  githubFailedJobs,
   readiness,
   readinessWithPull,
   repair,
@@ -420,4 +421,64 @@ test('a snapshot job gets GitHub\u2019s id from its address', () => {
   );
   assert.equal(view.jobs[0]?.githubJobId, 9001);
   assert.equal(view.jobs[1]?.githubJobId, undefined);
+});
+
+// A run this fleet never ran has no job on record anywhere in Zoomies. Readiness
+// names what failed from GitHub instead, so the repair is of something the page
+// can show: each job with its step, its steps, its duration and GitHub's id for
+// its log.
+test('a case with no fleet record names the failed jobs readiness read from GitHub', () => {
+  const base = githubFailedJobs();
+  const view = caseFromLive({
+    repo: 'acme/widgets',
+    jobs: [],
+    readiness: readinessWithPull({ failed_jobs: base }),
+    run: 482,
+  });
+  assert.equal(view.jobsFromGitHub, true);
+  assert.equal(view.jobs.length, 2);
+  const job = view.jobs[0]!;
+  assert.equal(job.key, 'gh-7001');
+  assert.equal(job.name, 'Publish Latest Image / build-and-push');
+  assert.equal(job.step, 'Install dependencies and build');
+  assert.equal(job.stepNumber, 8);
+  assert.equal(job.url, 'https://github.com/acme/widgets/actions/runs/482/job/7001');
+  assert.equal(job.githubJobId, 7001);
+  assert.equal(job.durationMs, 5 * 60_000);
+  assert.equal(job.opened, false);
+  assert.deepEqual(
+    view.jobs[0]!.steps?.map((step) => [step.number, step.name, step.conclusion]),
+    [
+      [1, 'Set up job', 'success'],
+      [8, 'Install dependencies and build', 'failure'],
+    ],
+  );
+  // The run link comes from the job's own address; the failure settled at the
+  // latest completion time GitHub reported.
+  assert.equal(view.runUrl, RUN);
+  assert.equal(view.failedAt, '2026-10-23T10:05:00Z');
+  // A job with no id carries GitHub's id, read off its address, which is what
+  // its error output is asked with.
+  const anonymous = caseFromLive({
+    repo: 'acme/widgets',
+    jobs: [],
+    readiness: readinessWithPull({
+      failed_jobs: [{ id: 0, name: 'unit', conclusion: 'failure', url: JOB_URL }],
+    }),
+  });
+  assert.equal(anonymous.jobs[0]!.key, 'gh-0');
+  assert.equal(anonymous.jobs[0]!.githubJobId, 9001);
+});
+
+// The fleet's own record is the richer one (blame, the runner it ran on), so
+// wherever it exists, GitHub's report of the run is not asked or shown.
+test('a fleet record of the failure leaves GitHub\u2019s failed jobs unread', () => {
+  const view = caseFromLive({
+    repo: 'acme/widgets',
+    jobs: [failedJob()],
+    readiness: readinessWithPull({ failed_jobs: githubFailedJobs() }),
+  });
+  assert.equal(view.jobsFromGitHub, undefined);
+  assert.equal(view.jobs.length, 1);
+  assert.equal(view.jobs[0]!.key, 'job_unit');
 });

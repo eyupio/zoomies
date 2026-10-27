@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func repairTestClient(t *testing.T, handler http.HandlerFunc) *appClient {
@@ -351,5 +352,111 @@ func TestRepairChecksKeepConfirmedFailuresWhenAnotherEndpointIsUnavailable(t *te
 				t.Fatalf("got %q, %v; want %q", got, err, tc.want)
 			}
 		})
+	}
+}
+
+// A failure the fleet never ran can still be named for a repair: the run is
+// read, and its failed jobs with the step each stopped at. By head commit the
+// run is the newest failing one there.
+func TestRepairFailedJobsReadsTheRunAndNamesTheStoppedAtStep(t *testing.T) {
+	const jobsBody = `{"total_count":3,"jobs":[
+		{"id":50,"name":"build-and-push","conclusion":"failure",
+		 "html_url":"https://github.com/acme/repo/actions/runs/9/job/50",
+		 "started_at":"2026-10-23T10:00:00Z","completed_at":"2026-10-23T10:05:00Z",
+		 "steps":[{"number":7,"name":"Checkout","conclusion":"success","started_at":"2026-10-23T10:00:00Z","completed_at":"2026-10-23T10:00:30Z"},
+		          {"number":8,"name":"Install dependencies and build","conclusion":"failure","started_at":"2026-10-23T10:00:30Z","completed_at":"2026-10-23T10:05:00Z"},
+		          {"number":9,"name":"Complete job","conclusion":"skipped"}]},
+		{"id":51,"name":"smoke","conclusion":"success","html_url":"https://github.com/acme/repo/actions/runs/9/job/51"},
+		{"id":52,"name":"notify","conclusion":"timed_out","html_url":"https://github.com/acme/repo/actions/runs/9/job/52","steps":[]}
+	]}`
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/acme/repo/actions/runs/9":
+			w.Write([]byte(`{"id":9,"name":"Publish Latest Image","run_number":115,"html_url":"https://github.com/acme/repo/actions/runs/9"}`))
+		case "/repos/acme/repo/actions/runs/9/jobs":
+			w.Write([]byte(jobsBody))
+		default:
+			t.Errorf("unexpected request %s", r.URL)
+			http.NotFound(w, r)
+		}
+	})
+	run, err := c.RepairFailedJobs(context.Background(), "acme/repo", 9, "")
+	if err != nil || run == nil {
+		t.Fatalf("run %v, %v", run, err)
+	}
+	if run.RunID != 9 || run.Workflow != "Publish Latest Image" || run.RunNumber != 115 {
+		t.Errorf("run page: %+v", run)
+	}
+	if len(run.Jobs) != 2 {
+		t.Fatalf("jobs: %+v", run.Jobs)
+	}
+	build := run.Jobs[0]
+	if build.ID != 50 || build.Name != "build-and-push" || build.StepNumber != 8 || build.Step != "Install dependencies and build" {
+		t.Errorf("the failed job does not say where it stopped: %+v", build)
+	}
+	if build.CompletedAt.Sub(build.StartedAt) != 5*time.Minute {
+		t.Errorf("times %v to %v", build.StartedAt, build.CompletedAt)
+	}
+	if len(build.Steps) != 3 || build.Steps[2].Conclusion != "skipped" {
+		t.Errorf("steps: %+v", build.Steps)
+	}
+	if run.Jobs[1].Step != "" {
+		t.Errorf("a timed-out job with no reported steps names no step: %+v", run.Jobs[1])
+	}
+}
+
+func TestRepairFailedJobsFindsTheNewestFailingRunAtAHead(t *testing.T) {
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/acme/repo/actions/runs":
+			w.Write([]byte(`{"workflow_runs":[
+				{"id":12,"head_sha":"head","status":"completed","conclusion":"failure","name":"CI","run_number":42,"html_url":"https://github.com/acme/repo/actions/runs/12"},
+				{"id":11,"head_sha":"head","status":"in_progress"},
+				{"id":10,"head_sha":"head","status":"completed","conclusion":"cancelled"},
+				{"id":8,"head_sha":"other","status":"completed","conclusion":"failure"}
+			]}`))
+		case "/repos/acme/repo/actions/runs/12/jobs":
+			w.Write([]byte(`{"total_count":1,"jobs":[{"id":60,"name":"unit","conclusion":"failure"}]}`))
+		default:
+			t.Errorf("unexpected request %s", r.URL)
+			http.NotFound(w, r)
+		}
+	})
+	run, err := c.RepairFailedJobs(context.Background(), "acme/repo", 0, "head")
+	if err != nil || run == nil || run.RunID != 12 || run.Workflow != "CI" || len(run.Jobs) != 1 || run.Jobs[0].Name != "unit" {
+		t.Fatalf("run %+v jobs, %v", run, err)
+	}
+}
+
+// No failing run, and nothing to look by, both answer "nothing found" and
+// neither is GitHub failing.
+func TestRepairFailedJobsAnswersNothingFoundWithoutAnError(t *testing.T) {
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/acme/repo/actions/runs":
+			w.Write([]byte(`{"workflow_runs":[{"id":1,"head_sha":"head","status":"completed","conclusion":"success"}]}`))
+		case "/repos/acme/repo/actions/runs/3":
+			w.Write([]byte(`{"id":3,"name":"CI","run_number":7}`))
+		case "/repos/acme/repo/actions/runs/3/jobs":
+			// A run with no failed jobs answers 200 with none, as GitHub does.
+			w.Write([]byte(`{"total_count":0,"jobs":[]}`))
+		default:
+			t.Errorf("unexpected request %s", r.URL)
+			http.NotFound(w, r)
+		}
+	})
+	if run, err := c.RepairFailedJobs(context.Background(), "acme/repo", 0, "head"); run != nil || err != nil {
+		t.Fatalf("success at the head: run %+v, %v", run, err)
+	}
+	if run, err := c.RepairFailedJobs(context.Background(), "acme/repo", 3, ""); run != nil || err != nil {
+		t.Fatalf("a run with no failed jobs: run %+v, %v", run, err)
+	}
+	called := false
+	silent := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) { called = true })
+	if run, err := silent.RepairFailedJobs(context.Background(), "acme/repo", 0, ""); run != nil || err != nil || called {
+		t.Fatalf("nothing to look by asked GitHub: run %+v, %v, called %v", run, err, called)
 	}
 }

@@ -16057,6 +16057,38 @@ components:
             before it was found still names what stopped it. Absent on a check
             that passed or was not reached, and from a controller older than
             this field.
+    EliReadinessStep:
+      type: object
+      description: One step of a failed job, as GitHub reported it ended.
+      required: [number, name, conclusion]
+      properties:
+        number: { type: integer }
+        name: { type: string }
+        conclusion: { type: string, description: 'How it ended: success, failure, skipped, cancelled, or empty while it has not.' }
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+    EliReadinessJob:
+      type: object
+      description: >-
+        One failed job of the run a readiness answer is about, read from
+        GitHub. It is how a repair can be asked for a job this fleet never
+        ran, whose failure Zoomies holds no record of. The id is GitHub's own,
+        which is what a read of its error output is asked with. Names and
+        steps are workflow-author text, clipped; the url is kept only when it
+        is a plain web link.
+      required: [id, name, conclusion]
+      properties:
+        id: { type: integer, format: int64, description: GitHub's id for the job. }
+        name: { type: string }
+        step: { type: string, description: "The step the job stopped at, when it reported one." }
+        step_number: { type: integer, description: 'The failing step''s number, which GitHub numbers from 1.' }
+        url: { type: string, description: The job's page on GitHub. }
+        conclusion: { type: string }
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+        steps:
+          type: array
+          items: { $ref: "#/components/schemas/EliReadinessStep" }
     EliReadiness:
       type: object
       required: [ready, repo, pull_number, head_sha, provider, model, allow_workflows, remaining, blockers, checks]
@@ -16078,6 +16110,15 @@ components:
             How the repository's policy lets Eli help, so a page can say whether the repository
             would have started a repair itself. Present once readiness has reached the policy
             check, and not before.
+        failed_jobs:
+          description: >-
+            The failing run's failed jobs, read from GitHub, for a failure the
+            fleet has no record of. Like the pull request they sit behind the
+            write-access check, and a readiness that stopped earlier leaves
+            them out. Their absence says nothing was found or nothing could be
+            read; it never says nothing failed.
+          type: array
+          items: { $ref: "#/components/schemas/EliReadinessJob" }
         blockers:
           description: >-
             What stands in the way. When the target has changed (fixed, closed

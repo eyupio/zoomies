@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/eyupio/zoomies/internal/prrepair"
@@ -49,12 +50,54 @@ type RepairPull struct {
 	Fork          bool
 	Open          bool
 }
+
+// RepairJobStep is one step of a job, as GitHub reported it ended.
+type RepairJobStep struct {
+	Number      int
+	Name        string
+	Conclusion  string
+	StartedAt   time.Time
+	CompletedAt time.Time
+}
+
+// RepairFailedJob is one failed job of a run, as GitHub reports it: its own
+// id (which is all a log is ever asked with), its name, the step it stopped
+// at and its page. It needs no record in the fleet that ran it, so a repair
+// of a job GitHub's own runners ran can still say what it was asked about.
+type RepairFailedJob struct {
+	ID          int64
+	Name        string
+	URL         string
+	Conclusion  string
+	Step        string
+	StepNumber  int
+	Steps       []RepairJobStep
+	StartedAt   time.Time
+	CompletedAt time.Time
+}
+
+// RepairFailureRun is a run and the jobs of it that failed, for the page and
+// the kept case of a repair that answers for a failure Zoomies has no record
+// of.
+type RepairFailureRun struct {
+	RunID     int64
+	RunURL    string
+	Workflow  string
+	RunNumber int
+	Jobs      []RepairFailedJob
+}
+
 type RepairClient interface {
 	RepairActor(context.Context, string, string) (RepairActor, error)
 	RepairPull(context.Context, string, int) (RepairPull, error)
 	RepairPullForRun(context.Context, string, int64) (RepairPull, error)
 	RepairSource(context.Context, string, RepairPull, bool) (*RepairSource, error)
 	RepairFailures(context.Context, string, RepairPull, int64) ([]string, error)
+	// RepairFailedJobs names the failed jobs of a run (run > 0), or of the
+	// newest failing run at a head commit, for a failure this fleet never
+	// ran. A run with no failed jobs is a nil run and no error, so a check
+	// that reads it can say nothing was found without saying GitHub failed.
+	RepairFailedJobs(context.Context, string, int64, string) (*RepairFailureRun, error)
 	CommitRepair(context.Context, string, RepairPull, prrepair.Plan) (string, error)
 	RepairComment(context.Context, string, int, int64, string) (int64, error)
 	RepairReact(context.Context, string, int64, string) error
@@ -355,6 +398,112 @@ func (c *appClient) RepairFailures(ctx context.Context, repo string, p RepairPul
 		}
 	}
 	return out, nil
+}
+
+// repairRunPage is the run a failure is read from: the one named when run is
+// given, or the newest failing run at headSHA. GitHub lists newest first, so
+// the first completed failure met is the one a person looking at that commit
+// is looking at.
+func (c *appClient) repairRunPage(ctx context.Context, base string, run int64, headSHA string) (id int64, page RepairFailureRun, err error) {
+	var r struct {
+		ID         int64  `json:"id"`
+		Name       string `json:"name"`
+		RunNumber  int    `json:"run_number"`
+		HTMLURL    string `json:"html_url"`
+		HeadSHA    string `json:"head_sha"`
+		Status     string `json:"status"`
+		Conclusion string `json:"conclusion"`
+	}
+	if run > 0 {
+		if err = c.repairRequest(ctx, http.MethodGet, fmt.Sprintf("%s/actions/runs/%d", base, run), nil, &r); err != nil {
+			return 0, page, err
+		}
+		return r.ID, RepairFailureRun{RunID: r.ID, RunURL: r.HTMLURL, Workflow: r.Name, RunNumber: r.RunNumber}, nil
+	}
+	var runs struct {
+		Runs []struct {
+			ID         int64  `json:"id"`
+			HeadSHA    string `json:"head_sha"`
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+			Name       string `json:"name"`
+			RunNumber  int    `json:"run_number"`
+			HTMLURL    string `json:"html_url"`
+		} `json:"workflow_runs"`
+	}
+	if err = c.repairRequest(ctx, http.MethodGet, base+"/actions/runs?head_sha="+url.QueryEscape(headSHA)+"&per_page=10", nil, &runs); err != nil {
+		return 0, page, err
+	}
+	for _, r := range runs.Runs {
+		if r.HeadSHA != headSHA || r.Status != "completed" {
+			continue
+		}
+		if r.Conclusion != "failure" && r.Conclusion != "timed_out" {
+			// A cancelled or successful run has no failed jobs to name.
+			continue
+		}
+		return r.ID, RepairFailureRun{RunID: r.ID, RunURL: r.HTMLURL, Workflow: r.Name, RunNumber: r.RunNumber}, nil
+	}
+	return 0, page, nil
+}
+
+func (c *appClient) RepairFailedJobs(ctx context.Context, repo string, run int64, headSHA string) (*RepairFailureRun, error) {
+	base, err := repairRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	if run < 1 && headSHA == "" {
+		return nil, nil
+	}
+	id, runPage, err := c.repairRunPage(ctx, base, run, headSHA)
+	if err != nil || id == 0 {
+		return nil, err
+	}
+	var jobs struct {
+		Jobs []struct {
+			ID          int64     `json:"id"`
+			Name        string    `json:"name"`
+			Conclusion  string    `json:"conclusion"`
+			HTMLURL     string    `json:"html_url"`
+			StartedAt   time.Time `json:"started_at"`
+			CompletedAt time.Time `json:"completed_at"`
+			Steps       []struct {
+				Number      int       `json:"number"`
+				Name        string    `json:"name"`
+				Conclusion  string    `json:"conclusion"`
+				StartedAt   time.Time `json:"started_at"`
+				CompletedAt time.Time `json:"completed_at"`
+			} `json:"steps"`
+		} `json:"jobs"`
+	}
+	if err := c.repairRequest(ctx, http.MethodGet, fmt.Sprintf("%s/actions/runs/%d/jobs?per_page=100", base, id), nil, &jobs); err != nil {
+		return nil, err
+	}
+	for _, j := range jobs.Jobs {
+		// failure and timed_out are the conclusions the fleet's own record of
+		// a case is built from, so this read names the same jobs as that one.
+		if j.Conclusion != "failure" && j.Conclusion != "timed_out" {
+			continue
+		}
+		job := RepairFailedJob{ID: j.ID, Name: j.Name, URL: j.HTMLURL, Conclusion: j.Conclusion, StartedAt: j.StartedAt, CompletedAt: j.CompletedAt}
+		for _, s := range j.Steps {
+			job.Steps = append(job.Steps, RepairJobStep{Number: s.Number, Name: s.Name, Conclusion: s.Conclusion, StartedAt: s.StartedAt, CompletedAt: s.CompletedAt})
+			// The step a job stopped at is the first that did not succeed or
+			// was not passed over: every one after it ended as a consequence.
+			if job.Step == "" {
+				switch s.Conclusion {
+				case "", "success", "skipped", "neutral":
+				default:
+					job.Step, job.StepNumber = s.Name, s.Number
+				}
+			}
+		}
+		runPage.Jobs = append(runPage.Jobs, job)
+	}
+	if len(runPage.Jobs) == 0 {
+		return nil, nil
+	}
+	return &runPage, nil
 }
 func (c *appClient) CommitRepair(ctx context.Context, repo string, p RepairPull, plan prrepair.Plan) (string, error) {
 	fresh, err := c.RepairPull(ctx, repo, p.Number)

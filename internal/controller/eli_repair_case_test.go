@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -55,7 +56,7 @@ func TestARepairCaseNamesTheFailedJobsAndTheirSteps(t *testing.T) {
 	// Another run's failure is not what this repair was started for.
 	s.seedJob(t, store.Job{GitHubJobID: 14, GitHubRunID: 901, Workflow: "Docs", RunNumber: 7, JobName: "site", Conclusion: "failure", QueuedAt: base.Add(3 * time.Second)})
 
-	got := s.h.c.repairCase(s.h.ctx, s.repo, pullFor("old"), 900)
+	got := s.h.c.repairCase(s.h.ctx, s.fake, s.repo, pullFor("old"), 900)
 	want := &store.EliRepairCase{
 		PullTitle: "Retry transient 502s", PullURL: "https://github.com/acme/repo/pull/1", Author: "dana", Branch: "feature",
 		RunURL: run, Workflow: "CI", RunNumber: 1042,
@@ -80,7 +81,7 @@ func TestARepairCaseFindsJobsByHeadWhenThereIsNoRun(t *testing.T) {
 	s.seedJob(t, store.Job{GitHubJobID: 23, GitHubRunID: 910, HeadSHA: "old", Workflow: "CI", RunNumber: 12, JobName: "lint", Conclusion: "success", QueuedAt: base.Add(2 * time.Second)})
 	s.seedJob(t, store.Job{GitHubJobID: 24, GitHubRunID: 777, Repo: "acme/other", HeadSHA: "old", Workflow: "CI", RunNumber: 3, JobName: "unit", Conclusion: "failure", QueuedAt: base.Add(3 * time.Second)})
 
-	got := s.h.c.repairCase(s.h.ctx, s.repo, pullFor("old"), 0)
+	got := s.h.c.repairCase(s.h.ctx, s.fake, s.repo, pullFor("old"), 0)
 	if got == nil || len(got.Jobs) != 1 || got.Jobs[0].Name != "unit" || got.Jobs[0].Step != "Run tests" {
 		t.Fatalf("case = %+v, want the one failed job of the head commit", got)
 	}
@@ -94,7 +95,7 @@ func TestARepairCaseFindsJobsByHeadWhenThereIsNoRun(t *testing.T) {
 // showing; an empty list of jobs is a case with less in it, not an error.
 func TestARepairCaseSurvivesAPrunedRun(t *testing.T) {
 	s := newCommandSetup(t, 5)
-	got := s.h.c.repairCase(s.h.ctx, s.repo, pullFor("old"), 900)
+	got := s.h.c.repairCase(s.h.ctx, s.fake, s.repo, pullFor("old"), 900)
 	want := &store.EliRepairCase{PullTitle: "Retry transient 502s", PullURL: "https://github.com/acme/repo/pull/1", Author: "dana", Branch: "feature"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("case = %+v, want the pull request alone: %+v", got, want)
@@ -118,7 +119,7 @@ func TestARepairCaseClipsAndRefusesUnsafeAddresses(t *testing.T) {
 	s.seedJob(t, store.Job{GitHubJobID: 33, GitHubRunID: 900, Workflow: long, RunNumber: 5, JobName: "third", Conclusion: "failure", HTMLURL: "ftp://github.com/acme/repo/actions/runs/900/job/33", Steps: failingAt("Run tests"), QueuedAt: base.Add(2 * time.Second)})
 	pull := github.RepairPull{Number: 1, Title: long, Author: long, Branch: long, URL: "javascript://github.com/acme/repo/pull/1%0Aalert(document.cookie)", HeadSHA: "old", Open: true}
 
-	got := s.h.c.repairCase(s.h.ctx, s.repo, pull, 900)
+	got := s.h.c.repairCase(s.h.ctx, s.fake, s.repo, pull, 900)
 	if got == nil || len(got.Jobs) != 3 {
 		t.Fatalf("case = %+v", got)
 	}
@@ -129,6 +130,67 @@ func TestARepairCaseClipsAndRefusesUnsafeAddresses(t *testing.T) {
 	}
 	if got.PullURL != "" || got.RunURL != "" || got.Jobs[0].URL != "" || got.Jobs[1].URL != "" || got.Jobs[2].URL != "" {
 		t.Errorf("an address that is not a safe link was kept: pull %q run %q jobs %q %q %q", got.PullURL, got.RunURL, got.Jobs[0].URL, got.Jobs[1].URL, got.Jobs[2].URL)
+	}
+}
+
+// A failure this fleet never ran is on record nowhere in Zoomies: an older
+// agent's run, a pruned one, or a job GitHub's own runners ran. The case still
+// names what failed, read from GitHub's report of the run.
+func TestARepairCaseReadsTheFailedJobsFromGitHubWhenTheFleetHasNoRecord(t *testing.T) {
+	s := newCommandSetup(t, 5)
+	base := s.h.st.Now().Add(-time.Hour)
+	started, finished := base, base.Add(95*time.Second)
+	s.fake.failedJobs = &github.RepairFailureRun{
+		RunID: 900, RunURL: "https://github.com/acme/repo/actions/runs/900", Workflow: "Publish", RunNumber: 1042,
+		Jobs: []github.RepairFailedJob{
+			{ID: 11, Name: "build-and-push", Conclusion: "failure", URL: "https://github.com/acme/repo/actions/runs/900/job/11", Step: "Install dependencies and build", StepNumber: 8, StartedAt: started, CompletedAt: finished},
+			{ID: 12, Name: "notify", Conclusion: "timed_out", URL: "https://github.com/acme/repo/actions/runs/900/job/12"},
+		},
+	}
+
+	got := s.h.c.repairCase(s.h.ctx, s.fake, s.repo, pullFor("old"), 900)
+	want := &store.EliRepairCase{
+		PullTitle: "Retry transient 502s", PullURL: "https://github.com/acme/repo/pull/1", Author: "dana", Branch: "feature",
+		RunURL: "https://github.com/acme/repo/actions/runs/900", Workflow: "Publish", RunNumber: 1042,
+		Jobs: []store.EliRepairCaseJob{
+			{Name: "build-and-push", Step: "Install dependencies and build", URL: "https://github.com/acme/repo/actions/runs/900/job/11", DurationMS: 95000},
+			{Name: "notify", Step: "", URL: "https://github.com/acme/repo/actions/runs/900/job/12"},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("case = %+v\nwant   %+v", got, want)
+	}
+}
+
+// The fleet's own record is preferred where it exists: it is what the person
+// was looking at, and it costs no GitHub call.
+func TestARepairCasePrefersTheFleetsRecordOverGitHubs(t *testing.T) {
+	s := newCommandSetup(t, 5)
+	base := s.h.st.Now().Add(-time.Hour)
+	s.seedJob(t, store.Job{GitHubJobID: 11, GitHubRunID: 900, Workflow: "CI", RunNumber: 1042, JobName: "unit", Conclusion: "failure", HTMLURL: "https://github.com/acme/repo/actions/runs/900/job/11", Steps: failingAt("Run go test ./..."), QueuedAt: base})
+	s.fake.failedJobs = &github.RepairFailureRun{
+		RunID: 900, RunURL: "https://github.com/acme/repo/actions/runs/900", Workflow: "Publish", RunNumber: 1042,
+		Jobs: []github.RepairFailedJob{{ID: 99, Name: "someone-elses-job", Conclusion: "failure"}},
+	}
+
+	got := s.h.c.repairCase(s.h.ctx, s.fake, s.repo, pullFor("old"), 900)
+	if len(got.Jobs) != 1 || got.Jobs[0].Name != "unit" || got.Workflow != "CI" {
+		t.Fatalf("case = %+v, want the fleet's own record of the failure", got)
+	}
+	if len(s.fake.failedJobsAsked) != 0 {
+		t.Errorf("GitHub was asked for jobs the fleet has on record: %v", s.fake.failedJobsAsked)
+	}
+}
+
+// A GitHub that cannot answer leaves the case as the pull request alone: a
+// case with less in it, not an error.
+func TestARepairCaseSurvivesGitHubNotAnswering(t *testing.T) {
+	s := newCommandSetup(t, 5)
+	s.fake.failedJobsErr = errors.New("github: read failed jobs: not found")
+	got := s.h.c.repairCase(s.h.ctx, s.fake, s.repo, pullFor("old"), 900)
+	want := &store.EliRepairCase{PullTitle: "Retry transient 502s", PullURL: "https://github.com/acme/repo/pull/1", Author: "dana", Branch: "feature"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("case = %+v, want the pull request alone: %+v", got, want)
 	}
 }
 

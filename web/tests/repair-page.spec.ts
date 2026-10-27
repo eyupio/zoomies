@@ -186,6 +186,61 @@ test('a run with no recorded jobs still explains itself', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Fix write access first' })).toBeVisible();
 });
 
+// A failure this fleet never ran (GitHub's own runners, or records since gone)
+// is named from what readiness read on GitHub: the jobs, the step each stopped
+// at, and the error lines of the one the person opens.
+test('a run the fleet never ran still names what failed, from GitHub', async ({ page }) => {
+  const job = (
+    id: number,
+    name: string,
+    step: string | undefined,
+  ): NonNullable<
+    import('../../src/lib/api/types').Schemas['EliReadiness']['failed_jobs']
+  >[number] => ({
+    id,
+    name,
+    conclusion: 'failure',
+    ...(step ? { step, step_number: 8 } : {}),
+    url: `https://github.com/acme/widgets/actions/runs/482/job/${id}`,
+  });
+  const { calls } = await mockRepairApi(page, {
+    jobs: [],
+    readiness: readiness({
+      failed_jobs: [
+        {
+          ...job(7001, 'Publish Latest Image / build-and-push', 'Install dependencies and build'),
+          started_at: new Date(Date.now() - 9 * 60_000).toISOString(),
+          completed_at: new Date(Date.now() - 4 * 60_000).toISOString(),
+          steps: [
+            { number: 1, name: 'Set up job', conclusion: 'success' },
+            { number: 8, name: 'Install dependencies and build', conclusion: 'failure' },
+          ],
+        },
+        job(7002, 'Publish Latest Image / smoke', undefined),
+      ],
+    }),
+    errorOutput: { '7001': { lines: ['npm error Missing script: build'] } },
+  });
+  await page.goto(PAGE);
+
+  const failed = page.getByRole('region', { name: 'What failed' });
+  await expect(failed).toContainText('a run this fleet did not run');
+  await expect(failed.locator('details.job', { hasText: 'build-and-push' })).toContainText(
+    'Failed at step 8: Install dependencies and build',
+  );
+  // A log is read when somebody opens a job, and not before, by GitHub's id
+  // for it, which the fleet never kept.
+  expect(calls.errorOutput).toHaveLength(0);
+  await failed
+    .locator('details.job', { hasText: 'build-and-push' })
+    .locator('summary')
+    .first()
+    .click();
+  await expect(page.getByText('npm error Missing script: build')).toBeVisible();
+  expect(calls.errorOutput).toHaveLength(1);
+  expect(calls.errorOutput[0]?.get('job_id')).toBe('7001');
+});
+
 test('the old address still works', async ({ page }) => {
   await mockRepairApi(page, { jobs: [failedJob()] });
   await page.goto('/repairs?repo=acme/site&run=9');

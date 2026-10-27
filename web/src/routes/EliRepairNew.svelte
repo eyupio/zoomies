@@ -429,6 +429,9 @@
         <FailedJobs
           jobs={view.jobs}
           repo={view.repo}
+          description={view.jobsFromGitHub
+            ? 'Read from GitHub just now, for a run this fleet did not run, so it has no record of its own to blame or place a runner on.'
+            : 'From GitHub’s report, as Zoomies recorded it.'}
           {canReadLogs}
           logsBlockedReason="Job logs can hold anything a workflow prints, so Zoomies reads them only for someone whose GitHub account can write to this repository. Fix what is blocking the checks and the error lines appear here."
         />

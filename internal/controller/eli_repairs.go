@@ -724,7 +724,7 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 	// attempt page the same facts as one started from the UI. A case a request
 	// already recorded is the failure the person saw and is left as it was.
 	if r.Details.Case == nil {
-		r.Details.Case = c.repairCase(ctx, r.Repo, pull, r.RunID)
+		r.Details.Case = c.repairCase(ctx, client, r.Repo, pull, r.RunID)
 	}
 	stillNeeded := func() bool {
 		state, err := client.RepairChecks(ctx, r.Repo, pull.HeadSHA)
@@ -1042,7 +1042,7 @@ func (c *Controller) requestPinnedEliRepair(ctx context.Context, userID, repo st
 		instruction = "Fix the underlying issue in this PR using the failed-job evidence."
 	}
 	row := &store.EliRepair{Repo: repo, InstallationID: inst.ID, PullNumber: pull, HeadSHA: pr.HeadSHA, RunID: runID, UserID: userID, GitHubUserID: identity.GitHubUserID, GitHubLogin: identity.GitHubLogin, ProviderID: provider.ID, Trigger: "mention", RequesterAdmin: requesterAdmin, Instruction: instruction, DedupKey: fmt.Sprintf("ui:%s:%d:%s:%s", repo, pull, pr.HeadSHA, userID)}
-	row.Details.Case = c.repairCase(ctx, repo, pr, runID)
+	row.Details.Case = c.repairCase(ctx, client, repo, pr, runID)
 	if dedup != "" {
 		row.DedupKey = dedup
 	}

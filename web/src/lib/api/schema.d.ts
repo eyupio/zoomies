@@ -11552,6 +11552,38 @@ export interface components {
             /** @description On a blocked check, the code of the blocker that stopped it, as it appears in `blockers`. The check says where readiness stopped and the blocker says why, and they are not the same: GitHub not answering (`github`) or the allowance not being readable (`budget_unavailable`) is reported on whichever check it was making. When the target has changed, `blockers` holds that change alone, and a check blocked before it was found still names what stopped it. Absent on a check that passed or was not reached, and from a controller older than this field. */
             blocker?: string;
         };
+        /** @description One step of a failed job, as GitHub reported it ended. */
+        EliReadinessStep: {
+            number: number;
+            name: string;
+            /** @description How it ended: success, failure, skipped, cancelled, or empty while it has not. */
+            conclusion: string;
+            /** Format: date-time */
+            started_at?: string;
+            /** Format: date-time */
+            completed_at?: string;
+        };
+        /** @description One failed job of the run a readiness answer is about, read from GitHub. It is how a repair can be asked for a job this fleet never ran, whose failure Zoomies holds no record of. The id is GitHub's own, which is what a read of its error output is asked with. Names and steps are workflow-author text, clipped; the url is kept only when it is a plain web link. */
+        EliReadinessJob: {
+            /**
+             * Format: int64
+             * @description GitHub's id for the job.
+             */
+            id: number;
+            name: string;
+            /** @description The step the job stopped at, when it reported one. */
+            step?: string;
+            /** @description The failing step's number, which GitHub numbers from 1. */
+            step_number?: number;
+            /** @description The job's page on GitHub. */
+            url?: string;
+            conclusion: string;
+            /** Format: date-time */
+            started_at?: string;
+            /** Format: date-time */
+            completed_at?: string;
+            steps?: components["schemas"]["EliReadinessStep"][];
+        };
         EliReadiness: {
             ready: boolean;
             repo: string;
@@ -11569,6 +11601,8 @@ export interface components {
              * @enum {string}
              */
             policy_mode?: "automatic" | "ask_first" | "manual";
+            /** @description The failing run's failed jobs, read from GitHub, for a failure the fleet has no record of. Like the pull request they sit behind the write-access check, and a readiness that stopped earlier leaves them out. Their absence says nothing was found or nothing could be read; it never says nothing failed. */
+            failed_jobs?: components["schemas"]["EliReadinessJob"][];
             /** @description What stands in the way. When the target has changed (fixed, closed or superseded) this is that alone, which is the answer to what the person asked; checks still say what each check found. */
             blockers: {
                 code: string;
