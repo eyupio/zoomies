@@ -852,8 +852,9 @@ model that keeps running out; the comment suggests it only for those kinds.
 
 For large files, Eli returns exact before/after edits instead of rewriting the
 whole file. The controller requires unique, non-overlapping preimages in source
-already supplied to the model and preserves every untouched byte. Complete
-replacement of a partially read file is refused. Targeted edit text is capped at
+already supplied to the model, which includes the head side of the bounded diff,
+and preserves every untouched byte. Complete replacement of a partially read
+file is refused. Targeted edit text is capped at
 64 KiB; there are at most 32 targeted edits. Unsupported blobs are named and
 skipped. A bounded log tail and unannotated test-error context help retain the
 failure evidence. Very large inventories, PRs or logs can still exceed limits.

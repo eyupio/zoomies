@@ -283,6 +283,51 @@ func TestChangedFilesLeaveRoomForWhatTheModelAsksFor(t *testing.T) {
 	}
 }
 
+// A large file arrives as its first window, and the hunk the failing change is
+// in usually lies past it. The diff is sent to the model, so an edit built from
+// the head side of that hunk quotes text the model has seen, and refusing it as
+// unseen source ended a repair whose fix was readable all along.
+func TestATargetedEditMayQuoteTheHeadSideOfTheSuppliedDiff(t *testing.T) {
+	const path = "package-lock.json"
+	content := source(MaxFileBytes) + "context before\nplatform package\ncontext after\n"
+	snapshot := Snapshot{
+		Files: []File{{Path: path, Content: content, Mode: "100644"}},
+		Diff:  path + "\n@@ -1792,6 +1792,7 @@\n context before\n-old package\n+platform package\n context after\n",
+	}
+	raw, err := json.Marshal(Plan{Summary: "Drop the package", Edits: []Edit{{Path: path, Before: "context before\nplatform package\n", After: "context before\nremoved package\n"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := &replies{values: []string{string(raw)}}
+	plan, err := Generate(context.Background(), model, files{}, snapshot, "fix the failure", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(content, "context before\nplatform package\n", "context before\nremoved package\n", 1)
+	if len(plan.Files) != 1 || plan.Files[0].Content != want {
+		t.Fatal("the edit was not applied to the window past the first one")
+	}
+}
+
+// The diff is source the model was shown, not a reason to stop checking. Text
+// that is in neither a supplied window nor the diff is still refused.
+func TestATargetedEditOutsideBothTheWindowsAndTheDiffIsRefused(t *testing.T) {
+	const path = "package-lock.json"
+	content := source(MaxFileBytes) + "context before\nplatform package\ncontext after\n"
+	snapshot := Snapshot{
+		Files: []File{{Path: path, Content: content, Mode: "100644"}},
+		Diff:  path + "\n@@ -1792,6 +1792,7 @@\n another context\n+another package\n",
+	}
+	raw, err := json.Marshal(Plan{Summary: "Drop the package", Edits: []Edit{{Path: path, Before: "context before\nplatform package\n", After: "removed\n"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Generate(context.Background(), &replies{values: []string{string(raw)}}, files{}, snapshot, "fix the failure", false)
+	if err == nil || !strings.Contains(err.Error(), "text that was not supplied") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 // The allowance is spent as the model reads, so a read can ask for more than is
 // left. That is a request that was too wide and not a repair that went wrong:
 // the model is told what remains, spends nothing on the refusal, and can ask

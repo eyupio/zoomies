@@ -377,6 +377,22 @@ func TestARepairThatRanOutOfRoundsOnRefusedReadsEndsAsAContextLimit(t *testing.T
 	}
 }
 
+// An edit the model could not apply is the model's plan being unusable, not a
+// source that could not be read. The page used to send the person to check the
+// App's Contents permission for a preimage the model got wrong.
+func TestAnEditOutsideTheSuppliedTextIsNotReportedAsABrokenRead(t *testing.T) {
+	const path = "package-lock.json"
+	content := strings.Repeat("0123456789abcde\n", prrepair.MaxFileBytes/16) + "not supplied\n"
+	reply, err := json.Marshal(prrepair.Plan{Summary: "Fix it", Edits: []prrepair.Edit{{Path: path, Before: "not supplied\n", After: "supplied\n"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = prrepair.Generate(context.Background(), &scriptedRepairModel{replies: []string{string(reply)}}, repairFiles{}, prrepair.Snapshot{Files: []prrepair.File{{Path: path, Content: content, Mode: "100644"}}}, "fix the failing check", false)
+	if err == nil || repairFailureCode(err.Error()) != "unsupported_fix" {
+		t.Fatalf("error %v ends as %q, want unsupported_fix", err, repairFailureCode(fmt.Sprint(err)))
+	}
+}
+
 type unresolvedRepairRun struct {
 	*repairFake
 	err error
