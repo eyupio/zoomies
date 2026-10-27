@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/eyupio/zoomies/internal/prrepair"
 	"github.com/eyupio/zoomies/internal/store"
 	"net/http"
@@ -403,6 +404,39 @@ func TestRepairFailedJobsReadsTheRunAndNamesTheStoppedAtStep(t *testing.T) {
 	}
 	if run.Jobs[1].Step != "" {
 		t.Errorf("a timed-out job with no reported steps names no step: %+v", run.Jobs[1])
+	}
+}
+
+// A matrix can hold hundreds of jobs and completed ones stay in the listing,
+// so the failed ones are not always on the first page: the listing is followed
+// until it is exhausted.
+func TestRepairFailedJobsFollowsTheRunJobsPages(t *testing.T) {
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/acme/repo/actions/runs/9":
+			w.Write([]byte(`{"id":9,"name":"CI","run_number":5}`))
+		case "/repos/acme/repo/actions/runs/9/jobs":
+			if r.URL.Query().Get("page") != "2" {
+				w.Write([]byte(`{"total_count":101,"jobs":[`))
+				for i := range 100 {
+					fmt.Fprintf(w, `{"id":%d,"name":"shard-%d","conclusion":"success","html_url":"https://github.com/acme/repo/actions/runs/9/job/%d"}`, 100+i, i, 100+i)
+					if i < 99 {
+						fmt.Fprint(w, ",")
+					}
+				}
+				fmt.Fprint(w, `]}`)
+				return
+			}
+			w.Write([]byte(`{"total_count":101,"jobs":[{"id":250,"name":"the-failed-one","conclusion":"failure"}]}`))
+		default:
+			t.Errorf("unexpected request %s", r.URL)
+			http.NotFound(w, r)
+		}
+	})
+	run, err := c.RepairFailedJobs(context.Background(), "acme/repo", 9, "")
+	if err != nil || run == nil || len(run.Jobs) != 1 || run.Jobs[0].Name != "the-failed-one" {
+		t.Fatalf("run %+v jobs, %v; want the failed job found past the first page", run, err)
 	}
 }
 

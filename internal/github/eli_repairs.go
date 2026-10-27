@@ -459,7 +459,12 @@ func (c *appClient) RepairFailedJobs(ctx context.Context, repo string, run int64
 	if err != nil || id == 0 {
 		return nil, err
 	}
-	var jobs struct {
+	// A matrix can hold hundreds of jobs and completed ones stay in the
+	// listing, so the failed ones are not always on the first page: follow the
+	// listing's pagination (the same listing queuedJobsForRun follows), the
+	// caller having already paid for the first page of it. A short page ends
+	// the listing, as it does on GitHub.
+	var qj struct {
 		Jobs []struct {
 			ID          int64     `json:"id"`
 			Name        string    `json:"name"`
@@ -476,29 +481,35 @@ func (c *appClient) RepairFailedJobs(ctx context.Context, repo string, run int64
 			} `json:"steps"`
 		} `json:"jobs"`
 	}
-	if err := c.repairRequest(ctx, http.MethodGet, fmt.Sprintf("%s/actions/runs/%d/jobs?per_page=100", base, id), nil, &jobs); err != nil {
-		return nil, err
-	}
-	for _, j := range jobs.Jobs {
-		// failure and timed_out are the conclusions the fleet's own record of
-		// a case is built from, so this read names the same jobs as that one.
-		if j.Conclusion != "failure" && j.Conclusion != "timed_out" {
-			continue
+	for page := 1; ; page++ {
+		if err := c.repairRequest(ctx, http.MethodGet, fmt.Sprintf("%s/actions/runs/%d/jobs?per_page=100&page=%d", base, id, page), nil, &qj); err != nil {
+			return nil, err
 		}
-		job := RepairFailedJob{ID: j.ID, Name: j.Name, URL: j.HTMLURL, Conclusion: j.Conclusion, StartedAt: j.StartedAt, CompletedAt: j.CompletedAt}
-		for _, s := range j.Steps {
-			job.Steps = append(job.Steps, RepairJobStep{Number: s.Number, Name: s.Name, Conclusion: s.Conclusion, StartedAt: s.StartedAt, CompletedAt: s.CompletedAt})
-			// The step a job stopped at is the first that did not succeed or
-			// was not passed over: every one after it ended as a consequence.
-			if job.Step == "" {
-				switch s.Conclusion {
-				case "", "success", "skipped", "neutral":
-				default:
-					job.Step, job.StepNumber = s.Name, s.Number
+		for _, j := range qj.Jobs {
+			// failure and timed_out are the conclusions the fleet's own record of
+			// a case is built from, so this read names the same jobs as that one.
+			if j.Conclusion != "failure" && j.Conclusion != "timed_out" {
+				continue
+			}
+			job := RepairFailedJob{ID: j.ID, Name: j.Name, URL: j.HTMLURL, Conclusion: j.Conclusion, StartedAt: j.StartedAt, CompletedAt: j.CompletedAt}
+			for _, s := range j.Steps {
+				job.Steps = append(job.Steps, RepairJobStep{Number: s.Number, Name: s.Name, Conclusion: s.Conclusion, StartedAt: s.StartedAt, CompletedAt: s.CompletedAt})
+				// The step a job stopped at is the first that did not succeed
+				// or was not passed over: every one after it ended as a
+				// consequence.
+				if job.Step == "" {
+					switch s.Conclusion {
+					case "", "success", "skipped", "neutral":
+					default:
+						job.Step, job.StepNumber = s.Name, s.Number
+					}
 				}
 			}
+			runPage.Jobs = append(runPage.Jobs, job)
 		}
-		runPage.Jobs = append(runPage.Jobs, job)
+		if len(qj.Jobs) < 100 {
+			break
+		}
 	}
 	if len(runPage.Jobs) == 0 {
 		return nil, nil
