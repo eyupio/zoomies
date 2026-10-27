@@ -24,7 +24,15 @@
 # This image runs what it unpacks on every job it serves, and a mirror or a
 # proxy between the build and the publisher is a place to substitute it.
 #
-#   usage: runner-toolcache.sh <lock> <ubuntu-version> <amd64|arm64> <tool>
+# Node.js takes one more argument, a major version. That row alone is
+# unpacked, outside the tool cache into /opt/default-node, and node, npm, npx
+# and corepack are linked into /usr/local/bin so that it is the node a step
+# finds when it never set one up. This is how every
+# base image gets a supported default node without a distribution package: the
+# distributions' own nodejs is whatever their release froze, and the oldest of
+# them reached the end of its support before this image was rebuilt.
+#
+#   usage: runner-toolcache.sh <lock> <ubuntu-version> <amd64|arm64> <tool> [<node-major>]
 #
 set -eu
 
@@ -32,8 +40,18 @@ lock="${1:?usage: runner-toolcache.sh <lock> <ubuntu-version> <arch> <tool>}"
 platform="${2:?usage: runner-toolcache.sh <lock> <ubuntu-version> <arch> <tool>}"
 arch="${3:?usage: runner-toolcache.sh <lock> <ubuntu-version> <arch> <tool>}"
 tool="${4:?usage: runner-toolcache.sh <lock> <ubuntu-version> <arch> <tool>}"
+default_major="${5:-}"
+if [ -n "${default_major}" ] && [ "${tool}" != node ]; then
+  echo "runner-toolcache.sh: a major version is only meaningful for node, not '${tool}'" >&2
+  exit 64
+fi
 
 toolcache="${AGENT_TOOLSDIRECTORY:?AGENT_TOOLSDIRECTORY must name the tool cache}"
+
+# Where the default node goes and where its links go; settable only so that a
+# test can run this script without being root.
+default_root="${DEFAULT_NODE_ROOT:-/opt/default-node}"
+default_links="${DEFAULT_NODE_LINKS:-/usr/local/bin}"
 
 # The name every tool cache uses for an architecture; setup-python,
 # setup-node, setup-go and setup-java all agree on it.
@@ -92,6 +110,9 @@ while read -r t version plat a digest url; do
   [ "${t}" = "${tool}" ] || continue
   [ "${plat}" = - ] || [ "${plat}" = "${platform}" ] || continue
   [ "${a}" = - ] || [ "${a}" = "${arch}" ] || continue
+  if [ -n "${default_major}" ]; then
+    case "${version}" in "${default_major}".*) ;; *) continue ;; esac
+  fi
 
   echo "runner-toolcache.sh: ${t} ${version}"
   archive="${work}/archive"
@@ -109,8 +130,39 @@ while read -r t version plat a digest url; do
       ;;
     node)
       fetch "${url}" "${digest}" "${archive}"
-      cache node "${version}" "${archive}"
-      "${toolcache}/node/${version}/${tc_arch}/bin/node" --version
+      if [ -n "${default_major}" ]; then
+        # The image's default node, in a tree of its own and not in the tool
+        # cache. A cache entry belongs to setup-node, which reuses it for a job
+        # that asks for the same version and expects the runner to own it, so
+        # npm's prefix there is the entry itself and a global install needs no
+        # root. Putting this node's settings in a cache entry would change that
+        # for those jobs.
+        rm -rf "${default_root}"
+        mkdir -p "${default_root}"
+        tar -xzf "${archive}" -C "${default_root}" --strip-components=1
+        "${default_root}/bin/node" --version
+        # Links rather than a PATH entry, so that sudo, a login shell and a
+        # step that resets PATH all find the same node. A setup-node step
+        # still puts its own version first.
+        for bin in node npm npx corepack; do
+          [ -x "${default_root}/bin/${bin}" ] \
+            || { echo "runner-toolcache.sh: node ${version} has no ${bin}" >&2; exit 1; }
+          ln -sfn "${default_root}/bin/${bin}" "${default_links}/${bin}"
+        done
+        # npm's default global prefix is two levels above the node it runs
+        # under, which here would be ${default_root}, on nobody's PATH:
+        # `npm install -g` would succeed and the tool it installed would not be
+        # found by the next step. This tree's own global config points the
+        # prefix at /usr/local instead, where the distribution's package put
+        # it, so global installs land on PATH and need root (the runner has
+        # sudo), as they did. It is a file in this tree and not an environment
+        # variable, so no other node is affected.
+        mkdir -p "${default_root}/etc"
+        echo "prefix=/usr/local" > "${default_root}/etc/npmrc"
+      else
+        cache node "${version}" "${archive}"
+        "${toolcache}/node/${version}/${tc_arch}/bin/node" --version
+      fi
       ;;
     go)
       fetch "${url}" "${digest}" "${archive}"
@@ -174,6 +226,6 @@ done < "${lock}"
 # A tool with no row for this build is a lock that has drifted from the
 # Dockerfile, and an image missing a toolchain it advertises.
 if [ "${installed}" -eq 0 ]; then
-  echo "runner-toolcache.sh: the lock has no ${tool} row for Ubuntu ${platform} ${arch}" >&2
+  echo "runner-toolcache.sh: the lock has no ${tool}${default_major:+ ${default_major}} row for ${platform} ${arch}" >&2
   exit 1
 fi
