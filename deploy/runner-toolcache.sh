@@ -24,7 +24,14 @@
 # This image runs what it unpacks on every job it serves, and a mirror or a
 # proxy between the build and the publisher is a place to substitute it.
 #
-#   usage: runner-toolcache.sh <lock> <ubuntu-version> <amd64|arm64> <tool>
+# Node.js takes one more argument, a major version. That row alone is
+# unpacked, and node, npm, npx and corepack are linked into /usr/local/bin so
+# that it is the node a step finds when it never set one up. This is how every
+# base image gets a supported default node without a distribution package: the
+# distributions' own nodejs is whatever their release froze, and the oldest of
+# them reached the end of its support before this image was rebuilt.
+#
+#   usage: runner-toolcache.sh <lock> <ubuntu-version> <amd64|arm64> <tool> [<node-major>]
 #
 set -eu
 
@@ -32,6 +39,11 @@ lock="${1:?usage: runner-toolcache.sh <lock> <ubuntu-version> <arch> <tool>}"
 platform="${2:?usage: runner-toolcache.sh <lock> <ubuntu-version> <arch> <tool>}"
 arch="${3:?usage: runner-toolcache.sh <lock> <ubuntu-version> <arch> <tool>}"
 tool="${4:?usage: runner-toolcache.sh <lock> <ubuntu-version> <arch> <tool>}"
+default_major="${5:-}"
+if [ -n "${default_major}" ] && [ "${tool}" != node ]; then
+  echo "runner-toolcache.sh: a major version is only meaningful for node, not '${tool}'" >&2
+  exit 64
+fi
 
 toolcache="${AGENT_TOOLSDIRECTORY:?AGENT_TOOLSDIRECTORY must name the tool cache}"
 
@@ -92,6 +104,9 @@ while read -r t version plat a digest url; do
   [ "${t}" = "${tool}" ] || continue
   [ "${plat}" = - ] || [ "${plat}" = "${platform}" ] || continue
   [ "${a}" = - ] || [ "${a}" = "${arch}" ] || continue
+  if [ -n "${default_major}" ]; then
+    case "${version}" in "${default_major}".*) ;; *) continue ;; esac
+  fi
 
   echo "runner-toolcache.sh: ${t} ${version}"
   archive="${work}/archive"
@@ -111,6 +126,16 @@ while read -r t version plat a digest url; do
       fetch "${url}" "${digest}" "${archive}"
       cache node "${version}" "${archive}"
       "${toolcache}/node/${version}/${tc_arch}/bin/node" --version
+      if [ -n "${default_major}" ]; then
+        # Links rather than a PATH entry, so that sudo, a login shell and a
+        # step that resets PATH all find the same node. A setup-node step
+        # still puts its own version first.
+        for bin in node npm npx corepack; do
+          [ -x "${toolcache}/node/${version}/${tc_arch}/bin/${bin}" ] \
+            || { echo "runner-toolcache.sh: node ${version} has no ${bin}" >&2; exit 1; }
+          ln -sfn "${toolcache}/node/${version}/${tc_arch}/bin/${bin}" "/usr/local/bin/${bin}"
+        done
+      fi
       ;;
     go)
       fetch "${url}" "${digest}" "${archive}"
@@ -174,6 +199,6 @@ done < "${lock}"
 # A tool with no row for this build is a lock that has drifted from the
 # Dockerfile, and an image missing a toolchain it advertises.
 if [ "${installed}" -eq 0 ]; then
-  echo "runner-toolcache.sh: the lock has no ${tool} row for Ubuntu ${platform} ${arch}" >&2
+  echo "runner-toolcache.sh: the lock has no ${tool}${default_major:+ ${default_major}} row for ${platform} ${arch}" >&2
   exit 1
 fi

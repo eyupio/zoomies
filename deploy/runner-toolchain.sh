@@ -12,6 +12,13 @@
 # take precedence on PATH, so the versions here are a floor, not a choice about
 # which version a workflow gets.
 #
+# Only python3 is a distribution package. node is not: the distributions freeze
+# whatever they shipped with (Node 18 on Ubuntu 24.04, past its end of life),
+# and tools that need a supported Node fail on a job that never set one up. The
+# Dockerfile unpacks a pinned Node.js release from deploy/toolcache.lock after
+# this script, so a nodejs package here would only put a second, older node on
+# PATH behind it.
+#
 # Deliberately absent: a JDK and the other language runtimes with a good setup-*
 # action, which install what the workflow asked for rather than what this image
 # guessed, and would be hundreds of megabytes of wrong version.
@@ -38,7 +45,6 @@ case "${family}" in
       build-essential pkg-config cmake autoconf automake libtool \
       patch file dpkg-dev gettext \
       python3 python3-pip python3-venv python3-dev python3-setuptools \
-      nodejs npm \
       libssl-dev zlib1g-dev libffi-dev libyaml-dev libxml2-dev libxslt1-dev \
       libcurl4-openssl-dev libsqlite3-dev libreadline-dev libbz2-dev \
       liblzma-dev libncurses-dev uuid-dev \
@@ -67,7 +73,6 @@ case "${family}" in
       gcc gcc-c++ make \
       pkgconf-pkg-config cmake autoconf automake libtool patch file gettext \
       python3 python3-pip python3-devel python3-setuptools \
-      nodejs npm \
       openssl-devel zlib-devel libffi-devel libyaml-devel libxml2-devel libxslt-devel \
       libcurl-devel sqlite-devel readline-devel bzip2-devel \
       xz-devel ncurses-devel libuuid-devel \

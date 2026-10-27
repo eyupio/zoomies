@@ -242,6 +242,20 @@ RUN /tmp/runner-gh.sh "${OS_FAMILY}" && rm /tmp/runner-gh.sh /tmp/runner-apt.sh 
 COPY --chmod=0755 deploy/runner-shellcheck.sh /tmp/
 RUN /tmp/runner-shellcheck.sh "${TARGETARCH}" && rm /tmp/runner-shellcheck.sh
 
+# The node a step finds when it never set one up. It is the publisher's own
+# release, taken from the same checksummed lock the runner-full image's tool
+# cache comes from, rather than the distribution's nodejs: that package is
+# whatever the release froze (Node 18 on Ubuntu 24.04, past its end of life),
+# and current tooling such as Playwright refuses anything below Node 20. It is
+# unpacked into the tool cache, where setup-node also finds it, and linked into
+# /usr/local/bin. The major is the one place to change when the next
+# long-term-support line becomes the default; the lock must list it.
+COPY --chmod=0755 deploy/runner-toolcache.sh /usr/local/lib/zoomies/runner-toolcache.sh
+COPY deploy/toolcache.lock /usr/local/lib/zoomies/toolcache.lock
+ARG DEFAULT_NODE_MAJOR=22
+RUN /usr/local/lib/zoomies/runner-toolcache.sh /usr/local/lib/zoomies/toolcache.lock "${OS_VERSION}" "${TARGETARCH}" node "${DEFAULT_NODE_MAJOR}" \
+    && chown -R runner:runner "${AGENT_TOOLSDIRECTORY}/node"
+
 # Prove the toolchain is actually reachable, for the same reason the Docker
 # variant checks its client: a package that installed but left nothing on PATH
 # is the failure this exists to prevent, and it is far cheaper to catch in the
@@ -255,6 +269,8 @@ RUN set -eux; \
     python3 --version; \
     node --version; \
     npm --version; \
+    test "$(command -v node)" = /usr/local/bin/node; \
+    test "$(node -p 'process.versions.node.split(".")[0]')" = "${DEFAULT_NODE_MAJOR}"; \
     git lfs version; \
     gh --version; \
     shellcheck --version
@@ -353,8 +369,8 @@ USER root
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo
 
-COPY --chmod=0755 deploy/runner-toolcache.sh /usr/local/lib/zoomies/runner-toolcache.sh
-COPY deploy/toolcache.lock /usr/local/lib/zoomies/toolcache.lock
+# The script and the lock are already in the image: runner-base needs them for
+# its default node.
 RUN /usr/local/lib/zoomies/runner-toolcache.sh /usr/local/lib/zoomies/toolcache.lock "${OS_VERSION}" "${TARGETARCH}" python \
     && chown -R runner:runner "${AGENT_TOOLSDIRECTORY}/Python"
 RUN /usr/local/lib/zoomies/runner-toolcache.sh /usr/local/lib/zoomies/toolcache.lock "${OS_VERSION}" "${TARGETARCH}" node \
