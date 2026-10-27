@@ -84,7 +84,10 @@ type sourceContext struct {
 	workflows bool
 	originals map[string]File
 	shown     map[string][]sourceSpan
-	bytes     int
+	// inDiff is the head-side text of each hunk the model was shown, by path.
+	// It is supplied source too, even though it was not read through a window.
+	inDiff map[string][]string
+	bytes  int
 	// refused is the paths the allowance turned away, in the order it first did,
 	// for the error a repair ends with if it runs out of rounds.
 	refused []string
@@ -92,7 +95,15 @@ type sourceContext struct {
 }
 
 func newSourceContext(reader Reader, workflows bool) *sourceContext {
-	return &sourceContext{reader: reader, workflows: workflows, originals: map[string]File{}, shown: map[string][]sourceSpan{}}
+	return &sourceContext{reader: reader, workflows: workflows, originals: map[string]File{}, shown: map[string][]sourceSpan{}, inDiff: map[string][]string{}}
+}
+func (s *sourceContext) shownInDiff(path, text string) bool {
+	for _, hunk := range s.inDiff[path] {
+		if strings.Contains(hunk, text) {
+			return true
+		}
+	}
+	return false
 }
 func validText(s string) bool { return utf8.ValidString(s) && !strings.ContainsRune(s, 0) }
 func (s *sourceContext) complete(path string) bool {
@@ -127,11 +138,11 @@ func (s *sourceContext) reveal(ctx context.Context, w ReadWindow) ([]File, error
 	start, end := 0, len(f.Content)
 	if w.StartLine != 0 || w.EndLine != 0 {
 		if w.StartLine < 1 || w.EndLine < w.StartLine || w.EndLine-w.StartLine > 400 {
-			return nil, fmt.Errorf("source windows need 1 to 401 lines")
+			return nil, fmt.Errorf("file windows need 1 to 401 lines")
 		}
 		lines := strings.SplitAfter(f.Content, "\n")
 		if w.StartLine > len(lines) {
-			return nil, fmt.Errorf("requested source line is past the end of %s", w.Path)
+			return nil, fmt.Errorf("requested line is past the end of %s", w.Path)
 		}
 		for _, line := range lines[:w.StartLine-1] {
 			start += len(line)
@@ -212,7 +223,7 @@ func (s *sourceContext) apply(edits []Edit) ([]File, error) {
 	for _, e := range edits {
 		f, ok := s.originals[e.Path]
 		if !ok || !AllowedPath(e.Path, s.workflows) || e.Before == "" || strings.Count(f.Content, e.Before) != 1 {
-			return nil, fmt.Errorf("targeted edit needs an exact, unique preimage in a read file")
+			return nil, fmt.Errorf("targeted edit needs an exact, unique preimage in a supplied file")
 		}
 		start := strings.Index(f.Content, e.Before)
 		end := start + len(e.Before)
@@ -223,7 +234,10 @@ func (s *sourceContext) apply(edits []Edit) ([]File, error) {
 			}
 		}
 		if !visible {
-			return nil, fmt.Errorf("targeted edit changes source that was not supplied")
+			visible = s.shownInDiff(e.Path, e.Before)
+		}
+		if !visible {
+			return nil, fmt.Errorf("targeted edit changes text that was not supplied")
 		}
 		for _, v := range changes[e.Path] {
 			if start < v.end && end > v.start {
@@ -232,7 +246,7 @@ func (s *sourceContext) apply(edits []Edit) ([]File, error) {
 		}
 		size += len(e.Before) + len(e.After)
 		if size > 64<<10 {
-			return nil, fmt.Errorf("targeted edits exceed the patch allowance")
+			return nil, fmt.Errorf("targeted edits exceed the patch limit")
 		}
 		if _, ok := changes[e.Path]; !ok {
 			order = append(order, e.Path)

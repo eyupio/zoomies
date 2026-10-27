@@ -163,6 +163,7 @@ func decode(raw string) (Plan, error) {
 }
 func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instruction string, workflows bool) (Plan, error) {
 	contextFiles := newSourceContext(reader, workflows)
+	contextFiles.inDiff = diffSource(s.Diff)
 	files := []File{}
 	evidence := strings.Join(s.Failures, "\n")
 	sort.SliceStable(s.Files, func(i, j int) bool {
@@ -235,7 +236,7 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 		}
 		if len(p.Read)+len(p.Windows) > 0 {
 			if len(p.Files)+len(p.Edits) > 0 || len(p.Read)+len(p.Windows) > MaxEdits {
-				return Plan{}, fmt.Errorf("a repair step must read files or propose changes")
+				return Plan{}, fmt.Errorf("a repair step must request files or propose changes")
 			}
 			windows := append([]ReadWindow{}, p.Windows...)
 			for _, name := range p.Read {
@@ -300,10 +301,10 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 		for i, f := range p.Files {
 			original, ok := contextFiles.originals[f.Path]
 			if !ok || seen[f.Path] || !AllowedPath(f.Path, workflows) {
-				return Plan{}, fmt.Errorf("a proposed path was not read or is protected")
+				return Plan{}, fmt.Errorf("a proposed path was not supplied or is protected")
 			}
 			if len(p.Edits) == 0 && !contextFiles.complete(f.Path) {
-				return Plan{}, fmt.Errorf("a partial source file requires targeted edits")
+				return Plan{}, fmt.Errorf("a partially supplied file requires targeted edits")
 			}
 			seen[f.Path] = true
 			if len(f.Content) > MaxBlobBytes || !utf8.ValidString(f.Content) || strings.ContainsRune(f.Content, 0) || credential.MatchString(f.Content) {
