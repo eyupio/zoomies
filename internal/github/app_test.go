@@ -770,15 +770,22 @@ func TestPollStaysWithinItsRequestBudgetAndLooksAtBusyRepositoriesFirst(t *testi
 // pagedRunServer serves one queued run of acme/widgets whose jobs come in pages
 // of pollPerPage, the way GitHub serves a large matrix. The fake does not page,
 // so this drives appClient against its own handler. jobPages bounds the listing;
-// a negative value never ends it. It returns the client and a counter of every
-// request made.
-func pagedRunServer(t *testing.T, jobPages int) (*appClient, *atomic.Int32) {
+// a negative value never ends it. It returns the client and counters of every
+// request and every conditional request.
+func pagedRunServer(t *testing.T, jobPages int) (*appClient, *atomic.Int32, *atomic.Int32) {
 	t.Helper()
-	var requests atomic.Int32
+	var requests, conditional atomic.Int32
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		w.Header().Set("Content-Type", "application/json")
+		etag := `"` + r.URL.RequestURI() + `"`
+		w.Header().Set("ETag", etag)
+		if r.Header.Get("If-None-Match") == etag {
+			conditional.Add(1)
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
 		switch {
 		case r.URL.Path == "/repos/acme/widgets/actions/runs":
 			if r.URL.Query().Get("status") != "queued" {
@@ -809,7 +816,7 @@ func pagedRunServer(t *testing.T, jobPages int) (*appClient, *atomic.Int32) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return newAppClient(c, c, "acme/widgets", store.TargetRepo, 1, "https://github.com"), &requests
+	return newAppClient(c, c, "acme/widgets", store.TargetRepo, 1, "https://github.com"), &requests, &conditional
 }
 
 // GitHub allows a matrix of 256 jobs in one run, and completed jobs stay in the
@@ -818,7 +825,7 @@ func pagedRunServer(t *testing.T, jobPages int) (*appClient, *atomic.Int32) {
 // the safety net for a missed delivery, and a missed delivery is exactly when
 // the tail of a large matrix would otherwise never get a runner.
 func TestThePollerReadsEveryPageOfALargeRunsJobs(t *testing.T) {
-	c, requests := pagedRunServer(t, 3)
+	c, requests, _ := pagedRunServer(t, 3)
 
 	jobs, err := c.ListQueuedJobs(context.Background())
 	if err != nil {
@@ -833,11 +840,36 @@ func TestThePollerReadsEveryPageOfALargeRunsJobs(t *testing.T) {
 	}
 }
 
+// The fallback poller is exactly where conditional requests pay: an idle queue
+// is asked about again and again, and GitHub's 304 answers do not spend primary
+// quota. The second sweep must revalidate every endpoint rather than answering
+// from memory or repeating full-price reads.
+func TestAnUnchangedFallbackPollRevalidatesEveryRead(t *testing.T) {
+	c, requests, conditional := pagedRunServer(t, 1)
+	c.enableConditionalReads(newConditionalCache(1<<20), "installation-1")
+
+	for range 2 {
+		jobs, err := c.ListQueuedJobs(context.Background())
+		if err != nil {
+			t.Fatalf("ListQueuedJobs: %v", err)
+		}
+		if len(jobs) != pollPerPage {
+			t.Fatalf("found %d jobs, want the same %d on every sweep", len(jobs), pollPerPage)
+		}
+	}
+	if got, want := requests.Load(), int32(6); got != want {
+		t.Fatalf("two sweeps made %d requests, want %d", got, want)
+	}
+	if got, want := conditional.Load(), int32(3); got != want {
+		t.Fatalf("second sweep made %d conditional requests, want all %d", got, want)
+	}
+}
+
 // Paging must not undo the request budget that keeps one sweep from spending
 // the installation's hourly quota: a run that never stops paging is cut off
 // and the jobs already found are still returned.
 func TestPagingThroughARunsJobsStaysWithinTheSweepsRequestBudget(t *testing.T) {
-	c, requests := pagedRunServer(t, -1)
+	c, requests, _ := pagedRunServer(t, -1)
 
 	jobs, err := c.ListQueuedJobs(context.Background())
 	if err != nil {

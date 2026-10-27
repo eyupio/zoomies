@@ -294,6 +294,14 @@ stands that installation down and carries on with the rest, because the quota is
 per installation and abandoning the sweep would let one organisation out of
 quota stop every other one from scaling.
 
+The poller's repository, run and job reads are conditional, as are the known-job
+and runner-registration reconciliation reads. Every sweep still asks GitHub, so
+there is no stale local answer, but an unchanged `304 Not Modified` response does
+not spend the installation's primary quota. This matters most while the queue is
+quiet: the safety net can keep checking without consuming the quota that runner
+registration will need when work arrives. Per-sweep request bounds still
+apply when responses keep changing.
+
 The stand-down lasts as long as GitHub asked: every rate-limited response says
 when the quota returns, either as a reset instant or as a retry-after, and the
 error carries the number rather than formatting it into a message. A fixed wait
