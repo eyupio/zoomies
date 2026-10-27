@@ -90,3 +90,26 @@ func TestTheRunnerImageInstallsItsDefaultNodeFromTheLockAndChecksIt(t *testing.T
 		}
 	}
 }
+
+// npm's global prefix is two directories above the node it runs under. The
+// default node lives in the tool cache, so without a setting of its own
+// `npm install -g` would put its executables in a directory nothing has on
+// PATH, and the install would succeed while the next step cannot find the tool.
+func TestTheRunnerImagesDefaultNodeInstallsGlobalToolsOntoPath(t *testing.T) {
+	script := readDeployFile(t, "runner-toolcache.sh")
+
+	if !regexp.MustCompile(`(?m)^\s+echo "prefix=/usr/local" > "\$\{toolcache\}/node/\$\{version\}/\$\{tc_arch\}/etc/npmrc"$`).MatchString(script) {
+		t.Error("the default node gets no global npm config setting the prefix to /usr/local, so `npm install -g` would leave its tools off PATH")
+	}
+
+	// The setting is in the default node's own tree. An environment variable
+	// would reach the node setup-node downloads too and override its prefix.
+	if regexp.MustCompile(`(?m)^\s*(ENV|ARG)\s+NPM_CONFIG_PREFIX`).MatchString(readDeployFile(t, "Dockerfile.runner")) {
+		t.Error("deploy/Dockerfile.runner sets NPM_CONFIG_PREFIX, which applies to every npm including the one setup-node installs")
+	}
+
+	// Unpacking a version again deletes its directory, and the file with it.
+	if !strings.Contains(script, `if [ ! -e "${toolcache}/node/${version}/${tc_arch}.complete" ]; then`) {
+		t.Error("the node install unpacks over an existing entry, which would delete the npm config the default node was given")
+	}
+}

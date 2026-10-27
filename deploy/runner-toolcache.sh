@@ -123,8 +123,13 @@ while read -r t version plat a digest url; do
       "${toolcache}/Python/${version}/${tc_arch}/python" --version
       ;;
     node)
-      fetch "${url}" "${digest}" "${archive}"
-      cache node "${version}" "${archive}"
+      # A version already here is left alone: the image's default node is
+      # unpacked early and carries a config file of its own, which unpacking
+      # again would delete, and the same version is the same pinned bytes.
+      if [ ! -e "${toolcache}/node/${version}/${tc_arch}.complete" ]; then
+        fetch "${url}" "${digest}" "${archive}"
+        cache node "${version}" "${archive}"
+      fi
       "${toolcache}/node/${version}/${tc_arch}/bin/node" --version
       if [ -n "${default_major}" ]; then
         # Links rather than a PATH entry, so that sudo, a login shell and a
@@ -135,6 +140,17 @@ while read -r t version plat a digest url; do
             || { echo "runner-toolcache.sh: node ${version} has no ${bin}" >&2; exit 1; }
           ln -sfn "${toolcache}/node/${version}/${tc_arch}/bin/${bin}" "/usr/local/bin/${bin}"
         done
+        # npm's default global prefix is two levels above the node it runs
+        # under, which here is the tool cache entry, and that bin directory is
+        # on nobody's PATH: `npm install -g` would succeed and the tool it
+        # installed would not be found by the next step. This entry's own global
+        # config points the prefix at /usr/local instead, where the
+        # distribution's package put it, so global installs land on PATH as they
+        # did and still need root (the runner has sudo), as they did. It is in
+        # this node's tree and not an environment variable, so a node that
+        # setup-node downloads keeps its own prefix.
+        mkdir -p "${toolcache}/node/${version}/${tc_arch}/etc"
+        echo "prefix=/usr/local" > "${toolcache}/node/${version}/${tc_arch}/etc/npmrc"
       fi
       ;;
     go)
