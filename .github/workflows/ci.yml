@@ -379,6 +379,18 @@ jobs:
           esac
           echo "run=$run" >> "$GITHUB_OUTPUT"
 
+      # The rest shard is the one cold build of the whole tree: it compiles
+      # every package outside the three big ones under race, and its docs test
+      # builds the binary again with go run. On a fleet runner that is more
+      # than the 2 GB the in-memory /tmp is sized for, and the job died with
+      # "no space left on device" while writing a package archive. Keep Go's
+      # work directory in the runner's home, on the container's disk, and
+      # leave /tmp to the tests that use it.
+      - name: Keep Go's work directory on disk
+        run: |
+          echo "GOTMPDIR=$HOME/go-tmp" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/go-tmp"
+
       # Coverage is main's record of the whole suite, so it is measured only
       # when the whole suite runs. A shard run for a deploy or docs change on
       # main is tested the way a pull request is, and uploads nothing that
