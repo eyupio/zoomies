@@ -936,6 +936,14 @@ asked for and the names of its arguments, so you can tell a model that ignores i
 different model or provider fixes, from a prompt that was wrong. Every model turn
 appears in the repair history.
 
+A reply that is not one JSON object is not the end of the repair either. Models
+wrap the object in a sentence or a code fence, add a key the repair has no use
+for, or write the file they want to read and the window they want as two objects
+in one answer. Eli reads the JSON objects it knows, merges two that only ask for
+source, and asks the model to correct a reply it still cannot read with the
+model's own words in view. A model that cannot answer after those attempts stops
+the repair, and the comment says its reply was not a repair plan.
+
 ### What a repair remembers
 
 A repair keeps what it was about. When it starts it records the run whose failure

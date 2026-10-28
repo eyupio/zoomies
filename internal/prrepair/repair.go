@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"path"
 	"regexp"
 	"sort"
@@ -142,24 +141,27 @@ func AllowedPath(p string, workflows bool) bool {
 	}
 	return true
 }
-func decode(raw string) (Plan, error) {
-	raw = strings.TrimSpace(raw)
-	if strings.HasPrefix(raw, "```json\n") && strings.HasSuffix(raw, "\n```") {
-		raw = strings.TrimSuffix(strings.TrimPrefix(raw, "```json\n"), "\n```")
-	}
-	if len(raw) > MaxReplyBytes {
-		return Plan{}, fmt.Errorf("model response exceeded the repair limit")
-	}
-	dec := json.NewDecoder(strings.NewReader(raw))
-	dec.DisallowUnknownFields()
-	var p Plan
-	if err := dec.Decode(&p); err != nil {
-		return p, fmt.Errorf("model did not return a valid repair plan")
-	}
-	if err := dec.Decode(new(any)); err != io.EOF {
-		return p, fmt.Errorf("model returned more than one repair plan")
-	}
-	return p, nil
+
+// maxReplyRetries is how many consecutive malformed replies a repair asks the
+// model to correct before it gives up. A model that wraps its JSON in prose,
+// writes the read and the window it wants as two objects, or adds a key the
+// repair has no use for is a model that can be told what was wrong; ending the
+// attempt on the first such reply threw away the repair. The transcript keeps
+// the invalid reply and the correction, so the next answer is made with the
+// mistake in view.
+const maxReplyRetries = 2
+
+// replyRetryLimit bounds what of a malformed reply is repeated back to the
+// model. A reply can be almost MaxReplyBytes, and the correction must fit beside
+// the source the repair already holds.
+const replyRetryLimit = 8 << 10
+
+// replyRetry is what a model is told when its last answer was not a repair
+// plan. It repeats the reply shapes from the system prompt because the mistake
+// is usually the shape, and it names the parse failure so a model that wrote
+// two objects knows to write one.
+func replyRetry(err error) string {
+	return "Your last reply was not one repair plan: " + err.Error() + ". Reply again with exactly one JSON object and no other text: {\"read\":[\"path\"]} or {\"windows\":[{\"path\":\"path\",\"start_line\":1,\"end_line\":40}]} to see source, {\"summary\":\"what changed and why\",\"edits\":[...]} or {\"summary\":\"...\",\"files\":[...]} to fix it, or {\"cannot_fix\":\"reason\"}. Do not call tools."
 }
 func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instruction string, workflows bool) (Plan, error) {
 	contextFiles := newSourceContext(reader, workflows)
@@ -212,6 +214,7 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 		policy = "Workflow file reads and edits are enabled by the repository repair policy."
 	}
 	messages[0].Content += "\nRepair path policy: " + policy + " Credential paths (.env*, .ssh, .aws, secrets, *.pem, *.key, paths containing credentials or secrets.) and .git paths are always protected. Use clean repository-relative paths, never absolute paths or parent traversal. A refused read supplies no source; continue from allowed source or return cannot_fix."
+	retries := 0
 	for step := 0; step < MaxSteps; step++ {
 		size := len(SystemPrompt)
 		for _, m := range messages {
@@ -229,8 +232,33 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 		}
 		p, err := decode(reply)
 		if err != nil {
-			return Plan{}, err
+			if retries >= maxReplyRetries {
+				return Plan{}, err
+			}
+			retries++
+			// The reply is repeated back, shortened, because the correction is
+			// about a shape the model can see in what it wrote, and a reply
+			// near the maximum would otherwise leave no room for the source.
+			// Beside a transcript that is already at the allowance, the
+			// correction goes alone: the model still knows its last answer was
+			// refused, and the repair does not end for lack of room to say so.
+			shown := reply
+			if len(shown) > replyRetryLimit {
+				shown = strings.ToValidUTF8(shown[:replyRetryLimit], "")
+			}
+			correction := replyRetry(err)
+			used := len(SystemPrompt) + len(correction)
+			for _, m := range messages {
+				used += len(m.Content)
+			}
+			if used+len(shown) > MaxContextBytes {
+				messages = append(messages, Message{Role: "user", Content: correction})
+			} else {
+				messages = append(messages, Message{Role: "assistant", Content: shown}, Message{Role: "user", Content: correction})
+			}
+			continue
 		}
+		retries = 0
 		if p.CannotFix != "" {
 			return Plan{}, fmt.Errorf("%w: %s", ErrCannotFix, Redact(p.CannotFix)[:min(len(Redact(p.CannotFix)), 500)])
 		}
