@@ -171,8 +171,8 @@ func (c *Controller) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		c.recordDelivery(ctx, d, "accepted", note)
 		w.WriteHeader(http.StatusAccepted)
 	default:
-		// Zoomies subscribes to workflow_job only; anything else is recorded
-		// so the delivery log explains what is arriving and ignored.
+		// Zoomies subscribes to workflow_job and issue_comment; anything else
+		// is recorded so the delivery log explains what is arriving and ignored.
 		c.recordDelivery(ctx, d, "accepted", note)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":      true,

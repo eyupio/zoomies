@@ -556,10 +556,9 @@ func (s *Server) handleEliRepositories(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		missing = append(missing, "Could not check GitHub App permissions.")
 	} else {
-		for _, permission := range []string{"contents", "pull_requests", "actions"} {
-			v := info.Permissions[permission]
-			if v != "write" && (permission != "actions" || v != "read") {
-				missing = append(missing, permission)
+		for _, permission := range github.RepairPermissions {
+			if !info.GrantsRepair(permission) {
+				missing = append(missing, permission.Name)
 			}
 		}
 		found := false

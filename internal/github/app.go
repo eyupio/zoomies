@@ -303,6 +303,33 @@ func (a *AppInfo) MissingRequirements(kind store.TargetType) []string {
 	return out
 }
 
+// RepairPermission is one App permission Eli's repairs need, at the level it
+// needs it.
+type RepairPermission struct {
+	Name  string
+	Level string
+}
+
+// RepairPermissions is everything an installation must hold before Eli may push
+// a repair and confirm its result. A repair without Checks or Commit statuses
+// read cannot see the checks it is waiting for, so it is never offered with one
+// missing: the API's setup warning and readiness both read this list, and a test
+// holds the manifest to it.
+var RepairPermissions = []RepairPermission{
+	{Name: "contents", Level: "write"},
+	{Name: "pull_requests", Level: "write"},
+	{Name: "actions", Level: "read"},
+	{Name: "checks", Level: "read"},
+	{Name: "statuses", Level: "read"},
+}
+
+// GrantsRepair reports whether this installation holds one repair permission.
+// Write includes read, so an App trusted to change checks may also read them.
+func (a *AppInfo) GrantsRepair(want RepairPermission) bool {
+	got := a.Permissions[want.Name]
+	return got == want.Level || want.Level == "read" && got == "write"
+}
+
 // SubscribedToJobs reports whether the App will be told about queued jobs.
 //
 // It is deliberately not one of MissingRequirements: every one of those is a

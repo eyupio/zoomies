@@ -130,9 +130,10 @@ func NewFake() *FakeGitHub {
 		appOwner:            "acme",
 		repositorySelection: "all",
 		// What an App created with the migration option is granted, which is what
-		// the manifest in manifest.go asks for when it is asked to. The three
-		// migration permissions belong here because this fake serves repository
-		// contents: an App described as
+		// the manifest in manifest.go asks for when it is asked to, along with
+		// the Checks and Commit statuses read that every App now asks for. The
+		// three migration permissions belong here because this fake serves
+		// repository contents: an App described as
 		// unable to read them, while the fake hands them over anyway, is a
 		// fixture no real installation can be in, and it hid the wizard
 		// reporting an App's missing Contents permission as "these
@@ -140,7 +141,9 @@ func NewFake() *FakeGitHub {
 		// says so with SetPermissions.
 		permissions: map[string]string{
 			"actions":                          "write",
+			"checks":                           "read",
 			"metadata":                         "read",
+			"statuses":                         "read",
 			"administration":                   "write",
 			"organization_self_hosted_runners": "write",
 			"contents":                         "write",
