@@ -380,7 +380,8 @@ func (i *Installer) checkWebhookReachable(ctx context.Context, p *Plan) error {
 // the browser opens, and says it truthfully either way: an operator reading the
 // consent screen should find exactly what this list promised.
 func (i *Installer) notePermissions(p *Plan) {
-	i.ui.note("permissions   actions:read, metadata:read, " + runnerPermission(p.GitHub.TargetType) + ":write, event workflow_job")
+	i.ui.note("permissions   actions:read, checks:read, statuses:read, metadata:read,")
+	i.ui.note("              " + runnerPermission(p.GitHub.TargetType) + ":write, events workflow_job, issue_comment")
 	if askedForAdministrationRead(p) {
 		i.ui.note("              administration:read (for Kennel Club's checks of repository settings)")
 	}
@@ -389,7 +390,7 @@ func (i *Installer) notePermissions(p *Plan) {
 			i.ui.note("              contents:read (for Kennel Club's checks of workflow and instruction files)")
 			return
 		}
-		i.ui.note("              no repository permissions: this App cannot read or change code")
+		i.ui.note("              no access to repository contents: this App cannot read or change code")
 		return
 	}
 	// The migration wizard's three are named separately because they are the

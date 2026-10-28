@@ -104,9 +104,11 @@ type hookAttributes struct {
 // The permission set is deliberately minimal, because an App that manages a
 // fleet's runners is a high-value credential: it asks for the runner
 // administration permission for the kind of target it will manage, read access
-// to Actions so it can see queued jobs, and nothing else. The three the
-// migration wizard needs to rewrite a runs-on line and open a pull request for
-// it are added only when the operator has said they want the wizard.
+// to Actions so it can see queued jobs, and read access to Checks and Commit
+// statuses so it can tell whether a failing pull request has been fixed. The
+// three the migration wizard needs to rewrite a runs-on line and open a pull
+// request for it are added only when the operator has said they want the
+// wizard.
 // Metadata read is mandatory for every App.
 //
 // Every key here is one GitHub's manifest schema permits; it rejects anything
@@ -145,9 +147,10 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 		SetupURL:       o.SetupURL,
 		Description:    "Self-hosted runner fleet managed by Zoomies.",
 		Public:         o.Public,
-		// workflow_job is the only event Zoomies acts on. Subscribing to more
-		// would mean parsing payloads it has no use for.
-		DefaultEvents:      []string{"workflow_job"},
+		// workflow_job queues jobs; issue_comment carries a maintainer's /eli
+		// fix request. Those are the only two Zoomies acts on, and every other
+		// delivery would be parsed and dropped.
+		DefaultEvents:      []string{"workflow_job", "issue_comment"},
 		DefaultPermissions: manifestPermissions(o),
 	}
 	b, err := json.Marshal(m)
@@ -160,6 +163,12 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 // manifestPermissions returns the least privilege that works for the target
 // kind. An org App manages runners through the organisation permission and
 // never needs repository administration; a repo App is the other way round.
+//
+// Checks read and Commit statuses read are part of the base set because they are
+// what let Zoomies tell a failing pull request from a fixed one, and because an
+// App without them can offer a repair it is then unable to verify: the pushed
+// commit's checks stay unreadable, and the repair ends unverified after an hour.
+// Both are read-only, and neither reaches repository contents.
 //
 // The three migration permissions are asked for only when the operator has said
 // they want the wizard. Nothing else in Zoomies writes to a repository, and
@@ -193,7 +202,9 @@ func manifestPermissions(o ManifestOptions) map[string]string {
 	}
 	p := map[string]string{
 		"actions":  actions,
+		"checks":   "read",
 		"metadata": "read",
+		"statuses": "read",
 	}
 	if o.Migration {
 		// The migration wizard's three: read a repository's workflows, commit

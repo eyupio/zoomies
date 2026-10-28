@@ -236,7 +236,8 @@
     budget: '4 attempts left today.',
     pull: 'Pull request #1131 is open and its head is a41c9e2.',
     checks: 'The latest checks are still failing.',
-    permissions: 'Contents, pull requests and actions are granted.',
+    permissions:
+      'Contents and pull requests write, and actions, checks and commit statuses read, are granted.',
   };
   const ACCESS = 'Your linked GitHub account needs write access to this repository.';
   const blockedChecks: Check[] = ORDER.map((code, i): Check => {

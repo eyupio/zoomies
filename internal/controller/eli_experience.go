@@ -370,18 +370,18 @@ func (c *Controller) EliReadiness(ctx context.Context, user, repo string, pull i
 		block("permissions", "permissions", "GitHub App permissions could not be checked.")
 	} else {
 		var missing []string
-		for _, permission := range []string{"contents", "pull_requests", "actions"} {
-			value := info.Permissions[permission]
-			if value != "write" && (permission != "actions" || value != "read") {
-				message := "Update the GitHub App permission: " + permission + map[bool]string{true: " read", false: " write"}[permission == "actions"]
-				out.Blockers = append(out.Blockers, EliBlocker{"permissions", message})
-				missing = append(missing, message)
+		for _, permission := range github.RepairPermissions {
+			if info.GrantsRepair(permission) {
+				continue
 			}
+			message := "Update the GitHub App permission: " + permission.Name + " " + permission.Level
+			out.Blockers = append(out.Blockers, EliBlocker{"permissions", message})
+			missing = append(missing, message)
 		}
 		if len(missing) > 0 {
 			checks.block("permissions", "permissions", strings.Join(missing, " "))
 		} else {
-			checks.set("permissions", EliCheckOK, "Contents, pull requests and actions are granted.")
+			checks.set("permissions", EliCheckOK, "Contents and pull requests write, and actions, checks and commit statuses read, are granted.")
 		}
 	}
 	out.Ready = len(out.Blockers) == 0

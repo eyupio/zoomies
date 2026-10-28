@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -66,16 +67,19 @@ func TestManifestOrgShape(t *testing.T) {
 	}
 
 	events, _ := m["default_events"].([]any)
-	if len(events) != 1 || events[0] != "workflow_job" {
-		t.Fatalf("default_events = %v, want exactly [workflow_job]", events)
+	if !slices.Equal(events, []any{"workflow_job", "issue_comment"}) {
+		t.Fatalf("default_events = %v, want [workflow_job issue_comment]", events)
 	}
 
-	// Runner administration, the read access that lets it see queued jobs, and
-	// the metadata read GitHub makes mandatory: nothing that can write code.
+	// Runner administration, the read access that lets it see queued jobs and
+	// their results, and the metadata read GitHub makes mandatory: nothing that
+	// can write code.
 	want := map[string]string{
 		"organization_self_hosted_runners": "write",
 		"actions":                          "read",
+		"checks":                           "read",
 		"metadata":                         "read",
+		"statuses":                         "read",
 	}
 	if got := permissions(t, m); !maps.Equal(got, want) {
 		t.Fatalf("permissions = %v, want %v", got, want)
@@ -86,6 +90,30 @@ func TestManifestOrgShape(t *testing.T) {
 	if m["redirect_url"] != "https://zoomies.example.com/setup/github" ||
 		m["setup_url"] != "https://zoomies.example.com/setup/github" {
 		t.Fatalf("setup urls = %v / %v", m["redirect_url"], m["setup_url"])
+	}
+}
+
+// A manifest-created installation must hold every permission Eli's repairs
+// need. Without Checks and Commit statuses read it would offer a repair, push a
+// commit, and then never see the checks that decide whether the fix worked.
+func TestManifestGrantsEveryRepairPermission(t *testing.T) {
+	// Migration is the option that grants the write access a repair pushes
+	// with, so this is the manifest a repair-capable installation is created
+	// from.
+	for _, org := range []string{"", "acme"} {
+		m := decodeManifest(t, ManifestOptions{
+			Name:         "zoomies-acme",
+			URL:          "https://zoomies.example.com",
+			WebhookURL:   "https://zoomies.example.com/webhooks/github",
+			Organization: org,
+			Migration:    true,
+		})
+		info := &AppInfo{Permissions: permissions(t, m)}
+		for _, want := range RepairPermissions {
+			if !info.GrantsRepair(want) {
+				t.Errorf("org=%q: manifest does not grant %s %s; it has %q", org, want.Name, want.Level, info.Permissions[want.Name])
+			}
+		}
 	}
 }
 
@@ -147,7 +175,9 @@ func TestManifestRepoShape(t *testing.T) {
 	want := map[string]string{
 		"administration": "write",
 		"actions":        "read",
+		"checks":         "read",
 		"metadata":       "read",
+		"statuses":       "read",
 	}
 	got := permissions(t, m)
 	if !maps.Equal(got, want) {
@@ -380,7 +410,9 @@ func TestManifestPermissionsAreMinimal(t *testing.T) {
 			for _, migration := range []bool{false, true} {
 				for _, kennel := range []bool{false, true} {
 					for _, files := range []bool{false, true} {
-						want := map[string]string{"actions": "read", "metadata": "read"}
+						// Checks and Commit statuses read are base permissions: a repair
+						// whose pushed commit cannot be read is never verifiable.
+						want := map[string]string{"actions": "read", "checks": "read", "metadata": "read", "statuses": "read"}
 						if cancel {
 							want["actions"] = "write"
 						}

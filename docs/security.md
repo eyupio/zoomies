@@ -562,7 +562,7 @@ somebody is probing you, and you should be able to see that.
 The webhook endpoint is the one unauthenticated route that mutates state. It:
 
 * accepts only `POST` with a body under 5 MiB;
-* only acts on `workflow_job` and `ping`;
+* only acts on `workflow_job`, `issue_comment` and `ping`;
 * records every delivery, accepted or not;
 * never trusts a repository or label value beyond matching it against pools you
   configured.

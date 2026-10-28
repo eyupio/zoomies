@@ -953,7 +953,7 @@ func (c *Controller) checkEliRepairs(ctx context.Context) {
 				continue
 			}
 			r.State = "unverified"
-			r.Message = "No complete check result was observed within an hour. Inspect the PR's checks before accepting the fix."
+			r.Message = "No complete check result was observed within an hour. If the pull request's checks have passed, the App may lack Checks read or Commit statuses read; grant both and ask for another repair. Otherwise inspect the pull request's checks before accepting the fix."
 		}
 		_ = c.st.SaveEliRepair(ctx, r)
 		c.repairNotice(ctx, client, r, r.Message)

@@ -699,7 +699,7 @@ role.
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| POST | `/webhooks/github` | - | HMAC-verified. Body capped at 1 MiB, answered with a 413 above it; a `workflow_job` delivery is tens of kilobytes. Acts on `workflow_job` and `ping`; records every delivery either way. Path is configurable via `github.webhook_path`. |
+| POST | `/webhooks/github` | - | HMAC-verified. Body capped at 1 MiB, answered with a 413 above it; a `workflow_job` delivery is tens of kilobytes. Acts on `workflow_job`, `issue_comment` and `ping`; records every delivery either way. Path is configurable via `github.webhook_path`. |
 
 ## SSE event kinds
 

@@ -200,8 +200,11 @@ you add them later. The details below explain each grant.
     | `organization_self_hosted_runners: write` | register and remove runners (org targets) |
     | `administration: write` | the same, for a repository target (a single repository, which is also how a personal account is used) |
     | `actions: write` | read workflow jobs and let operators cancel workflow runs from Zoomies; set `github.allow_workflow_cancellation: false` to request read-only access instead |
+    | `checks: read` | read a pull request's check runs, so Eli can tell a failing one from a fixed one |
+    | `statuses: read` | read commit statuses for the same reason |
     | `metadata: read` | required by GitHub for any App |
     | `workflow_job` event | the webhook that makes scaling instant |
+    | `issue_comment` event | the webhook that carries a maintainer's `/eli fix` request |
 
     That is the whole list, and none of it is access to your repositories' contents.
     Before it opens GitHub, Zoomies asks one more question: **Also let Zoomies open migration

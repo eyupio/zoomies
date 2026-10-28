@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -306,14 +307,17 @@ func TestManifestAsksForTheLeastItCan(t *testing.T) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(m.DefaultEvents) != 1 || m.DefaultEvents[0] != "workflow_job" {
-		t.Errorf("events = %v, want only workflow_job", m.DefaultEvents)
+	if !slices.Equal(m.DefaultEvents, []string{"workflow_job", "issue_comment"}) {
+		t.Errorf("events = %v, want workflow_job and issue_comment", m.DefaultEvents)
 	}
 	if m.Public {
 		t.Error("a fleet controller's App has no business being installable by strangers")
 	}
 	if m.DefaultPermissions["organization_self_hosted_runners"] != "write" {
 		t.Errorf("an org App needs the runner permission: %v", m.DefaultPermissions)
+	}
+	if m.DefaultPermissions["checks"] != "read" || m.DefaultPermissions["statuses"] != "read" {
+		t.Errorf("without Checks and Commit statuses read a repair can push but never see its result: %v", m.DefaultPermissions)
 	}
 }
 

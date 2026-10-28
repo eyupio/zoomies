@@ -828,7 +828,7 @@ func TestReadinessSaysGitHubDidNotAnswerWhenItCannotReadTheChecks(t *testing.T) 
 // A missing App permission is a check of its own, with the sentence it always had.
 func TestReadinessNamesAMissingAppPermission(t *testing.T) {
 	s := readinessSetup(t)
-	s.h.gh.SetPermissions(map[string]string{"contents": "read", "pull_requests": "write", "actions": "write"})
+	s.h.gh.SetPermissions(map[string]string{"contents": "read", "pull_requests": "write", "actions": "write", "checks": "read", "statuses": "read"})
 	ready := s.h.c.EliReadiness(s.h.ctx, s.user.ID, s.repo, 1, 0)
 	assertEveryBlockedCheckSaysWhy(t, ready)
 	last := ready.Checks[len(ready.Checks)-1]
@@ -837,6 +837,26 @@ func TestReadinessNamesAMissingAppPermission(t *testing.T) {
 	}
 	if got := blockerCodes(ready); len(got) != 1 || got[0] != "permissions" {
 		t.Fatalf("blockers: %v", got)
+	}
+}
+
+// A repair offered without Checks read would push a commit it could never see
+// finish, so readiness names the missing permission before an attempt is spent.
+func TestReadinessNamesMissingChecksAndCommitStatuses(t *testing.T) {
+	for _, permission := range []string{"checks", "statuses"} {
+		t.Run(permission, func(t *testing.T) {
+			s := readinessSetup(t)
+			perms := map[string]string{"contents": "write", "pull_requests": "write", "actions": "read", "checks": "read", "statuses": "read"}
+			delete(perms, permission)
+			s.h.gh.SetPermissions(perms)
+			ready := s.h.c.EliReadiness(s.h.ctx, s.user.ID, s.repo, 1, 0)
+			assertEveryBlockedCheckSaysWhy(t, ready)
+			last := ready.Checks[len(ready.Checks)-1]
+			want := "Update the GitHub App permission: " + permission + " read"
+			if last.Code != "permissions" || last.Status != EliCheckBlocked || last.Message != want {
+				t.Fatalf("permissions check: %+v", last)
+			}
+		})
 	}
 }
 
