@@ -8,7 +8,7 @@
 <script lang="ts">
   import Tooltip from '$lib/components/Tooltip.svelte';
   import type { RunnerDetail } from '$lib/api/types';
-  import { NO_VALUE, formatNumber, shortId } from '$lib/format';
+  import { formatNumber, shortId } from '$lib/format';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
 
@@ -20,6 +20,16 @@
   let { runner, class: className = '' }: Props = $props();
 
   const labels = $derived(runner.labels ?? []);
+  /**
+   * What the runner has not told the controller, in the words the panel would
+   * have used for it. One line rather than a row each, so the rows that are
+   * there are all facts.
+   */
+  const missing = $derived([
+    ...(runner.image ? [] : ['requested image']),
+    ...(runner.image_digest ? [] : ['resolved digest']),
+    ...(runner.runner_version ? [] : ['runner version']),
+  ]);
 </script>
 
 <dl class="facts {className}">
@@ -65,20 +75,33 @@
     </div>
   {/if}
 
-  <div class="row">
-    <dt>Requested image</dt>
-    <dd class="mono break">{runner.image || NO_VALUE}</dd>
-  </div>
+  <!--
+    These three are only drawn when they have something to say. A runner that is
+    working and reporting everything it can still showed "Requested image --",
+    "Resolved digest Not reported" and "Runner version Unknown", three of the
+    first six rows of the panel saying nothing, which reads as a page that half
+    failed to load. What is missing is said once, at the end.
+  -->
+  {#if runner.image}
+    <div class="row">
+      <dt>Requested image</dt>
+      <dd class="mono break">{runner.image}</dd>
+    </div>
+  {/if}
 
-  <div class="row">
-    <dt>Resolved digest</dt>
-    <dd class="mono break">{runner.image_digest || 'Not reported'}</dd>
-  </div>
+  {#if runner.image_digest}
+    <div class="row">
+      <dt>Resolved digest</dt>
+      <dd class="mono break">{runner.image_digest}</dd>
+    </div>
+  {/if}
 
-  <div class="row">
-    <dt>Runner version</dt>
-    <dd class="mono">{runner.runner_version || 'Unknown'}</dd>
-  </div>
+  {#if runner.runner_version}
+    <div class="row">
+      <dt>Runner version</dt>
+      <dd class="mono">{runner.runner_version}</dd>
+    </div>
+  {/if}
 
   <div class="row">
     <dt>Lifetime</dt>
@@ -218,6 +241,13 @@
     <div class="row">
       <dt>Earlier cleanup estimate</dt>
       <dd><RelativeTime value={runner.cleanup_estimated_at} /></dd>
+    </div>
+  {/if}
+
+  {#if missing.length > 0}
+    <div class="row">
+      <dt>Not reported</dt>
+      <dd class="none">{missing.join(', ')}</dd>
     </div>
   {/if}
 </dl>
