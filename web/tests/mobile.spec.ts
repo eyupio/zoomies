@@ -1367,7 +1367,7 @@ test('every text control on the Eli repair pages is at least 16px', async ({ pag
   }
   // The setup forms are the real controller's.
   await page.unrouteAll();
-  await goto(page, '/repairs/setup', 'Repair setup');
+  await goto(page, '/repairs/setup', 'Repair settings');
   await expect(page.getByRole('heading', { name: 'Your GitHub account' })).toBeVisible();
   audited += await page.locator('input, select, textarea').count();
   expect(await smallControls(), '/repairs/setup: every text control is 16px or more').toEqual([]);
@@ -1378,7 +1378,7 @@ test('every text control on the Eli repair pages is at least 16px', async ({ pag
 test('the setup page stays inside the screen at 375 and 360px', async ({ page }) => {
   for (const width of [375, 360]) {
     await page.setViewportSize({ width, height: 800 });
-    await goto(page, '/repairs/setup', 'Repair setup');
+    await goto(page, '/repairs/setup', 'Repair settings');
     await expect(page.getByRole('heading', { name: 'Your GitHub account' })).toBeVisible();
     await expectNoSidewaysScroll(page, `/repairs/setup at ${width}px`);
   }

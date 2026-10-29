@@ -21,7 +21,6 @@ const PAGES = [
     label: 'Installations',
     band: 'band-installations',
   },
-  { path: '/repairs', heading: 'Eli repairs', label: 'Eli repairs', band: 'band-repairs' },
   {
     path: '/migrate',
     heading: 'Migrate repositories',

@@ -2,7 +2,7 @@
   The hub's one line about setup: whether the person looking can repair, which
   GitHub account that rests on, and, for an administrator, how many repositories
   repair themselves and how many ask first. The sentence about what is missing names the next thing to do, and
-  Manage setup is where it is done.
+  Open settings is where it is done.
 
   It is about whoever is looking. Somebody else's linked account does not make
   this person ready, and with sign-in off there is nobody to repair as.
@@ -30,7 +30,7 @@
   const status = $derived(repairSetupStatus(summary.state));
 </script>
 
-<section class="bar" aria-label="Repair setup">
+<section class="bar" aria-label="Repair settings">
   <span class="item">
     <StatusDot {status} size="sm" tip={false} />
     <strong>{summary.headline}</strong>
@@ -46,7 +46,8 @@
       Ask me first on <strong>{pluralise(summary.askFirst, 'repository', 'repositories')}</strong>
     </span>
   {/if}
-  <a class="more" href="/repairs/setup">Manage setup<ChevronRight size={14} aria-hidden="true" /></a
+  <a class="more" href="/repairs/setup"
+    >Open settings<ChevronRight size={14} aria-hidden="true" /></a
   >
 </section>
 

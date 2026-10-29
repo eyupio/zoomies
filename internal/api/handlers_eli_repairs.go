@@ -117,6 +117,15 @@ func (s *Server) handleEliRepairs(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "listing Eli repairs", err)
 		return
 	}
+	// Source-bearing responses belong to one attempt's detail read, not every
+	// history poll or the fleet tools that read that list.
+	for _, row := range rows {
+		for i := range row.Details.Steps {
+			row.Details.Steps[i].Response = ""
+			row.Details.Steps[i].ResponseRecorded = false
+			row.Details.Steps[i].ResponseTruncated = false
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": rows, "total": total})
 }
 
@@ -450,6 +459,7 @@ func (s *Server) handleEliReadiness(w http.ResponseWriter, r *http.Request) {
 // cleared from the history still opens; clearing tidies the list, and a link a
 // person kept should not stop working because they did.
 func (s *Server) handleGetEliRepair(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	owner, scoped := eliRepairScope(r, auth.ActionAssistantRead)
 	row, err := s.ctrl.Store().GetEliRepair(r.Context(), chiURLParam(r, "id"), owner, scoped)
 	switch {
@@ -489,7 +499,7 @@ func (s *Server) handleEliErrorOutput(w http.ResponseWriter, r *http.Request) {
 	out, err := s.ctrl.EliErrorOutput(ctx, Identity(ctx).UserID, repo, jobID)
 	switch {
 	case errors.Is(err, controller.ErrEliErrorOutputDenied):
-		conflict(w, "Your linked GitHub account needs write access to this repository to read a job's error output. Link and confirm it in Eli repair setup.")
+		conflict(w, "Your linked GitHub account needs write access to this repository to read a job's error output. Link and confirm it in Eli repair settings.")
 	case err != nil:
 		s.internal(w, r, "reading a job's error output", err)
 	default:
@@ -520,7 +530,7 @@ func (s *Server) handleEliOpportunityAction(w http.ResponseWriter, r *http.Reque
 			conflict(w, changed.Message)
 			return
 		}
-		s.fail(w, r, "acting on repair offer; refresh the PR and repair setup", err)
+		s.fail(w, r, "acting on repair offer; refresh the PR and repair settings", err)
 		return
 	}
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "assistant.repair_offer_"+in.Action, "eli_opportunity", chiURLParam(r, "id"), nil)

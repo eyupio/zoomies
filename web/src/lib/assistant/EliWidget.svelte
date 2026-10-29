@@ -28,6 +28,12 @@
   let side = $state('right');
   let full = $state(false);
   const modal = $derived(full || phone);
+  // The repair pages already carry a decision and a primary action, often at
+  // the bottom of a phone screen. A floating launcher there covers the button
+  // it is meant to help with, so those pages open Eli from the shortcut only.
+  const hideLauncher = $derived(
+    router.pathname === '/repairs' || router.pathname.startsWith('/repairs/'),
+  );
   let loading = $state(false);
   const answering = $derived(loading ? undefined : eli.answering);
   let error = $state('');
@@ -132,20 +138,22 @@
 </script>
 
 {#if !eli.open}
-  <!-- Exempt from the inert that a drawer or dialog puts on the rest of the
-       page: Eli stays clickable above whatever is open. -->
-  <div class="launcher" data-side={side} data-inert-exempt>
-    <!-- The avatar is a picture, so the name is the heading; E does the same. -->
-    <Tooltip bare title="Ask Eli" keys={['e']} placement={side === 'right' ? 'left' : 'right'}>
-      <button
-        class="launch"
-        onclick={launch}
-        aria-label="Ask Eli"
-        aria-expanded="false"
-        aria-controls="eli-widget"><EliAvatar size={56} /></button
-      >
-    </Tooltip>
-  </div>
+  {#if !hideLauncher}
+    <!-- Exempt from the inert that a drawer or dialog puts on the rest of the
+         page: Eli stays clickable above whatever is open. -->
+    <div class="launcher" data-side={side} data-inert-exempt>
+      <!-- The avatar is a picture, so the name is the heading; E does the same. -->
+      <Tooltip bare title="Ask Eli" keys={['e']} placement={side === 'right' ? 'left' : 'right'}>
+        <button
+          class="launch"
+          onclick={launch}
+          aria-label="Ask Eli"
+          aria-expanded="false"
+          aria-controls="eli-widget"><EliAvatar size={56} /></button
+        >
+      </Tooltip>
+    </div>
+  {/if}
 {:else}
   {#if phone}
     <!-- The sheet keeps a margin on a phone, so the page shows around it while

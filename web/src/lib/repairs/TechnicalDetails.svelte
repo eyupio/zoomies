@@ -3,9 +3,7 @@
   the model it used, how much source it was given, the stage it reached, the
   failure code the worker recorded, and every model call with its size and time.
 
-  It is shut while a repair is going, because nobody needs a table of calls that
-  have not finished, and open once it has stopped, because the reader of a
-  failure came for exactly this. A call whose provider did not report usage says
+  Supporting evidence stays closed until asked for. A call whose provider did not report usage says
   "Unknown", never zero: a zero would read as a call that cost nothing.
 -->
 <script lang="ts">
@@ -13,7 +11,7 @@
   import type { Schemas } from '$lib/api/types';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import { formatBytes, formatDuration, formatNumber, NO_VALUE } from '$lib/format';
-  import { investigationText } from './attempt';
+  import { investigationText, responseText } from './attempt';
   import { stageWords } from './journey';
 
   interface Props {
@@ -104,6 +102,38 @@
       {#if unknownUsage}
         <p class="note">Unknown means the provider did not report usage for that call.</p>
       {/if}
+      <p class="note">
+        Responses have recognised credentials and email addresses removed. They may include
+        repository source; review them before sharing.
+      </p>
+      {#each steps as step, index (index)}
+        <details class="response">
+          <summary>Model response {index + 1}</summary>
+          <div class="response-body">
+            {#if step.error}<p class="note">Call error: {step.error}</p>{/if}
+            {#if step.validation_error}
+              <p class="note">Validation error: {step.validation_error}</p>
+            {/if}
+            {#if step.response_truncated}
+              <p class="note">This response was shortened to the 96 KiB retention limit.</p>
+            {/if}
+            {#if step.response_recorded && step.response}
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <pre
+                tabindex="0"
+                aria-label="Response text for model call {index + 1}">{step.response}</pre>
+              <CopyButton
+                value={step.response}
+                label="Copy model response {index + 1}"
+                showLabel
+                size="md"
+              />
+            {:else}
+              <p class="note">{responseText(step)}</p>
+            {/if}
+          </div>
+        </details>
+      {/each}
     {:else}
       <p class="note">No model call was recorded for this repair.</p>
     {/if}
@@ -222,6 +252,36 @@
   }
   .copy {
     justify-self: start;
+  }
+  .response {
+    min-width: 0;
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-sm);
+  }
+  .response summary {
+    padding: var(--z-space-3);
+    font-size: var(--z-text-sm);
+  }
+  .response-body {
+    display: grid;
+    justify-items: start;
+    gap: var(--z-space-3);
+    min-width: 0;
+    padding: 0 var(--z-space-3) var(--z-space-3);
+  }
+  pre {
+    box-sizing: border-box;
+    width: 100%;
+    max-height: 24rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin: 0;
+    padding: var(--z-space-3);
+    background: var(--z-surface-sunken);
+    color: var(--z-text);
+    font-family: var(--z-font-mono);
+    font-size: var(--z-text-xs);
   }
   @media (max-width: 640px) {
     summary {

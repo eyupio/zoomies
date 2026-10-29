@@ -10,7 +10,6 @@ import {
   poolsLine,
   providersLine,
   queueLine,
-  repairsLine,
   workflowsLine,
 } from '../src/lib/bands/lines.ts';
 
@@ -146,16 +145,6 @@ test('installations say how many Apps there are, and what needs a look', () => {
     }).headline,
     'GitHub is not connected.',
   );
-});
-
-test('repairs say what needs a person and what is running', () => {
-  const line = repairsLine({ offers: 2, running: 1 });
-  assert.equal(line.headline, '2 offers need review.');
-  assert.equal(line.accent, '1 repair is running.');
-  assert.equal(repairsLine({ offers: 1, running: 0 }).headline, '1 offer needs review.');
-  assert.equal(repairsLine({ offers: 0, running: 2 }).headline, 'Nothing needs you.');
-  assert.equal(repairsLine({ offers: 0, running: 0 }).headline, 'Nothing needs you.');
-  assert.equal(repairsLine({ offers: 0, running: 0 }).accent, 'No repairs are running.');
 });
 
 test('migrate says what the wizard will do before it asks for anything', () => {

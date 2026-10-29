@@ -25,6 +25,7 @@ import {
   sectionHeading,
   sectionLanding,
   SECTIONS,
+  FIXTURE,
 } from './support/fixtures';
 
 // These run in both projects: the phone's navigation is a bar at the bottom
@@ -44,6 +45,28 @@ test('every navigation entry routes to its page and is marked as current', async
     await expect(pageHeading(page, sectionHeading(section))).toBeVisible();
     await expectCurrentSection(page, section.path);
   }
+});
+
+/*
+ * A page says where it is once. A detail page draws the trail in its own
+ * header, with the link back to its section; the top bar used to repeat it, so
+ * a provider's page named the provider twice before a fact about it, and on a
+ * phone it was the top bar's copy that had to be cut to "Providers › de...".
+ * Settings has no breadcrumb of its own, so there the top bar keeps it.
+ */
+test('a detail page says where it is once, and Settings still says it in the bar', async ({
+  page,
+}) => {
+  await goto(page, `/providers/${FIXTURE.providerId}`, FIXTURE.provider);
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(1);
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Providers');
+  await expect(page.locator('.topbar .crumb')).toHaveCount(0);
+  // The name is still in the bar, which is what an operator reads to know which
+  // of several open tabs this is.
+  await expect(page.locator('.topbar .page')).toContainText(FIXTURE.provider);
+
+  await goto(page, '/settings/appearance', 'Appearance');
+  await expect(page.locator('.topbar .crumb')).toHaveText('Settings');
 });
 
 test('every page ends in a footer that says which product this is and who makes it', async ({
@@ -378,7 +401,7 @@ test('Eli repairs stays lit on the repair page, the setup page and an attempt', 
   for (const [path, heading] of [
     ['/repairs', 'Eli repairs'],
     ['/repairs/new?repo=acme%2Fsite&run=9', 'Repair a failed check'],
-    ['/repairs/setup', 'Repair setup'],
+    ['/repairs/setup', 'Repair settings'],
     ['/repairs/rep-1', 'Retry transient 502s'],
   ] as const) {
     await goto(page, path, heading);

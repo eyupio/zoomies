@@ -240,7 +240,7 @@ func (c *Controller) EliReadiness(ctx context.Context, user, repo string, pull i
 	}
 	id, err := c.eliIdentity(ctx, user)
 	if err != nil {
-		block("identity", "identity", "Link and confirm your GitHub account in repair setup.")
+		block("identity", "identity", "Link and confirm your GitHub account in repair settings.")
 	} else {
 		checks.set("identity", EliCheckOK, "@"+id.GitHubLogin+" is linked and has allowed repairs.")
 	}

@@ -184,7 +184,11 @@ export default defineConfig({
       // Never reused: the spec connects an installation, and a database that
       // already has one answers the question the spec is asking.
       reuseExistingServer: false,
-      timeout: 60_000,
+      // The fake GitHub runs with `go run`, so a cold module cache downloads
+      // its dependencies before the first address is printed. That took longer
+      // than the minute the controllers get and failed the mobile project,
+      // which does not run the connect spec but still waits for this server.
+      timeout: 180_000,
       stdout: 'pipe',
       stderr: 'pipe',
     },

@@ -342,6 +342,10 @@
       usage_reported: true,
       request_bytes: 80_312,
       elapsed_ms: 41_000,
+      response_recorded: true,
+      response:
+        '{"read":["package.json"],"edits":[{"path":"package.json","before":"old","after":"fixed"}]}',
+      validation_error: 'Do not combine source requests with changes.',
     },
     {
       input_tokens: 0,
@@ -349,6 +353,10 @@
       usage_reported: false,
       request_bytes: 91_234,
       elapsed_ms: 9000,
+      response_recorded: true,
+      response:
+        '{"cannot_fix":"The missing lockfile window is needed to choose a supported upgrade."}',
+      response_truncated: true,
     },
   ];
   const finish = (over: Partial<Schemas['EliRepair']>): Schemas['EliRepair'] =>
