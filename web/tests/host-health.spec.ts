@@ -568,7 +568,10 @@ test('the Hosts page counts the hosts that need attention, and the tile, the fil
     await expectNoReload(page);
 
     // The words: a heartbeat is Connected, and Healthy is the OS report's.
-    await expect(page.getByText(/\d+ hosts? · \d+ connected · /)).toBeVisible();
+    // The fleet's totals are the band's sentence now, and the line under the
+    // title says only what the band does not (the private hosts, and why an
+    // update cannot be offered).
+    await expect(page.getByTestId('band-hosts')).toContainText(/hosts? are connected/);
     await expect(page.getByText('Hosts connected', { exact: true })).toBeVisible();
     await expect(page.getByText('Sending heartbeats')).toBeVisible();
     await expect(page.getByText('Healthy', { exact: true })).toHaveCount(0);
