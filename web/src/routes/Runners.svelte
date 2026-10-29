@@ -612,9 +612,6 @@
     : null}
 />
 <RunnerInsights {poolId} pulse={false} />
-<details class="activity-history">
-  <summary>Explore fleet activity over the last 24 hours</summary><FleetHistory />
-</details>
 
 <div class="filters">
   <FilterBar {chips} onclear={clearFilters}>
@@ -658,7 +655,7 @@
         checked={includeRemoved}
         label="Include removed"
         labelToggles={false}
-        description="Removed runners are hidden by default: a busy fleet makes and destroys thousands of them, and they are all history."
+        description="Kept for a while as history."
         onchange={(on) => router.setQuery({ include_removed: on ? '1' : null })}
       />
     </div>
@@ -778,6 +775,16 @@
     {/snippet}
   </DataGrid>
 </div>
+
+<!--
+  What the fleet did over the last day is history, and history follows the
+  records: the preamble above the grid is where the cost of a 24-hour chart is
+  a row of the list nobody can see. The Pools page puts its demand disclosure
+  in the same place, for the same reason.
+-->
+<details class="activity-history">
+  <summary>Explore fleet activity over the last 24 hours</summary><FleetHistory />
+</details>
 
 <RunnerConfirm
   bind:open={confirmOpen}

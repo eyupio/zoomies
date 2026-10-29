@@ -221,7 +221,7 @@
           <dt>Host</dt>
           <dd>
             {#if m.host_id}
-              <a href="/hosts">{m.host_name || m.host_id}</a>
+              <a href={`/hosts/${m.host_id}`}>{m.host_name || m.host_id}</a>
             {:else}
               Not enrolled yet
             {/if}

@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import { BAND_PAGES, BAND_SIZES, defaultBandSize, isBandSize } from '../src/lib/bands/pages.ts';
 
 // The sizes are the only thing the first load shows differently from before, so they are
-// held to what the pages looked like: the Overview's full stage, everything else compact.
-test('the Overview opens on a standard band and every other page on a compact one', () => {
+// held to what the pages looked like: the Overview's full stage, everything else the
+// shortest cut, because a working page's rows are the point and compact still put the
+// first of them below a 900px window's fold.
+test('the Overview opens on a standard band and every other page on a slim one', () => {
   assert.equal(defaultBandSize('overview'), 'standard');
   for (const page of BAND_PAGES) {
-    if (page.key !== 'overview') assert.equal(defaultBandSize(page.key), 'compact', page.key);
+    if (page.key !== 'overview') assert.equal(defaultBandSize(page.key), 'slim', page.key);
   }
 });
 
