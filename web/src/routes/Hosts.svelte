@@ -552,9 +552,15 @@
       The figures this line used to carry (how many hosts, how many connected,
       how many slots in use) are the band's sentence and the tiles under it: the
       page said the same three numbers three times within 400px. What is left is
-      the one thing only a line of text can say, which is why an update cannot be
-      offered. Traffic over Tailcat is said by the host cards themselves.
+      the two things only a line of text can say: why an update cannot be
+      offered, and how many hosts arrive over a private network, which no other
+      figure on the page counts and which an operator watching a tunnel needs.
     -->
+    {#if fleet.loaded && hosts.some((h) => h.connection === 'tailcat')}
+      <p class="summary">
+        {pluralise(hosts.filter((h) => h.connection === 'tailcat').length, 'host')} via Tailcat
+      </p>
+    {/if}
     {#if rolloutAction.kind === 'off'}
       <!-- The reason is text beside the action, as on a host's card: a phone has no hover. -->
       <p class="summary">{rolloutAction.sentence}</p>
