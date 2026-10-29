@@ -818,7 +818,10 @@ The durable queue deduplicates webhook retries and charges attempts at
 admission. The worker reads the PR's pinned commit, changed text files, repository
 inventory and bounded failed-job evidence. It asks the selected model for a
 strict JSON plan, with at most twelve model turns and eight changed files. Each
-turn tells the model how many replies remain and asks it to batch related reads.
+turn tells the model how many replies remain and asks it to batch related reads,
+with at most eight file or window requests per turn. A turn requests source,
+proposes a fix, or explains why it cannot fix the failure; it cannot mix these
+actions. A fix uses targeted edits or complete file replacements, never both.
 The final turn must propose a fix from the supplied source or explain why it
 cannot fix the failure; a further read request ends the attempt without fetching
 source that no later turn could use. Text blobs
@@ -948,10 +951,32 @@ wrap the object in a sentence or a code fence, add a key the repair has no use
 for, or write the file they want to read and the window they want as two objects
 in one answer. Eli reads the JSON objects it knows, merges two that only ask for
 source, and asks the model to correct a reply it still cannot read with the
-model's own words in view. A model that cannot answer after those attempts stops
-the repair, and the comment says its reply was not a repair plan.
+model's own words in view. Valid JSON that mixes actions or requests more than
+eight files and windows receives the same correction, with the specific reason,
+before any of that step's source is read or changes are applied. Eli allows two
+consecutive correction attempts, shared with malformed replies, within the
+twelve-turn limit. A model that cannot answer after those attempts stops the
+repair, and the comment names the reply problem.
 
 ### What a repair remembers
+
+A repair retains each model call's response, tool call names and arguments,
+provider error and any reply-format validation error. Open **Technical details**
+on the attempt page to read or copy one response, or use **Copy investigation
+details** to copy the responses with the attempt's exact usage figures and errors.
+Partial output is kept when a provider cuts off or fails. A response with no text
+is distinguished from an older attempt whose response was never retained.
+Responses are plain text, not rendered HTML or executed tool calls. Recognised
+credentials and email addresses are removed before storage, then each response
+is capped at 96 KiB with an explicit truncation notice. Redaction cannot recognise
+every secret, and a response may quote private source, so review the text before
+sharing it. Responses follow the repair's existing owner and administrator access
+rules; the input prompt and hidden model reasoning are not retained.
+
+An example of a rejected reply, with its validation reason and copy controls:
+
+![A model response with its validation error and copy buttons](screenshots/eli-repair-response-dark.webp#only-dark){ .zoomies-shot }
+![A model response with its validation error and copy buttons](screenshots/eli-repair-response-light.webp#only-light){ .zoomies-shot }
 
 A repair keeps what it was about. When it starts it records the run whose failure
 you were looking at, and a short summary of the failure: the pull request's

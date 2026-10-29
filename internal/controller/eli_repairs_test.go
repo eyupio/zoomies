@@ -586,6 +586,64 @@ func TestARepairReadsAToolCallNamedAfterAReplyAsThatReply(t *testing.T) {
 	}
 }
 
+func TestARepairPublishesOnlyAfterTheModelCorrectsAMixedAction(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	fake := &repairFake{Client: h.gh.Client(inst.Target, inst.TargetType), check: "waiting"}
+	h.c.clients.entries[inst.ID] = &clientEntry{client: fake, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
+	calls := 0
+	h.c.openProvider = func(*store.AssistantProvider, string) (assistant.Provider, error) {
+		return assistant.NewFake(assistant.FakeOptions{Model: "scripted", Script: func(req assistant.Request) []assistant.Event {
+			calls++
+			if fake.commits != 0 {
+				t.Fatal("published before the model supplied one supported action")
+			}
+			if calls == 1 {
+				return []assistant.Event{{Delta: `{"read":["unread.go"],"summary":"Fix cause","files":[{"path":"main.go","content":"wrong"}]}`}}
+			}
+			if !strings.Contains(req.Messages[len(req.Messages)-1].Content, "do not combine source requests with changes") {
+				t.Fatal("the model did not receive the specific correction")
+			}
+			return []assistant.Event{{Delta: `{"summary":"Fix cause","files":[{"path":"main.go","content":"fixed"}]}`}}
+		}}), nil
+	}
+	user := &store.User{Username: "octo", Role: store.RoleViewer}
+	if err := h.st.CreateUser(h.ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.SetEliIdentity(h.ctx, store.EliIdentity{UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.ConfirmEliIdentity(h.ctx, user.ID, 42, true); err != nil {
+		t.Fatal(err)
+	}
+	personal := &store.AssistantProvider{Name: "Personal", OwnerID: user.ID, Kind: "fake", Model: "scripted", Enabled: true}
+	if err := h.st.CreateAssistantProvider(h.ctx, personal); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.SetDefaultAssistantProvider(h.ctx, personal.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: personal.ID, Enabled: true, DailyLimit: 5}); err != nil {
+		t.Fatal(err)
+	}
+	row := &store.EliRepair{DedupKey: "mixed-action", Repo: "acme/repo", InstallationID: inst.ID, PullNumber: 1, Trigger: "mention", UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
+	if _, err := h.st.EnqueueEliRepair(h.ctx, row, 5); err != nil {
+		t.Fatal(err)
+	}
+	h.c.runEliRepair(h.ctx, row)
+	if calls != 2 || row.State != "checking" || fake.commits != 1 || len(row.Details.Steps) != 2 {
+		t.Fatalf("calls %d, commits %d, repair %+v", calls, fake.commits, row)
+	}
+	saved, err := h.st.GetEliRepair(h.ctx, row.ID, user.ID, true)
+	if err != nil || saved.State != "checking" || len(saved.Details.Steps) != 2 {
+		t.Fatalf("repair progress not retained: %+v, %v", saved, err)
+	}
+	if !saved.Details.Steps[0].ResponseRecorded || !strings.Contains(saved.Details.Steps[0].Response, "unread.go") || !strings.Contains(saved.Details.Steps[0].ValidationError, "do not combine") || saved.Details.Steps[1].ValidationError != "" {
+		t.Fatalf("responses or the rejected step's reason were not retained: %+v", saved.Details.Steps)
+	}
+}
+
 // A provider with no credit left answers with a status and a sentence of its
 // own, and the repair filed it as a provider that could not be reached: the
 // person reading the comment was told to test a connection that was fine, and

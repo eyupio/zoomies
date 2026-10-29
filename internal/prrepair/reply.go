@@ -20,6 +20,25 @@ var (
 	errMultiplePlans = errors.New("model returned more than one repair plan")
 )
 
+// checkReplyActions rejects ambiguous steps without choosing which action to
+// ignore. These mistakes can be corrected within the same bounded retry loop
+// as malformed JSON; path and patch validation still run after correction.
+func checkReplyActions(p Plan) error {
+	reads := len(p.Read) + len(p.Windows)
+	changes := len(p.Edits) + len(p.Files)
+	switch {
+	case p.CannotFix != "" && reads+changes > 0:
+		return fmt.Errorf("%w: cannot_fix must stand alone; choose an explanation, a source request or a fix", errInvalidReply)
+	case reads > 0 && changes > 0:
+		return fmt.Errorf("%w: do not combine source requests with changes; request source first, then propose a fix in a later reply", errInvalidReply)
+	case reads > MaxEdits:
+		return fmt.Errorf("%w: a source request may contain at most %d read and windows entries in total; this reply contained %d, so split it across turns", errInvalidReply, MaxEdits, reads)
+	case len(p.Edits) > 0 && len(p.Files) > 0:
+		return fmt.Errorf("%w: use targeted edits or complete replacements, not both", errInvalidReply)
+	}
+	return nil
+}
+
 // decode reads a model's reply as one repair plan.
 //
 // A model does not always write the one bare JSON object the system prompt asks

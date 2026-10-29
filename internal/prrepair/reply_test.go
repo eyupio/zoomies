@@ -3,6 +3,7 @@ package prrepair
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -151,6 +152,87 @@ func TestARepairStopsAfterTheReplyRetryLimit(t *testing.T) {
 	}
 	if len(m.seen) != maxReplyRetries+1 {
 		t.Fatalf("model was asked %d times, want %d", len(m.seen), maxReplyRetries+1)
+	}
+}
+
+// These are valid JSON, so the old parse-only retry skipped them and ended
+// rea#996 with "a repair step must request files or propose changes".
+func TestARepairAsksForOneBoundedActionBeforeReadingOrApplyingAnything(t *testing.T) {
+	tooManyReads := make([]string, MaxEdits+1)
+	for i := range tooManyReads {
+		tooManyReads[i] = fmt.Sprintf(`"source%d.go"`, i)
+	}
+	for _, tc := range []struct {
+		name, reply, reason string
+	}{
+		{"reads and files", `{"read":["unread.go"],"summary":"Fix it","files":[{"path":"main.go","content":"wrong"}]}`, "do not combine"},
+		{"windows and edits", `{"windows":[{"path":"unread.go","start_line":1,"end_line":2}],"summary":"Fix it","edits":[{"path":"main.go","before":"old","after":"wrong"}]}`, "do not combine"},
+		{"too many reads", `{"read":[` + strings.Join(tooManyReads, ",") + `]}`, "at most 8"},
+		{"combined read count", `{"read":[` + strings.Join(tooManyReads[:MaxEdits], ",") + `],"windows":[{"path":"unread.go","start_line":1,"end_line":2}]}`, "at most 8"},
+		{"edits and files", `{"summary":"Fix it","edits":[{"path":"main.go","before":"old","after":"wrong"}],"files":[{"path":"main.go","content":"wrong"}]}`, "not both"},
+		{"giving up and reading", `{"cannot_fix":"no","read":["unread.go"]}`, "cannot_fix must stand alone"},
+		{"giving up and fixing", `{"cannot_fix":"no","summary":"Fix it","files":[{"path":"main.go","content":"wrong"}]}`, "cannot_fix must stand alone"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &scriptedReplies{replies: []string{tc.reply, `{"summary":"Fix it","edits":[{"path":"main.go","before":"old","after":"fixed"}]}`}}
+			reader := &countingReader{}
+			p, err := Generate(t.Context(), m, reader, Snapshot{Files: []File{{Path: "main.go", Content: "old", Mode: "100755"}}}, "fix the failing check", false)
+			if err != nil || len(p.Files) != 1 || p.Files[0].Content != "fixed" || p.Files[0].Mode != "100755" {
+				t.Fatalf("corrected plan = %+v: %v", p, err)
+			}
+			if reader.reads != 0 {
+				t.Fatalf("invalid step read %d files before correction", reader.reads)
+			}
+			if len(m.seen) != 2 {
+				t.Fatalf("model was asked %d times, want 2", len(m.seen))
+			}
+			last := m.seen[1]
+			if last[len(last)-2].Content != tc.reply || !strings.Contains(last[len(last)-1].Content, tc.reason) {
+				t.Fatalf("correction lost the reply or its specific cause: %+v", last)
+			}
+		})
+	}
+}
+
+func TestMalformedAndMixedRepliesShareTheCorrectionLimit(t *testing.T) {
+	mixed := `{"read":["unread.go"],"files":[{"path":"main.go","content":"wrong"}]}`
+	m := &scriptedReplies{replies: []string{mixed, "not JSON", mixed, `{"cannot_fix":"unused"}`}}
+	reader := &countingReader{}
+	_, err := Generate(t.Context(), m, reader, Snapshot{}, "fix it", false)
+	if err == nil || !strings.Contains(err.Error(), "do not combine") || len(m.seen) != maxReplyRetries+1 || reader.reads != 0 {
+		t.Fatalf("calls %d, reads %d: %v", len(m.seen), reader.reads, err)
+	}
+}
+
+func TestAValidSourceTurnResetsCorrectionsWithoutExtendingTheTurnLimit(t *testing.T) {
+	mixed := `{"read":["unread.go"],"edits":[{"path":"a","before":"old","after":"wrong"}]}`
+	m := &scriptedReplies{}
+	for step := range MaxSteps {
+		if step%3 == 2 {
+			m.replies = append(m.replies, `{"read":["a"]}`)
+		} else {
+			m.replies = append(m.replies, mixed)
+		}
+	}
+	reader := &countingReader{}
+	_, err := Generate(t.Context(), m, reader, Snapshot{}, "fix it", false)
+	if err == nil || !strings.Contains(err.Error(), "model-step limit") || len(m.seen) != MaxSteps || reader.reads != 1 {
+		t.Fatalf("calls %d, reads %d: %v", len(m.seen), reader.reads, err)
+	}
+}
+
+func TestCorrectionDoesNotPermitAnUnreadOrProtectedEdit(t *testing.T) {
+	for _, path := range []string{"unread.go", ".env"} {
+		t.Run(path, func(t *testing.T) {
+			m := &scriptedReplies{replies: []string{
+				`{"read":["main.go"],"files":[{"path":"main.go","content":"wrong"}]}`,
+				fmt.Sprintf(`{"summary":"Fix it","files":[{"path":%q,"content":"fixed"}]}`, path),
+			}}
+			_, err := Generate(t.Context(), m, &countingReader{}, Snapshot{}, "fix it", false)
+			if err == nil || !strings.Contains(err.Error(), "not supplied or is protected") || len(m.seen) != 2 {
+				t.Fatalf("calls %d: %v", len(m.seen), err)
+			}
+		})
 	}
 }
 

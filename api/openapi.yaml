@@ -6543,6 +6543,8 @@ paths:
         cleared from the history is neither listed nor counted. A `group` or `trigger` this
         API does not know, or a `repo` of more than 200 characters, is a 422 that names the
         parameter: a filter that was quietly ignored would show the wrong history.
+        Model response bodies and capture flags are omitted from history pages; open one
+        repair by id to inspect its responses.
       x-zoomies-role: viewer
       parameters:
         - $ref: "#/components/parameters/EliRepairGroup"
@@ -6586,7 +6588,9 @@ paths:
         One repair by id, in the shape the list returns. Administrators reach any repair and
         everyone else their own; a repair that is not the caller's is a 404 word for word the
         same as one that does not exist. A repair cleared from the history still opens, so a
-        link someone kept keeps working.
+        link someone kept keeps working. This read includes each model call's retained,
+        redacted response and any validation or provider error. Responses can contain repository
+        source and are omitted from history pages. This response uses Cache-Control: no-store.
       x-zoomies-role: viewer
       parameters:
         - name: id
@@ -15994,6 +15998,24 @@ components:
               usage_reported: { type: boolean }
               request_bytes: { type: integer }
               elapsed_ms: { type: integer }
+              response:
+                type: string
+                description: >-
+                  The model's response text and any tool call names and arguments, with recognised
+                  credentials and email addresses redacted before storage. At most 96 KiB. May contain
+                  repository source. Partial output is retained on interrupted or failed calls.
+              response_recorded:
+                type: boolean
+                description: True when response capture was available, including an empty response. Absent on older calls.
+              response_truncated:
+                type: boolean
+                description: True when the retained redacted response was shortened to 96 KiB.
+              error:
+                type: string
+                description: The redacted provider or transport error for this call, if any.
+              validation_error:
+                type: string
+                description: Why the repair rejected this response as malformed or mixing actions, if any.
     EliRepairRepositories:
       type: object
       required: [items, total, capped, missing_permissions]
