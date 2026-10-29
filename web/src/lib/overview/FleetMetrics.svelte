@@ -325,12 +325,18 @@
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
     overflow-wrap: anywhere;
-    /*
-      This line is the page's last before the panels under it, and it ends at the
-      window's right edge where the assistant's button sits: without the lane its
-      last words are read through a paw.
-    */
-    padding-inline-end: var(--z-eli-lane);
+  }
+  /*
+    This line is the page's last before the panels under it, and it ends at the
+    window's right edge where the assistant's button sits: without the lane its
+    last words are read through a paw. A phone is left out because the line there
+    sits near the top of a page that scrolls, and the lane costs it a wrapped
+    line above the first pool.
+  */
+  @media (min-width: 769px) {
+    .context {
+      padding-inline-end: var(--z-eli-lane);
+    }
   }
   .coverage {
     margin-left: auto;
