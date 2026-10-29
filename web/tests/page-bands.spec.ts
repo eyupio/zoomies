@@ -124,7 +124,12 @@ test('a band offers the same sizes on the band itself, and the choice is shared'
     await expect(size.getByRole('button', { name: label, exact: true })).toBeVisible();
   }
   await size.getByRole('button', { name: 'Slim', exact: true }).click();
+  // A size is a change, and a change asks where it lands before it is made.
+  const panel = page.getByRole('dialog', { name: 'Slim band size, where to apply' });
+  await expect(panel).toBeVisible();
+  await panel.getByRole('button', { name: 'Apply to Runners' }).click();
   await expect(band).toHaveAttribute('data-size', 'slim');
+  await expect(panel).toHaveCount(0);
 
   // Appearance holds the same choice, rather than a second one of its own.
   await goto(page, '/settings/appearance', 'Appearance');
@@ -133,6 +138,137 @@ test('a band offers the same sizes on the band itself, and the choice is shared'
       .getByRole('group', { name: 'Runners band size' })
       .getByRole('button', { name: 'Slim', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a cut can be given to the pages picked one at a time', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  await page
+    .getByTestId('band-runners')
+    .getByRole('group', { name: 'Runners band size' })
+    .getByRole('button', { name: 'Expanded', exact: true })
+    .click();
+
+  const panel = page.getByRole('dialog', { name: 'Expanded band size, where to apply' });
+  await panel.getByRole('radio', { name: 'Choose pages' }).check();
+  // The page the panel was opened from is chosen already; two more are ticked.
+  await expect(panel.getByRole('checkbox', { name: 'Runners (this page)' })).toBeChecked();
+  await panel.getByRole('checkbox', { name: 'Pools', exact: true }).check();
+  await panel.getByRole('checkbox', { name: 'Jobs', exact: true }).check();
+  await expect(panel.getByRole('button', { name: 'Apply to 3 pages' })).toBeEnabled();
+  await panel.getByRole('button', { name: 'Apply to 3 pages' }).click();
+
+  for (const item of [
+    { path: '/runners', heading: 'Runners', band: 'band-runners' },
+    { path: '/pools', heading: 'Pools', band: 'band-pools' },
+    { path: '/jobs', heading: 'Jobs', band: 'band-jobs' },
+  ]) {
+    await goto(page, item.path, item.heading);
+    await expect(page.getByTestId(item.band)).toHaveAttribute('data-size', 'expanded');
+  }
+  // A page that was not picked keeps its own cut.
+  await goto(page, '/hosts', 'Hosts');
+  await expect(page.getByTestId('band-hosts')).toHaveAttribute('data-size', 'compact');
+
+  // Appearance reflects the three, and the all-pages control shows no answer
+  // while the pages disagree.
+  await goto(page, '/settings/appearance', 'Appearance');
+  for (const label of ['Runners', 'Pools', 'Jobs']) {
+    await expect(
+      page
+        .getByRole('group', { name: `${label} band size` })
+        .getByRole('button', { name: 'Expanded', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'true');
+  }
+  for (const label of ['Slim', 'Compact', 'Standard', 'Expanded']) {
+    await expect(
+      page
+        .getByRole('group', { name: "Every page's band size" })
+        .getByRole('button', { name: label, exact: true }),
+    ).toHaveAttribute('aria-pressed', 'false');
+  }
+});
+
+test('one answer can give every band the same cut', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  await page
+    .getByTestId('band-runners')
+    .getByRole('group', { name: 'Runners band size' })
+    .getByRole('button', { name: 'Slim', exact: true })
+    .click();
+
+  const panel = page.getByRole('dialog', { name: 'Slim band size, where to apply' });
+  await panel.getByRole('radio', { name: 'Every page' }).check();
+  await expect(panel.getByRole('button', { name: 'Apply to 13 pages' })).toBeVisible();
+  await panel.getByRole('button', { name: 'Apply to 13 pages' }).click();
+
+  await expect(page.getByTestId('band-runners')).toHaveAttribute('data-size', 'slim');
+  await goto(page, '/hosts', 'Hosts');
+  await expect(page.getByTestId('band-hosts')).toHaveAttribute('data-size', 'slim');
+  // The Overview's default is the standard cut; every page means every page.
+  await goto(page, '/', 'Overview');
+  await expect(page.getByTestId('fleet-status')).toHaveAttribute('data-size', 'slim');
+
+  await goto(page, '/settings/appearance', 'Appearance');
+  await expect(
+    page
+      .getByRole('group', { name: "Every page's band size" })
+      .getByRole('button', { name: 'Slim', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('the dog can be resized or removed, and the choice scoped like a cut', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  await page.getByRole('button', { name: 'Runners band logo settings' }).click();
+
+  const panel = page.getByRole('dialog', { name: 'Band logo, where to apply' });
+  await expect(panel).toBeVisible();
+  await panel
+    .getByRole('group', { name: 'Dog size' })
+    .getByRole('button', { name: 'Large' })
+    .click();
+  await panel.getByRole('radio', { name: 'Choose pages' }).check();
+  await panel.getByRole('checkbox', { name: 'Pools', exact: true }).check();
+  await panel.getByRole('button', { name: 'Apply to 2 pages' }).click();
+
+  await expect(page.getByTestId('band-runners').locator('.stage')).toHaveAttribute(
+    'data-art-size',
+    'large',
+  );
+  await goto(page, '/pools', 'Pools');
+  await expect(page.getByTestId('band-pools').locator('.stage')).toHaveAttribute(
+    'data-art-size',
+    'large',
+  );
+  // A page that was not picked still follows the default.
+  await goto(page, '/hosts', 'Hosts');
+  await expect(page.getByTestId('band-hosts').locator('.stage')).not.toHaveAttribute(
+    'data-art-size',
+    'large',
+  );
+
+  // Removing it from this page leaves the other page's dog alone.
+  await goto(page, '/runners', 'Runners');
+  await page.getByRole('button', { name: 'Runners band logo settings' }).click();
+  const again = page.getByRole('dialog', { name: 'Band logo, where to apply' });
+  await again.getByRole('switch', { name: 'Show the dog' }).click();
+  await again.getByRole('button', { name: 'Apply to Runners' }).click();
+  await expect(page.getByTestId('band-runners').locator('.art')).toHaveCount(0);
+
+  // Appearance reflects both pages, and offers each a way back to the default.
+  await goto(page, '/settings/appearance', 'Appearance');
+  await expect(page.getByRole('switch', { name: 'Runners band logo' })).not.toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Pools band logo' })).toBeChecked();
+  await expect(page.getByRole('combobox', { name: 'Pools logo size' })).toHaveValue('large');
+  await expect(page.getByRole('button', { name: 'Use the default' })).toHaveCount(2);
+
+  // The reset puts one page back on the default without touching the other.
+  await page
+    .getByRole('group', { name: 'Page bands' })
+    .getByRole('button', { name: 'Use the default' })
+    .first()
+    .click();
+  await expect(page.getByRole('switch', { name: 'Runners band logo' })).toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Pools band logo' })).toBeChecked();
 });
 
 test('a size is only offered for a band that is on', async ({ page }) => {

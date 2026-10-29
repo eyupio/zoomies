@@ -9,10 +9,12 @@
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Drawer from '$lib/components/Drawer.svelte';
   import Panel from '$lib/components/Panel.svelte';
+  import Popover from '$lib/components/Popover.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
 
   let drawerOpen = $state(false);
   let confirmOpen = $state(false);
+  let popoverAnchor = $state<HTMLElement | null>(null);
 </script>
 
 <Panel
@@ -22,6 +24,9 @@
   <div class="row">
     <Button onclick={() => (drawerOpen = true)}>Open the runner drawer</Button>
     <Button variant="danger" onclick={() => (confirmOpen = true)}>Delete a pool</Button>
+    <Button onclick={(event) => (popoverAnchor = event.currentTarget as HTMLElement)}>
+      Open an anchored panel
+    </Button>
     <Tooltip
       title="Why this runner is draining"
       text="The pool is above its ceiling, so this runner finishes its job and exits."
@@ -42,9 +47,27 @@
   </div>
   <p class="note">
     The drawer is reachable from every row's Inspect action. On a phone it keeps a strip of the page
-    visible down its left edge, so it reads as a panel over the page rather than a new page.
+    visible down its left edge, so it reads as a panel over the page rather than a new page. The
+    anchored panel is the one a band opens: it stays in its owner's accessibility tree while the
+    browser draws it over everything, and Tab leaving it closes it.
   </p>
 </Panel>
+
+<Popover
+  open={popoverAnchor !== null}
+  anchor={popoverAnchor}
+  label="An anchored panel"
+  onclose={() => (popoverAnchor = null)}
+>
+  <p class="popover-copy">
+    A panel that belongs to the control that opened it: placed against it, flipped above it when
+    there is no room below, and closed when it scrolls away.
+  </p>
+  {#snippet footer()}
+    <Button size="sm" variant="ghost" onclick={() => (popoverAnchor = null)}>Cancel</Button>
+    <Button size="sm" variant="primary" onclick={() => (popoverAnchor = null)}>Apply</Button>
+  {/snippet}
+</Popover>
 
 <Drawer
   bind:open={drawerOpen}
@@ -113,6 +136,12 @@
     margin: var(--z-space-3) 0 0;
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
+  }
+  .popover-copy {
+    margin: 0;
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+    color: var(--z-text);
   }
   .card {
     display: grid;

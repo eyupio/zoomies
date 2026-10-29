@@ -106,6 +106,106 @@ func TestTablePreferencesFollowTheSignedInAccount(t *testing.T) {
 	}
 }
 
+// A band choice is the account's, as a table layout is: the cut set at the desk
+// is the one the phone opens on, and a second person sharing the browser gets
+// neither.
+func TestBandPreferencesFollowTheSignedInAccount(t *testing.T) {
+	h := newHarness(t)
+	_, aliceCookie := h.user("alice", store.RoleViewer)
+	_, bobCookie := h.user("bob", store.RoleViewer)
+
+	put := h.do(request{method: http.MethodPut, path: "/api/v1/auth/preferences", cookie: aliceCookie,
+		body: map[string]any{"bands": map[string]any{
+			"hidden":     []string{"jobs", "kennel"},
+			"sizes":      map[string]any{"runners": "slim", "overview": "expanded"},
+			"logo":       false,
+			"logo_size":  "large",
+			"logo_pages": map[string]any{"pools": true},
+			"logo_sizes": map[string]any{"hosts": "small"},
+		}}})
+	put.mustStatus(t, http.StatusOK, "save band preferences")
+
+	got := h.do(request{method: http.MethodGet, path: "/api/v1/auth/preferences", cookie: aliceCookie})
+	got.mustStatus(t, http.StatusOK, "read band preferences")
+	bands, ok := got.json(t)["bands"].(map[string]any)
+	if !ok {
+		t.Fatalf("bands = %v, want the document that was saved", got.json(t)["bands"])
+	}
+	hidden, _ := bands["hidden"].([]any)
+	if len(hidden) != 2 || hidden[0] != "jobs" || hidden[1] != "kennel" {
+		t.Errorf("hidden = %v, want jobs then kennel", bands["hidden"])
+	}
+	if bands["logo"] != false || bands["logo_size"] != "large" {
+		t.Errorf("logo = %v, size = %v, want hidden at large", bands["logo"], bands["logo_size"])
+	}
+	sizes, _ := bands["sizes"].(map[string]any)
+	if sizes["runners"] != "slim" || sizes["overview"] != "expanded" {
+		t.Errorf("sizes = %v, want runners slim and overview expanded", bands["sizes"])
+	}
+	pages, _ := bands["logo_pages"].(map[string]any)
+	if pages["pools"] != true {
+		t.Errorf("logo_pages = %v, want pools shown", bands["logo_pages"])
+	}
+	logoSizes, _ := bands["logo_sizes"].(map[string]any)
+	if logoSizes["hosts"] != "small" {
+		t.Errorf("logo_sizes = %v, want hosts small", bands["logo_sizes"])
+	}
+
+	other := h.do(request{method: http.MethodGet, path: "/api/v1/auth/preferences", cookie: bobCookie})
+	other.mustStatus(t, http.StatusOK, "read another account's band preferences")
+	if bands, ok := other.json(t)["bands"].(map[string]any); ok && len(bands) != 0 {
+		t.Fatalf("bob inherited alice's bands: %v", bands)
+	}
+}
+
+// The document is opaque to the database, so this handler is the only place a
+// page or a cut is checked. A value this build cannot draw has to be refused
+// with the field it came from, or it would be stored and never shown.
+func TestBandPreferencesRefuseAPageOrCutThisBuildDoesNotHave(t *testing.T) {
+	h := newHarness(t)
+	_, cookie := h.user("alice", store.RoleViewer)
+
+	cases := []struct {
+		name  string
+		bands map[string]any
+		field string
+	}{
+		{"a page with no band", map[string]any{"hidden": []string{"settings"}}, "bands.hidden"},
+		{
+			"a cut this build does not have",
+			map[string]any{"sizes": map[string]any{"runners": "vast"}},
+			"bands.sizes.runners",
+		},
+		{
+			"a dog size this build does not draw",
+			map[string]any{"logo_size": "huge"},
+			"bands.logo_size",
+		},
+		{
+			"a page with no band among the dog's pages",
+			map[string]any{"logo_pages": map[string]any{"audit": true}},
+			"bands.logo_pages.audit",
+		},
+		{
+			"a dog size for a page this build does not have",
+			map[string]any{"logo_sizes": map[string]any{"audit": "large"}},
+			"bands.logo_sizes.audit",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := h.do(request{method: http.MethodPut, path: "/api/v1/auth/preferences", cookie: cookie,
+				body: map[string]any{"bands": tc.bands}})
+			resp.mustStatus(t, http.StatusUnprocessableEntity, tc.name)
+			var env errorEnvelope
+			resp.into(t, &env)
+			if len(env.Errors) == 0 || env.Errors[0].Field != tc.field {
+				t.Fatalf("errors = %+v, want one on %s", env.Errors, tc.field)
+			}
+		})
+	}
+}
+
 // A snooze made in one browser has to hold in the next. The decision belongs to
 // the account, so a second session for the same person sees it and a different
 // person does not.
