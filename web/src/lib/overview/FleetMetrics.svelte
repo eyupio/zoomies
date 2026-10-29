@@ -395,5 +395,11 @@
     .coverage {
       margin-left: 0;
     }
+    /* On a phone the lane wrapped this line onto a second row and pushed the
+       first pool below the fold, to keep clear of a button that floats over
+       whatever is scrolled under it anyway. */
+    .context {
+      padding-inline-end: 0;
+    }
   }
 </style>

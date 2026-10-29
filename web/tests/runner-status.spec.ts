@@ -1,5 +1,12 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { goto, grid, readThrough, waitForRows } from './support/fixtures';
+import {
+  closeColumnPanel,
+  goto,
+  grid,
+  openColumnPanel,
+  readThrough,
+  waitForRows,
+} from './support/fixtures';
 
 /*
  * The words each style draws the same two moments with. Off is what a browser
@@ -76,7 +83,10 @@ async function runStatusChecks(
   await goto(page, '/runners', 'Runners');
   const table = grid(page, 'Runners');
   await waitForRows(table);
-  if (isMobile) await page.getByRole('button', { name: /^Rows\b/ }).tap();
+  if (isMobile) {
+    await (await openColumnPanel(page)).getByRole('button', { name: /^Rows\b/ }).tap();
+    await closeColumnPanel(page);
+  }
   await expect(table.getByRole('columnheader', { name: /Status/ })).toBeVisible();
   await expect(table.getByRole('columnheader', { name: /Zoomies/ })).toHaveCount(0);
   const status = table
@@ -138,7 +148,8 @@ async function runStatusChecks(
     .poll(() => leash.locator('svg').evaluate((svg) => svg.getAnimations({ subtree: true }).length))
     .toBe(0);
   if (isMobile) {
-    await page.getByRole('button', { name: /^Cards\b/ }).tap();
+    await (await openColumnPanel(page)).getByRole('button', { name: /^Cards\b/ }).tap();
+    await closeColumnPanel(page);
     await expect(leash).toBeVisible();
     await leash.tap();
     await expect(tip).toContainText('Host pressure protection');
