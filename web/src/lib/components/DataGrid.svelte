@@ -930,6 +930,19 @@
   const isEmpty = $derived(settled && !error && modelRows.length === 0 && total === 0);
 </script>
 
+{#snippet headingLabel(text: string)}
+  <!--
+    The column's name, with its whole text in a bubble when the column is too
+    narrow for it. A working page at 1440 divides eleven or twelve columns into
+    a frame of about 1150px, so a heading arrives as two or three letters plus
+    an ellipsis; this is what turns that back into words. A heading that fits
+    says nothing, since the words are already in front of the reader.
+  -->
+  <Tooltip bare whenTruncated {text} placement="bottom">
+    <span class="heading-label">{text}</span>
+  </Tooltip>
+{/snippet}
+
 <div class="grid {className}" class:rows={phoneRows} class:custom={hasCustomWidths}>
   <div class="toolbar">
     {#if selectable && selected.length > 0}
@@ -1108,27 +1121,38 @@
                 <!--
                   A heading with help is a button with a dotted rule under it: the
                   bubble is the only place the help is, so something has to say
-                  there is one, and a button is what the keyboard reaches.
+                  there is one, and a button is what the keyboard reaches. The
+                  bubble's heading is the column's own name, because a narrow
+                  column cuts that name to three letters and the help sentence
+                  alone never says which column is being explained.
                 -->
-                <Tooltip bare text={column.help ?? ''} placement="bottom">
-                  {#if column.sortable}
-                    <button
-                      type="button"
-                      class="sort"
-                      class:help-term={Boolean(column.help)}
-                      onclick={() => toggleSort(column)}
-                    >
-                      <span>{column.header}</span>
-                      <span class="arrow" aria-hidden="true">
-                        {#if sort === column.id}{order === 'asc' ? '↑' : '↓'}{/if}
-                      </span>
-                    </button>
-                  {:else if column.help}
-                    <button type="button" class="heading-label help-term">{column.header}</button>
-                  {:else}
-                    <span class="heading-label">{column.header}</span>
-                  {/if}
-                </Tooltip>
+                {#if column.help}
+                  <Tooltip bare title={column.header} text={column.help} placement="bottom">
+                    {#if column.sortable}
+                      <button
+                        type="button"
+                        class="sort help-term"
+                        onclick={() => toggleSort(column)}
+                      >
+                        {@render headingLabel(column.header)}
+                        <span class="arrow" aria-hidden="true">
+                          {#if sort === column.id}{order === 'asc' ? '↑' : '↓'}{/if}
+                        </span>
+                      </button>
+                    {:else}
+                      <button type="button" class="heading-label help-term">{column.header}</button>
+                    {/if}
+                  </Tooltip>
+                {:else if column.sortable}
+                  <button type="button" class="sort" onclick={() => toggleSort(column)}>
+                    {@render headingLabel(column.header)}
+                    <span class="arrow" aria-hidden="true">
+                      {#if sort === column.id}{order === 'asc' ? '↑' : '↓'}{/if}
+                    </span>
+                  </button>
+                {:else}
+                  {@render headingLabel(column.header)}
+                {/if}
               </div>
               <Tooltip bare text="Drag to resize; double-click to restore the default width">
                 <button
@@ -1472,6 +1496,24 @@
     /* The drag is the gesture, so the browser must not read it as a scroll of
        the frame the heading sits in and take the pointer away mid-column. */
     touch-action: none;
+    /*
+      Reordering is the least frequent of the three things a heading does, and
+      a grip in front of every one of them took 20px of a 78px cell from the
+      name. It keeps its box, so nothing moves when it appears, and arrives
+      with the pointer or with the keyboard's focus inside the heading.
+    */
+    opacity: 0;
+    transition: opacity var(--z-motion-fast) var(--z-ease);
+  }
+  th:hover .move,
+  th:focus-within .move,
+  th.dragging .move {
+    opacity: 1;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .move {
+      transition: none;
+    }
   }
   .move:active {
     cursor: grabbing;
@@ -1529,8 +1571,10 @@
   thead th.dragging {
     opacity: 0.55;
   }
-  /* The sort button is the heading, so it has to truncate as the heading does. */
-  .sort > span:first-child {
+  /* The sort button is the heading, so it has to truncate where the heading does.
+     The label is named rather than taken as the button's first child, because
+     the bubble that carries its whole text sits between the two. */
+  .sort .heading-label {
     overflow: hidden;
     text-overflow: ellipsis;
   }

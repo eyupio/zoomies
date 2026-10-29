@@ -43,9 +43,11 @@ export function isBandSize(value: unknown): value is BandSize {
 
 /**
  * The size a page's band has until somebody chooses another. The Overview is the
- * front door and keeps its full stage; every page under it is a working page, where
- * the rows are the point, so its band is the compact one.
+ * front door and keeps its full stage; every page under it is a working page,
+ * where the rows are the point, so its band is the shortest cut. Compact was the
+ * default and still left the first row of Runners and Queue below a 900px
+ * window's fold, which is the one thing a list page may not do.
  */
 export function defaultBandSize(page: BandPage): BandSize {
-  return page === 'overview' ? 'standard' : 'compact';
+  return page === 'overview' ? 'standard' : 'slim';
 }

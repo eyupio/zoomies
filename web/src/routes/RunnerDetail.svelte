@@ -242,7 +242,9 @@
         </span>
       {/if}
       {#if runner.host_name}
-        <span class="crumb">on <a href="/hosts">{runner.host_name}</a></span>
+        <span class="crumb">
+          on <a href={runner.host_id ? `/hosts/${runner.host_id}` : '/hosts'}>{runner.host_name}</a>
+        </span>
       {/if}
       <span class="crumb"><RelativeTime value={runner.created_at} prefix="created" /></span>
     {/if}

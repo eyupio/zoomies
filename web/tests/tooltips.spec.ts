@@ -66,6 +66,13 @@ test('an open tooltip stays attached when its table scrolls and disappears on na
     (node.closest('.scroll') as HTMLElement).style.maxHeight = '110px';
   });
   await trigger.scrollIntoViewIfNeeded();
+  // And into the middle of the window: a bubble with no room under it is held
+  // inside the window rather than following its cell, which is correct and is
+  // not what this test is about.
+  await trigger.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    window.scrollTo(0, window.scrollY + rect.top - window.innerHeight / 2);
+  });
   // Focus keeps the tooltip open while the pointer is outside the table.
   await trigger.evaluate((node) => {
     node.tabIndex = 0;
@@ -484,6 +491,20 @@ test.describe('the shared tooltip', () => {
       return { transform: s.textTransform, tracking: s.letterSpacing, align: s.textAlign };
     });
     expect(voice).toEqual({ transform: 'none', tracking: 'normal', align: 'start' });
+  });
+
+  test('a heading cut short by its column says its whole name on hover', async ({ page }) => {
+    await goto(page, '/pools', 'Pools');
+    // Twelve columns divide a frame of about 1150px, so this heading arrives as
+    // "I…" with an ellipsis. Reading a table should not need the column chooser.
+    const heading = page.locator('thead th[data-table-column="idle_timeout"]');
+    await expect(heading).toContainText('Idle timeout');
+    await heading.hover();
+    await expect(page.locator('.bubble:popover-open')).toContainText('Idle timeout');
+
+    // A heading with room says nothing: its words are already in front of the reader.
+    await page.locator('thead th[data-table-column="name"]').hover();
+    await expect(page.locator('.bubble:popover-open')).toHaveCount(0);
   });
 
   test('a row action that cannot be used says why, and can still be pointed at', async ({

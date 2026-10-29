@@ -38,7 +38,9 @@
     <dt>Host</dt>
     <dd>
       {#if runner.host_name || runner.host_id}
-        <a href="/hosts">{runner.host_name ?? runner.host_id}</a>
+        <a href={runner.host_id ? `/hosts/${runner.host_id}` : '/hosts'}
+          >{runner.host_name ?? runner.host_id}</a
+        >
       {:else}
         <span class="none">Not placed yet</span>
       {/if}

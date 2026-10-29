@@ -249,6 +249,14 @@ test('opening a runner shows its detail page and its state timeline', async ({ p
   // trims whitespace at the end of a block, so the space after the prefix has to
   // be written rather than left to a line break.
   await expect(page.locator('time', { hasText: /^created \S/ })).toBeVisible();
+  // The host it is on is one click away, and the click goes to that host rather
+  // than to the list of every host: the question after "which host" is always
+  // "is that host healthy", and the answer is on the host's own page.
+  const host = page.getByRole('link', { name: FIXTURE.busyRunnerHost, exact: true }).first();
+  await expect(host).toHaveAttribute('href', /^\/hosts\/host_demo\w+$/);
+  await host.click();
+  await expect(page).toHaveURL(/\/hosts\/host_demo\w+$/);
+  await expect(pageHeading(page, FIXTURE.busyRunnerHost)).toBeVisible();
 });
 
 test('the keyboard alone moves through the rows and opens one', async ({ page }) => {
