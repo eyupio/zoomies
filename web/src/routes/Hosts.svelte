@@ -548,13 +548,13 @@
   onrefresh={refreshPage}
 >
   {#snippet meta()}
-    {#if fleet.loaded && hosts.length > 0}
-      <p class="summary">
-        {pluralise(hosts.length, 'host')} · {connected} connected · {inUse} of {capacity} runner slots
-        in use {#if hosts.some((h) => h.connection === 'tailcat')}
-          · {hosts.filter((h) => h.connection === 'tailcat').length} via Tailcat{/if}
-      </p>
-    {/if}
+    <!--
+      The figures this line used to carry (how many hosts, how many connected,
+      how many slots in use) are the band's sentence and the tiles under it: the
+      page said the same three numbers three times within 400px. What is left is
+      the one thing only a line of text can say, which is why an update cannot be
+      offered. Traffic over Tailcat is said by the host cards themselves.
+    -->
     {#if rolloutAction.kind === 'off'}
       <!-- The reason is text beside the action, as on a host's card: a phone has no hover. -->
       <p class="summary">{rolloutAction.sentence}</p>
