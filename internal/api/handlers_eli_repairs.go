@@ -117,6 +117,15 @@ func (s *Server) handleEliRepairs(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "listing Eli repairs", err)
 		return
 	}
+	// Source-bearing responses belong to one attempt's detail read, not every
+	// history poll or the fleet tools that read that list.
+	for _, row := range rows {
+		for i := range row.Details.Steps {
+			row.Details.Steps[i].Response = ""
+			row.Details.Steps[i].ResponseRecorded = false
+			row.Details.Steps[i].ResponseTruncated = false
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": rows, "total": total})
 }
 
@@ -450,6 +459,7 @@ func (s *Server) handleEliReadiness(w http.ResponseWriter, r *http.Request) {
 // cleared from the history still opens; clearing tidies the list, and a link a
 // person kept should not stop working because they did.
 func (s *Server) handleGetEliRepair(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	owner, scoped := eliRepairScope(r, auth.ActionAssistantRead)
 	row, err := s.ctrl.Store().GetEliRepair(r.Context(), chiURLParam(r, "id"), owner, scoped)
 	switch {

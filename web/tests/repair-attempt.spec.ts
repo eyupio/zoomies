@@ -153,6 +153,11 @@ test('a repair that could not fix the failure says why and what to try next', as
               usage_reported: true,
               request_bytes: 80_312,
               elapsed_ms: 41_000,
+              response_recorded: true,
+              response:
+                '{"read":["a.go"],"files":[...]}\n<script>throw new Error("untrusted")</script>',
+              validation_error: 'Do not combine source requests with changes',
+              response_truncated: true,
             },
             {
               input_tokens: 0,
@@ -206,6 +211,30 @@ test('a repair that could not fix the failure says why and what to try next', as
   await expect(tech).toContainText('Preparing the fix');
   await expect(tech).toContainText('unsupported_fix');
   await expect(tech.getByRole('button', { name: 'Copy investigation details' })).toBeVisible();
+  const response = tech.locator('details.response').first();
+  await response.locator('summary').click();
+  await expect(response).toContainText('Do not combine source requests with changes');
+  await expect(response).toContainText('shortened to the 96 KiB retention limit');
+  await expect(response.locator('pre')).toContainText(
+    '<script>throw new Error("untrusted")</script>',
+  );
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          document.documentElement.dataset.copiedResponse = value;
+        },
+      },
+    });
+  });
+  await response.getByRole('button', { name: 'Copy model response 1', exact: true }).click();
+  expect(await page.evaluate(() => document.documentElement.dataset.copiedResponse)).toBe(
+    '{"read":["a.go"],"files":[...]}\n<script>throw new Error("untrusted")</script>',
+  );
+  const oldResponse = tech.locator('details.response').nth(1);
+  await oldResponse.locator('summary').click();
+  await expect(oldResponse).toContainText('Response not retained for this older call');
 
   const facts = page.getByRole('complementary', { name: 'This attempt' });
   await expect(facts).toContainText('Took');

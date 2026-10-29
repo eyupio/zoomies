@@ -26,11 +26,16 @@ type EliRepairPolicy struct {
 	DailyLimit     int    `json:"daily_limit"`
 }
 type EliRepairStep struct {
-	InputTokens   int   `json:"input_tokens"`
-	OutputTokens  int   `json:"output_tokens"`
-	UsageReported bool  `json:"usage_reported"`
-	RequestBytes  int   `json:"request_bytes"`
-	ElapsedMS     int64 `json:"elapsed_ms"`
+	InputTokens       int    `json:"input_tokens"`
+	OutputTokens      int    `json:"output_tokens"`
+	UsageReported     bool   `json:"usage_reported"`
+	RequestBytes      int    `json:"request_bytes"`
+	ElapsedMS         int64  `json:"elapsed_ms"`
+	Response          string `json:"response,omitempty"`
+	ResponseRecorded  bool   `json:"response_recorded,omitempty"`
+	ResponseTruncated bool   `json:"response_truncated,omitempty"`
+	Error             string `json:"error,omitempty"`
+	ValidationError   string `json:"validation_error,omitempty"`
 }
 
 // MaxEliRepairCaseJobs is how many failed jobs a repair's case names. A run can
