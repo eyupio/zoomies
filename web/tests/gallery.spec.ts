@@ -195,6 +195,10 @@ test('a fresh phone grid follows the style fallback: Cards in Mission Control, R
     await open(page, style, 'light');
     await page.setViewportSize({ width: 375, height: 900 });
     const region = page.getByRole('region', { name: 'Data grid' });
+    // The layout choice lives inside the column panel, which is where the rest
+    // of "how this grid is drawn" is: on a phone it was a second control beside
+    // the Columns button, answering the same question twice.
+    await region.getByRole('button', { name: 'Columns', exact: true }).click();
     await expect(
       region.getByRole('button', { name: new RegExp(`^${view}`) }),
       `${style} starts a fresh phone grid as ${view}`,
@@ -408,9 +412,6 @@ test('the Eli repair components show every state they can be in', async ({ page 
 
   // The progress track puts its mark on the step the worker is on, and the steps
   // either side say what is done and what is to come.
-  for (const name of ['progress-queued', 'progress-preparing', 'progress-watching']) {
-    await region.locator(`[data-gallery="${name}"]`).getByText('Show the steps').click();
-  }
   const track = (name: string) =>
     region
       .locator(`[data-gallery="${name}"]`)
@@ -461,7 +462,7 @@ test('the Eli repair components show every state they can be in', async ({ page 
 
   // What to try next: the advice for the code, a short list for a success, and the generic advice otherwise.
   await expect(region.locator('[data-gallery="next-failed"]')).toContainText(
-    'Add a note naming the file or the test',
+    'Add a note that points at the file or the test',
   );
   await expect(
     region
@@ -472,7 +473,7 @@ test('the Eli repair components show every state they can be in', async ({ page 
   await expect(passedNext.getByRole('heading', { name: 'What to do next' })).toBeVisible();
   await expect(passedNext.getByRole('link', { name: 'Try another attempt' })).toHaveCount(0);
   await expect(region.locator('[data-gallery="next-unknown"]')).toContainText(
-    'Add a note naming the file or the test',
+    'Add a note that points at the file or the test',
   );
   await expect(
     region
@@ -482,7 +483,7 @@ test('the Eli repair components show every state they can be in', async ({ page 
 
   // The facts leave out what the row does not have, and the timeline holds the moments it recorded.
   const running = region.locator('[data-gallery="facts-running"]');
-  await expect(running).toContainText('Personal provider');
+  await expect(running).toContainText('Preparing the fix');
   await expect(running).not.toContainText('Commit pushed');
   const done = region.locator('[data-gallery="facts-finished"]');
   await expect(done.getByRole('link', { name: /b7d3e91/ })).toHaveAttribute(
@@ -497,7 +498,7 @@ test('the Eli repair components show every state they can be in', async ({ page 
   // The hub's setup bar says whether the person can repair, in each state it can be in.
   const bars = region
     .locator('[data-gallery="setup-bars"]')
-    .getByRole('region', { name: 'Repair settings' });
+    .getByRole('region', { name: 'Repair setup' });
   await expect(bars.nth(0)).toContainText('Ready to repair');
   await expect(bars.nth(0)).toContainText('GitHub @dana linked');
   await expect(bars.nth(0)).toContainText('Ask me first on 3 repositories');
@@ -507,7 +508,7 @@ test('the Eli repair components show every state they can be in', async ({ page 
   await expect(bars.nth(2)).toContainText('No GitHub account linked');
   await expect(bars.nth(3)).toContainText('Sign-in is off');
   await expect(bars.nth(4)).toContainText('Checking setup');
-  await expect(bars.nth(0).getByRole('link', { name: /Open settings/ })).toHaveAttribute(
+  await expect(bars.nth(0).getByRole('link', { name: /Manage setup/ })).toHaveAttribute(
     'href',
     '/repairs/setup',
   );
@@ -519,7 +520,7 @@ test('the Eli repair components show every state they can be in', async ({ page 
   await expect(offers.getByRole('article').first()).toContainText('step 4, Install browsers');
   await expect(offers.getByRole('article').nth(1)).toContainText('step 5, Run the unit tests');
   await expect(
-    offers.getByRole('link', { name: 'Review fix for eyupio/zoomies #1142' }),
+    offers.getByRole('link', { name: 'Review repair for eyupio/zoomies #1142' }),
   ).toHaveAttribute('href', /\/repairs\/new\?.*offer=opp_1/);
   expect(await offers.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 
