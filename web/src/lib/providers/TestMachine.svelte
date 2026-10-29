@@ -26,9 +26,16 @@
     /** The page's own live list of this provider's machines, kept current by events. */
     machines: readonly Machine[];
     canOperate?: boolean;
+    /**
+     * Whether the controller is renting at all. When it is not, the notice above
+     * this panel already gives the controller's own sentence for it, with the
+     * way to turn it on, so the line under the button says only what the button
+     * cannot do.
+     */
+    rentingOff?: boolean;
   }
 
-  let { provider, machines, canOperate = false }: Props = $props();
+  let { provider, machines, canOperate = false, rentingOff = false }: Props = $props();
 
   /** The test machine as last seen, which outlives its row once it is released. */
   let remembered = $state<Machine | null>(null);
@@ -82,7 +89,14 @@
     !canOperate
       ? 'Running a test needs the operator role.'
       : provider.held
-        ? provider.held
+        ? // The provider's own sentence, which names it and the switch that is
+          // holding it. Renting off for the whole controller is said by the
+          // notice above the panel, and repeating it here said one paragraph
+          // twice on one screen, so this line then says what the button cannot
+          // do and leaves the reason to the notice.
+          rentingOff
+          ? 'A test machine cannot start while renting is off.'
+          : provider.held
         : (provider.max_machines ?? 0) <= (provider.owned ?? 0)
           ? 'There is no room under this provider’s maximum machines. Raise it in Settings first.'
           : '',

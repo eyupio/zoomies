@@ -44,7 +44,7 @@
   import DropdownMenu from '../components/DropdownMenu.svelte';
   import Logo from '../components/Logo.svelte';
   import type { MenuItem } from '../components/DropdownMenu.svelte';
-  import { SECTIONS, isCurrentSection } from './sections';
+  import { SECTIONS, isCurrentSection, ownsItsBreadcrumb } from './sections';
   import { signIn, signOut } from './signout';
 
   interface Props {
@@ -84,7 +84,11 @@
     section &&
       section.path !== '/' &&
       router.pathname !== section.path &&
-      router.title !== section.label
+      router.title !== section.label &&
+      // A page that draws its own breadcrumb has already said this, in the
+      // header it belongs to. The top bar keeps the trail only where the page
+      // has none of its own: Settings' pages and the Jobs list.
+      !ownsItsBreadcrumb(router.pathname)
       ? section
       : null,
   );
