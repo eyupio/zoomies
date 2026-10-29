@@ -69,6 +69,10 @@ the row in `progress.md` is the record of what shipped.
   and the moments the platform must timestamp.
 * [tailcat-private-hosts.md](tailcat-private-hosts.md): private runner hosts
   through Tailcat.
+* [ui-audit-2026-10-29.md](ui-audit-2026-10-29.md): the review of the signed-in
+  pages at `0730e77b`, 29 October 2026: what an operator meets after signing in,
+  which figures should be links, and what takes the first screen away from the
+  records. It follows the first UI audit, which is in `archive/`.
 
 ## Outside this folder
 
