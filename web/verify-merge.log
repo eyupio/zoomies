@@ -1,0 +1,1774 @@
+
+> zoomies-web@0.1.0 check
+> svelte-check --tsconfig ./tsconfig.json --threshold warning && svelte-check --tsconfig ./tsconfig.unit.json --threshold warning
+
+Loading svelte-check in workspace: /workspace/web
+Getting Svelte diagnostics...
+
+svelte-check found 0 errors and 0 warnings
+Loading svelte-check in workspace: /workspace/web
+Getting Svelte diagnostics...
+
+svelte-check found 0 errors and 0 warnings
+
+> zoomies-web@0.1.0 test:unit
+> node --import ./unit/register.mjs --test unit/*.test.ts
+
+✔ the formatters and the pages agree on one marker for a missing value (0.69544ms)
+✔ no source file writes a missing value with a dash of its own (32.792008ms)
+✔ activation requires a repository within the selected installation target (0.76604ms)
+✔ activation uses the configured enterprise web origin and refuses unsafe or unknown origins (0.2261ms)
+✔ queue cancellation overrides priority and pause without claiming work is running (0.75386ms)
+✔ workflow pack preserves outcomes and cancellation precedence (0.25313ms)
+✔ a run with a failed job says so before GitHub has finished the run (0.24827ms)
+✔ turning the kennel vocabulary off gives the plain status word instead, motion unchanged (0.1606ms)
+✔ with the vocabulary off, no queue or workflow status is drawn with an action icon (0.24577ms)
+✔ a job somebody pressed Run now on is not drawn like the ready rows around it (0.1107ms)
+✔ a calendar of weeks ends today and starts on a Monday, in local time (0.89763ms)
+✔ bucket i is calendar day i even across a clock change (0.535689ms)
+✔ a window that starts mid-week leaves the earlier weekdays blank (0.61984ms)
+✔ the month label gives way when two would sit side by side (0.21774ms)
+✔ the API is laid over an empty window, so a quiet fortnight still has its squares (0.20879ms)
+✔ groups are added back together into one fleet series, oldest first (0.26694ms)
+✔ hourly buckets are placed by the local hour they started at (0.36969ms)
+✔ darkness is quarters of the busiest square, and a failure share has fixed bands (0.15183ms)
+✔ outcomes paint a square by what finished, and say which kind it is (0.29688ms)
+✔ the other modes recolour by their own figure (0.27979ms)
+✔ a square says everything it knows in one sentence (0.66174ms)
+✔ a job frame lands in the square its moment belongs to, and only once (3.68159ms)
+✔ a moment outside the series has no square (0.10017ms)
+✔ a quick range is the last N days, today included, in the width asked for (0.17609ms)
+✔ a month and a quarter cut every day into the same squares (0.13791ms)
+✔ a sliced calendar puts a day's squares side by side in its weekday's row (0.21914ms)
+✔ a slice says the stretch of the day it is, weekday and all (0.30274ms)
+✔ a calendar too cramped for month names gets their initials (0.3664ms)
+✔ a window of any length is drawn in the squares the Overview uses for one as long (0.13572ms)
+✔ a fleet with no failed AI Context run has nothing to show (0.63203ms)
+✔ only failed AI Context runs count, whatever else is wrong (0.14795ms)
+✔ the badge is drawn as the worst run that failed (0.12586ms)
+✔ it says how many repositories in words, one or several (0.12244ms)
+✔ an address names a repository only by a positive whole number GitHub could have given (0.7586ms)
+✔ the installation step says no repository is chosen, unless the person came from one (0.12751ms)
+✔ a repository that could not be chosen is said so, and why (0.20038ms)
+✔ a source reader is its own state, not a draft they cannot own (0.65822ms)
+✔ a known freshness state is the state, whatever the flags say (0.13944ms)
+✔ a setup that has not published yet says which step it is on (0.11904ms)
+✔ a diagnosis with no freshness is something to act on, and a bare draft is not (0.09814ms)
+✔ the three groups are disjoint and cover the states a person acts on (0.17343ms)
+✔ what a runner was given is said with the figure and where it came from (0.93808ms)
+✔ a figure with no source is still a figure, and no figure is nothing (0.13168ms)
+✔ confidence reads as words, with its reason when there is one (0.85152ms)
+✔ a step links its code to the catalog page the controller gave it (0.61202ms)
+✔ a step with neither setting nor code is its text alone (0.10559ms)
+✔ a step link that is not a web address is not followed (0.1321ms)
+✔ a page with no window of its own leaves since to the route (0.2465ms)
+✔ a window ending after now ends now (0.15251ms)
+✔ a window that does not end after it starts asks nothing (0.10349ms)
+✔ a window nothing is asked of says why, whichever way it is empty (0.1836ms)
+✔ Ask Eli is handed the finding the card shows (0.30655ms)
+✔ Ask Eli is told which pool or host the card was narrowed to, and to pass it (0.45491ms)
+✔ a job's names skip the empty ones (0.21518ms)
+✔ the card wears no status colour (0.17703ms)
+✔ the card never renders text as markup (0.0899ms)
+✔ the queue-wait card names its scope and the filters it cannot apply (0.26939ms)
+✔ a chosen provisioning filter is named, the default one is not (0.12777ms)
+✔ the unmatched filter is named (0.11968ms)
+✔ the Include other runners switch is named when it is on, and only then (0.13928ms)
+✔ the failed runners card names its scope and the search it cannot apply (0.20414ms)
+✔ a finding describes its own period, and a comparison each side (0.21789ms)
+✔ a refusal is told apart from a failed request (0.34237ms)
+✔ too few releases is said as the Usage card can act on it (0.16362ms)
+✔ a server failure names the request to quote (0.17573ms)
+✔ a threshold reads as the summary says it (0.14592ms)
+✔ the longest waits name the unclaimed jobs as unclaimed (0.20629ms)
+✔ the Failed card says it covers every job and names the filters it leaves out (0.16205ms)
+✔ the Ask Eli button wears the tokens the corner avatar wears (0.7632ms)
+✔ the Ask Eli button wiggles on arrival and on hover, unless motion is reduced (0.260939ms)
+✔ the assistant provider card uses no runner status tone (0.740829ms)
+✔ a passed check names the model, the latency and whether usage came back (0.61428ms)
+✔ a failed check reads its error, and no check reads as never tested (0.12427ms)
+✔ an answer is paragraphs, and a single newline inside one is a line break (2.923649ms)
+✔ bold, italic and code are marked, and what is inside keeps its own marks (0.43444ms)
+✔ an underscore inside a word is part of the word (0.16153ms)
+✔ a mark that never closes, or is not hugging its text, stays as the characters it was (0.15824ms)
+✔ a backslash makes the next mark an ordinary character (0.18797ms)
+✔ headings of every depth draw as one of three, and keep their words (0.18953ms)
+✔ bullets, numbers and a list inside a list (0.40078ms)
+✔ a list with a blank line between items is one list, and prose after it is not in it (0.1963ms)
+✔ numbers after bullets are a list of their own, and bullets after numbers too (0.29896ms)
+✔ a bold phrase at the start of a line is not a bullet (0.21075ms)
+✔ fenced code is kept as written, and one still being typed is code, not prose (0.25132ms)
+✔ a quote holds blocks, and a table has a header, alignment and rows of the same width (0.40033ms)
+✔ a line with a pipe and no separator row is a paragraph (0.08869ms)
+✔ only http and https addresses become links, whatever they are called (0.40355ms)
+✔ a scheme hidden by a control character is not a link (0.13546ms)
+✔ an address with a space or a control character in it is not a link at all (0.09863ms)
+✔ an underscore or a star that does not hug its text is a character (0.13107ms)
+✔ a bare address is a link without the punctuation that ends the sentence (0.23898ms)
+✔ markup a model writes is text: tags and handlers stay as the characters they are (0.14024ms)
+✔ nesting is bounded, so a hostile answer cannot grow the tree without limit (0.66301ms)
+✔ a very long answer is parsed in time (623.002438ms)
+✔ an empty or blank answer is no blocks (0.16982ms)
+✔ Ollama Cloud, OpenCode Zen and OpenCode Go are presets of the OpenAI-compatible kind, at their addresses (0.78977ms)
+✔ a new provider starts as Ollama Cloud, and the presets have unique ids (0.192689ms)
+✔ a saved provider opens on the preset it was added as (0.2723ms)
+✔ a Claude subscription is a preset of its own kind, with no address and the person’s own plan said (1.53881ms)
+✔ the provider that answers is the default when it may be used, and otherwise the first that may (0.20535ms)
+✔ Codex and Copilot are subscriptions of their own kinds, with no address and no list of models (0.21655ms)
+✔ exactly the subscription kinds are the ones the page asks nothing of but a name and a model (0.1095ms)
+✔ a personal default answers before an installation default (0.11214ms)
+✔ nothing hidden says nothing (0.73236ms)
+✔ what was hidden is counted in words, singular and plural (0.12303ms)
+✔ a setting toast is titled by the row label, and by the key when there is no row (0.56642ms)
+✔ the frames of an answer are read in order (1.60957ms)
+✔ a done frame says when the answer was cut, on which provider, and at what limit (0.17929ms)
+✔ a frame cut anywhere by the network is read once it is whole (2.10578ms)
+✔ carriage returns, heartbeats and frames from a newer controller are ignored (0.18496ms)
+✔ text with newlines and characters beyond one byte survives (0.17954ms)
+✔ a frame that never ends is held and not guessed at (0.09337ms)
+✔ a look at the fleet is a frame, and the end says which tools were used (0.17134ms)
+✔ a tool frame with a status this page does not know is left unsaid (0.160329ms)
+✔ the end says how many credentials and email addresses were hidden, and nothing odd is believed (0.31637ms)
+✔ a tool is called by what it shows, and one nobody named is its own words (0.655099ms)
+✔ the provider tools are named for what a person would call them (0.1083ms)
+✔ the catalog is named as what it is, not by its route (0.09558ms)
+✔ the fleet window is named for what it shows (0.12033ms)
+✔ the analysis tools are named for the question each answers (0.09486ms)
+✔ a pool is automatic only when the controller says it keeps it (0.65048ms)
+✔ the middle setting is called what it does, not what it is spelled (0.12166ms)
+✔ each switch says what it does at each setting, and never promises what it cannot (0.24867ms)
+✔ a change the controller has not made is worded as one it would make (0.10321ms)
+✔ a class says where it ends, and the largest says it has no end (10.933049ms)
+✔ zero is not a number for a warm count or a cap (0.13442ms)
+✔ an architecture is said the way the controller says it (0.12651ms)
+✔ moving to the process backend turns off what a process cannot have (1.29271ms)
+✔ a pool that has neither is sent only what it always was, and told nothing extra (0.19508ms)
+✔ each of the two is named alone when only one was on (0.16169ms)
+✔ moving between container backends changes the backend and nothing else (0.11185ms)
+✔ the strip says how much is queued, what is running, then each provisioning status (1.33414ms)
+✔ a count that has not arrived is not drawn as zero (0.15865ms)
+✔ one queued job is singular, and the oldest shows only when there is one (1.19341ms)
+✔ on the runners page, Running narrows the list on this page instead of opening one (0.25442ms)
+✔ a pool filter narrows every link to that pool (0.16627ms)
+✔ pools say how many are enabled, how full they are and which are at the ceiling (0.78755ms)
+✔ the queue names how many jobs wait, and says so when none does (0.15115ms)
+✔ jobs say what is running and what finished in the window, by the numbers (0.97191ms)
+✔ workflows count the jobs in flight, running and waiting (0.15282ms)
+✔ hosts say how many are connected and how many slots are in use (0.17729ms)
+✔ providers say how many machines they own and what needs review (0.15805ms)
+✔ a window is worded as a period, never as "the last 1 hour" (0.15633ms)
+✔ installations say how many Apps there are, and what needs a look (0.1371ms)
+✔ migrate says what the wizard will do before it asks for anything (0.14872ms)
+✔ Kennel Club says what needs attention, and names the first repository (0.39785ms)
+✔ Kennel Club tells a repository somebody set aside from one never checked (0.10691ms)
+✔ a dog size this build does not draw is not accepted, and auto is the default (0.6323ms)
+✔ figures sit in the band on a desktop and alone only on a phone while the band is drawn (0.61454ms)
+✔ figures stand alone whenever the band is off (0.11429ms)
+✔ figures that loaded are not hidden because the sentence over them did not (0.08653ms)
+✔ there is nothing to place without figures (0.10988ms)
+✔ a cut applies to the pages a change was scoped to, and only those (0.88305ms)
+✔ the dog can be changed or removed per page, and put back on the default (0.2288ms)
+✔ changing the dog in Appearance puts every page back in step (0.24025ms)
+✔ switching bands off keeps the hidden list in Appearance order (0.68299ms)
+✔ this page means one page, every page means all of them in listing order (1.042299ms)
+✔ a picked set is the pages that exist, not the order they were ticked (0.14244ms)
+✔ a list of pages reads as a sentence at every length (0.20562ms)
+✔ a document this build cannot draw falls back field by field (1.2409ms)
+✔ an empty or foreign document is the defaults, not a failure (0.23477ms)
+✔ what is written back carries every field and survives a read (0.19314ms)
+✔ the document is a copy, so a later change does not rewrite what was sent (0.13946ms)
+✔ the Overview opens on a standard band and every other page on a compact one (0.63327ms)
+✔ the four cuts are sizes, in order from the shortest band to the tallest (0.611739ms)
+✔ the totals add every row, and a wait is weighted by the jobs that started (0.87234ms)
+✔ the figures are the page: queued, success, failures, hours and the average wait (0.93815ms)
+✔ every figure points at the report on the page when a section is given (1.15002ms)
+✔ a grouping that cannot attribute runner time has no busy share (0.17613ms)
+✔ a missing success rate is the shared placeholder, and a short runner history is not claimed as a share (0.21363ms)
+✔ the sentence is made from the same totals, and an empty range says so (0.20495ms)
+✔ a range with jobs but no finished ones does not invent a success rate (0.11473ms)
+✔ a space written at the start of a block is a lost space when text comes before the block (6.87081ms)
+✔ a space written at the end of a block is a lost space when text follows the block (0.33535ms)
+✔ the fixes this check was written for are not flagged (1.16024ms)
+✔ punctuation that belongs against its neighbour is allowed to lose its space (0.33028ms)
+✔ a block with nothing to lose, or nothing touching it, is not flagged (0.5413ms)
+✔ the finding says where it is (0.24732ms)
+✔ no page in the UI continues a sentence across the edge of a block (796.374976ms)
+✔ run from a path with nothing unusual in it, the check still finds the lost space (203.707526ms)
+✔ run from a path with a space in it, the check still finds the lost space (200.348306ms)
+✔ run from a path with a letter outside ASCII in it, the check still finds the lost space (206.969536ms)
+✔ run from a path with a percent sign in it, the check still finds the lost space (201.504777ms)
+✔ imported from a snippet that has no script path, the check neither runs nor throws (200.647926ms)
+✔ a release build is named by its tag and links to the release (0.73693ms)
+✔ a dev build is named by its commit and links to it (0.18161ms)
+✔ a local build is labelled as one and links nowhere (0.1228ms)
+✔ nothing is said before the controller has answered (0.08879ms)
+✔ build output survives every chunk boundary without including runner diagnostics (2.38715ms)
+✔ build scrollback is bounded and clearing preserves capture support (0.24216ms)
+✔ build logs preserve relay failures and lost-output warnings (0.28195ms)
+✔ a reconnect leaves a seam in the build log so a replayed backlog is not mistaken for new output (0.2658ms)
+✔ the seam lands in the same place however the stream is cut into chunks (1.7369ms)
+✔ a reconnect before any build output adds no seam (0.12416ms)
+✔ build headings, commands and errors are readable in both terminal and saved text (0.14909ms)
+✔ a burst of 100000 build lines keeps its bounded scrollback without exhausting the stack (44.938567ms)
+✔ the real entrypoint captures full masked console output and keeps the runner exit code (123.143991ms)
+✔ the real entrypoint hands a build line on while the runner is still running (20.146729ms)
+✔ the real entrypoint reports the runner exit status although a step left a process holding its output (2257.636147ms)
+✔ GitHub identities stay exact strings and are never rounded through a number (0.73612ms)
+✔ a selection the server would refuse is refused before any request (0.416ms)
+✔ a checkout time is shown as a measurement in seconds (10.139399ms)
+✔ attempt selections preserve exact identities and reject rounding or duplicate cohorts (1.501949ms)
+✔ absent measurements stay distinct from observed zero (10.15508ms)
+✔ Cute keeps its existing gait and speed tiers when Standard changes style (1.27544ms)
+✔ every state holds a pose that separates it at grid size (0.42564ms)
+✔ a state this build does not recognise falls back to the questioning pose (1.06421ms)
+✔ every design token a component reads is defined somewhere (33.242598ms)
+✔ every design token tokens.css defines is read somewhere, or is unread on purpose (33.218327ms)
+✔ a job context carries the verdict and reads as one paragraph (0.89895ms)
+✔ a pool context has the limits, the counts and a utilisation when there is one (0.19854ms)
+✔ a finding context names the repository and leaves the agent prompt out (0.2025ms)
+✔ a usage context totals the rows and withholds what is not attributable (0.31868ms)
+✔ a transcript keeps the words and leaves out failures and the turn in flight (1.11754ms)
+✔ a refused question is neither sent as history nor kept (0.2139ms)
+✔ a question whose answer failed is still history, and the failed answer is not (0.11034ms)
+✔ a kept conversation becomes turns that carry on the id counter (0.1273ms)
+✔ Eli sits above every other layer (0.8707ms)
+✔ Eli is exempt from the inert an overlay puts on the page (0.23672ms)
+✔ an Ask Eli action starts a fresh conversation (0.21386ms)
+✔ the thinking dog stays for as long as the answer is streaming, words or not (1.20016ms)
+✔ a message is measured in UTF-8 bytes of its trimmed text (0.81033ms)
+✔ sizes read in KiB to one decimal, the way the controller says them (0.12461ms)
+✔ trimming leaves a message that already fits exactly as it was (0.74078ms)
+✔ keeping the end keeps the newest lines and starts on a whole line (1.44805ms)
+✔ keeping the start keeps the oldest lines and ends on a whole line (0.30812ms)
+✔ a paste with no line breaks is cut at the limit without splitting a character (0.35247ms)
+✔ a smaller limit is honoured when one is given (0.14669ms)
+✔ lines ending in a carriage return are cut cleanly (0.24566ms)
+✔ only a request the controller refused for what it said is a refusal (0.18183ms)
+✔ a refusal says whether the newest message, an older one or the whole thread is at fault (0.33055ms)
+✔ every starting point visits all quotes without repetition and all six routines (1.43476ms)
+✔ context keeps measured zero and false, omits absent facts, and names the snapshot (0.71905ms)
+✔ context tells the model the snapshot is not instead of its tools (0.17723ms)
+✔ the follow-up block is read out of the answer and never shown (0.72102ms)
+✔ a half-streamed block or tag is withheld, and an unclosed one suggests nothing (0.11684ms)
+✔ the button that raises the output limit says that a repair then keeps the number (0.70573ms)
+✔ the sheet takes the visual viewport as its top and height (0.77372ms)
+✔ a browser without a visual viewport leaves the sheet to the CSS (0.11571ms)
+✔ fractional viewport sizes are written whole, so the sheet never shows a seam (0.12985ms)
+✔ the general list stands without fleet access, and the open question leads with it (0.80094ms)
+✔ a fleet with problems, a queue, failures and a sick host asks about those first (0.25753ms)
+✔ an open problem makes what changed lately the second question (0.22073ms)
+✔ quieter fleets fill the list from the host, the next problem and the defaults (0.60937ms)
+✔ a browser that has never chosen gets short answers for an operator (1.11597ms)
+✔ a server refusal is capitalised and given a full stop without changing a word (0.80276ms)
+✔ a message that opens with an identifier keeps it exactly as written (0.12993ms)
+✔ a message that ends in an address or a path gains no full stop (0.12997ms)
+✔ a failed release check shows the controller sentence and not the generic server error (0.27665ms)
+✔ a server failure with no sentence of its own still gets the generic text (0.16994ms)
+✔ every category has a label and a sentence (0.63721ms)
+✔ a category this build does not know reads as itself, never as nothing (0.17172ms)
+✔ the domain is the server's answer, and the fallback never blames a workflow (0.16088ms)
+✔ a domain the server sends that this build does not know falls back rather than being trusted (0.09062ms)
+✔ an automatic change carries its reason, and an operator’s own action has none (0.68997ms)
+✔ every automatic change has a title, and an operator’s action is not one (0.21019ms)
+✔ an automatic change is about something by name, not by the id the row carries (0.19412ms)
+✔ a host that has only moved its CPU reading is not news (1.38845ms)
+✔ a host is reported when it stops answering and again when it comes back (0.18548ms)
+✔ every rung of the throttle ladder is its own line, and calm is one line (0.13614ms)
+✔ a host holding new runners under pressure says so once, and says when it stops (0.1785ms)
+✔ a runner reaching idle for the first time is the success worth reporting (0.12601ms)
+✔ a runner coming back from a job is not ready news again (0.08871ms)
+✔ the states on the way up are not milestones (0.07933ms)
+✔ a runner is reported when its elastic CPU state changes, not when the factor moves (0.10184ms)
+✔ a runner already lent CPU when this tab opened is not news (0.10952ms)
+✔ a host nobody here has seen before has joined the fleet (0.2514ms)
+✔ two things going wrong on one host are two lines, worst first (0.11074ms)
+✔ a refreshed report with the same verdict is not news (0.17803ms)
+✔ the first report a host ever sends is a baseline and says nothing (0.10945ms)
+✔ a host that starts needing attention says so once, and a worse verdict says it again (0.09177ms)
+✔ more warnings, or fewer, are not a new verdict (0.10304ms)
+✔ an error easing to a warning is not clear, and only reaching zero is (0.12245ms)
+✔ a pending reboot is announced when it appears, not while it stays (0.08478ms)
+✔ a verdict and a reboot arriving together are two lines, the verdict first (0.06548ms)
+✔ a container’s partial report is not a verdict (0.05869ms)
+✔ swapping between a full report and a partial one says nothing either way (0.05838ms)
+✔ a host that goes unreachable says nothing about its health (0.07169ms)
+✔ a host’s reachability comes before what its report says (0.0699ms)
+✔ a host with no count reads as not reported, and never throws (0.13491ms)
+✔ a machine is reported when it starts costing money, earns it, or goes wrong (0.09801ms)
+✔ the steps on the way up are progress rather than news (0.05849ms)
+✔ a machine republished in the state it is already in says nothing (0.05147ms)
+✔ a finished job lands in the category its ending belongs to (0.15628ms)
+✔ a job that has not finished is not news yet (0.06428ms)
+✔ a job whose runner stopped under it is the fleet’s failure, and says so (0.06012ms)
+✔ a provider is reported when somebody stops it and when it stops answering (0.13655ms)
+✔ a provider seen for the first time is not an incident (0.06628ms)
+✔ an installation already failing when the tab opened is still worth saying once (0.10215ms)
+✔ a problem is reported once, however many times it is republished (0.16792ms)
+✔ a problem whose prose has changed is the same problem (0.10116ms)
+✔ a problem that cleared and came back is news again (0.11916ms)
+✔ the four lines about a host’s OS say what changed, in the right tone (1.29079ms)
+✔ the detail is the controller’s count in the pill’s own words (0.19276ms)
+✔ a reboot line says whether the host can be rebooted now (0.14196ms)
+✔ a line about a host’s OS opens the host, and the others still open the list (0.71803ms)
+✔ the OS lines carry marks of their own, apart from the host’s status icon (0.20308ms)
+✔ a line is dated by when it arrived, never by the report’s own time (0.11742ms)
+✔ the lines the host already had are as they were (0.1246ms)
+✔ a host whose memory pool moved is still the same fleet (0.85361ms)
+✔ a host that only has a pool now, or has lost it, is still the same fleet (0.16084ms)
+✔ a runner whose valve view moved is still the same fleet, and one that changed state is not (0.13277ms)
+✔ the figures every heartbeat reports do not move the fleet either (0.1818ms)
+✔ a host that changed in anything else is a change worth fetching again (0.18059ms)
+✔ a row the cache has not seen is a change (0.12737ms)
+✔ a report that only moved its own time does not move the fleet (0.18864ms)
+✔ a host’s update block is the same fleet from one heartbeat to the next, and a new state is not (0.19119ms)
+✔ each fleet state has its own tone and its own shape (0.61656ms)
+✔ bands and waits are said in words, never as the raw value (0.14437ms)
+✔ since is coarse, and empty when there is nothing to say (0.163919ms)
+✔ a closing overlay gives focus back only while nobody else has claimed it (0.58244ms)
+✔ a fresh read after a frame is not the read that began before it (1.22565ms)
+✔ a refresh while a read is in flight joins it (0.19403ms)
+✔ a read overtaken by a frame neither answers nor fails (0.17069ms)
+✔ loading lasts until every read has answered (0.17058ms)
+✔ an accepted warning leaves Needs attention, so its length is still warnings plus errors (1.3813ms)
+✔ the pill hint says how many checks were accepted, and says nothing when none were (0.51399ms)
+✔ a controller that predates acceptance reads as none accepted (0.13436ms)
+✔ an accepted row has no Fixable, Advice or Optional word (0.1208ms)
+✔ only a row the controller marks acceptable offers Accept, and an accepted one no longer does (0.13382ms)
+✔ accepted rows sort after the unaccepted ones and keep their order otherwise (0.13443ms)
+✔ the accepted note names who, when, until when and the reason, as plain text (0.26085ms)
+✔ an ended acceptance says why the row counts again, in the three ways it can (0.22304ms)
+✔ an accept frame announces nothing, and neither does an accepted check turning OK (0.35637ms)
+✔ the accepted ids are compared as a sorted set, so a frame that moves one is told from a heartbeat (0.22923ms)
+✔ every way to choose how long an acceptance runs is shorter than the controller allows, and none is shorter than a week (0.17488ms)
+✔ the reason is held to the bounds the controller states (0.12052ms)
+✔ a host with no backend that works is trouble, whatever the agent says about each (0.7555ms)
+✔ one working backend is enough: a missing second one is the ordinary case, not trouble (0.11239ms)
+✔ a backend that does not say it is unavailable counts as working (0.12333ms)
+✔ a host that reports no backend at all is trouble, because no runner can be placed on it (0.12433ms)
+✔ the plain list of kinds stands in for the rich one when that is all an agent sends (0.67837ms)
+✔ the rich list wins over the plain one when both are present (0.10876ms)
+✔ a stored choice is trusted only while it is a list of host ids (0.80983ms)
+✔ opening a card remembers it once, however many times it is opened (0.58329ms)
+✔ closing a card forgets it and leaves the others open (0.11744ms)
+✔ hosts that no longer exist are forgotten the next time a choice is made (0.10696ms)
+✔ the list it is handed is never changed (0.1378ms)
+✔ every card on show is open only when each of them is on the list (0.30532ms)
+✔ no card on show is never "all open", so the button cannot offer to close what is not there (0.10184ms)
+✔ opening all opens the cards on show and leaves the others as they were (0.19953ms)
+✔ closing all closes the cards on show and leaves the others open (0.16337ms)
+✔ hosts that no longer exist are forgotten when every card is opened or closed together (0.18192ms)
+✔ the lists it is handed are never changed, however many cards it opens (0.1713ms)
+✔ the lists it is handed are not changed when it prunes or closes either (0.13752ms)
+✔ no sentence the button can produce mentions applying or tuning (2.96293ms)
+✔ a viewer sees no button, only the sentence naming the role (0.19564ms)
+✔ an idle host that advertises host-check gets an enabled button and no line (0.57866ms)
+✔ the gate is the advertised feature, whatever the report says about containers (0.16707ms)
+✔ each reason the button is off is a sentence beside it, in the controller’s order (0.27585ms)
+✔ a press in flight reads as asking, and is announced once (0.12828ms)
+✔ an ask the controller holds is asking, then waiting after five seconds, which is not announced (0.18418ms)
+✔ the page’s own press time wins over the server’s clock, which may be skewed (0.13366ms)
+✔ an ask the controller still shows after the page’s patience is a failure (0.20277ms)
+✔ a controller that forgot the ask leaves the page its own ceiling (0.22838ms)
+✔ a done check says what it found, with the count from the page’s own diff (0.25537ms)
+✔ a press inside the cooldown restates the wait and the button stays enabled (0.1454ms)
+✔ a failure keeps the cooldown, because failing fast must not make asking free (0.19533ms)
+✔ a failure with no message from the controller still says something to act on (0.1042ms)
+✔ an unavailable host that was just checked keeps the answer and the reason (0.12831ms)
+✔ an answer to the ask that is older than what the page holds is not written over it (0.1702ms)
+✔ a plain whole number of four digits or more gets thousands separators (0.85725ms)
+✔ small numbers and anything that is not a plain whole number are left as the agent wrote them (0.12929ms)
+✔ a number too large to hold exactly is not rounded into one that was never reported (0.1653ms)
+✔ a host with free slots and its memory all promised away says so, with the figures the Committed block shows (0.88934ms)
+✔ the notice starts at the line the Committed bars turn amber at, and not a megabyte before it (0.17246ms)
+✔ a host with no free slot says nothing, because the slot line already says why (0.11481ms)
+✔ both resources are named when both are close, CPU first as in the block (0.10866ms)
+✔ a host that has not reported its size has no committed figures to speak of (0.15688ms)
+✔ a fresh report says when it was checked and that the page updates by itself (1.25071ms)
+✔ a disconnected host says nothing newer can arrive, ahead of staleness (0.12973ms)
+✔ a stale report from a connected agent says the agent has sent nothing newer (0.12522ms)
+✔ a container report says where it came from (0.12875ms)
+✔ no report, no count or an unreadable date gives no line (0.13434ms)
+✔ a report dated ahead of the clock is flagged so the page prints just now (0.10655ms)
+✔ no wording promises a cadence (0.29073ms)
+✔ the card names one, two or three checks in the order Needs attention lists them (1.30409ms)
+✔ the link lands on the first check named and encodes its id (0.18149ms)
+✔ a stale report, a container and a clean host get no line and no hash (0.25711ms)
+✔ a title a host wrote at length is clipped so the card keeps its shape (0.24322ms)
+✔ the card calls a disk low by the same rule as the check, strictly below both limits (0.18546ms)
+✔ the disk figure links to its check only when a current full report has one (0.25492ms)
+✔ a host that has sent no OS report is in No report (0.81398ms)
+✔ a report that arrived without the controller’s count is No report, not stale (0.22687ms)
+✔ a fresh report with an error, a warning or only a pending reboot needs attention (0.4634ms)
+✔ a fresh report with nothing to do, or nothing it can say, is in no bucket at all (0.17189ms)
+✔ a container’s partial report is never counted, whatever it found (0.1374ms)
+✔ a report is stale only once it is older than three minutes (0.16406ms)
+✔ a host whose agent is not connected is stale, even with a fresh report (0.15769ms)
+✔ a stale host that is also waiting for a reboot is stale, not attention (0.15438ms)
+✔ a host is in Need attention exactly when its pill is amber or red and current (0.34632ms)
+✔ the buckets are exclusive and do not add up to All (0.78589ms)
+✔ filtering by All hands back the same array, and a bucket keeps only its hosts (0.20746ms)
+✔ an address that names no filter shows every host (0.14739ms)
+✔ the chips are named as the page promises, in order (0.09713ms)
+✔ the sentence under the chips names the filter, and is empty for All (0.11698ms)
+✔ the tile says how many hosts are silent only when none needs attention (0.14948ms)
+✔ an empty Need attention view mentions silent hosts only when there are some (0.25711ms)
+✔ an empty Report stale view says how many have never reported, and an empty No report view says why it matters (0.13566ms)
+✔ health badges distinguish warning, error, unknown and healthy (1.25924ms)
+✔ freshness and reboot status update when time or the report changes (0.17099ms)
+✔ partial container reports never claim full OS visibility (0.1931ms)
+✔ only safe, non-optional checks count towards a host's health (0.62938ms)
+✔ a safe warning still counts when other tiers are noisy (0.17167ms)
+✔ an error outranks a pending reboot, and both are said (0.16791ms)
+✔ a stale report is never worse than stale, whatever it says (0.12628ms)
+✔ a report with nothing counted to read is unavailable, not OK (0.11514ms)
+✔ findings come first, worst first, in the engine's order within a rank (0.25776ms)
+✔ the pill says the controller's count, not its own tally of the rows (0.26827ms)
+✔ a report without the controller’s count reads as unavailable and never throws (0.12992ms)
+✔ a pending reboot is counted once, as the reboot (0.1823ms)
+✔ the list of what needs attention is as long as the count says (0.13104ms)
+✔ only the kernel.pending warning of a report that says reboot is left out (0.12486ms)
+✔ a container’s partial report is Partial report, whatever it found (0.18217ms)
+✔ findings are said errors first, in the words the pill and the feed share (0.11517ms)
+✔ a container’s partial report has nothing that needs attention, whatever its rows say (0.10924ms)
+✔ an old report from a connected host is Report stale, and from a gone host Last known report (0.13137ms)
+✔ a stale report never says reboot pending in its label, only in its hint (0.18704ms)
+✔ a native report that skipped half its checks is Partial report, not Health OK (0.1811ms)
+✔ a report that skipped every check is still Checks unavailable, not Partial report (0.13332ms)
+✔ findings and a pending reboot win over the mostly skipped rule (0.18189ms)
+✔ a finding with few skipped checks does not say checks could not run (0.10841ms)
+✔ a non-Linux report that skipped everything says Zoomies checks Linux hosts only (0.09892ms)
+✔ a report whose time cannot be read is stale and says it could not be dated (0.08719ms)
+✔ there is no next step for a clean host that takes work (0.967429ms)
+✔ a container report gives no next step, even with a reboot flag (0.1466ms)
+✔ a counted finding or a pending reboot is a next step (0.1656ms)
+✔ a kernel.pending warning beside the reboot flag counts once, as the reboot (0.14215ms)
+✔ an unreachable host or an unknown count is never called safe or idle (0.28275ms)
+✔ runners still on the host are said to be unknown jobs, never counted as jobs (0.36498ms)
+✔ an idle and cordoned host is safe to reboot, and says what to do afterwards (0.1406ms)
+✔ an idle host that still takes work is not safe until the cordon is confirmed (0.13495ms)
+✔ a cordoned host with nothing waiting on it is told to uncordon, and is given no command (0.29502ms)
+✔ the command is named for the host and address, and never contains them (0.26337ms)
+✔ the button says what a press will do (0.12503ms)
+✔ a host with no name is called by its id, and then by nothing at all (0.11239ms)
+✔ no sentence on the host page says drain (0.36728ms)
+✔ a viewer is told to cordon, and which role it takes (0.07941ms)
+✔ a host that is not connected is told so before anything about its release (0.863779ms)
+✔ a behind or different agent may be too old, and an operator gets the controller-made command byte for byte (0.45118ms)
+✔ a machine Zoomies rents and cannot be asked is told about its provider’s template (0.23318ms)
+✔ the upgrade command is never built from a host field and never reaches a viewer (0.20599ms)
+✔ skew outranks the grace period, because an old agent never reports however new its row is (0.12709ms)
+✔ a host that joined within the grace period is waiting, not faulty (0.17665ms)
+✔ the embedded agent is not told to update itself (0.1592ms)
+✔ an agent that gives no release gets no command, because Zoomies would not know which to offer (0.13465ms)
+✔ when nothing explains it, both roles get the read-only doctor command and nothing else (0.27902ms)
+✔ no cause offers tuning, draining or an American spelling, or implies the controller runs anything (0.52566ms)
+✔ a host with an override is pinned, whatever its specs scored (0.628589ms)
+✔ a body is sent only where the answer changes (0.59265ms)
+✔ a pin outside the scale is refused with the scale named (0.27774ms)
+✔ a host's in-memory policy round-trips with its runner profile (1.16074ms)
+✔ a host that says nothing about in-memory folders sends nothing about them (0.18322ms)
+✔ a ceiling is not sent for a host that keeps the folders off (1.07542ms)
+✔ a ceiling below the floor is refused where it is typed, and only while it is in force (0.38801ms)
+✔ a host's standard folder sizes round-trip and are not sent where the folders are off (0.15792ms)
+✔ a standard folder size below the floor is refused where it is typed (0.17652ms)
+✔ a check that goes from warning to OK is reported as resolved (1.57962ms)
+✔ a check that goes from OK to warning is new, and warning to error is escalated (0.2501ms)
+✔ an error that eases to a warning is not announced (0.1381ms)
+✔ a skipped check is not an OK one (0.12208ms)
+✔ only counted checks are announced (0.18729ms)
+✔ the first report seen announces nothing (0.11766ms)
+✔ a repeated, older or undated report announces nothing (0.15863ms)
+✔ a different source is not compared (0.14723ms)
+✔ partial and report-only reports are never compared (0.17029ms)
+✔ a check present in only one report is unknown and stays silent (0.20087ms)
+✔ the kernel warning folded into a pending reboot is not a change (0.14224ms)
+✔ several changes make one announcement, worded without a verb to agree (0.30762ms)
+✔ new, error and escalated changes are each worded as what they are (0.27785ms)
+✔ a long title is cut and no announcement carries a time (0.24514ms)
+✔ allClear needs no findings and a Health OK verdict (0.40113ms)
+✔ a host that reports no environment row is treated as tunable (0.75023ms)
+✔ the environment row, not the operating system name, decides what is report-only (0.12075ms)
+✔ the report-only sentences never offer to change the host and name the right place to look (0.20821ms)
+✔ a blank distribution prints no stray separators (0.11785ms)
+✔ an unsupported distribution gives no next step on its own warning, and no command when cordoned (0.32262ms)
+✔ an unsupported distribution with a real finding or a reboot still gets cordon advice but no command (0.18874ms)
+✔ a tunable Linux host keeps its command (0.10808ms)
+✔ a warning the report marks actionable reads Fixable (0.84692ms)
+✔ a warning that is not actionable reads Advice (0.10841ms)
+✔ optional wins over actionable, because a trade-off is read before it is fixed (0.09561ms)
+✔ only a true actionable counts, so an old agent that omits it reads Advice (1.0327ms)
+✔ a report-only host and a row that is not a warning have no kind (0.15972ms)
+✔ each tier previews with the flags tune demands, in the documented order (0.28536ms)
+✔ a mixed-case unit name such as service.ModemManager is accepted (0.12835ms)
+✔ a hostile or malformed id gives no command at all (0.16268ms)
+✔ an id of exactly 64 characters passes and 65 does not (0.17726ms)
+✔ an unknown or missing tier gives no command (0.19412ms)
+✔ the preview never carries a flag that changes the host (0.1641ms)
+✔ a row the agent gives a command for copies that command, not the preview (0.09994ms)
+✔ an actionable row with no command of its own copies the dry-run preview (0.09593ms)
+✔ advice with no command has nothing to copy, rather than an invented one (0.06436ms)
+✔ a row that is not a live warning has no fix to copy (0.07207ms)
+✔ the fleet is two different settings, and a row says which one stands in (0.65876ms)
+✔ a tier with one owner says it once, and a tier with two says each (10.163809ms)
+✔ a host row carries what a runner there is given, at least, and at most (0.85767ms)
+✔ a row explains itself only where the host is involved (0.15821ms)
+✔ a host that is sending heartbeats reads Connected, in the colour and shape it always had (0.66008ms)
+✔ a host that is not sending heartbeats is Unreachable (0.10822ms)
+✔ a cordoned host reads Cordoned, and a throttled one Throttled (0.12416ms)
+✔ what is wrong with a host outranks what is right: unreachable, then cordoned, then throttled, then connected (0.10499ms)
+✔ no host status label says healthy, and the OS health pill never says Connected (0.70003ms)
+✔ a tag is written the way an operator types it, and a flag is just its name (0.74077ms)
+✔ the operator’s tags come first and keep their order, then the ones worked out (0.61822ms)
+✔ a tag that replaces what the machine measures says what it replaced (1.11314ms)
+✔ a derived tag cannot be mistaken for one that can be edited (0.20333ms)
+✔ a class is capitalised for a badge, and nothing is a class of no name (0.11861ms)
+✔ only a class an operator set is explained in the open (0.13493ms)
+✔ a move being held is reported with when it began and when it takes effect (0.16077ms)
+✔ the pool line says whether the pool exists, and otherwise gives the controller’s reason (0.16652ms)
+✔ a tag with no value is a flag, and a flag is true whichever surface set it (0.23656ms)
+✔ saving the dialog does not rewrite a label somebody left empty on purpose (0.22939ms)
+✔ a machine Zoomies rents is offered no update, however it is doing (0.96396ms)
+✔ behind means the template for a machine, and the agent for a host somebody owns (0.21183ms)
+✔ a host that is behind and can be updated is offered the button, and its state is not a status colour (0.15398ms)
+✔ behind, ahead and different are neutral facts and a matching host has none (0.108ms)
+✔ each state of an attempt has a label, a tone and whether it can be pressed (0.26724ms)
+✔ an update the stopped helper could not be handed to says the helper stopped, in words (0.12984ms)
+✔ a failed update can be tried again, and says so in its action (0.11405ms)
+✔ a request that is open is never shown as done while the host reports its old release (0.15369ms)
+✔ the host reporting the release is the update done, before the controller has closed the attempt (0.14319ms)
+✔ an attempt the controller closed as succeeded is shown as done, in the version the host reports (0.3016ms)
+✔ an update that worked for an earlier release does not hide that the host is behind again (0.14278ms)
+✔ the controller’s sentence is passed through as text and never interpreted (0.14308ms)
+✔ a host that matches the controller, or is ahead of it, has no row unless an attempt is worth showing (0.1107ms)
+✔ the agent inside the controller and a controller that sends no block have no row (0.09032ms)
+✔ a host that cannot be updated from here says why in the controller’s words and offers no button (0.11144ms)
+✔ with updating off the card says so as text and nothing on it can be pressed (0.14598ms)
+✔ a host the helper can never be installed on says why, draws no button and suggests no install (0.10991ms)
+✔ a Windows host is updated by hand, and its card links to the steps rather than promising a command (0.17396ms)
+✔ a host the helper cannot be installed on has no row once it runs the controller’s release (0.08044ms)
+✔ the target is named with a v whether the controller reports one or not (0.13131ms)
+✔ the confirmation names the host and the release, and says what is true of the restart (0.1599ms)
+✔ the confirmation does not claim the restart waits for jobs (0.12378ms)
+✔ the words on a host’s card keep to the repository’s voice (0.11385ms)
+✔ a healthy host reports CPU, memory and disk as shares of the machine, in that order (1.85551ms)
+✔ CPU turns tight at the scheduler pressure line, counted without the CPU lent to runners (0.3531ms)
+✔ CPU is compared as the unrounded figure, so a bar that reads 85% can be a fraction under the line (0.27803ms)
+✔ a busy CPU that is mostly lent says why it is not amber (0.21711ms)
+✔ memory is tight at the host reserve the scheduler holds starts at, not at 85% used (0.33945ms)
+✔ a memory figure at the reserve says it is the reserve, not a pressure line (0.17929ms)
+✔ disk is tight by the doctor rule for a low disk, not by the pressure line (0.21232ms)
+✔ a measured zero is a figure, not a gap (0.16416ms)
+✔ stale usage leaves CPU and memory unmeasured while disk and the machine size stay (0.18566ms)
+✔ a host that has stopped sending heartbeats shows no figure as current, disk included (0.2837ms)
+✔ an agent that reports neither usage nor its machine is explained once, not dashed three times (0.17264ms)
+✔ a throttle that outlives its sample is not called impossible (0.15651ms)
+✔ sizes of a terabyte or more are written in terabytes so the pair stays short (0.15386ms)
+✔ a nearly empty terabyte disk is written in gigabytes, so what is used is not rounded to nothing (0.16146ms)
+✔ a figure past its line says so in words as well as colour (0.20318ms)
+✔ every metric is a share of the machine, and only load may pass 100 (1.74654ms)
+✔ a figure the host never reported is a gap, not a zero (0.15718ms)
+✔ the live point comes from the host view and drops a stale measurement (0.73555ms)
+✔ merging keeps one sample per host per minute and the newer input wins (0.84815ms)
+✔ a short window keeps every ten-second slot and folds nothing away (0.26533ms)
+✔ a fine window bridges a minute of silence and a minute-wide one bridges a minute (0.33229ms)
+✔ a line is drawn across one missing minute and broken by two (0.27373ms)
+✔ only load past the cores opens a lane, and its ceiling is a round number (0.12337ms)
+✔ the lead metric is the first chosen one in the chips' order, whatever order it was chosen in (0.15349ms)
+✔ a line per chosen metric for every host that is not hidden, and colour follows the host (0.46257ms)
+✔ the peak in view names the line and the point it came from (0.31131ms)
+✔ the frame is drawn one unit to a pixel, and stacked plots share their gutters (0.20404ms)
+✔ values map to the axis, and only past 100 into the lane (0.19607ms)
+✔ pointing at a line names its host, and pointing at nothing names none (0.24228ms)
+✔ pool queue and ceiling use authoritative stats, not a partial runner list (1.71756ms)
+✔ host headroom respects offline, cordon and incompatible states and preserves unknown telemetry (0.24435ms)
+✔ minute history preserves gaps and the latest streamed observation without dropping older minutes (2.5388ms)
+✔ a wider window keeps its minutes, and a folded interval carries its peak (0.23227ms)
+✔ every figure carries its own peak through a fold, and a missed minute stays a gap (0.42616ms)
+✔ the job figures follow the fleet or the whole organisation, and the runner figures do not (0.21354ms)
+✔ starvation is queued work with nothing free, and an unobserved interval breaks the spell (0.43955ms)
+✔ unexpanded job names and historical timeline text are readable without guessing a project (0.686ms)
+✔ resolved names are preserved and other missing expression values are explicit (0.13035ms)
+✔ a job nobody has touched wears no badge (0.64289ms)
+✔ a stood-down queued job says which way it was stood down (0.1041ms)
+✔ a job asked to run now says so, and a hold outranks the ask (0.11068ms)
+✔ a cancellation outranks the pause it causes (0.0945ms)
+✔ a finished job wears none of them (0.10963ms)
+✔ the badges and the Queue page read from one vocabulary (0.57256ms)
+✔ a job nobody classed has no size to show, so the drawer is the one it always was (0.78293ms)
+✔ a classed job says which class, on what authority, and the controller’s reason (0.13771ms)
+✔ a job sent to another class is a fallback, and carries the controller’s note (0.61249ms)
+✔ a job that ran on the class it was put in says so plainly (0.14506ms)
+✔ a job that landed elsewhere is not called a fault, and is told how to make it a promise (0.2508ms)
+✔ the expected class for a job that fell back is the one it was sent to (0.11213ms)
+✔ the share of its CPU periods a job was held back in is a whole percentage (0.13666ms)
+✔ the grid cell shows a move only when the job ran somewhere other than its class (0.09311ms)
+✔ each kind of advice says what is wrong in a sentence an operator can act on (0.21804ms)
+✔ a pin is compared the way the server compares it: repository without regard to case (0.27909ms)
+✔ every view reads back as itself (0.810999ms)
+✔ no view leaves a status key set that another view owns (0.59787ms)
+✔ the default is the running view (0.12638ms)
+✔ no state and every state are both "all" (0.12822ms)
+✔ a status no button says leaves every button unpressed (0.1448ms)
+✔ the fleet's own failures are a view of their own, not a narrowing of Failed (0.14199ms)
+✔ failed is not a state, and does not stack on one (0.1598ms)
+✔ no view asks for unmatched, which the server reads as queued (0.11366ms)
+✔ needs attention is one question, not the other status keys combined (0.18078ms)
+✔ every state the API knows is reachable from the row (0.27546ms)
+✔ a next step becomes the action its kind and link allow (1.15009ms)
+✔ evidence keeps its order and marks the figures (0.28028ms)
+✔ a failure reads as its category or the step it stopped at (0.18956ms)
+✔ every page has its own id and its own address, and all of them are under Kennel Club (0.75286ms)
+✔ the overview is first, and sits at the section’s own address (0.53412ms)
+✔ the switch heads the group it governs, and AI Context is not in that group (0.18425ms)
+✔ AI Context has a row of its own in the rail (0.1206ms)
+✔ the list of repositories is opened on the address the list itself reads (0.21909ms)
+✔ a link that counts every repository asks the list for every repository (1.09621ms)
+✔ the card for the repositories nobody tracks asks the list for them (0.16274ms)
+✔ an empty filter is left out of the address, and a value is encoded (0.13958ms)
+✔ only the four checks that read settings or required checks belong to the tab (0.79258ms)
+✔ the tab is off only when all four of its checks are (0.13545ms)
+✔ each setting finding links to the Actions settings of its own repository (0.97544ms)
+✔ a required check can be fixed in branch protection or in a ruleset, so both are offered (0.14828ms)
+✔ an Enterprise host is the one the links go to, with or without a trailing slash (0.17646ms)
+✔ a repository name that does not look like one makes no link, whatever it says (1.13552ms)
+✔ an address that is not plain http or https makes no link (0.22355ms)
+✔ a check that is not one of the four has no settings page (0.10271ms)
+✔ a window starts the stated number of days before now (0.83741ms)
+✔ a window starts on a minute, so the list a figure links to counts the same jobs (0.11404ms)
+✔ a link to the jobs behind a figure carries the scope the figure was counted in (0.8516ms)
+✔ a repository name with characters an address treats specially still arrives whole (0.15481ms)
+✔ a window as long as the jobs are kept says it is partial, and a shorter one says nothing (0.18337ms)
+✔ how jobs ended is said with the fleet’s failures apart from the workflow’s (0.16352ms)
+✔ a success rate counts the jobs that had a verdict and not the cancelled ones (0.19472ms)
+✔ a duration is a median with its 95th percentile beside it, or says nothing was measured (0.20745ms)
+✔ the places jobs ran are the busiest first, and a place that is gone is still a row (0.84906ms)
+✔ a job with no recorded pool or host is one row that links nowhere, however the API says so (0.24999ms)
+✔ with nothing run there are no shares to divide by zero (0.13201ms)
+✔ what is waiting for a label nobody serves is said in the singular and the plural (0.18454ms)
+✔ a repository nobody tracks is drawn as a decision and not as one of the four standings (0.7199ms)
+✔ it is neutral and has a shape of its own among the neutral kennel statuses (0.17862ms)
+✔ the worst open severity is the one a repository is drawn by (5.703699ms)
+✔ what is open is said in the words the problems drawer uses, with one a singular (0.30927ms)
+✔ a count is a floor whenever something has not been read in full (0.15801ms)
+✔ how a source was read leads with the news that is worst (0.14726ms)
+✔ the sentence over the counts says what is missing from them, or nothing when nothing is (0.20283ms)
+✔ a source is drawn by the worst state any repository is in (0.1817ms)
+✔ a reason is counted in characters, after its ends are trimmed, as the controller counts it (0.17222ms)
+✔ the reason field says the rule while it is unmet and the count once it is met (0.24246ms)
+✔ the reason for stopping tracking is asked for in its own words, to the same length (0.27211ms)
+✔ the switch on a repository says its state, and to somebody who cannot change it, who can (0.36897ms)
+✔ stopping tracking says what it does before it is done (0.21671ms)
+✔ every way to choose how long a waiver runs is shorter than the controller allows (0.77209ms)
+✔ a waiver ends the stated number of days after it is made (0.21888ms)
+✔ an error is waived by an administrator and anything lighter by an operator (0.10301ms)
+✔ the line under the switch says the state, and says who can change it to somebody who cannot (0.16798ms)
+✔ turning it off says what that does before it is done, including that AI Context is untouched (0.2036ms)
+✔ a change that held is a plain success (0.15588ms)
+✔ a change the environment overruled is not a success, and says so naming the variable (0.10807ms)
+✔ without the setting in the answer the request is taken at its word, and the variable is still named (0.06733ms)
+✔ a selection is split into what to stop, what is already stopped and what the page does not know (0.13949ms)
+✔ a repository ticked twice is stopped once (0.07939ms)
+✔ stopping one repository says what the single dialog says, and several say it in the plural (0.22188ms)
+✔ what was left alone is said as a count, in the right number (0.08808ms)
+✔ the outcome of stopping several is one sentence, and says what to do when some were not stopped (0.1546ms)
+✔ file evidence reads as the path, the line and the job, and an ungated path as unusual (0.08735ms)
+✔ a score is said as a number out of a hundred (0.06619ms)
+✔ a score says what it is of, and never reads as a total while checks are unread (0.09391ms)
+✔ the fleet figure names the lowest repository and how many are under sixty (0.19037ms)
+✔ minutes for a timeout are a whole number from one to a day, and never guessed (0.21224ms)
+✔ the minutes hint says what to change, and is empty when the value is usable (0.12433ms)
+✔ a fix that adds lines after the ones that stay is shown as a change (0.36546ms)
+✔ a change that is not an addition at the end is not drawn as a diff (0.13347ms)
+✔ only a ci.no_timeout finding names jobs a fix can be previewed for, once each (0.35633ms)
+✔ a 401 for a request begun before sign-in does not end the new session (26.210098ms)
+✔ a 401 for a request begun after sign-in still ends the session (0.36056ms)
+✔ a machine can be ticked when the controller would take a delete for it, and the rest say why (1.3548ms)
+✔ a machine whose state is not known yet is not offered for deletion (0.1168ms)
+✔ deletable keeps the machines that can be ticked, in the order they were listed (0.13977ms)
+✔ a machine that never got a VM costs nothing to delete, and one that has a VM destroys it (0.18336ms)
+✔ a pile of machines with nothing behind them is confirmed with a click, and says nothing is touched (0.27128ms)
+✔ machines with a VM are confirmed by typing how many there are, and the sentence counts the VMs (0.21267ms)
+✔ the confirmation says what happens to a machine that still has runners, according to the box (0.17819ms)
+✔ the confirmation never uses a dash where a comma would do (0.24947ms)
+✔ the answer is read machine by machine, and a machine nobody answered for is not taken as deleted (0.23757ms)
+✔ a refusal with no words still says that it was a refusal (0.222ms)
+✔ an answer with nothing in it refuses every machine rather than deleting none quietly (0.11976ms)
+✔ the toast says how it went in the tone that matches (0.15893ms)
+✔ elastic CPU states keep their Zoomies vocabulary and distinct brand icons (1.06676ms)
+✔ with the vocabulary off, the controller's kennel label gives way to a plain one (0.15797ms)
+✔ a machine carrying work is not drawn with a Play button (0.16045ms)
+✔ every machine state has a status of its own, and anything else is neutral rather than healthy (0.20346ms)
+✔ a machine is drawn in the tone the rest of the product gives the same idea (0.17573ms)
+✔ a ready machine with runners on it reads as busy, and nothing else changes with them (0.69517ms)
+✔ a machine status carries tokens rather than colours, in its own tone (0.3278ms)
+✔ the lifecycle band counts the seven steps of the flow and leaves the exits out of it (0.30522ms)
+✔ a machine needs a person when nothing here will tidy it up, and not merely because it failed (0.30171ms)
+✔ the reason a machine needs review is the most specific one known about it (0.27636ms)
+✔ a failed machine still owns the resource it was given, and a deleted one owns nothing (0.17879ms)
+✔ pending is the states the fleet is still waiting on, not everything short of deleted (0.14243ms)
+✔ elapsed time is measured against a clock that is handed in, and is null when unknown (0.12847ms)
+✔ the operation and the delete verdict are reported exactly as the row gives them (0.11835ms)
+✔ a timeline row says which half of a slow step is slow, and names a phase it has no sentence for (0.13389ms)
+✔ a provider with no hourly rate reports no cost at all rather than a free one (0.1292ms)
+✔ a machine costs from when it was created until it was deleted, not until now (0.08801ms)
+✔ a draft holds its numbers as strings, so an empty box and a deliberate zero stay apart (0.31993ms)
+✔ a provider round-trips through a draft and back, without ever carrying its credential (0.29994ms)
+✔ a provider that says nothing about a setting takes the draft default rather than an empty box (0.13071ms)
+✔ a field an operator cleared is only cleared on the wire when the whole body is sent (0.1302ms)
+✔ the certificate a provider trusts comes back into the edit form and goes out unchanged (0.14193ms)
+✔ the certificate machines trust for the controller is kept apart from the cluster's (0.13214ms)
+✔ a new draft gives machines no certificate, so they use their own trust store (0.07898ms)
+✔ a rejection of the machines' certificate lands on the placement step with a name (0.09101ms)
+✔ settings and labels are trimmed on the way out, and a nameless one is dropped (0.10747ms)
+✔ a blank count falls back to the safe answer rather than to nothing at all (0.09868ms)
+✔ a setting the operator never touched takes the driver default, and one they filled in is left alone (0.17005ms)
+✔ every field the wizard names has a step to land on and a label to be named by (0.09484ms)
+✔ a driver's own setting lands on the placement step, and an unknown field on review (0.08101ms)
+✔ a complete draft is accepted, and every missing answer is reported under its own field (0.33372ms)
+✔ plain HTTP off the box is refused, and the certificate switch is not a way round it (0.42675ms)
+✔ a credential is required on the way in and optional on an edit (0.125ms)
+✔ a driver's settings are checked against its own schema, under the API's field names (0.16071ms)
+✔ a ceiling of zero is legal but a machine with no slots, or none built at once, is not (0.12799ms)
+✔ a machine size left empty is fine and a negative one is not (0.85031ms)
+✔ the idle timeout is a Go duration, or nothing (0.16172ms)
+✔ a provider that would rent nothing says so as a note beside the setting, not as an error (0.12607ms)
+✔ a private connection address goes out once and a blank box on an edit keeps the stored one (0.19802ms)
+✔ the minimum is a whole number no larger than the maximum it counts against (0.103739ms)
+✔ a runner the valve has nothing to say about has no badge (1.22627ms)
+✔ a valve that has done nothing is quiet in the grid and says it is watching on the runner page (0.62478ms)
+✔ lent memory is a pill with the figure on it and a card with the three sizes and a bar (0.36634ms)
+✔ a runner that holds a loan and wants more says so, with a mark on the pill (0.29011ms)
+✔ swap is its own pill, beside the loan it follows (0.26254ms)
+✔ swap with no loan carries the bar and the sizes itself (0.17221ms)
+✔ an observing valve is a dashed pill saying what it would have done, never what it did (0.27563ms)
+✔ an observing valve that would not have lent anything is quiet unless the runner came near its limit (0.18772ms)
+✔ a runner that wanted memory and was refused it is told apart by who refused (0.36564ms)
+✔ a loan that stands after the pool switches the valve off is still shown, and says the valve is off (0.25932ms)
+✔ folders in memory are one pill with an icon for each and what they come to (0.32311ms)
+✔ a folder that stayed on disk says why, in the card, and the pill counts only what is in memory (0.24549ms)
+✔ a pool that asked for memory and gave this runner none is a dashed pill, not a missing one (0.14081ms)
+✔ a single folder in memory is named, not counted (0.11934ms)
+✔ what the valve has done comes before the folders, because it changes and they do not (0.2224ms)
+✔ every card is also one sentence, which is what a screen reader hears (0.29217ms)
+✔ the small words (0.14636ms)
+✔ folders worked out by another build than the one that mounted them say they are an estimate (0.25901ms)
+✔ a pool says what its memory valve is set to, in one line (0.72663ms)
+✔ a pool sized by its host is named for the machine, not for a share of one (0.97893ms)
+✔ a pool that takes its size from each host is named for the machine too (0.149ms)
+✔ a pool with a size of its own says so (0.18637ms)
+✔ the process marker is kept whichever way the pool is sized (0.22323ms)
+✔ only work still in progress moves, and each glyph moves its own way (1.05473ms)
+✔ whatever is waiting or finished holds still (0.18477ms)
+✔ a busy glyph missing from the map falls back to motion, not stillness (0.11771ms)
+✔ a provider selector asks for a label the pool carries, bare or as key=value (0.72075ms)
+✔ a provider selector the pool does not satisfy lets nothing through (0.15707ms)
+✔ a pool selector asks for the provider by name, kind or machine label (0.19135ms)
+✔ labels fall on round local times, not on evenly spaced odd minutes (1.83357ms)
+✔ labels at the ends of the lines are pushed apart, and back up from the bottom (0.24852ms)
+✔ a count axis is labelled in round numbers, and never in halves of a job (1.30457ms)
+✔ a fractional axis is for the units that divide, and never for a count of jobs (0.24517ms)
+✔ a line is stroked in runs of what was observed, and the newest reading is found (0.26245ms)
+✔ a trend is drawn one unit to a pixel, and its gutter grows with the figures (0.31736ms)
+✔ an automatic pool sends no size, whatever the sliders are holding (1.53816ms)
+✔ a fixed pool sends its figures, and a profile pool sends the flag instead (0.19197ms)
+✔ a minimum is sent only when one was given (0.17442ms)
+✔ the sidecar shares are sent only for a host-sized Docker-in-Docker pool, each on its own (0.35637ms)
+✔ an edit sends the optional fields empty, and a create leaves them out (0.19754ms)
+✔ every timing override is sent, as a duration or as null (0.1855ms)
+✔ in-memory folders are sent only where the backend can have them (0.13347ms)
+✔ leaving out the default labels survives only on a pool that reuses its runners (0.09213ms)
+✔ the name is branded on its way out (0.17234ms)
+✔ a draft made from a pool and sent back says what the pool said (0.48872ms)
+✔ the memory valve sends its figures only while it is on, and only for a container runner (0.17404ms)
+✔ a pool made before the valve existed opens with it off, and sends it off (0.10636ms)
+✔ the memory ceiling and the swap are refused where they are typed (1.08138ms)
+✔ a pool is tuned once anything the defaults would not have chosen is set (0.25944ms)
+✔ an empty draft is missing exactly the three things a pool cannot do without (0.14454ms)
+✔ a name has to be the shape the server accepts (0.19349ms)
+✔ the maximum may not be below the minimum, and says what the minimum is (0.11531ms)
+✔ a fixed size is held to the floors, and an automatic one is not (0.14042ms)
+✔ a minimum sits at or under the standard and above the floor (0.14429ms)
+✔ each sidecar share stays between ten and ninety percent, and says which resource it is about (0.22089ms)
+✔ a pool saved with one share opens with it for both, and is never preselected over (0.15548ms)
+✔ a cache size limit needs an absolute host path (0.11263ms)
+✔ in-memory folders that take the whole limit are refused where they are typed (0.11941ms)
+✔ the host socket cannot be saved without the confirmation (0.09327ms)
+✔ a backend nothing offers is refused while another is on offer (0.25347ms)
+✔ the sidecar image is sent only for a pool that runs a sidecar (0.11373ms)
+✔ every field the editor can be refused on belongs to exactly one section (1.48868ms)
+✔ a field is pointed at the section that owns it (0.11818ms)
+✔ seven sections, each with a name and a sentence about what it decides (0.61827ms)
+✔ a section is edited only while its answers differ from where it started (0.27415ms)
+✔ the Docker answer marks both the section that asks it and the one that sets it (0.15073ms)
+✔ the first section says what a workflow writes, who it is for and whether Docker is on (0.56589ms)
+✔ hosts say whether a pool may use any machine or only some, and how many that is (0.25886ms)
+✔ the runner says what it is made of, and only what was changed from the default (0.19552ms)
+✔ the size says what one runner gets and whether it may borrow CPU (0.45832ms)
+✔ a fixed size can still lend memory, which needs only a limit to watch (0.285ms)
+✔ scaling says how many runners, for how long, and only the unusual (0.16209ms)
+✔ the idle timeout is said the way an operator says it (0.14325ms)
+✔ speed-ups say what is kept in memory and whether there is a cache (0.19531ms)
+✔ a rule being broken is said first, and says what saving would be (1.2287ms)
+✔ an edit that changed nothing says so rather than offering good news (0.23704ms)
+✔ a controller that did not answer is not reported as agreeing (0.1821ms)
+✔ a refusal the browser did not already say is the controller disagreeing (0.11794ms)
+✔ a pool no host can run says so, and says it is still made (0.15855ms)
+✔ a pool that can run says how much room it has, in the controller’s own count (0.19718ms)
+✔ warnings are counted only when they have nowhere better to be said (0.2106ms)
+✔ unknown timing never becomes zero and PR numbers cannot select another route (0.759669ms)
+✔ the shared Eli snapshot retains uncertainty and excludes installation credentials (0.36778ms)
+✔ Retry-After admits another manual read only after the server hold (0.17793ms)
+✔ only a provider reached through a gateway shows connection guidance (0.64597ms)
+✔ a lost connection is what the last check says, and only that (0.13464ms)
+✔ the steps ask nobody to reconnect and name commands to run elsewhere (0.30819ms)
+✔ the intro says what the connection is without borrowing the error (0.13431ms)
+✔ a snooze outlives the problem clearing for a pass (1.662349ms)
+✔ a snooze of a whole kind survives with no problem of that kind reported (0.1401ms)
+✔ a snooze is spent when its own clock runs out, and not before (0.20137ms)
+✔ a plain dismissal is still forgotten once the problem stops being reported (0.13381ms)
+✔ a dismissal does not cover a problem that has become worse (0.20321ms)
+✔ an expired snooze covers nothing (0.12963ms)
+✔ what the server returns is adopted, and a snooze the clock says is over is not (0.22904ms)
+✔ carrying a browser copy up never overwrites what the account already holds (0.21234ms)
+✔ a pool.no_capacity problem keeps its identity as the queue length changes (0.64486ms)
+✔ two pool.dangerous problems on the same pool keep separate identities (0.13654ms)
+✔ the same host problem raised for two backends keeps separate identities (0.13905ms)
+✔ two problems for different pools never collide regardless of code (0.11118ms)
+✔ every problem of one code shares a type key that no problem key equals (0.49993ms)
+✔ the OS health problems open the host itself (1.08125ms)
+✔ the update problems open the host itself (0.15967ms)
+✔ every other host problem keeps its link to the list of hosts (0.16512ms)
+✔ the notice of a newer release opens the Updates page (0.10704ms)
+✔ every other controller problem has no link of its own (0.14332ms)
+✔ ProviderWizard.svelte does not say a new provider rents nothing until its ceiling is raised (0.80744ms)
+✔ Providers.svelte does not say a new provider rents nothing until its ceiling is raised (0.19545ms)
+✔ a node keeps a fifth of its memory for the hypervisor, and never less than two gigabytes (0.843449ms)
+✔ memory is what fills a node first, and processors may be shared (0.18772ms)
+✔ the machine size is what was typed, then the template, then a default (1.56212ms)
+✔ a roomy node is suggested up to a first ceiling, with one machine warm (0.35826ms)
+✔ the suggestion is what the nodes hold when that is below the ceiling (0.13627ms)
+✔ a node too small for one machine says so and suggests one, not none (0.13979ms)
+✔ the reason says the larger of two gigabytes and a fifth is kept back, as the arithmetic does (0.23532ms)
+✔ two nodes are told each keeps the reserve, not that they share one (0.20845ms)
+✔ a node too small after its reserve says what the reserve is (0.15174ms)
+✔ the reason says the figure counts total memory, so a shared node holds fewer (0.19317ms)
+✔ a cluster that did not size its nodes gets a small start rather than a guess (0.14482ms)
+✔ the minimum never exceeds the maximum (0.14934ms)
+✔ a machine needs the reserve floor plus a working room per slot (0.11251ms)
+✔ the disk hint names the figure and says when the disk is under it (0.17094ms)
+✔ a typed disk just under the need is not printed as the need (0.09805ms)
+✔ only a provider whose template Zoomies prepares is offered the action (0.66069ms)
+✔ what a machine runs, and what changes it, is told once (0.18862ms)
+✔ the steps name the node, the same template, and the machines left alone (0.22285ms)
+✔ a machine that has only been planned is on the first step (2.24981ms)
+✔ a step the guest skipped is passed over by the one after it (0.14922ms)
+✔ a machine that reached ready passed, whether or not it has been released yet (0.23388ms)
+✔ a machine that cloned and never enrolled fails at the step after the last one reached (0.14957ms)
+✔ the newest test machine is found among machines that are not tests (0.19502ms)
+✔ every step says where it stands in words, and the failed one is not left to its icon (0.14873ms)
+✔ a step that is under way is told apart from one that has not been reached (0.138269ms)
+✔ no two states share a word, so the words can stand in for the icons (0.10796ms)
+✔ a test machine blocks another test in exactly the states the controller refuses one (0.22435ms)
+✔ a test that has passed still blocks another until its machine has been deleted (0.31258ms)
+✔ a failed test is left in place to be read and does not stop the next one (0.13076ms)
+✔ an endpoint gains the scheme and the example port it was typed without (1.979269ms)
+✔ a name is suggested from the host, and the kind stands in when there is no host (0.25467ms)
+✔ discovery answers the questions with one answer and leaves the rest (0.26195ms)
+✔ a ready Proxmox setup supplies the connection without sending secrets (0.4586ms)
+✔ a maximum of zero takes the warm machine with it, so one answer rents nothing (0.27882ms)
+✔ any other maximum leaves the warm figure the operator has alone (0.10297ms)
+✔ the words about a ceiling of zero do not claim it is where a provider starts (0.19835ms)
+✔ saving says what happens next: the warm machine is bought on the next pass (0.10724ms)
+✔ saving a provider with no warm machine says machines wait for a pool that needs one (0.11859ms)
+✔ saving a ceiling of zero says nothing is rented yet (0.17804ms)
+✔ a queued job offers every action but the one already in force (0.81108ms)
+✔ a job that raises no demand refuses every action with the same reason (0.26628ms)
+✔ the run offers the Queue page’s actions less removal, in its order (0.591839ms)
+✔ the status is read the way the Queue page reads it (0.12388ms)
+✔ the runner ask is the largest enabled pool asks for, or the default (1.1379ms)
+✔ a docker-in-docker pool asks for both of its containers when it sized them (0.24346ms)
+✔ the reserve keeps a core and a tenth of memory, and never the whole machine (0.23624ms)
+✔ the disk reserve is a tenth of the filesystem, on a notch the slider stops at (0.22122ms)
+✔ capacity is what fits after the reserve, on the tighter of CPU and memory (0.11681ms)
+✔ the sliders reach far enough to include what is set today (1.28002ms)
+✔ overcommit says how far past the room the runners would reach (0.19181ms)
+✔ renting off asks an administrator for one click that sets both settings (1.24441ms)
+✔ someone who cannot change settings is told who can (0.11692ms)
+✔ no ceiling offers the ceiling alone (0.2123ms)
+✔ a suggestion of one machine is worded in the singular (0.10336ms)
+✔ a missing suggestion falls back to one machine (0.11258ms)
+✔ there is nothing to say when nothing is wrong (0.79124ms)
+✔ only pools renting cannot help are listed (0.14288ms)
+✔ a ceiling is a whole number of at least one (0.09008ms)
+✔ a pool is found by its id, and a missing view finds nothing (0.15043ms)
+✔ a refusal shows the server's per-key reasons, and its message when there are none (0.2175ms)
+✔ who asked, and which kind of provider paid (1.76563ms)
+✔ a finished repair says how long it took and a running one does not (0.16911ms)
+✔ the timeline holds the moments the repair recorded and no others (0.67902ms)
+✔ the investigation details are exact, plain text and leave out what Eli read (0.27092ms)
+✔ the investigation details say nothing about what was not recorded (0.12085ms)
+✔ an allowance reads as used of limit, and a full one says when a place frees (1.79646ms)
+✔ a limit lowered below what is used never reads past full (0.13554ms)
+✔ the latest repair reads as none yet, or its outcome, pull request and age (0.18727ms)
+✔ running is only said when something is running (0.11198ms)
+✔ who pays names the provider and model, or says there is none, and says whether workflow files may change (0.1248ms)
+✔ the stop dialog names one repository or counts several, and says what happens to work in flight (0.23454ms)
+✔ a stop that changed repositories says what they do now (0.17418ms)
+✔ a stop that changed nothing says it was already stopped, and a failure names the repository (0.14459ms)
+✔ the attempt Eli made on a commit is found by repository, pull request and commit, newest first (0.2865ms)
+✔ the note says nothing where the repository is not automatic (0.24977ms)
+✔ an ordinary person gets one neutral sentence and no claim about what Eli has done (0.13257ms)
+✔ an administrator is told nothing started, and the reason when the overview knows it (0.20969ms)
+✔ an administrator is pointed to the attempt Eli already made (0.14844ms)
+✔ a live case names the repository, the pull request, the commit, the run and the jobs (2.42781ms)
+✔ each failed job carries its step, its blame and whether the person opened it (0.45128ms)
+✔ without the pull request the case is titled by the run and says so (0.25777ms)
+✔ with no jobs and no readiness it is still a titled case (0.30689ms)
+✔ markup in a title or a name is kept as text and a script address is dropped (0.25789ms)
+✔ the pull request address is built from the repository when readiness gives none usable (0.18118ms)
+✔ an Enterprise Server job gives repository, run and commit links on its own host (0.23663ms)
+✔ a case is read back from the snapshot a repair kept (0.43751ms)
+✔ a repair with no case is titled from its repository and pull request (0.20371ms)
+✔ hostile text in a snapshot is text and its addresses are dropped (0.28059ms)
+✔ a live job carries its steps, how each ended and how long it took (0.33446ms)
+✔ a job with no steps reported, and a job read from a snapshot, have none (0.25723ms)
+✔ a run with no jobs on record is still named by its id (0.19875ms)
+✔ with no jobs, the pull request address gives the repository, run and commit links (0.37142ms)
+✔ a snapshot job gets GitHub’s id from its address (0.12593ms)
+✔ a case with no fleet record names the failed jobs readiness read from GitHub (0.55064ms)
+✔ a fleet record of the failure leaves GitHub’s failed jobs unread (0.16553ms)
+✔ nine passed checks give nine ok rows, in order, and nothing blocks (2.24637ms)
+✔ a check that was never reached stays unchecked and carries no action (0.3299ms)
+✔ blocked at write access points at the repository access page on its own host (0.225949ms)
+✔ without a known host the access row offers to check again, never a guessed link (0.14997ms)
+✔ each blocked check has its own way forward (0.26775ms)
+✔ a check blocked because GitHub did not answer is looked at again, whichever check it was making (0.17726ms)
+✔ an allowance that could not be read is looked at again, and is not one that ran out (0.12785ms)
+✔ a blocked check that does not say why is read by the check it is (0.12062ms)
+✔ a pull request that is not eligible can be chosen instead (0.16931ms)
+✔ a check this build does not know keeps its code as its label (0.21085ms)
+✔ a readiness with no checks falls back to rows made from its blockers (0.31323ms)
+✔ each blocked check has a headline for the decision card (0.15036ms)
+✔ colour codes and control characters are taken out of a log line (1.15742ms)
+✔ a line with nothing left in it is dropped, and the rest keep their order (0.15503ms)
+✔ markup is not touched (0.10962ms)
+✔ every failure code says what happened and gives at most three things to do (0.801909ms)
+✔ an unsupported fix starts with a note that points at the file or the test (0.26378ms)
+✔ each code names the one thing that fixes it (1.21228ms)
+✔ a repair with no code is read from its state (0.26221ms)
+✔ a code outranks the state it arrived in (0.18682ms)
+✔ an unknown code, or a failure with none, falls back to the unsupported-fix advice (0.29125ms)
+✔ the copy follows the repository voice (0.24664ms)
+✔ the list query leaves out the defaults and trims the repository (2.18742ms)
+✔ a repository box holding only spaces is not sent (0.11109ms)
+✔ the selection query carries the filters and no paging (0.11063ms)
+✔ a filter counts as set when any of the three is away from its default (0.12507ms)
+✔ a repair is in progress in exactly the queued, working and checking states (0.11725ms)
+✔ a state reads as a phrase and an unknown one comes back as it was given (0.11276ms)
+✔ after a clear the offset steps back only when its page would be empty (0.13798ms)
+✔ a clear report counts what was cleared and lists the rest with their reasons in order (0.22372ms)
+✔ a refusal that carries no reason still says that it was not cleared (0.15601ms)
+✔ the clear confirmation says how many go, that it cannot be undone here, and what stays (0.31179ms)
+✔ repairs a clear never reached are listed after the refused ones as not attempted (0.14623ms)
+✔ a selection past the bulk limit is cut into requests the route accepts (0.35449ms)
+✔ the summary of a clear counts what was cleared and what was skipped (0.13405ms)
+✔ an offer’s case holds the jobs of its own run in its own repository and no others (1.81826ms)
+✔ two offers on different runs each get their own jobs (0.30893ms)
+✔ repository names are compared without regard to case, as GitHub does (0.14493ms)
+✔ an offer with no run or no recorded jobs still has a case (0.21815ms)
+✔ a linked account that has allowed repairs is ready (0.23227ms)
+✔ a linked account that has not allowed repairs yet is not ready, and says what is missing (0.11354ms)
+✔ no linked account is not ready (0.08811ms)
+✔ another person’s link does not make this person ready (0.0848ms)
+✔ only an administrator is told how many repositories ask first (0.19429ms)
+✔ only an administrator is told how many repositories repair themselves (0.24341ms)
+✔ before the settings arrive the bar is loading, and with sign-in off it says there is nobody to repair as (0.12093ms)
+✔ the track moves forwards only, and an absent state is queued (0.66179ms)
+✔ a repair a person queued is found by its pull request and commit, not by a run (0.23066ms)
+✔ a repair on another commit, another pull request or a finished one is not the one running (0.22831ms)
+✔ only http and https addresses are links (0.86159ms)
+✔ a job address gives the job, its run and its repository on the same host (0.73711ms)
+✔ an address that is not a link gives no links at all (0.15155ms)
+✔ a web address that is not a job page gives the job and no more (0.15642ms)
+✔ commit and pull request addresses are built on the repository address (1.21558ms)
+✔ nothing is built without a repository address, or from something that is not a commit (0.1269ms)
+✔ GitHub’s job id is read off a job address (0.16504ms)
+✔ a failure of a run no pull request started is not offered to Eli (0.60482ms)
+✔ a pull request run is offered, and so is a run whose trigger is not known yet (0.11981ms)
+✔ each repair state has its tone and shape (0.75033ms)
+✔ the badge says what the history says (0.12591ms)
+✔ a state this build does not know is neutral and keeps its own word (0.11341ms)
+✔ the failures do not share a shape with the neutral and pending states (0.17621ms)
+✔ each state of the hub’s setup bar has its tone and shape (0.18519ms)
+✔ each health of an automatic repository has its tone, shape, word and hint (0.19152ms)
+✔ PR links identify the repository and number without retyping (1.12695ms)
+✔ repair links reject arbitrary destinations and malformed PR numbers (0.22024ms)
+✔ each stage the worker records puts the mark on its step (1.70988ms)
+✔ the track has the five steps a person waits through, in order (0.58787ms)
+✔ the steps before the mark are done, the one it is on is current, and the rest are to come (0.237399ms)
+✔ a stage is said in words, and an unknown one is made readable (0.18193ms)
+✔ a target is read from the address and written back to it (1.25746ms)
+✔ an address is built without the parts that are empty or zero (0.16275ms)
+✔ what the address says is read defensively (0.24807ms)
+✔ a target that changed is told apart from one that is only blocked (0.38735ms)
+✔ the stage follows what readiness found (1.07413ms)
+✔ only the held-link refusal becomes a move offer (0.76088ms)
+✔ the refusal carries the holder, and the rows only agree with it (0.14659ms)
+✔ a page whose records predate the row names the holder by the detail alone (0.11836ms)
+✔ a refusal with nothing to name keeps its move button and loses its at-sign (0.19218ms)
+✔ the sentence names the holder by username, then id (0.176ms)
+✔ a stored profile reads back into the form, and an empty one is every figure at zero (2.197079ms)
+✔ the request carries only the figures that are set, and {} where none is (0.32061ms)
+✔ a memory ceiling is sent with the standard size, where the API keeps it (0.12787ms)
+✔ a host takes as many runners of its standard size as its machine holds (0.1815ms)
+✔ a CPU share that does not divide evenly is not rounded down a runner (0.13742ms)
+✔ the capacity caps the derived count and is named as the limit when it is lower (0.10475ms)
+✔ a size never un-pauses a host, and a host with no size keeps its capacity (0.1124ms)
+✔ a host that has not measured its machine has nothing to divide (0.15872ms)
+✔ a standard larger than the machine gives no slots rather than a negative one (0.17375ms)
+✔ the controller counts slots, and the capacity stands in only where it has not said (0.20041ms)
+✔ a profile is held to the same floors as a pool (0.42785ms)
+✔ a minimum above the standard, and a ceiling below it, are refused where they are typed (10.20248ms)
+✔ a memory ceiling below the standard is refused: it would be a request to take memory back (0.20671ms)
+✔ a size the machine could never hold is refused only once the machine has said what it is (0.27809ms)
+✔ active boosts and throttles replace busy or idle but retain lifecycle detail (0.83027ms)
+✔ stale CPU allocation never masks startup, draining or terminal states (0.18792ms)
+✔ observation and normal allocations keep the lifecycle label (0.18154ms)
+✔ turning the kennel vocabulary off gives every state a plain label, lifecycle and boosted alike (0.17273ms)
+✔ with the vocabulary off, no runner state is drawn with an icon a button uses (0.18999ms)
+✔ every runner state has an icon of its own (0.11118ms)
+✔ the two boosts and the throttle are told apart by label and by icon (0.12367ms)
+✔ the headline counts the live runners and the accent splits them into busy and idle (0.65476ms)
+✔ runners that are starting up or draining are named, and counted as live (0.141449ms)
+✔ one runner is singular (0.11007ms)
+✔ a fleet with no runners says so and does not invent a split (0.10634ms)
+✔ the modal scrim is a token, defined once (0.88986ms)
+✔ components/Dialog.svelte takes its scrim from the token rather than its own copy (0.23801ms)
+✔ components/Drawer.svelte takes its scrim from the token rather than its own copy (0.14083ms)
+✔ shell/CommandPalette.svelte takes its scrim from the token rather than its own copy (1.13657ms)
+✔ shell/NavMenu.svelte takes its scrim from the token rather than its own copy (0.15634ms)
+✔ a size setting is shown in the largest unit that says it exactly (0.78644ms)
+✔ a number is a size where its key names the unit, and a count otherwise (0.17067ms)
+✔ a duration setting is shown in the largest units that say it exactly (0.62024ms)
+✔ the Updates group describes what the mode would do and promises nothing (1.18556ms)
+✔ a configuration section is named for a person, with its key as the fallback (0.12098ms)
+✔ every named configuration section also says what it is for (0.18125ms)
+✔ the observed figures read as the p95, the max and the sample size over the window (1.05541ms)
+✔ a dimension no run measured is left out rather than shown as nothing (1.16029ms)
+✔ a sparse row says how far it is from being advised on, from the payload (0.1228ms)
+✔ the notches start at what a runner needs to be a runner (0.79109ms)
+✔ a value the notches do not have joins them rather than snapping (0.59296ms)
+✔ the nearest notch is where a figure typed elsewhere lands (1.09048ms)
+✔ a cache limit round-trips between the slider and the bytes the API takes (0.12429ms)
+✔ the words say what the figure means rather than repeating it (10.041509ms)
+✔ a pool that gives its jobs a daemon is charged for the pair (0.16883ms)
+✔ the room is what both figures allow, and never negative (0.15039ms)
+✔ the in-memory folders reserve what was typed, or the default for one left to size itself (0.17789ms)
+✔ the proposed memory limit is the current one plus what the folders may fill (0.19197ms)
+✔ the folders are only worth a word when they take more than half the limit (0.17387ms)
+✔ the proposed limit covers the container that needs more, not both (0.1311ms)
+✔ a proposed limit leaves the folders no more than half of it (0.17052ms)
+✔ a pair of sidecar shares is the preset it matches, an empty one is even, anything else is custom (0.69391ms)
+✔ the charge flash is drawn with a fill that the shared part rule does not take away (1.09642ms)
+✔ the charge is invisible until its animation raises it, so reduced motion shows no flash (1.18234ms)
+✔ one-time fix respects pinned, pending and deliberately tuned settings (1.1624ms)
+✔ provisioning remedy respects a long readiness wait and is empty after fixing (0.31328ms)
+✔ missing or read-only settings are excluded (0.17542ms)
+✔ a fleet with nothing wrong says everything is running, with the real numbers (0.76166ms)
+✔ problems are counted by severity, worst first, and never quoted (0.24185ms)
+✔ a single running job is "job is", not "jobs are" (0.1102ms)
+✔ a fleet with nothing set up says so, and does not claim it is running (0.12679ms)
+✔ a browser that has never chosen starts on Off, new or reset (0.829469ms)
+✔ upgrading keeps what the old vocabulary switch was showing (0.18808ms)
+✔ an explicit style wins over the legacy boolean on reload (0.15328ms)
+✔ more CPU means faster motion for every runner seed (0.97043ms)
+✔ every state has a distinct persistent cue even when motion is disabled (0.22536ms)
+✔ terminal and unrecognised states move slowly and sadly, never happily (0.20844ms)
+✔ a runner starts its lap partway through, never ahead of it (0.18429ms)
+✔ runner and workflow seeds spread animation timing across the cycle (0.71191ms)
+✔ layouts that arrive after a sign-out are not applied (20.189269ms)
+✔ layouts that arrive for the account still signed in are applied (0.59783ms)
+✔ the dismissals sync is dropped when a sign-out or another sign-in overtakes it (0.40653ms)
+✔ a value a shell leaves alone is not quoted, and any other is one word (0.76224ms)
+✔ the doctor command carries the host, the address and, when there is one, the token (0.2052ms)
+✔ a hostile address cannot add a second command (0.10956ms)
+✔ the address handed out is the configured one unless that is only reachable from here (0.34134ms)
+✔ the test job is a whole workflow file, not a fragment (0.84299ms)
+✔ the test job asks for the pool the way every other surface does (0.29405ms)
+✔ the test job stays busy long enough to be watched (0.1338ms)
+✔ a Windows activation probe uses PowerShell with bounded time and no token permissions (0.22187ms)
+✔ subtle text reaches AA on every light surface it sits on (1.03584ms)
+✔ subtle text is still visibly weaker than muted text in the light theme (0.21442ms)
+✔ subtle text reaches AA on every dark surface it sits on (0.25695ms)
+✔ Mission Control light text and controls are readable across its surfaces (0.73746ms)
+✔ Mission Control dark text and controls are readable across its surfaces (0.44528ms)
+✔ the first bubble waits out the open delay before it shows (1.08288ms)
+✔ leaving before the wait is over cancels the bubble altogether (0.174749ms)
+✔ moving to a neighbour while one is open shows it at once (0.16721ms)
+✔ a neighbour is still instant for the warm window after the last one closed (0.24547ms)
+✔ closing waits out the grace so the pointer can cross onto the bubble (0.14444ms)
+✔ coming back to the trigger inside the grace keeps it open (0.15082ms)
+✔ entering the bubble cancels the close, and leaving it starts the grace again (0.17242ms)
+✔ keyboard focus shows the bubble immediately and blur takes it away (0.16603ms)
+✔ a focused trigger keeps its bubble when the pointer drifts off it (0.1523ms)
+✔ blur leaves the bubble up while the pointer is still on the trigger (0.22551ms)
+✔ an opt-out opens at once even from cold, which is what the matrix squares do (0.10573ms)
+✔ a pointer press hides the bubble and cancels one that has not shown yet (0.10554ms)
+✔ escape closes the open bubble and says so, and says nothing when there is none (0.12474ms)
+✔ only one bubble is ever showing, whatever the pointer and the keyboard do (3.25185ms)
+✔ a bubble opened by its owner is adopted, and closes whatever was showing (0.15181ms)
+✔ a wait still pending on another trigger does not take the bubble from the one the keyboard is on (0.15616ms)
+✔ a bubble opened by its owner also cancels waits pending elsewhere (0.09783ms)
+✔ a bubble its owner opened stays through a pointer leaving, until focus goes or something is pressed (0.09233ms)
+✔ a pinned bubble can still be put away by a press (0.07749ms)
+✔ escape stops where it is heard only while a bubble is open (0.31506ms)
+✔ a pointer press anywhere puts the bubble away (0.12489ms)
+✔ an open bubble is the top of the layer stack but never takes the keyboard (0.17152ms)
+✔ a tooltip over a menu closes before the menu does (0.11229ms)
+✔ focus an overlay places itself is not somebody reaching for a control (0.67653ms)
+✔ a bubble sits above its trigger, centred on it, with the caret in the middle (0.91406ms)
+✔ it goes below when the preference is bottom (0.12571ms)
+✔ it flips to the other side when there is no room and the other side has more (0.12482ms)
+✔ the room it asks for includes the margin, not just the gap (0.12507ms)
+✔ it stays on its preferred side when the opposite side is no better (0.15524ms)
+✔ it is held inside the margin, and the caret still points at the trigger (0.15657ms)
+✔ the caret keeps its distance from the ends of the bubble (0.16809ms)
+✔ a bubble narrower than two caret insets puts the caret in the middle (0.12467ms)
+✔ a side bubble is centred on the trigger vertically and clamped the same way (0.14668ms)
+✔ a side bubble flips across the trigger when the window has no room (0.21275ms)
+✔ an entry in the sidebar anchors to the sidebar’s edge so the bubble clears the rail (0.15604ms)
+✔ the sidebar’s edge matters only to a side placement (0.55697ms)
+✔ on a narrow screen a right preference becomes bottom (0.11595ms)
+✔ a bubble bigger than the window is pinned to the margin rather than off-screen (0.09147ms)
+✔ a drained fleet is four steps done, and a count above zero is the one step that is not (1.334929ms)
+✔ a silent host turns its step and its rows to danger, and says so on the pill (0.21738ms)
+✔ a failed cleanup is danger whatever its host is doing, and a busy runner is busy (0.17103ms)
+✔ a large instance archive uses bounded requests and polls its verified receipt (1112.056745ms)
+✔ a lost chunk response resumes from the durable offset without sending it twice (1007.868861ms)
+✔ failed verification never returns an importable backup (0.84093ms)
+✔ unset and unknown visual styles get Mission Control; only a stored classic opts out (6.07537ms)
+✔ an unset colour mode boots dark (0.63967ms)
+✔ the stored style and explicit colour mode apply together before first paint (1.09673ms)
+✔ system mode keeps its native media queries independently of visual style (0.99715ms)
+✔ blocked storage boots the defaults, the same look the app state resolves to (0.55855ms)
+✔ browser-chrome colours match the actual palette tokens in both styles (1.29018ms)
+✔ Classic keeps its own browser-chrome colours in every colour mode (1.9032ms)
+✔ a capture pass opens the page on the look it is photographing (1.93704ms)
+✔ a pass whose page opened on another look stops instead of filing the picture (0.55151ms)
+✔ the spellings of four gigabytes all mean 4096 MB (1.17602ms)
+✔ a fraction of a gigabyte is kept in whole megabytes (0.12967ms)
+✔ a bare number is read in the unit the field is set in (1.1169ms)
+✔ CPU takes decimals, cores and millicores (0.27603ms)
+✔ an empty field is nothing rather than an error (0.56777ms)
+✔ what cannot be read is refused with an example of what can (0.21743ms)
+✔ a size is written back in the largest unit that says it exactly (0.21533ms)
+✔ what the field writes back reads back as the same value (0.18174ms)
+✔ a duration reads Go spelling and the one people say (0.63835ms)
+✔ a duration is written back in the largest units that say it exactly (0.35057ms)
+✔ a duration is sent in the spelling Go reads (0.17518ms)
+✔ a count is a whole number and nothing else (0.13135ms)
+✔ an Update answer overtaken by a frame is followed by a read of its own (3.56103ms)
+✔ an Update answer with no frame meanwhile is taken and nothing is read again (0.68267ms)
+✔ the read after an overtaken Update answer is not one already in flight (0.94656ms)
+✔ a refused Update takes nothing, reads nothing and throws the refusal (0.52942ms)
+✔ the rollout buttons follow an overtaken answer with a read of their own (0.23408ms)
+✔ a rolled-back update says the previous release is running again (0.66564ms)
+✔ a backup gives the command that restores it, and none gives nothing (0.14893ms)
+✔ a backup path a shell would split is quoted as one word (0.13581ms)
+✔ a build with no release key says its checksums are taken on trust (0.66455ms)
+✔ a build with one release key names it (0.11929ms)
+✔ a build with more than one release key counts and names them (0.15566ms)
+✔ each mode says what it would do, and auto says what its wait costs (1.13637ms)
+✔ auto says what it does by itself and what halts it, and neither mode promises (0.3221ms)
+✔ a mode is labelled in the word an operator sets it by (0.11163ms)
+✔ auto names the time it would take a release in whole hours, counted down from now (0.42603ms)
+✔ the time left is rounded down, as the sentence beside it is (0.1645ms)
+✔ in the last hour auto counts minutes, and below one it says less than a minute (0.19234ms)
+✔ auto says now once the soak is over, and the instant it ends is already over (0.17121ms)
+✔ manual has no due time and says who it waits for (0.10104ms)
+✔ auto without a due time, or with one that cannot be read, names the release alone (0.2093ms)
+✔ there is no line when there is nothing to take (0.19823ms)
+✔ the state is the word the controller opens its own sentence with (0.808709ms)
+✔ no state borrows a status colour (0.16599ms)
+✔ the soak is said as a period, and zero as no wait (0.34343ms)
+✔ the soak says who it applies to (0.08571ms)
+✔ a release is linked only when its address is an https one (0.11564ms)
+✔ a build is told apart by whether it came from a release (0.07205ms)
+✔ the link to the mode setting is offered to the platform role and to no one below it (0.10912ms)
+✔ an attempt in flight is told in the present, and says the page waits for the controller (0.25335ms)
+✔ an attempt the controller closed as succeeded is told as done, with the build it runs (0.08603ms)
+✔ an open attempt is shown as done only when the controller reports the release it asked for (0.12649ms)
+✔ builds are compared without the v that release tags carry and binaries do not (0.0743ms)
+✔ an attempt that failed says so, keeps the old build in view and points at the helper (0.09347ms)
+✔ an attempt that timed out says how long it waited and where to look (0.0831ms)
+✔ an attempt that did not succeed does not say the controller still runs a build it no longer runs (0.1692ms)
+✔ an attempt that was cancelled says so without alarm (0.08881ms)
+✔ the words for an attempt contain no em dash and no stand-in for one (0.13676ms)
+✔ the button is offered to the platform role for the release the status names (0.15793ms)
+✔ no button is offered below the platform role, and the page says which role it needs (0.09742ms)
+✔ no button is offered while updating is off or with nothing newer (0.13651ms)
+✔ with no helper the controller's own sentence is shown, with the command that installs it (0.07627ms)
+✔ where the helper can never be installed the reason is shown with the upgrade command and nothing to install (0.09354ms)
+✔ a missing helper is offered the install and never the upgrade by hand in its place (0.09059ms)
+✔ while an attempt is open there is no button, and once it ends there is one again (0.14117ms)
+✔ the confirmation names the release and says what the restart does to jobs and the database (0.15297ms)
+✔ the confirmation states the rollback only where it applies (0.08759ms)
+✔ a build that is not from a release is warned that the update may take it back (0.12508ms)
+✔ the restart state is worded for an update, never for a restore (0.175ms)
+✔ a running rollout says how far it has got and which host is being updated now (0.21686ms)
+✔ a halted rollout names the host in the controller’s words and says to resume or cancel (0.14645ms)
+✔ a rollout that is done is idle, and one that was cancelled says so without alarm (0.10499ms)
+✔ each rollout state has the colour the mapping gives it (0.13415ms)
+✔ the hosts action counts the hosts whose own update block says they can be updated (0.22639ms)
+✔ the hosts action is an administrator’s, and is not offered while a rollout is open (0.15108ms)
+✔ with updating off the hosts action is disabled and says why, while a host is behind (0.1351ms)
+✔ the rollout confirmation names the release and the hosts and says what a failure does (0.18193ms)
+✔ nothing a rollout says carries an em dash or its stand-in (0.16584ms)
+✔ DEV confirmation identifies the moving development channel without a release downgrade warning (0.17785ms)
+✔ development status distinguishes main from a published dev image (0.13088ms)
+✔ an interval that has not begun is a gap, and the one being filled is drawn (1.41279ms)
+✔ allocated runner time is only drawn where it can be attributed (0.21782ms)
+✔ the capacity band is a spell, and an interval nobody observed ends it (0.22569ms)
+✔ no two figures on one chart are drawn the same way, and hours keep their fractions (0.44645ms)
+✔ a visitor is offered the fleet and not the pages about the people who run it (0.704139ms)
+✔ everything under a hidden page is hidden too, and nothing that only shares a prefix (0.11065ms)
+✔ somebody signed in is offered every section (0.28925ms)
+✔ a visitor sees no heading with nothing under it (0.13789ms)
+✔ a browser on "Win32" starts on the windows command (0.79026ms)
+✔ a browser on "Windows" starts on the windows command (0.12583ms)
+✔ a browser on "MacIntel" starts on the linux command (0.07183ms)
+✔ a browser on "macOS" starts on the linux command (0.05366ms)
+✔ a browser on "Darwin" starts on the linux command (0.94098ms)
+✔ a browser on "Linux x86_64" starts on the linux command (0.09292ms)
+✔ a browser on "" starts on the linux command (0.06136ms)
+✔ the host the Windows agent enrols is recognised (0.11071ms)
+✔ a Windows host needs both the OS and the process backend to be recognised (0.16363ms)
+✔ the pool advice names the selector that reaches a Windows host (0.19391ms)
+✔ the dialog does not claim Windows is qualified (0.107ms)
+ℹ tests 1231
+ℹ suites 0
+ℹ pass 1231
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13397.369403
+
+> zoomies-web@0.1.0 build
+> vite build && vite build --mode status
+
+vite v8.3.5 building client environment for production...
+transforming...
+✓ 5203 modules transformed.
+rendering chunks...
+[plugin zoomies-budgets] gzipped sizes:
+    80.7 KB  route assets/xterm.BMsy1fDS.js
+    66.5 KB  shell assets/router.bPoX0BQR.js
+    65.7 KB  route assets/Settings.CbHGL1gL.js
+    46.1 KB  shell assets/index.BrILqzi1.js
+    41.0 KB  route assets/PoolEditor.odwThQcL.js
+    33.0 KB  route assets/Hosts.CGOFARKk.js
+    30.0 KB  route assets/addon-webgl.C3a5wC6k.js
+    20.2 KB  route assets/Overview.B9_lNq2w.js
+    17.9 KB  route assets/Installations.BD30Pz61.js
+    16.0 KB  route assets/HostDetail.CXsFWj8d.js
+    15.4 KB  shell assets/index.CD8aGdUT.css
+    15.4 KB  route assets/DataGrid.B_koKSO8.js
+    15.1 KB  route assets/RunnerDetail.DgZeR6Op.js
+    14.9 KB  route assets/ProviderForm.CACTYAPE.js
+    14.2 KB  route assets/KennelRepository.fbSkPV5n.js
+    13.7 KB  route assets/Usage.Bpnp3h-7.js
+    13.2 KB  route assets/JobDrawer.BqeSagAn.js
+    12.6 KB  route assets/Migrate.nc6Rza6t.js
+    12.5 KB  route assets/Jobs.Cvv8vpSg.js
+    11.5 KB  route assets/Pools.CcQk_drT.js
+    11.1 KB  route assets/ProviderDetail.CMxGj1_t.js
+    11.0 KB  route assets/EliRepairs.D-ep1GqD.js
+    10.6 KB  route assets/HostCapacityMap.DOaa4aN0.js
+    10.1 KB  route assets/AiContextSetup.BXtmCSjN.js
+     9.5 KB  route assets/addon-search.cV8svGFx.js
+     9.3 KB  route assets/EliRepairNew.DO9BbGFg.js
+     9.1 KB  route assets/ActivityMatrix.7CMH2tAz.js
+     8.8 KB  route assets/Comparisons.By5hLZRo.js
+     8.7 KB  route assets/AddHost.CuotTyPb.js
+     8.7 KB  route assets/Settings.CyJnx_8W.css
+     8.6 KB  route assets/PoolDetail.BPbCqsEn.js
+     8.6 KB  shell assets/status.BKyrkWzV.js
+     8.4 KB  route assets/Workflows.OK-C3GhI.js
+     8.0 KB  route assets/EliRepairAttempt.DDmWk48c.js
+     7.2 KB  route assets/Runners.DzBaZAhT.js
+     7.0 KB  route assets/RunnerMemoryBadges.Sk9Etsh1.js
+     7.0 KB  route assets/PoolLabels.DAEutr_t.js
+     6.5 KB  route assets/Kennel.pblMdO3z.js
+     6.3 KB  route assets/CheckoutPreview.YtRYwMVT.js
+     6.3 KB  route assets/ShardingPreview.zQu254F3.js
+     6.3 KB  route assets/Queue.Cura7RP9.js
+     6.2 KB  route assets/KennelRepositories.D10YzAHO.js
+     6.1 KB  route assets/KennelFixTimeout.BdrolGim.js
+     6.0 KB  route assets/ReadinessPreview.BZBHw-_A.js
+     5.9 KB  route assets/EliRepairSetup.C0M8Hrbj.js
+     5.9 KB  route assets/CachePreview.Bh9d3J0A.js
+     5.7 KB  route assets/NoticeCard.DmSXH0mr.js
+     5.7 KB  route assets/ZoomiesStatusIcon.Ow0JB8BK.js
+     5.6 KB  route assets/PageBand.C4uQk8U6.js
+     5.5 KB  route assets/Providers.DvZynPm2.js
+     5.3 KB  shell assets/router.D5UWrs0d.css
+     5.1 KB  route assets/RunnerStatus.BfLgsQCp.js
+     5.1 KB  route assets/AiContext.r20VwK0s.js
+     5.0 KB  shell assets/dog-motion.Dw6NSItW.js
+     4.9 KB  route assets/KennelShell.BhNZT6Vd.js
+     4.8 KB  route assets/MachineDetail.1lQqFtxy.js
+     4.6 KB  route assets/RolloutStatus.I9V_Nkfx.js
+     4.6 KB  route assets/ZoomiesStatusIcon.BrcUxcRL.css
+     4.6 KB  route assets/CheckFindings.DZafDRiY.js
+     4.3 KB  route assets/AiContextCard.CaMPKJVQ.js
+     4.2 KB  route assets/Audit.BX26DvzT.js
+     4.2 KB  route assets/QuantityField.s0t29DWb.js
+     4.1 KB  route assets/PoolEditor.Do8ynEmU.css
+     4.1 KB  route assets/ReadingCard.BZ5EkRSo.js
+     4.1 KB  route assets/automatic.nrc7Imzy.js
+     3.8 KB  route assets/AnalysisCard.8ygdTSgV.js
+     3.8 KB  route assets/Hosts.BU3UCres.css
+     3.7 KB  route assets/consequences.gzbidNOQ.js
+     3.6 KB  route assets/McpConsent.D3ZfvDjj.js
+     3.6 KB  route assets/FleetHistory.DcaHHPRh.js
+     3.5 KB  route assets/Overview.BEnMI900.css
+     3.4 KB  route assets/JobFilters.BuUN1yXo.js
+     2.8 KB  route assets/provisioning.DXcr8H3-.js
+     2.5 KB  route assets/HostUpdateRow.DaYZryMB.js
+     2.5 KB  route assets/HostCapacityMap.DpGH45kK.css
+     2.4 KB  route assets/StopAutomaticDialog.DmLy5yGg.js
+     2.3 KB  route assets/tableLayout.BDg0syMH.js
+     2.3 KB  route assets/EliRepairs.BrPvZVaE.css
+     2.2 KB  route assets/LevelSwitch.BUilk71J.js
+     2.2 KB  route assets/ActivityMatrix.CYFC1pHk.css
+     2.1 KB  route assets/Installations.0MI63yZH.css
+     2.1 KB  route assets/PageBand.JqDexxew.css
+     2.1 KB  route assets/RunnerDetail.BYuBg7bS.css
+     2.1 KB  route assets/Migrate.BpBvFZQd.css
+     2.1 KB  route assets/DataGrid.BmGPKHD5.css
+     2.0 KB  route assets/RepairTargetDialog.DMZg8LDF.js
+     1.9 KB  route assets/CheckoutRunPicker.B5IGA_fK.js
+     1.8 KB  route assets/EliRepairAttempt.B2fgqsX1.css
+     1.8 KB  route assets/KennelRepository.B4p5t-1k.css
+     1.8 KB  route assets/Usage.vZlNe4Zn.css
+     1.7 KB  route assets/Pools.CEi6030-.css
+     1.7 KB  route assets/AddHost.BYeTkO8X.css
+     1.7 KB  route assets/MachineBand.BTe9WYLL.js
+     1.7 KB  route assets/JobDrawer.DuiAslaw.css
+     1.6 KB  route assets/Kennel.CWsRfGFu.css
+     1.5 KB  route assets/NoticeCard.81g6-JTw.css
+     1.5 KB  route assets/PublicationGate.BkzXCrhJ.js
+     1.5 KB  route assets/HostDetail.DevqKbe3.css
+     1.5 KB  route assets/signals.CotbiWIZ.js
+     1.5 KB  route assets/contexts.6nX5Slnv.js
+     1.4 KB  route assets/SectionNav.JGzjubi5.js
+     1.4 KB  route assets/RunnerMemoryBadges.BSj5qyJL.css
+     1.4 KB  route assets/LabelMapEditor.x3HgqTXx.js
+     1.4 KB  route assets/ReadingCard.guw_FJNQ.css
+     1.4 KB  route assets/Wizard.CFOM_Ajr.js
+     1.4 KB  route assets/lines.C5m2Yrta.js
+     1.4 KB  route assets/RunnerStatus.BQKJUPxm.css
+     1.3 KB  route assets/EliRepairNew.v65sjEmh.css
+     1.3 KB  route assets/ConfirmDialog.K2802mGx.js
+     1.2 KB  route assets/JobSteps.C0aEQN8P.js
+     1.2 KB  route assets/LabelInput.BCvHBy6l.js
+     1.2 KB  route assets/ProviderDetail.iHLWMNvO.css
+     1.2 KB  route assets/Pagination.wG0l3lZv.js
+     1.2 KB  route assets/StateBreakdown.D5s75eCA.js
+     1.1 KB  route assets/Tabs.TcS5ELaM.js
+     1.1 KB  route assets/TestJob.2AhSYenf.js
+     1.1 KB  route assets/PoolDetail.DknQhjSX.css
+     1.1 KB  route assets/BackendList.BtcLLulB.js
+     1.1 KB  route assets/Jobs.eA9FMZmi.css
+     1.1 KB  route assets/QuantityField.ZIEnOpS9.css
+     1.0 KB  route assets/plot.C0q0tA12.js
+     1.0 KB  route assets/PoolWizard.DEU7lvWO.js
+     1.0 KB  route assets/xterm.B1njb2Cr.css
+     1.0 KB  route assets/UtilisationBar.CMut0HpO.js
+     0.9 KB  route assets/MachineBand.Bb86p13V.css
+     0.9 KB  route assets/AiContext.DWgL_MU4.css
+     0.9 KB  route assets/Providers.DjlAtnDD.css
+     0.9 KB  route assets/Workflows.DPSLgxjZ.css
+     0.9 KB  route assets/RowActions.CKYj_PU-.js
+     0.9 KB  route assets/tags.mVvAoWB6.js
+     0.9 KB  route assets/Checkbox.BYsZ83LU.js
+     0.9 KB  route assets/DateRange.CjuhO9sq.js
+     0.9 KB  route assets/ProviderForm.eRbBAp1d.css
+     0.9 KB  route assets/Wizard.D8q691br.css
+     0.9 KB  route assets/GitHubLink.B855aBCH.js
+     0.8 KB  route assets/machines.SmKC0orI.js
+     0.8 KB  route assets/SectionNav.D9fY1EHf.css
+     0.8 KB  route assets/MetricGrid.R80oif-N.css
+     0.8 KB  route assets/AnalysisCard.Fp57OEyG.css
+     0.8 KB  route assets/KennelShell.DGIBbDoT.css
+     0.8 KB  route assets/MetricGrid.W7UImgce.js
+     0.8 KB  route assets/KennelRepositories.fmMd81iH.css
+     0.8 KB  route assets/CheckFindings.DZJF8Z_K.css
+     0.8 KB  route assets/Runners.sQ-CKNTU.css
+     0.8 KB  route assets/Switch.Mjlt7rf5.js
+     0.8 KB  route assets/McpConsent.DcBRomQ1.css
+     0.8 KB  route assets/AiContextSetup.CDOvtWXv.css
+     0.8 KB  route assets/Queue.C6AcT-3v.css
+     0.7 KB  route assets/AiContextCard.DcacdWMM.css
+     0.7 KB  route assets/FilterBar.B7zJu8xF.js
+     0.7 KB  route assets/Badge.DzxVZDBP.js
+     0.7 KB  route assets/Select.WtwZH09T.js
+     0.7 KB  route assets/StopAutomaticDialog.GidLmeGj.css
+     0.7 KB  route assets/RadioGroup.P2Jq8o3B.js
+     0.7 KB  route assets/Audit.DL9yso-s.css
+     0.7 KB  route assets/Comparisons.BJkker-7.css
+     0.7 KB  route assets/MachineDetail.BfX9lALw.css
+     0.7 KB  route assets/EliRepairSetup.8ZWRm95h.css
+     0.7 KB  route assets/StateBreakdown.BNH0DRJ4.css
+     0.6 KB  route assets/StateCell.DzsI2jUO.js
+     0.6 KB  route assets/CheckoutPreview.BA_9G6JA.css
+     0.6 KB  route assets/JobFilters._KloePgl.css
+     0.6 KB  route assets/Switch.CVuDP-8y.css
+     0.6 KB  route assets/ShardingPreview.Bb520BQs.css
+     0.6 KB  route assets/ReadinessPreview.1mu5IVTE.css
+     0.6 KB  route assets/KennelFixTimeout.DqSTM8K2.css
+     0.6 KB  route assets/ProviderWizard.F_4qd3yW.js
+     0.6 KB  route assets/CachePreview.BoxMllkT.css
+     0.6 KB  route assets/columnGesture.BO_SW02p.js
+     0.6 KB  route assets/LabelInput.CT3gi2Dt.css
+     0.6 KB  route assets/Panel.DsAQl0eW.js
+     0.5 KB  route assets/FleetHistory.D-Px9mWC.css
+     0.5 KB  route assets/LevelSwitch.D6rUgA7A.css
+     0.5 KB  route assets/LoadingBoundary.BE_P2p2_.js
+     0.5 KB  route assets/KennelTurnOn.CBZGn8vC.js
+     0.5 KB  route assets/workspace.xgFhBTFD.js
+     0.5 KB  route assets/UtilisationBar.D4D3acsB.css
+     0.5 KB  route assets/provisioning.xd8jY36I.css
+     0.5 KB  route assets/RepairTargetDialog.CDLAvCcf.css
+     0.5 KB  route assets/Textarea.BaTn1rnD.js
+     0.5 KB  route assets/addon-fit.DIOBYJe3.js
+     0.5 KB  route assets/TestJob.DPJ2iSF2.css
+     0.5 KB  shell assets/dog.CZ0QsoHC.js
+     0.5 KB  route assets/Panel.RgxnxZeo.css
+     0.5 KB  route assets/brand.BIpcZR7f.js
+     0.4 KB  route assets/PoolLabels.DvoeBG_c.css
+     0.4 KB  route assets/Tabs.BIGnGDZ3.css
+     0.4 KB  route assets/Select.KI3tt1PJ.css
+     0.4 KB  route assets/terminal.CP2-T5Yj.js
+     0.4 KB  route assets/FilterBar.Dz6qIk2P.css
+     0.4 KB  route assets/GithubSetup.BHImDPTu.js
+     0.4 KB  route assets/ChartPanel.DASy_mCp.js
+     0.4 KB  route assets/BackendList.C0X3jMKD.css
+     0.4 KB  route assets/RolloutStatus.DoYGeLF5.css
+     0.4 KB  route assets/jump.DgbDsuw_.js
+     0.4 KB  route assets/RowActions.BqQsrNDa.css
+     0.4 KB  route assets/GitHubLink.Cx2wpkme.css
+     0.4 KB  route assets/Duration.GnoPAXz_.js
+     0.4 KB  route assets/JobSteps.Dj6onkcB.css
+     0.4 KB  route assets/file-up.COOv2UNl.js
+     0.4 KB  route assets/sparkles.MVlRXAjP.js
+     0.3 KB  route assets/Pagination.MP5xXVuR.css
+     0.3 KB  route assets/RadioGroup.DKo0uX9l.css
+     0.3 KB  route assets/Textarea.DQ-LNEgD.css
+     0.3 KB  route assets/ChartPanel.3vdcYiJR.css
+     0.3 KB  route assets/Checkbox.CgG02kfe.css
+     0.3 KB  shell assets/circle-minus.BCYX8DSk.js
+     0.3 KB  route assets/DateRange.Dt8jHa8T.css
+     0.3 KB  route assets/consequences.BcOfbp4E.css
+     0.3 KB  route assets/pairing.CoFx4xhb.js
+     0.3 KB  route assets/HostUpdateRow.CJX2REo_.css
+     0.3 KB  route assets/unplug.Dattn_mZ.js
+     0.3 KB  route assets/pencil.C6ZuTaKA.js
+     0.3 KB  route assets/stethoscope.C6XbglyG.js
+     0.3 KB  route assets/LabelMapEditor.EfoZ5mF7.css
+     0.3 KB  route assets/git-pull-request.DXy6Ni1v.js
+     0.3 KB  route assets/refresh-cw.gaBUzPBf.js
+     0.3 KB  route assets/Badge.TduLkcEP.css
+     0.3 KB  route assets/hostSelector.1UBhKf2T.js
+     0.3 KB  route assets/sliders-horizontal.k2LlukkZ.js
+     0.3 KB  route assets/CheckoutRunPicker.D-fZw4HH.css
+     0.3 KB  route assets/circle-alert.CkZF2JqI.js
+     0.3 KB  route assets/StateCell.CqOPJrn1.css
+     0.3 KB  route assets/settings-2.B4zzeyZ4.js
+     0.2 KB  route assets/gauge.Bn4x4jA9.js
+     0.2 KB  route assets/pause.DR93vupT.js
+     0.2 KB  route assets/power.CJKSL9FN.js
+     0.2 KB  route assets/arrow-right.DWAdEUsa.js
+     0.2 KB  route assets/addresses.DiYrlk-B.js
+     0.2 KB  shell assets/x.BeHgTu2a.js
+     0.2 KB  route assets/chevron-down.DfPgbDkZ.js
+     0.2 KB  shell assets/minus.c3wegaED.js
+     0.2 KB  route assets/PublicationGate.9Rx2tenw.css
+     0.2 KB  route assets/ConfirmDialog.C1LT55C6.css
+     0.2 KB  route assets/reason.rDrxAS_g.js
+     0.2 KB  route assets/name.CdeGi90x.js
+     0.1 KB  route assets/LoadingBoundary.kSEDsEUs.css
+     0.1 KB  route assets/KennelTurnOn.C9caCoQB.css
+     0.1 KB  route assets/PoolWizard.msZAix-M.css
+     0.1 KB  route assets/Duration.D8gpA-IQ.css
+     0.1 KB  route assets/GithubSetup.CEhoHOph.css
+[plugin zoomies-budgets] app shell: 148.0 KB of 200.0 KB budget
+computing gzip size...
+../internal/api/webdist/index.html                                               9.75 kB │ gzip:  3.48 kB
+../internal/api/webdist/assets/jetbrains-mono-latin-400-normal.V6pRDFza.woff2   21.16 kB
+../internal/api/webdist/assets/jetbrains-mono-latin-500-normal.BWZEU5yA.woff2   21.83 kB
+../internal/api/webdist/assets/inter-latin-wght-normal.Dx4kXJAl.woff2           48.25 kB
+../internal/api/webdist/assets/inter-latin-ext-wght-normal.DO1Apj_S.woff2       85.06 kB
+../internal/api/webdist/assets/GithubSetup.CEhoHOph.css                          0.07 kB │ gzip:  0.09 kB
+../internal/api/webdist/assets/Duration.D8gpA-IQ.css                             0.07 kB │ gzip:  0.09 kB
+../internal/api/webdist/assets/PoolWizard.msZAix-M.css                           0.09 kB │ gzip:  0.09 kB
+../internal/api/webdist/assets/KennelTurnOn.C9caCoQB.css                         0.10 kB │ gzip:  0.10 kB
+../internal/api/webdist/assets/LoadingBoundary.kSEDsEUs.css                      0.10 kB │ gzip:  0.10 kB
+../internal/api/webdist/assets/ConfirmDialog.C1LT55C6.css                        0.47 kB │ gzip:  0.20 kB
+../internal/api/webdist/assets/CheckoutRunPicker.D-fZw4HH.css                    0.49 kB │ gzip:  0.27 kB
+../internal/api/webdist/assets/StateCell.CqOPJrn1.css                            0.54 kB │ gzip:  0.25 kB
+../internal/api/webdist/assets/HostUpdateRow.CJX2REo_.css                        0.61 kB │ gzip:  0.30 kB
+../internal/api/webdist/assets/LabelMapEditor.EfoZ5mF7.css                       0.62 kB │ gzip:  0.29 kB
+../internal/api/webdist/assets/Badge.TduLkcEP.css                                0.62 kB │ gzip:  0.28 kB
+../internal/api/webdist/assets/PublicationGate.9Rx2tenw.css                      0.65 kB │ gzip:  0.20 kB
+../internal/api/webdist/assets/DateRange.Dt8jHa8T.css                            0.68 kB │ gzip:  0.31 kB
+../internal/api/webdist/assets/ChartPanel.3vdcYiJR.css                           0.73 kB │ gzip:  0.33 kB
+../internal/api/webdist/assets/Textarea.DQ-LNEgD.css                             0.75 kB │ gzip:  0.33 kB
+../internal/api/webdist/assets/Checkbox.CgG02kfe.css                             0.79 kB │ gzip:  0.32 kB
+../internal/api/webdist/assets/JobSteps.Dj6onkcB.css                             0.85 kB │ gzip:  0.38 kB
+../internal/api/webdist/assets/consequences.BcOfbp4E.css                         0.85 kB │ gzip:  0.31 kB
+../internal/api/webdist/assets/Pagination.MP5xXVuR.css                           0.85 kB │ gzip:  0.34 kB
+../internal/api/webdist/assets/RadioGroup.DKo0uX9l.css                           0.85 kB │ gzip:  0.33 kB
+../internal/api/webdist/assets/RowActions.BqQsrNDa.css                           0.92 kB │ gzip:  0.38 kB
+../internal/api/webdist/assets/RolloutStatus.DoYGeLF5.css                        0.96 kB │ gzip:  0.38 kB
+../internal/api/webdist/assets/Tabs.BIGnGDZ3.css                                 1.04 kB │ gzip:  0.43 kB
+../internal/api/webdist/assets/Select.KI3tt1PJ.css                               1.06 kB │ gzip:  0.41 kB
+../internal/api/webdist/assets/GitHubLink.Cx2wpkme.css                           1.08 kB │ gzip:  0.38 kB
+../internal/api/webdist/assets/PoolLabels.DvoeBG_c.css                           1.13 kB │ gzip:  0.43 kB
+../internal/api/webdist/assets/FilterBar.Dz6qIk2P.css                            1.14 kB │ gzip:  0.41 kB
+../internal/api/webdist/assets/BackendList.C0X3jMKD.css                          1.18 kB │ gzip:  0.39 kB
+../internal/api/webdist/assets/provisioning.xd8jY36I.css                         1.26 kB │ gzip:  0.50 kB
+../internal/api/webdist/assets/Panel.RgxnxZeo.css                                1.27 kB │ gzip:  0.46 kB
+../internal/api/webdist/assets/UtilisationBar.D4D3acsB.css                       1.36 kB │ gzip:  0.50 kB
+../internal/api/webdist/assets/TestJob.DPJ2iSF2.css                              1.52 kB │ gzip:  0.47 kB
+../internal/api/webdist/assets/RepairTargetDialog.CDLAvCcf.css                   1.56 kB │ gzip:  0.49 kB
+../internal/api/webdist/assets/JobFilters._KloePgl.css                           1.69 kB │ gzip:  0.62 kB
+../internal/api/webdist/assets/LabelInput.CT3gi2Dt.css                           1.76 kB │ gzip:  0.56 kB
+../internal/api/webdist/assets/Switch.CVuDP-8y.css                               1.78 kB │ gzip:  0.59 kB
+../internal/api/webdist/assets/LevelSwitch.D6rUgA7A.css                          1.92 kB │ gzip:  0.52 kB
+../internal/api/webdist/assets/FleetHistory.D-Px9mWC.css                         1.99 kB │ gzip:  0.54 kB
+../internal/api/webdist/assets/StopAutomaticDialog.GidLmeGj.css                  2.05 kB │ gzip:  0.70 kB
+../internal/api/webdist/assets/StateBreakdown.BNH0DRJ4.css                       2.12 kB │ gzip:  0.66 kB
+../internal/api/webdist/assets/MachineDetail.BfX9lALw.css                        2.21 kB │ gzip:  0.68 kB
+../internal/api/webdist/assets/EliRepairSetup.8ZWRm95h.css                       2.40 kB │ gzip:  0.67 kB
+../internal/api/webdist/assets/Audit.DL9yso-s.css                                2.53 kB │ gzip:  0.67 kB
+../internal/api/webdist/assets/KennelShell.DGIBbDoT.css                          2.72 kB │ gzip:  0.82 kB
+../internal/api/webdist/assets/Runners.sQ-CKNTU.css                              2.75 kB │ gzip:  0.79 kB
+../internal/api/webdist/assets/CheckoutPreview.BA_9G6JA.css                      2.79 kB │ gzip:  0.64 kB
+../internal/api/webdist/assets/CachePreview.BoxMllkT.css                         2.81 kB │ gzip:  0.59 kB
+../internal/api/webdist/assets/KennelRepositories.fmMd81iH.css                   2.89 kB │ gzip:  0.81 kB
+../internal/api/webdist/assets/McpConsent.DcBRomQ1.css                           2.92 kB │ gzip:  0.78 kB
+../internal/api/webdist/assets/Wizard.D8q691br.css                               2.95 kB │ gzip:  0.86 kB
+../internal/api/webdist/assets/Queue.C6AcT-3v.css                                2.98 kB │ gzip:  0.76 kB
+../internal/api/webdist/assets/ReadinessPreview.1mu5IVTE.css                     3.03 kB │ gzip:  0.59 kB
+../internal/api/webdist/assets/ShardingPreview.Bb520BQs.css                      3.03 kB │ gzip:  0.59 kB
+../internal/api/webdist/assets/KennelFixTimeout.DqSTM8K2.css                     3.04 kB │ gzip:  0.59 kB
+../internal/api/webdist/assets/SectionNav.D9fY1EHf.css                           3.06 kB │ gzip:  0.85 kB
+../internal/api/webdist/assets/AiContextSetup.CDOvtWXv.css                       3.08 kB │ gzip:  0.78 kB
+../internal/api/webdist/assets/AiContextCard.DcacdWMM.css                        3.18 kB │ gzip:  0.75 kB
+../internal/api/webdist/assets/Comparisons.BJkker-7.css                          3.24 kB │ gzip:  0.68 kB
+../internal/api/webdist/assets/MetricGrid.R80oif-N.css                           3.25 kB │ gzip:  0.82 kB
+../internal/api/webdist/assets/Workflows.DPSLgxjZ.css                            3.26 kB │ gzip:  0.91 kB
+../internal/api/webdist/assets/CheckFindings.DZJF8Z_K.css                        3.37 kB │ gzip:  0.79 kB
+../internal/api/webdist/assets/MachineBand.Bb86p13V.css                          3.74 kB │ gzip:  0.94 kB
+../internal/api/webdist/assets/AnalysisCard.Fp57OEyG.css                         3.74 kB │ gzip:  0.82 kB
+../internal/api/webdist/assets/xterm.B1njb2Cr.css                                3.96 kB │ gzip:  1.02 kB
+../internal/api/webdist/assets/QuantityField.ZIEnOpS9.css                        4.20 kB │ gzip:  1.12 kB
+../internal/api/webdist/assets/Providers.DjlAtnDD.css                            4.21 kB │ gzip:  0.93 kB
+../internal/api/webdist/assets/AiContext.DWgL_MU4.css                            4.24 kB │ gzip:  0.93 kB
+../internal/api/webdist/assets/ProviderForm.eRbBAp1d.css                         4.85 kB │ gzip:  0.87 kB
+../internal/api/webdist/assets/Jobs.eA9FMZmi.css                                 5.46 kB │ gzip:  1.12 kB
+../internal/api/webdist/assets/ReadingCard.guw_FJNQ.css                          5.48 kB │ gzip:  1.43 kB
+../internal/api/webdist/assets/PoolDetail.DknQhjSX.css                           5.71 kB │ gzip:  1.15 kB
+../internal/api/webdist/assets/EliRepairNew.v65sjEmh.css                         5.83 kB │ gzip:  1.32 kB
+../internal/api/webdist/assets/RunnerStatus.BQKJUPxm.css                         6.17 kB │ gzip:  1.38 kB
+../internal/api/webdist/assets/ProviderDetail.iHLWMNvO.css                       7.12 kB │ gzip:  1.19 kB
+../internal/api/webdist/assets/RunnerMemoryBadges.BSj5qyJL.css                   7.19 kB │ gzip:  1.46 kB
+../internal/api/webdist/assets/HostDetail.DevqKbe3.css                           7.41 kB │ gzip:  1.51 kB
+../internal/api/webdist/assets/NoticeCard.81g6-JTw.css                           8.21 kB │ gzip:  1.57 kB
+../internal/api/webdist/assets/JobDrawer.DuiAslaw.css                            8.41 kB │ gzip:  1.68 kB
+../internal/api/webdist/assets/Kennel.CWsRfGFu.css                               8.43 kB │ gzip:  1.66 kB
+../internal/api/webdist/assets/Pools.CEi6030-.css                                8.64 kB │ gzip:  1.76 kB
+../internal/api/webdist/assets/EliRepairAttempt.B2fgqsX1.css                     9.57 kB │ gzip:  1.87 kB
+../internal/api/webdist/assets/ActivityMatrix.CYFC1pHk.css                      10.19 kB │ gzip:  2.19 kB
+../internal/api/webdist/assets/AddHost.BYeTkO8X.css                             10.27 kB │ gzip:  1.71 kB
+../internal/api/webdist/assets/KennelRepository.B4p5t-1k.css                    10.66 kB │ gzip:  1.83 kB
+../internal/api/webdist/assets/Usage.vZlNe4Zn.css                               11.22 kB │ gzip:  1.79 kB
+../internal/api/webdist/assets/DataGrid.BmGPKHD5.css                            11.53 kB │ gzip:  2.10 kB
+../internal/api/webdist/assets/PageBand.JqDexxew.css                            11.69 kB │ gzip:  2.14 kB
+../internal/api/webdist/assets/RunnerDetail.BYuBg7bS.css                        11.88 kB │ gzip:  2.14 kB
+../internal/api/webdist/assets/HostCapacityMap.DpGH45kK.css                     13.03 kB │ gzip:  2.52 kB
+../internal/api/webdist/assets/EliRepairs.BrPvZVaE.css                          13.81 kB │ gzip:  2.30 kB
+../internal/api/webdist/assets/Migrate.BpBvFZQd.css                             13.84 kB │ gzip:  2.08 kB
+../internal/api/webdist/assets/Installations.0MI63yZH.css                       14.47 kB │ gzip:  2.15 kB
+../internal/api/webdist/assets/Overview.BEnMI900.css                            21.86 kB │ gzip:  3.57 kB
+../internal/api/webdist/assets/Hosts.BU3UCres.css                               25.42 kB │ gzip:  3.86 kB
+../internal/api/webdist/assets/PoolEditor.Do8ynEmU.css                          28.42 kB │ gzip:  4.21 kB
+../internal/api/webdist/assets/ZoomiesStatusIcon.BrcUxcRL.css                   31.16 kB │ gzip:  4.63 kB
+../internal/api/webdist/assets/router.D5UWrs0d.css                              31.51 kB │ gzip:  5.40 kB
+../internal/api/webdist/assets/Settings.CyJnx_8W.css                            70.16 kB │ gzip:  8.83 kB
+../internal/api/webdist/assets/index.CD8aGdUT.css                               91.28 kB │ gzip: 15.71 kB
+../internal/api/webdist/assets/name.CdeGi90x.js                                  0.20 kB │ gzip:  0.16 kB
+../internal/api/webdist/assets/reason.rDrxAS_g.js                                0.23 kB │ gzip:  0.19 kB
+../internal/api/webdist/assets/minus.c3wegaED.js                                 0.25 kB │ gzip:  0.22 kB
+../internal/api/webdist/assets/chevron-down.DfPgbDkZ.js                          0.26 kB │ gzip:  0.23 kB
+../internal/api/webdist/assets/x.BeHgTu2a.js                                     0.27 kB │ gzip:  0.23 kB
+../internal/api/webdist/assets/arrow-right.DWAdEUsa.js                           0.29 kB │ gzip:  0.24 kB
+../internal/api/webdist/assets/power.CJKSL9FN.js                                 0.29 kB │ gzip:  0.25 kB
+../internal/api/webdist/assets/gauge.Bn4x4jA9.js                                 0.30 kB │ gzip:  0.25 kB
+../internal/api/webdist/assets/addresses.DiYrlk-B.js                             0.33 kB │ gzip:  0.24 kB
+../internal/api/webdist/assets/pause.DR93vupT.js                                 0.33 kB │ gzip:  0.25 kB
+../internal/api/webdist/assets/settings-2.B4zzeyZ4.js                            0.35 kB │ gzip:  0.26 kB
+../internal/api/webdist/assets/circle-alert.CkZF2JqI.js                          0.38 kB │ gzip:  0.27 kB
+../internal/api/webdist/assets/git-pull-request.DXy6Ni1v.js                      0.38 kB │ gzip:  0.29 kB
+../internal/api/webdist/assets/pencil.C6ZuTaKA.js                                0.40 kB │ gzip:  0.31 kB
+../internal/api/webdist/assets/refresh-cw.gaBUzPBf.js                            0.42 kB │ gzip:  0.29 kB
+../internal/api/webdist/assets/stethoscope.C6XbglyG.js                           0.42 kB │ gzip:  0.30 kB
+../internal/api/webdist/assets/hostSelector.1UBhKf2T.js                          0.43 kB │ gzip:  0.29 kB
+../internal/api/webdist/assets/sliders-horizontal.k2LlukkZ.js                    0.45 kB │ gzip:  0.28 kB
+../internal/api/webdist/assets/unplug.Dattn_mZ.js                                0.51 kB │ gzip:  0.32 kB
+../internal/api/webdist/assets/Duration.GnoPAXz_.js                              0.58 kB │ gzip:  0.39 kB
+../internal/api/webdist/assets/circle-minus.BCYX8DSk.js                          0.59 kB │ gzip:  0.33 kB
+../internal/api/webdist/assets/terminal.CP2-T5Yj.js                              0.60 kB │ gzip:  0.42 kB
+../internal/api/webdist/assets/jump.DgbDsuw_.js                                  0.60 kB │ gzip:  0.39 kB
+../internal/api/webdist/assets/sparkles.MVlRXAjP.js                              0.61 kB │ gzip:  0.36 kB
+../internal/api/webdist/assets/GithubSetup.BHImDPTu.js                           0.65 kB │ gzip:  0.41 kB
+../internal/api/webdist/assets/pairing.CoFx4xhb.js                               0.65 kB │ gzip:  0.32 kB
+../internal/api/webdist/assets/ChartPanel.DASy_mCp.js                            0.68 kB │ gzip:  0.41 kB
+../internal/api/webdist/assets/dog.CZ0QsoHC.js                                   0.73 kB │ gzip:  0.48 kB
+../internal/api/webdist/assets/KennelTurnOn.CBZGn8vC.js                          0.77 kB │ gzip:  0.52 kB
+../internal/api/webdist/assets/file-up.COOv2UNl.js                               0.84 kB │ gzip:  0.37 kB
+../internal/api/webdist/assets/Textarea.BaTn1rnD.js                              0.89 kB │ gzip:  0.50 kB
+../internal/api/webdist/assets/LoadingBoundary.BE_P2p2_.js                       0.90 kB │ gzip:  0.53 kB
+../internal/api/webdist/assets/brand.BIpcZR7f.js                                 0.91 kB │ gzip:  0.47 kB
+../internal/api/webdist/assets/workspace.xgFhBTFD.js                             0.91 kB │ gzip:  0.51 kB
+../internal/api/webdist/assets/ProviderWizard.F_4qd3yW.js                        1.01 kB │ gzip:  0.60 kB
+../internal/api/webdist/assets/Panel.DsAQl0eW.js                                 1.01 kB │ gzip:  0.56 kB
+../internal/api/webdist/assets/StateCell.DzsI2jUO.js                             1.07 kB │ gzip:  0.66 kB
+../internal/api/webdist/assets/addon-fit.DIOBYJe3.js                             1.20 kB │ gzip:  0.49 kB
+../internal/api/webdist/assets/Select.WtwZH09T.js                                1.26 kB │ gzip:  0.71 kB
+../internal/api/webdist/assets/Badge.DzxVZDBP.js                                 1.29 kB │ gzip:  0.72 kB
+../internal/api/webdist/assets/RadioGroup.P2Jq8o3B.js                            1.39 kB │ gzip:  0.70 kB
+../internal/api/webdist/assets/columnGesture.BO_SW02p.js                         1.40 kB │ gzip:  0.58 kB
+../internal/api/webdist/assets/FilterBar.B7zJu8xF.js                             1.46 kB │ gzip:  0.74 kB
+../internal/api/webdist/assets/Switch.Mjlt7rf5.js                                1.58 kB │ gzip:  0.80 kB
+../internal/api/webdist/assets/MetricGrid.W7UImgce.js                            1.62 kB │ gzip:  0.83 kB
+../internal/api/webdist/assets/Checkbox.BYsZ83LU.js                              1.64 kB │ gzip:  0.91 kB
+../internal/api/webdist/assets/GitHubLink.B855aBCH.js                            1.74 kB │ gzip:  0.88 kB
+../internal/api/webdist/assets/RowActions.CKYj_PU-.js                            1.76 kB │ gzip:  0.92 kB
+../internal/api/webdist/assets/PoolWizard.DEU7lvWO.js                            1.87 kB │ gzip:  1.04 kB
+../internal/api/webdist/assets/tags.mVvAoWB6.js                                  1.89 kB │ gzip:  0.92 kB
+../internal/api/webdist/assets/machines.SmKC0orI.js                              1.91 kB │ gzip:  0.87 kB
+../internal/api/webdist/assets/DateRange.CjuhO9sq.js                             2.04 kB │ gzip:  0.90 kB
+../internal/api/webdist/assets/UtilisationBar.CMut0HpO.js                        2.09 kB │ gzip:  1.00 kB
+../internal/api/webdist/assets/plot.C0q0tA12.js                                  2.10 kB │ gzip:  1.05 kB
+../internal/api/webdist/assets/LabelInput.BCvHBy6l.js                            2.24 kB │ gzip:  1.25 kB
+../internal/api/webdist/assets/TestJob.2AhSYenf.js                               2.31 kB │ gzip:  1.17 kB
+../internal/api/webdist/assets/Tabs.TcS5ELaM.js                                  2.31 kB │ gzip:  1.17 kB
+../internal/api/webdist/assets/JobSteps.C0aEQN8P.js                              2.41 kB │ gzip:  1.26 kB
+../internal/api/webdist/assets/BackendList.BtcLLulB.js                           2.41 kB │ gzip:  1.14 kB
+../internal/api/webdist/assets/ConfirmDialog.K2802mGx.js                         2.72 kB │ gzip:  1.33 kB
+../internal/api/webdist/assets/StateBreakdown.D5s75eCA.js                        2.73 kB │ gzip:  1.21 kB
+../internal/api/webdist/assets/Pagination.wG0l3lZv.js                            2.73 kB │ gzip:  1.21 kB
+../internal/api/webdist/assets/LabelMapEditor.x3HgqTXx.js                        3.09 kB │ gzip:  1.44 kB
+../internal/api/webdist/assets/Wizard.CFOM_Ajr.js                                3.11 kB │ gzip:  1.41 kB
+../internal/api/webdist/assets/contexts.6nX5Slnv.js                              3.27 kB │ gzip:  1.51 kB
+../internal/api/webdist/assets/SectionNav.JGzjubi5.js                            3.33 kB │ gzip:  1.48 kB
+../internal/api/webdist/assets/signals.CotbiWIZ.js                               3.46 kB │ gzip:  1.51 kB
+../internal/api/webdist/assets/MachineBand.BTe9WYLL.js                           3.48 kB │ gzip:  1.70 kB
+../internal/api/webdist/assets/CheckoutRunPicker.B5IGA_fK.js                     3.79 kB │ gzip:  1.89 kB
+../internal/api/webdist/assets/lines.C5m2Yrta.js                                 3.84 kB │ gzip:  1.42 kB
+../internal/api/webdist/assets/PublicationGate.BkzXCrhJ.js                       4.01 kB │ gzip:  1.54 kB
+../internal/api/webdist/assets/RepairTargetDialog.DMZg8LDF.js                    4.41 kB │ gzip:  2.08 kB
+../internal/api/webdist/assets/StopAutomaticDialog.DmLy5yGg.js                   5.07 kB │ gzip:  2.44 kB
+../internal/api/webdist/assets/LevelSwitch.BUilk71J.js                           5.34 kB │ gzip:  2.25 kB
+../internal/api/webdist/assets/tableLayout.BDg0syMH.js                           5.94 kB │ gzip:  2.33 kB
+../internal/api/webdist/assets/HostUpdateRow.DaYZryMB.js                         6.23 kB │ gzip:  2.57 kB
+../internal/api/webdist/assets/provisioning.DXcr8H3-.js                          6.89 kB │ gzip:  2.83 kB
+../internal/api/webdist/assets/FleetHistory.DcaHHPRh.js                          8.40 kB │ gzip:  3.67 kB
+../internal/api/webdist/assets/McpConsent.D3ZfvDjj.js                            9.02 kB │ gzip:  3.69 kB
+../internal/api/webdist/assets/JobFilters.BuUN1yXo.js                            9.09 kB │ gzip:  3.45 kB
+../internal/api/webdist/assets/QuantityField.s0t29DWb.js                         9.41 kB │ gzip:  4.25 kB
+../internal/api/webdist/assets/AnalysisCard.8ygdTSgV.js                          9.41 kB │ gzip:  3.92 kB
+../internal/api/webdist/assets/automatic.nrc7Imzy.js                            10.30 kB │ gzip:  4.17 kB
+../internal/api/webdist/assets/consequences.gzbidNOQ.js                         10.36 kB │ gzip:  3.84 kB
+../internal/api/webdist/assets/ReadingCard.BZ5EkRSo.js                          11.36 kB │ gzip:  4.25 kB
+../internal/api/webdist/assets/Audit.BX26DvzT.js                                11.37 kB │ gzip:  4.26 kB
+../internal/api/webdist/assets/CheckFindings.DZafDRiY.js                        11.58 kB │ gzip:  4.68 kB
+../internal/api/webdist/assets/KennelShell.BhNZT6Vd.js                          11.99 kB │ gzip:  5.01 kB
+../internal/api/webdist/assets/RolloutStatus.I9V_Nkfx.js                        12.33 kB │ gzip:  4.73 kB
+../internal/api/webdist/assets/AiContextCard.CaMPKJVQ.js                        12.46 kB │ gzip:  4.39 kB
+../internal/api/webdist/assets/dog-motion.Dw6NSItW.js                           13.45 kB │ gzip:  5.11 kB
+../internal/api/webdist/assets/MachineDetail.1lQqFtxy.js                        13.69 kB │ gzip:  4.88 kB
+../internal/api/webdist/assets/RunnerStatus.BfLgsQCp.js                         13.74 kB │ gzip:  5.26 kB
+../internal/api/webdist/assets/AiContext.r20VwK0s.js                            14.10 kB │ gzip:  5.24 kB
+../internal/api/webdist/assets/Providers.DvZynPm2.js                            14.58 kB │ gzip:  5.67 kB
+../internal/api/webdist/assets/PageBand.C4uQk8U6.js                             14.95 kB │ gzip:  5.70 kB
+../internal/api/webdist/assets/NoticeCard.DmSXH0mr.js                           16.44 kB │ gzip:  5.89 kB
+../internal/api/webdist/assets/Queue.Cura7RP9.js                                16.52 kB │ gzip:  6.44 kB
+../internal/api/webdist/assets/EliRepairSetup.C0M8Hrbj.js                       16.69 kB │ gzip:  6.07 kB
+../internal/api/webdist/assets/KennelRepositories.D10YzAHO.js                   17.09 kB │ gzip:  6.32 kB
+../internal/api/webdist/assets/CachePreview.Bh9d3J0A.js                         18.75 kB │ gzip:  6.03 kB
+../internal/api/webdist/assets/ReadinessPreview.BZBHw-_A.js                     19.13 kB │ gzip:  6.16 kB
+../internal/api/webdist/assets/Runners.DzBaZAhT.js                              19.19 kB │ gzip:  7.39 kB
+../internal/api/webdist/assets/Kennel.pblMdO3z.js                               19.34 kB │ gzip:  6.70 kB
+../internal/api/webdist/assets/KennelFixTimeout.BdrolGim.js                     19.46 kB │ gzip:  6.25 kB
+../internal/api/webdist/assets/ZoomiesStatusIcon.Ow0JB8BK.js                    19.73 kB │ gzip:  5.80 kB
+../internal/api/webdist/assets/RunnerMemoryBadges.Sk9Etsh1.js                   20.15 kB │ gzip:  7.23 kB
+../internal/api/webdist/assets/ShardingPreview.zQu254F3.js                      20.40 kB │ gzip:  6.46 kB
+../internal/api/webdist/assets/PoolLabels.DAEutr_t.js                           20.66 kB │ gzip:  7.14 kB
+../internal/api/webdist/assets/CheckoutPreview.YtRYwMVT.js                      20.75 kB │ gzip:  6.49 kB
+../internal/api/webdist/assets/EliRepairAttempt.DDmWk48c.js                     22.70 kB │ gzip:  8.20 kB
+../internal/api/webdist/assets/AddHost.CuotTyPb.js                              25.12 kB │ gzip:  8.99 kB
+../internal/api/webdist/assets/PoolDetail.BPbCqsEn.js                           25.70 kB │ gzip:  8.88 kB
+../internal/api/webdist/assets/status.BKyrkWzV.js                               25.97 kB │ gzip:  8.88 kB
+../internal/api/webdist/assets/Workflows.OK-C3GhI.js                            26.27 kB │ gzip:  8.67 kB
+../internal/api/webdist/assets/ActivityMatrix.7CMH2tAz.js                       26.52 kB │ gzip:  9.35 kB
+../internal/api/webdist/assets/EliRepairNew.DO9BbGFg.js                         28.12 kB │ gzip:  9.56 kB
+../internal/api/webdist/assets/Comparisons.By5hLZRo.js                          29.92 kB │ gzip:  9.01 kB
+../internal/api/webdist/assets/HostCapacityMap.DOaa4aN0.js                      30.38 kB │ gzip: 10.92 kB
+../internal/api/webdist/assets/addon-search.cV8svGFx.js                         31.87 kB │ gzip:  9.77 kB
+../internal/api/webdist/assets/ProviderDetail.CMxGj1_t.js                       32.14 kB │ gzip: 11.43 kB
+../internal/api/webdist/assets/AiContextSetup.BXtmCSjN.js                       32.18 kB │ gzip: 10.43 kB
+../internal/api/webdist/assets/EliRepairs.D-ep1GqD.js                           33.45 kB │ gzip: 11.27 kB
+../internal/api/webdist/assets/Pools.CcQk_drT.js                                34.22 kB │ gzip: 11.87 kB
+../internal/api/webdist/assets/Migrate.nc6Rza6t.js                              37.05 kB │ gzip: 12.97 kB
+../internal/api/webdist/assets/Jobs.Cvv8vpSg.js                                 37.22 kB │ gzip: 12.86 kB
+../internal/api/webdist/assets/JobDrawer.BqeSagAn.js                            40.63 kB │ gzip: 13.62 kB
+../internal/api/webdist/assets/Usage.Bpnp3h-7.js                                41.22 kB │ gzip: 14.12 kB
+../internal/api/webdist/assets/KennelRepository.fbSkPV5n.js                     45.41 kB │ gzip: 14.66 kB
+../internal/api/webdist/assets/RunnerDetail.DgZeR6Op.js                         46.17 kB │ gzip: 15.58 kB
+../internal/api/webdist/assets/HostDetail.CXsFWj8d.js                           48.25 kB │ gzip: 16.50 kB
+../internal/api/webdist/assets/DataGrid.B_koKSO8.js                             48.73 kB │ gzip: 15.87 kB
+../internal/api/webdist/assets/ProviderForm.CACTYAPE.js                         49.63 kB │ gzip: 15.31 kB
+../internal/api/webdist/assets/Installations.BD30Pz61.js                        60.48 kB │ gzip: 18.48 kB
+../internal/api/webdist/assets/Overview.B9_lNq2w.js                             61.39 kB │ gzip: 20.88 kB
+../internal/api/webdist/assets/Hosts.CGOFARKk.js                               113.08 kB │ gzip: 34.04 kB
+../internal/api/webdist/assets/addon-webgl.C3a5wC6k.js                         113.36 kB │ gzip: 30.98 kB
+../internal/api/webdist/assets/PoolEditor.odwThQcL.js                          139.62 kB │ gzip: 42.31 kB
+../internal/api/webdist/assets/index.BrILqzi1.js                               147.15 kB │ gzip: 47.48 kB
+../internal/api/webdist/assets/router.bPoX0BQR.js                              216.81 kB │ gzip: 72.89 kB
+../internal/api/webdist/assets/Settings.CbHGL1gL.js                            234.36 kB │ gzip: 67.89 kB
+../internal/api/webdist/assets/xterm.BMsy1fDS.js                               330.92 kB │ gzip: 83.01 kB
+
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 300 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 6.33s
+vite v8.3.5 building client environment for status...
+transforming...
+✓ 4208 modules transformed.
+rendering chunks...
+[plugin zoomies-budgets] gzipped sizes:
+    24.3 KB  shell assets/status.DZpYqNRI.js
+     5.2 KB  shell assets/status.B74ao9lo.css
+[plugin zoomies-budgets] status page: 29.5 KB of 30.0 KB budget
+computing gzip size...
+../internal/api/webdist/status.html                  1.33 kB │ gzip:  0.69 kB
+../internal/api/webdist/assets/status.B74ao9lo.css  23.20 kB │ gzip:  5.27 kB
+../internal/api/webdist/assets/status.DZpYqNRI.js   65.89 kB │ gzip: 25.13 kB
+
+✓ built in 2.09s

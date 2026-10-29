@@ -669,21 +669,21 @@ severity, never a problem's own words, and with no status colour in it. It costs
 the Overview some height, so the pools start within the first 1000px of a
 desktop window and no longer within 900px; the hero is left out on a phone,
 where the pools must still be on the first screen. The fleet pages (Runners,
-Pools, Queue, Jobs, Workflows, Usage, Hosts, Providers, Installations, Eli
-repairs, Migrate and Kennel Club) open on the same stage, with
-one sentence from the page's own figures. A band takes one of four cuts, Slim,
-Compact, Standard or Expanded, chosen per page from the band itself or in
-Appearance; a size pressed on a band asks where it lands (this page, pages picked
-one at a time, or every page), so one deliberate answer serves eight pages. Each
-is switched off per page in Appearance (a list of hidden pages, so a band added
-later is on), and a phone never shows one. A band's dog can be hidden, or drawn
-at a chosen size (Auto follows the band's own size; Small, Medium and Large pin
-it); pressing the dog opens the same panel, with the same question about where.
-The choices follow the signed-in account, with the browser as the fallback. A
-figure a band carries is a way into the evidence it counts: pressing it narrows
-the list on this page and takes the reader to it, or opens the page that holds
-the list at that list, with the filter in the address. The wrong-address page
-uses the same stage with the dog.
+Pools, Queue, Jobs, Workflows, Usage, Hosts, Providers, Installations, Migrate
+and Kennel Club) open on the same stage, with one sentence from the page's own
+figures. A band takes one of four cuts, Slim, Compact, Standard or Expanded,
+chosen per page from the band itself or in Appearance; a size pressed on a band
+asks where it lands (this page, pages picked one at a time, or every page), so
+one deliberate answer serves every page that needs it. Each is switched off per
+page in Appearance (a list of hidden pages, so a band added later is on), and a
+phone never shows one. A band's dog can be hidden, or drawn at a chosen size
+(Auto follows the band's own size; Small, Medium and Large pin it); pressing the
+dog opens the same panel, with the same question about where. The choices follow
+the signed-in account, with the browser as the fallback. A figure a band carries
+is a way into the evidence it counts: pressing it narrows the list on this page
+and takes the reader to it, or opens the page that holds the list at that list,
+with the filter in the address. The wrong-address page uses the same stage with
+the dog.
 
 Persistent left navigation, collapsible to icons only (persisted). Order is
 fixed, because muscle memory is the point:

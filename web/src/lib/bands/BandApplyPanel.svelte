@@ -302,7 +302,7 @@
   .dot {
     color: var(--z-text-subtle);
   }
-  /* The list is the only part that scrolls: thirteen rows plus the two
+  /* The list is the only part that scrolls: a dozen rows plus the two
      questions above would otherwise put Apply below the fold on a laptop. */
   .pages {
     display: flex;

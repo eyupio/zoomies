@@ -12132,7 +12132,7 @@ export interface components {
          * @description A page that opens on a band.
          * @enum {string}
          */
-        BandPage: "overview" | "runners" | "pools" | "queue" | "jobs" | "workflows" | "usage" | "hosts" | "providers" | "installations" | "repairs" | "migrate" | "kennel";
+        BandPage: "overview" | "runners" | "pools" | "queue" | "jobs" | "workflows" | "usage" | "hosts" | "providers" | "installations" | "migrate" | "kennel";
         /**
          * @description How much air and type a band takes, from the shortest cut to the tallest.
          * @enum {string}

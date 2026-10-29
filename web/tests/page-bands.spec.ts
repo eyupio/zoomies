@@ -197,8 +197,8 @@ test('one answer can give every band the same cut', async ({ page }) => {
 
   const panel = page.getByRole('dialog', { name: 'Slim band size, where to apply' });
   await panel.getByRole('radio', { name: 'Every page' }).check();
-  await expect(panel.getByRole('button', { name: 'Apply to 13 pages' })).toBeVisible();
-  await panel.getByRole('button', { name: 'Apply to 13 pages' }).click();
+  await expect(panel.getByRole('button', { name: 'Apply to 12 pages' })).toBeVisible();
+  await panel.getByRole('button', { name: 'Apply to 12 pages' }).click();
 
   await expect(page.getByTestId('band-runners')).toHaveAttribute('data-size', 'slim');
   await goto(page, '/hosts', 'Hosts');

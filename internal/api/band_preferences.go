@@ -16,7 +16,7 @@ discovered later as a band that never changes.
 */
 var bandPages = []string{
 	"overview", "runners", "pools", "queue", "jobs", "workflows", "usage",
-	"hosts", "providers", "installations", "repairs", "migrate", "kennel",
+	"hosts", "providers", "installations", "migrate", "kennel",
 }
 
 var bandCuts = []string{"slim", "compact", "standard", "expanded"}

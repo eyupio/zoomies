@@ -16783,7 +16783,7 @@ components:
       properties:
         hidden:
           type: array
-          maxItems: 13
+          maxItems: 12
           description: Pages whose band is switched off.
           items:
             $ref: "#/components/schemas/BandPage"
@@ -16811,7 +16811,7 @@ components:
     BandPage:
       type: string
       description: A page that opens on a band.
-      enum: [overview, runners, pools, queue, jobs, workflows, usage, hosts, providers, installations, repairs, migrate, kennel]
+      enum: [overview, runners, pools, queue, jobs, workflows, usage, hosts, providers, installations, migrate, kennel]
 
     BandCut:
       type: string
