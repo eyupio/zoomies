@@ -1031,6 +1031,13 @@ jobs:
       # bit, which would fail as "permission denied" inside the first boot.
       - name: Make the binary executable
         run: chmod +x zoomies
+      # The connect fixture uses go run even in the mobile and chromium
+      # groups. A cold module/build cache can spend its entire one-minute
+      # server startup window compiling the fake before it opens a port.
+      # Keep that build outside Playwright's readiness timer; go run still
+      # checks that the fixture matches the source on every start.
+      - name: Warm the connect fixture's Go build cache
+        run: go build -o /dev/null ./test/fakegithub
       - run: npm ci --no-audit --no-fund
         working-directory: web
       - name: Install Playwright Chromium
