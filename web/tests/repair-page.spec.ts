@@ -114,7 +114,7 @@ test('ready shows the pull request, loads error output when the job opens and st
   expect(calls.errorOutput[0]?.get('job_id')).toBe('9001');
 
   expect(calls.starts).toEqual([]);
-  await page.getByLabel('Tell Eli what to look at').fill('Look at the retry loop');
+  await page.getByLabel('Add a note for Eli (optional)').fill('Look at the retry loop');
   await page.getByRole('button', { name: 'Fix with Eli', exact: true }).click();
   await expect(page).toHaveURL(/\/repairs\/rep-1$/);
   expect(calls.starts).toEqual([
@@ -358,7 +358,7 @@ test('arriving by run follows a repair queued for that pull request and commit',
   await page.goto(PAGE);
 
   await expect(page).toHaveURL(/\/repairs\/rep-queued$/);
-  await expect(page.getByRole('list', { name: 'What Eli is doing' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Progress' })).toContainText('Preparing the fix');
   await expect(page.getByRole('button', { name: 'Fix with Eli', exact: true })).toHaveCount(0);
   // Only the repairs that are running are asked for, so a repository with a long
   // history cannot push the one under way off the page that is read.
@@ -417,7 +417,7 @@ test('an offer is accepted as the offer, with its own run and no note', async ({
   await page.goto('/repairs/new?offer=opp-1');
   await expect(page.getByRole('heading', { name: 'Retry transient 502s' })).toBeVisible();
   expect(calls.readiness[0]?.get('pull_number')).toBe('17');
-  await expect(page.getByLabel('Tell Eli what to look at')).toHaveCount(0);
+  await expect(page.getByLabel('Add a note for Eli (optional)')).toHaveCount(0);
   await page.getByRole('button', { name: 'Fix with Eli', exact: true }).click();
   await expect(page).toHaveURL(/\/repairs\/rep-offer$/);
   expect(calls.offerActions).toEqual([{ id: 'opp-1', body: { action: 'accept' } }]);
@@ -467,16 +467,19 @@ test('a refused start because the target moved re-reads readiness and explains',
   expect(calls.readiness.length).toBeGreaterThanOrEqual(2);
 });
 
-test('Repair a different PR parses a pasted address and moves the page to it', async ({ page }) => {
+test('Choose another pull request parses a pasted address and moves the page to it', async ({
+  page,
+}) => {
   const { calls } = await mockRepairApi(page, { jobs: [failedJob()], readiness: readiness() });
   await page.goto(PAGE);
-  await page.getByRole('button', { name: 'Repair a different PR' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Repair a different PR' });
+  await page.getByRole('button', { name: 'Choose another pull request' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Fix a failed check' });
+  await dialog.getByText('Paste a pull request link', { exact: true }).click();
   await dialog.getByLabel('Pull request').fill('not an address');
-  await dialog.getByRole('button', { name: 'Check this PR' }).click();
+  await dialog.getByRole('button', { name: 'Check this pull request' }).click();
   await expect(dialog.getByText('Paste a GitHub pull request URL')).toBeVisible();
   await dialog.getByLabel('Pull request').fill('https://github.com/acme/gadgets/pull/9');
-  await dialog.getByRole('button', { name: 'Check this PR' }).click();
+  await dialog.getByRole('button', { name: 'Check this pull request' }).click();
   await expect(page).toHaveURL(/\/repairs\/new\?repo=acme%2Fgadgets&pull=9$/);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   // One question about the pasted pull request, asked by the page it moved to. A

@@ -452,14 +452,14 @@ const SHOTS = [
     },
   },
   {
-    // The hub: the setup bar, and the history with what each repair was about.
+    // The hub: what needs the person, and the history with what each repair was about.
     name: 'eli-repairs',
     path: '/repairs',
     heading: 'Eli repairs',
     repairs: true,
     device: { viewport: { width: DESKTOP.width, height: 1200 }, deviceScaleFactor: SCALE },
     async prepare(page) {
-      await page.getByRole('region', { name: 'Repair setup' }).waitFor();
+      await page.getByRole('region', { name: 'Needs you' }).waitFor();
       const automatic = page.getByRole('region', { name: 'Automatic repairs' });
       await automatic
         .locator('details')
@@ -504,7 +504,7 @@ const SHOTS = [
     async prepare(page) {
       await page
         .getByRole('region', { name: 'Can Eli act on this?' })
-        .getByText('Link and confirm your GitHub account in repair setup.', { exact: true })
+        .getByText('Link and confirm your GitHub account in repair settings.', { exact: true })
         .waitFor();
     },
   },
@@ -522,7 +522,7 @@ const SHOTS = [
   {
     name: 'eli-repair-setup',
     path: '/repairs/setup',
-    heading: 'Repair setup',
+    heading: 'Repair settings',
     repairs: true,
     device: { viewport: { width: DESKTOP.width, height: 1200 }, deviceScaleFactor: SCALE },
     async prepare(page) {

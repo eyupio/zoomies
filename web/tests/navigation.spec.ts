@@ -378,7 +378,7 @@ test('Eli repairs stays lit on the repair page, the setup page and an attempt', 
   for (const [path, heading] of [
     ['/repairs', 'Eli repairs'],
     ['/repairs/new?repo=acme%2Fsite&run=9', 'Repair a failed check'],
-    ['/repairs/setup', 'Repair setup'],
+    ['/repairs/setup', 'Repair settings'],
     ['/repairs/rep-1', 'Retry transient 502s'],
   ] as const) {
     await goto(page, path, heading);

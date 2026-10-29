@@ -59,7 +59,7 @@ export const ROUTES: readonly RouteDef[] = [
   {
     name: 'eli-repair-setup',
     path: '/repairs/setup',
-    title: 'Repair setup',
+    title: 'Repair settings',
     load: () => import('../routes/EliRepairSetup.svelte'),
   },
   {

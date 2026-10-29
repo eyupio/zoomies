@@ -1,5 +1,5 @@
 <!--
-  Repair setup: the GitHub account behind a person's repairs, the repository
+  Repair settings: the GitHub account behind a person's repairs, the repository
   policies that say when Eli may help, and the form that links an account.
 
   It is the part of the old repairs page that was about setting things up, on a
@@ -105,7 +105,7 @@
       users = u.items ?? [];
       providers = (p.items ?? []).filter((p) => !p.owner_id);
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Could not read repair setup.';
+      error = cause instanceof ApiError ? cause.message : 'Could not read repair settings.';
     } finally {
       heard.choices = true;
     }
@@ -235,7 +235,7 @@
   }
 </script>
 
-<section class="setup" aria-label="Repair setup">
+<section class="setup" aria-label="Repair settings">
   {#if error}<p role="alert" class="error">{error}</p>{/if}
   <div class="card" id="access">
     <h2>Your GitHub account</h2>
@@ -266,11 +266,14 @@
   </div>
   {#if admin}
     <details class="card" id="repositories" open>
-      <summary><Settings2 size={16} /> Repository repair policies</summary>
+      <summary><Settings2 size={16} /> Repairs in these repositories</summary>
       <p>
         Explicit requests use the requester's provider. Automatic repairs use the installation
         provider selected here, within the daily budget.
       </p>
+      {#if policies.length === 0}
+        <p class="lead">No repository has repairs turned on yet. Choose one below to start.</p>
+      {/if}
       {#if policies.length}<div class="policy-list">
           {#each policies as p (p.repo)}<Button
               size="sm"
@@ -325,33 +328,40 @@
           installation provider and publish one commit per failed head.
         </p>
         {#key installation}<RepositoryPicker {installation} bind:selected={selectedRepos} />{/key}
-        <Switch
-          bind:checked={workflows}
-          label="Allow edits to workflow files"
-          description="Off by default. Allows changes to .github/workflows files."
-        />
-        <div id="allowance">
-          <Field
-            id="policy-limit"
-            label="Attempts per 24 hours"
-            hint="Includes explicit requests and automatic attempts. Personal accounts have an additional limit of 10."
-            ><Input
+        <details class="advanced">
+          <summary>Advanced</summary>
+          <Switch
+            bind:checked={workflows}
+            label="Allow edits to workflow files"
+            description="Off by default. Allows changes to .github/workflows files."
+          />
+          <div id="allowance">
+            <Field
               id="policy-limit"
-              bind:value={limit}
-              type="number"
-              min={1}
-              max={50}
-              required
-            /></Field
-          >
-        </div>
+              label="Tries per 24 hours"
+              hint="Includes explicit requests and automatic tries. Personal accounts have an additional limit of 10."
+              ><Input
+                id="policy-limit"
+                bind:value={limit}
+                type="number"
+                min={1}
+                max={50}
+                required
+              /></Field
+            >
+          </div>
+        </details>
+        {#if selectedRepos.length === 0}
+          <p class="hint">Choose at least one repository above.</p>
+        {/if}
         <Button type="submit" disabled={busy || !selectedRepos.length}
-          >Save for {selectedRepos.length} repositories</Button
+          >Save in {selectedRepos.length}
+          {selectedRepos.length === 1 ? 'repository' : 'repositories'}</Button
         >
         {#each bulkResults as result (result)}<p role="status">{result}</p>{/each}
       </form>
     </details>
-    <details class="card" id="link-account" open={!ownIdentity}>
+    <details class="card" id="link-account">
       <summary><Link size={16} /> Link a GitHub account</summary>
       <p>
         Verify that the selected person owns this GitHub account before linking it. Eli checks its
@@ -478,6 +488,28 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--z-space-4);
+  }
+  .lead {
+    color: var(--z-text);
+  }
+  .hint {
+    margin: 0;
+    color: var(--z-text-muted);
+    font-size: var(--z-text-sm);
+  }
+  .advanced {
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+  }
+  .advanced > summary {
+    padding: var(--z-space-3) var(--z-space-4);
+    color: var(--z-text-muted);
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-medium);
+    cursor: pointer;
+  }
+  .advanced > :global(:not(summary)) {
+    margin: 0 var(--z-space-4) var(--z-space-4);
   }
   .policy-list {
     display: flex;

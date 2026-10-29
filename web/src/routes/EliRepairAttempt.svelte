@@ -30,7 +30,7 @@
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import { repairStatus } from '$lib/status';
-  import { providerWords, requestedBy } from '$lib/repairs/attempt';
+  import { requestedBy } from '$lib/repairs/attempt';
   import type { StopChoice } from '$lib/repairs/automatic';
   import { caseFromSnapshot } from '$lib/repairs/case';
   import { isActive } from '$lib/repairs/history';
@@ -254,7 +254,6 @@
     {#if repair}
       <RepairStatusBadge state={repair.state} />
       <Badge tone="neutral" label={requestedBy(repair)} dot={false} />
-      <Badge tone="neutral" label={providerWords(repair)} dot={false} />
       <span class="started"><RelativeTime value={repair.created_at} prefix="Started" /></span>
     {/if}
   {/snippet}
@@ -342,7 +341,12 @@
           }}
         />
       {/if}
-      {#if !active}<AttemptTimeline {repair} />{/if}
+      {#if !active}
+        <details class="timeline-fold">
+          <summary>Timeline</summary>
+          <AttemptTimeline {repair} bare />
+        </details>
+      {/if}
     </aside>
   </div>
   <StopAutomaticDialog
@@ -386,6 +390,15 @@
   .summary:focus,
   .details:focus {
     outline: none;
+  }
+  .timeline-fold > summary {
+    padding: var(--z-space-3) var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface);
+    color: var(--z-text-muted);
+    font-size: var(--z-text-sm);
+    cursor: pointer;
   }
   .stale {
     margin: 0;

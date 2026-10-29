@@ -42,6 +42,9 @@ the row in `progress.md` is the record of what shipped.
 * [audit-2026-10-16.md](audit-2026-10-16.md): the repository audit of 15 and 16
   October 2026: what was found, what was changed and merged in #1088, and what
   was left open.
+* [audit-2026-10-29-eli-repairs.md](audit-2026-10-29-eli-repairs.md): the
+  repair UI audit that drove the simplification pass, with the findings that
+  remain open.
 * [candidates-from-hosted-services.md](candidates-from-hosted-services.md) and
   [competitive-review-2026-09.md](competitive-review-2026-09.md): what hosted
   runner services ship, compared with this repository.
@@ -69,6 +72,10 @@ the row in `progress.md` is the record of what shipped.
   and the moments the platform must timestamp.
 * [tailcat-private-hosts.md](tailcat-private-hosts.md): private runner hosts
   through Tailcat.
+* [ui-audit-2026-10-29.md](ui-audit-2026-10-29.md): the review of the signed-in
+  pages at `0730e77b`, 29 October 2026: what an operator meets after signing in,
+  which figures should be links, and what takes the first screen away from the
+  records. It follows the first UI audit, which is in `archive/`.
 
 ## Outside this folder
 
