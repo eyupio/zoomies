@@ -1,5 +1,12 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { closeColumnPanel, goto, grid, openColumnPanel, readThrough, waitForRows } from './support/fixtures';
+import {
+  closeColumnPanel,
+  goto,
+  grid,
+  openColumnPanel,
+  readThrough,
+  waitForRows,
+} from './support/fixtures';
 
 /*
  * The words each style draws the same two moments with. Off is what a browser
