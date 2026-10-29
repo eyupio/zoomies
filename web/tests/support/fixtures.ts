@@ -386,7 +386,7 @@ export async function columnTexts(gridLocator: Locator, header: string): Promise
  * popup trigger carries.
  */
 export function facetTrigger(page: Page, label: string, open = false): Locator {
-  return page.getByRole('button', { name: label, expanded: open });
+  return page.getByRole('button', { name: label, exact: true, expanded: open });
 }
 
 /**
