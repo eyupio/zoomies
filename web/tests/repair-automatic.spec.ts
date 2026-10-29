@@ -33,6 +33,14 @@ import {
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 const inMinutes = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
 
+/** The section link, opening the phone's More group when the link is behind it. */
+async function sectionLink(page: import('@playwright/test').Page, name: string) {
+  const nav = page.getByRole('navigation', { name: 'On this page' });
+  const link = nav.getByRole('link', { name });
+  if (!(await link.isVisible())) await nav.locator('details.more > summary').click();
+  await expect(link).toBeVisible();
+}
+
 const NO_PROVIDER =
   'No installation provider is set for this repository, so automatic repairs cannot start. Choose one in setup.';
 
@@ -157,8 +165,7 @@ test.describe('the hub', () => {
       automatic: [automaticRow({ repo: 'acme/a' }), automaticRow({ repo: 'acme/b' })],
     });
     await page.goto('/repairs');
-    const nav = page.getByRole('navigation', { name: 'On this page' });
-    await expect(nav.getByRole('link', { name: 'Automatic 2' })).toBeVisible();
+    await sectionLink(page, 'Automatic 2');
   });
 
   test('keeps what it last read and says so when it cannot read again', async ({ page }) => {
@@ -205,8 +212,7 @@ test.describe('stopping', () => {
     const panel = page.getByRole('region', { name: 'Automatic repairs' });
     await expect(panel.getByRole('article')).toHaveCount(1);
     await expect(panel.getByRole('heading', { name: 'acme/site' })).toBeVisible();
-    const nav = page.getByRole('navigation', { name: 'On this page' });
-    await expect(nav.getByRole('link', { name: 'Automatic 1' })).toBeVisible();
+    await sectionLink(page, 'Automatic 1');
   });
 
   test('choosing to turn repairs off sends that', async ({ page }) => {
