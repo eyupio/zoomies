@@ -215,18 +215,18 @@
     <div class="text">
       <p class="label">Logo in the band</p>
       <p class="description">
-        The dog beside a band's headline, and how large it is drawn. Auto follows the band's size,
-        from Slim to Expanded; the three named sizes pin it whichever the cut. Hiding it gives the
-        sentence the whole band. Either control here sets every page; a page can be given its own
-        dog in Page bands above, or by pressing the dog on its band. The backdrop follows the Logo
-        style above.
+        The default for every page: the dog beside a band's headline, and how large it is drawn.
+        Auto follows the band's size, from Slim to Expanded; the three named sizes pin it whichever
+        the cut. Hiding it gives the sentence the whole band. Either control here applies to every
+        page; a page can be given its own dog in Page bands above, or by pressing the dog on its
+        band. The backdrop follows the Logo style above.
       </p>
       {#if customLogoPages > 0}
         <p class="description custom">
           {customLogoPages === 1
             ? 'One page has its own dog'
-            : `${customLogoPages} pages have their own dog`}, so changing either control here puts
-          every page back in step.
+            : `${customLogoPages} pages have their own dog`}, so the switch or size you choose here
+          applies to every page.
         </p>
       {/if}
     </div>

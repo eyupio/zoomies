@@ -188,6 +188,7 @@
   }
   .foot {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: flex-end;
     gap: var(--z-space-2);

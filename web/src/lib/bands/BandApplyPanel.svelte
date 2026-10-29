@@ -79,7 +79,7 @@
   const hint = $derived(
     kind === 'size'
       ? sizeOption.name
-      : 'Auto follows each band’s cut. The named sizes pin the dog whatever the cut.',
+      : "Auto follows each band's cut. The named sizes pin the dog whatever the cut.",
   );
 
   const applyLabel = $derived.by(() => {
@@ -334,8 +334,9 @@
     color: var(--z-text-subtle);
   }
   .target {
-    margin: 0 auto 0 0;
-    max-width: 17rem;
+    flex: 1 1 12rem;
+    min-width: 0;
+    margin: 0;
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
     color: var(--z-text-muted);

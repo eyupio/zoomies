@@ -95,10 +95,20 @@
   let pending = $state<Pending | null>(null);
 
   function openSize(next: BandSize, anchor: HTMLElement): void {
+    // The control that opens a panel also closes it: a second press on the size
+    // already chosen puts the panel away rather than starting it again.
+    if (pending?.kind === 'size' && pending.size === next && pending.anchor === anchor) {
+      pending = null;
+      return;
+    }
     pending = { kind: 'size', size: next, anchor };
   }
 
   function openLogo(anchor: HTMLElement): void {
+    if (pending?.kind === 'logo' && pending.anchor === anchor) {
+      pending = null;
+      return;
+    }
     pending = { kind: 'logo', anchor };
   }
 
