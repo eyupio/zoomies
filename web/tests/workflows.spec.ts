@@ -171,6 +171,14 @@ test('a run links to the same run on GitHub, and the filters travel to the Jobs 
     /github\.com\/acme\/api\/actions\/runs\/\d+$/,
   );
 
+  // The repository is a place the run came from, and the cell names it as one:
+  // the Jobs page narrowed to it, which is the question "has this repository
+  // gone wrong" rather than "what is this one run doing".
+  await expect(row.getByRole('link', { name: 'acme/api', exact: true })).toHaveAttribute(
+    'href',
+    '/jobs?repo=acme%2Fapi',
+  );
+
   // The same history one step down, narrowed the same way.
   await page.getByRole('link', { name: 'Every job' }).click();
   await expect(pageHeading(page, 'Jobs')).toBeVisible();

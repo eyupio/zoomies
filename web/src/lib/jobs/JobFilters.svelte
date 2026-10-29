@@ -478,9 +478,23 @@
      readable and the menus below it wrap in whole rows, as the Usage page's
      controls do. */
   @media (max-width: 768px) {
+    /*
+      One row on a phone: the search takes what is left and the menus are behind
+      "Filters (n)" beside it, rather than the search taking a filled row of its
+      own and the summary the next one. The summary before the search reads
+      better still, but moving it in the DOM would put a control that is second
+      in reading order first for the keyboard, so the order stays and the row is
+      shared instead.
+    */
     .search {
-      flex-basis: 100%;
+      flex: 1 1 10rem;
       max-width: none;
+    }
+    .advanced.compact:not([open]) {
+      flex: 1 1 auto;
+    }
+    .advanced.compact[open] {
+      flex: 1 1 100%;
     }
   }
   /* The second line: when, and the narrowings that are not menus. It takes the

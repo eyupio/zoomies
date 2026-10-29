@@ -17,7 +17,7 @@
   import { deleteMachine, drainMachine, getMachine, releaseMachine } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { Machine } from '$lib/api/types';
-  import { pluralise } from '$lib/format';
+  import { NO_VALUE, pluralise } from '$lib/format';
   import { router } from '$lib/router';
   import { machineStatus } from '$lib/status';
   import { session } from '$lib/state/session.svelte';
@@ -199,7 +199,13 @@
       <dl class="facts">
         <div>
           <dt>Provider</dt>
-          <dd>{m.provider_name || m.provider_id}</dd>
+          <dd>
+            {#if m.provider_id}
+              <a href={`/providers/${m.provider_id}`}>{m.provider_name || m.provider_id}</a>
+            {:else}
+              {m.provider_name || NO_VALUE}
+            {/if}
+          </dd>
         </div>
         <div>
           <dt>Resource</dt>

@@ -20,6 +20,7 @@ import {
   nav,
   navEntry,
   navMenu,
+  openColumnPanel,
   openHostCapacityMap,
   openNavMenu,
   pageHeading,
@@ -986,8 +987,37 @@ async function gridOverflow(
  * that is free to change.
  */
 function layout(page: Page, choice: 'Cards' | 'Rows'): Locator {
-  return page.getByRole('button', { name: new RegExp(`^${choice}\\b`) });
+  return page.getByRole('group', { name: 'Column layout' }).getByRole('button', {
+    name: new RegExp(`^${choice}\\b`),
+  });
 }
+
+/*
+ * A phone's Jobs page opened on three wrapped rows of status buttons, then the
+ * search, then "Filters (0)", then two controls about how the grid is drawn. The
+ * first record was 748px down an 812px screen. The chips are one row that
+ * scrolls now, and the layout choice has moved into the column panel that
+ * already answers how the grid is drawn.
+ */
+test('a phone’s status row is one line, and the grid has one control for its shape', async ({
+  page,
+}) => {
+  await goto(page, '/jobs', 'Jobs');
+  const chips = page.getByRole('group', { name: 'Filter jobs by status' });
+  const first = await chips.getByRole('button').first().boundingBox();
+  const row = await chips.boundingBox();
+  expect(first).not.toBeNull();
+  expect(row!.height, 'the status buttons wrapped onto another line').toBeLessThan(
+    first!.height * 1.75,
+  );
+
+  // One control, not two: the layout choice is inside the panel the Columns
+  // button already opens.
+  await expect(page.getByRole('button', { name: /^Cards\b/ })).toHaveCount(0);
+  const panel = await openColumnPanel(page);
+  await expect(panel.getByRole('button', { name: /^Cards\b/ })).toBeVisible();
+  await expect(panel.getByRole('button', { name: /^Rows\b/ })).toBeVisible();
+});
 
 test('a grid can be read as cards instead of rows, and remembers which', async ({ page }) => {
   // Mission Control starts a fresh phone grid as Cards; this walks from Rows.
@@ -1007,6 +1037,7 @@ test('a grid can be read as cards instead of rows, and remembers which', async (
   ).toBeLessThanOrEqual(0);
   await expectNoSidewaysScroll(page, 'the Runners grid in the row layout');
 
+  await openColumnPanel(page);
   await layout(page, 'Cards').click();
 
   // Every value has a line of its own now, so a row is many lines tall and the
@@ -1019,6 +1050,7 @@ test('a grid can be read as cards instead of rows, and remembers which', async (
   // The choice is the operator's and outlives the visit.
   await page.reload();
   await expect(pageHeading(page, 'Runners')).toBeVisible();
+  await openColumnPanel(page);
   await expect(layout(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
   expect((await dataRows(grid(page, 'Runners')).first().boundingBox())!.height).toBeGreaterThan(
     100,
@@ -1027,10 +1059,12 @@ test('a grid can be read as cards instead of rows, and remembers which', async (
   // It is this grid's choice, not every grid's: Jobs has made none, so it is
   // still the table.
   await goto(page, '/jobs', 'Jobs');
+  await openColumnPanel(page);
   await expect(layout(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
 
   // And back again: a layout that can be chosen and not unchosen is a trap.
   await goto(page, '/runners', 'Runners');
+  await openColumnPanel(page);
   await layout(page, 'Rows').click();
   await expect(layout(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
 });
@@ -1058,6 +1092,7 @@ test('the Settings default decides for every grid that has not chosen', async ({
   ] as const) {
     await goto(page, path, heading);
     await expect(dataRows(grid(page, label)).first()).toBeVisible();
+    await openColumnPanel(page);
     await expect(layout(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
     expect((await gridOverflow(page, label)).table).toBeLessThanOrEqual(1);
     await expectNoSidewaysScroll(page, `the ${heading} grid following the card default`);
@@ -1068,6 +1103,7 @@ test('the Settings default decides for every grid that has not chosen', async ({
   await tablesDefault(page, 'Rows').click();
   await expect(tablesDefault(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
   await goto(page, '/jobs', 'Jobs');
+  await openColumnPanel(page);
   await expect(layout(page, 'Rows')).toHaveAttribute('aria-pressed', 'true');
 });
 

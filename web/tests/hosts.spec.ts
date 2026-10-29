@@ -243,6 +243,12 @@ test('host usage distinguishes a connected agent from held new starts and recove
     );
     await expect(card).toContainText('running jobs continue');
     await expect(card).toContainText(/0 of 1 slots in use\s*· throttled from 2/);
+    // The slots line is the way into the runners holding them, and it names
+    // this host rather than the list of every host.
+    await expect(card.getByRole('link', { name: /slots in use/ })).toHaveAttribute(
+      'href',
+      `/runners?host_id=${hostId}`,
+    );
     // The heartbeat and the usage lines are detail, and are behind Details.
     await openHostCard(card);
     await expect(card).toContainText('Agent connected');

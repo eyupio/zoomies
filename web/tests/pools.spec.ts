@@ -142,6 +142,18 @@ test('the list shows both pools and names the risk the arm64 one carries', async
   // The safe pool says so by having nothing to say.
   await expect(linux).not.toContainText('risk');
   await expect(linux).toContainText('One job');
+
+  // The row's own figures are the way into the runners they count: "n of m
+  // busy" narrows the Runners page to this pool, which is one URL away and
+  // would otherwise mean memorising the pool and setting its filter by hand.
+  const busy = linux.getByRole('link', { name: /busy/ }).first();
+  await expect(busy).toHaveAttribute('href', /^\/runners\?pool_id=pool_demo\w+$/);
+  await busy.click();
+  await expect(page).toHaveURL(/\/runners\?pool_id=pool_demo\w+$/);
+  // The heading and not the band: a phone hides the band, and this check is
+  // about the page the figures led to, in either layout.
+  await expect(page.getByRole('heading', { level: 1, name: 'Runners' })).toBeVisible();
+  await expect(page.getByText(FIXTURE.linuxPool).first()).toBeVisible();
 });
 
 test('a filter that matches nothing settles on the empty state, not the skeleton', async ({

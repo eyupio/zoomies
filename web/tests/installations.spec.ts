@@ -31,4 +31,14 @@ test('the band figures show the loaded connections and stay once the page has lo
   await expect(figures.getByRole('link', { name: /^Low API quota/ })).toHaveAccessibleDescription(
     '1 quota readings. Below 10% remaining.',
   );
+
+  // The card's pool count is the way into this connection's pools, and the
+  // address it uses is one the Pools page actually reads: `?installation=` was
+  // never a filter there, so the link opened every pool and said nothing.
+  const pools = page.getByRole('link', { name: /^2 pools$/ });
+  await expect(pools).toHaveAttribute('href', '/pools?q=acme');
+  await pools.click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Pools' })).toBeVisible();
+  await expect(page.getByRole('searchbox', { name: 'Search pools' })).toHaveValue('acme');
+  await expect(page.locator('tbody tr[data-row]')).toHaveCount(2);
 });

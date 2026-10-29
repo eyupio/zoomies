@@ -395,6 +395,14 @@
   /* The circular dog button's edge: the one size the toast stack must clear,
      because both sit in the bottom-right corner. */
   --z-eli-launcher: 3.5rem;
+  /* The launcher's corner, reserved: its own width, the gap it sits in from the
+     window's edge, and a little air. An action bar ends its primary action
+     before this lane rather than underneath the button, which cannot be pressed
+     through and does not move out of the way. */
+  --z-eli-lane: calc(var(--z-eli-launcher) + var(--z-space-5) + var(--z-space-2));
+  /* The same corner measured upwards: how far the button's top edge reaches
+     above the window's bottom, so a page's last line can end below it. */
+  --z-eli-clearance: calc(var(--z-eli-launcher) + var(--z-space-10) + var(--z-space-2));
 
   color-scheme: light;
 }

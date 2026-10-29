@@ -195,6 +195,10 @@ test('a fresh phone grid follows the style fallback: Cards in Mission Control, R
     await open(page, style, 'light');
     await page.setViewportSize({ width: 375, height: 900 });
     const region = page.getByRole('region', { name: 'Data grid' });
+    // The layout choice lives inside the column panel, which is where the rest
+    // of "how this grid is drawn" is: on a phone it was a second control beside
+    // the Columns button, answering the same question twice.
+    await region.getByRole('button', { name: 'Columns', exact: true }).click();
     await expect(
       region.getByRole('button', { name: new RegExp(`^${view}`) }),
       `${style} starts a fresh phone grid as ${view}`,

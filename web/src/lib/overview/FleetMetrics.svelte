@@ -185,6 +185,32 @@
    * page's `all` view, and the question has changed from "what is waiting on
    * me?" to "what is waiting anywhere?".
    */
+  /**
+   * Where the live-runners tile goes.
+   *
+   * The Runners page narrowed to the runners that are live, which is the set the
+   * tile counts: provisioning, registering, idle and busy, and not the removed
+   * history. Pointing at `/runners` showed a superset, including thousands of
+   * removed rows on a busy fleet, so the number and the list behind it disagreed
+   * the moment the page opened. The anchor lands the list rather than the band
+   * above it, as the running tile does and for the same reason.
+   */
+  const liveHref =
+    '/runners?state=provisioning&state=registering&state=idle&state=busy#runners-list';
+  /**
+   * Where the queue-wait tile goes.
+   *
+   * A wait is only measured on a job that finished, so the jobs that produced
+   * this number are the completed ones in the same hour the sparkline covers.
+   * `/jobs` alone is every state over all time, where the figure cannot be
+   * found. The hour is the series' own boundary, read here rather than guessed,
+   * so a fleet whose clock is off still lands on the window that was drawn.
+   */
+  const waitHref = $derived(
+    `/jobs?state=completed&since=${encodeURIComponent(
+      new Date(points[0]?.at ?? Date.now()).toISOString(),
+    )}` + (others ? '&all=true' : ''),
+  );
   const queuedHref = $derived(others ? jobsHref('queued') : '/queue');
   /**
    * Where the running tile goes.
@@ -274,7 +300,7 @@
   <MetricTile
     label="Live runners"
     value={formatNumber(live)}
-    href="/runners"
+    href={liveHref}
     tone="idle"
     delta={delta(liveSeries, live)}
     deltaLabel="in the hour"
@@ -285,7 +311,7 @@
   <MetricTile
     label="Median queue wait"
     value={formatDuration(medianWait)}
-    href="/jobs"
+    href={waitHref}
     tone="pending"
     goodWhen="down"
     delta={waitDelta}
@@ -325,6 +351,12 @@
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
     overflow-wrap: anywhere;
+    /*
+      This line is the page's last before the panels under it, and it ends at the
+      window's right edge where the assistant's button sits: without the lane its
+      last words are read through a paw.
+    */
+    padding-inline-end: var(--z-eli-lane);
   }
   .coverage {
     margin-left: auto;
@@ -362,6 +394,12 @@
     }
     .coverage {
       margin-left: 0;
+    }
+    /* On a phone the lane wrapped this line onto a second row and pushed the
+       first pool below the fold, to keep clear of a button that floats over
+       whatever is scrolled under it anyway. */
+    .context {
+      padding-inline-end: 0;
     }
   }
 </style>
