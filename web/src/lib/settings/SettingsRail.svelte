@@ -25,10 +25,6 @@
 
   const canAdmin = $derived(session.can('admin'));
   const uid = $props.id();
-  const initial = $derived(session.displayName.trim().charAt(0).toUpperCase() || '?');
-  const signedInAs = $derived(
-    session.authDisabled ? 'Authentication off' : roleLabel(session.role),
-  );
 </script>
 
 <nav class="rail" aria-label="Settings">
@@ -69,17 +65,12 @@
     </p>
   {/if}
 
-  <!-- The section is about a person as much as a controller, so the rail says
-       whose settings these are. It is not a second link to Account: that page
-       already has its own row, and two entries for one destination read as two
-       destinations. -->
-  <div class="me">
-    <span class="avatar" aria-hidden="true">{initial}</span>
-    <span class="me-text">
-      <span class="me-name">{session.displayName}</span>
-      <span class="me-role">{signedInAs}</span>
-    </span>
-  </div>
+  <!--
+    No block saying whose settings these are at the foot of the rail. The
+    Account row two inches above is that answer, and the Account page says it in
+    full; the block repeated it in a column narrow enough to cut the name to
+    "Authentication disabl...".
+  -->
 </nav>
 
 <style>
@@ -178,48 +169,6 @@
     line-height: var(--z-leading-2xs);
     color: var(--z-text-muted);
   }
-  .me {
-    display: flex;
-    align-items: center;
-    gap: var(--z-space-2);
-    margin-top: var(--z-space-4);
-    padding: var(--z-space-3) var(--z-space-2) 0;
-    border-top: var(--z-border-width) solid var(--z-border);
-  }
-  .avatar {
-    display: inline-grid;
-    place-items: center;
-    flex: none;
-    width: var(--z-space-8);
-    height: var(--z-space-8);
-    border-radius: var(--z-radius-full);
-    background: var(--z-accent-subtle);
-    color: var(--z-accent);
-    font-size: var(--z-text-2xs);
-    font-weight: var(--z-weight-semibold);
-  }
-  .me-text {
-    display: block;
-    min-width: 0;
-  }
-  .me-name,
-  .me-role {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .me-name {
-    font-size: var(--z-text-xs);
-    line-height: var(--z-leading-xs);
-    font-weight: var(--z-weight-medium);
-    color: var(--z-text);
-  }
-  .me-role {
-    font-size: var(--z-text-2xs);
-    line-height: var(--z-leading-2xs);
-    color: var(--z-text-subtle);
-  }
   /*
     A tablet has the sidebar collapsed to icons and still not enough width for
     a rail beside a table, so the same list runs across the top of the page
@@ -250,8 +199,7 @@
       border: 0;
       background: none;
     }
-    .rail-title,
-    .me {
+    .rail-title {
       display: none;
     }
     .group + .group {

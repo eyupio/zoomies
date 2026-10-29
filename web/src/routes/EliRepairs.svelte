@@ -275,7 +275,15 @@
     onrefresh={reload}
   >
     <Button icon={GitPullRequest} onclick={() => (dialogOpen = true)}>Fix a failed check</Button>
-    <Button variant="ghost" icon={Settings2} href="/repairs/setup">Repair settings</Button>
+    {#if !showSetup}
+      <!--
+        Not while the setup bar is on screen: the bar carries the reason, the
+        switch and its own way into the same page, and a second button for one
+        destination is a question about which one is real rather than a
+        convenience.
+      -->
+      <Button variant="ghost" icon={Settings2} href="/repairs/setup">Repair settings</Button>
+    {/if}
   </PageHeader>
 
   <SectionNav items={navItems} label="On this page" />
