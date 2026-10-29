@@ -814,7 +814,11 @@ The panel reads `GET /api/v1/assistant/repairs/automatic` and the stop is
 The durable queue deduplicates webhook retries and charges attempts at
 admission. The worker reads the PR's pinned commit, changed text files, repository
 inventory and bounded failed-job evidence. It asks the selected model for a
-strict JSON plan, with at most six model turns and eight changed files. Text blobs
+strict JSON plan, with at most twelve model turns and eight changed files. Each
+turn tells the model how many replies remain and asks it to batch related reads.
+The final turn must propose a fix from the supplied source or explain why it
+cannot fix the failure; a further read request ends the attempt without fetching
+source that no later turn could use. Text blobs
 up to 512 KiB stay on the controller; the model receives windows of at most
 32 KiB, prioritising files and line locations named by failure evidence. Unique
 source supplied is capped at 128 KiB and the full transcript is checked against a
@@ -875,7 +879,7 @@ explicitly enabled. The model is told this policy before its first turn. A
 protected-path read is refused without fetching the file, and the model is told
 which path was refused so it can continue from allowed source or explain why it
 cannot fix the failure. Allowed reads in the same request still arrive. These
-refusals count towards the six-turn limit, and do not permit protected edits.
+refusals count towards the twelve-turn limit, and do not permit protected edits.
 Fork PRs, closed PRs and default-branch PRs are refused.
 An infrastructure failure may produce a diagnosis rather than a code change.
 

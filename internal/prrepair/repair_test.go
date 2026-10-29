@@ -2,6 +2,7 @@ package prrepair
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -82,6 +83,91 @@ func TestRepairStopsAfterItsStepBudget(t *testing.T) {
 	// Nothing was refused, so the allowance is not what ran the repair out of rounds.
 	if e == nil || !strings.Contains(e.Error(), "step limit") || strings.Contains(e.Error(), "allowance") {
 		t.Fatalf("%v", e)
+	}
+}
+
+type budgetModel func([]Message) (string, error)
+
+func (m budgetModel) Answer(_ context.Context, messages []Message) (string, error) {
+	return m(messages)
+}
+
+func TestRepairCanFinishAfterMoreThanSixSourceRounds(t *testing.T) {
+	reader := files{}
+	// The old six-call cap ended after supplying source, before the model
+	// could use it. Each round here asks for new evidence rather than looping.
+	for i := range 7 {
+		name := fmt.Sprintf("source%d.json", i)
+		reader[name] = File{Path: name, Content: "old", Mode: "100644"}
+	}
+	calls := 0
+	model := budgetModel(func(messages []Message) (string, error) {
+		defer func() { calls++ }()
+		if calls < 7 {
+			return fmt.Sprintf(`{"read":["source%d.json"]}`, calls), nil
+		}
+		if !strings.Contains(messages[len(messages)-1].Content, `source6.json`) {
+			t.Fatal("last requested source was not supplied")
+		}
+		return `{"summary":"Fix the reported cause","edits":[{"path":"source6.json","before":"old","after":"fixed"}]}`, nil
+	})
+	plan, err := Generate(t.Context(), model, reader, Snapshot{}, "fix the failure", false)
+	if err != nil || calls != 8 || len(plan.Files) != 1 || plan.Files[0].Content != "fixed" {
+		t.Fatalf("calls %d, plan %+v: %v", calls, plan, err)
+	}
+}
+
+func TestRepairCountsDownAndReservesItsFinalReplyForADecision(t *testing.T) {
+	calls := 0
+	reader := &countingReader{}
+	model := budgetModel(func(messages []Message) (string, error) {
+		calls++
+		last := messages[len(messages)-1].Content
+		if calls == MaxSteps {
+			if !strings.Contains(last, "this is your final reply") || !strings.Contains(last, "cannot_fix") {
+				t.Fatalf("final turn has no decision instruction: %s", last)
+			}
+			return `{"read":["last.go"]}`, nil
+		}
+		if !strings.Contains(last, fmt.Sprintf("%d replies remain", MaxSteps-calls+1)) {
+			t.Fatalf("turn %d has no remaining budget: %s", calls, last)
+		}
+		// A corrected malformed response must spend a turn too.
+		if calls == 1 {
+			return "not JSON", nil
+		}
+		return `{"read":["a"]}`, nil
+	})
+	_, err := Generate(t.Context(), model, reader, Snapshot{}, "fix the failure", false)
+	if err == nil || !strings.Contains(err.Error(), "model-step limit") || calls != MaxSteps {
+		t.Fatalf("calls %d: %v", calls, err)
+	}
+	if reader.reads != 1 {
+		t.Fatal("read source that no remaining turn could use")
+	}
+}
+
+func TestRepairAcceptsAFixOrAnExplanationOnItsFinalTurn(t *testing.T) {
+	for _, cannotFix := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cannot_fix=%t", cannotFix), func(t *testing.T) {
+			model := &replies{}
+			for range MaxSteps - 1 {
+				model.values = append(model.values, `{"read":["a.go"]}`)
+			}
+			last := `{"summary":"Fix the failure","edits":[{"path":"a.go","before":"old","after":"fixed"}]}`
+			if cannotFix {
+				last = `{"cannot_fix":"A dependency upgrade needs evidence not supplied"}`
+			}
+			model.values = append(model.values, last)
+			plan, err := Generate(t.Context(), model, files{"a.go": {Path: "a.go", Content: "old"}}, Snapshot{}, "fix the failure", false)
+			if cannotFix {
+				if !errors.Is(err, ErrCannotFix) || !strings.Contains(err.Error(), "evidence not supplied") {
+					t.Fatalf("explanation lost: %v", err)
+				}
+			} else if err != nil || len(plan.Files) != 1 || plan.Files[0].Content != "fixed" {
+				t.Fatalf("final fix refused: %+v, %v", plan, err)
+			}
+		})
 	}
 }
 
