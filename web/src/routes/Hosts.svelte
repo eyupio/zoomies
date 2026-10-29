@@ -548,11 +548,17 @@
   onrefresh={refreshPage}
 >
   {#snippet meta()}
-    {#if fleet.loaded && hosts.length > 0}
+    <!--
+      The figures this line used to carry (how many hosts, how many connected,
+      how many slots in use) are the band's sentence and the tiles under it: the
+      page said the same three numbers three times within 400px. What is left is
+      the two things only a line of text can say: why an update cannot be
+      offered, and how many hosts arrive over a private network, which no other
+      figure on the page counts and which an operator watching a tunnel needs.
+    -->
+    {#if fleet.loaded && hosts.some((h) => h.connection === 'tailcat')}
       <p class="summary">
-        {pluralise(hosts.length, 'host')} · {connected} connected · {inUse} of {capacity} runner slots
-        in use {#if hosts.some((h) => h.connection === 'tailcat')}
-          · {hosts.filter((h) => h.connection === 'tailcat').length} via Tailcat{/if}
+        {pluralise(hosts.filter((h) => h.connection === 'tailcat').length, 'host')} via Tailcat
       </p>
     {/if}
     {#if rolloutAction.kind === 'off'}
@@ -702,15 +708,6 @@
         },
       ]}
     />
-    {#if providers.length > 0}
-      <MachineBand
-        class="machine-band"
-        {machines}
-        {providers}
-        {canOperate}
-        onpause={(paused) => void pauseAll(paused)}
-      />
-    {/if}
     <div class="capacity-map">
       <!--
         A disclosure button, not a section of its own: the open map already
@@ -818,6 +815,22 @@
       </div>
     {/if}
   </LoadingBoundary>
+
+  <!--
+    Machines are provider inventory, and a machine becomes a host only when its
+    agent joins. With the band above the cards the page's own subject started
+    1,060px down a 900px window, so the inventory follows the hosts it turns
+    into; the Providers page carries the same strip as its main subject.
+  -->
+  {#if providers.length > 0}
+    <MachineBand
+      class="machine-band"
+      {machines}
+      {providers}
+      {canOperate}
+      onpause={(paused) => void pauseAll(paused)}
+    />
+  {/if}
 
   {#if canAdmin}
     <section class="panel" aria-labelledby="join-tokens-heading">

@@ -108,6 +108,8 @@ export const FIXTURE = {
   busyRunner: 'zoomies-2vcpu-4gb-ubuntu-2404-banjo-demo00',
   /** Its id, which the seed fixes so a test can go straight to its page. */
   busyRunnerId: 'run_demo00',
+  /** The host the seed puts that runner on, so a detail page can be followed. */
+  busyRunnerHost: 'demo-builder-1',
   repos: ['acme/api', 'acme/site', 'acme/widgets'],
   /** Has no workflows, so the migration wizard hides it by default. */
   quietRepo: 'acme/docs',

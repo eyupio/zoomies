@@ -4156,7 +4156,7 @@ export interface paths {
         };
         /**
          * List repair history visible to the caller
-         * @description One page of the caller's repairs, newest first, with `total` for how many match in all so a client can page without asking for everything. Administrators see every repair; everyone else sees only the ones they asked for. A repair that has been cleared from the history is neither listed nor counted. A `group` or `trigger` this API does not know, or a `repo` of more than 200 characters, is a 422 that names the parameter: a filter that was quietly ignored would show the wrong history.
+         * @description One page of the caller's repairs, newest first, with `total` for how many match in all so a client can page without asking for everything. Administrators see every repair; everyone else sees only the ones they asked for. A repair that has been cleared from the history is neither listed nor counted. A `group` or `trigger` this API does not know, or a `repo` of more than 200 characters, is a 422 that names the parameter: a filter that was quietly ignored would show the wrong history. Model response bodies and capture flags are omitted from history pages; open one repair by id to inspect its responses.
          */
         get: operations["listEliRepairs"];
         put?: never;
@@ -4177,7 +4177,7 @@ export interface paths {
         };
         /**
          * Read one repair
-         * @description One repair by id, in the shape the list returns. Administrators reach any repair and everyone else their own; a repair that is not the caller's is a 404 word for word the same as one that does not exist. A repair cleared from the history still opens, so a link someone kept keeps working.
+         * @description One repair by id, in the shape the list returns. Administrators reach any repair and everyone else their own; a repair that is not the caller's is a 404 word for word the same as one that does not exist. A repair cleared from the history still opens, so a link someone kept keeps working. This read includes each model call's retained, redacted response and any validation or provider error. Responses can contain repository source and are omitted from history pages. This response uses Cache-Control: no-store.
          */
         get: operations["getEliRepair"];
         put?: never;
@@ -11516,6 +11516,16 @@ export interface components {
                 usage_reported: boolean;
                 request_bytes: number;
                 elapsed_ms: number;
+                /** @description The model's response text and any tool call names and arguments, with recognised credentials and email addresses redacted before storage. At most 96 KiB. May contain repository source. Partial output is retained on interrupted or failed calls. */
+                response?: string;
+                /** @description True when response capture was available, including an empty response. Absent on older calls. */
+                response_recorded?: boolean;
+                /** @description True when the retained redacted response was shortened to 96 KiB. */
+                response_truncated?: boolean;
+                /** @description The redacted provider or transport error for this call, if any. */
+                error?: string;
+                /** @description Why the repair rejected this response as malformed or mixing actions, if any. */
+                validation_error?: string;
             }[] | null;
         };
         EliRepairRepositories: {

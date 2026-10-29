@@ -81,9 +81,15 @@ test('the provider card says what it rents, how much of its ceiling is spent and
   await expect(card).not.toContainText('Never checked');
   await expect(card.getByText('Paused', { exact: true })).toHaveCount(0);
 
-  // The fleet's totals agree with the one card that makes them up.
-  await expect(page.getByText('Machines owned').locator('..')).toContainText('2');
-  await expect(page.getByText('Needing review').locator('..')).toContainText('0');
+  // The fleet's totals agree with the one card that makes them up, and they are
+  // said once: the band's figures and its sentence, not a row of tiles under
+  // them repeating the same four numbers.
+  const figures = page.getByRole('list', { name: 'Key figures' });
+  await expect(
+    figures.locator('.stat').filter({ hasText: 'Machines' }).locator('.value'),
+  ).toHaveText('2');
+  await expect(page.getByTestId('band-providers')).toContainText('Nothing needs review');
+  await expect(page.getByText('Machines owned')).toHaveCount(0);
 
   // And both machines are listed under it, each one a link to its own page.
   await expect(page.getByRole('link', { name: new RegExp(FIXTURE.readyMachine) })).toBeVisible();
@@ -479,7 +485,12 @@ test('the pause switch survives a reload, and says what being paused does not st
       const card = providerCard(page);
       await expect(card.getByText('Paused', { exact: true })).toBeVisible();
       await expect(card).toContainText(`${FIXTURE.provider} is paused`);
-      await expect(page.getByText('Paused providers').locator('..')).toContainText('1');
+      await expect(
+        page
+          .getByRole('list', { name: 'Key figures' })
+          .locator('.stat')
+          .filter({ hasText: 'Paused' }),
+      ).toContainText('1');
       await expectNoReload(page);
 
       // And it is on the row, not in this tab.

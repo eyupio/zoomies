@@ -44,13 +44,6 @@
   );
   const failed = $derived(!fleet.loaded && fleet.error !== null);
   const others = $derived(prefs.otherRunners);
-  const connection = $derived(
-    fleet.connection === 'live'
-      ? 'Live'
-      : fleet.connection === 'offline'
-        ? 'Disconnected'
-        : 'Reconnecting',
-  );
   const capacity = $derived(fleet.stats?.hosts);
   const capacitySummary = $derived(
     !fleet.loaded
@@ -166,9 +159,12 @@
         () => undefined,
       )}
   >
-    {#snippet meta()}<span class="connection" data-live={fleet.connection === 'live'}
-        >{connection}</span
-      >{/snippet}
+    <!--
+      The connection used to be said here as well as in the top bar's dot,
+      which is 100px above it and says the same thing in the vocabulary every
+      other page uses. One status, said once; the stale banner below is what
+      raises its voice when it matters.
+    -->
     <div class="scope">
       <Select
         ariaLabel="Overview scope"
@@ -293,10 +289,9 @@
     margin-bottom: var(--z-space-3);
   }
   /*
-    On a phone the subtitle and the connection state are what stand between the
-    heading and the first pool. The connection sits beside the name as it always
-    did, and the spacing around the rule and the subtitle tightens, so the pools
-    still begin on the first screen under the bottom navigation.
+    On a phone the subtitle is what stands between the heading and the first
+    pool. The spacing around the rule and the subtitle tightens, so the pools
+    still begin on the first screen above the bottom navigation.
   */
   @media (max-width: 768px) {
     .overview :global(.page-header) {
@@ -337,13 +332,6 @@
   }
   .scope {
     max-width: 100%;
-  }
-  .connection {
-    font-size: var(--z-text-xs);
-    color: var(--z-pending);
-  }
-  .connection[data-live='true'] {
-    color: var(--z-idle);
   }
   .page-nav {
     display: flex;

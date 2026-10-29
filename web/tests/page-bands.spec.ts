@@ -78,14 +78,14 @@ test('a band is not drawn on a phone, switch or no switch', async ({ page }) => 
   await expect(page.getByTestId('band-runners')).toBeHidden();
 });
 
-test('the Overview opens on a standard band and every other page on a compact one', async ({
+test('the Overview opens on a standard band and every other page on a slim one', async ({
   page,
 }) => {
   for (const item of PAGES) {
     await goto(page, item.path, item.heading);
     await expect(page.getByTestId(item.band)).toHaveAttribute(
       'data-size',
-      item.label === 'Overview' ? 'standard' : 'compact',
+      item.label === 'Overview' ? 'standard' : 'slim',
     );
   }
 });
@@ -96,17 +96,14 @@ test('a page can be moved between every size in Appearance, and stays there', as
   for (const label of ['Slim', 'Compact', 'Standard', 'Expanded']) {
     await expect(size.getByRole('button', { name: label, exact: true })).toBeVisible();
   }
-  await expect(size.getByRole('button', { name: 'Compact' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(size.getByRole('button', { name: 'Slim' })).toHaveAttribute('aria-pressed', 'true');
   await size.getByRole('button', { name: 'Expanded' }).click();
 
   await goto(page, '/runners', 'Runners');
   await expect(page.getByTestId('band-runners')).toHaveAttribute('data-size', 'expanded');
   // Only that page moved.
   await goto(page, '/pools', 'Pools');
-  await expect(page.getByTestId('band-pools')).toHaveAttribute('data-size', 'compact');
+  await expect(page.getByTestId('band-pools')).toHaveAttribute('data-size', 'slim');
 
   await page.reload();
   await goto(page, '/runners', 'Runners');
