@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { goto, readThrough, useClassic } from './support/fixtures';
+import {
+  closeColumnPanel,
+  goto,
+  openColumnPanel,
+  readThrough,
+  useClassic,
+} from './support/fixtures';
 
 async function mission(page: import('@playwright/test').Page, prefs?: Record<string, unknown>) {
   await page.setViewportSize({ width: 375, height: 900 });
@@ -41,10 +47,12 @@ test('a fresh Mission Control phone shows job identity and Inspect before supple
 }) => {
   await mission(page);
   await goto(page, '/jobs', 'Jobs');
-  await expect(page.getByRole('button', { name: /^Cards,/ })).toHaveAttribute(
+  const panel = await openColumnPanel(page);
+  await expect(panel.getByRole('button', { name: /^Cards,/ })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
+  await closeColumnPanel(page);
   const identity = page
     .locator('table[aria-label="Jobs"] tbody tr')
     .first()
@@ -73,15 +81,14 @@ for (const [label, prefs, chosen] of [
   test(`Mission Control preserves ${label}`, async ({ page }) => {
     await mission(page, prefs);
     await goto(page, '/jobs', 'Jobs');
-    await expect(page.getByRole('button', { name: new RegExp(`^${chosen},`) })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    const pressed = new RegExp(`^${chosen},`);
+    await expect(
+      (await openColumnPanel(page)).getByRole('button', { name: pressed }),
+    ).toHaveAttribute('aria-pressed', 'true');
     await page.reload();
-    await expect(page.getByRole('button', { name: new RegExp(`^${chosen},`) })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    await expect(
+      (await openColumnPanel(page)).getByRole('button', { name: pressed }),
+    ).toHaveAttribute('aria-pressed', 'true');
   });
 }
 
@@ -113,7 +120,8 @@ test('saving vocabulary does not turn a fresh style default into an explicit glo
     await page.evaluate(() => JSON.parse(localStorage.getItem('zoomies.prefs') || '{}').gridView),
   ).toBeUndefined();
   await goto(page, '/jobs', 'Jobs');
-  await expect(page.getByRole('button', { name: /^Cards,/ })).toHaveAttribute(
+  const panel = await openColumnPanel(page);
+  await expect(panel.getByRole('button', { name: /^Cards,/ })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
@@ -125,7 +133,8 @@ test('Classic shares the current-work-first overview and retains its Rows fallba
   await useClassic(page);
   await page.setViewportSize({ width: 375, height: 900 });
   await goto(page, '/jobs', 'Jobs');
-  await expect(page.getByRole('button', { name: /^Rows,/ })).toHaveAttribute(
+  const panel = await openColumnPanel(page);
+  await expect(panel.getByRole('button', { name: /^Rows,/ })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
