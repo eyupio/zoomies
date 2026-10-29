@@ -27,16 +27,16 @@ const { prefs } = await import('../src/lib/state/prefs.svelte.ts');
 // A change made on one band can be scoped to a set of pages, which is the whole
 // point of the picker: one deliberate cut rather than eight identical presses.
 test('a cut applies to the pages a change was scoped to, and only those', () => {
-  prefs.applyBandSize(['runners', 'pools', 'jobs'], 'slim');
-  assert.equal(prefs.bandSize('runners'), 'slim');
-  assert.equal(prefs.bandSize('pools'), 'slim');
-  assert.equal(prefs.bandSize('jobs'), 'slim');
-  assert.equal(prefs.bandSize('hosts'), 'compact');
+  prefs.applyBandSize(['runners', 'pools', 'jobs'], 'compact');
+  assert.equal(prefs.bandSize('runners'), 'compact');
+  assert.equal(prefs.bandSize('pools'), 'compact');
+  assert.equal(prefs.bandSize('jobs'), 'compact');
+  assert.equal(prefs.bandSize('hosts'), 'slim');
   assert.equal(prefs.bandSize('overview'), 'standard');
 
   // Choosing a page's own default again lets it follow the default if it moves.
-  prefs.applyBandSize(['runners'], 'compact');
-  assert.equal(prefs.bandSize('runners'), 'compact');
+  prefs.applyBandSize(['runners'], 'slim');
+  assert.equal(prefs.bandSize('runners'), 'slim');
 });
 
 test('the dog can be changed or removed per page, and put back on the default', () => {
