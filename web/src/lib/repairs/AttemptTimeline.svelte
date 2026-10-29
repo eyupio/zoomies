@@ -11,14 +11,16 @@
 
   interface Props {
     repair: Schemas['EliRepair'];
+    /** Render only the list, for a section that supplies its own heading. */
+    bare?: boolean;
   }
 
-  let { repair }: Props = $props();
+  let { repair, bare = false }: Props = $props();
 
   const entries = $derived(timeline(repair));
 </script>
 
-<Panel title="Timeline">
+{#snippet list()}
   <ol>
     {#each entries as entry, index (index)}
       <li>
@@ -33,7 +35,15 @@
       </li>
     {/each}
   </ol>
-</Panel>
+{/snippet}
+
+{#if bare}
+  {@render list()}
+{:else}
+  <Panel title="Timeline">
+    {@render list()}
+  </Panel>
+{/if}
 
 <style>
   ol {

@@ -648,7 +648,7 @@ func TestReadinessWithNoLinkedAccountBlocksIdentityAndStillChecksProvider(t *tes
 	if got := strings.Join(checkSummary(ready), " "); got != want {
 		t.Fatalf("checks: %s", got)
 	}
-	if ready.Pull != nil || len(ready.Blockers) != 1 || ready.Blockers[0] != (EliBlocker{"identity", "Link and confirm your GitHub account in repair setup."}) {
+	if ready.Pull != nil || len(ready.Blockers) != 1 || ready.Blockers[0] != (EliBlocker{"identity", "Link and confirm your GitHub account in repair settings."}) {
 		t.Fatalf("blockers or pull changed: %+v", ready)
 	}
 }

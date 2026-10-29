@@ -116,7 +116,7 @@
       ? [{ id: 'repair-setup', label: 'Setup', secondary: true }]
       : []),
     { id: 'failed', label: 'What failed', count: view.jobs.length },
-    { id: 'checks', label: 'Checks', count: blockedChecks || undefined },
+    ...(blockedChecks > 0 ? [{ id: 'checks', label: 'Checks', count: blockedChecks }] : []),
   ]);
 
   const spoken = $derived.by(() => {
@@ -364,11 +364,13 @@
 
 <PageHeader
   title="Repair a failed check"
-  subtitle="Eli reads the failed checks, pushes one commit to the pull request branch, then watches CI. You review the result like any other commit."
+  subtitle="Eli reads the failed checks, pushes one commit to the branch, then watches CI. You review it like any other commit."
   breadcrumb={[{ label: 'Eli repairs', href: '/repairs' }, { label: 'New repair' }]}
   onrefresh={() => load()}
 >
-  <Button onclick={() => (dialogOpen = true)}>Repair a different PR</Button>
+  <Button variant="secondary" onclick={() => (dialogOpen = true)}
+    >Choose another pull request</Button
+  >
 </PageHeader>
 
 <output class="sr-only" aria-live="polite">{spoken}</output>
@@ -400,7 +402,6 @@
       {/if}
     </div>
     <aside class="decision" id="next" aria-label="Next step" tabindex="-1" bind:this={decision}>
-      {#if loaded && note}<AutomaticNote {note} />{/if}
       <DecisionCard
         {stage}
         {readiness}
@@ -416,6 +417,7 @@
         runUrl={view.runUrl}
         error={readFailed || startError}
       />
+      {#if loaded && note}<AutomaticNote {note} />{/if}
     </aside>
     {#if loaded}
       {#if readiness && (setupNeeded || setupOpen) && !changed}
@@ -436,7 +438,7 @@
           logsBlockedReason="Job logs can hold anything a workflow prints, so Zoomies reads them only for someone whose GitHub account can write to this repository. Fix what is blocking the checks and the error lines appear here."
         />
       </div>
-      {#if rows.length}
+      {#if rows.length && blockedChecks > 0}
         <div class="checks" id="checks" tabindex="-1">
           <ReadinessChecklist
             {rows}
@@ -458,6 +460,27 @@
     display: grid;
     gap: var(--z-space-5);
     min-width: 0;
+  }
+  @media (min-width: 1180px) {
+    .workspace {
+      grid-template-columns: minmax(0, 1fr) 24rem;
+      align-items: start;
+    }
+    .case {
+      grid-column: 1;
+      grid-row: 1;
+    }
+    .decision {
+      grid-column: 2;
+      grid-row: 1;
+      position: sticky;
+      top: var(--z-space-6);
+    }
+    .setup,
+    .failed,
+    .checks {
+      grid-column: 1 / -1;
+    }
   }
   .case,
   .decision,

@@ -3,7 +3,7 @@
   what it is about (the pull request, where it is, when it failed, which jobs
   stopped at which step) so the decision can be made from here.
 
-  Review repair opens the repair page for the offer, which reads and starts
+  Review fix opens the repair page for the offer, which reads and starts
   nothing and spends no attempt. Dismiss hides the offer for this commit. Every
   name here was written by whoever opened the pull request or edited a workflow,
   so each one is text.
@@ -80,13 +80,13 @@
       <div class="acts">
         <Button
           variant="primary"
-          ariaLabel="Review repair for {where(offer)}"
+          ariaLabel="Review fix for {where(offer)}"
           href={targetHref({
             offer: offer.id,
             repo: offer.repo,
             pull: offer.pull_number,
             run: offer.run_id,
-          })}>Review repair</Button
+          })}>Review fix</Button
         >
         <Button
           variant="ghost"
@@ -104,7 +104,7 @@
 {:else}
   <Panel
     title="Needs you"
-    description="Failed pull requests Eli can look at. Reviewing an offer never calls a model or uses an attempt."
+    description="Failed pull requests Eli can look at. Reviewing one never calls a model or uses a try."
     flush
   >
     {#snippet actions()}

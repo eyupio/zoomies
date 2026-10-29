@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { goto } from './support/fixtures';
 
-test('repair setup discovers repositories and saves a manual policy without a shared payer', async ({
+test('repair settings discovers repositories and saves a manual policy without a shared payer', async ({
   page,
 }) => {
-  await goto(page, '/repairs/setup', 'Repair setup');
+  await goto(page, '/repairs/setup', 'Repair settings');
   const policies = page
     .locator('details')
     .filter({ has: page.locator('#policy-installation') })
@@ -16,7 +16,7 @@ test('repair setup discovers repositories and saves a manual policy without a sh
   await repositories.getByRole('checkbox', { name: 'acme/site', exact: true }).check();
   await repositories.getByRole('checkbox', { name: 'acme/widgets', exact: true }).check();
   await expect(page.locator('#policy-provider')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Save for 2 repositories' }).click();
+  await page.getByRole('button', { name: 'Save in 2 repositories' }).click();
   await expect(page.getByText('acme/site: saved', { exact: true })).toBeVisible();
   await expect(page.getByText('acme/widgets: saved', { exact: true })).toBeVisible();
   const response = await page.request.get('/api/v1/assistant/repairs/settings');
@@ -35,9 +35,9 @@ test('repair setup discovers repositories and saves a manual policy without a sh
 test('the setup page holds the account card, the repository policies and the link form', async ({
   page,
 }) => {
-  await goto(page, '/repairs/setup', 'Repair setup');
+  await goto(page, '/repairs/setup', 'Repair settings');
   await expect(page.getByRole('heading', { name: 'Your GitHub account' })).toBeVisible();
-  await expect(page.getByText('Repository repair policies')).toBeVisible();
+  await expect(page.getByText('Repairs in these repositories')).toBeVisible();
   await expect(page.getByText('Link a GitHub account', { exact: true })).toBeVisible();
   await expect(page.getByText('This repair is not in your history')).toHaveCount(0);
   // The way back to the hub is the breadcrumb, and the hub's own list is not here.
@@ -49,13 +49,13 @@ test('the setup page holds the account card, the repository policies and the lin
 });
 
 test('the setup page has an in-page navigation for its sections', async ({ page }) => {
-  await goto(page, '/repairs/setup', 'Repair setup');
+  await goto(page, '/repairs/setup', 'Repair settings');
   const nav = page.getByRole('navigation', { name: 'On this page' });
   await expect(nav.getByRole('link', { name: 'Account', exact: true })).toHaveAttribute(
     'href',
     '#access',
   );
-  await expect(nav.getByRole('link', { name: 'Policies', exact: true })).toHaveAttribute(
+  await expect(nav.getByRole('link', { name: 'Repositories', exact: true })).toHaveAttribute(
     'href',
     '#repositories',
   );
@@ -71,12 +71,12 @@ test('Settings, Eli AI Assistant links to the hub and to setup and no longer lis
     'href',
     '/repairs',
   );
-  await expect(card.getByRole('link', { name: 'Repair setup' })).toHaveAttribute(
+  await expect(card.getByRole('link', { name: 'Repair settings' })).toHaveAttribute(
     'href',
     '/repairs/setup',
   );
   await expect(page.getByRole('region', { name: 'History' })).toHaveCount(0);
-  await expect(page.getByText('Repository repair policies')).toHaveCount(0);
+  await expect(page.getByText('Repairs in these repositories')).toHaveCount(0);
   await expect(page.getByText('Link a GitHub account', { exact: true })).toHaveCount(0);
 });
 
@@ -85,7 +85,7 @@ test('Settings, Eli AI Assistant links to the hub and to setup and no longer lis
 test('a repository named in the address is ready in the policy and link forms', async ({
   page,
 }) => {
-  await goto(page, '/repairs/setup?repo=acme%2Fsite', 'Repair setup');
+  await goto(page, '/repairs/setup?repo=acme%2Fsite', 'Repair settings');
   const repositories = page.getByRole('group', { name: 'Select repositories', exact: true });
   await expect(
     repositories.getByRole('checkbox', { name: 'acme/site', exact: true }),
@@ -93,5 +93,5 @@ test('a repository named in the address is ready in the policy and link forms', 
   await expect(
     repositories.getByRole('checkbox', { name: 'acme/widgets', exact: true }),
   ).not.toBeChecked();
-  await expect(page.getByRole('button', { name: 'Save for 1 repositories' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save in 1 repository' })).toBeVisible();
 });

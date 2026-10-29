@@ -60,7 +60,8 @@
       installation =
         policy?.installation_id || exact?.id || (owner.length === 1 ? owner[0]?.id : '') || '';
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Could not read repair setup. Try again.';
+      error =
+        cause instanceof ApiError ? cause.message : 'Could not read repair settings. Try again.';
     } finally {
       loading = false;
     }
@@ -111,8 +112,8 @@
   onMount(() => void load());
 </script>
 
-<section aria-label="Set up Eli for this failure" class="setup">
-  <h2>Set up Eli for {repo}</h2>
+<section aria-label="Set up repairs for this failure" class="setup">
+  <h2>Set up repairs for {repo}</h2>
   {#if loading}<p role="status">Checking existing setup…</p>
   {:else if error}<p role="alert">{error}</p>
     <Button onclick={() => void load()}>Reload setup</Button>
@@ -126,7 +127,7 @@
         <Input id="repair-setup-login" bind:value={login} required />
       </Field>
     {:else if !identity}
-      <p>Ask an administrator to link your GitHub account for {repo} in repair setup.</p>
+      <p>Ask an administrator to link your GitHub account for {repo} in repair settings.</p>
     {:else if !identity.confirmed}
       <p>
         Continue to confirm that @{identity.github_login} is your GitHub account and allow it to request
@@ -167,7 +168,7 @@
       repair.
     </p>
     <Button variant="primary" disabled={!canSetup} loading={busy} onclick={() => void setup()}
-      >Save setup and check this failure</Button
+      >Save and check this failure</Button
     >
   {/if}
 </section>

@@ -489,7 +489,7 @@ func (s *Server) handleEliErrorOutput(w http.ResponseWriter, r *http.Request) {
 	out, err := s.ctrl.EliErrorOutput(ctx, Identity(ctx).UserID, repo, jobID)
 	switch {
 	case errors.Is(err, controller.ErrEliErrorOutputDenied):
-		conflict(w, "Your linked GitHub account needs write access to this repository to read a job's error output. Link and confirm it in Eli repair setup.")
+		conflict(w, "Your linked GitHub account needs write access to this repository to read a job's error output. Link and confirm it in Eli repair settings.")
 	case err != nil:
 		s.internal(w, r, "reading a job's error output", err)
 	default:
@@ -520,7 +520,7 @@ func (s *Server) handleEliOpportunityAction(w http.ResponseWriter, r *http.Reque
 			conflict(w, changed.Message)
 			return
 		}
-		s.fail(w, r, "acting on repair offer; refresh the PR and repair setup", err)
+		s.fail(w, r, "acting on repair offer; refresh the PR and repair settings", err)
 		return
 	}
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "assistant.repair_offer_"+in.Action, "eli_opportunity", chiURLParam(r, "id"), nil)
