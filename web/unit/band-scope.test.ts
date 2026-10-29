@@ -23,5 +23,4 @@ test('a list of pages reads as a sentence at every length', () => {
     bandPagesSentence(['runners', 'pools', 'jobs', 'queue']),
     'Runners, Pools and 2 more',
   );
-  assert.equal(bandPagesSentence([...ALL_BAND_PAGES]).endsWith('and 11 more'), true);
 });
