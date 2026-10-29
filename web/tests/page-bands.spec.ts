@@ -163,7 +163,7 @@ test('a cut can be given to the pages picked one at a time', async ({ page }) =>
   }
   // A page that was not picked keeps its own cut.
   await goto(page, '/hosts', 'Hosts');
-  await expect(page.getByTestId('band-hosts')).toHaveAttribute('data-size', 'compact');
+  await expect(page.getByTestId('band-hosts')).toHaveAttribute('data-size', 'slim');
 
   // Appearance reflects the three, and the all-pages control shows no answer
   // while the pages disagree.
