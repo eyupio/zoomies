@@ -57,6 +57,25 @@
     flex-wrap: wrap;
     gap: var(--z-space-2);
   }
+  /*
+    A phone's row of seven status buttons wrapped onto three lines, which is
+    three lines of chrome before the first record. One row that scrolls says the
+    same thing in a third of the height, and the mask at the right edge says
+    there is more of it.
+  */
+  @media (max-width: 768px) {
+    .views {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      margin-inline: calc(-1 * var(--z-space-3));
+      padding-inline: var(--z-space-3);
+      scroll-padding-inline: var(--z-space-3);
+      scrollbar-width: none;
+    }
+    .views::-webkit-scrollbar {
+      display: none;
+    }
+  }
   button {
     display: inline-flex;
     align-items: center;

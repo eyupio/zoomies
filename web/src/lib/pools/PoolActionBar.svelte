@@ -128,6 +128,13 @@
   .buttons {
     display: flex;
     align-items: center;
+    /*
+      The bar is sticky at the bottom of the window while a pool is edited, so
+      its Save sits in the corner the assistant's button is fixed in. It ends
+      before that lane instead: an operator who has just made a change must be
+      able to press the button that keeps it.
+    */
+    margin-inline-end: var(--z-eli-lane);
     gap: var(--z-space-2);
     margin-left: auto;
   }

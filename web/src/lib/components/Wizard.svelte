@@ -277,6 +277,13 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--z-space-4);
+    /*
+      Next sits at the end of this row, which is the window's bottom-right when
+      the wizard is taller than the screen. The assistant's button is fixed
+      there, so the row stops short of its lane rather than putting the one
+      control a wizard exists for underneath a control that covers it.
+    */
+    padding-inline-end: var(--z-eli-lane);
   }
   .progress {
     margin: 0;
@@ -309,7 +316,10 @@
       position: sticky;
       bottom: calc(var(--z-space-16) + var(--z-safe-bottom));
       z-index: var(--z-layer-sticky);
-      padding: var(--z-space-3) 0;
+      /* The lane is repeated here rather than inherited from the rule above,
+         because this shorthand resets every side and the button is in the same
+         corner on a phone. */
+      padding: var(--z-space-3) var(--z-eli-lane) var(--z-space-3) 0;
       border-top: var(--z-border-width) solid var(--z-border);
       background: var(--z-bg);
     }

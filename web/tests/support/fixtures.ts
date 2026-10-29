@@ -689,6 +689,33 @@ export async function expectNoSidewaysScroll(page: Page, where: string): Promise
   ).toBeLessThanOrEqual(clientWidth);
 }
 
+/**
+ * Open a phone grid's column panel, and close it again.
+ *
+ * The Cards/Rows choice lives in this panel rather than beside the Columns
+ * button: as a second control on the toolbar it was the same decision twice, on
+ * the screen with the least room for either. A spec that presses a layout
+ * therefore opens a panel first, and these two helpers are that step so the
+ * specs do not each grow their own copy of it.
+ */
+export async function openColumnPanel(page: Page): Promise<Locator> {
+  const panel = page.getByRole('group', { name: 'Column layout' });
+  if (!(await panel.isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: 'Columns', exact: true }).click();
+  }
+  await expect(panel).toBeVisible();
+  return panel;
+}
+
+/** Put the column panel away, so what is measured next is the grid. */
+export async function closeColumnPanel(page: Page): Promise<void> {
+  const panel = page.getByRole('group', { name: 'Column layout' });
+  if (await panel.isVisible().catch(() => false)) {
+    await page.getByRole('button', { name: 'Columns', exact: true }).click();
+    await expect(panel).toHaveCount(0);
+  }
+}
+
 /** A dialog by its accessible name. */
 export const dialog = (page: Page, name: string | RegExp): Locator =>
   page.getByRole('dialog', { name });
