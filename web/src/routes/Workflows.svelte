@@ -553,10 +553,14 @@
 {/snippet}
 
 {#snippet jobsCell(run: WorkflowRun)}
-  <span class="jobs">
-    <strong>{formatNumber(run.jobs?.total ?? 0)}</strong>
-    <span class="summary">{jobsSummary(run)}</span>
-  </span>
+  <!-- The summary is cut at its column's edge like every other value, so it
+       keeps its whole text in a bubble even though the cell draws itself. -->
+  <Tooltip bare whenTruncated text={jobsSummary(run)}>
+    <span class="jobs">
+      <strong>{formatNumber(run.jobs?.total ?? 0)}</strong>
+      <span class="summary">{jobsSummary(run)}</span>
+    </span>
+  </Tooltip>
 {/snippet}
 
 {#snippet actionCell(run: WorkflowRun)}

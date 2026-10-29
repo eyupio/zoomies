@@ -143,24 +143,13 @@
 
   {#if installationsLoaded && !loading && !failure}
     <div class="context-summary">
-      <dl class="summary-stats">
-        <div>
-          <dt>Repositories</dt>
-          <dd>{counts.total}</dd>
-        </div>
-        <div>
-          <dt>In setup</dt>
-          <dd>{counts.setup}</dd>
-        </div>
-        <div>
-          <dt>Ready</dt>
-          <dd>{counts.ready}</dd>
-        </div>
-        <div>
-          <dt>Needs attention</dt>
-          <dd class:danger={counts.attention > 0}>{counts.attention}</dd>
-        </div>
-      </dl>
+      <!--
+        The four figures are on the four buttons. They were also a definition
+        list beside them, saying the same four numbers in the same order, so a
+        page whose whole job is "which of these needs me" opened on the same
+        count twice; the buttons filter as well as count, which the list did
+        not.
+      -->
       <div class="views" role="group" aria-label="AI Context views">
         {#each views as entry (entry.id)}
           <button
@@ -376,27 +365,6 @@
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
-  }
-  .summary-stats {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--z-space-5);
-    margin: 0;
-  }
-  .summary-stats dt {
-    color: var(--z-text-muted);
-    font-size: var(--z-text-2xs);
-  }
-  .summary-stats dd {
-    margin: var(--z-space-1) 0 0;
-    font-size: var(--z-text-xl);
-    line-height: var(--z-leading-xl);
-    font-weight: var(--z-weight-semibold);
-    font-variant-numeric: tabular-nums;
-  }
-  .summary-stats dd.danger {
-    color: var(--z-danger);
   }
   .views {
     display: flex;
