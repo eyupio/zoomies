@@ -47,11 +47,8 @@ test.describe('the hub', () => {
     });
     await page.goto('/repairs');
     await expect(page.getByRole('heading', { level: 1, name: 'Eli repairs' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Repair setup' })).toContainText(
-      'Ask me first on 1 repository',
-    );
+    await expect(page.getByRole('region', { name: 'Repair settings' })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Automatic repairs' })).toHaveCount(0);
-    await expect(page.getByRole('region', { name: 'Repair setup' })).not.toContainText('Automatic');
     expect(calls.automaticReads).toBeGreaterThan(0);
   });
 
@@ -146,7 +143,7 @@ test.describe('the hub', () => {
     await expect(row.getByRole('meter')).toHaveAttribute('aria-valuenow', '5');
   });
 
-  test('is counted in the setup line', async ({ page }) => {
+  test('is counted in the section navigation', async ({ page }) => {
     await mockRepairApi(page, {
       settings: {
         ...linkedAs('dana'),
@@ -160,9 +157,8 @@ test.describe('the hub', () => {
       automatic: [automaticRow({ repo: 'acme/a' }), automaticRow({ repo: 'acme/b' })],
     });
     await page.goto('/repairs');
-    const bar = page.getByRole('region', { name: 'Repair setup' });
-    await expect(bar).toContainText('Automatic on 2 repositories');
-    await expect(bar).toContainText('Ask me first on 1 repository');
+    const nav = page.getByRole('navigation', { name: 'On this page' });
+    await expect(nav.getByRole('link', { name: 'Automatic 2' })).toBeVisible();
   });
 
   test('keeps what it last read and says so when it cannot read again', async ({ page }) => {
@@ -209,9 +205,8 @@ test.describe('stopping', () => {
     const panel = page.getByRole('region', { name: 'Automatic repairs' });
     await expect(panel.getByRole('article')).toHaveCount(1);
     await expect(panel.getByRole('heading', { name: 'acme/site' })).toBeVisible();
-    const bar = page.getByRole('region', { name: 'Repair setup' });
-    await expect(bar).toContainText('Automatic on 1 repository');
-    await expect(bar).toContainText('Ask me first on 1 repository');
+    const nav = page.getByRole('navigation', { name: 'On this page' });
+    await expect(nav.getByRole('link', { name: 'Automatic 1' })).toBeVisible();
   });
 
   test('choosing to turn repairs off sends that', async ({ page }) => {

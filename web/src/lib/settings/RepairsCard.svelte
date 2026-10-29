@@ -22,7 +22,7 @@
     </p>
     <div class="go">
       <Button href="/repairs">Open Eli repairs</Button>
-      <Button variant="secondary" href="/repairs/setup">Repair setup</Button>
+      <Button variant="secondary" href="/repairs/setup">Repair settings</Button>
     </div>
   </div>
 </section>

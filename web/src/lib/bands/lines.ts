@@ -174,27 +174,6 @@ export function installationsLine(i: {
   };
 }
 
-export function repairsLine(r: { offers: number; running: number }): BandLine {
-  if (r.offers === 0 && r.running === 0) {
-    return {
-      headline: 'Nothing needs you.',
-      accent: 'No repairs are running.',
-      lede: 'Eli is watching for failed PR checks.',
-    };
-  }
-  return {
-    headline:
-      r.offers > 0
-        ? `${count(r.offers, 'offer needs', 'offers need')} review.`
-        : 'Nothing needs you.',
-    accent: `${count(r.running, 'repair is', 'repairs are')} running.`,
-    lede:
-      r.offers > 0
-        ? 'Failed PR checks on Ask me first repositories.'
-        : 'Eli is working through failed checks.',
-  };
-}
-
 export function migrateLine(): BandLine {
   return {
     headline: 'Move repositories onto this fleet.',

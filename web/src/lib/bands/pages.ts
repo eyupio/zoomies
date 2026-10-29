@@ -13,7 +13,6 @@ export const BAND_PAGES = [
   { key: 'hosts', label: 'Hosts' },
   { key: 'providers', label: 'Providers' },
   { key: 'installations', label: 'Installations' },
-  { key: 'repairs', label: 'Eli repairs' },
   { key: 'migrate', label: 'Migrate' },
   { key: 'kennel', label: 'Kennel Club' },
 ] as const;

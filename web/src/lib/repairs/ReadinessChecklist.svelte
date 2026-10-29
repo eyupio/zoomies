@@ -61,7 +61,7 @@
               >Check again</Button
             >
           {:else if row.action?.kind === 'setup'}
-            <Button variant="secondary" size="sm" onclick={onsetup}>Repair setup</Button>
+            <Button variant="secondary" size="sm" onclick={onsetup}>Set up repairs</Button>
           {:else if row.action?.kind === 'choose'}
             <Button variant="secondary" size="sm" onclick={onchoose}>Choose a pull request</Button>
           {:else if row.action?.kind === 'link' && link}

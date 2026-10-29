@@ -88,12 +88,12 @@ test('failure setup enables only its repository, rechecks the run and repairs th
 }) => {
   const model = await mockFailure(page);
   await page.goto(PAGE);
-  const setup = page.getByRole('region', { name: 'Set up Eli for this failure' });
+  const setup = page.getByRole('region', { name: 'Set up repairs for this failure' });
   await expect(setup).toBeVisible();
   await expect(setup.getByLabel('GitHub installation')).toHaveValue('inst-1');
   expect(model.writes).toEqual([]);
   expect(model.repairs).toEqual([]);
-  await setup.getByRole('button', { name: 'Save setup and check this failure' }).click();
+  await setup.getByRole('button', { name: 'Save and check this failure' }).click();
   await expect(page.getByRole('button', { name: 'Fix with Eli', exact: true })).toBeVisible();
   expect(model.writes).toEqual([
     {
@@ -125,13 +125,11 @@ test('an operator gets an actionable setup explanation without repository writes
 }) => {
   const model = await mockFailure(page, 'operator');
   await page.goto(PAGE);
-  const setup = page.getByRole('region', { name: 'Set up Eli for this failure' });
+  const setup = page.getByRole('region', { name: 'Set up repairs for this failure' });
   await expect(
     setup.getByText(`An administrator needs to enable repairs for ${repo}.`),
   ).toBeVisible();
-  await expect(
-    setup.getByRole('button', { name: 'Save setup and check this failure' }),
-  ).toBeDisabled();
+  await expect(setup.getByRole('button', { name: 'Save and check this failure' })).toBeDisabled();
   expect(model.writes).toEqual([]);
 });
 
@@ -150,7 +148,9 @@ test('a run without an eligible PR explains the limit and never offers to repair
   ).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Choose a pull request' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Fix with Eli', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('region', { name: 'Set up Eli for this failure' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Set up repairs for this failure' })).toHaveCount(
+    0,
+  );
   expect(model.repairs).toEqual([]);
 });
 
@@ -177,8 +177,8 @@ test('setup asks only for a missing GitHub username, then links and confirms it'
     return route.fulfill({ status: 204 });
   });
   await page.goto(PAGE);
-  const setup = page.getByRole('region', { name: 'Set up Eli for this failure' });
-  const save = setup.getByRole('button', { name: 'Save setup and check this failure' });
+  const setup = page.getByRole('region', { name: 'Set up repairs for this failure' });
+  const save = setup.getByRole('button', { name: 'Save and check this failure' });
   await expect(save).toBeDisabled();
   await setup.getByLabel('Your GitHub username').fill('octocat');
   await save.click();
@@ -201,13 +201,11 @@ test('a refused setup keeps the failure context and offers a retry without start
     }),
   );
   await page.goto(PAGE);
-  const setup = page.getByRole('region', { name: 'Set up Eli for this failure' });
-  await setup.getByRole('button', { name: 'Save setup and check this failure' }).click();
+  const setup = page.getByRole('region', { name: 'Set up repairs for this failure' });
+  await setup.getByRole('button', { name: 'Save and check this failure' }).click();
   await expect(setup.getByRole('alert')).toContainText('You do not have permission to do that.');
   await setup.getByRole('button', { name: 'Reload setup' }).click();
-  await expect(
-    setup.getByRole('button', { name: 'Save setup and check this failure' }),
-  ).toBeEnabled();
+  await expect(setup.getByRole('button', { name: 'Save and check this failure' })).toBeEnabled();
   await expect(page).toHaveURL(/repo=acme%2Fwidgets&run=1234/);
   expect(model.repairs).toEqual([]);
 });
@@ -247,7 +245,9 @@ for (const [code, check, heading, message] of [
       card.getByRole('link', { name: /View the original run on GitHub/ }),
     ).toHaveAttribute('href', `https://github.com/${repo}/actions/runs/1234`);
     await expect(page.getByRole('button', { name: 'Fix with Eli', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('region', { name: 'Set up Eli for this failure' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Set up repairs for this failure' })).toHaveCount(
+      0,
+    );
     expect(model.repairs).toEqual([]);
   });
 }
@@ -421,12 +421,12 @@ for (const ticked of [false, true]) {
       });
     });
     await page.goto(PAGE);
-    const setup = page.getByRole('region', { name: 'Set up Eli for this failure' });
+    const setup = page.getByRole('region', { name: 'Set up repairs for this failure' });
     const offer = setup.getByLabel('Also let Zoomies preview workflow speed-ups');
     await expect(offer).not.toBeChecked();
     await setup.getByLabel('Your GitHub username').fill('octocat');
     if (ticked) await offer.check();
-    await setup.getByRole('button', { name: 'Save setup and check this failure' }).click();
+    await setup.getByRole('button', { name: 'Save and check this failure' }).click();
     await expect(page.getByRole('button', { name: 'Fix with Eli', exact: true })).toBeVisible();
     expect(puts).toEqual(ticked ? [{ enabled: true }] : []);
   });

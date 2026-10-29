@@ -674,7 +674,7 @@ export const REPAIR_PAGES = [
   },
   {
     path: '/repairs/setup',
-    heading: 'Repair setup',
+    heading: 'Repair settings',
     stubbed: false,
     ready: (page: Page) => page.getByRole('heading', { name: 'Your GitHub account' }),
   },

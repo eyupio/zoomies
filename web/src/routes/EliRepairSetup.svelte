@@ -1,8 +1,8 @@
 <!--
-  Repair setup: the account behind a person's repairs, the repository policies and
-  the form that links an account. It was a fold-out in the middle of the repairs
-  page, and is a page of its own so the hub is about repairs and this is about
-  whether they can happen.
+  Repair settings: the account behind a person's repairs, the repositories Eli
+  may help, and the form that links an account. It was a fold-out in the middle
+  of the repairs page, and is a page of its own so the hub is about repairs and
+  this is about whether they can happen.
 -->
 <script lang="ts">
   import Button from '$lib/components/Button.svelte';
@@ -18,18 +18,17 @@
     { id: 'access', label: 'Account' },
     ...(admin
       ? [
-          { id: 'repositories', label: 'Policies' },
-          { id: 'allowance', label: 'Allowance', secondary: true },
-          { id: 'link-account', label: 'Link account', secondary: true },
+          { id: 'repositories', label: 'Repositories' },
+          { id: 'link-account', label: 'People', secondary: true },
         ]
       : []),
   ]);
 </script>
 
 <PageHeader
-  title="Repair setup"
+  title="Repair settings"
   subtitle="Link your GitHub account, and choose which repositories Eli may repair and when."
-  breadcrumb={[{ label: 'Eli repairs', href: '/repairs' }, { label: 'Setup' }]}
+  breadcrumb={[{ label: 'Eli repairs', href: '/repairs' }, { label: 'Settings' }]}
   onrefresh={() => panel?.reload()}
 >
   <Button href="/settings/assistant">Model providers</Button>

@@ -34,7 +34,6 @@ test('a running repair shows where it is, follows itself to the end and then sto
   const head = page.locator('.page-header');
   await expect(head.getByText('Investigating', { exact: true })).toBeVisible();
   await expect(head.getByText('Requested by @dana')).toBeVisible();
-  await expect(head.getByText('Personal provider')).toBeVisible();
   await expect(head.getByRole('link', { name: /Open PR/ })).toHaveAttribute(
     'href',
     'https://github.com/acme/widgets/pull/17',
@@ -45,6 +44,8 @@ test('a running repair shows where it is, follows itself to the end and then sto
   );
 
   const progress = page.getByRole('region', { name: 'Progress' });
+  await expect(progress).toContainText('Preparing the fix');
+  await progress.getByText('Show the steps').click();
   const steps = progress.getByRole('list', { name: 'What Eli is doing' }).getByRole('listitem');
   await expect(steps).toHaveText([
     /Queued/,
@@ -64,7 +65,7 @@ test('a running repair shows where it is, follows itself to the end and then sto
 
   const facts = page.getByRole('complementary', { name: 'This attempt' });
   await expect(facts).toContainText('rep-run');
-  await expect(facts).toContainText('Preparing the fix');
+  await expect(facts).toContainText('Personal provider');
   await expect(facts).toContainText('fix/registry-retry');
   await expect(facts.getByRole('link')).toHaveCount(0);
 
@@ -97,7 +98,9 @@ test('a running repair shows where it is, follows itself to the end and then sto
   await expect(page.locator('output.sr-only', { hasText: 'Repair finished' })).toContainText(
     'Checks passed',
   );
-  await expect(page.getByRole('region', { name: 'Timeline' })).toContainText('Queued');
+  const timeline = page.locator('details.timeline-fold');
+  await timeline.locator('summary').click();
+  await expect(timeline).toContainText('Queued');
 
   // A repair that has finished is not asked about again.
   const asked = calls.attempts.length;
@@ -175,13 +178,13 @@ test('a repair that could not fix the failure says why and what to try next', as
 
   const next = page.getByRole('region', { name: 'What to try next' });
   await expect(next.getByRole('listitem').first()).toContainText(
-    'Add a note that points at the file or the test, then try again.',
+    'Add a note naming the file or the test, then try again.',
   );
   await expect(next.getByRole('link', { name: 'Try another attempt' })).toHaveAttribute(
     'href',
     '/repairs/new?repo=acme%2Fwidgets&pull=17',
   );
-  await expect(next.getByRole('link', { name: 'Repair setup' })).toHaveAttribute(
+  await expect(next.getByRole('link', { name: 'Repair settings' })).toHaveAttribute(
     'href',
     '/repairs/setup',
   );
@@ -207,7 +210,8 @@ test('a repair that could not fix the failure says why and what to try next', as
   const facts = page.getByRole('complementary', { name: 'This attempt' });
   await expect(facts).toContainText('Took');
   await expect(facts).toContainText('1m 08s');
-  const timeline = page.getByRole('region', { name: 'Timeline' });
+  const timeline = page.locator('details.timeline-fold');
+  await timeline.locator('summary').click();
   await expect(timeline).toContainText('Queued');
   await expect(timeline).toContainText('Could not repair');
   // The sentence is the outcome card's; the timeline does not repeat it.
@@ -269,7 +273,7 @@ test('a failed job’s error output is read when the job is opened and not befor
       '9002': {
         status: 409,
         message:
-          'Your linked GitHub account needs write access to this repository to read a job’s error output. Link and confirm it in Eli repair setup.',
+          'Your linked GitHub account needs write access to this repository to read a job’s error output. Link and confirm it in Eli repair settings.',
       },
     },
   });
@@ -420,10 +424,9 @@ test('no horizontal scroll on a phone, and the track stacks', async ({ page }) =
     },
   });
   await page.goto('/repairs/rep-run');
-  const items = page
-    .getByRole('region', { name: 'Progress' })
-    .getByRole('list', { name: 'What Eli is doing' })
-    .getByRole('listitem');
+  const progress = page.getByRole('region', { name: 'Progress' });
+  await progress.getByText('Show the steps').click();
+  const items = progress.getByRole('list', { name: 'What Eli is doing' }).getByRole('listitem');
   await expect(items).toHaveCount(5);
   const tops = await items.evaluateAll((nodes) => nodes.map((n) => n.getBoundingClientRect().top));
   expect(tops[1]!).toBeGreaterThan(tops[0]!);
