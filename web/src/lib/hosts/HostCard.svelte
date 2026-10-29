@@ -702,11 +702,29 @@
     />
     <div class="capacity-line">
       <p class="capacity-text tabular">
+        <!--
+          The count is the way into the runners it counts: "three of eight in
+          use" is the start of "which three, and what are they doing", and the
+          Runners page already takes a `host_id`. The link stops the row's own
+          click, as a grid's cell link does, so the card still opens.
+        -->
         {#if isThrottled}
-          <strong>{formatNumber(active)}</strong> of {formatNumber(effective)} slots in use
+          <a
+            class="count"
+            href={`/runners?host_id=${host.id ?? ''}`}
+            onclick={(event) => event.stopPropagation()}
+          >
+            <strong>{formatNumber(active)}</strong> of {formatNumber(effective)} slots in use
+          </a>
           <span class="muted">· throttled from {formatNumber(capacity)}</span>
         {:else}
-          <strong>{formatNumber(active)}</strong> of {formatNumber(capacity)} slots in use
+          <a
+            class="count"
+            href={`/runners?host_id=${host.id ?? ''}`}
+            onclick={(event) => event.stopPropagation()}
+          >
+            <strong>{formatNumber(active)}</strong> of {formatNumber(capacity)} slots in use
+          </a>
           <span class="muted">· {formatNumber(free)} free</span>
         {/if}
       </p>
@@ -1330,6 +1348,18 @@
     margin: 0;
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
+  }
+  /* The count reads as the line it is in, and its underline appears only when
+     it is pointed at: a card is mostly text, and a permanent underline in the
+     middle of a sentence makes every figure look like a control. */
+  .capacity-text .count {
+    color: inherit;
+    text-decoration: none;
+  }
+  .capacity-text .count:hover,
+  .capacity-text .count:focus-visible {
+    color: var(--z-accent);
+    text-decoration: underline;
   }
   .capacity-text strong {
     color: var(--z-text);

@@ -61,6 +61,16 @@ test('the four metric tiles carry the numbers the fleet is judged on', async ({ 
   const wait = page.getByRole('link', { name: /^Median queue wait/ });
   await expect(wait).toBeVisible();
   await expect(wait.getByText(DURATION)).toBeVisible();
+
+  // Each tile lands on the rows it counted. The live figure is the four live
+  // states and not the removed history a bare /runners would include, and a
+  // queue wait is only measured on a job that finished, so the wait tile asks
+  // for the completed ones in the hour the sparkline drew.
+  await expect(page.getByRole('link', { name: /^Live runners/ })).toHaveAttribute(
+    'href',
+    /^\/runners\?state=provisioning&state=registering&state=idle&state=busy#runners-list$/,
+  );
+  await expect(wait).toHaveAttribute('href', /^\/jobs\?state=completed&since=/);
   // The p95 is the reason the median is worth showing: one of them moving
   // without the other is the whole story of a fleet that is nearly coping.
   await expect(wait).toContainText(/p95/);

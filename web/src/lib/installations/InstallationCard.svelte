@@ -171,7 +171,15 @@
       <dt>Pools</dt>
       <dd>
         {#if pools > 0}
-          <a href="/pools?installation={installation.id}">{pluralise(pools, 'pool')}</a>
+          <!--
+            The pools this connection answers for, as the Pools page's search
+            already finds them. The address used to be `?installation=<id>`,
+            which the Pools page never read: it opened every pool and said
+            nothing about which connection was being asked about.
+          -->
+          <a href={`/pools?q=${encodeURIComponent(installation.target ?? '')}`}
+            >{pluralise(pools, 'pool')}</a
+          >
         {:else}
           <span class="muted">None yet</span>
         {/if}

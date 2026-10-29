@@ -635,6 +635,7 @@
     min={pool.min_runners}
     max={pool.max_runners}
     label="Runners in {pool.name ?? 'this pool'}"
+    href={`/runners?pool_id=${pool.id ?? ''}`}
   />
 {/snippet}
 
