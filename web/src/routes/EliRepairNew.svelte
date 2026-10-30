@@ -329,7 +329,6 @@
       if (!hasTarget) {
         about = null;
         loaded = true;
-        dialogOpen = true;
         return;
       }
       void load(true);
