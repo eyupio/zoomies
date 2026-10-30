@@ -415,7 +415,7 @@
     }
     .side {
       position: sticky;
-      top: var(--z-space-6);
+      top: calc(var(--z-topbar-height) + var(--z-space-6));
     }
   }
 </style>

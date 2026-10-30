@@ -533,3 +533,37 @@ test('the card keeps keyboard focus when checking again replaces the button that
   await expect(card.getByRole('button', { name: 'Fix with Eli', exact: true })).toBeVisible();
   await expect.poll(() => focusedIn(page)).toBe('Next step');
 });
+
+/*
+ * The decision card sits beside the case at the top of the page. It used to be a
+ * sticky aside pinned 24px from the top: as the page scrolled it slid under the
+ * top bar and over the full-width failure below, covering its text and buttons.
+ * A short window and a failure make the overlap reachable in one scroll.
+ */
+test('the decision card scrolls away with the case rather than over the failure', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 420 });
+  await mockRepairApi(page, {
+    jobs: [failedJob(), lintJob()],
+    readiness: blockedAt('pull', 'No eligible PR.', { pull: undefined, pull_number: 0 }),
+  });
+  await page.goto(PAGE);
+  const card = page.getByRole('complementary', { name: 'Next step' });
+  await expect(card.getByRole('button', { name: 'Choose a pull request' })).toBeVisible();
+  const failure = page.getByRole('region', { name: 'What failed' });
+  await expect(failure).toBeVisible();
+
+  await page.evaluate(() => window.scrollTo(0, 400));
+  await expect
+    .poll(() => page.evaluate(() => window.scrollY), { message: 'the page did not scroll' })
+    .toBeGreaterThan(0);
+  const cardBox = await card.boundingBox();
+  const failureBox = await failure.boundingBox();
+  expect(cardBox, 'the decision card has a box').not.toBeNull();
+  expect(failureBox, 'the failure has a box').not.toBeNull();
+  expect(
+    cardBox!.y + cardBox!.height,
+    'the decision card does not cover the failure',
+  ).toBeLessThanOrEqual(failureBox!.y);
+});
