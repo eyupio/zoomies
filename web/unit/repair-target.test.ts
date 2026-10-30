@@ -7,6 +7,14 @@ test('PR links identify the repository and number without retyping', () => {
     parseRepairTarget(' https://github.com/acme/widgets/pull/42?diff=split#checks '),
     { repo: 'acme/widgets', pull_number: 42 },
   );
+  assert.deepEqual(parseRepairTarget('https://github.com/acme/widgets/pull/42/checks'), {
+    repo: 'acme/widgets',
+    pull_number: 42,
+  });
+  assert.deepEqual(parseRepairTarget('https://github.com/acme/widgets/pull/42/files'), {
+    repo: 'acme/widgets',
+    pull_number: 42,
+  });
 });
 test('repair links reject arbitrary destinations and malformed PR numbers', () => {
   for (const value of [

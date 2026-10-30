@@ -952,10 +952,12 @@ behind **More**.
   **Stop all** does the same for every row. Stopping never turns anything on;
   starting Automatic is a decision made in settings.
 
-**Fix a failed check** opens a picker of recent failed pull request checks,
-newest first. Choosing one opens its repair page, where Eli checks it before
-anything is spent; **Paste a pull request link** is the fallback for a pull
-request that is not in the list.
+A **Pull request** field sits at the top of the page so you can paste any
+GitHub pull request link (`https://github.com/owner/repo/pull/123`) and check
+it directly. **Fix a failed check** opens a dialog with the same pull request
+link field and a picker of recent failed pull request checks, newest first.
+Choosing one opens its repair page, where Eli checks it before anything is
+spent.
 
 ![Eli repairs: the section navigation, an empty Needs you, History with the latest repairs, and the Automatic repairs section closed below it](screenshots/eli-repairs-dark.webp#only-dark){ .zoomies-shot }
 ![Eli repairs: the section navigation, an empty Needs you, History with the latest repairs, and the Automatic repairs section closed below it](screenshots/eli-repairs-light.webp#only-light){ .zoomies-shot }

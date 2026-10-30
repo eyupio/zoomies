@@ -99,15 +99,36 @@
 <Dialog
   bind:open
   title="Fix a failed check"
-  description="Choose a recent failed check, or paste a pull request link. Eli checks it before anything is spent."
+  description="Paste a pull request link, or choose a recent failed check. Eli checks it before anything is spent."
 >
+  <form id={FORM} class="paste" onsubmit={submit}>
+    <p class="paste-heading">Paste a pull request link</p>
+    <Field label="Pull request" hint="For example https://github.com/owner/repo/pull/123." {error}>
+      {#snippet children({ id, describedBy, invalid })}
+        <Input
+          {id}
+          {describedBy}
+          {invalid}
+          bind:value
+          placeholder="https://github.com/owner/repo/pull/123"
+          autocomplete="off"
+          spellcheck={false}
+        />
+      {/snippet}
+    </Field>
+    <div class="paste-actions">
+      <Button variant="ghost" onclick={() => (open = false)}>Cancel</Button>
+      <Button variant="primary" type="submit" form={FORM}>Check this pull request</Button>
+    </div>
+  </form>
+
   <div class="failures">
     {#if loading}
       <p class="muted" role="status">Reading recent failures.</p>
     {:else if readError}
       <p class="muted" role="alert">{readError}</p>
     {:else if failures.length === 0}
-      <p class="muted">No recent failed pull request checks. Paste a pull request link below.</p>
+      <p class="muted">No recent failed pull request checks.</p>
     {:else}
       <ul aria-label="Recent failures">
         {#each failures as job (job.id ?? `${job.repo}:${job.github_run_id}`)}
@@ -130,38 +151,14 @@
       {/if}
     {/if}
   </div>
-
-  <details class="paste">
-    <summary>Paste a pull request link</summary>
-    <form id={FORM} onsubmit={submit}>
-      <Field
-        label="Pull request"
-        hint="For example https://github.com/owner/repo/pull/123."
-        {error}
-      >
-        {#snippet children({ id, describedBy, invalid })}
-          <Input
-            {id}
-            {describedBy}
-            {invalid}
-            bind:value
-            placeholder="https://github.com/owner/repo/pull/123"
-            autocomplete="off"
-            spellcheck={false}
-          />
-        {/snippet}
-      </Field>
-      <div class="paste-actions">
-        <Button variant="ghost" onclick={() => (open = false)}>Cancel</Button>
-        <Button variant="primary" type="submit" form={FORM}>Check this pull request</Button>
-      </div>
-    </form>
-  </details>
 </Dialog>
 
 <style>
   .failures {
-    min-height: 3rem;
+    margin-top: var(--z-space-4);
+    padding-top: var(--z-space-3);
+    border-top: var(--z-border-width) solid var(--z-border);
+    min-height: 2rem;
   }
   .muted {
     margin: 0;
@@ -217,17 +214,13 @@
     font-size: var(--z-text-xs);
   }
   .paste {
-    margin-top: var(--z-space-4);
-    border-top: var(--z-border-width) solid var(--z-border);
+    margin: 0;
   }
-  .paste > summary {
-    padding: var(--z-space-3) 0;
-    color: var(--z-text-muted);
+  .paste-heading {
+    margin: 0 0 var(--z-space-2);
+    color: var(--z-text);
     font-size: var(--z-text-sm);
-    cursor: pointer;
-  }
-  .paste form {
-    padding-top: var(--z-space-2);
+    font-weight: var(--z-weight-semibold);
   }
   .paste-actions {
     display: flex;

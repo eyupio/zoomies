@@ -244,6 +244,8 @@ test('the old address still works', async ({ page }) => {
   // A pasted pull request takes the same road.
   await page.goto('/repairs?repo=acme/site&pull=3');
   await expect(page).toHaveURL(/\/repairs\/new\?repo=acme%2Fsite&pull=3$/);
+  await page.goto('/repairs?url=https://github.com/acme/site/pull/3');
+  await expect(page).toHaveURL(/\/repairs\/new\?repo=acme%2Fsite&pull=3$/);
 });
 
 // Everything on the page was written by somebody who can open a pull request or
@@ -465,6 +467,19 @@ test('a refused start because the target moved re-reads readiness and explains',
   await expect(page.getByRole('button', { name: 'Fix with Eli', exact: true })).toHaveCount(0);
   expect(calls.starts).toHaveLength(1);
   expect(calls.readiness.length).toBeGreaterThanOrEqual(2);
+});
+
+test('opening /repairs/new without a target presents the inline pull request field without a modal', async ({
+  page,
+}) => {
+  await mockRepairApi(page, { jobs: [failedJob()], readiness: readiness() });
+  await page.goto('/repairs/new');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page
+    .getByLabel('Pull request', { exact: true })
+    .fill('https://github.com/acme/gadgets/pull/9');
+  await page.getByRole('button', { name: 'Check this pull request' }).click();
+  await expect(page).toHaveURL(/\/repairs\/new\?repo=acme%2Fgadgets&pull=9$/);
 });
 
 test('Choose another pull request parses a pasted address and moves the page to it', async ({

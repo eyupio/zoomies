@@ -287,6 +287,23 @@ test('a person who is ready is not shown a setup status line', async ({ page }) 
   );
 });
 
+test('a pull request link can be pasted directly on the hub without opening a dialog', async ({
+  page,
+}) => {
+  await mockRepairApi(page, { settings: linkedAs('dana') });
+  await page.goto('/repairs');
+
+  const input = page.getByLabel('Pull request');
+  await expect(input).toBeVisible();
+  await input.fill('not-a-pr-url');
+  await page.getByRole('button', { name: 'Check this pull request' }).click();
+  await expect(page.getByText('Paste a GitHub pull request URL')).toBeVisible();
+
+  await input.fill('https://github.com/acme/widgets/pull/17/checks');
+  await page.getByRole('button', { name: 'Check this pull request' }).click();
+  await expect(page).toHaveURL(/\/repairs\/new\?repo=acme%2Fwidgets&pull=17$/);
+});
+
 test('Fix a failed check lists recent failures and Settings goes to settings', async ({ page }) => {
   await mockRepairApi(page, {
     settings: linkedAs('dana'),
