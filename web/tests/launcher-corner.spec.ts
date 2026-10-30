@@ -36,11 +36,11 @@ test('the wizard’s Next is not under the assistant’s button', async ({ page 
   await expectClear(page, page.getByRole('button', { name: 'Next', exact: true }), 'Next');
 });
 
-test('the Overview’s tile footnote is not under the assistant’s button', async ({ page }) => {
+test('the Overview’s figures footnote is not under the assistant’s button', async ({ page }) => {
   await goto(page, '/', 'Overview');
-  // The sentence under the four tiles, which ends at the window's right edge
-  // exactly where the button is.
-  await expectClear(page, page.getByText(/^Trends, waits and outcomes cover/), 'the footnote');
+  // The sentence under the band, which ends at the window's right edge exactly
+  // where the button is.
+  await expectClear(page, page.getByText(/^Waits and outcomes cover/), 'the footnote');
 });
 
 test('a pool’s Save is not under the assistant’s button', async ({ page }) => {

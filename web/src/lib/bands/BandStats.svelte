@@ -50,6 +50,7 @@
   <strong class="value">
     {#if stat.since}<Duration from={stat.since} live />{:else}{stat.value ?? NO_VALUE}{/if}
   </strong>
+  {#if stat.detail}<span class="detail">{stat.detail}</span>{/if}
 {/snippet}
 
 {#snippet item(stat: BandStat)}
@@ -142,6 +143,12 @@
     font-weight: var(--z-weight-semibold);
     font-variant-numeric: tabular-nums;
   }
+  .detail {
+    color: var(--z-text-subtle);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    overflow-wrap: anywhere;
+  }
   .more {
     align-items: flex-end;
     margin-inline-start: auto;
@@ -167,7 +174,8 @@
     background: var(--z-panel-raised);
     color: var(--z-panel-text);
   }
-  .band .label {
+  .band .label,
+  .band .detail {
     color: var(--z-panel-text-muted);
   }
   .band .interactive:hover,

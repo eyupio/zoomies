@@ -796,8 +796,9 @@ The one page that has to earn the second monitor.
   The key runs under both, where it explains the squares rather than floating
   at the right with the white space in front of it. The component lives in
   `lib/insights/` because the Usage page draws its range with the same one.
-* **Four metric tiles**: queued jobs, running jobs, live runners, median queue
-  wait. Each carries a sparkline of the last hour.
+* **Four live figures in the band**: queued jobs, running jobs, live runners and
+  median queue wait. Each is a way into the records it counts, as every band's
+  figures are; the wait carries its p95 and the live figure the slots it fills.
 * **Per-pool utilisation bars**: busy / live, with the pool's min and max marked
   so an operator can see a pool pinned at its ceiling.
 * **Recent events**, a reverse-chronological list of what has happened to the

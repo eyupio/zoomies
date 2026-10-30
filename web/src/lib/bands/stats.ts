@@ -11,6 +11,12 @@ export interface BandStat {
   value?: string;
   /** An instant to show as a live age ("4m 10s") instead of a fixed figure. */
   since?: string;
+  /**
+   * A second line under the figure, already worded: the p95 beside a median, the
+   * slots a count leaves. Visible, unlike `hint`, for context the number cannot
+   * carry and that a reader should not have to hover to find.
+   */
+  detail?: string;
   /** One sentence for the tooltip and the accessible description. */
   hint?: string;
   /** Makes the figure a link. */

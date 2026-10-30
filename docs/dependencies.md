@@ -144,7 +144,7 @@ than four requests deserve. The one part with an external definition, the
 canonical request's encoding, is unit-tested against that definition rather
 than against itself.
 
-**A charting library.** The Overview needs sparklines and utilisation bars.
+**A charting library.** The fleet's pages need sparklines and utilisation bars.
 Those are inline SVG paths of a few dozen lines each. The smallest credible
 charting library is larger than the entire rest of the app shell.
 
