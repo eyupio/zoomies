@@ -244,11 +244,15 @@ test('the dog can be resized or removed, and the choice scoped like a cut', asyn
 
   // Removing it from this page leaves the other page's dog alone.
   await goto(page, '/runners', 'Runners');
+  const wordsBefore = await page.getByTestId('band-runners').locator('.words').boundingBox();
   await page.getByRole('button', { name: 'Runners band logo settings' }).click();
   const again = page.getByRole('dialog', { name: 'Band logo, where to apply' });
   await again.getByRole('switch', { name: 'Show the dog' }).click();
   await again.getByRole('button', { name: 'Apply to Runners' }).click();
   await expect(page.getByTestId('band-runners').locator('.art')).toHaveCount(0);
+  // The sentence stays where it was rather than sliding into the dog's place.
+  const wordsAfter = await page.getByTestId('band-runners').locator('.words').boundingBox();
+  expect(Math.abs((wordsAfter?.x ?? 0) - (wordsBefore?.x ?? 0))).toBeLessThan(2);
 
   // Appearance reflects both pages, and offers each a way back to the default.
   await goto(page, '/settings/appearance', 'Appearance');
