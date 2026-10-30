@@ -42,6 +42,7 @@
   import ActiveRepairs from '$lib/repairs/ActiveRepairs.svelte';
   import AutomaticRepairs from '$lib/repairs/AutomaticRepairs.svelte';
   import OfferList from '$lib/repairs/OfferList.svelte';
+  import PullRequestBar from '$lib/repairs/PullRequestBar.svelte';
   import RepairHistory from '$lib/repairs/RepairHistory.svelte';
   import RepairTargetDialog from '$lib/repairs/RepairTargetDialog.svelte';
   import SetupBar from '$lib/repairs/SetupBar.svelte';
@@ -299,6 +300,8 @@
         authDisabled={session.authDisabled}
       />
     {/if}
+
+    <PullRequestBar />
 
     {#if offering && offers.length}
       <Disclosure

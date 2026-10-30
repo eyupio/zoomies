@@ -1,4 +1,5 @@
 import type { Schemas } from '../api/types';
+import { parseRepairTarget } from './target';
 
 /*
   The repair page's state, held in its hands rather than in a component: what
@@ -30,9 +31,12 @@ function whole(value: string | null): number {
 }
 
 export function parseTarget(query: URLSearchParams): RepairTarget {
+  const repo = (query.get('repo') ?? '').trim();
+  const pull = whole(query.get('pull'));
+  const linked = !repo || !pull ? parseRepairTarget(query.get('url') ?? '') : null;
   return {
-    repo: (query.get('repo') ?? '').trim(),
-    pull: whole(query.get('pull')),
+    repo: repo || (linked?.repo ?? ''),
+    pull: pull || (linked?.pull_number ?? 0),
     run: whole(query.get('run')),
     job: (query.get('job') ?? '').trim(),
     offer: (query.get('offer') ?? '').trim(),

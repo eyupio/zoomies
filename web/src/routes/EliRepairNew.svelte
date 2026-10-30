@@ -44,6 +44,7 @@
   import DecisionCard from '$lib/repairs/DecisionCard.svelte';
   import FailedJobs from '$lib/repairs/FailedJobs.svelte';
   import NoticeCard from '$lib/repairs/NoticeCard.svelte';
+  import PullRequestBar from '$lib/repairs/PullRequestBar.svelte';
   import ReadinessChecklist from '$lib/repairs/ReadinessChecklist.svelte';
   import RepairSetup from '$lib/repairs/RepairSetup.svelte';
   import RepairTargetDialog from '$lib/repairs/RepairTargetDialog.svelte';
@@ -388,7 +389,7 @@
     Paste the address of a pull request, or open a failed run from the Overview and choose Fix with
     Eli.
     {#snippet action()}
-      <Button onclick={() => (dialogOpen = true)}>Paste a pull request link</Button>
+      <PullRequestBar bare />
     {/snippet}
   </NoticeCard>
 {:else}

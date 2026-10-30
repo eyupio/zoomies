@@ -244,6 +244,8 @@ test('the old address still works', async ({ page }) => {
   // A pasted pull request takes the same road.
   await page.goto('/repairs?repo=acme/site&pull=3');
   await expect(page).toHaveURL(/\/repairs\/new\?repo=acme%2Fsite&pull=3$/);
+  await page.goto('/repairs?url=https://github.com/acme/site/pull/3');
+  await expect(page).toHaveURL(/\/repairs\/new\?repo=acme%2Fsite&pull=3$/);
 });
 
 // Everything on the page was written by somebody who can open a pull request or

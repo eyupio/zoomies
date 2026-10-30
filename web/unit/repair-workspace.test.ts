@@ -8,6 +8,16 @@ const query = (href: string) => new URLSearchParams(href.split('?')[1] ?? '');
 test('a target is read from the address and written back to it', () => {
   const target = { repo: 'acme/widgets', pull: 17, run: 482, job: 'job_unit', offer: 'opp_1' };
   assert.deepEqual(parseTarget(query(targetHref(target))), target);
+  assert.deepEqual(
+    parseTarget(new URLSearchParams({ url: 'https://github.com/acme/widgets/pull/17/checks' })),
+    {
+      repo: 'acme/widgets',
+      pull: 17,
+      run: 0,
+      job: '',
+      offer: '',
+    },
+  );
   assert.deepEqual(parseTarget(new URLSearchParams('')), {
     repo: '',
     pull: 0,
