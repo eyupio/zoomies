@@ -44,6 +44,16 @@
     treatment?: LogoTreatment;
     /** Whether the dog is drawn at all. A band hides it when its operator asks. */
     art?: boolean;
+    /**
+     * Makes the dog a control: a band's dog opens the panel that changes it.
+     * The stage has no opinion about what that panel does, so a public page
+     * that draws a stage still imports no preference store.
+     */
+    artAction?: (anchor: HTMLElement) => void;
+    /** The dog control's accessible name: "Band logo settings". */
+    artActionLabel?: string;
+    /** Whether the panel the dog opens is showing. */
+    artExpanded?: boolean;
     /** How large the dog is drawn, when `wide`. The stage's own size otherwise. */
     artSize?: BandLogoArtSize;
     /** Anything else the stage carries, under the lede. */
@@ -59,6 +69,9 @@
     heading = false,
     treatment = DEFAULT_LOGO_TREATMENT,
     art = true,
+    artAction,
+    artActionLabel = 'Band logo settings',
+    artExpanded = false,
     artSize,
     children,
     class: klass = '',
@@ -67,7 +80,22 @@
 </script>
 
 <div class="stage {klass}" class:wide data-art-size={art ? artSize : undefined}>
-  {#if art}<div class="art"><LogoArt variant="mark" size={240} label="" {treatment} /></div>{/if}
+  {#if art}
+    {#if artAction}
+      <button
+        type="button"
+        class="art art-button"
+        aria-label={artActionLabel}
+        aria-haspopup="dialog"
+        aria-expanded={artExpanded}
+        onclick={(event) => artAction(event.currentTarget)}
+      >
+        <LogoArt variant="mark" size={240} label="" {treatment} />
+      </button>
+    {:else}
+      <div class="art"><LogoArt variant="mark" size={240} label="" {treatment} /></div>
+    {/if}
+  {/if}
   <div class="words">
     {#if eyebrow}<p class="eyebrow">{eyebrow}</p>{/if}
     {#snippet words()}
@@ -112,6 +140,23 @@
   }
   .art :global(.logo) {
     width: clamp(8rem, 62%, 15rem);
+  }
+  /* In a band the dog is a control: it draws the ring itself when looked at or
+     focused, rather than leaving the whole stage to look interactive. */
+  .art-button {
+    padding: 0;
+    border: 0;
+    border-radius: var(--z-radius-lg);
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+  .art-button:hover {
+    box-shadow: 0 0 0 var(--z-border-width) var(--z-panel-border);
+  }
+  .art-button:focus-visible {
+    outline: var(--z-focus-width) solid var(--z-brand-runner-blue);
+    outline-offset: var(--z-focus-offset);
   }
   .words {
     min-width: 0;

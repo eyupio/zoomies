@@ -12110,13 +12110,49 @@ export interface components {
             scopes?: string[];
             must_change_password?: boolean;
         };
-        /** @description Private, account-scoped interface choices. Unknown tables and columns are harmless. */
+        /** @description Private, account-scoped interface choices. Unknown table and column ids are harmless, because a layout is the UI's own; a band naming a page or cut this build does not have is refused. */
         UserPreferences: {
             table_layouts?: {
                 [key: string]: components["schemas"]["TableLayoutPreference"];
             };
             assistant?: components["schemas"]["AssistantStyle"];
+            bands?: components["schemas"]["BandPreferences"];
         };
+        /** @description How this person's page bands stand: the cut a page takes where it is not the page's default, the bands that are switched off, and whether the dog is drawn and at what size. Every field is optional, because absent is a choice never made. The UI ignores a page or cut it does not know, so a document written by a newer build still opens every band it can. */
+        BandPreferences: {
+            /** @description Pages whose band is switched off. */
+            hidden?: components["schemas"]["BandPage"][];
+            /** @description Cuts that differ from the page's own default. */
+            sizes?: {
+                [key: string]: components["schemas"]["BandCut"];
+            };
+            /** @description Whether the dog is drawn on a page that has not chosen otherwise. On when absent. */
+            logo?: boolean;
+            logo_size?: components["schemas"]["BandLogoSize"];
+            /** @description Pages whose dog is shown or hidden against `logo`. */
+            logo_pages?: {
+                [key: string]: boolean;
+            };
+            /** @description Pages whose dog size differs from `logo_size`. */
+            logo_sizes?: {
+                [key: string]: components["schemas"]["BandLogoSize"];
+            };
+        };
+        /**
+         * @description A page that opens on a band.
+         * @enum {string}
+         */
+        BandPage: "overview" | "runners" | "pools" | "queue" | "jobs" | "workflows" | "usage" | "hosts" | "providers" | "installations" | "migrate" | "kennel";
+        /**
+         * @description How much air and type a band takes, from the shortest cut to the tallest.
+         * @enum {string}
+         */
+        BandCut: "slim" | "compact" | "standard" | "expanded";
+        /**
+         * @description The dog's size in a band. `auto` follows the band's cut; the rest pin it.
+         * @enum {string}
+         */
+        BandLogoSize: "auto" | "small" | "medium" | "large";
         ProblemDismissal: {
             /** @description The UI's identity for one problem, or `type:<code>` for every problem of one kind. Opaque to the controller. */
             key: string;

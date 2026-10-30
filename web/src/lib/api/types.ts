@@ -100,6 +100,7 @@ export type TwoStepSignIn = Schemas['TwoStepSignIn'];
 export type TwoStepStatus = Schemas['TwoStepStatus'];
 export type TwoStepSetup = Schemas['TwoStepSetup'];
 export type UserPreferences = Schemas['UserPreferences'];
+export type BandPreferences = Schemas['BandPreferences'];
 export type ProblemDismissal = Schemas['ProblemDismissal'];
 export type TableLayoutPreference = Schemas['TableLayoutPreference'];
 export type Stats = Schemas['Stats'];

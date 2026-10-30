@@ -10,6 +10,7 @@
 
 import { getOwnPreferences, replaceOwnPreferences } from '../api/client';
 import type { TableLayoutPreference } from '../api/types';
+import { bandSettingsDocument, readBandSettings } from '../bands/settings';
 import {
   DEFAULT_STATUS_STYLE,
   isStatusStyle,
@@ -24,13 +25,8 @@ import {
   resolveLogoTreatment,
   type LogoTreatment,
 } from './logo-treatment';
-import {
-  defaultBandSize,
-  isBandPage,
-  isBandSize,
-  type BandPage,
-  type BandSize,
-} from '../bands/pages';
+import { defaultBandSize, type BandPage, type BandSize } from '../bands/pages';
+import { ALL_BAND_PAGES } from '../bands/scope';
 import { DEFAULT_BAND_LOGO_SIZE, isBandLogoSize, type BandLogoSize } from '../bands/band-logo';
 import { storage } from './storage';
 
@@ -178,10 +174,18 @@ interface StoredPrefs {
    * who never chose.
    */
   bandSizes?: Record<string, string>;
-  /** Whether the dog is drawn in the band. On by default. */
+  /** Whether the dog is drawn in the band. On by default, and the default for every page. */
   bandLogo?: boolean;
   /** How large the dog in the band is drawn; `auto` follows the band's size. */
   bandLogoSize?: BandLogoSize;
+  /**
+   * Pages whose dog is drawn or hidden against the default above. The exception,
+   * as `hiddenBands` is, so a page keeps following the default until it is told
+   * otherwise and a default that moves later reaches everyone who never chose.
+   */
+  bandLogoPages?: Record<string, boolean>;
+  /** Pages whose dog size is not the default above. */
+  bandLogoSizes?: Record<string, string>;
 }
 
 /** The quick ranges the activity matrix offers, as the buttons name them. */
@@ -244,6 +248,8 @@ class Prefs {
   #bandSizes = $state<Partial<Record<BandPage, BandSize>>>({});
   #bandLogo = $state(true);
   #bandLogoSize = $state<BandLogoSize>(DEFAULT_BAND_LOGO_SIZE);
+  #bandLogoPages = $state<Partial<Record<BandPage, boolean>>>({});
+  #bandLogoSizes = $state<Partial<Record<BandPage, BandLogoSize>>>({});
   #accountSync = false;
   // Counts the syncs begun and the accounts disconnected, so a read of the
   // account that is overtaken by a sign-out, or by another account's sign-in,
@@ -279,24 +285,24 @@ class Prefs {
     this.#statusStyle = resolveStatusStyle(stored);
     this.#eliStyle = resolveEliStyle(stored.eliStyle);
     this.#logoTreatment = resolveLogoTreatment(stored.logoTreatment);
-    // Validated: a page an older build named and this one does not is not a band to hide.
-    this.#hiddenBands = Array.isArray(stored.hiddenBands)
-      ? stored.hiddenBands.filter(isBandPage)
-      : [];
-    // Validated twice over: the page and the size are both words an older or newer build
-    // may have written, and neither is a choice this build can honour if it does not know it.
-    this.#bandSizes = {};
-    if (stored.bandSizes && typeof stored.bandSizes === 'object') {
-      for (const [page, size] of Object.entries(stored.bandSizes)) {
-        if (isBandPage(page) && isBandSize(size)) this.#bandSizes[page] = size;
-      }
-    }
-    this.#bandLogo = stored.bandLogo ?? true;
-    // Validated: a size an older build saved that this one no longer offers must
-    // not draw a dog at a width nothing defines.
-    this.#bandLogoSize = isBandLogoSize(stored.bandLogoSize)
-      ? stored.bandLogoSize
-      : DEFAULT_BAND_LOGO_SIZE;
+    // One reader for both copies: the browser's record and the account document
+    // share a shape, and every word in it is something an older or newer build
+    // may have written. A page or a cut this build does not know is dropped, not
+    // carried into a control that cannot honour it.
+    const bands = readBandSettings({
+      hidden: stored.hiddenBands,
+      sizes: stored.bandSizes,
+      logo: stored.bandLogo,
+      logo_size: stored.bandLogoSize,
+      logo_pages: stored.bandLogoPages,
+      logo_sizes: stored.bandLogoSizes,
+    });
+    this.#hiddenBands = bands.hidden;
+    this.#bandSizes = bands.sizes;
+    this.#bandLogo = bands.logo;
+    this.#bandLogoSize = bands.logoSize;
+    this.#bandLogoPages = bands.logoPages;
+    this.#bandLogoSizes = bands.logoSizes;
     this.#applyNav();
   }
 
@@ -411,6 +417,30 @@ class Prefs {
       // person who chose at the desk finds it on the phone. With none made,
       // this browser's choice stands and is what the first save carries.
       if (remote.assistant) this.#eliStyle = resolveEliStyle(remote.assistant);
+      /*
+        The bands are the account's where it has a document: the cut chosen at
+        the desk is the one the phone draws. When it has none, a browser that
+        was last used by somebody else must not carry that person's bands into
+        this account; a browser with no previous account keeps its choices and
+        is what the first save carries.
+      */
+      if (remote.bands) {
+        const bands = readBandSettings(remote.bands);
+        this.#hiddenBands = bands.hidden;
+        this.#bandSizes = bands.sizes;
+        this.#bandLogo = bands.logo;
+        this.#bandLogoSize = bands.logoSize;
+        this.#bandLogoPages = bands.logoPages;
+        this.#bandLogoSizes = bands.logoSizes;
+      } else if (previous && previous !== userID) {
+        const bands = readBandSettings({});
+        this.#hiddenBands = bands.hidden;
+        this.#bandSizes = bands.sizes;
+        this.#bandLogo = bands.logo;
+        this.#bandLogoSize = bands.logoSize;
+        this.#bandLogoPages = bands.logoPages;
+        this.#bandLogoSizes = bands.logoSizes;
+      }
       if (Object.keys(layouts).length > 0) {
         // The server document is a replacement, not an overlay. Clearing the
         // local layout fields first means a reset made on another browser is a
@@ -441,9 +471,11 @@ class Prefs {
       storage.set(PREFS_ACCOUNT_KEY, userID);
       this.#accountSync = true;
       this.#persist();
-      // An existing installation has browser layouts but no server document;
-      // the first successful sync upgrades them without waiting for a drag.
-      if (Object.keys(layouts).length === 0 && !previous) this.#scheduleAccountSave(0);
+      // An existing installation has browser layouts, or band choices from
+      // before the account carried them, and no server document; the first
+      // successful sync upgrades them without waiting for a gesture.
+      const nothingToMigrate = Object.keys(layouts).length > 0 && remote.bands !== undefined;
+      if (!previous && !nothingToMigrate) this.#scheduleAccountSave(0);
     } catch {
       // Browser preferences remain fully functional while the controller is
       // offline or while an older controller has no account endpoint.
@@ -579,8 +611,20 @@ class Prefs {
   }
 
   setBandShown(page: BandPage, shown: boolean): void {
-    const rest = this.#hiddenBands.filter((p) => p !== page);
-    this.#hiddenBands = shown ? rest : [...rest, page];
+    this.applyBandShown([page], shown);
+  }
+
+  /** Switch the bands on or off across the pages a change was scoped to. */
+  applyBandShown(pages: readonly BandPage[], shown: boolean): void {
+    const hidden: Record<string, boolean> = {};
+    for (const page of this.#hiddenBands) hidden[page] = true;
+    for (const page of pages) {
+      if (shown) delete hidden[page];
+      else hidden[page] = true;
+    }
+    // Kept in the order Appearance lists them, so the saved document is stable
+    // and two browsers that made the same choice write the same bytes.
+    this.#hiddenBands = ALL_BAND_PAGES.filter((page) => hidden[page]);
     this.#persist();
   }
 
@@ -590,21 +634,107 @@ class Prefs {
   }
 
   setBandSize(page: BandPage, size: BandSize): void {
+    this.applyBandSize([page], size);
+  }
+
+  /** Give one cut to every page a change was scoped to, in a single save. */
+  applyBandSize(pages: readonly BandPage[], size: BandSize): void {
     const next = { ...this.#bandSizes };
-    // Choosing the default again is un-choosing, so the page follows it if it ever moves.
-    if (size === defaultBandSize(page)) delete next[page];
-    else next[page] = size;
+    for (const page of pages) {
+      // Choosing the default again is un-choosing, so the page follows it if it
+      // ever moves.
+      if (size === defaultBandSize(page)) delete next[page];
+      else next[page] = size;
+    }
     this.#bandSizes = next;
     this.#persist();
   }
 
-  /** Whether the dog is drawn in the band. */
+  /** Whether this page's band draws the dog. */
+  bandLogoShown(page: BandPage): boolean {
+    return this.#bandLogoPages[page] ?? this.#bandLogo;
+  }
+
+  setBandLogoShown(page: BandPage, shown: boolean): void {
+    this.applyBandLogoShown([page], shown);
+  }
+
+  applyBandLogoShown(pages: readonly BandPage[], shown: boolean): void {
+    const next = { ...this.#bandLogoPages };
+    for (const page of pages) {
+      if (shown === this.#bandLogo) delete next[page];
+      else next[page] = shown;
+    }
+    this.#bandLogoPages = next;
+    this.#persist();
+  }
+
+  /** The size of this page's dog, which follows the default until it is told otherwise. */
+  bandLogoSizeFor(page: BandPage): BandLogoSize {
+    return this.#bandLogoSizes[page] ?? this.#bandLogoSize;
+  }
+
+  setBandLogoSizeFor(page: BandPage, size: BandLogoSize): void {
+    this.applyBandLogoSize([page], size);
+  }
+
+  applyBandLogoSize(pages: readonly BandPage[], size: BandLogoSize): void {
+    const next = { ...this.#bandLogoSizes };
+    for (const page of pages) {
+      if (size === this.#bandLogoSize) delete next[page];
+      else next[page] = size;
+    }
+    this.#bandLogoSizes = next;
+    this.#persist();
+  }
+
+  /**
+   * Both halves of the dog in one save: the band's own control asks whether it
+   * is drawn and how large, and applying that as two writes would put a
+   * half-made choice on the account and repaint the band twice.
+   */
+  applyBandLogo(pages: readonly BandPage[], logo: { shown: boolean; size: BandLogoSize }): void {
+    const shown = { ...this.#bandLogoPages };
+    const sizes = { ...this.#bandLogoSizes };
+    for (const page of pages) {
+      if (logo.shown === this.#bandLogo) delete shown[page];
+      else shown[page] = logo.shown;
+      if (logo.size === this.#bandLogoSize) delete sizes[page];
+      else sizes[page] = logo.size;
+    }
+    this.#bandLogoPages = shown;
+    this.#bandLogoSizes = sizes;
+    this.#persist();
+  }
+
+  /** Whether this page's dog differs from the default set in Appearance. */
+  bandLogoCustom(page: BandPage): boolean {
+    return page in this.#bandLogoPages || page in this.#bandLogoSizes;
+  }
+
+  /** Put one page's dog back on the default set in Appearance. */
+  clearBandLogoOverride(page: BandPage): void {
+    const shown = { ...this.#bandLogoPages };
+    const sizes = { ...this.#bandLogoSizes };
+    delete shown[page];
+    delete sizes[page];
+    this.#bandLogoPages = shown;
+    this.#bandLogoSizes = sizes;
+    this.#persist();
+  }
+
+  /**
+   * The dog's default. Setting it is a choice for every page, not a new default
+   * for pages that have not chosen: the switch says "Show the logo in the
+   * band", and a page that quietly kept the old answer would make it a lie.
+   */
   get bandLogo(): boolean {
     return this.#bandLogo;
   }
 
   set bandLogo(value: boolean) {
     this.#bandLogo = value;
+    this.#bandLogoPages = {};
     this.#persist();
   }
 
@@ -616,6 +746,7 @@ class Prefs {
   set bandLogoSize(value: BandLogoSize) {
     if (!isBandLogoSize(value)) return;
     this.#bandLogoSize = value;
+    this.#bandLogoSizes = {};
     this.#persist();
   }
 
@@ -650,6 +781,11 @@ class Prefs {
     this.#persist();
   }
 
+  /** Whether choices are being kept on the signed-in account as well as in this browser. */
+  get accountSynced(): boolean {
+    return this.#accountSync;
+  }
+
   #applyNav(): void {
     if (typeof document === 'undefined') return;
     if (this.#navCollapsed) document.documentElement.setAttribute('data-nav', 'collapsed');
@@ -676,6 +812,8 @@ class Prefs {
         bandSizes: this.#bandSizes,
         bandLogo: this.#bandLogo,
         bandLogoSize: this.#bandLogoSize,
+        bandLogoPages: this.#bandLogoPages,
+        bandLogoSizes: this.#bandLogoSizes,
       } satisfies StoredPrefs),
     );
     this.#scheduleAccountSave();
@@ -694,12 +832,26 @@ class Prefs {
           ...(grid.order ? { order: grid.order } : {}),
         };
       }
-      void replaceOwnPreferences({ table_layouts: tableLayouts, assistant: this.#eliStyle }).catch(
-        () => {
-          // The local copy is authoritative until the next successful sign-in;
-          // a layout gesture should never turn into an error toast.
-        },
-      );
+      /*
+        Every band choice goes with the same request that carries the layouts.
+        The document is a replacement, so leaving the bands out of it would
+        delete them on the account the moment somebody dragged a column.
+      */
+      void replaceOwnPreferences({
+        table_layouts: tableLayouts,
+        assistant: this.#eliStyle,
+        bands: bandSettingsDocument({
+          hidden: this.#hiddenBands,
+          sizes: this.#bandSizes,
+          logo: this.#bandLogo,
+          logoSize: this.#bandLogoSize,
+          logoPages: this.#bandLogoPages,
+          logoSizes: this.#bandLogoSizes,
+        }),
+      }).catch(() => {
+        // The local copy is authoritative until the next successful sign-in;
+        // a layout gesture should never turn into an error toast.
+      });
     }, wait);
   }
 }

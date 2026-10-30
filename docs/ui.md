@@ -169,8 +169,12 @@ the brand's blue.
 A band comes in four sizes, from **Slim** (the shortest)
 through **Compact** and **Standard** to **Expanded** (the tallest). The Overview
 defaults to Standard and every other page to Compact. The sizes are on the band
-itself, as Eli's panel sizes are, so a page can be given more or less room where it
-is being read; the choice is per page and stays in the browser.
+itself, as Eli's panel sizes are. Pressing one asks where it should land: this
+page, a set of pages picked one at a time, or every page. The choice is per page,
+listening to that answer, and follows the signed-in account, so a band set at the
+desk is the one a phone opens on. Pressing the dog offers the same question about
+the dog itself: how large it is drawn, whether it is drawn at all, and which pages
+the answer reaches.
 
 Where a page used to spend a row of its height on a panel of figures, the band
 carries them in a strip along its lower edge. The Runners band holds the
@@ -181,10 +185,12 @@ that is switched off, and any band on a phone, shows those same figures in a pla
 panel in its place, so nothing disappears with the dog.
 
 The small cross at the top right of a band removes it. It asks first, and says where
-to bring it back. The size icons beside it change the band in place.
+to bring it back. The size icons beside it ask which pages the new cut should reach;
+the dog itself asks the same about its size, or about being removed. The answers are
+kept with the account where there is one, and in the browser otherwise.
 **Settings → Appearance → Page bands** has a switch and the same four sizes for each
-page, the Overview's included; every band is on until you switch it off, and the
-choices stay in that browser.
+page, the Overview's included, a line for that page's dog, and one control that sets
+every band at once; every band is on until you switch it off.
 
 ## Pools
 
