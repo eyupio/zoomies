@@ -79,7 +79,7 @@
   const lines = $derived(typeof headline === 'string' ? headline.split('\n') : headline);
 </script>
 
-<div class="stage {klass}" class:wide data-art-size={art ? artSize : undefined}>
+<div class="stage {klass}" class:wide class:no-art={!art} data-art-size={art ? artSize : undefined}>
   {#if art}
     {#if artAction}
       <button
@@ -203,6 +203,13 @@
     justify-content: space-between;
     gap: var(--z-space-8);
     padding-block: var(--z-space-10);
+  }
+  /* Without the dog the words are the only child of a reversed row, so the
+     stage's space-between would push them to the far edge. They stay at the
+     start of the reading direction, where the dog left them. */
+  .wide.no-art {
+    flex-direction: row;
+    justify-content: flex-start;
   }
   .wide .art {
     flex: none;
