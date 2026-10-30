@@ -53,6 +53,40 @@ const refusalLog = `2026-10-03T17:02:46.0487778Z ##[endgroup]
 2026-10-03T17:02:49.5047280Z Post job cleanup.
 `
 
+// The tail of a Playwright failure in a step that exits non-zero. The only
+// ##[error] is Actions' note of the exit code, and the line above it is the
+// runtime's version banner. The reason is the uncaught exception: ordinary
+// output a few lines up.
+const uncaughtLog = `2026-10-30T20:03:46.5061703Z node:internal/modules/run_main:123
+2026-10-30T20:03:46.5063039Z     triggerUncaughtException(
+2026-10-30T20:03:46.5063780Z     ^
+2026-10-30T20:03:46.5064138Z
+2026-10-30T20:03:46.5064517Z locator.click: Timeout 30000ms exceeded.
+2026-10-30T20:03:46.5065310Z Call log:
+2026-10-30T20:03:46.5066897Z   - waiting for getByRole('dialog', { name: 'Private skills on workstation' }).getByRole('button', { name: 'Check again', exact: true })
+2026-10-30T20:03:46.5068508Z     - locator resolved to <button disabled type="button" class="btn primary">Check again</button>
+2026-10-30T20:03:46.5069326Z   - attempting click action
+2026-10-30T20:03:46.5069905Z     - waiting for element to be visible, enabled and stable
+2026-10-30T20:03:46.5070489Z   - element was detached from the DOM, retrying
+2026-10-30T20:03:46.5070826Z
+2026-10-30T20:03:46.5071268Z     at /home/runner/_work/reet.sh/reet.sh/web/tests/skill-content.e2e.mjs:859:14 {
+2026-10-30T20:03:46.5071842Z   log: [
+2026-10-30T20:03:46.5072905Z     "  - waiting for getByRole('dialog', { name: 'Private skills on workstation' }).getByRole('button', { name: 'Check again', exact: true })",
+2026-10-30T20:03:46.5074111Z     '    - locator resolved to <button disabled type="button" class="btn primary">Check again</button>',
+2026-10-30T20:03:46.5074852Z     '  - attempting click action',
+2026-10-30T20:03:46.5075463Z     '    - waiting for element to be visible, enabled and stable',
+2026-10-30T20:03:46.5076172Z     '  - element was detached from the DOM, retrying'
+2026-10-30T20:03:46.5076756Z   ],
+2026-10-30T20:03:46.5077099Z   name: 'TimeoutError'
+2026-10-30T20:03:46.5077453Z }
+2026-10-30T20:03:46.5077648Z
+2026-10-30T20:03:46.5077775Z Node.js v22.23.4
+2026-10-30T20:03:46.5202082Z ##[error]Process completed with exit code 1.
+2026-10-30T20:03:46.5315827Z ##[group]Run actions/upload-artifact@v4
+2026-10-30T20:03:46.7885123Z No files were found with the provided path: /home/runner/_work/_temp/terminal-browser. No artifacts will be uploaded.
+2026-10-30T20:03:46.8170241Z Post job cleanup.
+`
+
 func TestLatestContextRunReadsTheRunAndItsJobs(t *testing.T) {
 	fake, reader := runReader(t)
 	id := fake.AddContextRun("acme/widgets", FakeContextRun{Commit: commitA, Conclusion: "failure", Jobs: []FakeContextJob{
@@ -327,5 +361,63 @@ func TestUnannotatedTestFailuresKeepTheStackContext(t *testing.T) {
 	got := errorLines("test checkout\nAssertionError: expected 2 got 1\n  at checkout.spec.ts:51\n")
 	if !strings.Contains(strings.Join(got, "\n"), "checkout.spec.ts:51") {
 		t.Fatalf("evidence: %v", got)
+	}
+}
+
+// Actions' exit-code annotation is not the reason a job failed, and the line
+// above it is often the runtime's version banner. Without the exception above
+// them, a repair has an exit code and nothing to locate: it guessed at files
+// and spent its whole source allowance before asking to give up.
+func TestAnExitCodeAnnotationKeepsTheUncaughtExceptionAboveIt(t *testing.T) {
+	got := errorLines(uncaughtLog)
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{"skill-content.e2e.mjs:859:14", "Check again", "TimeoutError", "Process completed with exit code 1."} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("evidence %q does not contain %q", joined, want)
+		}
+	}
+	if len(got) > maxContextErrorLines {
+		t.Errorf("%d lines kept, want at most %d", len(got), maxContextErrorLines)
+	}
+}
+
+// A test runner can print the failing test at the top of its block and a
+// summary at the bottom. The tail alone kept the summary counts, which name no
+// test; the failure marker before it is kept too.
+func TestAnExitCodeAnnotationKeepsAFailureMarkerAboveAReporterSummary(t *testing.T) {
+	var log strings.Builder
+	log.WriteString("2026-10-30T20:00:00.0000000Z ✖ adds a host to the fleet (12ms)\n")
+	log.WriteString("2026-10-30T20:00:00.0000000Z   AssertionError: expected 1 got 0\n")
+	for i := 0; i < 12; i++ {
+		fmt.Fprintf(&log, "2026-10-30T20:00:00.%07dZ summary line %d\n", i, i)
+	}
+	log.WriteString("2026-10-30T20:00:00.0000000Z ##[error]Process completed with exit code 1.\n")
+	got := errorLines(log.String())
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "✖ adds a host to the fleet") || !strings.Contains(joined, "AssertionError") {
+		t.Fatalf("the failing test was lost to the summary: %q", got)
+	}
+	if len(got) > maxContextErrorLines {
+		t.Fatalf("%d lines kept, want at most %d", len(got), maxContextErrorLines)
+	}
+}
+
+// A Go panic prints its reason first and then a long goroutine dump. The tail
+// is frames; the reason is only near the top.
+func TestAnExitCodeAnnotationKeepsThePanicAboveAStackTrace(t *testing.T) {
+	var log strings.Builder
+	log.WriteString("2026-10-30T20:00:00.0000000Z panic: runtime error: index out of range [3] with length 2\n")
+	for i := 0; i < 30; i++ {
+		fmt.Fprintf(&log, "2026-10-30T20:00:00.%07dZ \tmain.frame%d()\n\t/tmp/repo/main.go:%d +0x1\n", i, i, 100+i)
+	}
+	log.WriteString("2026-10-30T20:00:00.0000000Z exit status 2\n")
+	log.WriteString("2026-10-30T20:00:00.0000000Z ##[error]Process completed with exit code 1.\n")
+	got := errorLines(log.String())
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "panic: runtime error") || !strings.Contains(joined, "/tmp/repo/main.go:") {
+		t.Fatalf("the panic or its frame was lost: %q", got)
+	}
+	if len(got) > maxContextErrorLines {
+		t.Fatalf("%d lines kept, want at most %d", len(got), maxContextErrorLines)
 	}
 }

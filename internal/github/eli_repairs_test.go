@@ -460,3 +460,37 @@ func TestRepairFailedJobsAnswersNothingFoundWithoutAnError(t *testing.T) {
 		t.Fatalf("nothing to look by asked GitHub: run %+v, %v, called %v", run, err, called)
 	}
 }
+
+// A run can have failed jobs whose logs are gone. Naming each with an empty log
+// made the evidence look present, so a repair went ahead with "job: " and no
+// reason. The job with a log is the evidence.
+func TestRepairFailuresSkipsFailedJobsWithNoLog(t *testing.T) {
+	var base string
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/acme/repo/actions/runs":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"workflow_runs":[{"id":7,"head_sha":"old","status":"completed"}]}`))
+		case r.URL.Path == "/repos/acme/repo/actions/runs/7/jobs":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"jobs":[{"id":1,"name":"setup","conclusion":"failure"},{"id":2,"name":"test","conclusion":"failure"}]}`))
+		case r.URL.Path == "/repos/acme/repo/actions/jobs/1/logs":
+			http.NotFound(w, r)
+		case r.URL.Path == "/repos/acme/repo/actions/jobs/2/logs":
+			http.Redirect(w, r, base+"/_logs/2", http.StatusFound)
+		case r.URL.Path == "/_logs/2":
+			w.Write([]byte("2026-10-30T20:00:00.0000000Z ##[error]real failure\n"))
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL)
+			http.NotFound(w, r)
+		}
+	})
+	base = strings.TrimSuffix(c.asInstallation.BaseURL(), "/")
+	got, err := c.RepairFailures(t.Context(), "acme/repo", RepairPull{Number: 1, HeadSHA: "old"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "test: real failure" {
+		t.Fatalf("evidence = %q, want only the job with a log", got)
+	}
+}

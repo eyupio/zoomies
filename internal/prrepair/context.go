@@ -20,6 +20,7 @@ import (
 type allowanceError struct {
 	path       string
 	need, left int
+	limit      int
 }
 
 // A denied read is feedback for the model, not a reason to discard an otherwise
@@ -52,9 +53,9 @@ func (e *allowanceError) Error() string { return e.said(e.left) }
 // figure was refused again, and each refusal costs one of the repair's rounds.
 func (e *allowanceError) said(left int) string {
 	if left <= 0 {
-		return fmt.Sprintf("%s was not supplied: the whole %d KiB source allowance is used up. Work from the source already supplied, or return cannot_fix.", e.path, MaxSourceBytes/1024)
+		return fmt.Sprintf("%s was not supplied: the whole %d KiB source allowance is used up. Work from the source already supplied, or return cannot_fix.", e.path, e.limit/1024)
 	}
-	return fmt.Sprintf("%s was not supplied: it would add %d bytes of source and %d bytes of the %d KiB allowance remain. Ask for a smaller line window of it, work from the source already supplied, or return cannot_fix.", e.path, e.need, left, MaxSourceBytes/1024)
+	return fmt.Sprintf("%s was not supplied: it would add %d bytes of source and %d bytes of the %d KiB allowance remain. Ask for a smaller line window of it, work from the source already supplied, or return cannot_fix.", e.path, e.need, left, e.limit/1024)
 }
 
 // stepLimitError is what a repair ends with when its rounds run out. When the
@@ -64,10 +65,10 @@ func (e *allowanceError) said(left int) string {
 // A path counts as turned away if it was refused once, even if a window of it
 // fitted later, since the rounds spent finding that out are the rounds it ran
 // out of.
-func stepLimitError(refused, denied, invalid []string) error {
+func stepLimitError(refused, denied, invalid []string, limit int) error {
 	message := "the repair reached the model-step limit without a fix"
 	if len(refused) > 0 {
-		message += fmt.Sprintf("; the model asked for %s, which the %d KiB source allowance had no room for: name the file and the lines to change in the request, so that it asks for a window that fits", namedFiles(refused), MaxSourceBytes/1024)
+		message += fmt.Sprintf("; the model asked for %s, which the %d KiB source allowance had no room for: name the file and the lines to change in the request, so that it asks for a window that fits", namedFiles(refused), limit/1024)
 	}
 	if len(denied) > 0 {
 		message += fmt.Sprintf("; the model requested %s, which the repository repair policy kept protected: point Eli at allowed source, or fix the protected file by hand", namedFiles(denied))
@@ -105,6 +106,12 @@ type sourceContext struct {
 	// It is supplied source too, even though it was not read through a window.
 	inDiff map[string][]string
 	bytes  int
+	// limit is the source this attempt may still hold. It is MaxSourceBytes
+	// unless the snapshot already takes so much of the provider context that
+	// granting the full source allowance would end the next call for an input
+	// overflow the model could not see. Telling it what remains is a refusal it
+	// can narrow; the overflow was not.
+	limit int
 	// refused is the paths the allowance turned away, in the order it first did,
 	// for the error a repair ends with if it runs out of rounds.
 	refused []string
@@ -115,7 +122,7 @@ type sourceContext struct {
 }
 
 func newSourceContext(reader Reader, workflows bool) *sourceContext {
-	return &sourceContext{reader: reader, workflows: workflows, originals: map[string]File{}, shown: map[string][]sourceSpan{}, inDiff: map[string][]string{}}
+	return &sourceContext{reader: reader, workflows: workflows, originals: map[string]File{}, shown: map[string][]sourceSpan{}, inDiff: map[string][]string{}, limit: MaxSourceBytes}
 }
 func (s *sourceContext) shownInDiff(path, text string) bool {
 	for _, hunk := range s.inDiff[path] {
@@ -147,48 +154,16 @@ func (s *sourceContext) reveal(ctx context.Context, w ReadWindow) ([]File, error
 		}
 		return nil, &protectedReadError{path: w.Path}
 	}
-	f, ok := s.originals[w.Path]
-	if !ok {
-		var err error
-		f, err = s.reader.ReadFile(ctx, w.Path)
-		if err != nil {
-			var readError *ReadError
-			if errors.As(err, &readError) {
-				return nil, err
-			}
-			return nil, &ReadError{Path: w.Path, Err: err}
-		}
-		if len(f.Content) > MaxBlobBytes || !validText(f.Content) {
-			return nil, &ReadError{Path: w.Path}
-		}
-		f.Path = w.Path
-		s.originals[w.Path] = f
+	f, err := s.original(ctx, w.Path)
+	if err != nil {
+		return nil, err
 	}
-	start, end := 0, len(f.Content)
-	if w.StartLine != 0 || w.EndLine != 0 {
-		if w.StartLine < 1 || w.EndLine < w.StartLine || w.EndLine-w.StartLine > 400 {
-			s.noteInvalid(w.Path)
-			return nil, &windowError{path: w.Path, reason: "a file window needs 1 to 401 lines"}
-		}
-		lines := strings.SplitAfter(f.Content, "\n")
-		if w.StartLine > len(lines) {
-			s.noteInvalid(w.Path)
-			return nil, &windowError{path: w.Path, reason: "the window starts past the end of the file"}
-		}
-		for _, line := range lines[:w.StartLine-1] {
-			start += len(line)
-		}
-		end = start
-		for _, line := range lines[w.StartLine-1 : min(w.EndLine, len(lines))] {
-			end += len(line)
-		}
+	span, err := contentSpan(w.Path, f.Content, w)
+	if err != nil {
+		s.noteInvalid(w.Path)
+		return nil, err
 	}
-	if end-start > MaxFileBytes {
-		end = start + MaxFileBytes
-		for end > start && !utf8.ValidString(f.Content[start:end]) {
-			end--
-		}
-	}
+	start, end := span.start, span.end
 	// Subtract previously disclosed spans so overlapping reads neither spend the
 	// source allowance twice nor grow the transcript with duplicate source.
 	fresh := []sourceSpan{{start, end}}
@@ -215,11 +190,11 @@ func (s *sourceContext) reveal(ctx context.Context, w ReadWindow) ([]File, error
 	for _, v := range fresh {
 		size += v.end - v.start
 	}
-	if s.bytes+size > MaxSourceBytes {
+	if s.bytes+size > s.limit {
 		if !slices.Contains(s.refused, w.Path) {
 			s.refused = append(s.refused, w.Path)
 		}
-		return nil, &allowanceError{path: w.Path, need: size, left: MaxSourceBytes - s.bytes}
+		return nil, &allowanceError{path: w.Path, need: size, left: s.limit - s.bytes, limit: s.limit}
 	}
 	s.bytes += size
 	out := []File{}
@@ -238,6 +213,59 @@ func (s *sourceContext) reveal(ctx context.Context, w ReadWindow) ([]File, error
 	}
 	s.shown[w.Path] = merged
 	return out, nil
+}
+
+// original is the one read of a path in an attempt. It is cached so a window,
+// a repeat request and the evidence the controller supplies are one download,
+// and so a window can be measured before it is shown.
+func (s *sourceContext) original(ctx context.Context, path string) (File, error) {
+	if f, ok := s.originals[path]; ok {
+		return f, nil
+	}
+	f, err := s.reader.ReadFile(ctx, path)
+	if err != nil {
+		var readError *ReadError
+		if errors.As(err, &readError) {
+			return File{}, err
+		}
+		return File{}, &ReadError{Path: path, Err: err}
+	}
+	if len(f.Content) > MaxBlobBytes || !validText(f.Content) {
+		return File{}, &ReadError{Path: path}
+	}
+	f.Path = path
+	s.originals[path] = f
+	return f, nil
+}
+
+// contentSpan is the bytes a read window asks for, after the line bounds and
+// the per-read size cap. It is separate from reveal so that a window the
+// controller wants to supply from evidence can be measured before it is spent.
+func contentSpan(path, content string, w ReadWindow) (sourceSpan, error) {
+	start, end := 0, len(content)
+	if w.StartLine != 0 || w.EndLine != 0 {
+		if w.StartLine < 1 || w.EndLine < w.StartLine || w.EndLine-w.StartLine > 400 {
+			return sourceSpan{}, &windowError{path: path, reason: "a file window needs 1 to 401 lines"}
+		}
+		lines := strings.SplitAfter(content, "\n")
+		if w.StartLine > len(lines) {
+			return sourceSpan{}, &windowError{path: path, reason: "the window starts past the end of the file"}
+		}
+		for _, line := range lines[:w.StartLine-1] {
+			start += len(line)
+		}
+		end = start
+		for _, line := range lines[w.StartLine-1 : min(w.EndLine, len(lines))] {
+			end += len(line)
+		}
+	}
+	if end-start > MaxFileBytes {
+		end = start + MaxFileBytes
+		for end > start && !utf8.ValidString(content[start:end]) {
+			end--
+		}
+	}
+	return sourceSpan{start, end}, nil
 }
 
 func (s *sourceContext) apply(edits []Edit) ([]File, error) {
