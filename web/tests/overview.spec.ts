@@ -172,14 +172,17 @@ test('the running tile lands on the busy runners themselves', async ({ page }) =
  * The four figures are the band's own figures, as on every other page that
  * opens on one, and not a second row of numbers under the hero. Moving them
  * there gives the page back a row of height, and a figure in a band is a way
- * into the records it counts rather than a card that happens to be a link.
+ * into the records it counts rather than a card that happens to be a link. A
+ * phone never draws the band, so it gets the same figures as a plain panel.
  */
-test('the band carries the four figures, each a way into its records', async ({ page }) => {
-  const figures = page.getByTestId('fleet-status').getByRole('list', { name: 'Key figures' });
+test('the Overview carries the four figures in one strip, each a way into its records', async ({
+  page,
+}) => {
+  const figures = page.getByRole('list', { name: 'Key figures' });
   for (const label of ['Queued jobs', 'Running jobs', 'Live runners', 'Median queue wait']) {
     await expect(
       figures.getByRole('link', { name: new RegExp(`^${label}`) }),
-      `${label} is in the Overview band`,
+      `${label} is in the Overview figures`,
     ).toBeVisible();
   }
   // The p95 and the capacity are context the figure cannot carry in its number,

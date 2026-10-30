@@ -76,7 +76,12 @@
 </PageBand>
 
 {#if fleet.loaded}
-  <p class="coverage">{coverage}</p>
+  <p class="coverage">
+    {#if prefs.otherRunners && fleet.stats?.hosts}
+      <span>Runners and hosts belong to this fleet.</span>
+    {/if}
+    <span>{coverage}</span>
+  </p>
 {/if}
 
 <style>
@@ -86,6 +91,10 @@
     button, which sits over the window's right edge.
   */
   .coverage {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--z-space-1) var(--z-space-4);
     margin: calc(-1 * var(--z-space-2)) 0 var(--z-space-4);
     padding-inline-end: var(--z-eli-lane);
     color: var(--z-text-muted);
@@ -99,6 +108,7 @@
        first pool below the fold, to keep clear of a button that floats over
        whatever is scrolled under it anyway. */
     .coverage {
+      justify-content: flex-start;
       padding-inline-end: 0;
       text-align: start;
     }

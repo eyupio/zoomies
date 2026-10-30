@@ -117,7 +117,9 @@ test('a bookmarked diagnostic opens and a closed history summary remains live', 
     /all=true/,
   );
   await expect(page.locator('#history > summary')).toContainText('This fleet');
-  await expect(page.locator('#now')).toContainText('Runners and hosts belong to this fleet.');
+  // The figures and their scope note are the band's now, so the note is read
+  // where the figures are rather than inside the work section under them.
+  await expect(page.getByText('Runners and hosts belong to this fleet.')).toBeVisible();
 });
 
 test('events expand in place and return to a short preview', async ({ page }) => {

@@ -183,9 +183,11 @@ test('Mission Control keeps first-run guidance first when this fleet has not run
   await goto(page, '/', 'Overview');
   const setup = page.getByRole('heading', { name: 'Finish setting up', exact: true });
   await expect(setup).toBeVisible();
-  const metrics = page.getByText('Queued jobs', { exact: true }).first();
+  // The band's figures are the page's hero, so the thing the checklist has to
+  // come before is the work under it, not the answer above it.
+  const pools = page.getByRole('heading', { name: 'Pools', exact: true }).first();
   expect(await setup.evaluate((node) => node.getBoundingClientRect().top)).toBeLessThan(
-    await metrics.evaluate((node) => node.getBoundingClientRect().top),
+    await pools.evaluate((node) => node.getBoundingClientRect().top),
   );
 });
 
