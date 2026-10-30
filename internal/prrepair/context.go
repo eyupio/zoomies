@@ -30,6 +30,20 @@ func (e *protectedReadError) Error() string {
 	return fmt.Sprintf("%q was not supplied: the path is protected by the repository repair policy. Do not request it again. Work from allowed source, or return cannot_fix explaining why this file is needed.", Redact(e.path))
 }
 
+// A window the repair cannot read is feedback too. A model asked for six
+// hundred lines of a lockfile at once, and ending the attempt there called a
+// repair unsupported when it had only asked for too much source in one go. The
+// path is kept so that a repair which runs out of rounds can name the window it
+// never got.
+type windowError struct {
+	path   string
+	reason string
+}
+
+func (e *windowError) Error() string {
+	return fmt.Sprintf("%q was not supplied: %s. Ask for a smaller window, work from the source already supplied, or return cannot_fix.", Redact(e.path), e.reason)
+}
+
 func (e *allowanceError) Error() string { return e.said(e.left) }
 
 // said is the refusal as the model is told it. left is what remains when the
@@ -50,13 +64,16 @@ func (e *allowanceError) said(left int) string {
 // A path counts as turned away if it was refused once, even if a window of it
 // fitted later, since the rounds spent finding that out are the rounds it ran
 // out of.
-func stepLimitError(refused, denied []string) error {
+func stepLimitError(refused, denied, invalid []string) error {
 	message := "the repair reached the model-step limit without a fix"
 	if len(refused) > 0 {
 		message += fmt.Sprintf("; the model asked for %s, which the %d KiB source allowance had no room for: name the file and the lines to change in the request, so that it asks for a window that fits", namedFiles(refused), MaxSourceBytes/1024)
 	}
 	if len(denied) > 0 {
 		message += fmt.Sprintf("; the model requested %s, which the repository repair policy kept protected: point Eli at allowed source, or fix the protected file by hand", namedFiles(denied))
+	}
+	if len(invalid) > 0 {
+		message += fmt.Sprintf("; the model asked for a window of %s that was too wide or past the end of the file: name the file and the lines to change in the request, so that it asks for a window that fits", namedFiles(invalid))
 	}
 	return errors.New(message)
 }
@@ -92,6 +109,9 @@ type sourceContext struct {
 	// for the error a repair ends with if it runs out of rounds.
 	refused []string
 	denied  []string
+	// invalid is the paths whose window could not be read, in the order the
+	// model first asked for one, for the same error.
+	invalid []string
 }
 
 func newSourceContext(reader Reader, workflows bool) *sourceContext {
@@ -111,6 +131,15 @@ func (s *sourceContext) complete(path string) bool {
 	spans := s.shown[path]
 	return ok && len(spans) == 1 && spans[0].start == 0 && spans[0].end == len(f.Content)
 }
+
+// noteInvalid records a path whose window could not be read, once, so that the
+// error that ends a repair which runs out of rounds names no file twice.
+func (s *sourceContext) noteInvalid(path string) {
+	if !slices.Contains(s.invalid, path) {
+		s.invalid = append(s.invalid, path)
+	}
+}
+
 func (s *sourceContext) reveal(ctx context.Context, w ReadWindow) ([]File, error) {
 	if !AllowedPath(w.Path, s.workflows) {
 		if !slices.Contains(s.denied, w.Path) {
@@ -138,11 +167,13 @@ func (s *sourceContext) reveal(ctx context.Context, w ReadWindow) ([]File, error
 	start, end := 0, len(f.Content)
 	if w.StartLine != 0 || w.EndLine != 0 {
 		if w.StartLine < 1 || w.EndLine < w.StartLine || w.EndLine-w.StartLine > 400 {
-			return nil, fmt.Errorf("file windows need 1 to 401 lines")
+			s.noteInvalid(w.Path)
+			return nil, &windowError{path: w.Path, reason: "a file window needs 1 to 401 lines"}
 		}
 		lines := strings.SplitAfter(f.Content, "\n")
 		if w.StartLine > len(lines) {
-			return nil, fmt.Errorf("requested line is past the end of %s", w.Path)
+			s.noteInvalid(w.Path)
+			return nil, &windowError{path: w.Path, reason: "the window starts past the end of the file"}
 		}
 		for _, line := range lines[:w.StartLine-1] {
 			start += len(line)

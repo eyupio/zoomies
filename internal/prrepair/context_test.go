@@ -598,3 +598,55 @@ func TestAnEmptyListIsOnlyCalledAlreadySuppliedWhenNothingWasRefused(t *testing.
 		})
 	}
 }
+
+// A window wider than the repair reads used to end the attempt as an
+// unsupported fix, though the model had only asked for six hundred lines of a
+// lockfile at once. It is told the bound, and a window that fits still reaches
+// it in the same repair.
+func TestAWindowOutsideTheLineBoundIsSaidToTheModelAndTheRepairGoesOn(t *testing.T) {
+	var content strings.Builder
+	for i := 1; i <= 2000; i++ {
+		fmt.Fprintf(&content, "line-%04d\n", i)
+	}
+	reader := files{"lock.json": {Path: "lock.json", Content: content.String(), Mode: "100644"}}
+	fix, err := json.Marshal(Plan{Summary: "Fix the lock entry", Edits: []Edit{{Path: "lock.json", Before: "line-0950\n", After: "line-0950-fixed\n"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := []string{
+		`{"windows":[{"path":"lock.json","start_line":900,"end_line":1500}]}`,
+		`{"windows":[{"path":"lock.json","start_line":900,"end_line":1200}]}`,
+		string(fix),
+	}
+	notes := []string{}
+	model := budgetModel(func(messages []Message) (string, error) {
+		notes = append(notes, messages[len(messages)-1].Content)
+		return values[len(notes)-1], nil
+	})
+	plan, err := Generate(context.Background(), model, reader, Snapshot{}, "fix the failing check", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Files) != 1 || !strings.Contains(plan.Files[0].Content, "line-0950-fixed\n") {
+		t.Fatalf("the repair did not go on to the fix: %+v", plan)
+	}
+	refusal := notes[1]
+	if !strings.Contains(refusal, "file window needs 1 to 401 lines") || !strings.Contains(refusal, "lock.json") || strings.Contains(refusal, "an empty list means already supplied") {
+		t.Fatalf("the too-wide window was not said clearly: %s", refusal)
+	}
+}
+
+// A model that keeps asking for a window past the line bound is stopped by the
+// round limit, and the error says which window it never got, rather than
+// blaming the source allowance it did not spend.
+func TestARepairThatRunsOutOfRoundsOnAWideWindowNamesIt(t *testing.T) {
+	reader := files{"lock.json": {Path: "lock.json", Content: strings.Repeat("line\n", 2000), Mode: "100644"}}
+	model := &replies{}
+	for range MaxSteps {
+		model.values = append(model.values, `{"windows":[{"path":"lock.json","start_line":1,"end_line":1500}]}`)
+	}
+	_, err := Generate(context.Background(), model, reader, Snapshot{}, "fix the failing check", false)
+	if err == nil || !strings.Contains(err.Error(), "model-step limit") || !strings.Contains(err.Error(), "lock.json") || !strings.Contains(err.Error(), "too wide") || strings.Contains(err.Error(), "source allowance") {
+		t.Fatalf("unhelpful outcome: %v", err)
+	}
+}

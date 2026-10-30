@@ -473,8 +473,6 @@
     .decision {
       grid-column: 2;
       grid-row: 1;
-      position: sticky;
-      top: var(--z-space-6);
     }
     .setup,
     .failed,
