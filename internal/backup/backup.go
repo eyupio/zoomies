@@ -436,14 +436,24 @@ func describeKey(cfg *config.Config, dest string, includeKey bool, m *Manifest) 
 }
 
 func writeManifest(dir string, m *Manifest) error {
-	raw, err := json.MarshalIndent(m, "", "  ")
+	raw, err := marshalManifest(m)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, ManifestName), append(raw, '\n'), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ManifestName), raw, 0o600); err != nil {
 		return fmt.Errorf("backup: writing the manifest: %w", err)
 	}
 	return nil
+}
+
+// marshalManifest is the one spelling of a manifest on disk, so a copy pulled
+// out of a bucket and one written here carry the same bytes.
+func marshalManifest(m *Manifest) ([]byte, error) {
+	raw, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(raw, '\n'), nil
 }
 
 // ReadManifest reads the manifest beside a backup's database.

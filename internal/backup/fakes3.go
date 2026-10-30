@@ -42,6 +42,22 @@ type FakeS3 struct {
 	fail *fakeS3Failure
 	// puts counts successful writes, so a test can say the catch-up sent two.
 	puts int
+	// gets counts object reads, so a test can say a listing did not open one.
+	gets int
+	// uploads is the multipart state; a completed upload leaves objects and
+	// its parts behind only until completion joins them.
+	uploads    map[string]*fakeUpload
+	nextUpload int
+	// loseComplete stores the joined object and then answers the completion as
+	// a failure, which is what a service whose answer was lost looks like.
+	loseComplete bool
+	// failComplete refuses the completion without storing anything.
+	failComplete bool
+}
+
+type fakeUpload struct {
+	key   string
+	parts map[int][]byte
 }
 
 type fakeS3Failure struct {
@@ -53,7 +69,7 @@ type fakeS3Failure struct {
 // NewFakeS3 starts a fake object store holding one bucket. The caller must
 // Close it.
 func NewFakeS3(bucket string) *FakeS3 {
-	f := &FakeS3{objects: map[string][]byte{}, stored: map[string]time.Time{}, bucket: bucket}
+	f := &FakeS3{objects: map[string][]byte{}, stored: map[string]time.Time{}, uploads: map[string]*fakeUpload{}, bucket: bucket}
 	f.server = httptest.NewServer(http.HandlerFunc(f.handle))
 	return f
 }
@@ -110,6 +126,38 @@ func (f *FakeS3) Puts() int {
 	return f.puts
 }
 
+// Gets is how many objects it has opened, which is how a test proves a
+// listing used the key listing alone.
+func (f *FakeS3) Gets() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gets
+}
+
+// Body is one stored object, for a test that needs to read what landed.
+func (f *FakeS3) Body(key string) ([]byte, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	body, ok := f.objects[key]
+	return body, ok
+}
+
+// LoseCompletionAnswerOnce makes the next multipart completion store the
+// object and then answer as if the reply were lost.
+func (f *FakeS3) LoseCompletionAnswerOnce() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.loseComplete = true
+}
+
+// FailCompletionOnce makes the next multipart completion fail before storing
+// anything.
+func (f *FakeS3) FailCompletionOnce() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failComplete = true
+}
+
 func (f *FakeS3) handle(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	failure := f.fail
@@ -151,6 +199,8 @@ func (f *FakeS3) handle(w http.ResponseWriter, r *http.Request) {
 			f.listObjects(w, r)
 			return
 		}
+		f.serveObject(w, r, key)
+	case http.MethodHead:
 		f.mu.Lock()
 		body, ok := f.objects[key]
 		f.mu.Unlock()
@@ -159,8 +209,22 @@ func (f *FakeS3) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
-		_, _ = w.Write(body)
+		w.WriteHeader(http.StatusOK)
+	case http.MethodPost:
+		if r.URL.Query().Has("uploads") {
+			f.initiateMultipart(w, key)
+			return
+		}
+		if id := r.URL.Query().Get("uploadId"); id != "" {
+			f.completeMultipart(w, r, key, id)
+			return
+		}
+		f.refuse(w, http.StatusMethodNotAllowed, "MethodNotAllowed", r.Method)
 	case http.MethodPut:
+		if id := r.URL.Query().Get("uploadId"); id != "" {
+			f.uploadPart(w, r, key, id)
+			return
+		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			f.refuse(w, http.StatusBadRequest, "IncompleteBody", err.Error())
@@ -180,6 +244,13 @@ func (f *FakeS3) handle(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:])+`"`)
 		w.WriteHeader(http.StatusOK)
 	case http.MethodDelete:
+		if id := r.URL.Query().Get("uploadId"); id != "" {
+			f.mu.Lock()
+			delete(f.uploads, id)
+			f.mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		f.mu.Lock()
 		delete(f.objects, key)
 		delete(f.stored, key)
@@ -188,6 +259,123 @@ func (f *FakeS3) handle(w http.ResponseWriter, r *http.Request) {
 	default:
 		f.refuse(w, http.StatusMethodNotAllowed, "MethodNotAllowed", r.Method)
 	}
+}
+
+func (f *FakeS3) serveObject(w http.ResponseWriter, r *http.Request, key string) {
+	f.mu.Lock()
+	body, ok := f.objects[key]
+	f.gets++
+	f.mu.Unlock()
+	if !ok {
+		f.refuse(w, http.StatusNotFound, "NoSuchKey", "no such key")
+		return
+	}
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		var start, end int64 = 0, int64(len(body)) - 1
+		if _, err := fmt.Sscanf(rangeHeader, "bytes=%d-%d", &start, &end); err == nil {
+			if start < 0 {
+				start = 0
+			}
+			if end >= int64(len(body)) {
+				end = int64(len(body)) - 1
+			}
+			if start > end || start >= int64(len(body)) {
+				f.refuse(w, http.StatusRequestedRangeNotSatisfiable, "InvalidRange", "the range is outside the object")
+				return
+			}
+			body = body[start : end+1]
+			w.WriteHeader(http.StatusPartialContent)
+		}
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	_, _ = w.Write(body)
+}
+
+func (f *FakeS3) initiateMultipart(w http.ResponseWriter, key string) {
+	f.mu.Lock()
+	f.nextUpload++
+	id := fmt.Sprintf("upload-%d", f.nextUpload)
+	f.uploads[id] = &fakeUpload{key: key, parts: map[int][]byte{}}
+	f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/xml")
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?><InitiateMultipartUploadResult><Bucket>%s</Bucket><Key>%s</Key><UploadId>%s</UploadId></InitiateMultipartUploadResult>`,
+		xmlEscape(f.bucket), xmlEscape(key), xmlEscape(id))
+}
+
+func (f *FakeS3) uploadPart(w http.ResponseWriter, r *http.Request, key, id string) {
+	number, err := strconv.Atoi(r.URL.Query().Get("partNumber"))
+	if err != nil || number < 1 {
+		f.refuse(w, http.StatusBadRequest, "InvalidArgument", "partNumber is not a number")
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		f.refuse(w, http.StatusBadRequest, "IncompleteBody", err.Error())
+		return
+	}
+	declared := r.Header.Get("X-Amz-Content-Sha256")
+	sum := sha256.Sum256(body)
+	if hex.EncodeToString(sum[:]) != declared {
+		f.refuse(w, http.StatusBadRequest, "XAmzContentSHA256Mismatch",
+			"the body is not what the request said it would be")
+		return
+	}
+	f.mu.Lock()
+	upload, ok := f.uploads[id]
+	if !ok || upload.key != key {
+		f.mu.Unlock()
+		f.refuse(w, http.StatusNotFound, "NoSuchUpload", "no such upload")
+		return
+	}
+	upload.parts[number] = body
+	f.mu.Unlock()
+	w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:])+`"`)
+	w.WriteHeader(http.StatusOK)
+}
+
+func (f *FakeS3) completeMultipart(w http.ResponseWriter, r *http.Request, key, id string) {
+	f.mu.Lock()
+	upload, ok := f.uploads[id]
+	if !ok || upload.key != key {
+		f.mu.Unlock()
+		f.refuse(w, http.StatusNotFound, "NoSuchUpload", "no such upload")
+		return
+	}
+	if f.failComplete {
+		f.failComplete = false
+		delete(f.uploads, id)
+		f.mu.Unlock()
+		f.refuse(w, http.StatusInternalServerError, "InternalError", "the upload could not be completed")
+		return
+	}
+	numbers := make([]int, 0, len(upload.parts))
+	for n := range upload.parts {
+		numbers = append(numbers, n)
+	}
+	sort.Ints(numbers)
+	var joined []byte
+	for _, n := range numbers {
+		joined = append(joined, upload.parts[n]...)
+	}
+	// A completion's body names the ETags; they are not otherwise needed here.
+	_, _ = io.Copy(io.Discard, r.Body)
+	f.objects[key] = joined
+	f.stored[key] = time.Now().UTC()
+	f.puts++
+	delete(f.uploads, id)
+	lose := f.loseComplete
+	if lose {
+		f.loseComplete = false
+	}
+	f.mu.Unlock()
+	if lose {
+		f.refuse(w, http.StatusInternalServerError, "InternalError", "the answer to the completion was lost")
+		return
+	}
+	sum := sha256.Sum256(joined)
+	w.Header().Set("Content-Type", "application/xml")
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?><CompleteMultipartUploadResult><Key>%s</Key><ETag>"%s"</ETag></CompleteMultipartUploadResult>`,
+		xmlEscape(key), hex.EncodeToString(sum[:]))
 }
 
 // listObjects answers ListObjectsV2, one key at a time when a max-keys is

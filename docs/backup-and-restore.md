@@ -111,20 +111,22 @@ remotes](#copies-that-leave-the-machine), below, or you do, with `rsync`, a
 snapshot of the volume, or a job of your own. Keep the key with your secrets,
 once, either way.
 
-**Download** on the Backups tab is the same thing for a browser: the backup's
-directory as one `zoomies-<timestamp>.tar.gz`, holding the manifest, the
-database and, only when the backup was taken with it, the key. **Download
-encrypted** seals the same archive with a passphrase first, for a file that is
-going to sit on a laptop or in a shared drive: the passphrase goes through
-argon2id and the archive through AES-256-GCM in chunks, so a file cut short or
-altered does not open as a shorter backup. Nothing on the controller remembers
-the passphrase; the file opens with it and with nothing else.
+**Download** on the Backups tab is the same thing for a browser: a
+`zoomies-<timestamp>.zip` holding `zoomies-<timestamp>.sealed` and
+`zoomies-<timestamp>.json`, the encrypted payload and the manifest that
+describes it. **Download encrypted** seals the payload under a passphrase
+first, for a file that is going to sit on a laptop or in a shared drive: the
+passphrase goes through argon2id and the archive through AES-256-GCM in
+chunks, so a file cut short or altered does not open as a shorter backup.
+Nothing on the controller remembers the passphrase; the file opens with it and
+with nothing else.
 
-**Upload** brings either kind back, on this controller or another one. The
-archive is unpacked into a staging directory, verified exactly as a restore
-would verify it, and then listed under the name its manifest gives it, marked
-as uploaded. An upload is never counted or removed by retention: an operator who
-brought a file here brought it for a reason.
+**Upload** brings either kind back, on this controller or another one. The zip
+is opened into a staging directory, verified exactly as a restore would verify
+it, and then listed under the name its manifest gives it, marked as uploaded.
+An older `.tar.gz` or `.tar.gz.enc` archive still uploads too. An upload is
+never counted or removed by retention: an operator who brought a file here
+brought it for a reason.
 
 **Verify** re-reads a backup that is already here (the database's digest
 against the manifest, `PRAGMA integrity_check`, and whether this build can open
@@ -190,10 +192,16 @@ backup:
       passphrase: ""             # ZOOMIES_BACKUP_REMOTE_2_PASSPHRASE
 ```
 
-What lands in the bucket is exactly what the **Download** button produces:
-`zoomies-20260908-181718.tar.gz`, or `.tar.gz.enc` when the remote has a
-passphrase. There is no separate format, so a copy pulled out of a bucket in
-three years is opened by `zoomies restore` and by nothing else in particular.
+What lands in the bucket is one object per copy:
+`zoomies-20260908-181718.gz.enc`, or `zoomies-20260908-181718.enc` when
+compression is off. The object holds a small plaintext manifest and then the
+encrypted payload, so the description travels inside the object rather than as
+a sidecar that can go missing. When the remote has a passphrase it seals the
+already-encrypted payload again. An older `.tar.gz`/`.tar.gz.enc` object, or a
+`.sealed` and `.json` pair, is still listed, fetched and deleted; new copies
+use the one-object form and old ones age out through retention. A copy pulled
+out of a bucket in three years is opened by `zoomies restore` and by nothing
+else in particular.
 
 Three things are worth knowing before you rely on it:
 

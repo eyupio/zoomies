@@ -80,7 +80,7 @@ test('a backup taken from the page is listed with what a restore needs to know',
     page.waitForEvent('download'),
     row.getByRole('button', { name: `Download: ${id}` }).click(),
   ]);
-  expect(download.suggestedFilename()).toBe(`${id}.tar.gz`);
+  expect(download.suggestedFilename()).toBe(`${id}.zip`);
 });
 
 test('an encrypted download insists on a passphrase worth having', async ({ page }) => {
@@ -101,7 +101,7 @@ test('an encrypted download insists on a passphrase worth having', async ({ page
   await seal.getByLabel('Passphrase again').fill('correct horse battery staple');
   await expect(go).toBeEnabled();
   const [download] = await Promise.all([page.waitForEvent('download'), go.click()]);
-  expect(download.suggestedFilename()).toBe(`${id}.tar.gz.enc`);
+  expect(download.suggestedFilename()).toBe(`${id}.zip`);
   await expect(seal).toBeHidden();
 });
 

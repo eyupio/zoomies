@@ -204,7 +204,7 @@ func (c *Controller) PruneBackups(ctx context.Context) (BackupPruning, error) {
 	defer c.endShipping()
 	for _, entry := range configured {
 		item := RemotePruning{Name: entry.Remote.Name, Keep: entry.Remote.Keep, Removed: []string{}}
-		remote, err := backup.NewRemote(entry.Remote, c.backupHTTP)
+		remote, err := backup.NewRemoteWithKey(entry.Remote, c.backupHTTP, c.key)
 		if err != nil {
 			item.Error = err.Error()
 			out.Remotes = append(out.Remotes, item)

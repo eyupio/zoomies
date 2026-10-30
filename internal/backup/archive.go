@@ -72,8 +72,24 @@ func ArchiveName(id string, encrypted bool) string {
 // members sit under a directory named for the backup, so extracting it by
 // hand gives the same layout `zoomies restore` takes.
 func WriteArchive(w io.Writer, entry *Entry) error {
-	gz := gzip.NewWriter(w)
-	tw := tar.NewWriter(gz)
+	_, _, err := writeArchive(w, entry, true)
+	return err
+}
+
+// writeArchive writes a tar of the backup's directory, optionally compressed,
+// and reports the size and SHA-256 of the uncompressed tar. The digest is what
+// a stored object's manifest records for the plaintext, and it is taken before
+// compression and encryption so the same archive can be verified however it
+// travelled.
+func writeArchive(w io.Writer, entry *Entry, compressed bool) (int64, string, error) {
+	plain := newDigestWriter(w)
+	var dst io.Writer = plain
+	var gz *gzip.Writer
+	if compressed {
+		gz = gzip.NewWriter(plain)
+		dst = gz
+	}
+	tw := tar.NewWriter(dst)
 	// The manifest first, so a reader that wants only the description does
 	// not have to read the database to reach it.
 	for _, name := range archiveMembers {
@@ -83,7 +99,7 @@ func WriteArchive(w io.Writer, entry *Entry) error {
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("backup: reading %s: %w", p, err)
+			return 0, "", fmt.Errorf("backup: reading %s: %w", p, err)
 		}
 		hdr := &tar.Header{
 			Name:    entry.ID + "/" + name,
@@ -93,11 +109,11 @@ func WriteArchive(w io.Writer, entry *Entry) error {
 			Format:  tar.FormatPAX,
 		}
 		if err := tw.WriteHeader(hdr); err != nil {
-			return err
+			return 0, "", err
 		}
 		f, err := os.Open(p)
 		if err != nil {
-			return err
+			return 0, "", err
 		}
 		// io.CopyN rather than io.Copy: the header promised a size, and a
 		// database that grows under the copy would leave a tar the reader
@@ -106,13 +122,18 @@ func WriteArchive(w io.Writer, entry *Entry) error {
 		_, err = io.CopyN(tw, f, info.Size())
 		f.Close()
 		if err != nil {
-			return fmt.Errorf("backup: archiving %s: %w", p, err)
+			return 0, "", fmt.Errorf("backup: archiving %s: %w", p, err)
 		}
 	}
 	if err := tw.Close(); err != nil {
-		return err
+		return 0, "", err
 	}
-	return gz.Close()
+	if gz != nil {
+		if err := gz.Close(); err != nil {
+			return 0, "", err
+		}
+	}
+	return plain.n, plain.hex(), nil
 }
 
 // UnpackOptions says who brought an archive and where to put it.

@@ -406,25 +406,25 @@ func (s *Server) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 		passphrase = body.Passphrase
 	}
 
-	name := backup.ArchiveName(e.ID, passphrase != "")
-	w.Header().Set("Content-Type", "application/octet-stream")
+	seal := passphrase
+	if seal == "" {
+		key, err := s.cfg().ResolveEncryptionKey()
+		if err != nil {
+			s.internal(w, r, "finding the key to seal the download", err)
+			return
+		}
+		seal = key.Encode()
+	}
+
+	name := backup.BundleName(e.ID)
+	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	w.Header().Set("Cache-Control", "no-store")
 	// A large backup over a slow link takes as long as it takes.
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 	w.WriteHeader(http.StatusOK)
 
-	var out io.Writer = w
-	if passphrase != "" {
-		enc, err := backup.NewEncryptor(w, passphrase)
-		if err != nil {
-			s.logger(r).Warn("could not start the encrypted download", "backup", e.ID, "error", err)
-			return
-		}
-		defer func() { _ = enc.Close() }()
-		out = enc
-	}
-	if err := backup.WriteArchive(out, e); err != nil {
+	if err := backup.WriteBundle(w, e, seal, true); err != nil {
 		// The headers are gone; the client gets a short file, and the log
 		// gets the reason.
 		s.logger(r).Warn("a backup download did not complete", "backup", e.ID, "error", err)
@@ -534,6 +534,40 @@ func (s *Server) uploadSnapshot(w http.ResponseWriter, r *http.Request, transfer
 	if _, err := spool.Seek(0, io.SeekStart); err != nil {
 		s.internal(w, r, "reading the spooled upload", err)
 		return
+	}
+
+	if !transfer {
+		if isZip, _ := backup.IsBundle(spool); isZip {
+			if _, err := spool.Seek(0, io.SeekStart); err != nil {
+				s.internal(w, r, "reading the spooled upload", err)
+				return
+			}
+			info, err := spool.Stat()
+			if err != nil {
+				s.internal(w, r, "reading the spooled upload", err)
+				return
+			}
+			inner := ""
+			if k, kerr := s.cfg().ResolveEncryptionKey(); kerr == nil {
+				inner = k.Encode()
+			}
+			entry, err := backup.UnpackBundle(r.Context(), root, spool, info.Size(), passphrase, inner, backup.UnpackOptions{
+				Source: backup.SourceUploaded, TakenBy: Identity(r.Context()).Name, MaxBytes: maxBackupUploadBytes, Now: s.ctrl.Now,
+			})
+			if err != nil {
+				if errors.Is(err, backup.ErrWrongPassphrase) {
+					unprocessable(w, "the archive did not open", []fieldError{{"passphrase", backup.ErrWrongPassphrase.Error()}})
+					return
+				}
+				unprocessable(w, "that file is not a Zoomies backup this controller can use", []fieldError{{"file", strings.TrimPrefix(err.Error(), "backup: ")}})
+				return
+			}
+			s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "backup.upload", "backup", entry.ID, map[string]any{
+				"filename": filename, "encrypted": true, "bytes": entry.Bytes, "taken_at": entry.TakenAt,
+			})
+			writeJSON(w, http.StatusCreated, s.backupView(*entry, locationBackups))
+			return
+		}
 	}
 
 	var src io.Reader = spool
