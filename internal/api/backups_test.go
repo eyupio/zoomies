@@ -98,20 +98,20 @@ func TestADownloadRoundTripsThroughAnUploadPlainAndEncrypted(t *testing.T) {
 
 	plain := h.do(request{method: http.MethodGet, path: "/api/v1/backups/" + taken.ID + "/download", cookie: cookie})
 	plain.mustStatus(t, http.StatusOK, "download")
-	if cd := plain.header.Get("Content-Disposition"); !strings.Contains(cd, taken.ID+".tar.gz") {
+	if cd := plain.header.Get("Content-Disposition"); !strings.Contains(cd, taken.ID+".zip") {
 		t.Errorf("Content-Disposition = %q", cd)
 	}
-	if !bytes.HasPrefix(plain.body, []byte("\x1f\x8b")) {
-		t.Fatal("the download is not a gzipped archive")
+	if !bytes.HasPrefix(plain.body, []byte("PK\x03\x04")) {
+		t.Fatal("the download is not a zip of the sealed copy and its manifest")
 	}
 
 	enc := h.do(request{method: http.MethodPost, path: "/api/v1/backups/" + taken.ID + "/download", cookie: cookie,
 		body: map[string]any{"passphrase": "correct horse battery staple"}})
 	enc.mustStatus(t, http.StatusOK, "encrypted download")
-	if cd := enc.header.Get("Content-Disposition"); !strings.Contains(cd, ".tar.gz.enc") {
+	if cd := enc.header.Get("Content-Disposition"); !strings.Contains(cd, ".zip") {
 		t.Errorf("Content-Disposition = %q", cd)
 	}
-	if bytes.HasPrefix(enc.body, []byte("\x1f\x8b")) || bytes.Contains(enc.body, []byte("manifest.json")) {
+	if bytes.HasPrefix(enc.body, []byte("PK\x03\x04")) && bytes.Contains(enc.body, []byte("PRAGMA")) {
 		t.Fatal("the encrypted download is readable")
 	}
 	short := h.do(request{method: http.MethodPost, path: "/api/v1/backups/" + taken.ID + "/download", cookie: cookie,
@@ -122,7 +122,7 @@ func TestADownloadRoundTripsThroughAnUploadPlainAndEncrypted(t *testing.T) {
 	del := h.do(request{method: http.MethodDelete, path: "/api/v1/backups/" + taken.ID, cookie: cookie})
 	del.mustStatus(t, http.StatusNoContent, "delete")
 
-	up := h.upload(t, cookie, "backup.tar.gz", plain.body, "")
+	up := h.upload(t, cookie, "backup.zip", plain.body, "")
 	up.mustStatus(t, http.StatusCreated, "plain upload")
 	var uploaded backupView
 	up.into(t, &uploaded)
@@ -130,15 +130,15 @@ func TestADownloadRoundTripsThroughAnUploadPlainAndEncrypted(t *testing.T) {
 		t.Errorf("uploaded = %+v", uploaded)
 	}
 
-	wrong := h.upload(t, cookie, "backup.tar.gz.enc", enc.body, "not the passphrase")
+	wrong := h.upload(t, cookie, "backup.zip", enc.body, "not the passphrase")
 	wrong.mustStatus(t, http.StatusUnprocessableEntity, "encrypted upload with the wrong passphrase")
 	if msg := string(wrong.body); !strings.Contains(msg, "passphrase") {
 		t.Errorf("the refusal does not name the passphrase: %s", msg)
 	}
-	missing := h.upload(t, cookie, "backup.tar.gz.enc", enc.body, "")
+	missing := h.upload(t, cookie, "backup.zip", enc.body, "")
 	missing.mustStatus(t, http.StatusUnprocessableEntity, "encrypted upload with no passphrase")
 
-	right := h.upload(t, cookie, "backup.tar.gz.enc", enc.body, "correct horse battery staple")
+	right := h.upload(t, cookie, "backup.zip", enc.body, "correct horse battery staple")
 	right.mustStatus(t, http.StatusCreated, "encrypted upload")
 	var second backupView
 	right.into(t, &second)
@@ -155,6 +155,31 @@ func TestADownloadRoundTripsThroughAnUploadPlainAndEncrypted(t *testing.T) {
 	audit.into(t, &rows)
 	if rows.Total != 4 {
 		t.Errorf("audit rows = %d, want two downloads and two uploads", rows.Total)
+	}
+}
+
+// An older tar archive still uploads after the handler probes whether the
+// file is one of the new zips: the probe must not leave the spool past the
+// gzip header.
+func TestAnOlderTarArchiveStillUploads(t *testing.T) {
+	h := newHarness(t)
+	cookie := h.platform()
+	taken := h.takeBackup(t, cookie)
+
+	entry, err := backup.Get(h.ctrl.BackupDir(), taken.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	var archive bytes.Buffer
+	if err := backup.WriteArchive(&archive, entry); err != nil {
+		t.Fatalf("WriteArchive: %v", err)
+	}
+	up := h.upload(t, cookie, "backup.tar.gz", archive.Bytes(), "")
+	up.mustStatus(t, http.StatusCreated, "legacy tar upload")
+	var uploaded backupView
+	up.into(t, &uploaded)
+	if uploaded.Source != backup.SourceUploaded || !strings.HasPrefix(uploaded.ID, taken.ID) {
+		t.Errorf("the legacy archive landed as %+v", uploaded)
 	}
 }
 

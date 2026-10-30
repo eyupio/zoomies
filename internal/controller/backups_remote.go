@@ -252,7 +252,7 @@ func (c *Controller) RemoteBackup(ctx context.Context, name string) (*backup.Rem
 	if err != nil {
 		return nil, err
 	}
-	return backup.NewRemote(resolved.Remote, c.backupHTTP)
+	return backup.NewRemoteWithKey(resolved.Remote, c.backupHTTP, c.key)
 }
 
 // CheckBackupRemote tests a destination that has not been saved yet, which is
@@ -329,7 +329,7 @@ func (c *Controller) ShipBackups(ctx context.Context) ([]backup.Copy, error) {
 		// Each destination is built on its own so that one with a typo in its
 		// endpoint is recorded against its own name, where the page and the
 		// problems drawer show it, and the copies still leave for the others.
-		remote, err := backup.NewRemote(cfgRemote, c.backupHTTP)
+		remote, err := backup.NewRemoteWithKey(cfgRemote, c.backupHTTP, c.key)
 		if err != nil {
 			c.noteRemoteFailure(cfgRemote.Name, err, clock)
 			errs = append(errs, err)

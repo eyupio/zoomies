@@ -148,9 +148,13 @@ func shipFromCLI(ctx context.Context, e *env, cfg *config.Config, st *store.Stor
 		return nil
 	}
 	fmt.Fprintln(e.out)
+	key, kerr := cfg.ResolveEncryptionKey()
+	if kerr != nil {
+		key = nil
+	}
 	failed := false
 	for _, cfgRemote := range remotes {
-		remote, err := backup.NewRemote(cfgRemote, nil)
+		remote, err := backup.NewRemoteWithKey(cfgRemote, nil, key)
 		if err != nil {
 			failed = true
 			fmt.Fprintf(e.out, "%s  NOT sent: %v\n", cfgRemote.Name, err)

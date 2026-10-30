@@ -7875,12 +7875,13 @@ paths:
       tags: [backups]
       summary: Bring a backup here
       description: >-
-        A `multipart/form-data` form with the archive in `file` -- a `.tar.gz` a
-        download produced, or the `.tar.gz.enc` an encrypted download produced with
-        its `passphrase` in a second part. The archive is unpacked into a staging
-        directory, verified as a restore would verify it, and then listed under the
-        name its manifest gives it, with its source recorded as uploaded. An upload
-        is never counted or removed by retention.
+        A `multipart/form-data` form with the file in `file` -- the `.zip` a
+        download produced, or an older `.tar.gz` or `.tar.gz.enc` archive, with
+        its `passphrase` in a second part when it was sealed with one. The
+        archive is unpacked into a staging directory, verified as a restore
+        would verify it, and then listed under the name its manifest gives it,
+        with its source recorded as uploaded. An upload is never counted or
+        removed by retention.
       x-zoomies-role: admin
       requestBody:
         required: true
@@ -8267,24 +8268,24 @@ paths:
     get:
       operationId: downloadBackup
       tags: [backups]
-      summary: Download a backup as a gzipped tar
+      summary: Download a backup as a zip
       description: >-
-        The backup's directory -- manifest, database and, only when it was taken
-        with it, the encryption key -- as `<id>.tar.gz`. Audited: it is the whole
+        A `<id>.zip` holding `<id>.sealed` and `<id>.json`: the encrypted
+        payload and the manifest that describes it. Audited: it is the whole
         database leaving the machine.
       x-zoomies-role: admin
       responses:
-        "200": { description: The archive, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        "200": { description: The zip, content: { application/zip: { schema: { type: string, format: binary } } } }
         "404": { $ref: "#/components/responses/NotFound" }
     post:
       operationId: downloadBackupEncrypted
       tags: [backups]
-      summary: Download a backup encrypted with a passphrase
+      summary: Download a backup sealed with a passphrase
       description: >-
-        The same archive, encrypted as `<id>.tar.gz.enc`: the passphrase is run
-        through argon2id and the archive through AES-256-GCM in chunks, so a file
-        cut short or altered does not open as a shorter backup. The upload route
-        takes the same passphrase to bring it back.
+        The same `<id>.zip`, with `<id>.sealed` sealed under the passphrase:
+        it is run through argon2id and the archive through AES-256-GCM in
+        chunks, so a file cut short or altered does not open as a shorter
+        backup. The upload route takes the same passphrase to bring it back.
       x-zoomies-role: admin
       requestBody:
         required: true
@@ -8296,7 +8297,7 @@ paths:
               properties:
                 passphrase: { type: string, format: password, minLength: 8 }
       responses:
-        "200": { description: The encrypted archive, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        "200": { description: The sealed zip, content: { application/zip: { schema: { type: string, format: binary } } } }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 

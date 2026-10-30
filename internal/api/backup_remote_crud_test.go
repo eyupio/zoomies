@@ -73,7 +73,7 @@ func TestADestinationAddedOnThePageIsTestedStoredAndUsed(t *testing.T) {
 	if shipped.Error != "" || len(shipped.Sent) != 1 || shipped.Sent[0].ID != taken.ID {
 		t.Fatalf("the pass sent %+v (%s)", shipped.Sent, shipped.Error)
 	}
-	if keys := fake.Keys(); len(keys) != 1 || !strings.HasSuffix(keys[0], ".tar.gz"+backup.EncryptedExt) {
+	if keys := fake.Keys(); len(keys) != 1 || !strings.HasSuffix(keys[0], ".gz.enc") {
 		t.Errorf("the bucket holds %v; the destination has a passphrase, so the archive is sealed", keys)
 	}
 }

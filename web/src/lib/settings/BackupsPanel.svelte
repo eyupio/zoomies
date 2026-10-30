@@ -246,7 +246,7 @@
     encryptError = '';
     try {
       const blob = await downloadBackupEncrypted(backup.id, passphrase);
-      saveBlob(blob, `${backup.id}.tar.gz.enc`);
+      saveBlob(blob, `${backup.id}.zip`);
       encryptOpen = false;
       toasts.success(
         'Encrypted backup downloaded',
@@ -270,7 +270,9 @@
   let uploadError = $state('');
   let fileInput = $state<HTMLInputElement | null>(null);
 
-  const uploadLooksEncrypted = $derived(uploadFile?.name.endsWith('.enc') ?? false);
+  const uploadLooksEncrypted = $derived(
+    (uploadFile?.name.endsWith('.enc') || uploadFile?.name.endsWith('.zip')) ?? false,
+  );
 
   function openUpload(): void {
     uploadFile = null;
@@ -957,7 +959,7 @@
   >
     <Field
       label="Archive"
-      hint=".tar.gz, or .tar.gz.enc for one downloaded with a passphrase."
+      hint=".zip from a Download button, or an older .tar.gz or .enc archive."
       error={uploadError && !uploadLooksEncrypted ? uploadError : undefined}
     >
       {#snippet children({ id, describedBy })}
@@ -967,7 +969,7 @@
             bind:this={fileInput}
             {id}
             type="file"
-            accept=".gz,.enc,application/gzip,application/octet-stream"
+            accept=".zip,.gz,.enc,application/zip,application/gzip,application/octet-stream"
             aria-describedby={describedBy}
             tabindex="-1"
             class="sr-only"
@@ -993,7 +995,7 @@
     <Field
       label="Passphrase"
       hint={uploadLooksEncrypted
-        ? 'The one it was downloaded with.'
+        ? 'The one it was downloaded with, if the download was sealed with a passphrase.'
         : 'Only for an encrypted archive. Leave it empty for a plain one.'}
       error={uploadError && uploadLooksEncrypted ? uploadError : undefined}
     >

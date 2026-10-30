@@ -45,6 +45,9 @@ type s3Client struct {
 	// now is the clock the signature is dated with, injected so a test can
 	// pin one.
 	now func() time.Time
+	// multipartThreshold is the largest object sent with one PUT. Tests lower
+	// it to exercise the multipart path without producing a huge object.
+	multipartThreshold int64
 }
 
 // defaultS3Region is what a request is signed for when the operator named no
@@ -94,6 +97,7 @@ func newS3Client(endpoint, region, bucket, accessKey, secretKey string, pathStyl
 		endpoint: u, bucket: strings.TrimSpace(bucket), region: region,
 		accessKey: strings.TrimSpace(accessKey), secretKey: strings.TrimSpace(secretKey),
 		pathStyle: style, http: httpClient, now: time.Now,
+		multipartThreshold: s3MultipartThreshold,
 	}, nil
 }
 
@@ -227,6 +231,180 @@ func (c *s3Client) get(ctx context.Context, key string) (io.ReadCloser, int64, e
 		return nil, 0, err
 	}
 	return resp.Body, resp.ContentLength, nil
+}
+
+// getRange opens part of one object for reading. It is what reads a manifest
+// header without pulling a whole database over the link.
+func (c *s3Client) getRange(ctx context.Context, key string, start, end int64) (io.ReadCloser, int64, error) {
+	if start < 0 || end < start {
+		return nil, 0, fmt.Errorf("backup: invalid byte range %d-%d", start, end)
+	}
+	req, e := http.NewRequestWithContext(ctx, http.MethodGet, c.url(key).String(), nil)
+	if e != nil {
+		return nil, 0, e
+	}
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+	resp, e := c.do(req, emptyPayloadSHA256, 0)
+	if e != nil {
+		return nil, 0, e
+	}
+	return resp.Body, resp.ContentLength, nil
+}
+
+// head asks for one object's size without reading it.
+func (c *s3Client) head(ctx context.Context, key string) (int64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.url(key).String(), nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := c.do(req, emptyPayloadSHA256, 0)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	return resp.ContentLength, nil
+}
+
+// s3MultipartThreshold is the point at which a single signed PUT would run
+// into a store's own limit. S3's is 5 GiB; choosing a smaller one keeps a
+// single part comfortably inside every implementation's patience and makes
+// the multipart path the one exercised by an unusually large fleet.
+const s3MultipartThreshold int64 = 64 << 20
+
+type initiateMultipartResult struct {
+	XMLName  xml.Name `xml:"InitiateMultipartUploadResult"`
+	UploadID string   `xml:"UploadId"`
+}
+
+type completeMultipartResult struct {
+	XMLName xml.Name `xml:"CompleteMultipartUploadResult"`
+	ETag    string   `xml:"ETag"`
+}
+
+type completedPart struct {
+	Number int
+	Size   int64
+	ETag   string
+}
+
+// createMultipart starts an upload and returns its id.
+func (c *s3Client) createMultipart(ctx context.Context, key string) (string, error) {
+	u := c.url(key)
+	q := u.Query()
+	q.Set("uploads", "")
+	u.RawQuery = q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.do(req, emptyPayloadSHA256, 0)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	var parsed initiateMultipartResult
+	if err := xml.Unmarshal(body, &parsed); err != nil || parsed.UploadID == "" {
+		return "", fmt.Errorf("backup: %s did not answer a multipart upload with an id", c.endpoint.Host)
+	}
+	return parsed.UploadID, nil
+}
+
+// uploadPart sends one numbered part. The digest is of that part alone, which
+// is what the signature names.
+func (c *s3Client) uploadPart(ctx context.Context, key, uploadID string, number int, body io.Reader, size int64, digest string) (string, error) {
+	u := c.url(key)
+	q := u.Query()
+	q.Set("partNumber", strconv.Itoa(number))
+	q.Set("uploadId", uploadID)
+	u.RawQuery = q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u.String(), body)
+	if err != nil {
+		return "", err
+	}
+	req.ContentLength = size
+	resp, err := c.do(req, digest, size)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	etag := strings.Trim(resp.Header.Get("ETag"), `"`)
+	if etag == "" {
+		return "", fmt.Errorf("backup: %s accepted a part but named no ETag to complete the upload with", c.endpoint.Host)
+	}
+	return etag, nil
+}
+
+// completeMultipart asks the service to join the parts. A refusal here is
+// settled by the caller, which checks whether the object arrived before it
+// gives up.
+func (c *s3Client) completeMultipart(ctx context.Context, key, uploadID string, parts []completedPart) error {
+	type part struct {
+		Number int    `xml:"PartNumber"`
+		ETag   string `xml:"ETag"`
+	}
+	type payload struct {
+		XMLName xml.Name `xml:"CompleteMultipartUpload"`
+		Parts   []part   `xml:"Part"`
+	}
+	doc := payload{}
+	for _, p := range parts {
+		doc.Parts = append(doc.Parts, part{Number: p.Number, ETag: `"` + p.ETag + `"`})
+	}
+	raw, err := xml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	u := c.url(key)
+	q := u.Query()
+	q.Set("uploadId", uploadID)
+	u.RawQuery = q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), strings.NewReader(string(raw)))
+	if err != nil {
+		return err
+	}
+	req.ContentLength = int64(len(raw))
+	req.Header.Set("Content-Type", "application/xml")
+	sum := sha256.Sum256(raw)
+	resp, err := c.do(req, hex.EncodeToString(sum[:]), int64(len(raw)))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	var parsed completeMultipartResult
+	if err := xml.Unmarshal(body, &parsed); err != nil {
+		return fmt.Errorf("backup: %s answered the multipart completion with something this is not: %w", c.endpoint.Host, err)
+	}
+	return nil
+}
+
+// abortMultipart ends an upload that will never be completed, so the service
+// does not keep its parts.
+func (c *s3Client) abortMultipart(ctx context.Context, key, uploadID string) error {
+	u := c.url(key)
+	q := u.Query()
+	q.Set("uploadId", uploadID)
+	u.RawQuery = q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u.String(), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.do(req, emptyPayloadSHA256, 0)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	return nil
 }
 
 // remove deletes one object. S3 answers 204 for a key that was never there,

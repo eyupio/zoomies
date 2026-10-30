@@ -53,7 +53,7 @@ func TestAScheduledBackupIsCopiedToTheRemote(t *testing.T) {
 	}
 
 	keys := fake.Keys()
-	if len(keys) != 1 || keys[0] != "fleet/"+entries[0].ID+".tar.gz" {
+	if len(keys) != 1 || keys[0] != "fleet/"+entries[0].ID+".gz.enc" {
 		t.Fatalf("the bucket holds %v, wanted the backup that was just taken", keys)
 	}
 	status := h.c.BackupRemotes(h.ctx)
@@ -374,7 +374,7 @@ func TestABackupTakenByThePassIsShippedByTheSamePass(t *testing.T) {
 		t.Fatalf("the pass took %d backups, %v", len(entries), err)
 	}
 	keys := fake.Keys()
-	if len(keys) != 1 || keys[0] != "fleet/"+entries[0].ID+".tar.gz" {
+	if len(keys) != 1 || keys[0] != "fleet/"+entries[0].ID+".gz.enc" {
 		t.Fatalf("the bucket holds %v after the pass that took %s", keys, entries[0].ID)
 	}
 }
@@ -852,7 +852,7 @@ func TestTheScheduleShipsToADestinationAddedOnThePage(t *testing.T) {
 		t.Fatalf("the pass took %d backups, %v", len(entries), err)
 	}
 	keys := fake.Keys()
-	if len(keys) != 1 || keys[0] != "fleet/"+entries[0].ID+".tar.gz" {
+	if len(keys) != 1 || keys[0] != "fleet/"+entries[0].ID+".gz.enc" {
 		t.Fatalf("the bucket holds %v after the pass that took %s", keys, entries[0].ID)
 	}
 	if status := h.c.BackupRemotes(h.ctx); len(status) != 1 || status[0].LastUploadID != entries[0].ID {

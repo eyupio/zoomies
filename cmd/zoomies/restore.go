@@ -39,7 +39,7 @@ func remoteNamed(ctx context.Context, cfg *config.Config, name string) (*backup.
 	if err != nil {
 		return nil, err
 	}
-	return backup.NewRemote(resolved.Remote, nil)
+	return backup.NewRemoteWithKey(resolved.Remote, nil, key)
 }
 
 // listRemoteCopies prints what one remote holds. It is what `zoomies restore

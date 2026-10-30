@@ -5067,7 +5067,7 @@ export interface paths {
         put?: never;
         /**
          * Bring a backup here
-         * @description A `multipart/form-data` form with the archive in `file` -- a `.tar.gz` a download produced, or the `.tar.gz.enc` an encrypted download produced with its `passphrase` in a second part. The archive is unpacked into a staging directory, verified as a restore would verify it, and then listed under the name its manifest gives it, with its source recorded as uploaded. An upload is never counted or removed by retention.
+         * @description A `multipart/form-data` form with the file in `file` -- the `.zip` a download produced, or an older `.tar.gz` or `.tar.gz.enc` archive, with its `passphrase` in a second part when it was sealed with one. The archive is unpacked into a staging directory, verified as a restore would verify it, and then listed under the name its manifest gives it, with its source recorded as uploaded. An upload is never counted or removed by retention.
          */
         post: operations["uploadBackup"];
         delete?: never;
@@ -5388,14 +5388,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Download a backup as a gzipped tar
-         * @description The backup's directory -- manifest, database and, only when it was taken with it, the encryption key -- as `<id>.tar.gz`. Audited: it is the whole database leaving the machine.
+         * Download a backup as a zip
+         * @description A `<id>.zip` holding `<id>.sealed` and `<id>.json`: the encrypted payload and the manifest that describes it. Audited: it is the whole database leaving the machine.
          */
         get: operations["downloadBackup"];
         put?: never;
         /**
-         * Download a backup encrypted with a passphrase
-         * @description The same archive, encrypted as `<id>.tar.gz.enc`: the passphrase is run through argon2id and the archive through AES-256-GCM in chunks, so a file cut short or altered does not open as a shorter backup. The upload route takes the same passphrase to bring it back.
+         * Download a backup sealed with a passphrase
+         * @description The same `<id>.zip`, with `<id>.sealed` sealed under the passphrase: it is run through argon2id and the archive through AES-256-GCM in chunks, so a file cut short or altered does not open as a shorter backup. The upload route takes the same passphrase to bring it back.
          */
         post: operations["downloadBackupEncrypted"];
         delete?: never;
@@ -22723,13 +22723,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The archive */
+            /** @description The zip */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/octet-stream": string;
+                    "application/zip": string;
                 };
             };
             404: components["responses"]["NotFound"];
@@ -22753,13 +22753,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The encrypted archive */
+            /** @description The sealed zip */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/octet-stream": string;
+                    "application/zip": string;
                 };
             };
             404: components["responses"]["NotFound"];

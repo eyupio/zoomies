@@ -1,7 +1,9 @@
 package backup
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -32,9 +34,13 @@ func remoteFor(t *testing.T, f *FakeS3, adjust func(*config.BackupRemote)) *Remo
 	if adjust != nil {
 		adjust(&cfg)
 	}
-	remote, err := NewRemote(cfg, nil)
+	key, err := cryptox.GenerateKey()
 	if err != nil {
-		t.Fatalf("NewRemote: %v", err)
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	remote, err := NewRemoteWithKey(cfg, nil, key)
+	if err != nil {
+		t.Fatalf("NewRemoteWithKey: %v", err)
 	}
 	return remote
 }
@@ -65,7 +71,7 @@ func TestUploadingABackupAndFetchingItBackGivesTheSameBackup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Upload: %v", err)
 	}
-	if copied.Key != "fleet/"+entry.ID+".tar.gz" {
+	if copied.Key != "fleet/"+entry.ID+".gz.enc" {
 		t.Errorf("stored at %q, which is not the prefix and name a restore would look for", copied.Key)
 	}
 	if copied.Bytes <= 0 {
@@ -120,19 +126,21 @@ func TestAnEncryptedRemoteUploadsSomethingThatDoesNotOpenWithoutThePassphrase(t 
 	if err != nil {
 		t.Fatalf("Upload: %v", err)
 	}
-	if !strings.HasSuffix(copied.Key, ".tar.gz"+EncryptedExt) {
-		t.Errorf("an encrypted copy is stored at %q, which does not say it is encrypted", copied.Key)
+	if !strings.HasSuffix(copied.Key, ".gz.enc") {
+		t.Errorf("an encrypted compressed copy is stored at %q, which does not say what it is", copied.Key)
 	}
 
-	// The same remote, minus the passphrase, is what somebody holding the
-	// bucket has: the bytes and nothing else.
-	blind := remoteFor(t, f, func(r *config.BackupRemote) {
-		r.Passphrase = ""
-	})
-	// Its key has no .enc, so it does not even find the object -- and asked
-	// for the encrypted one, it cannot open it.
+	// Somebody holding the bucket and neither key nor passphrase has the bytes
+	// and nothing else.
+	blind, err := NewRemote(config.BackupRemote{
+		Name: "offsite", Endpoint: f.Endpoint(), Bucket: f.Bucket(), Prefix: "fleet",
+		AccessKeyID: "AKIAEXAMPLE", SecretAccessKey: "secret",
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRemote: %v", err)
+	}
 	if _, err := blind.Fetch(context.Background(), t.TempDir(), entry.ID, FetchOptions{}); err == nil {
-		t.Error("an unencrypted remote fetched an encrypted copy")
+		t.Error("a remote with no key and no passphrase fetched an encrypted copy")
 	}
 	if _, err := remote.Fetch(context.Background(), t.TempDir(), entry.ID, FetchOptions{Passphrase: "the wrong one"}); err == nil {
 		t.Error("the wrong passphrase opened the archive")
@@ -472,4 +480,298 @@ func (f fakeRemotes) ListBackupRemotes(context.Context) ([]*store.BackupRemote, 
 		out[i] = &row
 	}
 	return out, nil
+}
+
+// A new copy is one object, and its name says whether it was compressed before
+// it was encrypted. A sidecar manifest would be a second thing that can go
+// missing from somebody else's bucket.
+func TestANewBackupIsOneObjectNamedForItsCompression(t *testing.T) {
+	f := fakeStore(t)
+	ctx := context.Background()
+	remote := remoteFor(t, f, nil)
+
+	_, first := takeOne(t, time.Date(2026, 3, 2, 2, 0, 0, 0, time.UTC))
+	compressed, err := remote.Upload(ctx, first)
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	if compressed.Key != "fleet/"+first.ID+".gz.enc" {
+		t.Errorf("a compressed copy is stored at %q", compressed.Key)
+	}
+	if f.Count() != 1 {
+		t.Fatalf("one backup left %d objects in the bucket", f.Count())
+	}
+	body, ok := f.Body(compressed.Key)
+	if !ok || !bytes.HasPrefix(body, []byte(ObjectMagic)) {
+		t.Fatalf("the one object does not begin with %s", ObjectMagic)
+	}
+
+	no := false
+	plain := remoteFor(t, f, func(r *config.BackupRemote) { r.Compress = &no })
+	_, second := takeOne(t, time.Date(2026, 3, 2, 2, 1, 0, 0, time.UTC))
+	uncompressed, err := plain.Upload(ctx, second)
+	if err != nil {
+		t.Fatalf("Upload uncompressed: %v", err)
+	}
+	if uncompressed.Key != "fleet/"+second.ID+".enc" {
+		t.Errorf("an uncompressed copy is stored at %q", uncompressed.Key)
+	}
+	root := t.TempDir()
+	fetched, err := plain.Fetch(ctx, root, second.ID, FetchOptions{})
+	if err != nil {
+		t.Fatalf("Fetch uncompressed: %v", err)
+	}
+	if v, err := Verify(ctx, root, fetched.ID); err != nil || !v.OK {
+		t.Errorf("an uncompressed copy does not verify: %+v, %v", v, err)
+	}
+}
+
+// The header is the only thing a reader trusts before it sees the payload, so
+// its own digest has to be checked and a changed byte refused.
+func TestTheObjectHeaderRoundTripsAndRefusesCorruption(t *testing.T) {
+	m := &ObjectManifest{
+		ManifestVersion: 1,
+		Target:          "zoomies",
+		TakenAt:         time.Date(2026, 9, 12, 3, 0, 4, 0, time.UTC),
+		PlaintextSize:   1234,
+		PlaintextSHA256: strings.Repeat("a", 64),
+		PayloadSize:     5678,
+		PayloadSHA256:   strings.Repeat("b", 64),
+		Compression:     "gzip",
+		KeyFingerprint:  "the-key",
+		Version:         "1.0",
+	}
+	var buf bytes.Buffer
+	if err := WriteObjectHeader(&buf, m); err != nil {
+		t.Fatalf("WriteObjectHeader: %v", err)
+	}
+	raw := bytes.Clone(buf.Bytes())
+	got, err := ReadObjectHeader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("ReadObjectHeader: %v", err)
+	}
+	if got.Target != m.Target || got.PayloadSHA256 != m.PayloadSHA256 || got.Compression != "gzip" {
+		t.Fatalf("header round trip = %+v", got)
+	}
+
+	for name, breakIt := range map[string]func([]byte){
+		"the magic":    func(b []byte) { b[0] ^= 0xff },
+		"the length":   func(b []byte) { b[len(ObjectMagic)] = 0x7f },
+		"the digest":   func(b []byte) { b[len(ObjectMagic)+4] ^= 0xff },
+		"the manifest": func(b []byte) { b[len(ObjectMagic)+4+sha256.Size] ^= 0xff },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := bytes.Clone(raw)
+			breakIt(bad)
+			if _, err := ReadObjectHeader(bytes.NewReader(bad)); !errors.Is(err, ErrBadObjectHeader) {
+				t.Fatalf("ReadObjectHeader = %v, want ErrBadObjectHeader", err)
+			}
+		})
+	}
+}
+
+// A listing is a key listing. A bucket with a hundred copies must not cost a
+// hundred downloads, which is why the manifest sits inside the object and the
+// name carries enough to list it.
+func TestListingUsesTheKeyListingAndNeverOpensACopy(t *testing.T) {
+	f := fakeStore(t)
+	ctx := context.Background()
+	remote := remoteFor(t, f, nil)
+	for i := range 3 {
+		_, entry := (func() (*config.Config, *Entry) {
+			cfg, st, _ := host(t)
+			e, err := Take(ctx, st, TakeOptions{Config: cfg, Source: SourceScheduled,
+				Now: func() time.Time { return time.Date(2026, 3, 3, 2, i, 0, 0, time.UTC) }})
+			if err != nil {
+				t.Fatalf("Take: %v", err)
+			}
+			return cfg, e
+		})()
+		if _, err := remote.Upload(ctx, entry); err != nil {
+			t.Fatalf("Upload: %v", err)
+		}
+	}
+	before := f.Gets()
+	held, err := remote.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(held) != 3 {
+		t.Fatalf("List found %d copies, wanted 3", len(held))
+	}
+	if after := f.Gets(); after != before {
+		t.Errorf("listing opened %d object(s); it should use the key listing alone", after-before)
+	}
+}
+
+// A destination passphrase goes over the already-encrypted payload, and the
+// manifest records only what the outer layer is, never how to open it.
+func TestADestinationPassphraseSealsAgainAndAManifestCarriesNoSecret(t *testing.T) {
+	f := fakeStore(t)
+	ctx := context.Background()
+	const passphrase = "a destination passphrase that must never be written"
+	remote := remoteFor(t, f, func(r *config.BackupRemote) {
+		r.Passphrase = passphrase
+		r.SecretAccessKey = "s3cr3t-access-value"
+	})
+	_, entry := takeOne(t, time.Date(2026, 3, 4, 2, 0, 0, 0, time.UTC))
+	copied, err := remote.Upload(ctx, entry)
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	body, ok := f.Body(copied.Key)
+	if !ok {
+		t.Fatal("nothing landed")
+	}
+	om, err := ReadObjectHeader(bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("ReadObjectHeader: %v", err)
+	}
+	if !om.PassphraseSealed || om.OuterSize == 0 || om.OuterSHA256 == "" {
+		t.Fatalf("the manifest does not describe the outer seal: %+v", om)
+	}
+	for _, secret := range []string{passphrase, "AKIAEXAMPLE", "s3cr3t-access-value"} {
+		if bytes.Contains(body, []byte(secret)) {
+			t.Errorf("the object contains %q", secret)
+		}
+	}
+
+	if _, err := remote.Fetch(ctx, t.TempDir(), entry.ID, FetchOptions{Passphrase: "the wrong passphrase"}); !errors.Is(err, ErrWrongPassphrase) {
+		t.Errorf("the wrong passphrase gave %v, want ErrWrongPassphrase", err)
+	}
+	root := t.TempDir()
+	fetched, err := remote.Fetch(ctx, root, entry.ID, FetchOptions{})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if v, err := Verify(ctx, root, fetched.ID); err != nil || !v.OK {
+		t.Errorf("the fetched copy does not verify: %+v, %v", v, err)
+	}
+}
+
+// The two-object layout an older controller wrote is still a backup: it lists,
+// comes back, verifies and deletes as one copy.
+func TestAnOldSealedAndManifestPairStillListsFetchesAndDeletes(t *testing.T) {
+	f := fakeStore(t)
+	ctx := context.Background()
+	_, entry := takeOne(t, time.Date(2026, 3, 5, 2, 0, 0, 0, time.UTC))
+	const passphrase = "an older destination passphrase"
+
+	var archive bytes.Buffer
+	enc, err := NewEncryptor(&archive, passphrase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteArchive(enc, entry); err != nil {
+		t.Fatal(err)
+	}
+	if err := enc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := marshalManifest(entry.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Put("fleet/"+entry.ID+".sealed", archive.Bytes())
+	f.Put("fleet/"+entry.ID+".json", manifest)
+
+	remote := remoteFor(t, f, func(r *config.BackupRemote) {
+		r.Passphrase = passphrase
+		r.SecretAccessKey = "s3cr3t-access-value"
+	})
+	held, err := remote.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(held) != 1 || held[0].ID != entry.ID || !strings.HasSuffix(held[0].Key, ".sealed") {
+		t.Fatalf("the old pair lists as %+v", held)
+	}
+	root := t.TempDir()
+	fetched, err := remote.Fetch(ctx, root, entry.ID, FetchOptions{})
+	if err != nil {
+		t.Fatalf("Fetch old pair: %v", err)
+	}
+	if v, err := Verify(ctx, root, fetched.ID); err != nil || !v.OK {
+		t.Errorf("an old copy does not verify: %+v, %v", v, err)
+	}
+	if err := remote.Delete(ctx, entry.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if f.Count() != 0 {
+		t.Errorf("deleting an old copy left %d objects behind", f.Count())
+	}
+}
+
+// A copy larger than the store's single-PUT limit goes in parts. A completion
+// whose answer was lost is reconciled against the object, and a completion
+// that failed leaves nothing advertised.
+func TestAMultipartCopyCompletesEvenWhenTheAnswerIsLostOrFails(t *testing.T) {
+	f := fakeStore(t)
+	ctx := context.Background()
+	remote := remoteFor(t, f, nil)
+	remote.s3.multipartThreshold = 1024
+
+	_, first := takeOne(t, time.Date(2026, 3, 6, 2, 0, 0, 0, time.UTC))
+	copied, err := remote.Upload(ctx, first)
+	if err != nil {
+		t.Fatalf("multipart Upload: %v", err)
+	}
+	if body, ok := f.Body(copied.Key); !ok || !bytes.HasPrefix(body, []byte(ObjectMagic)) {
+		t.Fatalf("the multipart object is not the one the header describes")
+	}
+
+	f.LoseCompletionAnswerOnce()
+	_, second := takeOne(t, time.Date(2026, 3, 6, 2, 1, 0, 0, time.UTC))
+	if _, err := remote.Upload(ctx, second); err != nil {
+		t.Fatalf("an upload whose completion answer was lost was not reconciled: %v", err)
+	}
+	if _, ok := f.Body("fleet/" + second.ID + ".gz.enc"); !ok {
+		t.Error("the reconciled upload is not in the bucket")
+	}
+
+	before := f.Count()
+	f.FailCompletionOnce()
+	_, third := takeOne(t, time.Date(2026, 3, 6, 2, 2, 0, 0, time.UTC))
+	if _, err := remote.Upload(ctx, third); err == nil {
+		t.Fatal("a failed completion was reported as a copy")
+	}
+	if f.Count() != before {
+		t.Errorf("a failed completion left %d new objects", f.Count()-before)
+	}
+	held, err := remote.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range held {
+		if c.ID == third.ID {
+			t.Error("a copy that failed to complete is advertised by the listing")
+		}
+	}
+}
+
+// A caller that did not hand the remote a key can still upload a backup whose
+// manifest names a readable key file: the copy is encrypted with that key and
+// the header says which one, so the same host can bring it back.
+func TestARemoteWithoutAKeySealsWithTheKeyTheBackupNames(t *testing.T) {
+	f := fakeStore(t)
+	ctx := context.Background()
+	cfg := config.BackupRemote{
+		Name: "offsite", Endpoint: f.Endpoint(), Bucket: f.Bucket(), Prefix: "fleet",
+		AccessKeyID: "AKIAEXAMPLE", SecretAccessKey: "secret",
+	}
+	remote, err := NewRemote(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewRemote: %v", err)
+	}
+	_, entry := takeOne(t, time.Date(2026, 3, 7, 2, 0, 0, 0, time.UTC))
+	if _, err := remote.Upload(ctx, entry); err != nil {
+		t.Fatalf("Upload with the key its manifest names: %v", err)
+	}
+	root := t.TempDir()
+	if _, err := remote.Fetch(ctx, root, entry.ID, FetchOptions{}); err != nil {
+		t.Fatalf("Fetch with the key its header names: %v", err)
+	}
+	if v, err := Verify(ctx, root, entry.ID); err != nil || !v.OK {
+		t.Errorf("the copy does not verify: %+v, %v", v, err)
+	}
 }

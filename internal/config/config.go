@@ -311,6 +311,10 @@ type BackupRemote struct {
 	// does, and is the default: object storage is cheap and the operator who
 	// wants an offsite copy usually wants the long tail of them.
 	Keep int `yaml:"keep"`
+	// Compress gzips the archive before it is encrypted. It is on unless it is
+	// explicitly turned off: a database compresses well, and compression after
+	// encryption would only make the ciphertext larger.
+	Compress *bool `yaml:"compress"`
 	// Disabled stops uploads to this remote without removing what it holds or
 	// making its configuration something an operator has to reconstruct.
 	Disabled bool `yaml:"disabled"`
@@ -323,6 +327,10 @@ func (r BackupRemote) Enabled() bool {
 
 // Encrypted reports whether the archive is sealed before it leaves the host.
 func (r BackupRemote) Encrypted() bool { return strings.TrimSpace(r.Passphrase) != "" }
+
+// Compressed reports whether the archive is gzipped before it is encrypted.
+// Unset means yes, because that is what every existing copy is.
+func (r BackupRemote) Compressed() bool { return r.Compress == nil || *r.Compress }
 
 // Where reports the bucket and prefix as one phrase, for a log line or a row
 // on the Backups tab.
