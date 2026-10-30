@@ -95,6 +95,7 @@ func commands() []*command {
 		{"gateway", groupRun, "Publish a private provider API, such as a Proxmox cluster at home, to a controller over Tailcat", runGateway},
 
 		{"status", groupFleet, "The Overview, in a terminal", runStatus},
+		{"tui", groupFleet, "A live dashboard for the fleet, in this terminal", runTUI},
 		{"events", groupFleet, "What happened lately, and a wait for the next change", runEvents},
 		{"pools", groupFleet, "What runners to make, and how many", runPools},
 		{"runners", groupFleet, "The runners that exist right now", runRunners},

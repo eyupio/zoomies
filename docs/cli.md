@@ -98,6 +98,38 @@ The Overview in a terminal: counts, pools, recent scaling and anything wrong.
 `--window` (`1h`) sets the period the rates cover, `--scaling` (`5`) how many
 recent decisions to print.
 
+### `zoomies tui`
+
+A live dashboard for a terminal: the Overview plus tabs for problems, pools,
+runners, hosts and jobs. It needs a terminal on input and output; when the
+output is piped, use `zoomies status` instead.
+
+```sh
+zoomies tui
+zoomies tui --window 24h
+```
+
+It reads the same routes as `status`, the web UI and the MCP server, and keeps
+itself current from `GET /events`. When a proxy will not carry the stream it
+falls back to the held `events recent` poll, and a full refresh every fifteen
+seconds repairs anything a lost frame carried. The header says which of the
+two is in use.
+
+`1` to `6`, tab and shift+tab switch tabs; `j`/`k` or the arrows move; `enter`
+acts on the selected row. Every change is confirmed first:
+
+| where | key | what it does |
+| --- | --- | --- |
+| Problems | `enter` | applies the change the controller proposes for the selected problem, the same request as `problems apply` |
+| Problems | `d` | dismisses every problem of that code for the signed-in account. A controller refuses this for an API token: dismissals are kept per account, and a token has none |
+| Runners | `enter` | drains the selected runner, accepting the same five-minute finish as `runners drain --yes` |
+| Jobs | `enter` | re-runs every failed job in the run, because GitHub has no job-level rerun |
+| Jobs | `a` | marks the failure as known, as `jobs acknowledge` does |
+
+`r` refreshes now, `?` shows the keys and `q` quits. `--window` sets the period
+the completed and failed counts cover. `--url`, `--token`, `--ca-file`,
+`--insecure` and `--timeout` work as they do for every fleet command.
+
 ### `zoomies events`
 
 What the controller published lately, and a wait for the next change. It is one

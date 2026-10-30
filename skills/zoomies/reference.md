@@ -95,6 +95,33 @@ Examples:
   zoomies status --output json
 ```
 
+### zoomies tui
+
+A live dashboard for the fleet, in this terminal
+
+```text
+A live dashboard for a controller: counts, pools, runners, hosts, jobs and problems.
+
+It keeps itself current from the controller's event stream and falls back to the held
+long poll when a proxy will not carry a stream. Operator actions ask for confirmation
+before they change anything.
+
+Usage:
+  zoomies tui [--window 1h]
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+  --window=1h                the window the completed/failed counts and queue waits cover
+
+Examples:
+  zoomies tui
+  zoomies tui --window 24h
+```
+
 ### zoomies events
 
 What happened lately, and a wait for the next change
