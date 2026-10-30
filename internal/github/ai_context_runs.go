@@ -193,12 +193,26 @@ func errorLines(log string) []string {
 		if !strings.HasPrefix(line, "##[error]") {
 			continue
 		}
+		message := strings.TrimPrefix(line, "##[error]")
+		if exitCodeAnnotation(message) {
+			// Actions annotates the exit code itself, so the only ##[error] a
+			// great many failed jobs have says nothing about the cause. The
+			// line just above it can be the runtime's version banner, and the
+			// reason (an uncaught exception, a test runner's report, a shell's
+			// complaint) is ordinary output a little further up. Keeping only
+			// the banner left a repair with an exit code and no test, selector
+			// or line to locate, so it guessed at files and spent its source
+			// allowance without reaching the failure.
+			out = append(out, errorBlock(lines[:i])...)
+			out = append(out, clip(message))
+			continue
+		}
 		if i > 0 {
 			if prev := strings.TrimRight(stripLogTimestamp(lines[i-1]), "\r"); prev != "" && !strings.HasPrefix(prev, "##[") {
 				out = append(out, clip(prev))
 			}
 		}
-		out = append(out, clip(strings.TrimPrefix(line, "##[error]")))
+		out = append(out, clip(message))
 	}
 	if len(out) == 0 {
 		for i, line := range lines {
@@ -219,11 +233,112 @@ func errorLines(log string) []string {
 	return out
 }
 
+// exitCodeAnnotation is whether an annotation is Actions' own note that a
+// process stopped, rather than a reason the process gave itself.
+func exitCodeAnnotation(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "process completed with exit code") ||
+		strings.Contains(lower, "failed with exit code") ||
+		strings.Contains(lower, "exited with code")
+}
+
+// errorBlock keeps the output immediately above an exit-code annotation, minus
+// blank lines and group markers: the last of it is the exception that ended the
+// process. A failure reporter often prints the test's name at the top of a
+// block and a summary at the bottom, so a recent failure marker and the lines
+// under it are kept too, in place of the oldest tail lines. It leaves one
+// line's room for the annotation itself.
+func errorBlock(lines []string) []string {
+	valid := []string{}
+	for _, line := range lines {
+		line = strings.TrimRight(stripLogTimestamp(line), "\r")
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "##[") {
+			continue
+		}
+		valid = append(valid, clip(line))
+	}
+	if len(valid) == 0 {
+		return nil
+	}
+	tailStart := max(0, len(valid)-(maxContextErrorLines-1))
+	header := -1
+	for level := strongMarker; level >= weakMarker && header < 0; level-- {
+		for i := tailStart - 1; i >= 0; i-- {
+			if failureMarker(valid[i]) == level {
+				header = i
+				break
+			}
+		}
+	}
+	keep := map[int]bool{}
+	if header >= 0 {
+		for i := header; i < len(valid) && i <= header+3; i++ {
+			keep[i] = true
+		}
+	}
+	// A header earlier in the log must not push out the exception that ended
+	// it: the most recent lines fill what the header and its context leave.
+	for i := len(valid) - 1; i >= tailStart && len(keep) < maxContextErrorLines-1; i-- {
+		keep[i] = true
+	}
+	indices := make([]int, 0, len(keep))
+	for i := range keep {
+		indices = append(indices, i)
+	}
+	sort.Ints(indices)
+	out := make([]string, 0, len(indices))
+	for _, i := range indices {
+		out = append(out, valid[i])
+	}
+	return out
+}
+
+const (
+	noMarker = iota
+	weakMarker
+	strongMarker
+)
+
+// failureMarker is a line a test runner or runtime uses to begin a failure. A
+// strong marker names the test or the crash (the test's own name, a panic, a
+// TAP not-ok); a weak one is a reason inside the block. When both are above the
+// tail, the strong one is the one that says which test failed. The exit-code
+// annotation does not count, because it names no cause.
+func failureMarker(line string) int {
+	trimmed := strings.TrimSpace(line)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.HasPrefix(trimmed, "✖"),
+		strings.HasPrefix(trimmed, "✘"),
+		strings.HasPrefix(trimmed, "✕"),
+		strings.HasPrefix(trimmed, "✗"),
+		strings.HasPrefix(trimmed, "●"),
+		strings.HasPrefix(trimmed, "not ok "),
+		strings.HasPrefix(trimmed, "FAIL "),
+		strings.Contains(lower, "--- fail:"),
+		strings.Contains(lower, "panic:"),
+		strings.Contains(lower, "traceback (most recent call last)"):
+		return strongMarker
+	case strings.Contains(lower, "assertionerror"),
+		strings.Contains(lower, "error:"),
+		strings.Contains(lower, "failed:"),
+		strings.Contains(lower, "timeouterror"):
+		return weakMarker
+	}
+	return noMarker
+}
+
 // stripLogTimestamp removes the "2026-10-06T06:47:48.2010869Z " Actions puts in
 // front of every line.
 func stripLogTimestamp(line string) string {
+	line = strings.TrimSuffix(line, "\r")
 	if head, rest, ok := strings.Cut(line, " "); ok && strings.HasSuffix(head, "Z") && strings.Contains(head, "T") {
 		return rest
+	}
+	// A blank line in a log is still timestamped, so it has no space to cut at.
+	if len(line) >= 20 && line[4] == '-' && line[10] == 'T' && strings.HasSuffix(line, "Z") {
+		return ""
 	}
 	return line
 }

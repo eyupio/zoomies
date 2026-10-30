@@ -196,9 +196,16 @@ func TestTargetedEditsRejectUnseenAmbiguousAndOverlappingPreimages(t *testing.T)
 	}
 }
 func TestCompleteReplacementCannotOverwriteAnUnreadTail(t *testing.T) {
-	_, err := Generate(context.Background(), &replies{values: []string{`{"summary":"fix","files":[{"path":"a","content":"short"}]}`}}, files{}, Snapshot{Files: []File{{Path: "a", Content: strings.Repeat("x", MaxFileBytes+1)}}}, "", false)
-	if err == nil || !strings.Contains(err.Error(), "partial") {
+	m := &scriptedReplies{replies: []string{
+		`{"summary":"fix","files":[{"path":"a","content":"short"}]}`,
+		`{"cannot_fix":"that file is only partly supplied"}`,
+	}}
+	_, err := Generate(context.Background(), m, files{}, Snapshot{Files: []File{{Path: "a", Content: strings.Repeat("x", MaxFileBytes+1)}}}, "", false)
+	if !errors.Is(err, ErrCannotFix) {
 		t.Fatalf("got %v", err)
+	}
+	if last := m.seen[1][len(m.seen[1])-1].Content; !strings.Contains(last, "partial") {
+		t.Fatalf("the model was not told why the replacement was refused: %s", last)
 	}
 }
 
@@ -322,9 +329,16 @@ func TestATargetedEditOutsideBothTheWindowsAndTheDiffIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = Generate(context.Background(), &replies{values: []string{string(raw)}}, files{}, snapshot, "fix the failure", false)
-	if err == nil || !strings.Contains(err.Error(), "text that was not supplied") {
+	m := &scriptedReplies{replies: []string{
+		string(raw),
+		`{"cannot_fix":"that text was never shown"}`,
+	}}
+	_, err = Generate(context.Background(), m, files{}, snapshot, "fix the failure", false)
+	if !errors.Is(err, ErrCannotFix) {
 		t.Fatalf("got %v", err)
+	}
+	if last := m.seen[1][len(m.seen[1])-1].Content; !strings.Contains(last, "text that was not supplied") {
+		t.Fatalf("the model was not told why the edit was refused: %s", last)
 	}
 }
 
@@ -648,5 +662,75 @@ func TestARepairThatRunsOutOfRoundsOnAWideWindowNamesIt(t *testing.T) {
 	_, err := Generate(context.Background(), model, reader, Snapshot{}, "fix the failing check", false)
 	if err == nil || !strings.Contains(err.Error(), "model-step limit") || !strings.Contains(err.Error(), "lock.json") || !strings.Contains(err.Error(), "too wide") || strings.Contains(err.Error(), "source allowance") {
 		t.Fatalf("unhelpful outcome: %v", err)
+	}
+}
+
+// A failing test is often not one of the PR's changed files, so the first the
+// model saw of it was its own guess. The line the log names is supplied before
+// the model asks, and the absolute path a runner writes is matched to the
+// repository path in the inventory.
+func TestTheFileNamedByTheFailureIsSuppliedAroundItsLine(t *testing.T) {
+	var content strings.Builder
+	for i := 1; i <= 1000; i++ {
+		switch i {
+		case 1:
+			content.WriteString("first-line\n")
+		case 859:
+			content.WriteString("private-skills-859\n")
+		default:
+			fmt.Fprintf(&content, "line-%04d\n", i)
+		}
+	}
+	const path = "web/tests/skill-content.e2e.mjs"
+	reader := files{path: {Path: path, Content: content.String(), Mode: "100644"}}
+	model := &replies{values: []string{`{"cannot_fix":"enough"}`}}
+	_, err := Generate(context.Background(), model, reader, Snapshot{
+		Inventory: []string{path},
+		Failures:  []string{"terminal-browser: locator.click: Timeout 30000ms exceeded.\n    at /home/runner/_work/reet.sh/reet.sh/" + path + ":859:14 {"},
+	}, "fix the failing check", false)
+	if !errors.Is(err, ErrCannotFix) {
+		t.Fatal(err)
+	}
+	first := model.seen[0].Content
+	if !strings.Contains(first, "private-skills-859") || strings.Contains(first, "first-line") {
+		t.Fatalf("the failing window was not supplied: %s", first)
+	}
+	if !strings.Contains(first, `"start_line":819`) || !strings.Contains(first, `"partial":true`) {
+		t.Fatalf("the window did not start around the named line: %s", first)
+	}
+}
+
+// A path without a line cannot be targeted, and reading the whole of a large
+// test file would spend the allowance the model needs for the fix. The file is
+// left for the model to ask about.
+func TestAFileNamedWithoutALineIsNotReadFromEvidence(t *testing.T) {
+	const path = "web/tests/skill-content.e2e.mjs"
+	model := &replies{values: []string{`{"cannot_fix":"enough"}`}}
+	_, err := Generate(context.Background(), model, files{path: {Path: path, Content: "first-line\nprivate-skills\n", Mode: "100644"}}, Snapshot{
+		Inventory: []string{path},
+		Failures:  []string{"at " + path + " {"},
+	}, "", false)
+	if !errors.Is(err, ErrCannotFix) {
+		t.Fatal(err)
+	}
+	if first := model.seen[0].Content; strings.Contains(first, "private-skills") {
+		t.Fatalf("a path without a line was read from evidence: %s", first)
+	}
+}
+
+// The source allowance and the provider input allowance are separate bounds.
+// When the snapshot already takes much of the input, a read that fits the
+// nominal source allowance is refused to the model instead, because granting
+// it would make the next call too large to send.
+func TestAReadIsRefusedWhenTheSnapshotLeavesLessInputRoomThanSource(t *testing.T) {
+	s := newSourceContext(files{"a": {Content: source(2048)}}, false)
+	s.limit = 1024
+	_, err := s.reveal(context.Background(), ReadWindow{Path: "a"})
+	var over *allowanceError
+	if !errors.As(err, &over) || over.left != 1024 || over.limit != 1024 || !strings.Contains(err.Error(), "1 KiB allowance") {
+		t.Fatalf("got %v", err)
+	}
+	if s.bytes != 0 {
+		t.Fatalf("the refused read spent %d bytes", s.bytes)
 	}
 }

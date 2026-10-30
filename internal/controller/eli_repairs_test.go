@@ -158,6 +158,39 @@ func (f *repairFake) RepairReact(_ context.Context, _ string, id int64, content 
 func (f *repairFake) RepairChecks(context.Context, string, string) (string, error) {
 	return f.check, f.checkErr
 }
+func TestAPinnedJobWithNoLogFallsBackToTheRunsOtherFailedJobs(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		pinned    []string
+		pinnedErr error
+		other     []string
+		otherErr  error
+		want      []string
+		wantErr   bool
+		asked     string
+	}{
+		{"no log on the pinned job", nil, nil, []string{"main.go: test failed"}, nil, []string{"main.go: test failed"}, false, "[42 0]"},
+		{"the pinned job has evidence", []string{"setup: failed"}, nil, []string{"test: unrelated"}, nil, []string{"setup: failed"}, false, "[42]"},
+		{"the fallback cannot be read", nil, nil, nil, errors.New("actions denied"), nil, false, "[42 0]"},
+		{"the pinned job cannot be read", nil, errors.New("actions denied"), nil, nil, nil, true, "[42]"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			asked := []int64{}
+			fake := &repairFake{onFailures: func(jobID int64) ([]string, error) {
+				asked = append(asked, jobID)
+				if jobID == 42 {
+					return tt.pinned, tt.pinnedErr
+				}
+				return tt.other, tt.otherErr
+			}}
+			got, err := readRepairFailures(context.Background(), fake, "acme/repo", github.RepairPull{HeadSHA: "head"}, 42)
+			if tt.wantErr != (err != nil) || fmt.Sprint(got) != fmt.Sprint(tt.want) || fmt.Sprint(asked) != tt.asked {
+				t.Fatalf("got %q, %v, asked %v; want %q, %v, asked %s", got, err, asked, tt.want, tt.wantErr, tt.asked)
+			}
+		})
+	}
+}
+
 func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testing.T) {
 	for _, trigger := range []string{"mention", "automatic", "revoked", "expired-lease", "cancelled", "queued-old"} {
 		t.Run(trigger, func(t *testing.T) {
@@ -709,6 +742,8 @@ func TestARepairNamesAProviderThatCannotPayWhateverTheProviderCalledIt(t *testin
 		{"rate limited", http.StatusTooManyRequests, "the provider answered 429: rate limit reached", "rate_limited"},
 		{"key refused", http.StatusUnauthorized, "the provider answered 401: the provider refused the key", "provider_credentials"},
 		{"context", http.StatusBadRequest, "the provider answered 400: maximum context length is 8192 tokens", "context_limit"},
+		{"prompt too long", http.StatusBadRequest, "the provider answered 400: prompt is too long: 210000 tokens > 200000 maximum", "context_limit"},
+		{"input too long", http.StatusBadRequest, "the provider answered 400: input is too long for the model", "context_limit"},
 		{"unknown", http.StatusInternalServerError, "the provider answered 500: upstream exploded", "provider_unavailable"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

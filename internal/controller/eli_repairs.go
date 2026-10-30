@@ -853,7 +853,7 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 		}
 	}
 	c.repairNotice(ctx, client, r, "Investigating this PR using "+provider.Name+". The repair is limited to one commit and will leave normal review in place.")
-	failures, err := client.RepairFailures(ctx, r.Repo, pull, r.JobID)
+	failures, err := readRepairFailures(ctx, client, r.Repo, pull, r.JobID)
 	if err != nil {
 		fail("Failed-job evidence could not be read. Check the App's Actions read permission.")
 		return
@@ -953,6 +953,25 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 	}
 	c.repairNotice(ctx, client, r, "Pushed commit `"+sha+"`. "+plan.Summary+"\n\nWaiting for checks on this commit. No local tests were run by Eli.")
 }
+
+// readRepairFailures reads the failed job's evidence. A job that never started,
+// or whose log has expired, has no line to show the model; the reason can still
+// be in a sibling job of the same run that did run, so an empty answer for the
+// pinned job asks GitHub for the failure again without it. A sibling's error is
+// not used when the pinned job did leave evidence, because that job is the
+// failure this repair was started for.
+func readRepairFailures(ctx context.Context, client github.RepairClient, repo string, pull github.RepairPull, jobID int64) ([]string, error) {
+	failures, err := client.RepairFailures(ctx, repo, pull, jobID)
+	if err != nil || len(failures) > 0 || jobID == 0 {
+		return failures, err
+	}
+	more, err := client.RepairFailures(ctx, repo, pull, 0)
+	if err != nil {
+		return failures, nil
+	}
+	return more, nil
+}
+
 func (c *Controller) checkEliRepairs(ctx context.Context) {
 	rows, err := c.st.CheckingEliRepairs(ctx)
 	if err != nil {
@@ -1169,7 +1188,7 @@ func repairProviderError(err error) error {
 	}
 	message := strings.ToLower(err.Error())
 	switch {
-	case strings.Contains(message, "context length") || strings.Contains(message, "context window"):
+	case strings.Contains(message, "context length") || strings.Contains(message, "context window") || strings.Contains(message, "context limit") || strings.Contains(message, "maximum context") || strings.Contains(message, "prompt is too long") || strings.Contains(message, "input is too long") || strings.Contains(message, "too many tokens"):
 		return fail("the provider context limit was reached; narrow the investigation or choose a model with more input room", "context_limit")
 	case status == http.StatusPaymentRequired || providerOutOfCredit(message):
 		// A provider with no credit left is not a provider that could not be

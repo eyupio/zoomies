@@ -227,10 +227,14 @@ func TestCorrectionDoesNotPermitAnUnreadOrProtectedEdit(t *testing.T) {
 			m := &scriptedReplies{replies: []string{
 				`{"read":["main.go"],"files":[{"path":"main.go","content":"wrong"}]}`,
 				fmt.Sprintf(`{"summary":"Fix it","files":[{"path":%q,"content":"fixed"}]}`, path),
+				`{"cannot_fix":"that path is not available"}`,
 			}}
 			_, err := Generate(t.Context(), m, &countingReader{}, Snapshot{}, "fix it", false)
-			if err == nil || !strings.Contains(err.Error(), "not supplied or is protected") || len(m.seen) != 2 {
+			if !errors.Is(err, ErrCannotFix) || len(m.seen) != 3 {
 				t.Fatalf("calls %d: %v", len(m.seen), err)
+			}
+			if last := m.seen[2][len(m.seen[2])-1].Content; !strings.Contains(last, "not supplied or is protected") {
+				t.Fatalf("the model was not told why the path was refused: %s", last)
 			}
 		})
 	}
@@ -244,5 +248,42 @@ func TestARepairStillEndsWhenTheModelSaysItCannotFix(t *testing.T) {
 	}
 	if len(m.seen) != 1 {
 		t.Fatalf("model was asked %d times, want 1", len(m.seen))
+	}
+}
+
+// A preimage that occurs twice is a mistake in the plan, not a repair that
+// cannot be made. The model is told, and a corrected edit in the same attempt
+// is applied. Before this, the first non-unique preimage ended the repair.
+func TestAFixableMistakeInAFixIsCorrectedRatherThanEndingTheRepair(t *testing.T) {
+	m := &scriptedReplies{replies: []string{
+		`{"summary":"Fix it","edits":[{"path":"a","before":"same","after":"new"}]}`,
+		`{"summary":"Fix it","edits":[{"path":"a","before":"unique text","after":"new"}]}`,
+	}}
+	plan, err := Generate(t.Context(), m, files{"a": {Path: "a", Content: "same same unique text\n", Mode: "100644"}}, Snapshot{
+		Files: []File{{Path: "a", Content: "same same unique text\n", Mode: "100644"}},
+	}, "fix it", false)
+	if err != nil || len(plan.Files) != 1 || plan.Files[0].Content != "same same new\n" {
+		t.Fatalf("plan %+v: %v", plan, err)
+	}
+	if len(m.seen) != 2 {
+		t.Fatalf("model was asked %d times, want 2", len(m.seen))
+	}
+	if last := m.seen[1][len(m.seen[1])-1].Content; !strings.Contains(last, "exact, unique preimage") {
+		t.Fatalf("the correction does not say what was wrong: %s", last)
+	}
+}
+
+// A final turn has no correction turn after it. Returning the step limit for an
+// invalid final fix hides the mistake the operator can act on, so the plan's own
+// error is the one that ends the repair.
+func TestAFixRefusedOnTheFinalTurnSaysWhyNotJustTheStepLimit(t *testing.T) {
+	m := &scriptedReplies{}
+	for range MaxSteps - 1 {
+		m.replies = append(m.replies, `{"read":["a"]}`)
+	}
+	m.replies = append(m.replies, `{"summary":"","files":[{"path":"a","content":"new"}]}`)
+	_, err := Generate(t.Context(), m, files{"a": {Path: "a", Content: "old", Mode: "100644"}}, Snapshot{Files: []File{{Path: "a", Content: "old", Mode: "100644"}}}, "fix it", false)
+	if err == nil || !strings.Contains(err.Error(), "bounded fix") || strings.Contains(err.Error(), "step limit") {
+		t.Fatalf("got %v", err)
 	}
 }

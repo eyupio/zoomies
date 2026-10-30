@@ -391,6 +391,13 @@ func (c *appClient) RepairFailures(ctx context.Context, repo string, p RepairPul
 			if err != nil {
 				return nil, err
 			}
+			if len(lines) == 0 {
+				// A job that never started, or whose log expired, has nothing
+				// to say. Naming it with an empty log made the evidence look
+				// present, so a repair went ahead with "job: " and no reason
+				// instead of trying the next failing job.
+				continue
+			}
 			out = append(out, prrepair.Redact(j.Name+": "+strings.Join(lines, "\n")))
 			if len(out) >= 5 {
 				return out, nil

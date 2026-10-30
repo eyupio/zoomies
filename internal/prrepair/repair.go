@@ -167,6 +167,16 @@ const replyRetryLimit = 8 << 10
 func replyRetry(err error) string {
 	return "Your last reply was not one repair plan: " + err.Error() + ". Reply again with exactly one JSON object and no other text: {\"read\":[\"path\"]} or {\"windows\":[{\"path\":\"path\",\"start_line\":1,\"end_line\":40}]} to see source, {\"summary\":\"what changed and why\",\"edits\":[...]} or {\"summary\":\"...\",\"files\":[...]} to fix it, or {\"cannot_fix\":\"reason\"}. " + replyActions + " Do not call tools."
 }
+
+// fixRetry is what a model is told when its last reply was a valid plan whose
+// fix could not be used. The plan was the right shape and the mistake is in it:
+// a preimage that is not unique, a file it has not read, a summary it forgot.
+// Ending the repair there lost a model that could correct the one sentence it
+// got wrong, so the reply is repeated beside the reason, within the same bound
+// as a malformed reply.
+func fixRetry(err error) string {
+	return "Your last reply was a repair plan that could not be used: " + err.Error() + ". Reply again with exactly one JSON object and no other text: a corrected fix using only source you were shown, {\"read\":[\"path\"]} or {\"windows\":[...]} to see more source, or {\"cannot_fix\":\"reason\"}. " + replyActions + " Do not call tools."
+}
 func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instruction string, workflows bool) (Plan, error) {
 	contextFiles := newSourceContext(reader, workflows)
 	contextFiles.inDiff = diffSource(s.Diff)
@@ -186,13 +196,9 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 		contextFiles.originals[f.Path] = f
 		window := ReadWindow{Path: f.Path}
 		if len(f.Content) > MaxFileBytes {
-			location := regexp.MustCompile(regexp.QuoteMeta(f.Path) + `[:(]([0-9]+)`).FindStringSubmatch(evidence)
-			if len(location) == 2 {
-				line, _ := strconv.Atoi(location[1])
-				if line > 0 && line <= 1+strings.Count(f.Content, "\n") {
-					window.StartLine = max(1, line-40)
-					window.EndLine = line + 40
-				}
+			if line := evidenceLine(evidence, f.Path); line > 0 && line <= 1+strings.Count(f.Content, "\n") {
+				window.StartLine = max(1, line-40)
+				window.EndLine = line + 40
 			}
 		}
 		parts, err := contextFiles.reveal(ctx, window)
@@ -201,6 +207,11 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 		}
 		files = append(files, parts...)
 	}
+	// The failing file is often a test the PR did not change, so it was never
+	// part of the initial source. A small window around the line the log names
+	// is supplied before the model asks, or a model that guessed at the wrong
+	// files spent the allowance it needed to reach this one.
+	files = append(files, revealEvidence(ctx, contextFiles, evidence, s.Inventory)...)
 	s.Files = files
 	inventoryBytes := 0
 	for i, name := range s.Inventory {
@@ -218,7 +229,52 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 		policy = "Workflow file reads and edits are enabled by the repository repair policy."
 	}
 	messages[0].Content += "\nRepair path policy: " + policy + " Credential paths (.env*, .ssh, .aws, secrets, *.pem, *.key, paths containing credentials or secrets.) and .git paths are always protected. Use clean repository-relative paths, never absolute paths or parent traversal. A refused read supplies no source; continue from allowed source or return cannot_fix."
+	// The source allowance and the input allowance are separate bounds, and the
+	// snapshot has already spent some of the second. Reserve room for the model's
+	// replies and the budget sentence, so a read the source allowance would grant
+	// cannot make the next call too large: an overflow ended the repair, while
+	// saying what remains lets the model ask for a narrower window.
+	const contextReserve = 28 << 10
+	room := MaxContextBytes - len(SystemPrompt) - len(messages[0].Content) - contextReserve
+	if room < 0 {
+		room = 0
+	}
+	if limit := contextFiles.bytes + room; limit < contextFiles.limit {
+		contextFiles.limit = limit
+	}
 	retries := 0
+	// retry repeats the model's reply beside a correction, shortened, because
+	// the correction is about what the model wrote and a reply near the maximum
+	// would otherwise leave no room for the source. Beside a transcript that is
+	// already at the allowance, the correction goes alone: the model still knows
+	// its last answer was refused, and the repair does not end for lack of room
+	// to say so.
+	retry := func(reply string, cause error, correction func(error) string) bool {
+		if retries >= maxReplyRetries {
+			return false
+		}
+		retries++
+		shown := reply
+		if len(shown) > replyRetryLimit {
+			shown = strings.ToValidUTF8(shown[:replyRetryLimit], "")
+		}
+		text := correction(cause)
+		used := len(SystemPrompt) + len(text)
+		for _, m := range messages {
+			used += len(m.Content)
+		}
+		if used+len(shown) > MaxContextBytes {
+			messages = append(messages, Message{Role: "user", Content: text})
+		} else {
+			messages = append(messages, Message{Role: "assistant", Content: shown}, Message{Role: "user", Content: text})
+		}
+		return true
+	}
+	rejected := func(err error) {
+		if observer, ok := model.(interface{ ReplyRejected(error) }); ok {
+			observer.ReplyRejected(err)
+		}
+	}
 	for step := 0; step < MaxSteps; step++ {
 		// Tell the model before the call: source returned after the last reply
 		// cannot be used by another turn. Without a countdown it kept reading
@@ -245,32 +301,9 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 			err = checkReplyActions(p)
 		}
 		if err != nil {
-			if observer, ok := model.(interface{ ReplyRejected(error) }); ok {
-				observer.ReplyRejected(err)
-			}
-			if retries >= maxReplyRetries {
+			rejected(err)
+			if step == MaxSteps-1 || !retry(reply, err, replyRetry) {
 				return Plan{}, err
-			}
-			retries++
-			// The reply is repeated back, shortened, because the correction is
-			// about a shape the model can see in what it wrote, and a reply
-			// near the maximum would otherwise leave no room for the source.
-			// Beside a transcript that is already at the allowance, the
-			// correction goes alone: the model still knows its last answer was
-			// refused, and the repair does not end for lack of room to say so.
-			shown := reply
-			if len(shown) > replyRetryLimit {
-				shown = strings.ToValidUTF8(shown[:replyRetryLimit], "")
-			}
-			correction := replyRetry(err)
-			used := len(SystemPrompt) + len(correction)
-			for _, m := range messages {
-				used += len(m.Content)
-			}
-			if used+len(shown) > MaxContextBytes {
-				messages = append(messages, Message{Role: "user", Content: correction})
-			} else {
-				messages = append(messages, Message{Role: "assistant", Content: shown}, Message{Role: "user", Content: correction})
 			}
 			continue
 		}
@@ -280,7 +313,7 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 		}
 		if len(p.Read)+len(p.Windows) > 0 {
 			if step == MaxSteps-1 {
-				return Plan{}, stepLimitError(contextFiles.refused, contextFiles.denied, contextFiles.invalid)
+				return Plan{}, stepLimitError(contextFiles.refused, contextFiles.denied, contextFiles.invalid, contextFiles.limit)
 			}
 			windows := append([]ReadWindow{}, p.Windows...)
 			for _, name := range p.Read {
@@ -336,41 +369,17 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 			messages = append(messages, Message{Role: "assistant", Content: reply}, Message{Role: "user", Content: note})
 			continue
 		}
-		if len(p.Edits) > 0 {
-			p.Files, err = contextFiles.apply(p.Edits)
-			if err != nil {
+		if err := validateFix(contextFiles, &p, workflows); err != nil {
+			// A valid plan can still name a preimage the file does not contain,
+			// or a path the model has not read. The mistake is in the plan, so
+			// the correction is a sentence and another turn, not the end. On the
+			// final turn there is no turn to correct in, so the plan's own error
+			// is what the operator sees.
+			rejected(err)
+			if step == MaxSteps-1 || !retry(reply, err, fixRetry) {
 				return Plan{}, err
 			}
-		}
-		if len(p.Files) == 0 || len(p.Files) > MaxEdits || strings.TrimSpace(p.Summary) == "" {
-			return Plan{}, fmt.Errorf("the model did not propose a bounded fix")
-		}
-		seen := map[string]bool{}
-		changed := 0
-		total := 0
-		for i, f := range p.Files {
-			original, ok := contextFiles.originals[f.Path]
-			if !ok || seen[f.Path] || !AllowedPath(f.Path, workflows) {
-				return Plan{}, fmt.Errorf("a proposed path was not supplied or is protected")
-			}
-			if len(p.Edits) == 0 && !contextFiles.complete(f.Path) {
-				return Plan{}, fmt.Errorf("a partially supplied file requires targeted edits")
-			}
-			seen[f.Path] = true
-			if len(f.Content) > MaxBlobBytes || !utf8.ValidString(f.Content) || strings.ContainsRune(f.Content, 0) || credential.MatchString(f.Content) {
-				return Plan{}, fmt.Errorf("a proposed file is too large, is not text or contains a credential")
-			}
-			if strings.Contains(original.Content, "[redacted credential]") || credential.MatchString(original.Content) {
-				return Plan{}, fmt.Errorf("a file containing credentials cannot be rewritten by Eli")
-			}
-			if original.Content != f.Content {
-				changed++
-			}
-			total += len(f.Content)
-			p.Files[i].Mode = original.Mode
-		}
-		if changed == 0 || len(p.Edits) == 0 && total > 64<<10 {
-			return Plan{}, fmt.Errorf("the model proposed no change or exceeded the patch limit")
+			continue
 		}
 		p.Summary = Redact(p.Summary)
 		if len(p.Summary) > 1000 {
@@ -378,7 +387,207 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 		}
 		return p, nil
 	}
-	return Plan{}, stepLimitError(contextFiles.refused, contextFiles.denied, contextFiles.invalid)
+	return Plan{}, stepLimitError(contextFiles.refused, contextFiles.denied, contextFiles.invalid, contextFiles.limit)
+}
+
+// validateFix applies and checks a proposed fix. Its errors are written for the
+// model as well as the operator, because a model that can correct the plan gets
+// the reason beside its reply and another turn.
+func validateFix(s *sourceContext, p *Plan, workflows bool) error {
+	if len(p.Edits) > 0 {
+		files, err := s.apply(p.Edits)
+		if err != nil {
+			return err
+		}
+		p.Files = files
+	}
+	if len(p.Files) == 0 || len(p.Files) > MaxEdits || strings.TrimSpace(p.Summary) == "" {
+		return fmt.Errorf("the model did not propose a bounded fix")
+	}
+	seen := map[string]bool{}
+	changed := 0
+	total := 0
+	for i, f := range p.Files {
+		original, ok := s.originals[f.Path]
+		if !ok || seen[f.Path] || !AllowedPath(f.Path, workflows) {
+			return fmt.Errorf("a proposed path was not supplied or is protected")
+		}
+		if len(p.Edits) == 0 && !s.complete(f.Path) {
+			return fmt.Errorf("a partially supplied file requires targeted edits")
+		}
+		seen[f.Path] = true
+		if len(f.Content) > MaxBlobBytes || !utf8.ValidString(f.Content) || strings.ContainsRune(f.Content, 0) || credential.MatchString(f.Content) {
+			return fmt.Errorf("a proposed file is too large, is not text or contains a credential")
+		}
+		if strings.Contains(original.Content, "[redacted credential]") || credential.MatchString(original.Content) {
+			return fmt.Errorf("a file containing credentials cannot be rewritten by Eli")
+		}
+		if original.Content != f.Content {
+			changed++
+		}
+		total += len(f.Content)
+		p.Files[i].Mode = original.Mode
+	}
+	if changed == 0 || len(p.Edits) == 0 && total > 64<<10 {
+		return fmt.Errorf("the model proposed no change or exceeded the patch limit")
+	}
+	return nil
+}
+
+// evidenceLine is the line a failure log names for one path, or zero when it
+// names none. It is used for a changed file large enough that only a window is
+// sent, so the window starts where the failure is.
+func evidenceLine(evidence, path string) int {
+	location := regexp.MustCompile(regexp.QuoteMeta(path) + `[:(]([0-9]+)`).FindStringSubmatch(evidence)
+	if len(location) != 2 {
+		return 0
+	}
+	line, _ := strconv.Atoi(location[1])
+	return line
+}
+
+// Evidence source is bounded separately from what the model asks for: it is a
+// hint supplied before the investigation, not a read the model chose, and it
+// must leave room for the files the model then decides it needs.
+const (
+	maxEvidenceSourceBytes = 8 << 10
+	maxEvidencePaths       = 2
+)
+
+// revealEvidence supplies a small window around the line a failure log names,
+// for up to two files in the repository inventory. A failing test is often not
+// among the PR's changed files, so without this the model had to guess which
+// file failed and could spend the allowance on the wrong ones. Matching only
+// inventory paths also turns the absolute path a runner writes into the
+// repository-relative one the repair reads.
+func revealEvidence(ctx context.Context, s *sourceContext, evidence string, inventory []string) []File {
+	loaded := make(map[string]bool, len(s.originals))
+	for path := range s.originals {
+		loaded[path] = true
+	}
+	out := []File{}
+	spent := 0
+	seen := map[string]bool{}
+	for _, w := range evidenceWindows(evidence, inventory, loaded) {
+		if spent >= maxEvidenceSourceBytes {
+			break
+		}
+		if seen[w.Path] || !AllowedPath(w.Path, s.workflows) {
+			continue
+		}
+		seen[w.Path] = true
+		f, err := s.original(ctx, w.Path)
+		if err != nil {
+			continue
+		}
+		span, err := contentSpan(w.Path, f.Content, w)
+		if err != nil {
+			continue
+		}
+		if span.end-span.start > maxEvidenceSourceBytes-spent {
+			continue
+		}
+		parts, err := s.reveal(ctx, w)
+		if err != nil {
+			continue
+		}
+		spent += span.end - span.start
+		out = append(out, parts...)
+	}
+	return out
+}
+
+// evidencePath is one place a failure log names a repository file.
+type evidencePath struct {
+	path string
+	at   int
+	line int
+}
+
+func evidenceWindows(evidence string, inventory []string, loaded map[string]bool) []ReadWindow {
+	if evidence == "" {
+		return nil
+	}
+	matches := []evidencePath{}
+	for _, name := range inventory {
+		if loaded[name] {
+			continue
+		}
+		at := pathAt(evidence, name)
+		if at < 0 {
+			continue
+		}
+		if line := lineAfter(evidence[at+len(name):]); line > 0 {
+			matches = append(matches, evidencePath{path: name, at: at, line: line})
+		}
+	}
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].at != matches[j].at {
+			return matches[i].at < matches[j].at
+		}
+		return len(matches[i].path) > len(matches[j].path)
+	})
+	out := []ReadWindow{}
+	chosen := []evidencePath{}
+	for _, m := range matches {
+		if len(out) == maxEvidencePaths {
+			break
+		}
+		inside := false
+		for _, c := range chosen {
+			if m.at >= c.at && m.at+len(m.path) <= c.at+len(c.path) {
+				inside = true
+				break
+			}
+		}
+		if inside {
+			continue
+		}
+		chosen = append(chosen, m)
+		out = append(out, ReadWindow{Path: m.path, StartLine: max(1, m.line-40), EndLine: m.line + 40})
+	}
+	return out
+}
+
+// pathAt is the first place name appears as a whole path in text. A shorter
+// path that is only the tail of a longer one is not a match: the longer path
+// starts at the same or an earlier index and wins the ordering above.
+func pathAt(text, name string) int {
+	for from := 0; from < len(text); {
+		i := strings.Index(text[from:], name)
+		if i < 0 {
+			return -1
+		}
+		i += from
+		before := i == 0 || !pathByte(text[i-1])
+		after := i+len(name) == len(text) || !pathByte(text[i+len(name)])
+		if before && after {
+			return i
+		}
+		from = i + 1
+	}
+	return -1
+}
+
+func pathByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_' || b == '.' || b == '-'
+}
+
+// lineAfter reads the line number a log writes after a path: path:12,
+// path:12:5 or path(12, 5). Anything else means the log did not name a line.
+func lineAfter(rest string) int {
+	rest = strings.TrimLeft(rest, " \t")
+	if rest == "" || rest[0] != ':' && rest[0] != '(' {
+		return 0
+	}
+	n := 0
+	for i := 1; i < len(rest); i++ {
+		if rest[i] < '0' || rest[i] > '9' {
+			break
+		}
+		n = n*10 + int(rest[i]-'0')
+	}
+	return n
 }
 
 func stepBudget(step int) string {
