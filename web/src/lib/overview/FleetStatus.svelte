@@ -23,7 +23,7 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import { notifications } from '$lib/state/notifications.svelte';
   import { prefs } from '$lib/state/prefs.svelte';
-  import { overviewMetrics } from './metric-stats';
+  import { overviewMetrics, runningJobs } from './metric-stats';
   import { statusLine } from './status-line';
 
   interface Props {
@@ -35,10 +35,9 @@
   const line = $derived(
     statusLine({
       problems: notifications.active,
-      // The same scope the figures in the band are in: this fleet's jobs,
-      // unless the toggle says to count every runner GitHub reports.
-      running:
-        (prefs.otherRunners ? fleet.stats : (fleet.stats?.fleet ?? fleet.stats))?.running_jobs ?? 0,
+      // The same figure the band shows, from the same scope: this fleet's busy
+      // runners, unless the toggle says to count every job GitHub reports.
+      running: runningJobs(fleet.stats, prefs.otherRunners),
       slotsUsed: fleet.stats?.hosts?.used ?? 0,
       slots: fleet.stats?.hosts?.capacity ?? 0,
       setupPending,

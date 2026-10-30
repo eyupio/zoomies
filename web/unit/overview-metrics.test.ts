@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Stats } from '../src/lib/api/types.ts';
-import { overviewMetrics } from '../src/lib/overview/metric-stats.ts';
+import { overviewMetrics, runningJobs } from '../src/lib/overview/metric-stats.ts';
 
 const now = Date.parse('2026-10-30T12:00:00Z');
 
@@ -29,7 +29,9 @@ test('the band carries the four figures the fleet is judged on', () => {
     figures.map((f) => [f.label, f.value]),
     [
       ['Queued jobs', '6'],
-      ['Running jobs', '3'],
+      // This fleet's busy runners, which is what the Runners page counts and
+      // what the figure opens, not the jobs table's running rows.
+      ['Running jobs', '2'],
       // Provisioning, registering, idle, busy and draining; not failed, and not
       // the removed history the fleet no longer has.
       ['Live runners', '9'],
@@ -40,6 +42,18 @@ test('the band carries the four figures the fleet is judged on', () => {
   // that is not moving. Both are visible, not only in a tooltip.
   assert.equal(figures[2]?.detail, '8 of 10 slots on 3 connected hosts');
   assert.equal(figures[3]?.detail, 'p95 26s');
+});
+
+test('the running figure is the busy runners the Runners page counts', () => {
+  // A completion delivery can lag the runner that has already exited, leaving
+  // the jobs table saying three are running while only two runners are busy.
+  // The two pages must not answer the same question differently.
+  assert.equal(stats.fleet?.running_jobs, 3);
+  assert.equal(stats.runners?.busy, 2);
+  assert.equal(runningJobs(stats, false), 2);
+  // Somebody else's runners have no row here, so the wider scope counts jobs.
+  assert.equal(runningJobs(stats, true), 12);
+  assert.equal(runningJobs(null, false), 0);
 });
 
 test('each figure is a way into the records it counted', () => {
@@ -81,6 +95,9 @@ test('with other runners in scope the job figures widen, and the links say so', 
     ['41', '12'],
   );
   assert.equal(figures[0]?.href, '/jobs?state=queued&all=true');
+  // The jobs the wider figure counts are on machines this fleet has no row
+  // for, so the list behind it is the Jobs page rather than the busy runners.
+  assert.equal(figures[1]?.href, '/jobs?state=in_progress&all=true');
   assert.match(figures[3]?.href ?? '', /&all=true$/);
   // Runners and hosts are always this fleet's, so the live figure does not move.
   assert.equal(figures[2]?.value, '9');
