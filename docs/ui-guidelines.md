@@ -1308,7 +1308,7 @@ A third threshold is not a judgement call to be made per component. Four
 components had one each (560, 640 and 720) and every one of them was a "stack
 this on a phone" rule written to a width somebody eyeballed. They are all 768px
 now. A media query cannot say "above 1180" without naming the next pixel, so the
-one `min-width: 1181px` in `FleetMetrics.svelte` is the same threshold from the
+one `min-width: 1181px` in `Overview.svelte` is the same threshold from the
 other side and carries a comment saying so.
 
 ### Tables use the space they need
