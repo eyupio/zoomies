@@ -59,9 +59,9 @@ export function overviewMetrics(input: OverviewMetricInput): BandStat[] {
   const live = liveRunners(stats);
 
   // Undefined rather than zero when there is nothing to time. The controller
-  // answers 0 for a median it has no samples for, and a median of "0ms" is a
-  // claim -- instant -- where the no-value placeholder is the truth. A queue
-  // wait needs a job that has started on the side of the line being counted.
+  // answers 0 for a median it has no samples for, and a median of "0ms" claims
+  // instant work where the no-value placeholder is the truth. A queue wait
+  // needs a job that has started on the side of the line being counted.
   const started = running + (fleet.completed ?? 0);
   const medianWait = started > 0 ? fleet.median_wait_ms : undefined;
   const p95Wait = started > 0 ? fleet.p95_wait_ms : undefined;
