@@ -916,7 +916,6 @@ web/src/lib/outcomes.ts	1
 web/src/lib/overview/EventsFeed.svelte	7
 web/src/lib/overview/FirstRun.svelte	6
 web/src/lib/overview/FleetActivity.svelte	6
-web/src/lib/overview/FleetMetrics.svelte	4
 web/src/lib/overview/PoolUtilisation.svelte	2
 web/src/lib/overview/ProblemsSummary.svelte	3
 web/src/lib/passwords.ts	1
