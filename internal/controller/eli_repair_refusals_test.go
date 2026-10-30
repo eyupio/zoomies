@@ -91,8 +91,10 @@ func (s *commandSetup) refusedWith(t *testing.T, commentID int64, phrases ...str
 	if len(s.fake.confused) != 1 || s.fake.confused[0] != commentID {
 		t.Errorf("confused reactions = %v, want one on comment %d", s.fake.confused, commentID)
 	}
-	if len(s.fake.reacted) != 0 {
-		t.Errorf("Eli put eyes on a request it did not start: %v", s.fake.reacted)
+	for _, id := range s.fake.reacted {
+		if id == commentID {
+			t.Errorf("Eli put eyes on a request it did not start: %v", s.fake.reacted)
+		}
 	}
 }
 
@@ -195,5 +197,52 @@ func TestAnAdmittedCommandIsNotAlsoRefused(t *testing.T) {
 	}
 	if len(s.fake.comments) != 0 || len(s.fake.confused) != 0 {
 		t.Errorf("Eli refused a request it admitted: %q %v", s.fake.comments, s.fake.confused)
+	}
+	if len(s.fake.reacted) != 1 || s.fake.reacted[0] != 108 {
+		t.Errorf("the queued request was not acknowledged: %v", s.fake.reacted)
+	}
+	s.comment(t, 108)
+	if len(s.fake.reacted) != 1 || len(s.rows(t)) != 1 {
+		t.Error("redelivery acknowledged or queued the same request again")
+	}
+}
+
+func TestAWriterIsToldWhenRepositoryRepairsAreNotEnabled(t *testing.T) {
+	for _, setup := range []string{"missing", "disabled", "different installation"} {
+		t.Run(setup, func(t *testing.T) {
+			s := newCommandSetup(t, 5)
+			s.link(t, true)
+			policies, err := s.h.st.EliRepairPolicies(s.h.ctx)
+			if err != nil || len(policies) != 1 {
+				t.Fatalf("policies %v, %v", policies, err)
+			}
+			p := policies[0]
+			switch setup {
+			case "missing":
+				s.repo = s.inst.Target + "/another-repo"
+			case "disabled":
+				p.Enabled = false
+			case "different installation":
+				p.InstallationID = s.h.installationOn("other", store.TargetOrg).ID
+			}
+			if err := s.h.st.SetEliRepairPolicy(s.h.ctx, p); err != nil {
+				t.Fatal(err)
+			}
+			s.comment(t, 109)
+			s.refusedWith(t, 109, "not enabled", "administrator", "Repair settings", "Manual only")
+			if len(s.rows(t)) != 0 {
+				t.Error("a repository without an enabled policy queued a repair")
+			}
+		})
+	}
+}
+
+func TestMissingRepositoryPolicyDoesNotAnswerSomeoneWithoutWriteAccess(t *testing.T) {
+	s := newCommandSetup(t, 5)
+	s.repo = s.inst.Target + "/another-repo"
+	s.fake.noWrite = true
+	s.comment(t, 110)
+	if len(s.fake.comments) != 0 || len(s.fake.confused) != 0 || len(s.fake.reacted) != 0 || len(s.rows(t)) != 0 {
+		t.Error("a commenter without write permission was answered or queued")
 	}
 }
