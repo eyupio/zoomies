@@ -669,19 +669,21 @@ severity, never a problem's own words, and with no status colour in it. It costs
 the Overview some height, so the pools start within the first 1000px of a
 desktop window and no longer within 900px; the hero is left out on a phone,
 where the pools must still be on the first screen. The fleet pages (Runners,
-Pools, Queue, Jobs, Workflows, Usage, Hosts, Providers, Installations, Eli
-repairs, Migrate and Kennel Club) open on the same stage, with
-one sentence from the page's own figures. A band takes one of four cuts, Slim,
-Compact, Standard or Expanded, chosen per page from the band itself or in
-Appearance; each is
-switched off per page in Appearance (a list of hidden pages in the browser, so a
-band added later is on), and a phone never shows one. A band's dog can be hidden, or drawn
-at a chosen size (Auto follows the band's own size; Small, Medium and Large pin
-it), a choice made in Appearance and kept in this browser. A figure a band
-carries is a way into the evidence it counts: pressing it narrows the list on
-this page and takes the reader to it, or opens the page that holds the list at
-that list, with the filter in the address. The wrong-address page uses the same
-stage with the dog.
+Pools, Queue, Jobs, Workflows, Usage, Hosts, Providers, Installations, Migrate
+and Kennel Club) open on the same stage, with one sentence from the page's own
+figures. A band takes one of four cuts, Slim, Compact, Standard or Expanded,
+chosen per page from the band itself or in Appearance; a size pressed on a band
+asks where it lands (this page, pages picked one at a time, or every page), so
+one deliberate answer serves every page that needs it. Each is switched off per
+page in Appearance (a list of hidden pages, so a band added later is on), and a
+phone never shows one. A band's dog can be hidden, or drawn at a chosen size
+(Auto follows the band's own size; Small, Medium and Large pin it); pressing the
+dog opens the same panel, with the same question about where. The choices follow
+the signed-in account, with the browser as the fallback. A figure a band carries
+is a way into the evidence it counts: pressing it narrows the list on this page
+and takes the reader to it, or opens the page that holds the list at that list,
+with the filter in the address. The wrong-address page uses the same stage with
+the dog.
 
 Persistent left navigation, collapsible to icons only (persisted). Order is
 fixed, because muscle memory is the point:
@@ -952,7 +954,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `MemoryBar` | `lib/runners/`. A runner's memory as one bar: guaranteed, lent, swap (hatched, so it cannot be mistaken for the solid fill where colour is lost) and a tick at the ceiling. `aria-hidden`: the figures beside it carry the meaning |
 | `RunnerTimeline` | `lib/runners/`. One row per state with how long the runner stayed there, reconstructed from the four timestamps a runner row carries -- and it says so, rather than letting an operator read it as an audit trail |
 | `Wizard` | a flow of steps that is genuinely a sequence; the AI Context setup, the provider form, the migration; on a phone its footer stays pinned above the bottom bar. The provider form also sets `jumpable`, so each stage in the list but the current one is a button that goes straight to it; the current stage is plain text with `aria-current` on its list item, because a button that did nothing would be a dead tab stop. A pool is not one: see [the pool editor](#the-pool-editor) |
-| `PublicFrame`, `SplitPage`, `BrandStage`, `ThemeSwitch` | `lib/public/`. The frame every page before sign in shares. `PublicFrame` is the header (paw and wordmark, with the appearance switch drawn at the right but read after the page, so a person who came to sign in is on the first field), the page, and a Zoomies Black footer panel with the build, the links and the credit, all on `--z-width-public`. `SplitPage` is the stage beside the column a person acts in, and a strip above it on a phone. `BrandStage` is the rounded panel holding the dog, an eyebrow, a headline (a string or its lines, optionally with a line in the runner blue), a blue rule and a sentence; `wide` makes it a band with its headline as the page's h1, as on the status page. `ThemeSwitch` is the three-way appearance choice as icons in a pill, with a native `title` and not the shared tooltip, because the status page that uses it is held to a few kilobytes. None of them imports the preference store or the API client, so the status page can; the dog is drawn by `LogoArt`, which is told its backdrop, where `Logo` asks the operator's preference |
+| `PublicFrame`, `SplitPage`, `BrandStage`, `ThemeSwitch` | `lib/public/`. The frame every page before sign in shares. `PublicFrame` is the header (paw and wordmark, with the appearance switch drawn at the right but read after the page, so a person who came to sign in is on the first field), the page, and a Zoomies Black footer panel with the build, the links and the credit, all on `--z-width-public`. `SplitPage` is the stage beside the column a person acts in, and a strip above it on a phone. `BrandStage` is the rounded panel holding the dog, an eyebrow, a headline (a string or its lines, optionally with a line in the runner blue), a blue rule and a sentence; `wide` makes it a band with its headline as the page's h1, as on the status page. A band makes its dog a control with `artAction`, which opens the panel that resizes or removes it; the stage itself still has no opinion about what that panel does. `ThemeSwitch` is the three-way appearance choice as icons in a pill, with a native `title` and not the shared tooltip, because the status page that uses it is held to a few kilobytes. None of them imports the preference store or the API client, so the status page can; the dog is drawn by `LogoArt`, which is told its backdrop, where `Logo` asks the operator's preference |
 
 ### The log viewer
 

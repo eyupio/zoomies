@@ -8,8 +8,10 @@
 
   Four sizes, from Slim (the shortest) through Compact and Standard to Expanded. Each page
   has a default, and the operator's choice is per page: the same four sizes sit on the band,
-  as Eli's panel sizes do, and in Appearance. The dog can be hidden, or drawn at a chosen
-  size, whichever cut the band takes; that choice applies to every band.
+  as Eli's panel sizes do, and in Appearance. Pressing one asks where it lands (this page,
+  pages picked one at a time, or every page). The dog can be resized or removed, and asks
+  the same question about where. Both choices follow the signed-in account, with this
+  browser as the fallback.
 
   A band can carry figures (`stats`) in a strip along its lower edge, which is how a
   page gives up the panel it used to spend a row of its height on. They are never lost
@@ -19,6 +21,7 @@
 
   The small cross removes the band in place, after a confirmation that says where to
   bring it back, because a control that deletes something quietly is one nobody trusts.
+  It is the one control that does not ask where it lands: it hides the band under it.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -34,9 +37,13 @@
   import Tooltip from '$lib/components/Tooltip.svelte';
   import BrandStage from '$lib/public/BrandStage.svelte';
   import { prefs } from '$lib/state/prefs.svelte';
+  import { toasts } from '$lib/state/toasts.svelte';
+  import BandApplyPanel from './BandApplyPanel.svelte';
   import BandStats from './BandStats.svelte';
+  import type { BandLogoSize } from './band-logo';
   import { figuresPlacement } from './placement';
   import { BAND_PAGES, BAND_SIZES, type BandPage, type BandSize } from './pages';
+  import { bandPageLabel } from './scope';
   import type { BandLine } from './lines';
   import type { BandMore, BandStat } from './stats';
 
@@ -70,11 +77,82 @@
 
   const shown = $derived(prefs.bandShown(page));
   const size = $derived(prefs.bandSize(page));
+  const logoShown = $derived(prefs.bandLogoShown(page));
+  const logoSize = $derived(prefs.bandLogoSizeFor(page));
   const name = $derived(BAND_PAGES.find((p) => p.key === page)?.label ?? page);
   const placement = $derived(
     figuresPlacement({ shown, hasLine: line !== null, hasStats: stats.length > 0 }),
   );
   let confirming = $state(false);
+
+  /**
+   * The change waiting for an answer about where it lands. It holds the control
+   * it was opened from, because that is where focus goes back to when the panel
+   * closes, and the cut, because the icon that opened it is the cut chosen.
+   */
+  type Pending =
+    { kind: 'size'; size: BandSize; anchor: HTMLElement } | { kind: 'logo'; anchor: HTMLElement };
+  let pending = $state<Pending | null>(null);
+
+  function openSize(next: BandSize, anchor: HTMLElement): void {
+    // The control that opens a panel also closes it: a second press on the size
+    // already chosen puts the panel away rather than starting it again.
+    if (pending?.kind === 'size' && pending.size === next && pending.anchor === anchor) {
+      pending = null;
+      return;
+    }
+    pending = { kind: 'size', size: next, anchor };
+  }
+
+  function openLogo(anchor: HTMLElement): void {
+    if (pending?.kind === 'logo' && pending.anchor === anchor) {
+      pending = null;
+      return;
+    }
+    pending = { kind: 'logo', anchor };
+  }
+
+  function closePanel(): void {
+    pending = null;
+  }
+
+  /** Apply what the panel asked for, then put the keyboard back where it was. */
+  function apply(pages: BandPage[], logo: { shown: boolean; size: BandLogoSize } | null): void {
+    const change = pending;
+    if (!change) return;
+    if (change.kind === 'size') {
+      prefs.applyBandSize(pages, change.size);
+      const cut = BAND_SIZES.find((option) => option.key === change.size)?.label ?? change.size;
+      toasts.success(
+        pages.length === 1
+          ? `${bandPageLabel(pages[0] ?? page)} band set to ${cut}`
+          : `${pages.length} bands set to ${cut}`,
+        saveNote(),
+      );
+    } else if (logo) {
+      prefs.applyBandLogo(pages, logo);
+      const what = !logo.shown
+        ? 'Dog hidden'
+        : logo.size === 'auto'
+          ? 'Dog follows the cut'
+          : `${logo.size.charAt(0).toUpperCase()}${logo.size.slice(1)} dog`;
+      toasts.success(
+        pages.length === 1
+          ? `${what} on ${bandPageLabel(pages[0] ?? page)}`
+          : `${what} on ${pages.length} bands`,
+        saveNote(),
+      );
+    }
+    pending = null;
+    if (document.contains(change.anchor)) change.anchor.focus();
+  }
+
+  /** Where the choice was kept, said honestly: the account when there is one. */
+  function saveNote(): string {
+    return prefs.accountSynced
+      ? 'Saved to your account, so it holds in every browser you sign in to.'
+      : 'Saved in this browser.';
+  }
 
   function hide(): boolean {
     prefs.setBandShown(page, false);
@@ -91,8 +169,11 @@
       accent={line.accent || undefined}
       lede={line.lede}
       treatment={prefs.logoTreatment}
-      art={prefs.bandLogo}
-      artSize={prefs.bandLogoSize === 'auto' ? undefined : prefs.bandLogoSize}
+      art={logoShown}
+      artSize={logoSize === 'auto' ? undefined : logoSize}
+      artAction={openLogo}
+      artActionLabel={`${name} band logo settings`}
+      artExpanded={pending?.kind === 'logo'}
     >
       {#if actions}<div class="actions">{@render actions()}</div>{/if}
       {#if stats.length > 0}
@@ -109,7 +190,9 @@
               class="size"
               aria-label={option.label}
               aria-pressed={size === option.key}
-              onclick={() => prefs.setBandSize(page, option.key)}
+              aria-haspopup="dialog"
+              aria-expanded={pending?.kind === 'size' && pending.size === option.key}
+              onclick={(event) => openSize(option.key, event.currentTarget)}
             >
               <SizeIcon size={16} aria-hidden="true" />
             </button>
@@ -130,6 +213,17 @@
   </div>
 {/if}
 
+{#if pending}
+  <BandApplyPanel
+    kind={pending.kind}
+    {page}
+    size={pending.kind === 'size' ? pending.size : undefined}
+    anchor={pending.anchor}
+    onclose={closePanel}
+    onapply={apply}
+  />
+{/if}
+
 <!--
   The figures on their own: always when the band is off or has no sentence yet, and on a
   phone when it is on, since a phone never draws the stage. Nothing when there are none.
@@ -148,7 +242,9 @@
   }Nothing else changes.`}
   consequences={[
     `To bring it back, open Settings, then Appearance, and switch on ${name} under Page bands.`,
-    'This is saved in this browser only.',
+    prefs.accountSynced
+      ? 'Saved to your account, so it holds in every browser you sign in to.'
+      : 'Saved in this browser.',
   ]}
   confirmLabel="Hide the band"
   tone="default"

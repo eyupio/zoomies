@@ -318,6 +318,10 @@ type userPreferences struct {
 	// Assistant is how Eli answers this person: how long, and for whom. It is
 	// here, with the account, so a choice made at the desk holds on the phone.
 	Assistant *assistantStyleInput `json:"assistant,omitempty"`
+	// Bands is how this person's page bands stand: the cut each page takes,
+	// which are switched off, and the dog's size on each. It travels with the
+	// account for the same reason the layouts do.
+	Bands *bandPreferences `json:"bands,omitempty"`
 }
 
 // handleGetPreferences returns choices belonging to this account rather than
@@ -342,10 +346,10 @@ func (s *Server) handleGetPreferences(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, preferences)
 }
 
-// handlePutPreferences replaces the small, private table-layout document. A
-// whole replacement makes two open tabs converge on the latest deliberate
-// layout and avoids a patch language for data that is never collaboratively
-// edited.
+// handlePutPreferences replaces the small, private interface document: table
+// layouts, how Eli answers, and how the page bands stand. A whole replacement
+// makes two open tabs converge on the latest deliberate layout and avoids a
+// patch language for data that is never collaboratively edited.
 func (s *Server) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
 	id := Identity(r.Context())
 	if id.Kind != auth.KindUser || !store.HasPrefix(id.ID, store.PrefixUser) {
@@ -362,6 +366,10 @@ func (s *Server) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
 	}
 	if errs := preferences.Assistant.validate("assistant"); len(errs) > 0 {
 		unprocessable(w, "assistant names an answer length or tone this build does not have", errs)
+		return
+	}
+	if errs := preferences.Bands.validate("bands"); len(errs) > 0 {
+		unprocessable(w, "a band names a page, cut or logo size this build does not have", errs)
 		return
 	}
 	for tableID, layout := range preferences.TableLayouts {
