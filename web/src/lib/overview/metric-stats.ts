@@ -32,8 +32,29 @@ export function liveRunners(stats: Stats | null | undefined): number {
   );
 }
 
+/**
+ * Jobs a runner is working on right now.
+ *
+ * This fleet's own answer is its busy runners, which is what the Runners page
+ * counts and what the figure opens. The jobs table is GitHub's report, and a
+ * completion delivery can arrive minutes after the runner has already reported
+ * it exited: counting the rows in progress then leaves the Overview saying
+ * seven jobs are running beside a Runners page with one busy runner, which is
+ * two answers to one question. The runner's own state is the fleet's present
+ * tense, so the fleet scope uses it.
+ *
+ * With other runners in scope every job GitHub reports is counted instead,
+ * because a hosted or vendor runner is not one of this fleet's and has no row
+ * here to be busy.
+ */
+export function runningJobs(stats: Stats | null | undefined, others: boolean): number {
+  if (!stats) return 0;
+  return others ? (stats.running_jobs ?? 0) : (stats.runners?.busy ?? 0);
+}
+
 const ALL = '&all=true';
 const BUSY = '/runners?state=busy#runners-list';
+const RUNNING_ALL = `/jobs?state=in_progress${ALL}`;
 const LIVE = '/runners?state=provisioning&state=registering&state=idle&state=busy#runners-list';
 const AN_HOUR = 60 * 60 * 1000;
 
@@ -55,14 +76,15 @@ export function overviewMetrics(input: OverviewMetricInput): BandStat[] {
 
   const fleet = others ? stats : (stats.fleet ?? stats);
   const queued = fleet.queued_jobs ?? 0;
-  const running = fleet.running_jobs ?? 0;
+  const running = runningJobs(stats, others);
   const live = liveRunners(stats);
 
   // Undefined rather than zero when there is nothing to time. The controller
   // answers 0 for a median it has no samples for, and a median of "0ms" claims
   // instant work where the no-value placeholder is the truth. A queue wait
-  // needs a job that has started on the side of the line being counted.
-  const started = running + (fleet.completed ?? 0);
+  // needs a job that has started on the side of the line being counted, so the
+  // gate reads the jobs table rather than the busy runners the figure shows.
+  const started = (fleet.running_jobs ?? 0) + (fleet.completed ?? 0);
   const medianWait = started > 0 ? fleet.median_wait_ms : undefined;
   const p95Wait = started > 0 ? fleet.p95_wait_ms : undefined;
 
@@ -87,9 +109,11 @@ export function overviewMetrics(input: OverviewMetricInput): BandStat[] {
       label: 'Running jobs',
       value: formatNumber(running),
       hint: 'Runners executing a job right now. Open them.',
-      // The busy runners themselves, and the anchor that lands the list rather
-      // than the band above it.
-      href: BUSY,
+      // The busy runners this fleet is running them on, and the anchor that
+      // lands the list rather than the band above it. With other runners in
+      // scope the figure counts jobs on machines this fleet has no row for, so
+      // it opens the jobs themselves instead of a list that cannot hold them.
+      href: others ? RUNNING_ALL : BUSY,
     },
     {
       label: 'Live runners',

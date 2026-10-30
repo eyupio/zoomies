@@ -18,6 +18,8 @@ for (const [width, style] of [
       if (!read) return;
       const { response, body } = read;
       body.fleet = { ...body.fleet, running_jobs: 0, completed: 0 };
+      // The Overview's running figure is this fleet's busy runners.
+      body.runners = { ...body.runners, busy: 0 };
       await route.fulfill({ response, json: body });
     });
     await page.route('**/api/v1/installations', (route) =>

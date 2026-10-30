@@ -177,7 +177,13 @@ test('Mission Control keeps first-run guidance first when this fleet has not run
     const { response, body: stats } = read;
     await route.fulfill({
       response,
-      json: { ...stats, fleet: { ...stats.fleet, running_jobs: 0, completed: 0 } },
+      json: {
+        ...stats,
+        fleet: { ...stats.fleet, running_jobs: 0, completed: 0 },
+        // The Overview's running figure is this fleet's busy runners, so a
+        // fleet that has run nothing has none of those either.
+        runners: { ...stats.runners, busy: 0 },
+      },
     });
   });
   await goto(page, '/', 'Overview');

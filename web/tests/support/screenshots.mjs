@@ -135,7 +135,12 @@ const SHOTS = [
         const stats = await response.json();
         await route.fulfill({
           response,
-          json: { ...stats, fleet: { ...stats.fleet, running_jobs: 0, completed: 0 } },
+          json: {
+            ...stats,
+            fleet: { ...stats.fleet, running_jobs: 0, completed: 0 },
+            // The Overview's running figure is this fleet's busy runners.
+            runners: { ...stats.runners, busy: 0 },
+          },
         });
       });
     },

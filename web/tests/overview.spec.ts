@@ -108,8 +108,9 @@ test("the metric tiles are this fleet's work, and the switch widens them", async
     })
     .toBeGreaterThan(ours);
 
-  // The tile leads to the busy runners, whichever scope it counts.
-  await expect(running).toHaveAttribute('href', '/runners?state=busy#runners-list');
+  // Somebody else's running job is not on a busy runner of this fleet, so the
+  // wider figure opens the jobs themselves; the fleet's own opens its runners.
+  await expect(running).toHaveAttribute('href', '/jobs?state=in_progress&all=true');
 
   // The single page scope controls the list and the headline together.
   await expect(page.getByRole('region', { name: 'Active jobs', exact: true })).toContainText(
