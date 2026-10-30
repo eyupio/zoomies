@@ -1,6 +1,7 @@
 <!--
-  This attempt, at a glance: which repair it is, where it has got to, when it
-  began, who paid for the model, what was sent to it and which commit came of it.
+  This attempt, at a glance: which repair it is, who paid for the model, what
+  was sent to it and which commit came of it. The state, stage and start time
+  belong to the page header and the progress card, so they are not repeated here.
 
   Only what the row recorded is here. A fact the repair has not got yet (no model
   call, no commit) is left out until it exists, and one that is simply absent
@@ -11,12 +12,9 @@
 <script lang="ts">
   import CopyButton from '$lib/components/CopyButton.svelte';
   import type { Schemas } from '$lib/api/types';
-  import { formatAbsolute, formatBytes, formatDuration, NO_VALUE, shortId } from '$lib/format';
-  import { repairStatus } from '$lib/status';
+  import { formatBytes, formatDuration, NO_VALUE, shortId } from '$lib/format';
   import { providerWords, tookMs } from './attempt';
   import type { CaseView } from './case';
-  import { isActive } from './history';
-  import { stageWords } from './journey';
   import { commitUrl } from './links';
 
   interface Props {
@@ -26,8 +24,6 @@
 
   let { repair, view }: Props = $props();
 
-  const status = $derived(repairStatus(repair.state));
-  const active = $derived(isActive(repair.state));
   const took = $derived(tookMs(repair));
   const calls = $derived(repair.details?.steps?.length ?? 0);
   const source = $derived(repair.details?.source_bytes ?? 0);
@@ -43,18 +39,10 @@
       {shortId(repair.id)}
       <CopyButton value={repair.id} label="Copy the repair id" />
     </dd>
-    <dt>Status</dt>
-    <dd>{status.label}</dd>
-    {#if active}
-      <dt>Stage</dt>
-      <dd>{stageWords(repair.details?.stage)}</dd>
-    {/if}
     {#if repair.trigger === 'automatic'}
       <dt>Started by</dt>
       <dd>Automatic repairs, by the repository’s policy</dd>
     {/if}
-    <dt>Started</dt>
-    <dd class="tnum">{formatAbsolute(repair.created_at)}</dd>
     {#if took !== undefined}
       <dt>Took</dt>
       <dd class="tnum">{formatDuration(took)}</dd>

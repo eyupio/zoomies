@@ -1,16 +1,11 @@
 <!--
-  Where a repair that is still going has got to: the five steps the worker takes,
-  in order, the one it is on, how long it has been, and the word that nobody has
-  to watch.
-
-  The mark comes from the worker's own stage and from a pushed commit (see
-  `trackIndex`), never from guessing at elapsed time. A step has no time of its
-  own to show, because the row does not record one, so it says what state it is
-  in instead of a number it does not have. The track runs across on a wide screen
-  and down on a phone.
+  Where a repair that is still going has got to. The answer comes first: the
+  current step, how long it has been, and the promise that nobody has to watch.
+  The full five-step track is one press away for somebody who wants it, because
+  the controller cannot report anything more precise than the stage it is on.
 -->
 <script lang="ts">
-  import { Check, Info } from '@lucide/svelte';
+  import { Check } from '@lucide/svelte';
   import type { Schemas } from '$lib/api/types';
   import Panel from '$lib/components/Panel.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
@@ -28,6 +23,7 @@
   let { repair, now }: Props = $props();
 
   const steps = $derived(trackSteps(repair));
+  const current = $derived(steps.find((step) => step.state === 'current')?.label ?? 'Working');
   const elapsed = $derived(formatDuration(Math.max(0, now - Date.parse(repair.created_at))));
   const guidance = $derived(guidanceFor(repair));
   const busy = repairStatus('working');
@@ -39,26 +35,30 @@
     <span class="elapsed">Elapsed {elapsed}</span>
   {/snippet}
 
-  <ol class="track" aria-label="What Eli is doing">
-    {#each steps as step (step.id)}
-      <li class="step {step.state}" aria-current={step.state === 'current' ? 'step' : undefined}>
-        <span class="node" aria-hidden="true">
-          {#if step.state === 'done'}
-            <Check size={12} />
-          {:else if step.state === 'current'}
-            <StatusDot status={busy} size="sm" tip={false} />
-          {/if}
-        </span>
-        <span class="label">{step.label}</span>
-        <span class="when">{words[step.state]}</span>
-      </li>
-    {/each}
-  </ol>
+  <p class="now">
+    <StatusDot status={busy} size="sm" tip={false} />
+    <strong>{current}</strong>
+    <span>{guidance.steps[0] ?? 'You can leave this page. The repair carries on without it.'}</span>
+  </p>
 
-  <div class="callout">
-    <Info size={16} aria-hidden="true" />
-    <p>{guidance.headline}. {guidance.steps[0]}</p>
-  </div>
+  <details class="fold">
+    <summary>Show the steps</summary>
+    <ol class="track" aria-label="What Eli is doing">
+      {#each steps as step (step.id)}
+        <li class="step {step.state}" aria-current={step.state === 'current' ? 'step' : undefined}>
+          <span class="node" aria-hidden="true">
+            {#if step.state === 'done'}
+              <Check size={12} />
+            {:else if step.state === 'current'}
+              <StatusDot status={busy} size="sm" tip={false} />
+            {/if}
+          </span>
+          <span class="label">{step.label}</span>
+          <span class="when">{words[step.state]}</span>
+        </li>
+      {/each}
+    </ol>
+  </details>
 </Panel>
 
 <style>
@@ -68,11 +68,36 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
+  .now {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-2) var(--z-space-3);
+    margin: 0;
+    padding: var(--z-space-4) var(--z-space-5);
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+  }
+  .now strong {
+    font-weight: var(--z-weight-semibold);
+  }
+  .now span {
+    color: var(--z-text-muted);
+  }
+  .fold {
+    border-top: var(--z-border-width) solid var(--z-border);
+  }
+  .fold > summary {
+    padding: var(--z-space-3) var(--z-space-5);
+    color: var(--z-text-muted);
+    font-size: var(--z-text-sm);
+    cursor: pointer;
+  }
   .track {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     margin: 0;
-    padding: 0;
+    padding: var(--z-space-2) var(--z-space-5) var(--z-space-5);
     list-style: none;
   }
   .step {
@@ -80,7 +105,6 @@
     min-width: 0;
     padding: var(--z-space-8) var(--z-space-3) 0 0;
   }
-  /* The line to the next step: grey until the step is done, green after. */
   .step::before {
     content: '';
     position: absolute;
@@ -132,26 +156,6 @@
     margin-top: var(--z-space-1);
     color: var(--z-text-muted);
     font-size: var(--z-text-sm);
-  }
-  .callout {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--z-space-3);
-    margin-top: var(--z-space-5);
-    padding: var(--z-space-3) var(--z-space-4);
-    border: var(--z-border-width) solid var(--z-busy-border);
-    border-radius: var(--z-radius-md);
-    background: var(--z-busy-subtle);
-  }
-  .callout :global(svg) {
-    flex: none;
-    margin-top: var(--z-nudge-2);
-    color: var(--z-busy);
-  }
-  .callout p {
-    margin: 0;
-    font-size: var(--z-text-sm);
-    line-height: var(--z-leading-sm);
   }
   @media (max-width: 640px) {
     .track {

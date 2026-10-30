@@ -411,7 +411,13 @@
       value: (run) => (run.run_number ? `#${run.run_number}` : String(run.github_run_id ?? '')),
       cell: runCell,
     },
-    { id: 'repo', header: 'Repository', sortable: true, value: (run) => run.repo ?? '' },
+    {
+      id: 'repo',
+      header: 'Repository',
+      sortable: true,
+      value: (run) => run.repo ?? '',
+      cell: repoCell,
+    },
     { id: 'workflow', header: 'Workflow', sortable: true, value: (run) => run.workflow ?? '' },
     {
       id: 'branch',
@@ -527,6 +533,23 @@
   </span>
 {/snippet}
 
+{#snippet repoCell(run: WorkflowRun)}
+  <!--
+    A repository is a place a run came from, and the Jobs page already narrows
+    to one: the run's own jobs, and everything else that repository has run,
+    which is the question "has this repository gone wrong" rather than "what is
+    this one run doing".
+  -->
+  {#if run.repo}
+    <a
+      href={`/jobs?repo=${encodeURIComponent(run.repo)}`}
+      onclick={(event) => event.stopPropagation()}>{run.repo}</a
+    >
+  {:else}
+    <span class="none">{NO_VALUE}</span>
+  {/if}
+{/snippet}
+
 {#snippet runCell(run: WorkflowRun)}
   <span class="run">
     <GitHubLink
@@ -553,10 +576,14 @@
 {/snippet}
 
 {#snippet jobsCell(run: WorkflowRun)}
-  <span class="jobs">
-    <strong>{formatNumber(run.jobs?.total ?? 0)}</strong>
-    <span class="summary">{jobsSummary(run)}</span>
-  </span>
+  <!-- The summary is cut at its column's edge like every other value, so it
+       keeps its whole text in a bubble even though the cell draws itself. -->
+  <Tooltip bare whenTruncated text={jobsSummary(run)}>
+    <span class="jobs">
+      <strong>{formatNumber(run.jobs?.total ?? 0)}</strong>
+      <span class="summary">{jobsSummary(run)}</span>
+    </span>
+  </Tooltip>
 {/snippet}
 
 {#snippet actionCell(run: WorkflowRun)}

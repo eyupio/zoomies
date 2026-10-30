@@ -63,9 +63,9 @@ export function timeline(
 /**
  * The facts of a repair as plain text, for pasting into a bug report. The
  * figures are exact where the page rounds them, because an investigation wants
- * the number that was recorded. It holds ids, states and sizes and nothing that
- * Eli read or wrote (no job names, no log lines, no pull request title), and it
- * says nothing about a fact the row does not have.
+ * the number that was recorded. Responses are already redacted by the server,
+ * but can quote source; copying this report is an explicit sharing action.
+ * It says when an older call has no retained response.
  */
 export function investigationText(repair: Repair): string {
   const d = repair.details;
@@ -89,8 +89,19 @@ export function investigationText(repair: Repair): string {
       out.push(
         `  ${index + 1}. ${usage}, request ${step.request_bytes} bytes, ${step.elapsed_ms} ms`,
       );
+      if (step.error) out.push(`     Call error: ${step.error}`);
+      if (step.validation_error) out.push(`     Validation error: ${step.validation_error}`);
+      out.push(`     Response${step.response_truncated ? ' (truncated)' : ''}:`);
+      out.push(responseText(step));
     });
   }
   out.push(`Started: ${repair.created_at}`, `Updated: ${repair.updated_at}`);
   return out.join('\n');
+}
+
+export function responseText(
+  step: NonNullable<Schemas['EliRepairDetails']['steps']>[number],
+): string {
+  if (!step.response_recorded) return 'Response not retained for this older call.';
+  return step.response || 'The provider returned no response text or tool calls.';
 }

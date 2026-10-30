@@ -32,7 +32,6 @@
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import LoadingBoundary from '$lib/components/LoadingBoundary.svelte';
-  import MetricGrid from '$lib/components/MetricGrid.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Select from '$lib/components/Select.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
@@ -228,6 +227,23 @@
             value: formatNumber(machines.length),
             section: 'machines',
           },
+          {
+            label: 'Ceiling',
+            value: formatNumber(providers.reduce((n, p) => n + (p.max_machines ?? 0), 0)),
+            hint: 'The most machines that may exist at once, across every provider.',
+            section: 'providers-list',
+          },
+          ...(providers.some((p) => p.paused)
+            ? [
+                {
+                  label: 'Paused',
+                  value: formatNumber(providers.filter((p) => p.paused).length),
+                  hint: 'Providers holding new machines. Drains and deletes carry on.',
+                  tone: 'warning' as const,
+                  section: 'providers-list',
+                },
+              ]
+            : []),
           ...(review.length > 0
             ? [
                 {
@@ -300,35 +316,6 @@
     {/snippet}
 
     <RentingNotice {renting} {canAdmin} onchanged={refreshRenting} />
-
-    <MetricGrid
-      strip
-      items={[
-        {
-          label: 'Machines owned',
-          value: String(providers.reduce((n, p) => n + (p.owned ?? 0), 0)),
-          detail: 'Holding a resource somebody is being billed for',
-        },
-        {
-          label: 'Ceiling',
-          value: String(providers.reduce((n, p) => n + (p.max_machines ?? 0), 0)),
-          detail: 'The most that may exist at once',
-        },
-        {
-          label: 'Needing review',
-          value: String(review.length),
-          detail: 'Nothing here deletes one of these on its own',
-          tone: review.length > 0 ? 'danger' : 'neutral',
-        },
-        {
-          label: 'Paused providers',
-          value: String(providers.filter((p) => p.paused).length),
-          detail: rentingOff
-            ? 'New machines held; drains and deletes wait for renting'
-            : 'New machines held; drains and deletes continue',
-        },
-      ]}
-    />
 
     <MachineBand
       {machines}

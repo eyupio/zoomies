@@ -151,7 +151,6 @@ test('the hub puts current work first and keeps the history behind a summary', a
   await page.goto('/repairs');
 
   const nav = page.getByRole('navigation', { name: 'On this page' });
-  await expect(nav.getByRole('link', { name: 'Now' })).toBeVisible();
   await expect(nav.getByRole('link', { name: 'Needs you 1' })).toBeVisible();
   await expect(nav.getByRole('link', { name: 'In progress 1' })).toBeVisible();
   if ((page.viewportSize()?.width ?? 0) > 768) {
@@ -176,14 +175,14 @@ test('the hub puts current work first and keeps the history behind a summary', a
   await expect(history.getByRole('article')).toHaveCount(3);
 });
 
-test('Review repair links to the repair page for that offer', async ({ page }) => {
+test('Review fix links to the repair page for that offer', async ({ page }) => {
   const { calls } = await mockRepairApi(page, {
     settings: linkedAs('dana'),
     jobs: [failedJob()],
     offers: [offerRow()],
   });
   await page.goto('/repairs');
-  const review = page.getByRole('link', { name: 'Review repair for acme/widgets #17' });
+  const review = page.getByRole('link', { name: 'Review fix for acme/widgets #17' });
   await expect(review).toHaveAttribute(
     'href',
     '/repairs/new?repo=acme%2Fwidgets&pull=17&run=482&offer=opp-1',
@@ -221,11 +220,11 @@ test('with nothing to review or running, the hub says where offers come from', a
   await page.goto('/repairs');
 
   const needs = page.getByRole('region', { name: 'Needs you' });
-  await expect(needs.getByText('Nothing needs you right now')).toBeVisible();
-  await expect(needs).toContainText('Ask me first');
+  await expect(needs.getByText('No failed pull requests need you')).toBeVisible();
+  await expect(needs.getByText('Fix a failed check')).toBeVisible();
   await expect(page.getByRole('region', { name: 'In progress' })).toHaveCount(0);
   const history = page.getByRole('region', { name: 'History' });
-  await expect(history.locator('details').first()).toHaveAttribute('open', '');
+  await expect(history.locator('details').first()).not.toHaveAttribute('open', '');
   await expect(await openHistory(page)).toContainText('No repairs yet');
 });
 
@@ -239,72 +238,31 @@ async function refresh(page: Page) {
   await button.click();
 }
 
-test('the setup bar says whether the account is linked and allowed', async ({ page }) => {
-  const { state } = await mockRepairApi(page, {
-    settings: {
-      ...linkedAs('dana'),
-      policies: [
-        {
-          repo: 'acme/widgets',
-          installation_id: 'ins_1',
-          provider_id: 'prv_1',
-          enabled: true,
-          automatic: false,
-          ask_first: true,
-          allow_workflows: false,
-          daily_limit: 5,
-        },
-        {
-          repo: 'acme/site',
-          installation_id: 'ins_1',
-          provider_id: 'prv_1',
-          enabled: true,
-          automatic: false,
-          ask_first: true,
-          allow_workflows: false,
-          daily_limit: 5,
-        },
-        {
-          repo: 'acme/api',
-          installation_id: 'ins_1',
-          provider_id: 'prv_1',
-          enabled: false,
-          automatic: false,
-          ask_first: true,
-          allow_workflows: false,
-          daily_limit: 5,
-        },
-      ],
-    },
-  });
+test('the setup bar appears only when the person cannot repair yet', async ({ page }) => {
+  const { state } = await mockRepairApi(page, { settings: linkedAs('dana') });
   await page.goto('/repairs');
-  const bar = page.getByRole('region', { name: 'Repair setup' });
-
-  await expect(bar).toContainText('Ready to repair');
-  await expect(bar).toContainText('GitHub @dana linked');
-  await expect(bar).toContainText('Ask me first on 2 repositories');
-  await expect(bar.getByRole('link', { name: /Manage setup/ })).toHaveAttribute(
-    'href',
-    '/repairs/setup',
-  );
+  await expect(page.getByRole('region', { name: 'Repair settings' })).toHaveCount(0);
 
   // Linked, but the person has not said repairs may use their provider.
   state.settings = linkedAs('dana', false);
   await refresh(page);
+  const bar = page.getByRole('region', { name: 'Repair settings' });
   await expect(bar).toContainText('Setup needed');
   await expect(bar).toContainText('GitHub @dana linked, repairs not allowed yet');
+  await expect(bar.getByRole('link', { name: /Open settings/ })).toHaveAttribute(
+    'href',
+    '/repairs/setup',
+  );
 
   // No link at all.
   state.settings = { identities: [], policies: [] };
   await refresh(page);
   await expect(bar).toContainText('Setup needed');
   await expect(bar).toContainText('No GitHub account linked');
-  await expect(bar).not.toContainText('Ready to repair');
 });
 
-test('only an administrator is told how many repositories ask first', async ({ page }) => {
+test('a person who is ready is not shown a setup status line', async ({ page }) => {
   await mockRepairApi(page, {
-    role: 'operator',
     settings: {
       ...linkedAs('dana'),
       policies: [
@@ -322,19 +280,37 @@ test('only an administrator is told how many repositories ask first', async ({ p
     },
   });
   await page.goto('/repairs');
-  const bar = page.getByRole('region', { name: 'Repair setup' });
-  await expect(bar).toContainText('Ready to repair');
-  await expect(bar).not.toContainText('Ask me first');
+  await expect(page.getByRole('region', { name: 'Repair settings' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Repair settings' })).toHaveAttribute(
+    'href',
+    '/repairs/setup',
+  );
 });
 
-test('Repair a PR opens the paste box and Setup goes to setup', async ({ page }) => {
-  await mockRepairApi(page, { settings: linkedAs('dana') });
+test('Fix a failed check lists recent failures and Settings goes to settings', async ({ page }) => {
+  await mockRepairApi(page, {
+    settings: linkedAs('dana'),
+    jobs: [failedJob(), lintJob()],
+  });
   await page.goto('/repairs');
   const head = page.locator('.page-header');
 
-  await expect(head.getByRole('link', { name: 'Setup' })).toHaveAttribute('href', '/repairs/setup');
-  await head.getByRole('button', { name: 'Repair a PR' }).click();
-  await expect(page.getByRole('dialog', { name: 'Repair a different PR' })).toBeVisible();
+  await expect(head.getByRole('link', { name: 'Repair settings' })).toHaveAttribute(
+    'href',
+    '/repairs/setup',
+  );
+  await head.getByRole('button', { name: 'Fix a failed check' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Fix a failed check' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('list', { name: 'Recent failures' })).toBeVisible();
+  await dialog.getByRole('button', { name: /Go \(api-2\)/ }).click();
+  await expect(page).toHaveURL(/\/repairs\/new\?repo=acme%2Fwidgets&run=482&job=job_unit$/);
+});
+
+test('the floating Eli launcher stays off the repair pages', async ({ page }) => {
+  await mockRepairApi(page, { settings: linkedAs('dana') });
+  await page.goto('/repairs');
+  await expect(page.getByRole('button', { name: 'Ask Eli' })).toHaveCount(0);
 });
 
 test('offers are read at most once a minute, and Refresh reads them at once', async ({ page }) => {

@@ -5,6 +5,7 @@
   import { queueLine } from '$lib/bands/lines';
   import { readableJobText } from '$lib/jobs/name';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import StateBreakdown from '$lib/insights/StateBreakdown.svelte';
 
   import { ListOrdered, Bookmark, X } from '@lucide/svelte';
@@ -467,9 +468,19 @@
           }}
         />{/if}
       <Button variant="ghost" size="sm" onclick={clear}>Reset filters</Button>
-      <span class="filter-hint"
-        >Values within a filter match any; filters combine. Labels must all match.</span
+      <!--
+        The sentence about how filters combine used to stand in a box of its own
+        between the controls and the rows, on a page an operator reloads all
+        day. It answers a question about the menus, so it lives on the menus'
+        own control: one hover, or one focus, and nothing on screen at rest.
+      -->
+      <Tooltip
+        bare
+        text="Values within a filter match any; filters combine. Labels must all match."
+        placement="top"
       >
+        <button type="button" class="filter-hint-button" aria-label="How filters combine">?</button>
+      </Tooltip>
     </div>
   </div>
   {#if report}
@@ -684,7 +695,6 @@
     gap: var(--z-space-4);
     min-width: 0;
   }
-  .filter-hint,
   .policy {
     display: flex;
     align-items: flex-start;
@@ -743,6 +753,25 @@
     bar slid up behind it, and its actions could be neither seen nor pressed
     until the operator scrolled back up a long queue.
   */
+  .filter-hint-button {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: var(--z-control-touch);
+    height: var(--z-control-touch);
+    padding: 0;
+    border: var(--z-border-width) solid var(--z-border-strong);
+    border-radius: var(--z-radius-full);
+    background: var(--z-surface);
+    color: var(--z-text-muted);
+    font: inherit;
+    font-size: var(--z-text-sm);
+    cursor: help;
+  }
+  .filter-hint-button:hover {
+    color: var(--z-text);
+    background: var(--z-surface-hover);
+  }
   .selection-bar {
     position: sticky;
     top: calc(var(--z-topbar-height) + var(--z-space-2));
@@ -781,11 +810,6 @@
     overflow-wrap: anywhere;
   }
   @media (max-width: 767px) {
-    /* A phone folds the filters away; the sentence explaining how they combine
-       would then be the largest thing on the screen before the queue. */
-    .filter-hint {
-      display: none;
-    }
     .selection-bar {
       position: static;
     }

@@ -34,7 +34,7 @@ test('every failure code says what happened and gives at most three things to do
 test('an unsupported fix starts with a note that points at the file or the test', () => {
   const g = failed('unsupported_fix');
   assert.ok(g.steps[0]?.startsWith('Add a note'), g.steps[0] ?? 'no steps');
-  assert.match(text(g), /error output/i);
+  assert.match(text(g), /add a note/i);
 });
 
 test('each code names the one thing that fixes it', () => {
@@ -50,8 +50,8 @@ test('each code names the one thing that fixes it', () => {
   assert.match(text(failed('provider_credentials')), /key/i);
   assert.match(text(failed('provider_credentials')), /Eli settings/);
   assert.match(text(failed('output_limit')), /reasoning effort/i);
-  assert.match(text(failed('setup_needed')), /repair setup/i);
-  assert.match(text(failed('setup_needed')), /readiness/i);
+  assert.match(text(failed('setup_needed')), /repair settings/i);
+  assert.match(text(failed('setup_needed')), /ask again/i);
 });
 
 // An attempt that pushed a commit and still failed its checks has no failure
@@ -74,7 +74,7 @@ test('a code outranks the state it arrived in', () => {
   );
   assert.match(
     text(guidanceFor(repair({ state: 'blocked', details: { failure_code: 'setup_needed' } }))),
-    /repair setup/i,
+    /repair settings/i,
   );
 });
 

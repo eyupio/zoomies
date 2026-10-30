@@ -15,6 +15,7 @@ import (
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/prrepair"
 	"github.com/eyupio/zoomies/internal/prrepair/mention"
+	"github.com/eyupio/zoomies/internal/redact"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -294,6 +295,7 @@ type repairModel struct {
 	// repair may advise: only some kinds can be told to think less.
 	kind       assistant.Kind
 	record     func(store.EliRepairStep)
+	rejected   func(error)
 	sourceUsed func(int)
 	// maxTokens is the limit the provider sets, or zero when it leaves the limit
 	// to Eli. A number is kept exactly, because it may be there to cap what an
@@ -309,6 +311,12 @@ type repairModel struct {
 func (m *repairModel) SourceUsed(n int) {
 	if m.sourceUsed != nil {
 		m.sourceUsed(n)
+	}
+}
+
+func (m *repairModel) ReplyRejected(err error) {
+	if m.rejected != nil {
+		m.rejected(err)
 	}
 }
 
@@ -439,11 +447,26 @@ func refusedRoom(err error) bool {
 // complete is one call to the provider, recorded as one step of the repair,
 // so the history shows the turn the model spent on a tool call as well as the
 // one that answered. limit is how much the model may write, thinking included.
-func (m *repairModel) complete(ctx context.Context, turns []assistant.Message, limit int) (string, []assistant.ToolCall, error) {
+func (m *repairModel) complete(ctx context.Context, turns []assistant.Message, limit int) (_ string, _ []assistant.ToolCall, resultErr error) {
 	step := store.EliRepairStep{RequestBytes: len(prrepair.SystemPrompt)}
+	var out strings.Builder
+	var calls []assistant.ToolCall
 	started := time.Now()
 	defer func() {
 		step.ElapsedMS = time.Since(started).Milliseconds()
+		response := out.String()
+		if len(calls) > 0 {
+			// Keep arguments as text, including malformed JSON that could not
+			// become a plan. This is evidence, never a tool to execute.
+			for _, call := range calls {
+				response += "\nTool call: " + call.Name + "\n" + string(call.Arguments)
+			}
+		}
+		step.Response, step.ResponseTruncated = repairDiagnosticText(response)
+		step.ResponseRecorded = true
+		if resultErr != nil {
+			step.Error, _ = repairDiagnosticText(resultErr.Error())
+		}
 		if m.record != nil {
 			m.record(step)
 		}
@@ -456,8 +479,6 @@ func (m *repairModel) complete(ctx context.Context, turns []assistant.Message, l
 		return "", nil, repairProviderError(err)
 	}
 	defer stream.Close()
-	var out strings.Builder
-	var calls []assistant.ToolCall
 	done := false
 	for {
 		ev, ok := stream.Next(ctx)
@@ -469,16 +490,16 @@ func (m *repairModel) complete(ctx context.Context, turns []assistant.Message, l
 			step.OutputTokens = ev.Usage.OutputTokens
 			step.UsageReported = true
 		}
+		if ev.ToolCall != nil {
+			calls = append(calls, *ev.ToolCall)
+		}
+		out.WriteString(ev.Delta)
 		if ev.Cut {
 			return "", nil, &outputCut{limit: limit}
 		}
 		if ev.Err != nil {
 			return "", nil, repairProviderError(ev.Err)
 		}
-		if ev.ToolCall != nil {
-			calls = append(calls, *ev.ToolCall)
-		}
-		out.WriteString(ev.Delta)
 		if out.Len() > prrepair.MaxReplyBytes {
 			return "", nil, fmt.Errorf("the model response exceeded the repair limit")
 		}
@@ -494,6 +515,17 @@ func (m *repairModel) complete(ctx context.Context, turns []assistant.Message, l
 		return "", nil, fmt.Errorf("the model response ended before completion")
 	}
 	return out.String(), calls, nil
+}
+
+// Redact before shortening: cutting a private key or token first could leave
+// an unrecognisable fragment in the stored diagnostic. Retain the model's text,
+// not its input source or hidden reasoning, within the existing reply bound.
+func repairDiagnosticText(raw string) (string, bool) {
+	safe, _ := redact.Text(strings.ToValidUTF8(raw, ""))
+	if len(safe) > prrepair.MaxReplyBytes {
+		return strings.ToValidUTF8(safe[:prrepair.MaxReplyBytes], ""), true
+	}
+	return safe, false
 }
 
 func repairCalls(calls []assistant.ToolCall) []prrepair.Call {
@@ -827,6 +859,12 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 	plan, err := prrepair.Generate(ctx, &repairModel{provider: p, model: provider.Model, kind: assistant.Kind(provider.Kind), maxTokens: provider.MaxOutputTokens, sourceUsed: func(n int) { r.Details.SourceBytes = n }, record: func(step store.EliRepairStep) {
 		r.Details.Steps = append(r.Details.Steps, step)
 		_ = c.persistEliRepair(ctx, r)
+	}, rejected: func(err error) {
+		if len(r.Details.Steps) > 0 {
+			last := &r.Details.Steps[len(r.Details.Steps)-1]
+			last.ValidationError, _ = repairDiagnosticText(err.Error())
+			_ = c.persistEliRepair(ctx, r)
+		}
 	}}, source, source.Snapshot, r.Instruction, policy.AllowWorkflows)
 	if err != nil {
 		failWith(err)
@@ -1056,6 +1094,8 @@ func repairFailureCode(message string) string {
 	// name such as read_file would otherwise read as a source failure.
 	case strings.Contains(message, "tool call"):
 		return "provider_unavailable"
+	case strings.Contains(message, "model did not return a valid repair plan"):
+		return "unsupported_fix"
 	case strings.Contains(message, "cannot pay") || strings.Contains(message, "out of credit"):
 		return "provider_billing"
 	case strings.Contains(message, "rate limit"):

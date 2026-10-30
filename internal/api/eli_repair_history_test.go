@@ -613,6 +613,14 @@ func TestGetEliRepairAnswersOwnersAdministratorsAndNobodyElse(t *testing.T) {
 	_, adminCookie := h.user("repair-admin", store.RoleAdmin)
 	ids := h.seedRepairs(t, inst, historyRow{owner: owner.ID, repo: inst.Target + "/repo", trigger: "mention", state: "failed"})
 	path := "/api/v1/assistant/repairs/" + ids[0]
+	row, err := h.st.GetEliRepair(h.ctx, ids[0], owner.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row.Details.Steps = []store.EliRepairStep{{ResponseRecorded: true, Response: `{"read":["private-source.go"]}`, ValidationError: "do not combine actions"}}
+	if err := h.st.SaveEliRepair(h.ctx, row); err != nil {
+		t.Fatal(err)
+	}
 
 	own := h.do(request{method: http.MethodGet, path: path, cookie: ownerCookie})
 	own.mustStatus(t, http.StatusOK, "the owner reads their repair")
@@ -624,6 +632,17 @@ func TestGetEliRepairAnswersOwnersAdministratorsAndNobodyElse(t *testing.T) {
 		t.Errorf("answered repair %q, want %q", got.ID, ids[0])
 	}
 	assertShape(t, loadSpec(t), "EliRepair", own.body)
+	if own.header.Get("Cache-Control") != "no-store" {
+		t.Fatal("source-bearing repair details can be cached")
+	}
+	if !strings.Contains(string(own.body), "private-source.go") || !strings.Contains(string(own.body), "do not combine actions") {
+		t.Fatal("the detail read lost the retained response or validation error")
+	}
+	history := h.do(request{method: http.MethodGet, path: "/api/v1/assistant/repairs", cookie: ownerCookie})
+	history.mustStatus(t, http.StatusOK, "reading history without source-bearing responses")
+	if strings.Contains(string(history.body), "private-source.go") {
+		t.Fatal("a history poll included model response source")
+	}
 
 	h.do(request{method: http.MethodGet, path: path, cookie: adminCookie}).mustStatus(t, http.StatusOK, "an administrator reads anyone's repair")
 

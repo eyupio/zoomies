@@ -47,7 +47,7 @@
         >Open pull request</Button
       >
     {/if}
-    <Button variant="ghost" href="/repairs/setup">Repair setup</Button>
+    <Button variant="ghost" href="/repairs/setup">Repair settings</Button>
   </div>
 </Panel>
 

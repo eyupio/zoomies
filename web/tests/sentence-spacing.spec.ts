@@ -22,9 +22,9 @@ function said(text: string): RegExp {
 
 test('the hosts summary keeps the space before the private hosts it counts', async ({ page }) => {
   await goto(page, '/hosts', 'Hosts');
-  await expect(page.locator('p.summary')).toContainText(
-    /runner\s+slots\s+in\s+use\s+·\s+\d+\s+via\s+Tailcat/,
-  );
+  // The line says only what no other figure on the page counts, so the private
+  // hosts are all that is left of it.
+  await expect(page.locator('p.summary')).toContainText(/\d+\s+hosts?\s+via\s+Tailcat/);
 });
 
 /**

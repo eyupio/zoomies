@@ -392,38 +392,52 @@
       />
     </div>
 
-    <Select
-      value={action}
-      options={actionOptions}
-      size="sm"
-      ariaLabel="Filter by action"
-      onchange={(value) => router.setQuery({ action: value || null, offset: null })}
-    />
-    <Select
-      value={targetKind}
-      options={kindOptions}
-      size="sm"
-      ariaLabel="Filter by the kind of thing acted on"
-      onchange={(value) => router.setQuery({ target_kind: value || null, offset: null })}
-    />
-    <Select
-      value={actorId}
-      options={actorOptions}
-      size="sm"
-      ariaLabel="Filter by actor"
-      onchange={(value) => router.setQuery({ actor_id: value || null, offset: null })}
-    />
-    <DateRange
-      {since}
-      {until}
-      label="Changed between"
-      onchange={(next) =>
-        router.setQuery({
-          since: next.since || null,
-          until: next.until || null,
-          offset: null,
-        })}
-    />
+    <!--
+      Sised and wrapped: a Select is as wide as the space it is given, so bare
+      in a wrapping row each one took a line of its own and the five controls
+      stood in a column about 170px tall. The Jobs page has put its filters in
+      one row all along, and this is the same bar.
+    -->
+    <div class="field">
+      <Select
+        value={action}
+        options={actionOptions}
+        size="sm"
+        ariaLabel="Filter by action"
+        onchange={(value) => router.setQuery({ action: value || null, offset: null })}
+      />
+    </div>
+    <div class="field">
+      <Select
+        value={targetKind}
+        options={kindOptions}
+        size="sm"
+        ariaLabel="Filter by the kind of thing acted on"
+        onchange={(value) => router.setQuery({ target_kind: value || null, offset: null })}
+      />
+    </div>
+    <div class="field">
+      <Select
+        value={actorId}
+        options={actorOptions}
+        size="sm"
+        ariaLabel="Filter by actor"
+        onchange={(value) => router.setQuery({ actor_id: value || null, offset: null })}
+      />
+    </div>
+    <div class="dates">
+      <DateRange
+        {since}
+        {until}
+        label="Changed between"
+        onchange={(next) =>
+          router.setQuery({
+            since: next.since || null,
+            until: next.until || null,
+            offset: null,
+          })}
+      />
+    </div>
   </FilterBar>
 
   <DataGrid
@@ -539,9 +553,17 @@
     gap: var(--z-space-4);
   }
   .search {
-    min-width: 240px;
-    flex: 1 1 240px;
-    max-width: 360px;
+    min-width: 12rem;
+    flex: 1 1 14rem;
+    max-width: 22rem;
+  }
+  .field {
+    flex: 0 1 11rem;
+    min-width: 8rem;
+  }
+  .dates {
+    flex: 0 1 auto;
+    min-width: 0;
   }
   /*
     max-width, because min-width alone does not do it. An inline-flex box inside

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   closeColumnPanel,
   goto,
@@ -7,7 +7,17 @@ import {
   useClassic,
 } from './support/fixtures';
 
-async function mission(page: import('@playwright/test').Page, prefs?: Record<string, unknown>) {
+/** Whether the named layout is the one pressed, read where the choice now lives: the column panel. */
+async function expectLayout(page: Page, name: 'Cards' | 'Rows'): Promise<void> {
+  const panel = await openColumnPanel(page);
+  await expect(panel.getByRole('button', { name: new RegExp(`^${name}\\b`) })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await closeColumnPanel(page);
+}
+
+async function mission(page: Page, prefs?: Record<string, unknown>) {
   await page.setViewportSize({ width: 375, height: 900 });
   await page.addInitScript((prefs) => {
     if (sessionStorage.getItem('layout-seeded')) return;
@@ -47,12 +57,7 @@ test('a fresh Mission Control phone shows job identity and Inspect before supple
 }) => {
   await mission(page);
   await goto(page, '/jobs', 'Jobs');
-  const panel = await openColumnPanel(page);
-  await expect(panel.getByRole('button', { name: /^Cards,/ })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await closeColumnPanel(page);
+  await expectLayout(page, 'Cards');
   const identity = page
     .locator('table[aria-label="Jobs"] tbody tr')
     .first()
@@ -81,14 +86,9 @@ for (const [label, prefs, chosen] of [
   test(`Mission Control preserves ${label}`, async ({ page }) => {
     await mission(page, prefs);
     await goto(page, '/jobs', 'Jobs');
-    const pressed = new RegExp(`^${chosen},`);
-    await expect(
-      (await openColumnPanel(page)).getByRole('button', { name: pressed }),
-    ).toHaveAttribute('aria-pressed', 'true');
+    await expectLayout(page, chosen as 'Cards' | 'Rows');
     await page.reload();
-    await expect(
-      (await openColumnPanel(page)).getByRole('button', { name: pressed }),
-    ).toHaveAttribute('aria-pressed', 'true');
+    await expectLayout(page, chosen as 'Cards' | 'Rows');
   });
 }
 
@@ -120,11 +120,7 @@ test('saving vocabulary does not turn a fresh style default into an explicit glo
     await page.evaluate(() => JSON.parse(localStorage.getItem('zoomies.prefs') || '{}').gridView),
   ).toBeUndefined();
   await goto(page, '/jobs', 'Jobs');
-  const panel = await openColumnPanel(page);
-  await expect(panel.getByRole('button', { name: /^Cards,/ })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expectLayout(page, 'Cards');
 });
 
 test('Classic shares the current-work-first overview and retains its Rows fallback', async ({
@@ -133,11 +129,7 @@ test('Classic shares the current-work-first overview and retains its Rows fallba
   await useClassic(page);
   await page.setViewportSize({ width: 375, height: 900 });
   await goto(page, '/jobs', 'Jobs');
-  const panel = await openColumnPanel(page);
-  await expect(panel.getByRole('button', { name: /^Rows,/ })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expectLayout(page, 'Rows');
   await expect(page.locator('details.advanced')).toHaveAttribute('open');
   await goto(page, '/', 'Overview');
   const history = page.locator('#history > summary');

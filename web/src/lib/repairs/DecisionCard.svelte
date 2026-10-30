@@ -126,7 +126,7 @@
       </div>
       <div class="buttons">
         <Button variant="primary" full loading={busy} onclick={onrecheck}>Try again</Button>
-        <Button variant="ghost" full onclick={onsetup}>Repair setup</Button>
+        <Button variant="ghost" full onclick={onsetup}>Set up repairs</Button>
       </div>
     {:else if stage === 'changed' && changed}
       <p class="muted">{changed.message}</p>
@@ -155,7 +155,7 @@
             {readiness.provider}
           {/if}
         </dd>
-        <dt>Attempts left</dt>
+        <dt>Tries left</dt>
         <dd>
           {#if readiness.reset_at}
             {readiness.remaining} today,
@@ -171,20 +171,19 @@
           <dd><code>{readiness.pull.branch}</code></dd>
         {/if}
       </dl>
+      <Button variant="primary" full loading={busy} onclick={onstart}>Fix with Eli</Button>
       {#if allowInstruction}
         <Field
-          label="Tell Eli what to look at"
-          hint="Optional. The failed checks are included automatically."
+          label="Add a note for Eli (optional)"
+          hint="The failed checks are included automatically."
         >
           {#snippet children({ id, describedBy })}
             <Textarea {id} {describedBy} bind:value={instruction} rows={3} />
           {/snippet}
         </Field>
       {/if}
-      <Button variant="primary" full loading={busy} onclick={onstart}>Fix with Eli</Button>
       <p class="fine">
-        Eli pushes one commit to the pull request branch, then watches CI. It never merges and never
-        force-pushes. You review the result like any other commit.
+        Eli pushes one commit, then watches CI. It never merges and never force-pushes.
       </p>
     {:else}
       {#if blocking}<p class="muted">{blocking.message}</p>{/if}
@@ -196,7 +195,7 @@
       {/if}
       <div class="buttons">
         {#if action?.kind === 'setup'}
-          <Button variant="primary" full onclick={onsetup}>Open repair setup</Button>
+          <Button variant="primary" full onclick={onsetup}>Set up repairs</Button>
           <Button variant="secondary" full loading={busy} onclick={onrecheck}>{recheckLabel}</Button
           >
         {:else if action?.kind === 'choose' && onchoose}
@@ -216,7 +215,7 @@
           {/if}
         {/if}
         {#if action?.kind !== 'setup'}
-          <Button variant="ghost" full onclick={onsetup}>Repair setup</Button>
+          <Button variant="ghost" full onclick={onsetup}>Set up repairs</Button>
         {/if}
       </div>
       <p class="fine">

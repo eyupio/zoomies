@@ -21,6 +21,7 @@
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
 
   /** The App avatar, at the size GitHub crops it to a circle. */
   const APP_LOGO = '/brand/app-logo.png';
@@ -58,6 +59,16 @@
 
   const status = $derived(installationStatus(installation.healthy));
   const pools = $derived(installation.pool_count ?? 0);
+  /** The API this connection talks to, in full, and its host on its own. */
+  const apiBase = $derived(installation.api_base_url || 'https://api.github.com');
+  const apiHost = $derived.by(() => {
+    try {
+      return new URL(apiBase).host;
+    } catch {
+      // Not a URL: show what the controller stored rather than nothing.
+      return apiBase;
+    }
+  });
   const low = $derived(
     rate?.remaining !== undefined && rate.limit ? rate.remaining / rate.limit < 0.1 : false,
   );
@@ -157,21 +168,34 @@
     </div>
     <div>
       <dt>API</dt>
+      <!--
+        The host rather than the whole URL: a column this narrow broke
+        `https://api.github.com` between "co" and "m", which reads as a typo in
+        the connection rather than as a wrap. The address in full is one hover
+        away, and is in the page for a screen reader either way.
+      -->
       <dd class="mono api">
-        {#if installation.enterprise}
-          <span class="with-icon"
-            ><Building2 size={13} aria-hidden="true" />{installation.api_base_url}</span
-          >
-        {:else}
-          {installation.api_base_url || 'https://api.github.com'}
-        {/if}
+        <Tooltip bare text={apiBase}>
+          <span class="with-icon">
+            {#if installation.enterprise}<Building2 size={13} aria-hidden="true" />{/if}
+            {apiHost}
+          </span>
+        </Tooltip>
       </dd>
     </div>
     <div>
       <dt>Pools</dt>
       <dd>
         {#if pools > 0}
-          <a href="/pools?installation={installation.id}">{pluralise(pools, 'pool')}</a>
+          <!--
+            The pools this connection answers for, as the Pools page's search
+            already finds them. The address used to be `?installation=<id>`,
+            which the Pools page never read: it opened every pool and said
+            nothing about which connection was being asked about.
+          -->
+          <a href={`/pools?q=${encodeURIComponent(installation.target ?? '')}`}
+            >{pluralise(pools, 'pool')}</a
+          >
         {:else}
           <span class="muted">None yet</span>
         {/if}

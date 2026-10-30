@@ -4,6 +4,7 @@ import {
   investigationText,
   providerWords,
   requestedBy,
+  responseText,
   timeline,
   tookMs,
 } from '../src/lib/repairs/attempt.ts';
@@ -84,8 +85,8 @@ test('the timeline holds the moments the repair recorded and no others', () => {
 });
 
 // What a person pastes into a bug report. It holds exact figures (not the
-// rounded ones the page shows) and ids, and it holds nothing the model said or
-// was shown: no case, no job names, no log lines.
+// rounded ones the page shows) and ids. Old calls explain that responses were
+// not kept, rather than pretending the provider answered with no text.
 test('the investigation details are exact, plain text and leave out what Eli read', () => {
   const text = investigationText(
     repair({
@@ -135,13 +136,41 @@ test('the investigation details are exact, plain text and leave out what Eli rea
       'Source supplied: 38912 bytes',
       'Model calls: 2',
       '  1. 21400 input tokens, 1800 output tokens, request 80312 bytes, 41000 ms',
+      '     Response:',
+      'Response not retained for this older call.',
       '  2. usage not reported, request 91234 bytes, 9000 ms',
+      '     Response:',
+      'Response not retained for this older call.',
       'Started: 2026-10-18T09:20:00Z',
       'Updated: 2026-10-18T09:24:00Z',
     ].join('\n'),
   );
   assert.ok(!text.includes('Retry transient'));
   assert.ok(!text.includes('Go (api-2)'));
+});
+
+test('copied investigations retain response text, truncation and rejection reasons', () => {
+  const step = {
+    input_tokens: 1,
+    output_tokens: 2,
+    usage_reported: true,
+    request_bytes: 100,
+    elapsed_ms: 20,
+    response_recorded: true,
+    response: '{"read":["a.go"],"edits":[...]}\n[redacted credential]',
+    response_truncated: true,
+    error: 'The provider cut the response',
+    validation_error: 'Do not combine source requests with changes',
+  };
+  const text = investigationText(repair({ details: { steps: [step] } }));
+  assert.ok(text.includes(step.response));
+  assert.ok(text.includes('Response (truncated):'));
+  assert.ok(text.includes(`Call error: ${step.error}`));
+  assert.ok(text.includes(`Validation error: ${step.validation_error}`));
+  assert.equal(
+    responseText({ ...step, response: '' }),
+    'The provider returned no response text or tool calls.',
+  );
 });
 
 test('the investigation details say nothing about what was not recorded', () => {

@@ -13,6 +13,13 @@
     /** The pool's `max_runners`. Also the scale, when it is set. */
     max?: number;
     label?: string;
+    /**
+     * Where the figures lead, for the caller that has somewhere for them to go:
+     * a pool's "three of eight busy" is the way into those eight runners. The
+     * bar stays plain, so the whole cell is not one large target that behaves
+     * differently from the row around it.
+     */
+    href?: string;
     /** Show the "3 of 4 busy" line under the bar. */
     showText?: boolean;
     /**
@@ -35,6 +42,7 @@
     min,
     max,
     label = 'Utilisation',
+    href,
     showText = true,
     tone = 'busy',
     height = 8,
@@ -70,12 +78,20 @@
   </div>
   {#if showText}
     <p class="text tabular">
-      <strong>{formatNumber(busy)}</strong> of {formatNumber(live)} busy
-      {#if live > 0}<span class="muted">· {formatPercent(busy / live)}</span>{/if}
-      {#if atCeiling}<span class="ceiling">· at the ceiling</span>{/if}
+      {#if href}
+        <a {href} onclick={(event) => event.stopPropagation()}>{@render figures()}</a>
+      {:else}
+        {@render figures()}
+      {/if}
     </p>
   {/if}
 </div>
+
+{#snippet figures()}
+  <strong>{formatNumber(busy)}</strong> of {formatNumber(live)} busy
+  {#if live > 0}<span class="muted">· {formatPercent(busy / live)}</span>{/if}
+  {#if atCeiling}<span class="ceiling">· at the ceiling</span>{/if}
+{/snippet}
 
 <style>
   .bar-wrap {
@@ -131,6 +147,17 @@
   .text strong {
     color: var(--z-text);
     font-weight: var(--z-weight-semibold);
+  }
+  /* The figures read as the line they are in until they are pointed at: the
+     underline is the whole affordance, and it appears on hover and on focus. */
+  .text a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .text a:hover,
+  .text a:focus-visible {
+    color: var(--z-accent);
+    text-decoration: underline;
   }
   .muted {
     color: var(--z-text-subtle);

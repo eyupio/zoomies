@@ -224,6 +224,32 @@ export function navGroupsFor(visitor: boolean): readonly NavGroup[] {
 }
 
 /**
+ * Pages that draw their own breadcrumb, and so must not be given a second one
+ * by the top bar.
+ *
+ * A detail page carries the trail in its own header, with the link back to the
+ * section and the page's name: the top bar repeating it put the same words on
+ * screen twice, and on a phone it was the top bar's copy that had to be cut to
+ * "Settings › App…". These are patterns rather than a list of addresses because
+ * a detail page is every id, and a new one should not have to remember to join
+ * a list to avoid the duplication.
+ */
+const OWNS_ITS_BREADCRUMB: readonly RegExp[] = [
+  /^\/hosts\/(new|[^/]+)$/,
+  /^\/pools\/(new|[^/]+)$/,
+  /^\/runners\/[^/]+$/,
+  /^\/providers\/(new|[^/]+)$/,
+  /^\/machines\/[^/]+$/,
+  /^\/repairs\/(new|setup|[^/]+)$/,
+  /^\/ai-context\/setup$/,
+];
+
+/** Whether the page draws the trail itself, and the top bar should keep quiet. */
+export function ownsItsBreadcrumb(path: string): boolean {
+  return OWNS_ITS_BREADCRUMB.some((pattern) => pattern.test(path));
+}
+
+/**
  * Pages that belong to a section without living under its path. The Jobs
  * list is the Workflows page one step down -- the same runs, opened out to
  * every job -- so the sidebar keeps Workflows lit while an operator is there.

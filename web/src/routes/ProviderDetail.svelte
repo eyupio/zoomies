@@ -384,7 +384,7 @@
 
     <TemplateAgent provider={p} {canAdmin} />
 
-    <TestMachine provider={p} {machines} {canOperate} />
+    <TestMachine provider={p} {machines} {canOperate} {rentingOff} />
 
     <RentingNotice {renting} {canAdmin} onchanged={refreshRenting} />
 

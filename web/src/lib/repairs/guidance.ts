@@ -16,11 +16,8 @@ export interface Guidance {
 }
 
 const UNSUPPORTED_FIX: Guidance = {
-  headline: 'Eli could not produce a fix it was willing to push',
-  steps: [
-    'Add a note that points at the file or the test, then try again.',
-    'Read the error output: the quickest fix may be yours.',
-  ],
+  headline: 'Eli could not find a fix it was willing to push',
+  steps: ['Add a note naming the file or the test, then try again.'],
 };
 
 /** What a repair that has not finished says: nothing is wrong, and nothing needs doing. */
@@ -64,7 +61,7 @@ const TABLE: Record<string, Guidance> = {
   },
   setup_needed: {
     headline: 'Eli’s access changed',
-    steps: ['Check repair setup.', 'Then check readiness again before asking for another attempt.'],
+    steps: ['Check repair settings, then ask again about this failure.'],
   },
   checks_failed: {
     headline: 'Eli pushed a commit and the checks still fail',

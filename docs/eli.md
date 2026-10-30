@@ -359,7 +359,7 @@ file.
 Both are off until someone asks for them, and nobody has to find Settings to do it.
 The Checkout preview page opens with a short card saying what turning them on
 allows. An administrator presses **Turn on workflow previews** and carries straight
-on; anyone else is told whom to ask and can copy the request. Repair setup offers the
+on; anyone else is told whom to ask and can copy the request. The repair page's setup offers the
 same choice as an unticked box, **Also let Zoomies preview workflow speed-ups**,
 because repairing a pull request does not need it. Nothing turns it on silently, and
 you can turn it off in Settings, under Optimisation.
@@ -612,19 +612,20 @@ installation provider leaves repository policies in place; automatic repairs sto
 ## Set up PR repairs
 
 The [repair UI tour](ui.md#eli-repairs) shows the four pages repairs live on:
-the hub, the repair page for one failure, a page for each repair, and setup. The
-history below uses labelled sample outcomes; no real PR was changed to produce
-these images. A stopped attempt explains what needs attention before you spend
-another attempt, while a passed repair still needs normal PR review.
+the hub, the repair page for one failure, a page for each repair, and repair
+settings. The history below uses labelled sample outcomes; no real PR was changed
+to produce these images. A stopped attempt explains what needs attention before
+you spend another attempt, while a passed repair still needs normal PR review.
 
-![Eli repairs: the Now line about setup, an empty Needs you, an open Automatic repairs panel with each repository's provider, allowance, latest repair and Stop automatic repairs, and History with each repair's pull request, failed job and when it ran, under an On this page navigation](screenshots/eli-repairs-dark.webp#only-dark){ .zoomies-shot }
-![Eli repairs: the Now line about setup, an empty Needs you, an open Automatic repairs panel with each repository's provider, allowance, latest repair and Stop automatic repairs, and History with each repair's pull request, failed job and when it ran, under an On this page navigation](screenshots/eli-repairs-light.webp#only-light){ .zoomies-shot }
+![Eli repairs: the section navigation, an empty Needs you, History with the latest repairs, and the Automatic repairs section closed below it](screenshots/eli-repairs-dark.webp#only-dark){ .zoomies-shot }
+![Eli repairs: the section navigation, an empty Needs you, History with the latest repairs, and the Automatic repairs section closed below it](screenshots/eli-repairs-light.webp#only-light){ .zoomies-shot }
 
-The hub opens on **Now**, with a sticky **On this page** navigation counting the
-offers, the running repairs and the automatic repositories. **Needs you** and
-**In progress** open when they hold work; **Automatic repairs** and **History**
-are closed summaries that say what is inside, and History opens by itself when
-nothing else needs a person. History's filter fields sit behind **Filters**.
+The hub opens on **Needs you**, with a sticky **On this page** navigation counting
+the failed pull requests that need a person, the running repairs and the
+history. **Needs you** and **In progress** open when they hold work; **History**
+and the administrator's **Automatic repairs** section are closed summaries, one
+press away. History's filter fields sit behind **Filters**. A setup line appears
+only when the person cannot repair yet.
 
 From **Recent failures**, click the failure summary to inspect its failed step,
 explanation and timeline, or choose **Fix with Eli**. Eli repairs a pull
@@ -633,16 +634,17 @@ offered for a failure of a run that no pull request started (a push to the
 default branch, a merge, a schedule or a manual run). The controller reads what
 started each failed run from GitHub, so a failure it has not read yet is still
 offered, and the repair page says why if it turns out not to be a pull request's.
-The repair page opens with the next step first and an **On this page**
-navigation for the next step, the setup when it is needed, the failure and the
-checks. It names the pull request, its branch, the commit and the run, each
-linked to GitHub, lists every failed job with the step it stopped at, and checks
-readiness without invoking a model. A run this fleet did not run, so it has
-nothing recorded of, is named as GitHub reports it: `Fix with Eli` works for
-a job that never touched this fleet's runners, and the error output is read from
-GitHub when the job is opened. The checks show the blocked rows first, with
-**Show all 9 checks** for the rest. A person decides to spend an attempt once
-they can see what it would be spent on, so **Fix with Eli** is on that page.
+The repair page opens with the decision card beside the failure and an **On this
+page** navigation for the next step, the setup when it is needed and the failure.
+It names the pull request, its branch, the commit and the run, each linked to
+GitHub, lists every failed job with the step it stopped at, and checks readiness
+without invoking a model. A run this fleet did not run, so it has nothing
+recorded of, is named as GitHub reports it: `Fix with Eli` works for a job that
+never touched this fleet's runners, and the error output is read from GitHub when
+the job is opened. **Can Eli act on this?** appears only when something is
+blocked, showing the blocked rows first with **Show all 9 checks** for the rest.
+A person decides to spend an attempt once they can see what it would be spent
+on, so **Fix with Eli** is on that page, immediately under the case.
 Missing account or repository setup opens the missing setup inline, under the
 decision that needs it. It reuses existing settings; an administrator can link
 their own GitHub account and enable manual repairs in one save, with five
@@ -673,21 +675,22 @@ The wizard below uses a sample failure; no real PR was changed.
 
 For advanced setup across repositories:
 
-1. Open **Eli repairs** from the navigation and choose **Setup**, or use **Fix
-   with Eli** beside a failed job. **Repair a PR** takes a pasted PR link and
-   checks readiness without invoking a model.
-2. On the setup page, in **Repository repair policies**, choose a GitHub
-   installation, search its
-   repositories and select the ones to enable together. Owner and installation
-   details come from discovery. Each selected repository reports its own save result.
+1. Open **Eli repairs** from the navigation and choose **Repair settings**, or
+   use **Fix with Eli** beside a failed job. **Fix a failed check** lists recent
+   failures and checks readiness without invoking a model; **Paste a pull request
+   link** is the fallback.
+2. On the settings page, in **Repairs in these repositories**, choose a GitHub
+   installation, search its repositories and select the ones to enable together.
+   Owner and installation details come from discovery. Each selected repository
+   reports its own save result.
 3. Choose **Ask me first**, **Manual only** or **Automatic**. New setup recommends
    Ask me first; existing policies retain their behaviour. The enable switch turns
    a policy off. Only Automatic requires an installation provider.
-   The setup page has its own **On this page** navigation for the account, the
-   repositories, the allowance and the account link.
-4. Set the attempt budget, from 1 to 50 per rolling 24 hours. Explicit and
-   automatic attempts share this repository budget. Each personal account also
-   has a limit of 10 explicit attempts per rolling 24 hours.
+   The settings page has its own **On this page** navigation for the account, the
+   repositories and the people.
+4. Set the try budget, from 1 to 50 per rolling 24 hours, under **Advanced**.
+   Explicit and automatic tries share this repository budget. Each personal
+   account also has a limit of 10 explicit tries per rolling 24 hours.
 5. An administrator verifies account ownership, selects the Zoomies user and a
    discovered repository where their GitHub account has write permission, then
    links the account once. Each requester confirms **Allow this GitHub account to
@@ -784,7 +787,7 @@ what should happen instead. **Ask me first** hands the decision back: when check
 fail Eli offers a repair under *Needs you* and waits, and the repository keeps its
 provider, allowance and workflow setting. **Turn repairs off** clears the policy's
 enable switch and nothing else, so Eli neither offers nor starts a repair there
-and nobody can request one until the switch is turned back on in repair setup,
+and nobody can request one until the switch is turned back on in repair settings,
 which resumes Automatic as it was. Either way, a repair already queued is blocked
 when the worker reaches it, and one that has not pushed yet stops before it
 changes the branch; one that has pushed carries on watching its checks. The stop
@@ -815,7 +818,10 @@ The durable queue deduplicates webhook retries and charges attempts at
 admission. The worker reads the PR's pinned commit, changed text files, repository
 inventory and bounded failed-job evidence. It asks the selected model for a
 strict JSON plan, with at most twelve model turns and eight changed files. Each
-turn tells the model how many replies remain and asks it to batch related reads.
+turn tells the model how many replies remain and asks it to batch related reads,
+with at most eight file or window requests per turn. A turn requests source,
+proposes a fix, or explains why it cannot fix the failure; it cannot mix these
+actions. A fix uses targeted edits or complete file replacements, never both.
 The final turn must propose a fix from the supplied source or explain why it
 cannot fix the failure; a further read request ends the attempt without fetching
 source that no later turn could use. Text blobs
@@ -945,10 +951,32 @@ wrap the object in a sentence or a code fence, add a key the repair has no use
 for, or write the file they want to read and the window they want as two objects
 in one answer. Eli reads the JSON objects it knows, merges two that only ask for
 source, and asks the model to correct a reply it still cannot read with the
-model's own words in view. A model that cannot answer after those attempts stops
-the repair, and the comment says its reply was not a repair plan.
+model's own words in view. Valid JSON that mixes actions or requests more than
+eight files and windows receives the same correction, with the specific reason,
+before any of that step's source is read or changes are applied. Eli allows two
+consecutive correction attempts, shared with malformed replies, within the
+twelve-turn limit. A model that cannot answer after those attempts stops the
+repair, and the comment names the reply problem.
 
 ### What a repair remembers
+
+A repair retains each model call's response, tool call names and arguments,
+provider error and any reply-format validation error. Open **Technical details**
+on the attempt page to read or copy one response, or use **Copy investigation
+details** to copy the responses with the attempt's exact usage figures and errors.
+Partial output is kept when a provider cuts off or fails. A response with no text
+is distinguished from an older attempt whose response was never retained.
+Responses are plain text, not rendered HTML or executed tool calls. Recognised
+credentials and email addresses are removed before storage, then each response
+is capped at 96 KiB with an explicit truncation notice. Redaction cannot recognise
+every secret, and a response may quote private source, so review the text before
+sharing it. Responses follow the repair's existing owner and administrator access
+rules; the input prompt and hidden model reasoning are not retained.
+
+An example of a rejected reply, with its validation reason and copy controls:
+
+![A model response with its validation error and copy buttons](screenshots/eli-repair-response-dark.webp#only-dark){ .zoomies-shot }
+![A model response with its validation error and copy buttons](screenshots/eli-repair-response-light.webp#only-light){ .zoomies-shot }
 
 A repair keeps what it was about. When it starts it records the run whose failure
 you were looking at, and a short summary of the failure: the pull request's
