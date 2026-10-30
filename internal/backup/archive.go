@@ -145,6 +145,9 @@ type UnpackOptions struct {
 	// MaxBytes bounds the unpacked database, so an archive that claims a
 	// terabyte is refused before it fills the disk. Zero is unbounded.
 	MaxBytes int64
+	// Uncompressed reads a plain tar rather than the gzipped archive
+	// WriteArchive writes. A stored object says which it is in its header.
+	Uncompressed bool
 	// Now is the clock; nil uses the wall clock.
 	Now func() time.Time
 }
@@ -173,13 +176,16 @@ func Unpack(ctx context.Context, root string, r io.Reader, opts UnpackOptions) (
 	}
 	defer os.RemoveAll(staging)
 
-	gz, err := gzip.NewReader(r)
-	if err != nil {
-		return nil, fmt.Errorf("backup: this is not a gzipped archive: %w", err)
+	var inflated io.Reader = r
+	if !opts.Uncompressed {
+		gz, err := gzip.NewReader(r)
+		if err != nil {
+			return nil, fmt.Errorf("backup: this is not a gzipped archive: %w", err)
+		}
+		inflated = gz
 	}
-	var inflated io.Reader = gz
 	if opts.MaxBytes > 0 {
-		inflated = &transferLimitReader{r: gz, left: opts.MaxBytes + (3 << 20)}
+		inflated = &transferLimitReader{r: inflated, left: opts.MaxBytes + (3 << 20)}
 	}
 	tr := tar.NewReader(inflated)
 	seen := map[string]bool{}

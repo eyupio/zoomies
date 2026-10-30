@@ -537,11 +537,14 @@ func (s *Server) uploadSnapshot(w http.ResponseWriter, r *http.Request, transfer
 	}
 
 	if !transfer {
-		if isZip, _ := backup.IsBundle(spool); isZip {
-			if _, err := spool.Seek(0, io.SeekStart); err != nil {
-				s.internal(w, r, "reading the spooled upload", err)
-				return
-			}
+		isZip, _ := backup.IsBundle(spool)
+		// Probing reads ahead through a buffered reader. Rewind whatever it
+		// found, or a legacy tar upload starts at the wrong byte.
+		if _, err := spool.Seek(0, io.SeekStart); err != nil {
+			s.internal(w, r, "reading the spooled upload", err)
+			return
+		}
+		if isZip {
 			info, err := spool.Stat()
 			if err != nil {
 				s.internal(w, r, "reading the spooled upload", err)

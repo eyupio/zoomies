@@ -516,6 +516,14 @@ func TestANewBackupIsOneObjectNamedForItsCompression(t *testing.T) {
 	if uncompressed.Key != "fleet/"+second.ID+".enc" {
 		t.Errorf("an uncompressed copy is stored at %q", uncompressed.Key)
 	}
+	root := t.TempDir()
+	fetched, err := plain.Fetch(ctx, root, second.ID, FetchOptions{})
+	if err != nil {
+		t.Fatalf("Fetch uncompressed: %v", err)
+	}
+	if v, err := Verify(ctx, root, fetched.ID); err != nil || !v.OK {
+		t.Errorf("an uncompressed copy does not verify: %+v, %v", v, err)
+	}
 }
 
 // The header is the only thing a reader trusts before it sees the payload, so

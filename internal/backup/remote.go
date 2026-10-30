@@ -595,7 +595,8 @@ func (r *Remote) fetchObject(ctx context.Context, root string, body io.Reader, o
 		return nil, r.explain(err, om.Target)
 	}
 	entry, err := Unpack(ctx, root, plain, UnpackOptions{
-		Source: SourceFetched, TakenBy: opts.TakenBy, MaxBytes: opts.MaxBytes, Now: opts.Now,
+		Source: SourceFetched, TakenBy: opts.TakenBy, MaxBytes: opts.MaxBytes,
+		Uncompressed: om.Compression == "", Now: opts.Now,
 	})
 	if err != nil {
 		return nil, r.explain(err, om.Target)

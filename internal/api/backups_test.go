@@ -158,6 +158,31 @@ func TestADownloadRoundTripsThroughAnUploadPlainAndEncrypted(t *testing.T) {
 	}
 }
 
+// An older tar archive still uploads after the handler probes whether the
+// file is one of the new zips: the probe must not leave the spool past the
+// gzip header.
+func TestAnOlderTarArchiveStillUploads(t *testing.T) {
+	h := newHarness(t)
+	cookie := h.platform()
+	taken := h.takeBackup(t, cookie)
+
+	entry, err := backup.Get(h.ctrl.BackupDir(), taken.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	var archive bytes.Buffer
+	if err := backup.WriteArchive(&archive, entry); err != nil {
+		t.Fatalf("WriteArchive: %v", err)
+	}
+	up := h.upload(t, cookie, "backup.tar.gz", archive.Bytes(), "")
+	up.mustStatus(t, http.StatusCreated, "legacy tar upload")
+	var uploaded backupView
+	up.into(t, &uploaded)
+	if uploaded.Source != backup.SourceUploaded || !strings.HasPrefix(uploaded.ID, taken.ID) {
+		t.Errorf("the legacy archive landed as %+v", uploaded)
+	}
+}
+
 // Garbage in is refused as garbage, and nothing lands in the directory.
 func TestAnUploadThatIsNotABackupIsRefused(t *testing.T) {
 	h := newHarness(t)
