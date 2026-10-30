@@ -475,7 +475,9 @@ test('opening /repairs/new without a target presents the inline pull request fie
   await mockRepairApi(page, { jobs: [failedJob()], readiness: readiness() });
   await page.goto('/repairs/new');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByLabel('Pull request').fill('https://github.com/acme/gadgets/pull/9');
+  await page
+    .getByLabel('Pull request', { exact: true })
+    .fill('https://github.com/acme/gadgets/pull/9');
   await page.getByRole('button', { name: 'Check this pull request' }).click();
   await expect(page).toHaveURL(/\/repairs\/new\?repo=acme%2Fgadgets&pull=9$/);
 });
