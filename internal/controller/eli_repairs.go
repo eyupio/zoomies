@@ -46,16 +46,20 @@ func (c *Controller) enqueueRepairWebhook(ctx context.Context, inst *store.Insta
 		return errMalformedDelivery
 	}
 	policy, err := c.repairPolicy(ctx, envelope.Repository.FullName, inst.ID)
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, store.ErrNotFound) && event != "issue_comment" {
 		return nil
 	}
-	if err != nil {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
-	r := &store.EliRepair{InstallationID: inst.ID, Repo: policy.Repo, ProviderID: policy.ProviderID}
+	r := &store.EliRepair{InstallationID: inst.ID, Repo: envelope.Repository.FullName}
+	if policy != nil {
+		r.ProviderID = policy.ProviderID
+	}
 	// refuse is set for a command a person typed, and answers it on the PR. The
 	// other triggers have nobody to answer.
 	var refuse func(reason string)
+	var acknowledge func()
 	switch event {
 	case "issue_comment":
 		var p struct {
@@ -135,6 +139,19 @@ func (c *Controller) enqueueRepairWebhook(ctx context.Context, inst *store.Insta
 		commentID, pull, login := p.Comment.ID, p.Issue.Number, p.Comment.User.Login
 		refuse = func(reason string) {
 			c.refuseRepairCommand(ctx, client, r.Repo, pull, commentID, reason)
+		}
+		acknowledge = func() {
+			ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			if err := client.RepairReact(ackCtx, r.Repo, commentID, "eyes"); err != nil {
+				c.log.Warn("could not react to the queued repair request", "repair", r.ID)
+			}
+		}
+		// A missing policy used to swallow even a maintainer's command. Check
+		// write permission first so only someone who may ask gets setup advice.
+		if policy == nil {
+			refuse("Eli repairs are not enabled for this repository and GitHub installation. Ask a Zoomies administrator to open Eli repairs, choose Repair settings, and enable this repository under **Repairs in these repositories**. Manual only is enough for `/eli fix`.")
+			return nil
 		}
 		if r.UserID == "" {
 			if linked {
@@ -226,13 +243,18 @@ func (c *Controller) enqueueRepairWebhook(ctx context.Context, inst *store.Insta
 	default:
 		return nil
 	}
-	_, err = c.st.EnqueueEliRepair(ctx, r, policy.DailyLimit)
+	added, err := c.st.EnqueueEliRepair(ctx, r, policy.DailyLimit)
 	if errors.Is(err, store.ErrConflict) {
 		c.log.Info("Eli repair budget reached", "repo", r.Repo, "trigger", r.Trigger)
 		if refuse != nil {
 			refuse(repairBudgetReason(err, policy.DailyLimit))
 		}
 		return nil
+	}
+	if err == nil && added && acknowledge != nil {
+		// The worker can be busy with another repair for several minutes. Say
+		// the request arrived before waiting for it to reach the front of the queue.
+		acknowledge()
 	}
 	return err
 }

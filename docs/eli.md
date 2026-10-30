@@ -741,10 +741,15 @@ Commands must begin a line outside a quote or code block. Only new comments by
 human users trigger a repair. Edited comments, ordinary issues and bots do not.
 Both triggers use the existing signed webhook endpoint.
 
+A newly queued command gets an eyes reaction straight away, even while Eli is
+busy with another repair. Redelivering the same comment does not queue another
+attempt.
+
 A command from someone with write access that Eli cannot act on is answered, not
 dropped: Eli puts a confused face on the comment and replies on the PR with the
-reason. The reason is one of these: the GitHub account is not linked to a Zoomies
-user, or its owner has not allowed it; the Zoomies account is disabled; or the
+reason. The reason is one of these: repairs are not enabled for this repository
+and installation; the GitHub account is not linked to a Zoomies user, or its
+owner has not allowed it; the Zoomies account is disabled; or the
 repository's attempt budget or the person's own limit is used up. A command from
 anyone without write access is ignored without a word, so a stranger's comment
 never makes the App post. The repository budget is shared with automatic repairs,
