@@ -16,7 +16,6 @@
   import FirstRun from '$lib/overview/FirstRun.svelte';
   import FleetStatus from '$lib/overview/FleetStatus.svelte';
   import FleetActivity from '$lib/overview/FleetActivity.svelte';
-  import FleetMetrics from '$lib/overview/FleetMetrics.svelte';
   import PoolUtilisation from '$lib/overview/PoolUtilisation.svelte';
   import ProblemsSummary from '$lib/overview/ProblemsSummary.svelte';
   import RecentFailures from '$lib/overview/RecentFailures.svelte';
@@ -245,7 +244,6 @@
           </div>
           {#if !setupPending}<RecentFailures bind:this={failures} />{/if}<RepairOffers />
         </div>
-        <FleetMetrics {loading} />
       </section>
       <div class="work">
         <div class="primary">

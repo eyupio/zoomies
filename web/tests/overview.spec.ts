@@ -62,10 +62,10 @@ test('the four metric tiles carry the numbers the fleet is judged on', async ({ 
   await expect(wait).toBeVisible();
   await expect(wait.getByText(DURATION)).toBeVisible();
 
-  // Each tile lands on the rows it counted. The live figure is the four live
+  // Each figure lands on the rows it counted. The live figure is the four live
   // states and not the removed history a bare /runners would include, and a
-  // queue wait is only measured on a job that finished, so the wait tile asks
-  // for the completed ones in the hour the sparkline drew.
+  // queue wait is only measured on a job that finished, so the wait figure asks
+  // for the completed ones in the window the controller reported.
   await expect(page.getByRole('link', { name: /^Live runners/ })).toHaveAttribute(
     'href',
     /^\/runners\?state=provisioning&state=registering&state=idle&state=busy#runners-list$/,
@@ -168,20 +168,27 @@ test('the running tile lands on the busy runners themselves', async ({ page }) =
   await expect(page.locator('#runners-list')).toBeFocused();
 });
 
-test('each trend tile carries a described sparkline', async ({ page }) => {
-  // The wait tile is deliberately excluded: its series is built from live
-  // `stats` frames rather than from GET /samples, so on a freshly started
-  // controller it has one point and correctly draws no line.
-  for (const label of ['Queued jobs', 'Running jobs', 'Live runners']) {
-    const tile = page.getByRole('link', { name: new RegExp(`^${label}`) });
-    const sparkline = tile.getByRole('img');
-    await expect(sparkline, `${label} has a sparkline`).toBeVisible();
-    // The description is the whole point: a line nobody can read is not data.
-    await expect(sparkline).toHaveAttribute(
-      'aria-label',
-      new RegExp(`^${label}: .+ now, .+ at the start of the window, peaking at .+`),
-    );
+/*
+ * The four figures are the band's own figures, as on every other page that
+ * opens on one, and not a second row of numbers under the hero. Moving them
+ * there gives the page back a row of height, and a figure in a band is a way
+ * into the records it counts rather than a card that happens to be a link. A
+ * phone never draws the band, so it gets the same figures as a plain panel.
+ */
+test('the Overview carries the four figures in one strip, each a way into its records', async ({
+  page,
+}) => {
+  const figures = page.getByRole('list', { name: 'Key figures' });
+  for (const label of ['Queued jobs', 'Running jobs', 'Live runners', 'Median queue wait']) {
+    await expect(
+      figures.getByRole('link', { name: new RegExp(`^${label}`) }),
+      `${label} is in the Overview figures`,
+    ).toBeVisible();
   }
+  // The p95 and the capacity are context the figure cannot carry in its number,
+  // and they are on the page rather than only in the tooltip.
+  await expect(figures).toContainText(/p95/);
+  await expect(figures).toContainText(/slots on/);
 });
 
 /** Open the problems drawer the way an operator does: from the top bar. */
@@ -588,10 +595,10 @@ test("the job panels are this fleet's work, and say so when they are not", async
 
 test('the subtitle names the window the figures actually cover', async ({ page }) => {
   // The page used to promise that "trends and waits cover the last hour". The
-  // trends do; the waits and the outcomes are computed over the controller's
-  // stats window, a day by default, so the sentence described a figure the page
-  // was not showing. It comes from the payload now, which is the only way it
-  // stays true when the window is not the default.
+  // waits and the outcomes are computed over the controller's stats window, a
+  // day by default, so the sentence described a figure the page was not
+  // showing. It comes from the payload now, which is the only way it stays true
+  // when the window is not the default.
   const stats = (await page.request.get('/api/v1/stats').then((r) => r.json())) as Record<
     string,
     unknown
@@ -615,10 +622,7 @@ test('the subtitle names the window the figures actually cover', async ({ page }
 
   await goto(page, '/', 'Overview');
   const subtitle = page.locator('.coverage');
-  await expect(subtitle).toContainText('the last 6 hours');
-  await expect(subtitle, 'the sparklines are still an hour, and say so separately').toContainText(
-    'Trends cover the last hour',
-  );
+  await expect(subtitle).toContainText('Waits and outcomes cover the last 6 hours');
 });
 
 /*

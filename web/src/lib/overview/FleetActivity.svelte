@@ -9,9 +9,8 @@
   costs no request and a year is always twelve months. A different range is
   a different window and a different width of square, and is fetched afresh.
   The stream keeps today moving: every `job.updated` frame is folded into the
-  square its moment belongs to, the way the metric tiles fold `stats` frames
-  into their sparklines, and a reconnect ends in one reconciling fetch for the
-  same reason it does everywhere else -- the replay buffer is finite.
+  square its moment belongs to, and a reconnect ends in one reconciling fetch
+  for the same reason it does everywhere else -- the replay buffer is finite.
 
   Two things a fetch-once panel would otherwise get wrong. A tab left open
   past midnight would have no square for the new day and would count nothing

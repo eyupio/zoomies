@@ -97,7 +97,7 @@
   /**
    * A job has run on this fleet: running now, or finished within the window.
    *
-   * It reads the fleet's own counters -- the ones the tiles below show while
+   * It reads the fleet's own counters -- the ones the band's figures show while
    * "Other runners" is off -- and not the unscoped totals, which count every job
    * GitHub reports for the organisation. On any organisation with other CI those
    * are non-zero from the first webhook after GitHub is connected, and the
@@ -411,7 +411,7 @@
 <style>
   /*
     Accent-tinted rather than a plain surface: this is the one thing on the page
-    asking for attention, and it has to win against four metric tiles without
+    asking for attention, and it has to win against the band's four figures without
     borrowing a status colour operators have learned to read as a fleet state.
   */
   .firstrun {
