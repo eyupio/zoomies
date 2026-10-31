@@ -167,8 +167,8 @@ the evidence. A band is Zoomies Black in both themes and uses only neutral white
 the brand's blue.
 
 A band comes in four sizes, from **Slim** (the shortest)
-through **Compact** and **Standard** to **Expanded** (the tallest). The Overview
-defaults to Standard and every other page to Compact. The sizes are on the band
+through **Compact** and **Standard** to **Expanded** (the tallest). Every page
+defaults to Slim, the Overview's hero included. The sizes are on the band
 itself, as Eli's panel sizes are. Pressing one asks where it should land: this
 page, a set of pages picked one at a time, or every page. The choice is per page,
 listening to that answer, and follows the signed-in account, so a band set at the

@@ -32,43 +32,43 @@ test('a cut applies to the pages a change was scoped to, and only those', () => 
   assert.equal(prefs.bandSize('pools'), 'compact');
   assert.equal(prefs.bandSize('jobs'), 'compact');
   assert.equal(prefs.bandSize('hosts'), 'slim');
-  assert.equal(prefs.bandSize('overview'), 'standard');
+  assert.equal(prefs.bandSize('overview'), 'slim');
 
   // Choosing a page's own default again lets it follow the default if it moves.
   prefs.applyBandSize(['runners'], 'slim');
   assert.equal(prefs.bandSize('runners'), 'slim');
 });
 
-test('the dog can be changed or removed per page, and put back on the default', () => {
-  assert.equal(prefs.bandLogoShown('jobs'), true);
+test('the dog can be changed or added per page, and put back on the default', () => {
+  assert.equal(prefs.bandLogoShown('jobs'), false);
   assert.equal(prefs.bandLogoSizeFor('jobs'), 'auto');
   assert.equal(prefs.bandLogoCustom('jobs'), false);
 
-  prefs.applyBandLogo(['jobs', 'queue'], { shown: false, size: 'large' });
-  assert.equal(prefs.bandLogoShown('jobs'), false);
-  assert.equal(prefs.bandLogoShown('queue'), false);
+  prefs.applyBandLogo(['jobs', 'queue'], { shown: true, size: 'large' });
+  assert.equal(prefs.bandLogoShown('jobs'), true);
+  assert.equal(prefs.bandLogoShown('queue'), true);
   assert.equal(prefs.bandLogoSizeFor('jobs'), 'large');
   assert.equal(prefs.bandLogoCustom('jobs'), true);
   // The pages that were not in the scope are untouched.
-  assert.equal(prefs.bandLogoShown('hosts'), true);
+  assert.equal(prefs.bandLogoShown('hosts'), false);
 
   prefs.clearBandLogoOverride('jobs');
-  assert.equal(prefs.bandLogoShown('jobs'), true);
+  assert.equal(prefs.bandLogoShown('jobs'), false);
   assert.equal(prefs.bandLogoSizeFor('jobs'), 'auto');
   assert.equal(prefs.bandLogoCustom('jobs'), false);
   // Queue still has its own, which is what a per-page reset means.
-  assert.equal(prefs.bandLogoShown('queue'), false);
+  assert.equal(prefs.bandLogoShown('queue'), true);
 });
 
 // The switch in Appearance says "Show the logo in the band", not "the default
 // for pages that have not chosen": it has to be true of every page when pressed.
 test('changing the dog in Appearance puts every page back in step', () => {
-  prefs.applyBandLogo(['jobs'], { shown: false, size: 'auto' });
+  prefs.applyBandLogo(['jobs'], { shown: true, size: 'auto' });
   assert.equal(prefs.bandLogoCustom('jobs'), true);
 
-  prefs.bandLogo = true;
+  prefs.bandLogo = false;
   assert.equal(prefs.bandLogoCustom('jobs'), false);
-  assert.equal(prefs.bandLogoShown('jobs'), true);
+  assert.equal(prefs.bandLogoShown('jobs'), false);
 
   prefs.applyBandLogoSize(['hosts'], 'large');
   assert.equal(prefs.bandLogoCustom('hosts'), true);

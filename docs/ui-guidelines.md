@@ -676,9 +676,10 @@ chosen per page from the band itself or in Appearance; a size pressed on a band
 asks where it lands (this page, pages picked one at a time, or every page), so
 one deliberate answer serves every page that needs it. Each is switched off per
 page in Appearance (a list of hidden pages, so a band added later is on), and a
-phone never shows one. A band's dog can be hidden, or drawn at a chosen size
-(Auto follows the band's own size; Small, Medium and Large pin it); pressing the
-dog opens the same panel, with the same question about where. The choices follow
+phone never shows one. A band's dog is off by default, giving the sentence the
+whole band, and can be switched on or drawn at a chosen size in Appearance (Auto
+follows the band's own size; Small, Medium and Large pin it); pressing the dog
+opens the same panel, with the same question about where. The choices follow
 the signed-in account, with the browser as the fallback. A figure a band carries
 is a way into the evidence it counts: pressing it narrows the list on this page
 and takes the reader to it, or opens the page that holds the list at that list,
