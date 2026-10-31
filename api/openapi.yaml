@@ -16125,7 +16125,15 @@ components:
         model: { type: string }
         allow_workflows: { type: boolean }
         remaining: { type: integer }
-        reset_at: { type: string, format: date-time }
+        reset_at:
+          type: string
+          format: date-time
+          description: >-
+            When the allowance next changes in the person's favour: the instant
+            the oldest attempt in whichever of the repository's and the person's
+            windows has least room leaves it. When both are full it is the later
+            of the two, because a place needs both. Absent when nothing has been
+            spent or the allowance could not be read.
         policy_mode:
           type: string
           enum: [automatic, ask_first, manual]

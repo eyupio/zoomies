@@ -19,7 +19,13 @@
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Textarea from '$lib/components/Textarea.svelte';
   import type { Schemas } from '$lib/api/types';
-  import { blockedHeadline, blockingRow, couldNotCheck, type CheckRow } from './checks';
+  import {
+    allowanceWait,
+    blockedHeadline,
+    blockingRow,
+    couldNotCheck,
+    type CheckRow,
+  } from './checks';
   import { safeHttpUrl } from './links';
   import { changedBlocker, type WorkspaceStage } from './workspace';
 
@@ -193,6 +199,13 @@
           run has no eligible PR.
         </p>
       {/if}
+      {#if blocking?.code === 'budget' && readiness}
+        <p class="muted">{allowanceWait(readiness.reset_at)}</p>
+        <p class="muted">
+          You can still fix this by hand and push, or rerun the failed job on GitHub if it looks
+          flaky. Checking again never uses an attempt.
+        </p>
+      {/if}
       <div class="buttons">
         {#if action?.kind === 'setup'}
           <Button variant="primary" full onclick={onsetup}>Set up repairs</Button>
@@ -208,6 +221,9 @@
           >
         {:else}
           <Button variant="primary" full loading={busy} onclick={onrecheck}>{recheckLabel}</Button>
+          {#if blocking?.code === 'budget'}
+            <Button variant="secondary" full href="/repairs">See repair history</Button>
+          {/if}
           {#if action?.kind === 'link' && actionLink}
             <Button variant="secondary" full href={actionLink} newTab iconAfter={ExternalLink}
               >{action.label}</Button
@@ -215,13 +231,23 @@
           {/if}
         {/if}
         {#if action?.kind !== 'setup'}
-          <Button variant="ghost" full onclick={onsetup}>Set up repairs</Button>
+          {#if blocking?.code === 'budget'}
+            <Button variant="ghost" full href="/repairs/setup">Repair settings</Button>
+          {:else}
+            <Button variant="ghost" full onclick={onsetup}>Set up repairs</Button>
+          {/if}
         {/if}
       </div>
-      <p class="fine">
-        Nothing has been spent. Checking again never uses an attempt, and once this is fixed the
-        page shows what Eli will do and a Fix with Eli button.
-      </p>
+      {#if blocking?.code === 'budget'}
+        <p class="fine">
+          This page will offer Fix with Eli again as soon as the allowance has a place.
+        </p>
+      {:else}
+        <p class="fine">
+          Nothing has been spent. Checking again never uses an attempt, and once this is fixed the
+          page shows what Eli will do and a Fix with Eli button.
+        </p>
+      {/if}
     {/if}
   </div>
 </section>

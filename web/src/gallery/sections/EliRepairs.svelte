@@ -233,13 +233,21 @@
     installation: 'eyupio/zoomies is served by the eyupio GitHub installation.',
     access: '@dana can write to eyupio/zoomies.',
     policy: 'Manual repair is on for this repository. Workflow file edits are off.',
-    budget: '4 attempts left today.',
+    budget: '4 attempts left in the 24-hour window.',
     pull: 'Pull request #1131 is open and its head is a41c9e2.',
     checks: 'The latest checks are still failing.',
     permissions:
       'Contents and pull requests write, and actions, checks and commit statuses read, are granted.',
   };
   const ACCESS = 'Your linked GitHub account needs write access to this repository.';
+  const BUDGET =
+    'This repository has used all 5 repairs allowed in 24 hours. The next attempt can start once the oldest of them leaves the window.';
+  const spentChecks: Check[] = ORDER.map((code, i): Check => {
+    const at = ORDER.indexOf('budget');
+    if (i < at) return { code, status: 'ok', message: MESSAGES[code] };
+    if (i === at) return { code, status: 'blocked', message: BUDGET, blocker: 'budget' };
+    return { code, status: 'unchecked', message: 'Not checked yet.' };
+  });
   const blockedChecks: Check[] = ORDER.map((code, i): Check => {
     const at = ORDER.indexOf('access');
     if (i < at) return { code, status: 'ok', message: MESSAGES[code] };
@@ -280,6 +288,13 @@
     pull: undefined,
     blockers: [{ code: 'access', message: ACCESS }],
     checks: blockedChecks,
+  });
+  const spent = readiness({
+    ready: false,
+    remaining: 0,
+    reset_at: new Date(Date.now() + 40 * 60_000).toISOString(),
+    blockers: [{ code: 'budget', message: BUDGET }],
+    checks: spentChecks,
   });
   const ready = readiness({});
   const superseded = readiness({
@@ -763,6 +778,21 @@
           stage="ready"
           readiness={ready}
           rows={checkRows(ready, REPO_URL)}
+          busy={false}
+          bind:instruction
+          allowInstruction={true}
+          onstart={noop}
+          onrecheck={noop}
+          onsetup={noop}
+        />
+      </div>
+    </div>
+    <div class="pair">
+      <div data-gallery="decision-budget">
+        <DecisionCard
+          stage="blocked"
+          readiness={spent}
+          rows={checkRows(spent, REPO_URL)}
           busy={false}
           bind:instruction
           allowInstruction={true}

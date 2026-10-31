@@ -51,30 +51,35 @@ func (s *Store) DismissEliOpportunity(ctx context.Context, id, user string) erro
 	_, err := s.exec(ctx, `INSERT OR IGNORE INTO eli_repair_dismissals(opportunity_id,user_id) VALUES(?,?)`, id, user)
 	return err
 }
-func (s *Store) EliRepairBudget(ctx context.Context, repo, user string) (int, int, *time.Time, error) {
-	var repoCount, userCount int
-	var oldest *time.Time
-	rows, err := s.read.QueryContext(ctx, `SELECT repo,user_id,created_at FROM eli_repairs WHERE created_at>=? AND (repo=? OR (user_id=? AND user_id<>''))`, ms(s.Now().Add(-24*time.Hour)), repo, user)
+
+// EliRepairBudget is the last 24 hours as the two limits see it: every attempt
+// on the repository, and every attempt the person asked for anywhere. A repair
+// that is both counts in both. The times are oldest first, so FreesAt can say
+// when that limit has a place again: the oldest attempt is not necessarily the
+// one that frees the binding limit when the repository and the person are
+// spending different windows.
+func (s *Store) EliRepairBudget(ctx context.Context, repo, user string) (EliRepairUsage, EliRepairUsage, error) {
+	var repoUse, personUse EliRepairUsage
+	rows, err := s.read.QueryContext(ctx, `SELECT repo,user_id,created_at FROM eli_repairs WHERE created_at>=? AND (repo=? OR (user_id=? AND user_id<>'')) ORDER BY created_at`, ms(s.Now().Add(-24*time.Hour)), repo, user)
 	if err != nil {
-		return 0, 0, nil, err
+		return repoUse, personUse, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var r, u string
 		var created int64
 		if err := rows.Scan(&r, &u, &created); err != nil {
-			return 0, 0, nil, err
+			return repoUse, personUse, err
 		}
+		when := at(created)
 		if r == repo {
-			repoCount++
+			repoUse.Used++
+			repoUse.Times = append(repoUse.Times, when)
 		}
 		if u == user && user != "" {
-			userCount++
-		}
-		reset := at(created).Add(24 * time.Hour)
-		if oldest == nil || reset.Before(*oldest) {
-			oldest = &reset
+			personUse.Used++
+			personUse.Times = append(personUse.Times, when)
 		}
 	}
-	return repoCount, userCount, oldest, rows.Err()
+	return repoUse, personUse, rows.Err()
 }

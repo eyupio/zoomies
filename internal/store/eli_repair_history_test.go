@@ -231,9 +231,9 @@ func TestClearingARepairHidesItFromTheHistoryAndNothingElse(t *testing.T) {
 	if own, err := s.IsEliRepairCommit(ctx, "acme/site", "fixsha"); err != nil || !own {
 		t.Errorf("clearing let Eli forget its own commit: %v %v", own, err)
 	}
-	repoCount, userCount, _, err := s.EliRepairBudget(ctx, "acme/site", "owner")
-	if err != nil || repoCount != 1 || userCount != 1 {
-		t.Errorf("the budget stopped counting a cleared repair: repo %d person %d, %v", repoCount, userCount, err)
+	repoUse, personUse, err := s.EliRepairBudget(ctx, "acme/site", "owner")
+	if err != nil || repoUse.Used != 1 || personUse.Used != 1 {
+		t.Errorf("the budget stopped counting a cleared repair: repo %d person %d, %v", repoUse.Used, personUse.Used, err)
 	}
 }
 
@@ -351,8 +351,8 @@ func TestOnlyAPersonAskingAgainBringsAClearedRepairBack(t *testing.T) {
 				t.Errorf("after a repeat of %q the repair is back in the history: %v, want %v (total %d)", tc.key, back, tc.back, total)
 			}
 			// Hidden or not, the row is still the ledger entry for the budget.
-			if repoCount, _, _, err := s.EliRepairBudget(ctx, "acme/site", "owner"); err != nil || repoCount != 1 {
-				t.Errorf("the budget stopped counting the repair: repo %d, %v", repoCount, err)
+			if repoUse, _, err := s.EliRepairBudget(ctx, "acme/site", "owner"); err != nil || repoUse.Used != 1 {
+				t.Errorf("the budget stopped counting the repair: repo %d, %v", repoUse.Used, err)
 			}
 		})
 	}
