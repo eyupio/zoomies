@@ -209,9 +209,13 @@ test('one answer can give every band the same cut', async ({ page }) => {
 
 test('the dog can be resized or removed, and the choice scoped like a cut', async ({ page }) => {
   // The dog is off by default, so this test starts from a browser that asked for it.
-  await page.addInitScript(() =>
-    localStorage.setItem('zoomies.prefs', JSON.stringify({ bandLogo: true })),
-  );
+  // Seed once: the script runs on every navigation, and a later load must keep the
+  // per-page sizes this test sets rather than restore the seed over them.
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('band-logo-seeded')) return;
+    localStorage.setItem('zoomies.prefs', JSON.stringify({ bandLogo: true }));
+    sessionStorage.setItem('band-logo-seeded', '1');
+  });
   await goto(page, '/runners', 'Runners');
   await page.getByRole('button', { name: 'Runners band logo settings' }).click();
 
