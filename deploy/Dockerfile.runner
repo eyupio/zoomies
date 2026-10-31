@@ -269,7 +269,7 @@ RUN set -eux; \
     python3 --version; \
     node --version; \
     npm --version; \
-    test "$(command -v node)" = /usr/local/bin/node; \
+    test "$(readlink -f "$(command -v node)")" = "$(readlink -f /usr/local/bin/node)"; \
     test "$(node -p 'process.versions.node.split(".")[0]')" = "${DEFAULT_NODE_MAJOR}"; \
     git lfs version; \
     gh --version; \
