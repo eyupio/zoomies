@@ -4,16 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/cliconfig"
-	"golang.org/x/term"
 )
-
-// readPassword is term.ReadPassword, replaceable so that a test can stand a
-// pipe in for a terminal. The operator's token is never echoed.
-var readPassword = func(f *os.File) ([]byte, error) { return term.ReadPassword(int(f.Fd())) }
 
 // firstRunSetup asks where the controller is when no flag, environment
 // variable, connection file or installed configuration names one. The answer
@@ -40,7 +34,7 @@ func firstRunSetup(e *env, existing cliConfig) (cfg cliConfig, asked bool, err e
 	cfg = existing
 	cfg.URL = entered
 	if existing.Token == "" {
-		token, err := askSecret(e.in, e.err, "API token (optional, Enter for an unauthenticated controller)")
+		token, err := askSecret(e, "API token (optional, Enter for an unauthenticated controller)")
 		if err != nil {
 			return existing, asked, err
 		}
@@ -114,7 +108,7 @@ func joinControllerURL(e *env, fs *flagSet, nonInteractive bool) (string, error)
 func joinToken(e *env, token string, nonInteractive bool) (string, error) {
 	token = strings.TrimSpace(token)
 	if token == "" && canAskAt(e.in, e.err) && !nonInteractive {
-		value, err := askSecret(e.in, e.err, "Join token (Hosts -> Add a host)")
+		value, err := askSecret(e, "Join token (Hosts -> Add a host)")
 		if err != nil {
 			return "", err
 		}
@@ -145,28 +139,18 @@ func askLine(in io.Reader, out io.Writer, label, current string) (string, error)
 	return value, nil
 }
 
-// askSecret asks for a value that must not be echoed. On a terminal it is read
-// with the echo off; anywhere else (a test, a pipe someone deliberately used)
-// it is an ordinary line.
-func askSecret(in io.Reader, out io.Writer, label string) (string, error) {
-	fmt.Fprintf(out, "%s: ", label)
-	f, ok := in.(*os.File)
-	if !ok || !stdTerminal(f) {
-		return readLine(in)
-	}
-	b, err := readPassword(f)
-	fmt.Fprintln(out)
+// askSecret asks for a value that must not be echoed, through the same reader
+// the account commands use so that a terminal turns its echo off and a pipe is
+// still an ordinary line.
+func askSecret(e *env, label string) (string, error) {
+	value, err := readSecret(e, label+": ")
 	if err != nil {
-		return "", errors.New("could not read the token from the terminal")
+		return "", err
 	}
-	token := strings.TrimSpace(string(b))
-	for i := range b {
-		b[i] = 0
-	}
-	if len(token) > 4096 || strings.ContainsAny(token, "\r\n\x00") {
+	if len(value) > 4096 || strings.ContainsAny(value, "\r\n\x00") {
 		return "", errors.New("invalid or oversized token")
 	}
-	return token, nil
+	return value, nil
 }
 
 // readLine reads one line a byte at a time, so that the next question does not

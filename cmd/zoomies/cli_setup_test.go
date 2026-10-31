@@ -29,12 +29,8 @@ func TestFirstRunAsksForTheControllerAndSavesIt(t *testing.T) {
 	restoreTerminal := stdTerminal
 	stdTerminal = func(*os.File) bool { return true }
 	t.Cleanup(func() { stdTerminal = restoreTerminal })
-	restorePassword := readPassword
-	readPassword = func(*os.File) ([]byte, error) { return []byte("zoo_t"), nil }
-	t.Cleanup(func() { readPassword = restorePassword })
-
-	// The address without a scheme: typed as a host, saved as https.
-	if _, err := io.WriteString(inW, "zoomies.example.com\n"); err != nil {
+	// The address without a scheme, then the optional token.
+	if _, err := io.WriteString(inW, "zoomies.example.com\nzoo_t\n"); err != nil {
 		t.Fatal(err)
 	}
 	inW.Close()
@@ -79,11 +75,7 @@ func TestFirstRunAsksAgainAfterAnAddressItCannotUse(t *testing.T) {
 	restoreTerminal := stdTerminal
 	stdTerminal = func(*os.File) bool { return true }
 	t.Cleanup(func() { stdTerminal = restoreTerminal })
-	restorePassword := readPassword
-	readPassword = func(*os.File) ([]byte, error) { return nil, nil }
-	t.Cleanup(func() { readPassword = restorePassword })
-
-	if _, err := io.WriteString(inW, "ftp://zoomies.example.com\nhttps://zoomies.example.com\n"); err != nil {
+	if _, err := io.WriteString(inW, "ftp://zoomies.example.com\nhttps://zoomies.example.com\n\n"); err != nil {
 		t.Fatal(err)
 	}
 	inW.Close()
@@ -197,11 +189,7 @@ func TestAgentJoinAsksForAMissingAddressAndToken(t *testing.T) {
 	restoreTerminal := stdTerminal
 	stdTerminal = func(*os.File) bool { return true }
 	t.Cleanup(func() { stdTerminal = restoreTerminal })
-	restorePassword := readPassword
-	readPassword = func(*os.File) ([]byte, error) { return []byte("zoojoin_t"), nil }
-	t.Cleanup(func() { readPassword = restorePassword })
-
-	if _, err := io.WriteString(inW, "zoomies.example.com\n"); err != nil {
+	if _, err := io.WriteString(inW, "zoomies.example.com\nzoojoin_t\n"); err != nil {
 		t.Fatal(err)
 	}
 	inW.Close()
@@ -281,13 +269,6 @@ func TestAConfiguredControllerIsNeverAskedAbout(t *testing.T) {
 	restoreTerminal := stdTerminal
 	stdTerminal = func(*os.File) bool { return true }
 	t.Cleanup(func() { stdTerminal = restoreTerminal })
-	restorePassword := readPassword
-	readPassword = func(*os.File) ([]byte, error) {
-		t.Error("a configured controller must not prompt for a token")
-		return nil, nil
-	}
-	t.Cleanup(func() { readPassword = restorePassword })
-
 	client, err := parseClientFlags(t, e).client()
 	if err != nil {
 		t.Fatal(err)

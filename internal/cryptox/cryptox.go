@@ -343,11 +343,9 @@ func DummyVerify(password string) {
 
 // HashToken returns the hex SHA-256 of a bearer token. Tokens carry full
 // entropy from the start, so a fast hash is sufficient and keeps API
-// authentication off the argon2 path. The parameter is named for the value
-// rather than for what it holds so that CodeQL's sensitive-data query does not
-// read a full-entropy token as a password.
-func HashToken(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
+// authentication off the argon2 path.
+func HashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
 
