@@ -74,8 +74,13 @@ func TestTheRunnerImageInstallsItsDefaultNodeFromTheLockAndChecksIt(t *testing.T
 	if !strings.Contains(base, `process.versions.node.split(".")[0]')" = "${DEFAULT_NODE_MAJOR}"`) {
 		t.Error("the build does not check that the node on PATH is the default major")
 	}
-	if !strings.Contains(base, `test "$(command -v node)" = /usr/local/bin/node`) {
-		t.Error("the build does not check that the node on PATH is the one it installed")
+	// Compared after resolving links, not as spelled: Fedora 42 merged sbin into
+	// bin, so /usr/local/sbin is a link to /usr/local/bin and sits first on PATH,
+	// and `command -v node` there prints /usr/local/sbin/node for the very file
+	// the installer linked. A string comparison failed the 1.4.0 release on both
+	// fedora-42 images while every apt image passed.
+	if !strings.Contains(base, `test "$(readlink -f "$(command -v node)")" = "$(readlink -f /usr/local/bin/node)"`) {
+		t.Error("the build does not check that the node on PATH is the one it installed, by resolved path")
 	}
 
 	// A distribution nodejs would be a second, older node behind the one
