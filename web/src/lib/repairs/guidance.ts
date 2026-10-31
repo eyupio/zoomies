@@ -17,7 +17,10 @@ export interface Guidance {
 
 const UNSUPPORTED_FIX: Guidance = {
   headline: 'Eli could not find a fix it was willing to push',
-  steps: ['Add a note naming the file or the test, then try again.'],
+  steps: [
+    'Add a note naming the file or the test, then try again.',
+    'If this failure looks unrelated to the pull request, rerun the failed job instead.',
+  ],
 };
 
 /** What a repair that has not finished says: nothing is wrong, and nothing needs doing. */

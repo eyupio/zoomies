@@ -35,6 +35,7 @@ test('an unsupported fix starts with a note that points at the file or the test'
   const g = failed('unsupported_fix');
   assert.ok(g.steps[0]?.startsWith('Add a note'), g.steps[0] ?? 'no steps');
   assert.match(text(g), /add a note/i);
+  assert.match(text(g), /rerun/i);
 });
 
 test('each code names the one thing that fixes it', () => {

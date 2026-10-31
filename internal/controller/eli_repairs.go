@@ -1131,8 +1131,16 @@ func (c *Controller) requestPinnedEliRepair(ctx context.Context, userID, repo st
 
 func repairFailureCode(message string) string {
 	switch {
-	// First, because the message carries a tool name the model chose, and a
-	// name such as read_file would otherwise read as a source failure.
+	// A cannot_fix reason is the model's own words, and they can name the
+	// source without the source being the problem: a model that declined a web
+	// test repair because the pull request changed no web source had the page
+	// send the person to check the App's Contents permission. The sentinel is
+	// ours, so matching it first keeps the model's prose out of the choice.
+	case strings.HasPrefix(message, prrepair.ErrCannotFix.Error()):
+		return "unsupported_fix"
+	// Before the source cases, because the message carries a tool name the
+	// model chose, and a name such as read_file would otherwise read as a
+	// source failure.
 	case strings.Contains(message, "tool call"):
 		return "provider_unavailable"
 	case strings.Contains(message, "model did not return a valid repair plan"):
@@ -1147,7 +1155,11 @@ func repairFailureCode(message string) string {
 		return "output_limit"
 	case strings.Contains(message, "budget") || strings.Contains(message, "allowance") || strings.Contains(message, "input limit") || strings.Contains(message, "context limit"):
 		return "context_limit"
-	case strings.Contains(message, "read") || strings.Contains(message, "source"):
+	case strings.Contains(message, "Actions read permission"):
+		return "setup_needed"
+	// "read" alone also matches a word such as "already", so only the repair's
+	// own sentences about source count here.
+	case strings.Contains(message, "needed to read") || strings.Contains(message, "source"):
 		return "source_unavailable"
 	case strings.Contains(message, "provider"):
 		return "provider_unavailable"

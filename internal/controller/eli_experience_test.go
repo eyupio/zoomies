@@ -393,6 +393,33 @@ func TestAnEditOutsideTheSuppliedTextIsNotReportedAsABrokenRead(t *testing.T) {
 	}
 }
 
+// A repair that returns cannot_fix explains itself in its own words. Those
+// words are not the controller's, and one that named the source ("the pull
+// request changes no web source") made the page say Eli could not read the
+// source and send the person to check the App's Contents permission. A decline
+// is the model's answer, not a failed read. The same care is needed the other
+// way: a bare "read" matches a word such as "already", and reading the failed
+// job's evidence is a permission problem, not a source one.
+func TestADeclinedRepairIsNotReportedAsAnUnreadableSource(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		message string
+		code    string
+	}{
+		{"a reason that names the source", prrepair.ErrCannotFix.Error() + ": the pull request changes no web source that could affect the browser dialog", "unsupported_fix"},
+		{"a reason that contains read inside another word", prrepair.ErrCannotFix.Error() + ": the checks already pass on this branch", "unsupported_fix"},
+		{"the PR source could not be read", "The PR source could not be read: repository inventory exceeds Eli's repair limit.", "source_unavailable"},
+		{"a file Eli needed", "Eli needed to read `web/tests/phone-dialogs.spec.ts` and could not: not found. Point Eli at a smaller change, or fix that file by hand.", "source_unavailable"},
+		{"the Actions permission", "Failed-job evidence could not be read. Check the App's Actions read permission.", "setup_needed"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := repairFailureCode(tt.message); got != tt.code {
+				t.Fatalf("%q ended as %q, want %q", tt.message, got, tt.code)
+			}
+		})
+	}
+}
+
 type unresolvedRepairRun struct {
 	*repairFake
 	err error
