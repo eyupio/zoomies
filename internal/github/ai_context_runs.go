@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -277,6 +278,14 @@ func errorBlock(lines []string) []string {
 			keep[i] = true
 		}
 	}
+	// The frame that names the file and line is often above the tail: a
+	// Playwright matcher prints the whole received and expected object below
+	// `at .../home.e2e.mjs:1116:19`, so the tail is the object and the frame is
+	// lost. Without it a repair had the assertion but not the file that made
+	// it, and guessed at whichever test the job happened to be named after.
+	if location := sourceLocation(valid, tailStart); location >= 0 {
+		keep[location] = true
+	}
 	// A header earlier in the log must not push out the exception that ended
 	// it: the most recent lines fill what the header and its context leave.
 	for i := len(valid) - 1; i >= tailStart && len(keep) < maxContextErrorLines-1; i-- {
@@ -292,6 +301,32 @@ func errorBlock(lines []string) []string {
 		out = append(out, valid[i])
 	}
 	return out
+}
+
+// sourceLocation is a stack frame from a runtime or a test reporter: a path,
+// a colon and a line number, with an optional column. It is deliberately
+// loose about the path, because the languages a repository can use write one
+// differently, and the repair matches what it finds against its own inventory.
+var sourceLocationPattern = regexp.MustCompile(`[A-Za-z0-9_.-]*[/.][A-Za-z0-9_./-]*:\d+(?::\d+)?`)
+
+// sourceLocation is the last line above the tail that names a file and a line,
+// or -1 when the tail already holds one or none does. The last is the one
+// nearest the failure. A frame inside the tail needs no help; adding one above
+// it would push the tail's own frame out of the fixed budget.
+func sourceLocation(lines []string, tailStart int) int {
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := lines[i]
+		if strings.HasPrefix(line, "node:") || strings.Contains(line, "/node_modules/") {
+			continue
+		}
+		if sourceLocationPattern.MatchString(line) {
+			if i >= tailStart {
+				return -1
+			}
+			return i
+		}
+	}
+	return -1
 }
 
 const (

@@ -381,6 +381,35 @@ func TestAnExitCodeAnnotationKeepsTheUncaughtExceptionAboveIt(t *testing.T) {
 	}
 }
 
+// A Playwright matcher prints its whole received and expected object below the
+// frame that names the spec, so the frame is not in the last lines of the log.
+// Keeping only the tail left the repair with the assertion and no file, and it
+// guessed at whichever test the job was named after. The frame is kept.
+func TestAnExitCodeAnnotationKeepsTheFrameAboveAReporterObject(t *testing.T) {
+	var log strings.Builder
+	log.WriteString("2026-10-31T07:51:50.6327741Z ExpectError: expect(received).toEqual(expected) // deep equality\n")
+	for i := 0; i < 8; i++ {
+		fmt.Fprintf(&log, "2026-10-31T07:51:50.633%04dZ -   \"diff line %d\",\n", i, i)
+	}
+	log.WriteString("2026-10-31T07:51:50.6348228Z     at /home/runner/_work/reet.sh/reet.sh/web/tests/home.e2e.mjs:1116:19 {\n")
+	for i := 0; i < 30; i++ {
+		fmt.Fprintf(&log, "2026-10-31T07:51:50.635%04dZ     matcherResult field %d\n", i, i)
+	}
+	log.WriteString("2026-10-31T07:51:50.6399158Z Node.js v22.23.4\n")
+	log.WriteString("2026-10-31T07:51:50.6683693Z ##[error]Process completed with exit code 1.\n")
+	got := errorLines(log.String())
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "web/tests/home.e2e.mjs:1116:19") {
+		t.Fatalf("the frame that names the failing spec was lost: %q", got)
+	}
+	if !strings.Contains(joined, "matcherResult field 29") {
+		t.Errorf("the reporter's latest output was lost: %q", got)
+	}
+	if len(got) > maxContextErrorLines {
+		t.Fatalf("%d lines kept, want at most %d", len(got), maxContextErrorLines)
+	}
+}
+
 // A test runner can print the failing test at the top of its block and a
 // summary at the bottom. The tail alone kept the summary counts, which name no
 // test; the failure marker before it is kept too.
