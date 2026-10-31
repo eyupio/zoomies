@@ -215,9 +215,9 @@ func agentUpdateDir(configPath string) func() (string, bool) {
 // runAgentJoin is `zoomies agent join`: enrol this host with a controller and,
 // unless told not to, install the service that keeps it enrolled.
 func runAgentJoin(ctx context.Context, e *env, args []string) error {
-	fs := newFlagSet(e, "zoomies agent join <controller-url> --token <join-token>",
+	fs := newFlagSet(e, "zoomies agent join [<controller-url>] [--token <join-token>]",
 		"Enrol this host with a controller: redeem the join token, write the credentials, install the service.")
-	token := fs.String("token", "", "the join token from the UI, under Hosts -> Add a host (required)")
+	token := fs.String("token", "", "the join token from the UI, under Hosts -> Add a host (asked for at a terminal when left out)")
 	name := fs.String("name", "", "how this host appears in the UI (default: this host's name)")
 	capacity := fs.Int("capacity", 0, "the most runners this host will hold at once (default: half its CPUs)")
 	labels := kvValue{}
@@ -245,12 +245,13 @@ func runAgentJoin(ctx context.Context, e *env, args []string) error {
 		return err
 	}
 
-	url, err := fs.oneArg("the controller URL, e.g. https://zoomies.example.com")
+	url, err := joinControllerURL(e, fs, *nonInteractive)
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(*token) == "" {
-		return usagef("agent join", "needs --token; mint one in the UI under Hosts -> Add a host, which prints the whole command to paste")
+	joinToken, err := joinToken(e, *token, *nonInteractive)
+	if err != nil {
+		return err
 	}
 	kind := store.BackendKind(strings.ToLower(strings.TrimSpace(*backendKind)))
 	if kind != "" && !kind.Valid() {
@@ -263,7 +264,7 @@ func runAgentJoin(ctx context.Context, e *env, args []string) error {
 
 	return installer.Join(ctx, installer.JoinOptions{
 		ControllerURL:      strings.TrimRight(url, "/"),
-		JoinToken:          *token,
+		JoinToken:          joinToken,
 		Name:               *name,
 		Capacity:           *capacity,
 		Labels:             labels,

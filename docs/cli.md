@@ -54,20 +54,27 @@ commands are pure API clients that open no database, so an address changed after
 the Settings page is not in it. Put `url` in `cli.yaml` to choose, or to follow the
 Settings page. It supplies an address only, never a token.
 
+With none of those either, a fleet command run at a terminal asks for the controller's
+address, and asks for an optional API token when the file holds none. It saves both in
+`cli.yaml` (`0600`), so the question is asked once. The token is read with the terminal's
+echo off and is never printed. A command whose input or error stream is not a terminal is
+not asked: it gets the error naming every place the value could have come from.
+
 A host that joined a controller as an agent has the same file, and what it names there is
 the controller it joined (`agent.controller_url`), so the CLI on that host uses it too,
 with no flag. A host that joined over a private connection is the exception: its agent
 reaches the controller through a tunnel of its own, there is no address a command can
-dial, and the CLI says so and asks for `--url`. When a request cannot reach the controller,
-the error names where its address came from (`--url`, `ZOOMIES_URL` or a file) because
-an address nobody typed is the one that cannot be fixed without knowing.
+dial, and the CLI says so; at a terminal it asks for the address instead. When a request
+cannot reach the controller, the error names where its address came from (`--url`,
+`ZOOMIES_URL` or a file) because an address nobody typed is the one that cannot be fixed
+without knowing.
 
 On the machine that runs the controller you do not have to write that file.
 `zoomies init` creates it, with the controller's address and no token, and
 `zoomies upgrade` offers to when it is missing; it is listed with the other
 additions an upgrade asks approval for, and `--yes` accepts it. The file is private
 (`0600`), an address you already put there is never replaced, and a token is never
-written for you: create one in the UI under your account's API tokens, or with
+minted for you: create one in the UI under your account's API tokens, or with
 `zoomies tokens create --name this-host --role operator` once you have one, and add it
 as `token:`. It is the file of whichever account ran the command, so under `sudo` it is
 `root`'s.
@@ -78,7 +85,7 @@ as `token:`. It is the file of whichever account ran the command, so under `sudo
 | --- | --- |
 | `zoomies controller [--config path] [--takeover]` | Run the control plane: the scheduler, the API, the web UI and the webhook endpoint. On a single VM it runs an agent inside itself. It refuses to start when another controller holds the database, naming which machine and process has it; `--takeover` starts anyway, for the case where you know the other one is gone and cannot be asked. |
 | `zoomies agent [--config path]` | Run this host's agent: long-poll a controller for work, start and stop runners, report what happens. Also takes `--controller` and `--join-token` for a host configured entirely from flags, and `--log-file` to append the log to a file instead of stderr, which is how the Windows service keeps one. |
-| `zoomies agent join <controller-url> --token <join-token> [--update-helper]` | Enrol this host: redeem the token, write the credentials, install the service. On a systemd host it then asks, as a question of its own that defaults to no, whether to add the [update helper](security.md#what-the-agent-owns-on-a-host). The update helper runs `zoomies upgrade` as root for a validated request, so that the web UI can update this host (and on the controller's host, `zoomies updates apply` can too). Only the host's owner installs it, and `sudo zoomies updates helper remove` takes it away. `--yes` only replaces credentials this host already has and never answers it; `--update-helper` does, and a join with no terminal skips it and prints `sudo zoomies updates helper install`. |
+| `zoomies agent join [<controller-url>] [--token <join-token>] [--update-helper]` | Enrol this host: redeem the token, write the credentials, install the service. At a terminal, a missing controller URL or join token is asked for (the token with the echo off) and the token is spent by the join, never saved. On a systemd host it then asks, as a question of its own that defaults to no, whether to add the [update helper](security.md#what-the-agent-owns-on-a-host). The update helper runs `zoomies upgrade` as root for a validated request, so that the web UI can update this host (and on the controller's host, `zoomies updates apply` can too). Only the host's owner installs it, and `sudo zoomies updates helper remove` takes it away. `--yes` only replaces credentials this host already has and never answers it; `--update-helper` does, and a join with no terminal skips it and prints `sudo zoomies updates helper install`. |
 | `zoomies agent install` | Install the agent's service on a machine about to become a provider's template, joined to nothing. The unit reads `/etc/zoomies/zoomies.env`, which the controller writes into each clone, and is left disabled for the controller to enable there. It refuses a machine that has already joined, because its `agent.json` would be cloned into every machine. See [Proxmox VE](proxmox.md#preparing-the-template). |
 | `zoomies gateway --target <host:port>` | Publish a private provider API (a Proxmox cluster on your home network, say) to a controller over Tailcat. It prints the address the provider form asks for, keeps its identity in `--state-dir` so a restart keeps the same address, and forwards every connection that arrives through the tunnel to the one target. `--quiet` keeps the address out of a service's log. See [Private hosts and providers](private-hosts.md#private-providers). |
 
@@ -1059,7 +1066,7 @@ and flag it names to the binary's.
 | `zoomies release verify [--key KEY \| --key-file FILE] checksums sig` | Check a release's signature against a key, or against the key compiled into this binary. See [Signing releases](upgrading.md#signing-releases). |
 | `zoomies doctor [--verbose] [--json] [--tier safe\|aggressive\|dedicated] [--host <id>]` | Read host OS health, summary and recommendations. Exit 0/1/2 for no warnings/warnings/errors among every check in the tier you ran, so `--tier aggressive` exits 1 on an aggressive warning. The host's page, the problems and `zoomies hosts list` count only the safe tier and leave optional checks out, and count a pending reboot as a reboot rather than also as a warning, so the doctor's own warning count is one higher than theirs for that one check. A warning an operator has accepted on the controller (see [Accepting a check as deliberate](host-health.md#accepting-a-check-as-deliberate)) is left out of those counts and of the exit status of `--host`, and `--host` lists it under **Accepted**; a local run knows nothing of acceptances. There is no command to accept or revoke one: that is the host's page and the API. `--interactive` offers explicitly approved local fixes; `--watch --report-file PATH` runs the native read-only reporter. See [Host health and tuning](host-health.md). |
 | `zoomies tune [--dry-run] [--yes] [--tier safe\|aggressive] [--dedicated] [--only ids] [--skip ids] [--revert] [--force]` | Review and apply local OS tuning, or restore recorded previous values. Safe and per-item confirmation by default. Dedicated hosts require explicit confirmation. No reboot and no Docker restart while jobs can run. |
-| `zoomies healthcheck --url <url>` | Probe a controller's `/healthz`. Exit 0 when it answers. This is what the container image's `HEALTHCHECK` runs. |
+| `zoomies healthcheck [--url <url>]` | Probe a controller's `/healthz`. Exit 0 when it answers. This is what the container image's `HEALTHCHECK` runs. A named `--url`, `ZOOMIES_URL` or the installed controller's address is used as it is. With none of them, it reads `url` from `cli.yaml`, and at a terminal asks for the address and saves it, as a fleet command does. |
 | `zoomies version` | The version this binary was built from. `--short` or `--json`. |
 
 `config set`, `config unset` and `config import-env` need the controller stopped: it holds the

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/cliconfig"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/version"
 	"gopkg.in/yaml.v3"
@@ -213,13 +214,14 @@ func printFindings(w io.Writer, findings config.Findings) {
 // ---------------------------------------------------------------------------
 
 // runHealthcheck probes a controller's liveness endpoint. It is the container
-// HEALTHCHECK, which is why it takes a URL rather than a config file: inside
+// HEALTHCHECK, which is why a URL is enough and nothing else is required: inside
 // the image there is no configuration to read, and the point is to ask the
-// process on the other end of the socket whether it is answering.
+// process on the other end of the socket whether it is answering. A person at a
+// terminal who names nothing is asked for an address, as a fleet command is.
 func runHealthcheck(ctx context.Context, e *env, args []string) error {
-	fs := newFlagSet(e, "zoomies healthcheck --url <url>",
+	fs := newFlagSet(e, "zoomies healthcheck [--url <url>]",
 		"Probe a controller's /healthz. Exits 0 when it answers, 1 when it does not.")
-	target := fs.String("url", "", "the controller's base URL, e.g. http://127.0.0.1:8080 (required)")
+	target := fs.String("url", "", "the controller's base URL, e.g. http://127.0.0.1:8080 (default: ZOOMIES_URL, cli.yaml, or the controller installed here)")
 	timeout := fs.Duration("timeout", 5*time.Second, "how long to wait for an answer")
 	caFile := fs.String("ca-file", "", "PEM file holding the controller's certificate")
 	insecure := fs.Bool("insecure", false, "do not verify the controller's certificate")
@@ -233,8 +235,54 @@ func runHealthcheck(ctx context.Context, e *env, args []string) error {
 	if err := fs.noMoreArgs(); err != nil {
 		return err
 	}
-	if strings.TrimSpace(*target) == "" {
-		return usagef("healthcheck", "needs --url, for example --url http://127.0.0.1:8080")
+
+	// A health check is usually a container's own, with --url written into the
+	// image, so a named address is used as it is and never depends on a file
+	// that may not be there. Run by hand with nothing named, it follows the
+	// same order as the fleet commands, and asks at a terminal: a usage error
+	// makes the operator work out where the address belongs before anything
+	// has said which controller is meant.
+	*target = strings.TrimSpace(*target)
+	if *target == "" {
+		*target = strings.TrimSpace(os.Getenv("ZOOMIES_URL"))
+	}
+	if *target == "" {
+		file, err := loadCLIConfig(cliConfigPath())
+		if err != nil {
+			return err
+		}
+		if !fs.changed("ca-file") {
+			*caFile = firstNonBlank(os.Getenv("ZOOMIES_CA_FILE"), file.CAFile)
+		}
+		if !fs.changed("insecure") {
+			*insecure = *insecure || file.Insecure
+		}
+		*target = strings.TrimSpace(file.URL)
+		if *target == "" {
+			conf := config.DefaultConfigFile()
+			if installed := cliconfig.InstalledURL(conf); installed != "" {
+				*target = installed
+				fmt.Fprintf(e.err, "using the controller named in %s, %s (set url in %s to choose another)\n",
+					conf, installed, cliConfigPath())
+			}
+		}
+		if *target == "" && canAskAt(e.in, e.err) {
+			value, err := askControllerURL(e, "")
+			if err != nil {
+				return err
+			}
+			path, err := cliconfig.Save(cliConfigPath(), cliConfig{URL: value})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(e.err, "Saved the controller in %s\n", path)
+			*target = value
+		}
+	} else if !fs.changed("ca-file") {
+		*caFile = strings.TrimSpace(os.Getenv("ZOOMIES_CA_FILE"))
+	}
+	if *target == "" {
+		return usagef("healthcheck", "needs a controller: pass --url, or set ZOOMIES_URL or url in %s", cliConfigPath())
 	}
 
 	url := strings.TrimRight(*target, "/")

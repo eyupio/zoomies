@@ -28,6 +28,10 @@ type flagSet struct {
 	// examples are printed after the flags, and are worth more than the flags.
 	examples []string
 	out      io.Writer
+	// env is where the command's own input and output live, kept so that a
+	// shared flag set can reach them: a command with client flags may have to
+	// ask for the controller's address when nothing on the machine names one.
+	env *env
 }
 
 // newFlagSet builds a flag set that writes to stderr and prints a synopsis, a
@@ -38,6 +42,7 @@ func newFlagSet(e *env, usageLine, summary string) *flagSet {
 		usageLine: usageLine,
 		summary:   summary,
 		out:       e.err,
+		env:       e,
 	}
 	fs.SetOutput(e.err)
 	fs.Usage = func() { fs.printUsage(fs.out) }
