@@ -25,7 +25,14 @@ type commandSetup struct {
 
 func newCommandSetup(t *testing.T, dailyLimit int) *commandSetup {
 	t.Helper()
-	h := newHarness(t)
+	return newCommandSetupAt(t, nil, dailyLimit)
+}
+
+// newCommandSetupAt is newCommandSetup on a clock the test holds, for the
+// readiness tests that need two allowance windows to differ.
+func newCommandSetupAt(t *testing.T, clock func() time.Time, dailyLimit int) *commandSetup {
+	t.Helper()
+	h := newHarnessAt(t, clock)
 	inst := h.installation()
 	repo := inst.Target + "/repo"
 	fake := &repairFake{Client: h.gh.Client(inst.Target, inst.TargetType)}

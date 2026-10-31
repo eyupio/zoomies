@@ -144,6 +144,33 @@ func shortSHA(sha string) string {
 	return sha
 }
 
+// earlierTime and laterTime compare two allowance windows, putting a zero time
+// (a limit with nothing spent) after or before every real instant: a zero time
+// is not a deadline, so it never wins the race to be soonest.
+func earlierTime(a, b time.Time) time.Time {
+	switch {
+	case a.IsZero():
+		return b
+	case b.IsZero():
+		return a
+	case b.Before(a):
+		return b
+	}
+	return a
+}
+
+func laterTime(a, b time.Time) time.Time {
+	switch {
+	case a.IsZero():
+		return b
+	case b.IsZero():
+		return a
+	case b.After(a):
+		return b
+	}
+	return a
+}
+
 // repairMode is the same distinction in the words the API uses.
 func repairMode(p *store.EliRepairPolicy) string {
 	switch {
@@ -291,16 +318,42 @@ func (c *Controller) EliReadiness(ctx context.Context, user, repo string, pull i
 		out.AllowWorkflows = policy.AllowWorkflows
 		out.PolicyMode = repairMode(policy)
 		checks.set("policy", EliCheckOK, repairModeWords(policy)+" is on for this repository. Workflow file edits are "+map[bool]string{true: "on", false: "off"}[policy.AllowWorkflows]+".")
-		used, personal, reset, e := c.st.EliRepairBudget(ctx, repo, user)
+		repoUse, personUse, e := c.st.EliRepairBudget(ctx, repo, user)
 		if e != nil {
 			block("budget", "budget_unavailable", "Repair allowance could not be checked. Try again.")
 		} else {
-			out.Remaining = max(0, min(policy.DailyLimit-used, store.EliPersonDailyLimit-personal))
-			out.ResetAt = reset
-			if out.Remaining == 0 {
-				block("budget", "budget", "The repair allowance is exhausted. Wait until an attempt leaves the 24-hour window.")
-			} else {
+			repoLeft := policy.DailyLimit - repoUse.Used
+			personLeft := store.EliPersonDailyLimit - personUse.Used
+			out.Remaining = max(0, min(repoLeft, personLeft))
+			repoFree := repoUse.FreesAt(policy.DailyLimit)
+			personFree := personUse.FreesAt(store.EliPersonDailyLimit)
+			var free time.Time
+			if out.Remaining > 0 {
+				// The next place comes from whichever limit has least room; when
+				// they are equal, either window freeing raises it.
+				switch {
+				case repoLeft < personLeft:
+					free = repoFree
+				case personLeft < repoLeft:
+					free = personFree
+				default:
+					free = earlierTime(repoFree, personFree)
+				}
 				checks.set("budget", EliCheckOK, plural(out.Remaining, "attempt")+" left in the 24-hour window.")
+			} else if repoLeft <= 0 && personLeft <= 0 {
+				// A place needs both limits to have room, so the later window is
+				// the one that keeps the page waiting.
+				free = laterTime(repoFree, personFree)
+				block("budget", "budget", fmt.Sprintf("This repository has used all %d repairs allowed in 24 hours, and you have used all %d one person may request. The next attempt can start once both limits have a place.", policy.DailyLimit, store.EliPersonDailyLimit))
+			} else if personLeft <= 0 {
+				free = personFree
+				block("budget", "budget", fmt.Sprintf("You have used all %d repairs one person may request in 24 hours. The next attempt can start once the oldest of them leaves the window.", store.EliPersonDailyLimit))
+			} else {
+				free = repoFree
+				block("budget", "budget", fmt.Sprintf("This repository has used all %d repairs allowed in 24 hours. The next attempt can start once the oldest of them leaves the window.", policy.DailyLimit))
+			}
+			if !free.IsZero() {
+				out.ResetAt = &free
 			}
 		}
 	}

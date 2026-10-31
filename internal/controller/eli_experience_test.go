@@ -564,7 +564,12 @@ func TestReadinessTellsTheAttentionListWhatItLearnedAboutTheFailure(t *testing.T
 // then breaks the one thing it is about.
 func readinessSetup(t *testing.T) *commandSetup {
 	t.Helper()
-	s := newCommandSetup(t, 5)
+	return readinessSetupAt(t, nil, 5)
+}
+
+func readinessSetupAt(t *testing.T, clock func() time.Time, dailyLimit int) *commandSetup {
+	t.Helper()
+	s := newCommandSetupAt(t, clock, dailyLimit)
 	s.link(t, true)
 	personal := &store.AssistantProvider{Name: "Personal", OwnerID: s.user.ID, Kind: "openai", Enabled: true}
 	if err := s.h.st.CreateAssistantProvider(s.h.ctx, personal); err != nil {
@@ -572,6 +577,71 @@ func readinessSetup(t *testing.T) *commandSetup {
 	}
 	s.fake.check = "failed"
 	return s
+}
+
+// A spent allowance is two limits, and the page has to say which one is in the
+// way and when that one frees. The repository's window and the person's window
+// hold different rows, so the oldest attempt in either could promise a place
+// before the binding limit has one.
+func TestReadinessSaysWhichAllowanceIsSpentAndWhenItFrees(t *testing.T) {
+	at := time.Date(2026, 10, 31, 10, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return at }
+
+	s := readinessSetupAt(t, clock, 5)
+	// Someone asked for a repair elsewhere before this repository's attempts,
+	// and it is not what holds the repository back.
+	at = at.Add(-2 * time.Hour)
+	enqueueBudgetRepair(t, s, "acme/elsewhere", s.user.ID, "elsewhere")
+	at = time.Date(2026, 10, 31, 10, 0, 0, 0, time.UTC)
+	for i := range 5 {
+		enqueueBudgetRepair(t, s, s.repo, "someone-else", fmt.Sprintf("repo-%d", i))
+	}
+	ready := s.h.c.EliReadiness(s.h.ctx, s.user.ID, s.repo, 1, 0)
+	if ready.Remaining != 0 {
+		t.Fatalf("remaining = %d, want the repository allowance spent", ready.Remaining)
+	}
+	want := at.Add(24 * time.Hour)
+	if ready.ResetAt == nil || !ready.ResetAt.Equal(want) {
+		t.Fatalf("reset = %v, want the repository's oldest attempt to free at %v", ready.ResetAt, want)
+	}
+	if got := budgetBlocker(ready); !strings.Contains(got, "repository has used all 5 repairs") {
+		t.Fatalf("blocker = %q, want the repository's limit named", got)
+	}
+
+	// A person's own allowance is the narrower one: their repairs in other
+	// repositories spend it, and the page says so.
+	at = time.Date(2026, 10, 31, 10, 0, 0, 0, time.UTC)
+	person := readinessSetupAt(t, clock, 20)
+	for i := range store.EliPersonDailyLimit {
+		enqueueBudgetRepair(t, person, fmt.Sprintf("acme/other-%d", i), person.user.ID, fmt.Sprintf("person-%d", i))
+	}
+	ready = person.h.c.EliReadiness(person.h.ctx, person.user.ID, person.repo, 1, 0)
+	if ready.Remaining != 0 {
+		t.Fatalf("remaining = %d, want the person's allowance spent", ready.Remaining)
+	}
+	want = at.Add(24 * time.Hour)
+	if ready.ResetAt == nil || !ready.ResetAt.Equal(want) {
+		t.Fatalf("reset = %v, want the person's oldest attempt to free at %v", ready.ResetAt, want)
+	}
+	if got := budgetBlocker(ready); !strings.Contains(got, "one person may request") {
+		t.Fatalf("blocker = %q, want the person's limit named", got)
+	}
+}
+
+func enqueueBudgetRepair(t *testing.T, s *commandSetup, repo, user, key string) {
+	t.Helper()
+	if _, err := s.h.st.EnqueueEliRepair(s.h.ctx, &store.EliRepair{Repo: repo, UserID: user, DedupKey: key}, 1000); err != nil {
+		t.Fatalf("enqueue a repair for %s: %v", repo, err)
+	}
+}
+
+func budgetBlocker(r EliReadiness) string {
+	for _, b := range r.Blockers {
+		if b.Code == "budget" {
+			return b.Message
+		}
+	}
+	return ""
 }
 
 // checkSummary is "code:status" for each check, in the order readiness makes them.

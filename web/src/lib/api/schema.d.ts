@@ -11604,7 +11604,10 @@ export interface components {
             model: string;
             allow_workflows: boolean;
             remaining: number;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the allowance next changes in the person's favour: the instant the oldest attempt in whichever of the repository's and the person's windows has least room leaves it. When both are full it is the later of the two, because a place needs both. Absent when nothing has been spent or the allowance could not be read.
+             */
             reset_at?: string;
             /**
              * @description How the repository's policy lets Eli help, so a page can say whether the repository would have started a repair itself. Present once readiness has reached the policy check, and not before.
