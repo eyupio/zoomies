@@ -346,7 +346,8 @@ func DummyVerify(password string) {
 // authentication off the argon2 path. CodeQL's sensitive-data query reads
 // "token" as a password; the suppression on the sum records why it is not one.
 func HashToken(token string) string {
-	sum := sha256.Sum256([]byte(token)) // lgtm[go/weak-sensitive-data-hashing]
+	// codeql[go/weak-sensitive-data-hashing]
+	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
 
