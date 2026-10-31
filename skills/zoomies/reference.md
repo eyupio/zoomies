@@ -3824,13 +3824,13 @@ Probe a controller's /healthz; the container HEALTHCHECK
 Probe a controller's /healthz. Exits 0 when it answers, 1 when it does not.
 
 Usage:
-  zoomies healthcheck --url <url>
+  zoomies healthcheck [--url <url>]
 
 Flags:
   --ca-file                  PEM file holding the controller's certificate
   --insecure                 do not verify the controller's certificate
   --timeout=5s               how long to wait for an answer
-  --url                      the controller's base URL, e.g. http://127.0.0.1:8080 (required)
+  --url                      the controller's base URL, e.g. http://127.0.0.1:8080 (default: ZOOMIES_URL, cli.yaml, or the controller installed here)
 
 Examples:
   zoomies healthcheck --url http://127.0.0.1:8080

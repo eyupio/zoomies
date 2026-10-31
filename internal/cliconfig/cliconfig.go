@@ -25,10 +25,50 @@ import (
 
 // Config is the file's content.
 type Config struct {
-	URL      string `yaml:"url"`
-	Token    string `yaml:"token"`
-	CAFile   string `yaml:"ca_file"`
-	Insecure bool   `yaml:"insecure"`
+	URL      string `yaml:"url,omitempty"`
+	Token    string `yaml:"token,omitempty"`
+	CAFile   string `yaml:"ca_file,omitempty"`
+	Insecure bool   `yaml:"insecure,omitempty"`
+}
+
+// Validate checks what the CLI is about to save or use. A URL is held to the
+// same rule the client applies: a command has to be able to dial it, and a
+// credential must not be smuggled into the address.
+func (c Config) Validate() error {
+	if err := ValidateURL(c.URL); err != nil {
+		return err
+	}
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{"token", c.Token},
+		{"ca_file", c.CAFile},
+	} {
+		if len(field.value) > 4096 || strings.ContainsAny(field.value, "\r\n\x00") {
+			return fmt.Errorf("invalid %s: it must be one line of at most 4096 bytes", field.name)
+		}
+	}
+	return nil
+}
+
+// ValidateURL rejects an address no command could dial, and one that carries
+// credentials, a query or a fragment: those would either be ignored or sent
+// somewhere the operator did not name.
+func ValidateURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return errors.New("a controller URL is needed, for example https://zoomies.example.com")
+	}
+	if len(raw) > 4096 || strings.ContainsAny(raw, "\r\n\x00") {
+		return errors.New("invalid controller URL")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+		u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("the controller URL must be an http:// or https:// address with a host, and no credentials, query or fragment")
+	}
+	return nil
 }
 
 // Path is where the file lives.
@@ -127,6 +167,107 @@ func EnsureURL(path, url string) (Outcome, error) {
 	// A url line added at the top leaves the operator's comments and token where
 	// they were, which re-encoding the document would not.
 	return Added, writeFile(path, append([]byte("url: "+url+"\n"), existing...))
+}
+
+// Save fills in what an interactive command learned and leaves everything else
+// in the file alone: the url and a token if one was typed, a private CA, and
+// insecure when it was chosen. An existing setting is never blanked, and the
+// operator's comments and key order survive, because this file is theirs and
+// only one line of it usually needs to change.
+//
+// It writes the file private (0600 in a 0700 directory), as EnsureURL does and
+// for the same reason: this is where a token is put.
+func Save(path string, cfg Config) (string, error) {
+	if err := cfg.Validate(); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
+	}
+
+	existing, err := os.ReadFile(path)
+	var body []byte
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		body, err = yaml.Marshal(cfg)
+		if err != nil {
+			return "", err
+		}
+		body = append([]byte(header), body...)
+	case err != nil:
+		return "", fmt.Errorf("reading %s: %w", path, err)
+	default:
+		// A file that does not parse is not ours to rewrite.
+		if _, err := Load(path); err != nil {
+			return "", err
+		}
+		doc, err := documentOf(existing)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", path, err)
+		}
+		root := doc.Content[0]
+		setScalar(root, "url", cfg.URL)
+		if cfg.Token != "" {
+			setScalar(root, "token", cfg.Token)
+		}
+		if cfg.CAFile != "" {
+			setScalar(root, "ca_file", cfg.CAFile)
+		}
+		if cfg.Insecure {
+			setBool(root, "insecure", true)
+		}
+		body, err = yaml.Marshal(doc)
+		if err != nil {
+			return "", err
+		}
+	}
+	return path, writeFile(path, body)
+}
+
+// documentOf reads a file as a mapping whose comments yaml.Marshal writes back.
+func documentOf(raw []byte) (*yaml.Node, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return &yaml.Node{
+			Kind:    yaml.DocumentNode,
+			Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}},
+		}, nil
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, err
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, errors.New("the CLI connection file is not a mapping")
+	}
+	return &doc, nil
+}
+
+func setScalar(root *yaml.Node, key, value string) {
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == key {
+			root.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
+			return
+		}
+	}
+	root.Content = append(root.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value})
+}
+
+func setBool(root *yaml.Node, key string, value bool) {
+	text := "false"
+	if value {
+		text = "true"
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == key {
+			root.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: text}
+			return
+		}
+	}
+	root.Content = append(root.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: text})
 }
 
 // writeFile replaces the file in one step, so an interrupted write leaves the

@@ -286,6 +286,9 @@ Credentials for the fleet commands are looked for in this order:
   ZOOMIES_URL and ZOOMIES_TOKEN
   `+cliConfigPath()+`
 
+With none of them, a fleet command run in a terminal asks for the controller's
+address and an optional API token once, and saves them in that file.
+
 Examples:
   zoomies controller --config /etc/zoomies/zoomies.yaml
   zoomies status

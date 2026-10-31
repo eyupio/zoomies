@@ -70,6 +70,63 @@ func TestEnsureURLLeavesAFileItCannotReadAlone(t *testing.T) {
 	}
 }
 
+// Save is the interactive half of EnsureURL: it records what an operator typed
+// at the first run's question, private from the start because a token is
+// usually what comes next.
+func TestSaveWritesTheAnswerPrivateAndReadableAgain(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".config", "zoomies", "cli.yaml")
+	if got, err := Save(path, Config{URL: "https://zoomies.example.com", Token: "zoo_t"}); err != nil || got != path {
+		t.Fatalf("Save = %q, %v; want %q", got, err, path)
+	}
+	cfg, err := Load(path)
+	if err != nil || cfg.URL != "https://zoomies.example.com" || cfg.Token != "zoo_t" || cfg.Insecure {
+		t.Errorf("Load after Save = %+v (%v)", cfg, err)
+	}
+	for p, want := range map[string]os.FileMode{path: 0o600, filepath.Dir(path): 0o700} {
+		if fi, err := os.Stat(p); err != nil || fi.Mode().Perm() != want {
+			t.Errorf("%s mode = %v (%v), want %v: a token lives in this file", p, fi.Mode().Perm(), err, want)
+		}
+	}
+}
+
+// The first run may find a token already in the file and no url. Filling in the
+// url must not throw the token, or the operator's comment, away.
+func TestSaveKeepsWhatTheOperatorAlreadyWrote(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cli.yaml")
+	if err := os.WriteFile(path, []byte("# mine\ntoken: zoo_y\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Save(path, Config{URL: "https://zoomies.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil || cfg.URL != "https://zoomies.example.com" || cfg.Token != "zoo_y" {
+		t.Errorf("Save must fill in the url and keep the token: %+v (%v)", cfg, err)
+	}
+	if raw, _ := os.ReadFile(path); !strings.Contains(string(raw), "# mine") {
+		t.Errorf("the operator's comment must survive: %s", raw)
+	}
+}
+
+func TestSaveRefusesAnAddressNoCommandCouldDial(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cli.yaml")
+	for _, url := range []string{
+		"",
+		"ftp://zoomies.example.com",
+		"https://user:pass@zoomies.example.com",
+		"https://zoomies.example.com/?x=1",
+		"https://zoomies.example.com/#fragment",
+		"https://",
+	} {
+		if _, err := Save(path, Config{URL: url}); err == nil {
+			t.Errorf("Save accepted %q", url)
+		}
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("a refused address must not create the file")
+	}
+}
+
 func TestPathHonoursTheOverridesInOrder(t *testing.T) {
 	t.Setenv("ZOOMIES_CLI_CONFIG", "/x/cli.yaml")
 	if Path() != "/x/cli.yaml" {

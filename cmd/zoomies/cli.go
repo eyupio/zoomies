@@ -64,6 +64,10 @@ type clientFlags struct {
 	// cmd names the command these flags belong to, so that a bad --output
 	// points at `zoomies pools list --help` rather than something vaguer.
 	cmd string
+	// env is the command's input and output, which the first-run setup needs
+	// in order to ask where the controller is. It is nil in a caller that
+	// builds the flags by hand, which means "do not ask".
+	env *env
 }
 
 // registerClientFlags adds them to a command's flag set. withOutput is false
@@ -72,6 +76,7 @@ type clientFlags struct {
 func registerClientFlags(fs *flagSet, withOutput bool) *clientFlags {
 	cf := &clientFlags{
 		cmd:      fs.Name(),
+		env:      fs.env,
 		url:      fs.String("url", "", "the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)"),
 		token:    fs.String("token", "", "an API token (or ZOOMIES_TOKEN)"),
 		caFile:   fs.String("ca-file", "", "PEM file holding the controller's certificate"),
@@ -142,6 +147,18 @@ func (cf *clientFlags) client() (*apiClient, error) {
 			source = conf
 			fmt.Fprintf(os.Stderr, "using the controller named in %s, %s (set url in %s to choose another)\n",
 				conf, base, cliConfigPath())
+		}
+	}
+	if base == "" {
+		// Nothing on this machine names a controller. With somebody at the
+		// terminal, ask once and save the answer, as reet does: a first run
+		// that ends in "set one of these" makes the operator work out which of
+		// three places is theirs before the tool has asked a single question.
+		if cfg, asked, err := firstRunSetup(cf.env, file); err != nil {
+			return nil, err
+		} else if asked {
+			file = cfg
+			base, source = cfg.URL, cliConfigPath()
 		}
 	}
 	if base == "" {
