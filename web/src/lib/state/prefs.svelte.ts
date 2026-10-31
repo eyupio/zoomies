@@ -174,7 +174,7 @@ interface StoredPrefs {
    * who never chose.
    */
   bandSizes?: Record<string, string>;
-  /** Whether the dog is drawn in the band. On by default, and the default for every page. */
+  /** Whether the dog is drawn in the band. Off by default, and the default for every page. */
   bandLogo?: boolean;
   /** How large the dog in the band is drawn; `auto` follows the band's size. */
   bandLogoSize?: BandLogoSize;
@@ -246,7 +246,7 @@ class Prefs {
   #logoTreatment = $state<LogoTreatment>(DEFAULT_LOGO_TREATMENT);
   #hiddenBands = $state<BandPage[]>([]);
   #bandSizes = $state<Partial<Record<BandPage, BandSize>>>({});
-  #bandLogo = $state(true);
+  #bandLogo = $state(false);
   #bandLogoSize = $state<BandLogoSize>(DEFAULT_BAND_LOGO_SIZE);
   #bandLogoPages = $state<Partial<Record<BandPage, boolean>>>({});
   #bandLogoSizes = $state<Partial<Record<BandPage, BandLogoSize>>>({});
@@ -630,7 +630,7 @@ class Prefs {
 
   /** The size this page's band stands at: the operator's choice, else the page's default. */
   bandSize(page: BandPage): BandSize {
-    return this.#bandSizes[page] ?? defaultBandSize(page);
+    return this.#bandSizes[page] ?? defaultBandSize();
   }
 
   setBandSize(page: BandPage, size: BandSize): void {
@@ -643,7 +643,7 @@ class Prefs {
     for (const page of pages) {
       // Choosing the default again is un-choosing, so the page follows it if it
       // ever moves.
-      if (size === defaultBandSize(page)) delete next[page];
+      if (size === defaultBandSize()) delete next[page];
       else next[page] = size;
     }
     this.#bandSizes = next;

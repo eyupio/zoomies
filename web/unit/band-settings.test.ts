@@ -32,7 +32,7 @@ test('an empty or foreign document is the defaults, not a failure', () => {
     assert.deepEqual(readBandSettings(raw), {
       hidden: [],
       sizes: {},
-      logo: true,
+      logo: false,
       logoSize: 'auto',
       logoPages: {},
       logoSizes: {},

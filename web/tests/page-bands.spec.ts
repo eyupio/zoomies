@@ -78,15 +78,10 @@ test('a band is not drawn on a phone, switch or no switch', async ({ page }) => 
   await expect(page.getByTestId('band-runners')).toBeHidden();
 });
 
-test('the Overview opens on a standard band and every other page on a slim one', async ({
-  page,
-}) => {
+test('every page opens on a slim band', async ({ page }) => {
   for (const item of PAGES) {
     await goto(page, item.path, item.heading);
-    await expect(page.getByTestId(item.band)).toHaveAttribute(
-      'data-size',
-      item.label === 'Overview' ? 'standard' : 'slim',
-    );
+    await expect(page.getByTestId(item.band)).toHaveAttribute('data-size', 'slim');
   }
 });
 
@@ -200,7 +195,7 @@ test('one answer can give every band the same cut', async ({ page }) => {
   await expect(page.getByTestId('band-runners')).toHaveAttribute('data-size', 'slim');
   await goto(page, '/hosts', 'Hosts');
   await expect(page.getByTestId('band-hosts')).toHaveAttribute('data-size', 'slim');
-  // The Overview's default is the standard cut; every page means every page.
+  // Every page means every page, the Overview's hero included.
   await goto(page, '/', 'Overview');
   await expect(page.getByTestId('fleet-status')).toHaveAttribute('data-size', 'slim');
 
@@ -213,6 +208,14 @@ test('one answer can give every band the same cut', async ({ page }) => {
 });
 
 test('the dog can be resized or removed, and the choice scoped like a cut', async ({ page }) => {
+  // The dog is off by default, so this test starts from a browser that asked for it.
+  // Seed once: the script runs on every navigation, and a later load must keep the
+  // per-page sizes this test sets rather than restore the seed over them.
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('band-logo-seeded')) return;
+    localStorage.setItem('zoomies.prefs', JSON.stringify({ bandLogo: true }));
+    sessionStorage.setItem('band-logo-seeded', '1');
+  });
   await goto(page, '/runners', 'Runners');
   await page.getByRole('button', { name: 'Runners band logo settings' }).click();
 

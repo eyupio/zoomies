@@ -18,7 +18,7 @@ export interface BandSettings {
   hidden: BandPage[];
   /** Page cuts that are not the page's default. */
   sizes: Partial<Record<BandPage, BandSize>>;
-  /** Whether the dog is drawn by default. */
+  /** Whether the dog is drawn by default. Off, so the sentence has the band. */
   logo: boolean;
   /** The dog's size by default; `auto` follows each band's cut. */
   logoSize: BandLogoSize;
@@ -31,7 +31,7 @@ export interface BandSettings {
 export const DEFAULT_BAND_SETTINGS: BandSettings = {
   hidden: [],
   sizes: {},
-  logo: true,
+  logo: false,
   logoSize: 'auto',
   logoPages: {},
   logoSizes: {},
