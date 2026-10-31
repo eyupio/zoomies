@@ -343,9 +343,10 @@ func DummyVerify(password string) {
 
 // HashToken returns the hex SHA-256 of a bearer token. Tokens carry full
 // entropy from the start, so a fast hash is sufficient and keeps API
-// authentication off the argon2 path.
+// authentication off the argon2 path. CodeQL's sensitive-data query reads
+// "token" as a password; the suppression on the sum records why it is not one.
 func HashToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
+	sum := sha256.Sum256([]byte(token)) // lgtm[go/weak-sensitive-data-hashing]
 	return hex.EncodeToString(sum[:])
 }
 
