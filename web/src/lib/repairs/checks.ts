@@ -1,4 +1,5 @@
 import type { Schemas } from '../api/types';
+import { relativeTime } from '../format';
 import { safeHttpUrl } from './links';
 
 /*
@@ -187,7 +188,7 @@ const HEADLINES: Record<string, string> = {
   installation: 'Connect the GitHub installation',
   access: 'Fix write access first',
   policy: 'Turn repairs on for this repository',
-  budget: 'No attempts left today',
+  budget: 'No attempts left right now',
   pull: 'Choose a pull request',
   checks: 'Wait for the checks',
   permissions: 'Grant the GitHub App its permissions',
@@ -206,4 +207,23 @@ export function blockedHeadline(code: string, blocker?: string): string {
 /** The first thing in the way, which is the one the card is about. */
 export function blockingRow(rows: readonly CheckRow[]): CheckRow | undefined {
   return rows.find((r) => r.status === 'blocked');
+}
+
+const WAIT_CLOCK = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+
+/**
+ * When a spent allowance has a place again, in the words a person can act on.
+ * The controller says when the binding limit's oldest attempt leaves the
+ * 24-hour window; this is that instant as a time of day, with "tomorrow" when
+ * midnight comes first, and how long it is, because "in 3h" is the part
+ * somebody plans around. With no instant it says only what is true.
+ */
+export function allowanceWait(resetAt: string | undefined, now: number = Date.now()): string {
+  const free = resetAt ? new Date(resetAt) : null;
+  if (!free || Number.isNaN(free.getTime())) {
+    return 'The next attempt can start once the oldest attempt leaves the 24-hour window.';
+  }
+  const time = WAIT_CLOCK.format(free);
+  const today = new Date(now).toDateString() === free.toDateString();
+  return `The next attempt can start ${today ? time : `tomorrow ${time}`} (${relativeTime(free.getTime(), now)}).`;
 }

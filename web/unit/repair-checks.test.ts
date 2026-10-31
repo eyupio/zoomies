@@ -1,7 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Schemas } from '../src/lib/api/types.ts';
-import { blockedHeadline, blockingRow, checkRows } from '../src/lib/repairs/checks.ts';
+import {
+  allowanceWait,
+  blockedHeadline,
+  blockingRow,
+  checkRows,
+} from '../src/lib/repairs/checks.ts';
 import { CHECK_ORDER, allOk, readiness, stoppedAt, withoutChecks } from './repair-fixtures.ts';
 
 // A pause written as two hyphens between spaces is not a dash either; the check is built
@@ -182,7 +187,33 @@ test('an allowance that could not be read is looked at again, and is not one tha
       REPO_URL,
     ),
   );
-  assert.equal(blockedHeadline(spent?.code ?? '', spent?.blocker), 'No attempts left today');
+  assert.equal(blockedHeadline(spent?.code ?? '', spent?.blocker), 'No attempts left right now');
+});
+
+// A spent allowance is not a wall: the page says when a place frees, as a time
+// of day and as how long, so a person can plan instead of pressing Check again
+// at random. The limit is rolling, so "today" is not promised.
+test('a spent allowance says when the next attempt can start', () => {
+  const now = new Date(2026, 9, 31, 10, 0, 0).getTime();
+  const later = new Date(2026, 9, 31, 12, 30, 0).toISOString();
+  const words = allowanceWait(later, now);
+  assert.match(words, /12:30/);
+  assert.match(words, /in 3h/);
+  assert.doesNotMatch(words, /tomorrow/);
+
+  const tomorrow = new Date(2026, 10, 1, 8, 5, 0).toISOString();
+  assert.match(allowanceWait(tomorrow, now), /tomorrow 8:05/);
+});
+
+test('an allowance with no free instant still says the one true thing', () => {
+  assert.equal(
+    allowanceWait(undefined),
+    'The next attempt can start once the oldest attempt leaves the 24-hour window.',
+  );
+  assert.equal(
+    allowanceWait('not a time'),
+    'The next attempt can start once the oldest attempt leaves the 24-hour window.',
+  );
 });
 
 // A controller older than this build sends no blocker with a check, and its rows read as
