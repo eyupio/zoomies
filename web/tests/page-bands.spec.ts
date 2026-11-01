@@ -589,12 +589,20 @@ test('the Pools, Queue and Usage bands draw their pictures, and each agrees with
   const bars = page.getByTestId('band-pools').getByTestId('band-pool-bars');
   await expect(bars).toBeVisible();
   await expect(bars.getByRole('listitem')).toHaveCount(2);
-  // The fixture's x64 pool is at its ceiling, so it comes first and says so.
+  // The x64 pool is the fuller of the two, so it comes first whatever the
+  // moment; whether it is at its ceiling depends on how long the fixture has
+  // been running (idle runners drain), so the picture is held to the sentence
+  // rather than to a figure.
   await expect(bars.getByRole('link').first()).toHaveAccessibleName(
-    new RegExp(`^${FIXTURE.linuxPool}: .*at its ceiling$`),
+    new RegExp(`^${FIXTURE.linuxPool}: \\d+ busy · \\d+ of \\d+ live`),
   );
-  await expect(bars).toContainText('1 at its ceiling');
-  await expect(page.getByTestId('band-pools')).toContainText('1 is at its ceiling');
+  const sentence = (await page.getByTestId('band-pools').locator('.lede').textContent()) ?? '';
+  if (/is at its ceiling/.test(sentence)) {
+    await expect(bars).toContainText('1 at its ceiling');
+    await expect(bars.getByRole('link').first()).toHaveAccessibleName(/at its ceiling$/);
+  } else {
+    await expect(bars).not.toContainText('at its ceiling');
+  }
 
   await goto(page, '/queue', 'Queue');
   const trend = page.getByTestId('band-queue').getByTestId('band-queue-trend');
@@ -622,6 +630,57 @@ test('the Pools, Queue and Usage bands draw their pictures, and each agrees with
 
   await goto(page, '/settings/appearance', 'Appearance');
   for (const name of ['Pools', 'Queue', 'Usage']) {
+    await expect(page.getByRole('switch', { name: `${name} band picture` })).toBeChecked();
+  }
+});
+
+/**
+ * The last five bands: Jobs, Workflows, Providers, Installations and Kennel
+ * Club. What this protects: each picture agrees with its band's sentence, the
+ * Jobs hour row narrows the list when pressed, and Appearance offers every
+ * switch.
+ */
+test('the Jobs, Workflows, Providers, Installations and Kennel Club bands draw their pictures', async ({
+  page,
+}) => {
+  await goto(page, '/jobs', 'Jobs');
+  const today = page.getByTestId('band-jobs').getByTestId('fleet-punch-card');
+  await expect(today).toBeVisible();
+  await expect(today).toContainText('Today, by the hour');
+  await expect(today.getByRole('gridcell')).toHaveCount(24);
+  // Pressing a past hour narrows the list to that hour, across every status.
+  const busy = today.locator('[role="gridcell"]:not([data-level="0"]):not([data-future])').last();
+  await expect(busy).toBeVisible();
+  await busy.click();
+  await expect(page).toHaveURL(/since=\d{4}-\d{2}-\d{2}T\d{2}%3A00/);
+  await expect(page).toHaveURL(/until=\d{4}-\d{2}-\d{2}T\d{2}%3A59/);
+
+  await goto(page, '/workflows', 'Workflows');
+  const flight = page.getByTestId('band-workflows').getByTestId('band-in-flight');
+  await expect(flight).toBeVisible();
+  await expect(flight).toContainText(/\d+ running · \d+ waiting/);
+  await expect(flight.getByRole('link').first()).toHaveAccessibleName(/^acme\/\w+: /);
+
+  await goto(page, '/providers', 'Providers');
+  const machines = page.getByTestId('band-providers').getByTestId('band-machines');
+  await expect(machines).toBeVisible();
+  await expect(machines.getByRole('listitem')).toHaveCount(1);
+  // The fixture's provider owns two of four; the sentence says the same.
+  await expect(machines).toContainText('2 of 4');
+  await expect(page.getByTestId('band-providers')).toContainText('2 machines are owned');
+
+  await goto(page, '/installations', 'Installations');
+  const quota = page.getByTestId('band-installations').getByTestId('band-quota');
+  await expect(quota).toBeVisible();
+  await expect(quota.getByRole('listitem')).toHaveCount(1);
+
+  await goto(page, '/kennel', 'Kennel Club');
+  // Kennel Club is off in the fixture, so the band keeps its sentence alone.
+  await expect(page.getByTestId('band-kennel')).toBeVisible();
+  await expect(page.getByTestId('band-kennel').getByTestId('band-repositories')).toHaveCount(0);
+
+  await goto(page, '/settings/appearance', 'Appearance');
+  for (const name of ['Jobs', 'Workflows', 'Providers', 'Installations', 'Kennel Club']) {
     await expect(page.getByRole('switch', { name: `${name} band picture` })).toBeChecked();
   }
 });

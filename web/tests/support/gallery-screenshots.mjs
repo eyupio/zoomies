@@ -24,6 +24,8 @@ const outDir = resolve(process.argv[2] ?? join(root, 'design', 'theme-review', '
 const PORT = Number(process.env.ZOOMIES_GALLERY_PORT ?? 8091);
 const BASE = `http://127.0.0.1:${PORT}`;
 const DESKTOP = { width: 1440, height: 900 };
+/** The tallest image lossless WebP can hold, in pixels. */
+const WEBP_LIMIT = 16_383;
 /** The width the plan names first, and the one the phone layout is judged at. */
 const PHONE = { width: 375, height: 900 };
 
@@ -67,7 +69,11 @@ const child = spawn(
 
 mkdirSync(outDir, { recursive: true });
 const pngDir = mkdtempSync(join(tmpdir(), 'zoomies-gallery-png-'));
-const browser = await chromium.launch();
+// The same override the suite and the documentation captures take, for a
+// machine whose browser lives somewhere Playwright did not put it.
+const browser = await chromium.launch(
+  process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {},
+);
 try {
   await waitForGallery();
   for (const shot of SHOTS) {
@@ -82,14 +88,35 @@ try {
     await page.locator('table[role="grid"] tbody tr[data-row]').first().waitFor();
     await page.waitForTimeout(250);
     const name = `gallery-${shot.style}-${shot.mode}-${shot.viewport.width}`;
-    await page.screenshot({
-      path: join(pngDir, `${name}.png`),
-      fullPage: true,
-      animations: 'disabled',
-      caret: 'hide',
-    });
+    // WebP cannot hold an image taller than 16,383 pixels, and the gallery at
+    // a phone's width is taller than that. A page that would not fit is
+    // photographed in parts from the top, each a whole number of the viewport's
+    // heights so a part never ends in the middle of a line of text that the
+    // next part begins; a page that fits is one capture, as before.
+    const height = await page.evaluate(() => document.documentElement.scrollHeight);
+    const PART = Math.floor(16_000 / shot.viewport.height) * shot.viewport.height;
+    const parts = height > WEBP_LIMIT ? Math.ceil(height / PART) : 1;
+    for (let part = 0; part < parts; part++) {
+      const file = parts === 1 ? name : `${name}-${part + 1}`;
+      await page.screenshot({
+        path: join(pngDir, `${file}.png`),
+        fullPage: true,
+        animations: 'disabled',
+        caret: 'hide',
+        ...(parts === 1
+          ? {}
+          : {
+              clip: {
+                x: 0,
+                y: part * PART,
+                width: shot.viewport.width,
+                height: Math.min(PART, height - part * PART),
+              },
+            }),
+      });
+      console.log(`  captured ${file}`);
+    }
     await page.close();
-    console.log(`  captured ${name}`);
   }
   console.log(`encoding into ${outDir}`);
   encodeWebp(pngDir, outDir);
@@ -103,4 +130,4 @@ try {
   }
   rmSync(pngDir, { recursive: true, force: true });
 }
-console.log(`wrote ${SHOTS.length} gallery captures to ${outDir}`);
+console.log(`wrote the gallery captures to ${outDir}`);

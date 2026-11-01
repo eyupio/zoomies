@@ -9,14 +9,14 @@ export const BAND_PAGES = [
   { key: 'runners', label: 'Runners', picture: 'the slots by host' },
   { key: 'pools', label: 'Pools', picture: 'the pools against their ceilings' },
   { key: 'queue', label: 'Queue', picture: 'the last hour' },
-  { key: 'jobs', label: 'Jobs' },
-  { key: 'workflows', label: 'Workflows' },
+  { key: 'jobs', label: 'Jobs', picture: 'today by the hour' },
+  { key: 'workflows', label: 'Workflows', picture: 'work in flight by repository' },
   { key: 'usage', label: 'Usage', picture: 'execution hours across the range' },
   { key: 'hosts', label: 'Hosts', picture: 'the slots by host' },
-  { key: 'providers', label: 'Providers' },
-  { key: 'installations', label: 'Installations' },
+  { key: 'providers', label: 'Providers', picture: 'the machines against the ceiling' },
+  { key: 'installations', label: 'Installations', picture: 'the API quota left' },
   { key: 'migrate', label: 'Migrate' },
-  { key: 'kennel', label: 'Kennel Club' },
+  { key: 'kennel', label: 'Kennel Club', picture: 'the repositories, worst first' },
 ] as const;
 
 export type BandPage = (typeof BAND_PAGES)[number]['key'];

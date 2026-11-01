@@ -702,8 +702,16 @@ over live against its ceiling with the floor as a tick, the one at its ceiling
 first and edged in white; Queue draws the last hour as two sparklines, waiting
 and running, from the minute samples the fleet trend reads, with the newest
 point the band's own figures; Usage draws the chosen range's execution hours as
-one column per interval of the report the page already holds. Every picture on
-a stage keeps the same grammar, white and the brand's blue with a hole or an outline where a colour
+one column per interval of the report the page already holds. Jobs draws today
+alone as the punch card's one row, larger, and an hour pressed narrows the list
+to it; Providers draws a square per machine a provider may own against its
+ceiling, owned solid, on the way half-shade, leaving faint, headroom hollow and
+one that needs review punched through; Installations draws each App's remaining
+API quota as a bar, lowest first, edged in white below the tenth the band's own
+figure counts as low; Kennel Club draws one square per repository, worst first,
+the named ones with their findings and the rest by state; Workflows draws the
+work in flight by repository, a square per job. Every picture on a stage keeps
+the same grammar, white and the brand's blue with a hole or an outline where a colour
 would otherwise carry it, so an operator who has read one can read them all.
 Like the dog, a picture can be switched off in Appearance, per page under Page
 bands or for every page at once, and the choice follows the account. The

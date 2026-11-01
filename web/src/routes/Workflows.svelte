@@ -21,6 +21,7 @@
 -->
 <script lang="ts">
   import PageBand from '$lib/bands/PageBand.svelte';
+  import BandInFlight from '$lib/bands/BandInFlight.svelte';
   import { workflowsLine } from '$lib/bands/lines';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { CircleX } from '@lucide/svelte';
@@ -627,7 +628,12 @@
     : 'The workflow runs this fleet claims, runs or is waiting to run, and the jobs inside each.'}
   onrefresh={refreshPage}
 />
-<PageBand page="workflows" line={bandLine} />
+<PageBand page="workflows" line={bandLine}>
+  <!-- The sentence counts the jobs in flight; the rows say whose they are. -->
+  {#snippet aside()}
+    {#if fleet.loaded}<BandInFlight />{/if}
+  {/snippet}
+</PageBand>
 
 <div class="content">
   <div class="toolbar">
