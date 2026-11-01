@@ -576,6 +576,14 @@
     .slot.side :global(.panel) {
       flex: 1;
     }
+    /* The toolbar above a card is a line, not a column: it keeps its own
+       height and width while the card under it fills the row. */
+    .slot.main > :global(.arrange),
+    .slot.side > :global(.arrange) {
+      flex: 0 0 auto;
+      flex-direction: row;
+      align-self: flex-start;
+    }
   }
   @media (max-width: 1180px) {
     .panels {

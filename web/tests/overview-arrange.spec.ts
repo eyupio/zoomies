@@ -172,3 +172,16 @@ test("Appearance lists the Overview's panels as switches, and one switched off i
   await goto(page, '/', 'Overview');
   await expect(page.locator('#history')).toHaveCount(1);
 });
+
+// The jobs and the events share a row whose slots stretch their card to the
+// row's height; the toolbar above each must not stretch with it.
+test('the toolbar over a card in the shared row stays one line tall', async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 1181, 'a narrow screen stacks the row');
+  await arrange(page);
+  for (const id of ['jobs', 'events']) {
+    const bar = page.locator(`[data-panel="${id}"] [role="toolbar"]`);
+    const box = (await bar.boundingBox())!;
+    expect(box.height, `${id} toolbar height`).toBeLessThan(56);
+    expect(box.width, `${id} toolbar width`).toBeGreaterThan(box.height);
+  }
+});
