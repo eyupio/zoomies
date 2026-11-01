@@ -281,7 +281,8 @@
       <p class="label">Picture in the band</p>
       <p class="description">
         The default for the pages whose band draws a picture beside its sentence: the week by the
-        hour on the Overview, the slots by host on Hosts and Runners. Switching it off gives the
+        hour on the Overview, the slots by host on Hosts and Runners, the pools against their
+        ceilings, the Queue's last hour and the Usage range's hours. Switching it off gives the
         sentence the whole band, as hiding the dog does. It applies to every page; a page can be
         given its own answer in Page bands above.
       </p>

@@ -9,6 +9,7 @@
   import PageBand from '$lib/bands/PageBand.svelte';
   import { poolSignals } from '$lib/insights/signals';
   import { revealHash } from '$lib/bands/jump';
+  import BandPoolBars from '$lib/bands/BandPoolBars.svelte';
   import { poolsLine } from '$lib/bands/lines';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import PoolPressure from '$lib/insights/PoolPressure.svelte';
@@ -686,7 +687,13 @@
     {/if}
   {/if}
 </PageHeader>
-<PageBand page="pools" line={bandLine} />
+<PageBand page="pools" line={bandLine}>
+  <!-- The sentence counts the pools at their ceiling; the bars beside it show
+       which, and how far the rest are from theirs. -->
+  {#snippet aside()}
+    {#if fleet.loaded}<BandPoolBars pools={fleet.pools} stats={fleet.stats} />{/if}
+  {/snippet}
+</PageBand>
 
 <div class="filters">
   <FilterBar {chips} onclear={clearFilters}>

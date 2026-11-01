@@ -2,6 +2,7 @@
   import PageBand from '$lib/bands/PageBand.svelte';
   import type { BandStat } from '$lib/bands/stats';
   import { revealHash } from '$lib/bands/jump';
+  import BandQueueTrend from '$lib/bands/BandQueueTrend.svelte';
   import { queueLine } from '$lib/bands/lines';
   import { readableJobText } from '$lib/jobs/name';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
@@ -423,7 +424,13 @@
   <Button variant="secondary" icon={Bookmark} onclick={() => (saveOpen = true)}>Save view</Button>
   <Button variant="ghost" href="/runners">View runners</Button>
 </PageHeader>
-<PageBand page="queue" line={bandLine} stats={statusFigures} />
+<PageBand page="queue" line={bandLine} stats={statusFigures}>
+  <!-- The figures say how many are waiting; the hour beside them says which
+       way that is going. -->
+  {#snippet aside()}
+    {#if fleet.loaded}<BandQueueTrend slots={fleet.stats?.hosts?.capacity} />{/if}
+  {/snippet}
+</PageBand>
 
 <div class="queue-content">
   <div class="filters-panel">

@@ -697,8 +697,13 @@ same fourteen slots from two sides as a slot map: a row per host, a square per
 slot, solid while held, half-shade while starting, empty when free, dashed on a
 host no heartbeat has come from, and on Runners coloured by what the runner is
 doing (idle faint, draining hollow). Each row is a link to its host, and past
-seven hosts the rest are a count. Every picture on a stage keeps the same
-grammar, white and the brand's blue with a hole or an outline where a colour
+seven hosts the rest are a count. Pools draws each enabled pool as a bar, busy
+over live against its ceiling with the floor as a tick, the one at its ceiling
+first and edged in white; Queue draws the last hour as two sparklines, waiting
+and running, from the minute samples the fleet trend reads, with the newest
+point the band's own figures; Usage draws the chosen range's execution hours as
+one column per interval of the report the page already holds. Every picture on
+a stage keeps the same grammar, white and the brand's blue with a hole or an outline where a colour
 would otherwise carry it, so an operator who has read one can read them all.
 Like the dog, a picture can be switched off in Appearance, per page under Page
 bands or for every page at once, and the choice follows the account. The

@@ -574,3 +574,54 @@ test('a band picture can be switched off in Appearance, per page or for every pa
   await goto(page, '/', 'Overview');
   await expect(page.getByTestId('fleet-punch-card')).toBeVisible();
 });
+
+/**
+ * The Pools, Queue and Usage bands carry a picture each: the pools against
+ * their ceilings, the last hour, and the range's hours. What this protects:
+ * each agrees with its band's own sentence, each is data (a row names its pool
+ * and what it holds, a sparkline says its figure), and Appearance offers the
+ * switch for each.
+ */
+test('the Pools, Queue and Usage bands draw their pictures, and each agrees with its sentence', async ({
+  page,
+}) => {
+  await goto(page, '/pools', 'Pools');
+  const bars = page.getByTestId('band-pools').getByTestId('band-pool-bars');
+  await expect(bars).toBeVisible();
+  await expect(bars.getByRole('listitem')).toHaveCount(2);
+  // The fixture's x64 pool is at its ceiling, so it comes first and says so.
+  await expect(bars.getByRole('link').first()).toHaveAccessibleName(
+    new RegExp(`^${FIXTURE.linuxPool}: .*at its ceiling$`),
+  );
+  await expect(bars).toContainText('1 at its ceiling');
+  await expect(page.getByTestId('band-pools')).toContainText('1 is at its ceiling');
+
+  await goto(page, '/queue', 'Queue');
+  const trend = page.getByTestId('band-queue').getByTestId('band-queue-trend');
+  await expect(trend).toBeVisible();
+  await expect(
+    trend.getByRole('img', { name: /^Waiting over the last hour, now \d+$/ }),
+  ).toBeVisible();
+  await expect(
+    trend.getByRole('img', { name: /^Running over the last hour, now \d+$/ }),
+  ).toBeVisible();
+  // The newest point is the band's own figure.
+  const waiting = await page.getByTestId('band-queue').locator('.headline').textContent();
+  const now = waiting?.match(/^(\d+) jobs? (?:is|are) waiting/)?.[1];
+  expect(now).toBeTruthy();
+  await expect(
+    trend.getByRole('img', { name: /^Waiting over the last hour/ }),
+  ).toHaveAccessibleName(new RegExp(`now ${now}$`));
+
+  await goto(page, '/usage', 'Usage');
+  const columns = page.getByTestId('band-usage').getByTestId('band-usage-columns');
+  await expect(columns).toBeVisible();
+  await expect(columns.getByRole('img')).toHaveAccessibleName(
+    /^\d+ intervals, the busiest [\d.]+ h at/,
+  );
+
+  await goto(page, '/settings/appearance', 'Appearance');
+  for (const name of ['Pools', 'Queue', 'Usage']) {
+    await expect(page.getByRole('switch', { name: `${name} band picture` })).toBeChecked();
+  }
+});
