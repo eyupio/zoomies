@@ -599,6 +599,15 @@ type JobFilter struct {
 	// no job and leave none out.
 	Since *time.Time
 	Until *time.Time
+	// CompletedSince and CompletedUntil are the same half-open window over the
+	// instant a job finished, where Since and Until read the instant it was
+	// queued. A job still in hand has no such instant and is in no window. They
+	// exist because the activity charts count a job in the hour it finished: a
+	// list reached from one of their squares has to ask the same question, or a
+	// job queued in one hour and finished in the next lights a square and is
+	// missing from the list behind it.
+	CompletedSince *time.Time
+	CompletedUntil *time.Time
 	// ControllerVersions keeps the jobs stamped with one of these controller
 	// versions. UnknownVersion matches the jobs that were never stamped.
 	ControllerVersions []string
@@ -939,6 +948,17 @@ func jobWhere(f JobFilter, now time.Time) (string, []any) {
 	if f.Until != nil {
 		cond = append(cond, `queued_at < ?`)
 		args = append(args, ms(*f.Until))
+	}
+	// A job with no completed_at compares as NULL, which is neither at or after
+	// one instant nor before another, so a job still in hand is left out of a
+	// completion window without a clause of its own.
+	if f.CompletedSince != nil {
+		cond = append(cond, `completed_at >= ?`)
+		args = append(args, ms(*f.CompletedSince))
+	}
+	if f.CompletedUntil != nil {
+		cond = append(cond, `completed_at < ?`)
+		args = append(args, ms(*f.CompletedUntil))
 	}
 	if f.UnmatchedOnly {
 		cond = append(cond, `matched = 0 AND state = ? AND NOT `+hostedJobSQL("jobs"))

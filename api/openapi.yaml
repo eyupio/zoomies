@@ -3498,6 +3498,19 @@ paths:
             at one instant -- the last 30 days and the 30 before them -- counts every job
             once.
           schema: { type: string, format: date-time }
+        - name: completed_since
+          in: query
+          description: >-
+            Only jobs that finished at or after this instant. The start is included. A job
+            still waiting or running has not finished and is left out. Reads when a job
+            finished where `since` reads when it was queued, and the two windows compose.
+          schema: { type: string, format: date-time }
+        - name: completed_until
+          in: query
+          description: >-
+            Only jobs that finished before this instant. The end is not included, so two
+            windows cut at one instant count every job once.
+          schema: { type: string, format: date-time }
         - name: controller_version
           in: query
           description: >-
@@ -3682,6 +3695,18 @@ paths:
       parameters:
         - { name: since, in: query, description: Start of the window, included. Defaults to a week before `until`., schema: { type: string, format: date-time } }
         - { name: until, in: query, description: End of the window, not included. Defaults to now., schema: { type: string, format: date-time } }
+        - name: completed_since
+          in: query
+          description: >-
+            Narrow the jobs counted to those that finished at or after this instant, inside
+            the window `since` and `until` already cut by queue time. The start is included.
+          schema: { type: string, format: date-time }
+        - name: completed_until
+          in: query
+          description: >-
+            Narrow the jobs counted to those that finished before this instant. The end is
+            not included.
+          schema: { type: string, format: date-time }
         - name: group_by
           in: query
           description: >-
@@ -4030,6 +4055,19 @@ paths:
         - { name: q, in: query, schema: { type: string } }
         - { name: since, in: query, schema: { type: string, format: date-time } }
         - { name: until, in: query, schema: { type: string, format: date-time } }
+        - name: completed_since
+          in: query
+          description: >-
+            Only jobs that finished at or after this instant. The start is included. A job
+            still waiting or running has not finished and is left out. Reads when a job
+            finished where `since` reads when it was queued, and the two windows compose.
+          schema: { type: string, format: date-time }
+        - name: completed_until
+          in: query
+          description: >-
+            Only jobs that finished before this instant. The end is not included, so two
+            windows cut at one instant count every job once.
+          schema: { type: string, format: date-time }
         - { name: unmatched, in: query, description: Runs with a job that is still queued and that no enabled pool claims., schema: { type: boolean } }
         - { name: managed, in: query, description: Runs Zoomies has a hand in, through any job of theirs., schema: { type: boolean } }
         - { name: failed, in: query, description: Runs with a job that went wrong on either side, counting only the latest attempt of each job., schema: { type: boolean } }
