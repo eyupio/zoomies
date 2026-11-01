@@ -206,6 +206,78 @@ func TestBandPreferencesRefuseAPageOrCutThisBuildDoesNotHave(t *testing.T) {
 	}
 }
 
+// How a person arranged the Overview is theirs: a second browser on the same
+// account draws it, and another account never sees it.
+func TestPanelLayoutsFollowTheSignedInAccount(t *testing.T) {
+	h := newHarness(t)
+	_, aliceCookie := h.user("alice", store.RoleViewer)
+	_, bobCookie := h.user("bob", store.RoleViewer)
+
+	put := h.do(request{method: http.MethodPut, path: "/api/v1/auth/preferences", cookie: aliceCookie,
+		body: map[string]any{"panels": map[string]any{"overview": map[string]any{
+			"order": []string{"pools", "attention"}, "hidden": []string{"history"}}}}})
+	put.mustStatus(t, http.StatusOK, "save a panel layout")
+
+	get := h.do(request{method: http.MethodGet, path: "/api/v1/auth/preferences", cookie: aliceCookie})
+	get.mustStatus(t, http.StatusOK, "read the layout back")
+	var doc map[string]any
+	get.into(t, &doc)
+	panels, _ := doc["panels"].(map[string]any)
+	overview, _ := panels["overview"].(map[string]any)
+	if order, _ := overview["order"].([]any); len(order) != 2 || order[0] != "pools" {
+		t.Fatalf("order = %v, want pools first", overview["order"])
+	}
+	if hidden, _ := overview["hidden"].([]any); len(hidden) != 1 || hidden[0] != "history" {
+		t.Fatalf("hidden = %v, want history", overview["hidden"])
+	}
+
+	other := h.do(request{method: http.MethodGet, path: "/api/v1/auth/preferences", cookie: bobCookie})
+	other.mustStatus(t, http.StatusOK, "read another account's preferences")
+	var bob map[string]any
+	other.into(t, &bob)
+	if _, has := bob["panels"]; has {
+		t.Fatalf("bob sees alice's layout: %v", bob["panels"])
+	}
+}
+
+// A layout naming a page this build has no panels for, or a panel the page
+// does not have, is refused with the field, as a band naming a page is: stored,
+// it would be a layout nobody can repair in the interface.
+func TestPanelLayoutsRefuseAPageOrPanelThisBuildDoesNotHave(t *testing.T) {
+	h := newHarness(t)
+	_, cookie := h.user("alice", store.RoleViewer)
+
+	cases := []struct {
+		name   string
+		panels map[string]any
+		field  string
+	}{
+		{"a page with no panels", map[string]any{"settings": map[string]any{"order": []string{"a"}}}, "panels.settings"},
+		{
+			"a panel the Overview does not have",
+			map[string]any{"overview": map[string]any{"order": []string{"pools", "weather"}}},
+			"panels.overview.order",
+		},
+		{
+			"a hidden panel the Overview does not have",
+			map[string]any{"overview": map[string]any{"hidden": []string{"weather"}}},
+			"panels.overview.hidden",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := h.do(request{method: http.MethodPut, path: "/api/v1/auth/preferences", cookie: cookie,
+				body: map[string]any{"panels": tc.panels}})
+			resp.mustStatus(t, http.StatusUnprocessableEntity, tc.name)
+			var env errorEnvelope
+			resp.into(t, &env)
+			if len(env.Errors) == 0 || env.Errors[0].Field != tc.field {
+				t.Fatalf("errors = %+v, want one on %s", env.Errors, tc.field)
+			}
+		})
+	}
+}
+
 // A snooze made in one browser has to hold in the next. The decision belongs to
 // the account, so a second session for the same person sees it and a different
 // person does not.
