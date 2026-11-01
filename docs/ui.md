@@ -350,8 +350,8 @@ is not for this fleet, so it stops counting as queued everywhere; the
 Overview's queue depth and pool bars, `zoomies_jobs_queued` and the queue age
 with it. Restoring it from the Removed view puts it back.
 
-![The Queue page: a band saying how many jobs are waiting, then status filters above the provisioning table, with demand and ordering folded under it](screenshots/queue-dark.webp#only-dark){ .zoomies-shot }
-![The Queue page: a band saying how many jobs are waiting, then status filters above the provisioning table, with demand and ordering folded under it](screenshots/queue-light.webp#only-light){ .zoomies-shot }
+![The Queue page: a band saying how many jobs are waiting, the job filters, then one card with the active demand over its title, the four provisioning statuses as chips and the table inside, with demand and ordering folded under it](screenshots/queue-dark.webp#only-dark){ .zoomies-shot }
+![The Queue page: a band saying how many jobs are waiting, the job filters, then one card with the active demand over its title, the four provisioning statuses as chips and the table inside, with demand and ordering folded under it](screenshots/queue-light.webp#only-light){ .zoomies-shot }
 
 ## Workflows
 
