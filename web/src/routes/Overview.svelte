@@ -5,6 +5,7 @@
   import RepairOffers from '$lib/repairs/RepairOffers.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
+  import Button from '$lib/components/Button.svelte';
   import Select from '$lib/components/Select.svelte';
   import HostCapacityMap from '$lib/insights/HostCapacityMap.svelte';
   import { navigate } from '$lib/router';
@@ -21,7 +22,20 @@
   import EventsFeed from '$lib/overview/EventsFeed.svelte';
   import OverviewDisclosure from '$lib/overview/OverviewDisclosure.svelte';
   import StartupTimings from '$lib/overview/StartupTimings.svelte';
-  import { DEFAULT_LAYOUT, OVERVIEW_PANELS, visibleLayout } from '$lib/overview/panels';
+  import ArrangeBar from '$lib/overview/ArrangeBar.svelte';
+  import ArrangeControls from '$lib/overview/ArrangeControls.svelte';
+  import HiddenPanel from '$lib/overview/HiddenPanel.svelte';
+  import {
+    OVERVIEW_PANELS,
+    hiddenPanels,
+    isDefaultLayout,
+    movePanel,
+    placePanel,
+    setHidden,
+    visibleLayout,
+    type OverviewPanelId,
+  } from '$lib/overview/panels';
+  import { startSlotDrag } from '$lib/actions/columnGesture';
 
   let setupPending = $state(false);
   let failures = $state<RecentFailures | null>(null);
@@ -32,8 +46,53 @@
   let pageNav = $state<HTMLElement>();
   let jumped: { id: string; y: number } | null = null;
   const loading = $derived(!fleet.loaded);
-  // The body under the band, in the registry's order for this fleet state.
-  const panels = $derived(visibleLayout(OVERVIEW_PANELS, DEFAULT_LAYOUT, { setupPending }));
+  // The body under the band: the registry in this person's order, less what
+  // they hid and what this fleet state leaves out.
+  const layout = $derived(prefs.panelLayout('overview'));
+  const panels = $derived(visibleLayout(OVERVIEW_PANELS, layout, { setupPending }));
+  const hidden = $derived(hiddenPanels(OVERVIEW_PANELS, layout, { setupPending }));
+  // Arranging is for this visit, not remembered: the arrangement is, which is
+  // what somebody opened the mode for.
+  let arranging = $state(false);
+  let body = $state<HTMLElement>();
+  let dragged = $state<OverviewPanelId | ''>('');
+  let dropTarget = $state<OverviewPanelId | ''>('');
+
+  function save(next: ReturnType<typeof movePanel>): void {
+    prefs.setPanelLayout('overview', next);
+  }
+
+  /** Move a panel one place, keeping focus on the button that did it. */
+  async function move(id: OverviewPanelId, title: string, delta: -1 | 1): Promise<void> {
+    save(movePanel(layout, id, delta));
+    await tick();
+    const direction = delta < 0 ? 'up' : 'down';
+    document
+      .querySelector<HTMLElement>(
+        `[data-panel="${id}"] .arrange button[aria-label="Move ${title} ${direction}"]`,
+      )
+      ?.focus();
+  }
+
+  function drag(event: PointerEvent, id: OverviewPanelId): void {
+    if (!body) return;
+    startSlotDrag(event, body, 'panel', {
+      over: (target) => {
+        dragged = id;
+        dropTarget = target && target !== id ? (target as OverviewPanelId) : '';
+      },
+      drop: (target) => {
+        const before = target && target !== id ? (target as OverviewPanelId) : null;
+        if (before !== null || !target) save(placePanel(layout, id, before));
+        dragged = '';
+        dropTarget = '';
+      },
+      cancel: () => {
+        dragged = '';
+        dropTarget = '';
+      },
+    });
+  }
   const failed = $derived(!fleet.loaded && fleet.error !== null);
   const others = $derived(prefs.otherRunners);
   const capacity = $derived(fleet.stats?.hosts);
@@ -157,6 +216,9 @@
       other page uses. One status, said once; the stale banner below is what
       raises its voice when it matters.
     -->
+    <Button variant="secondary" pressed={arranging} onclick={() => (arranging = !arranging)}
+      >Arrange</Button
+    >
     <div class="scope">
       <Select
         ariaLabel="Overview scope"
@@ -238,9 +300,34 @@
         main panel with the side panel after it share a row, two thirds and one
         third. Nothing here decides the order; the list does.
       -->
-      <div class="panels">
-        {#each panels as panel (panel.id)}
-          <div class="slot {panel.place}" data-panel={panel.id}>
+      <div class="panels" class:arranging bind:this={body}>
+        {#if arranging}
+          <div class="slot full">
+            <ArrangeBar
+              hidden={hidden.length}
+              isDefault={isDefaultLayout(layout)}
+              onreset={() => prefs.resetPanelLayout('overview')}
+              ondone={() => (arranging = false)}
+            />
+          </div>
+        {/if}
+        {#each panels as panel, i (panel.id)}
+          <div
+            class="slot {panel.place}"
+            class:dragging={dragged === panel.id}
+            class:drop={dropTarget === panel.id}
+            data-panel={panel.id}
+          >
+            {#if arranging}
+              <ArrangeControls
+                title={panel.title}
+                first={i === 0}
+                last={i === panels.length - 1}
+                onmove={(delta) => void move(panel.id, panel.title, delta)}
+                onhide={() => save(setHidden(layout, panel.id, true))}
+                ondrag={(event) => drag(event, panel.id)}
+              />
+            {/if}
             {#if panel.id === 'attention'}
               <NeedsAttention {loading} {setupPending} />
             {:else if panel.id === 'pools'}
@@ -287,6 +374,16 @@
             {/if}
           </div>
         {/each}
+        {#if arranging}
+          {#each hidden as panel (panel.id)}
+            <div class="slot full">
+              <HiddenPanel
+                title={panel.title}
+                onshow={() => save(setHidden(layout, panel.id, false))}
+              />
+            </div>
+          {/each}
+        {/if}
       </div>
     </div>
   {/if}
@@ -423,6 +520,20 @@
   }
   .slot.full {
     grid-column: 1 / -1;
+  }
+  /* While arranging, every card shows its edge, so a drop has somewhere to
+     land; the one being carried fades and the one it will land before gets a
+     line along its top. */
+  .arranging .slot[data-panel] {
+    padding: var(--z-space-2);
+    border: var(--z-border-width) dashed var(--z-border-strong);
+    border-radius: var(--z-radius-xl);
+  }
+  .arranging .slot.dragging {
+    opacity: 0.6;
+  }
+  .arranging .slot.drop {
+    border-top: var(--z-border-width-thick) solid var(--z-accent);
   }
   .destination,
   .now {
