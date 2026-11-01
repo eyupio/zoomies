@@ -690,8 +690,15 @@ hour with failures punched through as the matrix draws one, the hours still to
 come faint, and the current hour outlined. It is the activity matrix's 7d range
 at a glance, in the stage's white and blue and nothing else; an hour of it
 opens History with that hour selected. Every cut carries it, since the figures
-give even Slim the height for seven rows. The wrong-address page uses the same
-stage with the dog.
+give even Slim the height for seven rows. The Hosts and Runners bands carry the
+same fourteen slots from two sides as a slot map: a row per host, a square per
+slot, solid while held, half-shade while starting, empty when free, dashed on a
+host no heartbeat has come from, and on Runners coloured by what the runner is
+doing (idle faint, draining hollow). Each row is a link to its host, and past
+seven hosts the rest are a count. Every picture on a stage keeps the same
+grammar, white and the brand's blue with a hole or an outline where a colour
+would otherwise carry it, so an operator who has read one can read them all.
+The wrong-address page uses the same stage with the dog.
 
 Persistent left navigation, collapsible to icons only (persisted). Order is
 fixed, because muscle memory is the point:

@@ -226,6 +226,10 @@
     flex: 1 1 auto;
     min-width: 0;
     max-width: 46%;
+    /* A band's size controls sit in the stage's top corner. A picture taller
+       than the words sets the band's height and starts at the padding, where
+       those controls are, so it keeps a line clear of them. */
+    padding-block-start: var(--z-space-6);
   }
   /* With the dog on as well, the picture gives up width first, so the words
      and their figures keep theirs. */

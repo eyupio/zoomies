@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { goto } from './support/fixtures';
+import { FIXTURE, goto } from './support/fixtures';
 
 // A band is the dark stage at the top of a page that says its answer in a sentence. Each
 // is on by default and each can be switched off in Appearance, per page, in this browser.
@@ -495,4 +495,40 @@ test('the Overview band shows the week by the hour, and an hour of it opens Hist
   await expect(band).toHaveAttribute('data-size', 'expanded');
   await expect(card).toBeVisible();
   await expect(grid.getByRole('gridcell')).toHaveCount(7 * 24);
+});
+
+/**
+ * The Hosts and Runners bands carry the fleet's slots as a map beside their
+ * sentence. What this protects: the map agrees with the sentence (the same
+ * hosts, the same slots), each host is a way in, and the Runners page colours
+ * the same squares by state rather than drawing a second picture.
+ */
+test('the Hosts and Runners bands draw the same slots, by host, and each row opens its host', async ({
+  page,
+}) => {
+  await goto(page, '/hosts', 'Hosts');
+  const hostsMap = page.getByTestId('band-hosts').getByTestId('band-slot-map');
+  await expect(hostsMap).toBeVisible();
+  await expect(hostsMap).toHaveAttribute('data-detail', 'occupancy');
+  await expect(hostsMap).toContainText('Slots right now');
+  // The fixture's three hosts, and the band's own count of slots in use.
+  const rows = hostsMap.getByRole('listitem');
+  await expect(rows).toHaveCount(3);
+  await expect(hostsMap).toContainText(/\d+ of 12 in use/);
+  await expect(page.getByTestId('band-hosts')).toContainText('of 12 slots in use');
+  // A row names its host and says what it holds, in one accessible name.
+  const first = hostsMap.getByRole('link').first();
+  await expect(first).toHaveAccessibleName(/^demo-.*: \d+ of \d+ in use/);
+
+  await goto(page, '/runners', 'Runners');
+  const runnersMap = page.getByTestId('band-runners').getByTestId('band-slot-map');
+  await expect(runnersMap).toBeVisible();
+  await expect(runnersMap).toHaveAttribute('data-detail', 'state');
+  await expect(runnersMap).toContainText('Runners by host');
+  await expect(runnersMap.getByRole('listitem')).toHaveCount(3);
+  await expect(runnersMap).toContainText(/\d+ busy · \d+ idle/);
+
+  // A row is a way into its host.
+  await runnersMap.getByRole('link', { name: new RegExp(`^${FIXTURE.busyRunnerHost}:`) }).click();
+  await expect(page).toHaveURL(/\/hosts\/[^/]+$/);
 });
