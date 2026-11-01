@@ -184,7 +184,18 @@ func TestNudgesCoalesce(t *testing.T) {
 	eventually(t, 10*time.Second, "the first reconcile pass", func() bool {
 		return h2.c.passes.Load() >= 1
 	})
+	// The controller nudges itself while it starts, and on a slow runner one of
+	// those can land after the first pass and be counted against the burst
+	// below, which is how this failed on a loaded arm64 runner (three passes for
+	// fifty nudges). Take the baseline once the loop has gone quiet, so that only
+	// the burst is measured.
 	base := h2.c.passes.Load()
+	for quiet := time.Now(); time.Since(quiet) < 500*time.Millisecond; {
+		time.Sleep(20 * time.Millisecond)
+		if now := h2.c.passes.Load(); now != base {
+			base, quiet = now, time.Now()
+		}
+	}
 	for range 50 {
 		h2.c.Nudge()
 	}
