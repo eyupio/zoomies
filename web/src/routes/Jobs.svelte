@@ -770,7 +770,7 @@
   {#snippet aside()}
     {#if fleet.loaded}<FleetPunchCard
         days={1}
-        pickHint="Pick an hour to show its jobs below."
+        pickHint="Pick an hour to narrow the list to it."
         onpick={(at) => {
           setView('all');
           patch({
