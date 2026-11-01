@@ -12,6 +12,9 @@
   import Badge from '$lib/components/Badge.svelte';
   import MetricTile from '$lib/components/MetricTile.svelte';
   import Panel from '$lib/components/Panel.svelte';
+  import Facts from '$lib/components/Facts.svelte';
+  import Terminal from '$lib/components/Terminal.svelte';
+  import { runnerStatus } from '$lib/status';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import { toneTokens, type StatusTone } from '$lib/status';
 
@@ -101,6 +104,39 @@
   </div>
 </Panel>
 
+<Panel
+  title="Terminal and facts"
+  description="A command the operator runs, in the window they will run it in, on the dark stage."
+>
+  <div class="stage-parts">
+    <Terminal
+      title="sam@lab-vm-2"
+      command={[
+        'sudo sh join.sh --controller https://controller.example --token 0123456789012345678901234567890123456789012345678901234567890123456789',
+        'zoomies agent join https://controller.example --token 0123456789',
+      ]}
+      copyLabel="Copy the command"
+    >
+      <p>The token in it is shown once, only its hash is stored, and works once.</p>
+    </Terminal>
+    <Terminal size="sm" title="What a workflow writes" command="runs-on: zoomies-linux-x64" />
+    <Facts
+      label="Version selected for this host"
+      items={[
+        { term: 'Controller build', value: 'v1.4.2 (3480089)', mono: true },
+        { term: 'Host install channel', value: ':stable', mono: true },
+        {
+          term: 'Address',
+          value:
+            'controller0123456789012345678901234567890123456789012345678901234567890123456789.example',
+          mono: true,
+        },
+        { term: 'State', value: 'Joined', status: runnerStatus('idle') },
+      ]}
+    />
+  </div>
+</Panel>
+
 <Panel title="Type and density" description="The sizes the plan names, in the style's own tokens.">
   <div class="type">
     <p class="page-heading">Overview, 28px desktop and 24px on a phone</p>
@@ -138,6 +174,10 @@
 </Panel>
 
 <style>
+  .stage-parts {
+    display: grid;
+    gap: var(--z-space-4);
+  }
   .swatches {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));

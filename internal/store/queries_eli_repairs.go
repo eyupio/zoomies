@@ -23,7 +23,6 @@ type EliRepairPolicy struct {
 	AskFirst       bool   `json:"ask_first"`
 	Automatic      bool   `json:"automatic"`
 	AllowWorkflows bool   `json:"allow_workflows"`
-	DailyLimit     int    `json:"daily_limit"`
 }
 type EliRepairStep struct {
 	InputTokens       int    `json:"input_tokens"`
@@ -170,15 +169,12 @@ func (s *Store) DeleteEliIdentity(ctx context.Context, userID string) error {
 	return err
 }
 func (s *Store) SetEliRepairPolicy(ctx context.Context, p EliRepairPolicy) error {
-	if p.DailyLimit < 1 || p.DailyLimit > 50 {
-		return ErrConflict
-	}
-	_, err := s.exec(ctx, `INSERT INTO eli_repair_policies(repo,installation_id,provider_id,enabled,automatic,ask_first,allow_workflows,daily_limit,updated_at) VALUES(?,?,NULLIF(?,''),?,?,?,?,?,?)
- ON CONFLICT(repo) DO UPDATE SET installation_id=excluded.installation_id,provider_id=excluded.provider_id,enabled=excluded.enabled,automatic=excluded.automatic,ask_first=excluded.ask_first,allow_workflows=excluded.allow_workflows,daily_limit=excluded.daily_limit,updated_at=excluded.updated_at`, p.Repo, p.InstallationID, p.ProviderID, boolInt(p.Enabled), boolInt(p.Automatic), boolInt(p.AskFirst), boolInt(p.AllowWorkflows), p.DailyLimit, ms(s.Now()))
+	_, err := s.exec(ctx, `INSERT INTO eli_repair_policies(repo,installation_id,provider_id,enabled,automatic,ask_first,allow_workflows,updated_at) VALUES(?,?,NULLIF(?,''),?,?,?,?,?)
+ ON CONFLICT(repo) DO UPDATE SET installation_id=excluded.installation_id,provider_id=excluded.provider_id,enabled=excluded.enabled,automatic=excluded.automatic,ask_first=excluded.ask_first,allow_workflows=excluded.allow_workflows,updated_at=excluded.updated_at`, p.Repo, p.InstallationID, p.ProviderID, boolInt(p.Enabled), boolInt(p.Automatic), boolInt(p.AskFirst), boolInt(p.AllowWorkflows), ms(s.Now()))
 	return wrapWrite(err)
 }
 
-var eliRepairPoliciesQuery = hot(`SELECT repo,installation_id,COALESCE(provider_id,''),enabled,automatic,ask_first,allow_workflows,daily_limit FROM eli_repair_policies ORDER BY repo`)
+var eliRepairPoliciesQuery = hot(`SELECT repo,installation_id,COALESCE(provider_id,''),enabled,automatic,ask_first,allow_workflows FROM eli_repair_policies ORDER BY repo`)
 
 func (s *Store) EliRepairPolicies(ctx context.Context) ([]EliRepairPolicy, error) {
 	rows, err := s.hotRead().Query(ctx, eliRepairPoliciesQuery)
@@ -189,7 +185,7 @@ func (s *Store) EliRepairPolicies(ctx context.Context) ([]EliRepairPolicy, error
 	out := []EliRepairPolicy{}
 	for rows.Next() {
 		var p EliRepairPolicy
-		if err := rows.Scan(&p.Repo, &p.InstallationID, &p.ProviderID, &p.Enabled, &p.Automatic, &p.AskFirst, &p.AllowWorkflows, &p.DailyLimit); err != nil {
+		if err := rows.Scan(&p.Repo, &p.InstallationID, &p.ProviderID, &p.Enabled, &p.Automatic, &p.AskFirst, &p.AllowWorkflows); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -233,8 +229,8 @@ func (s *Store) GetEliRepair(ctx context.Context, id, ownerID string, scoped boo
 	return r, nil
 }
 
-// Admission and deduplication share the writer transaction, so a webhook burst cannot outrun the budget.
-func (s *Store) EnqueueEliRepair(ctx context.Context, r *EliRepair, limit int) (bool, error) {
+// Deduplication happens in the writer transaction, so a webhook burst cannot enqueue the same repair twice.
+func (s *Store) EnqueueEliRepair(ctx context.Context, r *EliRepair) (bool, error) {
 	added := false
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		var existing string
@@ -280,21 +276,6 @@ func (s *Store) EnqueueEliRepair(ctx context.Context, r *EliRepair, limit int) (
 		}
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
-		}
-		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM eli_repairs WHERE repo=? AND created_at>=?`, r.Repo, ms(s.Now().Add(-24*time.Hour))).Scan(&count); err != nil {
-			return err
-		}
-		if limit < 1 || count >= limit {
-			return ErrEliRepoBudget
-		}
-		if r.UserID != "" {
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM eli_repairs WHERE user_id=? AND created_at>=?`, r.UserID, ms(s.Now().Add(-24*time.Hour))).Scan(&count); err != nil {
-				return err
-			}
-			if count >= EliPersonDailyLimit {
-				return ErrEliPersonBudget
-			}
 		}
 		r.ID = NewID(PrefixEliRepair)
 		r.State = "queued"

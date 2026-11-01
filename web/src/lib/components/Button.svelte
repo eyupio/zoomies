@@ -211,7 +211,7 @@
     justify-content: center;
     gap: var(--z-space-2);
     border: var(--z-border-width) solid transparent;
-    border-radius: var(--z-radius-md);
+    border-radius: var(--z-radius-full);
     font-family: inherit;
     font-weight: var(--z-weight-medium);
     line-height: 1;
@@ -257,17 +257,21 @@
     opacity: 0.55;
   }
 
+  /* The brand's own blue under Zoomies Black, 7.3:1 in both themes, where the
+     darkened accent existed to carry white text (docs/brand.md). It names the
+     brand constants and not --z-text, so a band that remaps the text tokens
+     to the panel's cannot turn the label white on blue. */
   .primary {
-    background: var(--z-accent);
-    color: var(--z-accent-contrast);
+    background: var(--z-brand-runner-blue);
+    color: var(--z-brand-black);
   }
   .primary:hover:not(:disabled):not([aria-disabled='true']) {
-    background: var(--z-accent-hover);
+    filter: brightness(1.12);
   }
   /* Held down. Without it a click on a slow action gives no feedback at all
      until the request comes back. */
   .primary:active:not(:disabled):not([aria-disabled='true']) {
-    background: var(--z-accent-active);
+    filter: brightness(0.94);
   }
   .secondary {
     background: var(--z-surface);

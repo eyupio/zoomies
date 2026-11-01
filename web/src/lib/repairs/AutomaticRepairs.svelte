@@ -1,12 +1,11 @@
 <!--
-  The repositories that repair themselves: who pays, whether they can, what has
-  been spent of the allowance, what the automation did last, and the way to stop
+  The repositories that repair themselves: who pays, whether they can, what the
+  automation did last, and the way to stop
   it. It is an administrator's panel and appears only when something is automatic,
   so a fleet that never turned the feature on is never told about it.
 
   A repository that cannot run is first, with what to do about it, because the
-  failure it describes is silent: Eli simply does not start. A spent allowance is
-  the same silence with a different cure, so it says when a place frees. Every
+  failure it describes is silent: Eli simply does not start. Every
   name here (repository, provider, model) was written by a person, so each one is
   text.
 -->
@@ -17,7 +16,7 @@
   import Panel from '$lib/components/Panel.svelte';
   import { onClockTick } from '$lib/format';
   import { automaticStatus } from '$lib/status';
-  import { allowanceOf, lastWords, paidByWords, runningWords, waitsUntil } from './automatic';
+  import { lastWords, paidByWords, runningWords } from './automatic';
 
   interface Props {
     repositories: Schemas['EliAutomaticRepository'][];
@@ -34,7 +33,7 @@
   $effect(() => onClockTick((t) => (now = t)));
 
   const healthOf = (repo: Schemas['EliAutomaticRepository']) =>
-    repo.problem ? 'problem' : allowanceOf(repo).full ? 'waiting' : 'ready';
+    repo.problem ? 'problem' : 'ready';
 </script>
 
 {#snippet rows()}
@@ -60,8 +59,6 @@
   {/if}
 
   {#each repositories as repo (repo.repo)}
-    {@const allowance = allowanceOf(repo)}
-    {@const wait = waitsUntil(repo, now)}
     {@const running = runningWords(repo.running)}
     <article class="row">
       <div class="who">
@@ -80,23 +77,6 @@
             <a href="/repairs/setup?repo={encodeURIComponent(repo.repo)}">Fix in setup</a>
           </p>
         {/if}
-      </div>
-
-      <div class="usage">
-        <div
-          class="meter"
-          class:full={allowance.full}
-          role="meter"
-          aria-label="Allowance used on {repo.repo}"
-          aria-valuemin="0"
-          aria-valuemax={allowance.limit}
-          aria-valuenow={Math.min(allowance.used, allowance.limit)}
-          aria-valuetext={allowance.words}
-        >
-          <span style:width="{allowance.ratio * 100}%"></span>
-        </div>
-        <p class="words">{allowance.words}</p>
-        {#if wait}<p class="wait">{wait}</p>{/if}
       </div>
 
       <div class="latest">
@@ -165,7 +145,7 @@
   }
   .row {
     display: grid;
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
     gap: var(--z-space-4);
     align-items: start;
     padding: var(--z-space-4) var(--z-space-5);
@@ -175,7 +155,6 @@
     border-top: 0;
   }
   .who,
-  .usage,
   .latest {
     min-width: 0;
   }
@@ -198,34 +177,15 @@
     line-height: var(--z-leading-sm);
     overflow-wrap: anywhere;
   }
-  .paid,
-  .words {
+  .paid {
     color: var(--z-text-muted);
   }
   .problem {
     color: var(--z-danger);
   }
-  .wait {
-    color: var(--z-pending);
-  }
   .problem a {
     color: var(--z-accent);
     white-space: nowrap;
-  }
-  .meter {
-    height: var(--z-space-2);
-    border-radius: var(--z-radius-full);
-    background: var(--z-surface-sunken);
-    overflow: hidden;
-  }
-  .meter span {
-    display: block;
-    height: 100%;
-    border-radius: var(--z-radius-full);
-    background: var(--z-neutral);
-  }
-  .meter.full span {
-    background: var(--z-pending);
   }
   .latest {
     display: flex;
@@ -248,17 +208,6 @@
   .acts {
     display: flex;
     justify-content: flex-end;
-  }
-  /* The bar is a picture of a number the line under it already says, and Windows
-     high contrast repaints every background with the page's own, which would leave
-     the fill the colour of its track. */
-  @media (forced-colors: active) {
-    .meter {
-      border: var(--z-border-width) solid CanvasText;
-    }
-    .meter span {
-      background: Highlight;
-    }
   }
   @media (max-width: 900px) {
     .row {

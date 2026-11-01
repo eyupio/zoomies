@@ -512,9 +512,11 @@ Page gutters are `--z-space-6`, card padding `--z-space-5`, table cell padding
 
 ### 1.4 Radii, borders and geometry
 
-`--z-radius-sm` 4 (badges, inputs) · `--z-radius-md` 8 (buttons, cards) ·
-`--z-radius-lg` 12 (dialogs, panels) · `--z-radius-xl` 28 (the stage on the pages
-before sign in) · `--z-radius-full` 9999 (dots, pills).
+`--z-radius-sm` 4 (the checkbox and the radio box) · `--z-radius-md` 8 (the
+boxes inside a card) · `--z-radius-lg` 12 (dialogs, panels, text fields, the
+terminal and the facts panel) · `--z-radius-xl` 28 (the stage on the pages
+before sign in, and the card beside it) · `--z-radius-full` 9999 (dots, status
+pills, and every button).
 
 Borders come in three weights and the choice between them is meaning, not
 taste. `--z-border-width` (1px) is the hairline that separates things belonging
@@ -935,11 +937,11 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 
 | Component | Notes |
 | --- | --- |
-| `Button` | variants: `primary`, `secondary`, `ghost`, `danger`; sizes `sm`, `md`, and `lg` for the sign-in form alone; `loading` swaps the label for a spinner without changing width. `help` is a sentence in the shared tooltip; `reason`, with `disabled`, says why it cannot be used and keeps it reachable (see *Help*) |
-| `IconButton` | square, always has an `aria-label`, which is also the heading of its tooltip. `help`, `keys` and `reason` add a sentence, the keys that do the same and why it is unavailable |
-| `Input`, `Textarea`, `Select`, `Switch`, `Checkbox`, `RadioGroup` | all support `error` and `hint`; the error is announced with `aria-describedby`. `Input` has the same three sizes as `Button` |
+| `Button` | every variant is a pill; `primary` is Runner Blue under Zoomies Black (7.3:1), so the darkened accent is kept for links, the active entry and focus; variants: `primary`, `secondary`, `ghost`, `danger`; sizes `sm`, `md`, and `lg` for the sign-in form alone; `loading` swaps the label for a spinner without changing width. `help` is a sentence in the shared tooltip; `reason`, with `disabled`, says why it cannot be used and keeps it reachable (see *Help*) |
+| `IconButton` | a pill, always has an `aria-label`, which is also the heading of its tooltip. `help`, `keys` and `reason` add a sentence, the keys that do the same and why it is unavailable |
+| `Input`, `Textarea`, `Select`, `Switch`, `Checkbox`, `RadioGroup` | all support `error` and `hint`; the error is announced with `aria-describedby`. `Input` has the same three sizes as `Button`; a text field, a select and a textarea take the large radius, so each reads as the card's child rather than a box inside it |
 | `Field` | label + control + hint + error; the only way form controls are laid out |
-| `Badge` | status pill: colour **and** shape from the state map |
+| `Badge` | status pill, a pill in shape as well: colour **and** shape from the state map |
 | `StatusDot` | the shape half of the state encoding, reusable inline |
 | `Tooltip` | the one hover and focus help, on one bubble (`TooltipBubble`) and one set of timing rules (`lib/tooltip.ts`); never the only place information lives. Plain help is a `title` heading, a `text` sentence, a `reason` and the `keys` that do the same thing; `text` is also what assistive technology gets, linked to the control with `aria-describedby`. An optional `content` snippet draws a richer card for sighted readers, with `text` as its one-sentence copy. What it wraps has to be something a keyboard reaches, or focus opens nothing; a card that carries figures also opens on a tap, which has no hover. See *Help* |
 | `Segmented` | one choice among a few as one control, `aria-pressed` on the one in force: the activity matrix's ranges, the fleet trend's windows, the usage chart's two measures |
@@ -951,7 +953,9 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `Toast` | bottom-right, `aria-live="polite"` (`assertive` for errors), auto-dismiss except on error |
 | `Skeleton` | **the only loading affordance for content.** Spinners are for in-flight *actions* only |
 | `EmptyState` | icon + one sentence of what this is + the action that fills it; a `visual` snippet replaces the icon disc where artwork is wanted, as the not-found page does with the mark |
-| `CopyButton` | wraps any ID; announces "copied" to screen readers |
+| `CopyButton` | wraps any ID; announces "copied" to screen readers; a pill, round when it is the icon alone |
+| `Terminal` | a command the operator runs somewhere else, in the window they will run it in: a bar with a title, the command in the mono face on the dark stage, a `facts` slot the full width of the command beneath it, then the copy control and a line of fine print; a long command wraps inside it. `AddHostFlow`, `HostDoctorCommand` and `RunsOnPreview` draw it |
+| `Facts` | a block of facts about one thing on the dark stage: a definition list in two columns, one on a phone, with a value in the mono face or with its status pill after it. The version selected for a new host is the first to use it |
 | `RelativeTime` | "4m ago", the exact local time and the ISO timestamp in the tooltip, updates itself |
 | `Duration` | humanised, tabular numerals |
 | `Sparkline` | inline SVG, no chart library, `role="img"` with a text summary |
