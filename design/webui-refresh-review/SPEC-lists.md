@@ -208,6 +208,15 @@ the mock's set with `hiddenByDefault` unless a column is the only place the
 list shows a feature. A page whose primary filter is already multi-valued
 keeps it so.
 
+_1 November 2026, Queue: the job filters the page shares with Jobs
+(`JobFilters`, with its own fold on a phone and its row of filters in effect)
+stay in their bar above the card, and only the controls that are the page's
+alone go in `actions`: the branch field, the saved views, Reset and the hint.
+A bar wide enough to wrap under the title on every screen is not a row of
+actions; Jobs and Workflows, which share it, do the same. The Queue's default
+of three statuses in force is three pressed chips, and the All chip is every
+status, Removed included, as the page already spells it when nothing narrows._
+
 ## Out of scope
 
 - Hosts, Providers and Installations, whose lists are cards today.
