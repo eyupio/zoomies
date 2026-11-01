@@ -452,6 +452,7 @@
         id: 'created_at',
         header: 'Age',
         priority: 'wide',
+        hiddenByDefault: true,
         sortable: true,
         align: 'end',
         width: '7rem',
@@ -471,6 +472,7 @@
         id: 'cpu',
         header: 'CPU',
         priority: 'wide',
+        hiddenByDefault: true,
         align: 'end',
         width: '6rem',
         value: (row) =>
@@ -616,8 +618,6 @@
       })
     : null}
 />
-<RunnerInsights {poolId} pulse={false} />
-
 <!-- The filters in effect, each removable; it draws nothing when there are none. -->
 <FilterBar {chips} onclear={clearFilters} class="in-effect" />
 
@@ -799,13 +799,18 @@
 </div>
 
 <!--
-  What the fleet did over the last day is history, and history follows the
-  records: the preamble above the grid is where the cost of a 24-hour chart is
-  a row of the list nobody can see. The Pools page puts its demand disclosure
-  in the same place, for the same reason.
+  Everything that is context rather than the list, folded under it: the
+  scope line, the lifecycle, and the last day's activity. The band carries
+  the figures, so what was a strip and a disclosure above the grid, costing
+  the first screen a row of runners, is one disclosure below it, as the
+  Overview folds its History.
 -->
-<details class="activity-history">
-  <summary>Explore fleet activity over the last 24 hours</summary><FleetHistory />
+<details class="fleet-context fold">
+  <summary>Fleet context</summary>
+  <RunnerInsights {poolId} pulse={false} folded />
+  <details class="activity-history fold">
+    <summary>Explore fleet activity over the last 24 hours</summary><FleetHistory />
+  </details>
 </details>
 
 <RunnerConfirm
@@ -823,10 +828,10 @@
   .startup {
     margin: 0 0 var(--z-space-4);
   }
-  .activity-history {
+  .fold {
     margin: var(--z-space-4) 0 var(--z-space-5);
   }
-  .activity-history summary {
+  .fold summary {
     padding: var(--z-space-3);
     color: var(--z-accent);
     font-size: var(--z-text-sm);
@@ -835,8 +840,11 @@
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
-  .activity-history[open] summary {
+  .fold[open] summary {
     margin-bottom: var(--z-space-3);
+  }
+  .fleet-context .activity-history {
+    margin-bottom: 0;
   }
   :global(.in-effect:has(.chip)) {
     margin-bottom: var(--z-space-3);

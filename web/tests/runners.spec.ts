@@ -170,6 +170,44 @@ test('with the stats failed the card still draws, without an eyebrow or counts',
   expect(await page.locator('.list-card').innerText()).not.toMatch(/undefined|NaN/);
 });
 
+test('the lifecycle is behind Fleet context, under the list', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await expect(page.getByRole('list', { name: 'Runner lifecycle, in order' })).toHaveCount(0);
+  const context = page.locator('details.fleet-context');
+  const card = page.locator('.list-card');
+  expect((await context.boundingBox())!.y).toBeGreaterThan((await card.boundingBox())!.y);
+  await context.getByText('Fleet context', { exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Runner lifecycle, in order' })).toBeVisible();
+  await expect(context.getByText('Explore fleet activity over the last 24 hours')).toBeVisible();
+});
+
+test('Age and CPU are a click away rather than on by default, and a choice to show Age survives a reload', async ({
+  page,
+}) => {
+  test.skip(
+    (page.viewportSize()?.width ?? 1000) < 1181,
+    'a narrow window folds wide columns anyway',
+  );
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  // A header's name starts with its reposition button, so the column's own
+  // word is matched as a word, not at the start; "page" in the select-all
+  // label is why the match is case-sensitive.
+  await expect(runners(page).getByRole('columnheader', { name: /\bAge\b|\bCPU\b/ })).toHaveCount(0);
+  await expect(runners(page).getByRole('columnheader', { name: /\bMemory\b/ })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Columns' }).click();
+  await page
+    .getByRole('group', { name: 'Column layout' })
+    .getByRole('checkbox', { name: 'Age' })
+    .check();
+  await page.keyboard.press('Escape');
+  await expect(runners(page).getByRole('columnheader', { name: /\bAge\b/ })).toBeVisible();
+  await reload(page, 'Runners');
+  await runnerRows(page);
+  await expect(runners(page).getByRole('columnheader', { name: /\bAge\b/ })).toBeVisible();
+});
+
 test('every chip fits on a phone with no horizontal overflow', async ({ page }) => {
   test.skip((page.viewportSize()?.width ?? 1000) >= 500, 'a phone test');
   await goto(page, '/runners', 'Runners');

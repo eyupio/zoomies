@@ -102,7 +102,9 @@
     border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .titles {
-    flex: 1;
+    /* The titles keep a readable width; actions that would squeeze them
+       below it wrap under the heading instead, since the header wraps. */
+    flex: 1 1 14rem;
     min-width: 0;
   }
   .tile {

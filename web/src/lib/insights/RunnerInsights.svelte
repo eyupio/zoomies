@@ -14,7 +14,11 @@
    * explanation behind a disclosure. The grid answers "what are my runners doing", and
    * the Overview and Queue pages carry the figures the old tiles repeated.
    */
-  let { poolId = '', pulse = true }: { poolId?: string; pulse?: boolean } = $props();
+  let {
+    poolId = '',
+    pulse = true,
+    folded = false,
+  }: { poolId?: string; pulse?: boolean; folded?: boolean } = $props();
   const signal = $derived(poolSignals(fleet.pools, fleet.stats).find((p) => p.pool.id === poolId));
   const r = $derived(fleet.stats?.runners);
   // The one figure an operator looks for first: how much work is waiting for a runner.
@@ -89,7 +93,7 @@
   );
 </script>
 
-<section aria-label="Runner operational context" class="context">
+{#snippet scopeRow()}
   <div class="scope">
     <span
       >{scope} context · {fleet.connection === 'live'
@@ -99,36 +103,53 @@
       >Explore usage history</a
     >
   </div>
-  <!-- The Runners list carries these figures in its band instead (and on its own, with
-       the band off), so it asks for the context without them. -->
-  {#if pulse}
-    <ProvisioningPulse
-      {poolId}
-      queued={queued ?? null}
-      {queuedTone}
-      queuedHref={`/jobs?state=queued${suffix}`}
-    />
-  {/if}
-  {#if fleet.stats}
-    <details class="how">
-      <summary>How runners move through their states</summary>
-      <ChartPanel
-        title="Runner lifecycle"
-        description={poolId
-          ? 'How this pool\u2019s live runners divide up right now. Failed and removed records are excluded from this bar.'
-          : 'The states a runner passes through, in the order the controller allows, with how many are at each step right now. Failed and removed records are excluded from the bar.'}
-      >
-        {#if !poolId && r}<LifecycleFlow runners={r} />{/if}
-        <StateBreakdown {segments} label="Live runner states" noun="live runners" />
-      </ChartPanel>
-      <p class="note">
-        Job queue depth is waiting GitHub work, including jobs whose provisioning demand is held; it
-        is not a count of runner creation requests. Search, host and state filters below do not
-        change this {poolId ? 'pool' : 'fleet'} context.
-      </p>
-    </details>
-  {/if}
-</section>
+{/snippet}
+
+{#snippet lifecycle()}
+  <ChartPanel
+    title="Runner lifecycle"
+    description={poolId
+      ? 'How this pool\u2019s live runners divide up right now. Failed and removed records are excluded from this bar.'
+      : 'The states a runner passes through, in the order the controller allows, with how many are at each step right now. Failed and removed records are excluded from the bar.'}
+  >
+    {#if !poolId && r}<LifecycleFlow runners={r} />{/if}
+    <StateBreakdown {segments} label="Live runner states" noun="live runners" />
+  </ChartPanel>
+  <p class="note">
+    Job queue depth is waiting GitHub work, including jobs whose provisioning demand is held; it is
+    not a count of runner creation requests. Search, host and state filters do not change this {poolId
+      ? 'pool'
+      : 'fleet'} context.
+  </p>
+{/snippet}
+
+{#if folded}
+  <!-- The Runners page puts this inside a disclosure of its own, under its
+       list, so it is drawn as plain content: no section chrome and no
+       disclosure inside a disclosure. -->
+  {@render scopeRow()}
+  {#if fleet.stats}{@render lifecycle()}{/if}
+{:else}
+  <section aria-label="Runner operational context" class="context">
+    {@render scopeRow()}
+    <!-- The Runners list carries these figures in its band instead (and on its own, with
+         the band off), so it asks for the context without them. -->
+    {#if pulse}
+      <ProvisioningPulse
+        {poolId}
+        queued={queued ?? null}
+        {queuedTone}
+        queuedHref={`/jobs?state=queued${suffix}`}
+      />
+    {/if}
+    {#if fleet.stats}
+      <details class="how">
+        <summary>How runners move through their states</summary>
+        {@render lifecycle()}
+      </details>
+    {/if}
+  </section>
+{/if}
 
 <style>
   .context {

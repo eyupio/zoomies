@@ -914,8 +914,8 @@ test('the capacity reading keeps its figures on the card whatever the hosts are 
 test('the runner lifecycle keeps its steps in columns when it wraps', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 780 });
   await goto(page, '/runners', 'Runners');
-  // The lifecycle sits behind a disclosure on the Runners page.
-  await page.getByText('How runners move through their states', { exact: true }).click();
+  // The lifecycle sits inside the Fleet context disclosure under the list.
+  await page.getByText('Fleet context', { exact: true }).click();
 
   const steps = page.getByRole('list', { name: 'Runner lifecycle, in order' });
   const cards = steps.getByRole('link');

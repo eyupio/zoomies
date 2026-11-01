@@ -250,7 +250,8 @@ test('every column is still there when the rows become cards', async ({ page }) 
     .first()
     .locator('td')
     .evaluateAll((cells) => cells.map((cell) => cell.getAttribute('data-label')));
-  for (const heading of ['Status', 'Name', 'Pool', 'Host', 'Current job', 'CPU', 'Memory']) {
+  // Memory is a wide column, dropped on a narrow desktop and back in full here.
+  for (const heading of ['Status', 'Name', 'Pool', 'Host', 'Current job', 'Memory']) {
     expect(labels, `a card names its ${heading}`).toContain(heading);
   }
 
@@ -258,10 +259,10 @@ test('every column is still there when the rows become cards', async ({ page }) 
   // sort, and the tick that takes every row on the page.
   await expect(runners.getByRole('checkbox', { name: /^Select every/ })).toBeVisible();
   await runners
-    .getByRole('columnheader', { name: 'Age' })
-    .getByRole('button', { name: 'Age', exact: true })
+    .getByRole('columnheader', { name: 'Jobs handled' })
+    .getByRole('button', { name: 'Jobs handled', exact: true })
     .click();
-  await expect(page).toHaveURL(/sort=created_at/);
+  await expect(page).toHaveURL(/sort=jobs/);
 });
 
 test('column width and order survive reload', async ({ page }) => {
