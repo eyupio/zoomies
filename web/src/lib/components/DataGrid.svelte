@@ -180,6 +180,8 @@
     expanded?: Snippet<[T]>;
     /** What the chevron and the phone's card call that content: "Jobs". */
     expandHeader?: string;
+    /** Drop the grid's own border, radius and background: it sits flush inside a Panel. */
+    bare?: boolean;
     class?: string;
   }
 
@@ -203,6 +205,7 @@
     emptyAction,
     expanded,
     expandHeader = 'Details',
+    bare = false,
     class: className = '',
   }: Props = $props();
 
@@ -399,11 +402,16 @@
   // Read once on mount: the operator's stored choice is the starting point, and
   // it is theirs to change from there.
   let visibility = $state<Record<string, boolean>>(
-    untrack(() =>
-      Object.fromEntries(
+    untrack(() => {
+      // A grid arranged before a column became hidden by default keeps it.
+      prefs.upgradeShownColumns(
+        gridId,
+        columns.filter((c) => c.hiddenByDefault).map((c) => c.id),
+      );
+      return Object.fromEntries(
         columns.map((c) => [c.id, prefs.isColumnVisible(gridId, c.id, c.hiddenByDefault)]),
-      ),
-    ),
+      );
+    }),
   );
 
   const orderedColumns = $derived.by(() => {
@@ -943,7 +951,7 @@
   </Tooltip>
 {/snippet}
 
-<div class="grid {className}" class:rows={phoneRows} class:custom={hasCustomWidths}>
+<div class="grid {className}" class:rows={phoneRows} class:custom={hasCustomWidths} class:bare>
   <div class="toolbar">
     {#if selectable && selected.length > 0}
       <div class="bulk" role="group" aria-label="Actions for the selected {noun}">
@@ -1341,6 +1349,12 @@
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
     min-width: 0;
+  }
+  /* Inside a Panel the card is the frame; a second one would be a box in a box. */
+  .grid.bare {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
   }
   .toolbar {
     display: flex;

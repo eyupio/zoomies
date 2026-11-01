@@ -261,15 +261,18 @@ Every runner that exists right now and what each one is doing. Removed runners
 are hidden by default, because a busy fleet makes and destroys thousands of
 them and they are all history. Rows select for bulk drain or delete, and the
 state filter is a real filter: it narrows the set rather than repainting it.
-Above the grid are a band that says how many runners are live and how they split,
-and the provisioning demand row, whose first figure is the number of jobs queued
-(a link to them, in the warning colour once it reaches the queue threshold),
-followed by the ready, run now, paused and removed counts and a way to the queue;
-the other tiles the page used to carry live on the Overview and the Queue. Behind a disclosure, **How runners move through their states**,
-the runner lifecycle is the controller's own state machine drawn out
-(provisioning, registering, idle, busy, draining) with how many runners are at
-each step this moment and a link into each; under it, a bar of the same states
-whose segments are links too, and say their share when you hover them.
+Above the grid is a band that says how many runners are live and how they
+split, with the jobs queued, running, ready, run now, paused and removed figures
+along its lower edge and a way to the queue. The list is one card: a count of
+the runners the controller knows and the ones that are live over its title, the
+search and the pool and host menus opposite, and the runner states as chips
+with their counts, more than one at a time; a pool or host filter takes the
+counts away, since they are the fleet's. Under the card, **Fleet context** folds
+the scope line, the runner lifecycle (the controller's own state machine drawn
+out, provisioning, registering, idle, busy, draining, with how many runners are
+at each step this moment and a link into each, and under it a bar of the same
+states whose segments are links too) and the last day's activity. Age and CPU
+are a click away in Columns rather than on by default.
 
 When the state filter includes failed runners, a **What keeps failing to start**
 card above the grid names the host or pool that keeps failing to start runners
@@ -279,8 +282,8 @@ list is narrowed to, and that the list's search is not applied to it. It is the
 answer [`zoomies analyse startup-failures`](cli.md#zoomies-analyse) prints, with
 its evidence folded under the next steps.
 
-![The Runners page: a band saying how many runners are live, the provisioning row with the jobs queued figure first, and a folded explanation of how runners move through their states above the runner grid](screenshots/runners-dark.webp#only-dark){ .zoomies-shot }
-![The Runners page: a band saying how many runners are live, the provisioning row with the jobs queued figure first, and a folded explanation of how runners move through their states above the runner grid](screenshots/runners-light.webp#only-light){ .zoomies-shot }
+![The Runners page: a band saying how many runners are live, then one card with the count over its title, the runner states as chips and the runner grid inside, and Fleet context folded under it](screenshots/runners-dark.webp#only-dark){ .zoomies-shot }
+![The Runners page: a band saying how many runners are live, then one card with the count over its title, the runner states as chips and the runner grid inside, and Fleet context folded under it](screenshots/runners-light.webp#only-light){ .zoomies-shot }
 
 A runner's page carries the job it is on, a timeline of how long it spent in
 each state (provisioning, registering, idle, busy) its resource usage as the

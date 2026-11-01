@@ -23,7 +23,7 @@
   import { provisioningDemand } from '$lib/insights/provisioning.svelte';
   import { finite, poolSignals, queueTone } from '$lib/insights/signals';
   import FleetHistory from '$lib/insights/FleetHistory.svelte';
-  import { CircleSlash, Search, Trash2 } from '@lucide/svelte';
+  import { CircleSlash, Search, Server, Trash2 } from '@lucide/svelte';
   import { analyseStartupFailures, listRunners } from '$lib/api/client';
   import {
     RUNNER_STATES,
@@ -79,7 +79,9 @@
   import RunnerMemoryBadges from '$lib/runners/RunnerMemoryBadges.svelte';
   import RunnerStatus from '$lib/runners/RunnerStatus.svelte';
   import { runnerDisplayStatus } from '$lib/runners/runner-status';
-  import RunnerStateFilter from '$lib/runners/RunnerStateFilter.svelte';
+  import FilterChips from '$lib/components/FilterChips.svelte';
+  import Panel from '$lib/components/Panel.svelte';
+  import { runnerStateChips, runnersEyebrow } from '$lib/runners/state-chips';
 
   const canOperate = $derived(session.can('operator'));
 
@@ -190,6 +192,9 @@
     return () => controller.abort();
   });
 
+  // The chips' counts are the fleet's, so they are shown only while the rows
+  // under them are the fleet's too.
+  const counted = $derived(poolId === '' && hostId === '');
   const filtered = $derived(
     search !== '' || poolId !== '' || hostId !== '' || includeRemoved || states.length > 0,
   );
@@ -447,6 +452,7 @@
         id: 'created_at',
         header: 'Age',
         priority: 'wide',
+        hiddenByDefault: true,
         sortable: true,
         align: 'end',
         width: '7rem',
@@ -466,6 +472,7 @@
         id: 'cpu',
         header: 'CPU',
         priority: 'wide',
+        hiddenByDefault: true,
         align: 'end',
         width: '6rem',
         value: (row) =>
@@ -611,56 +618,8 @@
       })
     : null}
 />
-<RunnerInsights {poolId} pulse={false} />
-
-<div class="filters">
-  <FilterBar {chips} onclear={clearFilters}>
-    <div class="search">
-      <Input
-        bind:element={searchField}
-        value={search}
-        type="search"
-        icon={Search}
-        size="sm"
-        placeholder="Search by name, ID or container"
-        ariaLabel="Search runners"
-        oninput={(event) =>
-          router.setQuery({ q: (event.currentTarget as HTMLInputElement).value || null })}
-      />
-    </div>
-    <div class="picker">
-      <Select
-        value={poolId}
-        size="sm"
-        ariaLabel="Filter by pool"
-        options={poolOptions}
-        onchange={(value) => router.setQuery({ pool_id: value || null })}
-      />
-    </div>
-    <div class="picker">
-      <Select
-        value={hostId}
-        size="sm"
-        ariaLabel="Filter by host"
-        options={hostOptions}
-        onchange={(value) => router.setQuery({ host_id: value || null })}
-      />
-    </div>
-    <RunnerStateFilter
-      selected={states}
-      onchange={(next) => router.setQuery({ state: next.length > 0 ? next : null })}
-    />
-    <div class="removed">
-      <Switch
-        checked={includeRemoved}
-        label="Include removed"
-        labelToggles={false}
-        description="Kept for a while as history."
-        onchange={(on) => router.setQuery({ include_removed: on ? '1' : null })}
-      />
-    </div>
-  </FilterBar>
-</div>
+<!-- The filters in effect, each removable; it draws nothing when there are none. -->
+<FilterBar {chips} onclear={clearFilters} class="in-effect" />
 
 {#if failedShown}
   <div class="startup">
@@ -745,45 +704,115 @@
   </div>
 {/if}
 
+<!--
+  The list as one card: the count over the title, the search and the menus
+  opposite it, the states as chips in a row of their own, and the grid bare
+  inside, so the page shows one frame. The jump target stays on the wrapper,
+  so the band's figure still lands on the list.
+-->
 <div id="runners-list" class="jump-target" tabindex="-1" use:revealHash>
-  <DataGrid
-    gridId="runners"
-    label="Runners"
-    {columns}
-    {filters}
-    {bulkActions}
-    fetcher={fetchRunners}
-    rowId={(row) => row.id ?? ''}
-    defaultSort="created_at"
-    defaultOrder="desc"
-    selectable={canOperate}
-    liveKey={fleet.shape}
-    noun="runners"
-    onopen={(row) => navigate(`/runners/${row.id ?? ''}`)}
-    onrows={takeRows}
-    emptyTitle={filtered ? 'No runners match these filters' : 'No runners right now'}
-    emptyDescription={filtered
-      ? 'Nothing in the fleet answers all of these at once. Removing one of them will widen the search.'
-      : 'That is normal when nothing is queued, runners are created on demand.'}
+  <Panel
+    title="All runners"
+    icon={Server}
+    eyebrow={runnersEyebrow(fleet.stats?.runners)}
+    flush
+    class="list-card"
   >
-    {#snippet emptyAction()}
-      {#if filtered}
-        <Button variant="secondary" onclick={clearFilters}>Clear filters</Button>
-      {:else}
-        <Button variant="secondary" href="/pools">Look at the pools</Button>
-      {/if}
+    {#snippet actions()}
+      <div class="search">
+        <Input
+          bind:element={searchField}
+          value={search}
+          type="search"
+          icon={Search}
+          size="sm"
+          placeholder="Search by name, ID or container"
+          ariaLabel="Search runners"
+          oninput={(event) =>
+            router.setQuery({ q: (event.currentTarget as HTMLInputElement).value || null })}
+        />
+      </div>
+      <div class="picker">
+        <Select
+          value={poolId}
+          size="sm"
+          ariaLabel="Filter by pool"
+          options={poolOptions}
+          onchange={(value) => router.setQuery({ pool_id: value || null })}
+        />
+      </div>
+      <div class="picker">
+        <Select
+          value={hostId}
+          size="sm"
+          ariaLabel="Filter by host"
+          options={hostOptions}
+          onchange={(value) => router.setQuery({ host_id: value || null })}
+        />
+      </div>
+      <Switch
+        checked={includeRemoved}
+        size="sm"
+        label="Include removed"
+        labelToggles={false}
+        description="Kept for a while as history."
+        onchange={(on) => router.setQuery({ include_removed: on ? '1' : null })}
+      />
     {/snippet}
-  </DataGrid>
+    {#snippet toolbar()}
+      <FilterChips
+        label="Filter by runner state"
+        total={counted ? fleet.stats?.runners?.total : undefined}
+        options={runnerStateChips(fleet.stats?.runners, prefs.quirkyStatus, counted)}
+        selected={states}
+        onchange={(next) => router.setQuery({ state: next.length > 0 ? next : null })}
+      />
+    {/snippet}
+    <DataGrid
+      gridId="runners"
+      label="Runners"
+      bare
+      {columns}
+      {filters}
+      {bulkActions}
+      fetcher={fetchRunners}
+      rowId={(row) => row.id ?? ''}
+      defaultSort="created_at"
+      defaultOrder="desc"
+      selectable={canOperate}
+      liveKey={fleet.shape}
+      noun="runners"
+      onopen={(row) => navigate(`/runners/${row.id ?? ''}`)}
+      onrows={takeRows}
+      emptyTitle={filtered ? 'No runners match these filters' : 'No runners right now'}
+      emptyDescription={filtered
+        ? 'Nothing in the fleet answers all of these at once. Removing one of them will widen the search.'
+        : 'That is normal when nothing is queued, runners are created on demand.'}
+    >
+      {#snippet emptyAction()}
+        {#if filtered}
+          <Button variant="secondary" onclick={clearFilters}>Clear filters</Button>
+        {:else}
+          <Button variant="secondary" href="/pools">Look at the pools</Button>
+        {/if}
+      {/snippet}
+    </DataGrid>
+  </Panel>
 </div>
 
 <!--
-  What the fleet did over the last day is history, and history follows the
-  records: the preamble above the grid is where the cost of a 24-hour chart is
-  a row of the list nobody can see. The Pools page puts its demand disclosure
-  in the same place, for the same reason.
+  Everything that is context rather than the list, folded under it: the
+  scope line, the lifecycle, and the last day's activity. The band carries
+  the figures, so what was a strip and a disclosure above the grid, costing
+  the first screen a row of runners, is one disclosure below it, as the
+  Overview folds its History.
 -->
-<details class="activity-history">
-  <summary>Explore fleet activity over the last 24 hours</summary><FleetHistory />
+<details class="fleet-context fold">
+  <summary>Fleet context</summary>
+  <RunnerInsights {poolId} pulse={false} folded />
+  <details class="activity-history fold">
+    <summary>Explore fleet activity over the last 24 hours</summary><FleetHistory />
+  </details>
 </details>
 
 <RunnerConfirm
@@ -801,10 +830,10 @@
   .startup {
     margin: 0 0 var(--z-space-4);
   }
-  .activity-history {
+  .fold {
     margin: var(--z-space-4) 0 var(--z-space-5);
   }
-  .activity-history summary {
+  .fold summary {
     padding: var(--z-space-3);
     color: var(--z-accent);
     font-size: var(--z-text-sm);
@@ -813,22 +842,21 @@
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
-  .activity-history[open] summary {
+  .fold[open] summary {
     margin-bottom: var(--z-space-3);
   }
-  .filters {
-    margin-bottom: var(--z-space-4);
+  .fleet-context .activity-history {
+    margin-bottom: 0;
+  }
+  :global(.in-effect:has(.chip)) {
+    margin-bottom: var(--z-space-3);
   }
   .search {
-    min-width: 18rem;
-    flex: 1 1 18rem;
+    width: 18rem;
+    max-width: 100%;
   }
   .picker {
     width: 11rem;
-  }
-  .removed {
-    flex-basis: 100%;
-    max-width: 46rem;
   }
   .name-cell {
     display: flex;

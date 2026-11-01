@@ -597,6 +597,71 @@ test('a panel with an icon draws it in a tile beside the title', async ({ page }
   await expect(tile).toHaveAttribute('aria-hidden', 'true');
 });
 
+// The list card the signed-in pages draw: a Panel with a count over its title
+// and the filter chips in a row of their own, holding a grid that has given up
+// its own frame, so the page shows one border and not a box inside a box.
+test('the list card is one frame: an eyebrow over the title, chips in a toolbar, and a bare grid inside', async ({
+  page,
+}) => {
+  await open(page, 'mission-control', 'light');
+  const card = page.getByRole('region', { name: 'Data grid' });
+  const eyebrow = card.locator('header .eyebrow');
+  await expect(eyebrow).toHaveText('11 known, 9 live');
+  await expect(eyebrow.evaluate((el) => getComputedStyle(el).textTransform)).resolves.toBe(
+    'uppercase',
+  );
+  await expect(
+    card.locator('.toolbar').getByRole('group', { name: 'Filter by runner state' }),
+  ).toBeVisible();
+  const grid = card.locator('.grid');
+  await expect(grid).toHaveClass(/bare/);
+  const [gridBorder, cardBorder] = await Promise.all([
+    grid.evaluate((el) => getComputedStyle(el).borderTopWidth),
+    card.evaluate((el) => getComputedStyle(el).borderTopWidth),
+  ]);
+  expect(gridBorder).toBe('0px');
+  expect(parseFloat(cardBorder)).toBeGreaterThan(0);
+  // The titles keep a readable width only on a list card, whose actions are a
+  // row of controls; an ordinary panel's titles still shrink before its
+  // actions wrap, so a narrow Overview card keeps its badge beside its title.
+  // The computed basis comes back in pixels: 14rem at the root's font size.
+  const basis = (locator: import('@playwright/test').Locator) =>
+    locator.evaluate((el) => {
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      return parseFloat(getComputedStyle(el).flexBasis) / rem;
+    });
+  expect(await basis(card.locator('header .titles'))).toBeCloseTo(14, 1);
+  expect(
+    await basis(
+      page.locator('.panel', { hasText: 'Panel with a tile' }).first().locator('header .titles'),
+    ),
+  ).toBe(0);
+});
+
+// A filter chip says it is in force three ways, so the state survives greyscale
+// and forced colours: aria-pressed, a tick, and the weight of its words.
+test('filter chips say which are in force with a tick and aria-pressed, in every combination', async ({
+  page,
+}) => {
+  for (const { style, mode } of COMBINATIONS) {
+    await open(page, style, mode);
+    const group = page.getByRole('group', { name: 'Filter by runner state' }).first();
+    const busy = group.getByRole('button', { name: /^Busy/ });
+    await expect(busy).toHaveAttribute('aria-pressed', 'true');
+    await expect(busy.locator('svg')).toHaveCount(1);
+    const idle = group.getByRole('button', { name: /^Idle/ });
+    await expect(idle).toHaveAttribute('aria-pressed', 'false');
+    await expect(idle.locator('svg')).toHaveCount(0);
+    await expect(group.getByRole('button', { name: /^All/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(
+      parseFloat(await busy.evaluate((el) => getComputedStyle(el).borderRadius)),
+    ).toBeGreaterThan(20);
+  }
+});
+
 // The shared look's one button: a pill in the brand's Runner Blue under Zoomies
 // Black, which is 7.3:1 in every combination, where the darkened accent was
 // needed only to carry white text. Held here so a later component cannot drift

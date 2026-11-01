@@ -242,6 +242,7 @@ function load(): StoredPrefs {
 }
 
 import { PANEL_PAGES, type PanelPage } from './panel-pages';
+import { pinShown, shownAfterUpgrade } from './grid-defaults';
 import { panelLayoutsAfterSync } from './panel-sync';
 export type { PanelPage } from './panel-pages';
 
@@ -575,6 +576,18 @@ class Prefs {
     return !this.hiddenColumns(gridId).includes(columnId);
   }
 
+  /**
+   * A grid arranged before one of its columns became hidden by default keeps
+   * that column: the grid names them on its first mount after the upgrade
+   * (grid-defaults.ts says why the grid, and why once).
+   */
+  upgradeShownColumns(gridId: string, hiddenByDefault: readonly string[]): void {
+    const shown = shownAfterUpgrade(this.#grids[gridId], hiddenByDefault);
+    if (!shown) return;
+    this.#grids = { ...this.#grids, [gridId]: { ...this.#grids[gridId], shown } };
+    this.#persist();
+  }
+
   setColumnVisible(
     gridId: string,
     columnId: string,
@@ -595,7 +608,7 @@ class Prefs {
   }
 
   setHiddenColumns(gridId: string, hidden: string[]): void {
-    this.#grids = { ...this.#grids, [gridId]: { ...this.#grids[gridId], hidden } };
+    this.#grids = { ...this.#grids, [gridId]: { ...pinShown(this.#grids[gridId]), hidden } };
     this.#persist();
   }
 
@@ -616,7 +629,7 @@ class Prefs {
 
   setColumnWidth(gridId: string, columnId: string, width: number): void {
     if (!Number.isFinite(width) || width <= 0) return;
-    const current = this.#grids[gridId] ?? {};
+    const current = pinShown(this.#grids[gridId]);
     this.#grids = {
       ...this.#grids,
       [gridId]: {
@@ -649,7 +662,7 @@ class Prefs {
   }
 
   setColumnOrder(gridId: string, order: readonly string[]): void {
-    const current = this.#grids[gridId] ?? {};
+    const current = pinShown(this.#grids[gridId]);
     this.#grids = { ...this.#grids, [gridId]: { ...current, order: [...order] } };
     this.#persist();
   }
