@@ -119,7 +119,7 @@
     >
       <p>The token in it is shown once, only its hash is stored, and works once.</p>
     </Terminal>
-    <Terminal size="sm" title="What a workflow writes" command={'runs-on: zoomies-linux-x64'} />
+    <Terminal size="sm" title="What a workflow writes" command="runs-on: zoomies-linux-x64" />
     <Facts
       label="Version selected for this host"
       items={[
