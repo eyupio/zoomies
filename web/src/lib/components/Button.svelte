@@ -64,6 +64,8 @@
     keys?: readonly string[];
     placement?: Side;
     ariaLabel?: string;
+    /** For a toggle: renders `aria-pressed`, so the state is said, not only drawn. */
+    pressed?: boolean;
     ariaExpanded?: boolean;
     ariaControls?: string;
     ariaHaspopup?: 'menu' | 'dialog' | 'listbox' | 'true';
@@ -91,6 +93,7 @@
     keys,
     placement,
     ariaLabel,
+    pressed,
     ariaExpanded,
     ariaControls,
     ariaHaspopup,
@@ -176,6 +179,7 @@
       class:refused
       disabled={disabled && !refused}
       aria-disabled={loading || refused ? 'true' : undefined}
+      aria-pressed={pressed}
       aria-label={ariaLabel}
       aria-busy={loading || iconSpin ? 'true' : undefined}
       aria-expanded={ariaExpanded}

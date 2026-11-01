@@ -26,6 +26,8 @@
   import Segmented from '$lib/components/Segmented.svelte';
   import Switch from '$lib/components/Switch.svelte';
   import { BAND_PAGES, BAND_SIZES, type BandSize } from '$lib/bands/pages';
+  import Button from '$lib/components/Button.svelte';
+  import { OVERVIEW_PANELS, isDefaultLayout, setHidden } from '$lib/overview/panels';
   import { ALL_BAND_PAGES } from '$lib/bands/scope';
   import { BAND_LOGO_SIZE_OPTIONS, type BandLogoSize } from '$lib/bands/band-logo';
   import { visualStyle } from '$lib/state/ui-style.svelte';
@@ -55,6 +57,8 @@
     const first = prefs.bandSize(BAND_PAGES[0].key);
     return BAND_PAGES.every((page) => prefs.bandSize(page.key) === first) ? first : null;
   });
+
+  const panelLayout = $derived(prefs.panelLayout('overview'));
 
   const customLogoPages = $derived(
     BAND_PAGES.filter((page) => prefs.bandLogoCustom(page.key)).length,
@@ -211,6 +215,43 @@
     </div>
   </div>
 
+  <!--
+    The same choice the Overview's Arrange mode offers, from here: which panels
+    the page draws. The order is the page's own to change, where the cards can
+    be seen moving, so it is only read here.
+  -->
+  <div class="setting bands-setting">
+    <div class="text">
+      <p class="label" id="panels-label">Overview panels</p>
+      <p class="description">
+        Which panels the Overview draws, in the order you gave them. Change the order on the
+        Overview itself with Arrange. These choices follow your signed-in account, as the bands do.
+      </p>
+      <div class="panels" role="group" aria-labelledby="panels-label">
+        {#each panelLayout.order as id (id)}
+          {@const panel = OVERVIEW_PANELS.find((p) => p.id === id)}
+          {#if panel}
+            <Switch
+              label="{panel.title} on the Overview"
+              size="sm"
+              checked={!panelLayout.hidden.includes(id)}
+              onchange={(on) => prefs.setPanelLayout('overview', setHidden(panelLayout, id, !on))}
+            />
+          {/if}
+        {/each}
+        <div>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={isDefaultLayout(panelLayout)}
+            reason={isDefaultLayout(panelLayout) ? 'The layout is the default.' : undefined}
+            onclick={() => prefs.resetPanelLayout('overview')}>Reset layout</Button
+          >
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="setting">
     <div class="text">
       <p class="label">Logo in the band</p>
@@ -341,6 +382,12 @@
   .setting.bands-setting > .text {
     flex: 1 1 20rem;
     margin-top: 0;
+  }
+  .panels {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
+    margin-top: var(--z-space-3);
   }
   .bands {
     display: grid;
