@@ -623,6 +623,30 @@ test('the list card is one frame: an eyebrow over the title, chips in a toolbar,
   expect(parseFloat(cardBorder)).toBeGreaterThan(0);
 });
 
+// A filter chip says it is in force three ways, so the state survives greyscale
+// and forced colours: aria-pressed, a tick, and the weight of its words.
+test('filter chips say which are in force with a tick and aria-pressed, in every combination', async ({
+  page,
+}) => {
+  for (const { style, mode } of COMBINATIONS) {
+    await open(page, style, mode);
+    const group = page.getByRole('group', { name: 'Filter by runner state' }).first();
+    const busy = group.getByRole('button', { name: /^Busy/ });
+    await expect(busy).toHaveAttribute('aria-pressed', 'true');
+    await expect(busy.locator('svg')).toHaveCount(1);
+    const idle = group.getByRole('button', { name: /^Idle/ });
+    await expect(idle).toHaveAttribute('aria-pressed', 'false');
+    await expect(idle.locator('svg')).toHaveCount(0);
+    await expect(group.getByRole('button', { name: /^All/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(
+      parseFloat(await busy.evaluate((el) => getComputedStyle(el).borderRadius)),
+    ).toBeGreaterThan(20);
+  }
+});
+
 // The shared look's one button: a pill in the brand's Runner Blue under Zoomies
 // Black, which is 7.3:1 in every combination, where the darkened accent was
 // needed only to carry white text. Held here so a later component cannot drift

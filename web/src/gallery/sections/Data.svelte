@@ -14,6 +14,8 @@
   import Segmented from '$lib/components/Segmented.svelte';
   import StateCell from '$lib/components/StateCell.svelte';
   import { Server } from '@lucide/svelte';
+  import FilterChips from '$lib/components/FilterChips.svelte';
+  import { runnerStateChips } from '$lib/runners/state-chips';
   import type { RunnerState } from '$lib/api/types';
   import { runnerStatus } from '$lib/status';
 
@@ -89,9 +91,13 @@
     />
   {/snippet}
   {#snippet toolbar()}
-    <div role="group" aria-label="Filter by runner state">
-      <Button size="sm" variant="secondary">All</Button>
-    </div>
+    <FilterChips
+      label="Filter by runner state"
+      options={runnerStateChips({ idle: 1, busy: 1, draining: 1, provisioning: 1 }, false, true)}
+      selected={[]}
+      total={4}
+      onchange={() => {}}
+    />
   {/snippet}
   <!--
     Keyed by mode on purpose. The grid deliberately keeps last-known rows on
