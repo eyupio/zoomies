@@ -603,3 +603,21 @@ test('the primary button is a pill in Runner Blue with Zoomies Black text, in ev
     expect(parseColour(colour), `${style} ${mode}`).toEqual(hexToRgb(black));
   }
 });
+
+// The icon buttons share the pill, and a text field takes the large radius so
+// it reads as the card's child rather than a box inside it; the checkbox and
+// the radio box keep the small one.
+test('icon buttons are pills and text fields take the large radius', async ({ page }) => {
+  await open(page, 'mission-control', 'dark');
+  const large = await page
+    .locator(':root')
+    .evaluate((el) => getComputedStyle(el).getPropertyValue('--z-radius-lg').trim());
+  const icon = page.locator('.icon-btn').first();
+  expect(
+    parseFloat(await icon.evaluate((el) => getComputedStyle(el).borderRadius)),
+  ).toBeGreaterThanOrEqual(999);
+  for (const selector of ['.field input', '.field select', '.field textarea']) {
+    const control = page.locator(selector).first();
+    expect(await control.evaluate((el) => getComputedStyle(el).borderRadius), selector).toBe(large);
+  }
+});
