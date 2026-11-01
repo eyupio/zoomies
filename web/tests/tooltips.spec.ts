@@ -517,9 +517,14 @@ test.describe('the shared tooltip', () => {
     const refused = page.locator('[role="toolbar"] button[aria-disabled="true"]').first();
     await expect(refused).toBeVisible();
     await expect(refused).not.toHaveAttribute('disabled', /.*/);
-    await refused.hover();
     const bubble = page.locator('.bubble:popover-open');
-    await expect(bubble.locator('.reason')).toBeVisible();
+    // The page is still settling as its band's picture and the grid's live
+    // figures arrive, and a row that moves under the pointer takes the hover
+    // with it; so the hover is made again until the bubble is up.
+    await expect(async () => {
+      await refused.hover();
+      await expect(bubble.locator('.reason')).toBeVisible({ timeout: 1_500 });
+    }).toPass({ timeout: 10_000 });
     await expect(bubble.locator('.title')).toBeVisible();
     // The actions column is right-aligned, and the bubble sits inside its cell.
     await expect(bubble).toHaveCSS('text-align', 'start');

@@ -16,10 +16,12 @@
   import type { WorkflowRun } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
   import { href } from '$lib/router';
+  import Skeleton from '$lib/components/Skeleton.svelte';
   import { inFlight, MAX_FLIGHT_SQUARES } from './in-flight';
 
   let runs = $state.raw<WorkflowRun[]>([]);
   let failed = $state(false);
+  let loading = $state(true);
   let pending: AbortController | null = null;
 
   export async function reload(): Promise<void> {
@@ -42,6 +44,8 @@
     } catch {
       if (controller.signal.aborted || pending !== controller) return;
       failed = true;
+    } finally {
+      if (!controller.signal.aborted && pending === controller) loading = false;
     }
   }
 
@@ -62,7 +66,17 @@
   const data = $derived(inFlight(runs));
 </script>
 
-{#if !failed && data.rows.length > 0}
+<!-- While the first answer is on its way the picture holds its room with the
+     shape it will have, so the page under the band does not move when it
+     arrives; a hover that was over a row stays over it. -->
+{#if loading && !failed}
+  <div class="pic" aria-hidden="true">
+    <div class="head"><span class="title">In flight, by repository</span></div>
+    <div class="placeholder">
+      {#each [0, 1, 2] as i (i)}<Skeleton width="100%" height="var(--z-space-4)" />{/each}
+    </div>
+  </div>
+{:else if !failed && data.rows.length > 0}
   <div class="pic" data-testid="band-in-flight">
     <div class="head">
       <span class="title">In flight, by repository</span>
@@ -110,6 +124,12 @@
     min-width: 0;
     width: 100%;
     color: var(--z-panel-text-muted);
+  }
+  .placeholder {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
+    min-width: 12rem;
   }
   .head,
   .foot {
