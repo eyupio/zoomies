@@ -35,6 +35,7 @@
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
+  import Terminal from '$lib/components/Terminal.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
@@ -598,54 +599,44 @@
           This command contains private connection credentials. Run it only on the intended host;
           keep it out of screenshots, chat and source control.
         </p>{/if}
-      <div class="command">
-        {#if minted.install_tag}
-          <dl class="version-match" aria-label="Version selected for this host">
-            <div>
-              <dt>Controller build</dt>
-              <dd class="mono">{minted.controller_version || NO_VALUE}</dd>
-            </div>
-            <div>
-              <dt>Host install channel</dt>
-              <dd class="mono">:{minted.install_tag}</dd>
-            </div>
-          </dl>
-        {/if}
-        {#if installCommand}
-          <pre class="mono"><code>{installCommand}</code></pre>
-        {:else}
-          <p class="fine" role="alert">
-            This controller is too old to offer a Windows command. Upgrade it, or download the
-            Windows binary from the releases page and run <code class="mono"
-              >zoomies agent join</code
-            > as shown under "The binary is already installed".
-          </p>
-        {/if}
-        <div class="command-actions">
-          <CopyButton
-            value={installCommand}
-            label={windowsHost ? 'Copy the PowerShell command' : 'Copy the install command'}
-            size="md"
-            showLabel
-          />
-          <span class="fine">
-            The token in it is shown once, only its hash is stored, and works once.
-          </span>
-        </div>
-        {#if versionNote}
-          <p class="version-note">{versionNote}</p>
-        {/if}
-      </div>
+      {#if minted.install_tag}
+        <dl class="version-match" aria-label="Version selected for this host">
+          <div>
+            <dt>Controller build</dt>
+            <dd class="mono">{minted.controller_version || NO_VALUE}</dd>
+          </div>
+          <div>
+            <dt>Host install channel</dt>
+            <dd class="mono">:{minted.install_tag}</dd>
+          </div>
+        </dl>
+      {/if}
+      {#if installCommand}
+        <Terminal
+          title={windowsHost ? 'PowerShell on the new host' : 'A shell on the new host'}
+          command={installCommand}
+          copyLabel={windowsHost ? 'Copy the PowerShell command' : 'Copy the install command'}
+        >
+          <p>The token in it is shown once, only its hash is stored, and works once.</p>
+          {#if versionNote}<p>{versionNote}</p>{/if}
+        </Terminal>
+      {:else}
+        <p class="fine" role="alert">
+          This controller is too old to offer a Windows command. Upgrade it, or download the Windows
+          binary from the releases page and run <code class="mono">zoomies agent join</code>
+          as shown under "The binary is already installed".
+        </p>
+      {/if}
 
       <details class="alternatives">
         <summary>The binary is already installed on that machine</summary>
         <p>Then skip the download and join directly:</p>
-        <div class="command small">
-          <pre class="mono"><code>{joinCommand}</code></pre>
-          <div class="command-actions">
-            <CopyButton value={joinCommand} label="Copy the join command" showLabel />
-          </div>
-        </div>
+        <Terminal
+          size="sm"
+          title="With the binary installed"
+          command={joinCommand}
+          copyLabel="Copy the join command"
+        />
         {#if minted.token}
           <p class="token-line">
             Or the token on its own, for an answer file:
@@ -1043,22 +1034,14 @@
     list-style: none;
   }
 
-  .command {
-    display: flex;
-    flex-direction: column;
-    gap: var(--z-space-3);
-    padding: var(--z-space-4);
-    border: var(--z-border-width) solid var(--z-pending-border);
-    border-radius: var(--z-radius-md);
-    background: var(--z-pending-subtle);
-  }
   .version-match {
     display: flex;
     flex-wrap: wrap;
     gap: var(--z-space-3) var(--z-space-6);
     margin: 0;
     padding: var(--z-space-3);
-    border-bottom: var(--z-border-width) solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-lg);
     background: var(--z-surface-raised);
   }
   .version-match div {
@@ -1075,39 +1058,6 @@
     margin: 0;
     color: var(--z-text);
     font-size: var(--z-text-xs);
-  }
-  .command.small {
-    padding: var(--z-space-3);
-    border-color: var(--z-border);
-    background: var(--z-surface-sunken);
-  }
-  .command pre {
-    margin: 0;
-    padding: var(--z-space-3);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-sm);
-    background: var(--z-surface);
-    color: var(--z-text);
-    font-size: var(--z-text-sm);
-    line-height: var(--z-leading-sm);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  .command.small pre {
-    font-size: var(--z-text-xs);
-    line-height: var(--z-leading-xs);
-  }
-  .version-note {
-    margin: var(--z-space-3) 0 0;
-    font-size: var(--z-text-xs);
-    line-height: var(--z-leading-xs);
-    color: var(--z-text-muted);
-  }
-  .command-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--z-space-3);
   }
   .fine {
     margin: 0;

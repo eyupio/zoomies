@@ -103,6 +103,15 @@ test('the page comes filled in and hands over a command carrying the token', asy
   await page.getByRole('button', { name: 'Get the command' }).click();
   await expect(page.getByRole('heading', { name: 'Run this on the new host' })).toBeVisible();
   const command = installCommand(page);
+  // The command is shown in the window the operator will run it in: the
+  // terminal on the dark stage, with the copy control inside it.
+  const terminal = page
+    .getByRole('region', { name: 'Run this on the new host' })
+    .locator('.terminal')
+    .first();
+  await expect(terminal).toBeVisible();
+  await expect(terminal.locator('pre').first()).toContainText('zoomies');
+  await expect(terminal.getByRole('button', { name: 'Copy the install command' })).toBeVisible();
   await expect(command).toContainText('--mode agent');
   await expect(command).toContainText(`--controller '${origin}'`);
   await expect(command).toContainText('--version dev');
