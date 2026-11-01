@@ -120,7 +120,9 @@
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: start;
     gap: var(--z-space-3);
-    padding: var(--z-space-3) var(--z-space-5);
+    /* Three rows and the band still leave the pools on the first screen of a
+       1440x900 laptop, which is the rule the summary line was cut down for. */
+    padding: var(--z-space-2) var(--z-space-5);
     border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .row:last-child {

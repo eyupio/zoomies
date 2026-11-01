@@ -206,6 +206,9 @@ test('the Overview says what needs a person in three rows at most, and the rest 
   // The card lists the worst three with the fix beside each, as the mock
   // draws it; everything past three is the drawer's, so a settled
   // configuration warning never pushes the fleet below the fold.
+  // A phone has no band and keeps the pools on its first screen, so it keeps
+  // the one-line summary; the card is for the screens with room for it.
+  test.skip((page.viewportSize()?.width ?? 0) < 769, 'a phone keeps the summary line');
   const card = page.getByRole('region', { name: 'Needs attention', exact: true });
   await expect(card).toBeVisible();
   const rows = card.getByRole('listitem');
@@ -235,6 +238,7 @@ test('the Overview says what needs a person in three rows at most, and the rest 
 });
 
 test('a problem row opens the page that holds the thing', async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 769, 'a phone keeps the summary line');
   const card = page.getByRole('region', { name: 'Needs attention', exact: true });
   const open = card.getByRole('link', { name: /^Open/ }).first();
   await expect(open).toBeVisible();
@@ -415,6 +419,28 @@ test('per-pool utilisation shows both pools and marks the one at its ceiling', a
   } else {
     await expect(row).not.toContainText('At its ceiling');
   }
+  // A card says its runners and its waiting work as a pair of facts, so the
+  // one at its ceiling can say where the waiting work stands.
+  await expect(row).toContainText(/Runners\s*\d+ of \d+/);
+  await expect(row).toContainText(atCeiling ? /Waiting\s*\d+ and nowhere to run/ : /Waiting\s*\d+/);
+});
+
+test('the pool cards fit a phone with a long name and never widen the page', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  const pools = page.getByRole('region', { name: 'Pools', exact: true });
+  await expect(pools.getByRole('listitem').first()).toBeVisible();
+  const [display, columns] = await pools
+    .locator('ul')
+    .first()
+    .evaluate((el) => {
+      const s = getComputedStyle(el);
+      return [s.display, s.gridTemplateColumns.split(' ').length];
+    });
+  expect(display).toBe('grid');
+  expect(columns).toBe(1);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+  ).toBeLessThanOrEqual(0);
 });
 
 test('the events feed quotes the scheduler verbatim', async ({ page }) => {
