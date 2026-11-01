@@ -814,8 +814,20 @@ The one page that has to earn the second monitor.
   after it share a row, two thirds and one third, each filling it; a phone is
   one column in the same order. Every panel carries its icon in a tinted tile
   beside its title (`Panel`'s `icon`), so the page has one card head and no
-  panel draws its own. The route lays nothing by hand, which is what lets a
-  later change save an order and a hidden set per account over the same list.
+  panel draws its own. The route lays nothing by hand, which is what lets the
+  arrangement be the operator's: **Arrange**, in the page header, puts a
+  toolbar over every card with a grip to drag it by, Move up, Move down and
+  Hide, a Show row in the place of each hidden panel, and a bar at the top with
+  how many are hidden, Reset layout and Done. A move changes the order only;
+  each panel keeps its column, so the jobs and the events share a row wherever
+  they stand together. The layout is kept with the account under `panels` in
+  the preference document (the browser's copy when nobody is signed in), read
+  as forgivingly as the bands: a panel a build no longer has is dropped, one it
+  gained is drawn in its default place, and the registry's own rules (the first
+  run hides the problems and the failures) still win over a layout. Appearance
+  lists the same panels as switches under **Overview panels**, with Reset
+  layout; the order is changed on the page itself, where the cards can be seen
+  moving.
 * **A card per pool**, as the mock draws it: the name, the floor and ceiling,
   the state as a pill, Runners and Waiting as a pair of facts, and the busy
   bar with the pool's min and max marked. A pool at its ceiling with work
