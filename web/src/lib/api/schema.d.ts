@@ -12121,7 +12121,7 @@ export interface components {
             assistant?: components["schemas"]["AssistantStyle"];
             bands?: components["schemas"]["BandPreferences"];
         };
-        /** @description How this person's page bands stand: the cut a page takes where it is not the page's default, the bands that are switched off, and whether the dog is drawn and at what size. Every field is optional, because absent is a choice never made. The UI ignores a page or cut it does not know, so a document written by a newer build still opens every band it can. */
+        /** @description How this person's page bands stand: the cut a page takes where it is not the page's default, the bands that are switched off, whether the dog is drawn and at what size, and whether a band's picture (the Overview's punch card, the slot map on Hosts and Runners) is drawn. Every field is optional, because absent is a choice never made. The UI ignores a page or cut it does not know, so a document written by a newer build still opens every band it can. */
         BandPreferences: {
             /** @description Pages whose band is switched off. */
             hidden?: components["schemas"]["BandPage"][];
@@ -12139,6 +12139,12 @@ export interface components {
             /** @description Pages whose dog size differs from `logo_size`. */
             logo_sizes?: {
                 [key: string]: components["schemas"]["BandLogoSize"];
+            };
+            /** @description Whether a band's picture is drawn beside its sentence on a page that has not chosen otherwise. On when absent. */
+            picture?: boolean;
+            /** @description Pages whose picture is shown or hidden against `picture`. */
+            picture_pages?: {
+                [key: string]: boolean;
             };
         };
         /**

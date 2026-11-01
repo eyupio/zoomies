@@ -538,3 +538,39 @@ test('the Hosts and Runners bands draw the same slots, by host, and each row ope
   await runnersMap.getByRole('link', { name: new RegExp(`^${FIXTURE.busyRunnerHost}:`) }).click();
   await expect(page).toHaveURL(/\/hosts\/[^/]+$/);
 });
+
+/**
+ * A band's picture is a choice, as the dog is: off for one page under Page
+ * bands, or off for every page at once, and the band obeys without a reload.
+ */
+test('a band picture can be switched off in Appearance, per page or for every page', async ({
+  page,
+}) => {
+  await goto(page, '/settings/appearance', 'Appearance');
+  // Only the pages that draw one offer the switch.
+  await expect(page.getByRole('switch', { name: 'Overview band picture' })).toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Hosts band picture' })).toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Pools band picture' })).toHaveCount(0);
+
+  await page.getByRole('switch', { name: 'Overview band picture' }).click();
+  await goto(page, '/', 'Overview');
+  await expect(page.getByTestId('fleet-status')).toBeVisible();
+  await expect(page.getByTestId('fleet-punch-card')).toHaveCount(0);
+  // Only that page: Hosts keeps its map.
+  await goto(page, '/hosts', 'Hosts');
+  await expect(page.getByTestId('band-slot-map')).toBeVisible();
+
+  // Every page at once, which also puts the Overview back in step.
+  await goto(page, '/settings/appearance', 'Appearance');
+  await expect(page.getByText('One page has its own picture setting')).toBeVisible();
+  await page.getByRole('switch', { name: 'Show the picture in the band' }).click();
+  await expect(page.getByText('One page has its own picture setting')).toHaveCount(0);
+  await goto(page, '/hosts', 'Hosts');
+  await expect(page.getByTestId('band-hosts')).toBeVisible();
+  await expect(page.getByTestId('band-slot-map')).toHaveCount(0);
+
+  await goto(page, '/settings/appearance', 'Appearance');
+  await page.getByRole('switch', { name: 'Show the picture in the band' }).click();
+  await goto(page, '/', 'Overview');
+  await expect(page.getByTestId('fleet-punch-card')).toBeVisible();
+});

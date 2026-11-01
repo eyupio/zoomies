@@ -698,7 +698,9 @@ doing (idle faint, draining hollow). Each row is a link to its host, and past
 seven hosts the rest are a count. Every picture on a stage keeps the same
 grammar, white and the brand's blue with a hole or an outline where a colour
 would otherwise carry it, so an operator who has read one can read them all.
-The wrong-address page uses the same stage with the dog.
+Like the dog, a picture can be switched off in Appearance, per page under Page
+bands or for every page at once, and the choice follows the account. The
+wrong-address page uses the same stage with the dog.
 
 Persistent left navigation, collapsible to icons only (persisted). Order is
 fixed, because muscle memory is the point:
