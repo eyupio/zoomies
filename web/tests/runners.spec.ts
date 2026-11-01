@@ -28,6 +28,7 @@ import {
 const STATES = ['Provisioning', 'Registering', 'Idle', 'Busy', 'Draining', 'Failed', 'Removed'];
 
 const runners = (page: Page) => grid(page, 'Runners');
+const stateChips = (page: Page) => page.getByRole('group', { name: 'Filter by runner state' });
 
 /** Wait for the first page of rows rather than for the network to go quiet. */
 async function runnerRows(page: Page): Promise<Locator> {
@@ -73,12 +74,7 @@ test('filtering by state narrows the rows and puts the filter in the URL', async
   await runnerRows(page);
   const before = await dataRows(runners(page)).count();
 
-  await page.getByRole('button', { name: 'Any state' }).click();
-  await page
-    .getByRole('group', { name: 'Filter by runner state' })
-    .getByRole('checkbox', { name: 'Busy' })
-    .check();
-  await page.keyboard.press('Escape');
+  await stateChips(page).getByRole('button', { name: /^Busy/ }).click();
 
   await expect(page).toHaveURL(/[?&]state=busy/);
   await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText('Busy');
@@ -97,7 +93,91 @@ test('filtering by state narrows the rows and puts the filter in the URL', async
   await reload(page, 'Runners');
   await expect(page).toHaveURL(/[?&]state=busy/);
   await expect(dataRows(runners(page))).toHaveCount(narrowed);
-  await expect(page.getByRole('button', { name: 'Busy', exact: true })).toBeVisible();
+  await expect(stateChips(page).getByRole('button', { name: /^Busy/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+});
+
+test("the card's eyebrow counts the runners the stats know and the ones that are live", async ({
+  page,
+}) => {
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  const stats = (await (await page.request.get('/api/v1/stats')).json()) as {
+    runners: Record<string, number>;
+  };
+  const r = stats.runners;
+  const live =
+    (r.provisioning ?? 0) +
+    (r.registering ?? 0) +
+    (r.idle ?? 0) +
+    (r.busy ?? 0) +
+    (r.draining ?? 0);
+  await expect(page.locator('.list-card header .eyebrow')).toHaveText(
+    `${r.total} known, ${live} live`,
+  );
+});
+
+test('two chips are two states in the address, and All clears them', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await stateChips(page).getByRole('button', { name: /^Busy/ }).click();
+  await stateChips(page)
+    .getByRole('button', { name: /^Draining/ })
+    .click();
+  await expect(page).toHaveURL(/state=busy/);
+  await expect(page).toHaveURL(/state=draining/);
+  await stateChips(page).getByRole('button', { name: /^All/ }).click();
+  await expect(page).not.toHaveURL(/state=/);
+  await expect(stateChips(page).getByRole('button', { name: /^All/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+});
+
+test('a state the product does not have is ignored, with All pressed', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  const all = await (await runnerRows(page)).count();
+  await goto(page, '/runners?state=bogus', 'Runners');
+  await runnerRows(page);
+  await expect(stateChips(page).getByRole('button', { name: /^All/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(dataRows(runners(page))).toHaveCount(all);
+});
+
+test('the chips drop their counts while a pool filter is in force', async ({ page }) => {
+  // The counts are the fleet's; beside one pool's rows they would be wrong.
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await expect(stateChips(page).locator('.count').first()).toBeVisible();
+  await page.getByRole('combobox', { name: 'Filter by pool' }).selectOption({ index: 1 });
+  await expect(page).toHaveURL(/pool_id=/);
+  await expect(stateChips(page).locator('.count')).toHaveCount(0);
+});
+
+test('with the stats failed the card still draws, without an eyebrow or counts', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/stats*', (route) => route.fulfill({ status: 500, body: 'no' }));
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await expect(page.locator('.list-card header .eyebrow')).toHaveCount(0);
+  await expect(stateChips(page)).toBeVisible();
+  await expect(stateChips(page).locator('.count')).toHaveCount(0);
+  expect(await page.locator('.list-card').innerText()).not.toMatch(/undefined|NaN/);
+});
+
+test('every chip fits on a phone with no horizontal overflow', async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 1000) >= 500, 'a phone test');
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await expect(stateChips(page).getByRole('button')).toHaveCount(7);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+  ).toBeLessThanOrEqual(0);
 });
 
 test('a hidden column stays hidden after a reload', async ({ page }) => {
