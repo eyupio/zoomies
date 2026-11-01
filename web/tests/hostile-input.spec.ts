@@ -64,8 +64,9 @@ test('a pool named with markup is shown as text, not run as it', async ({ page }
   await goto(page, '/pools', 'Pools');
 
   // The payload really is on the page. An assertion about what did not happen
-  // proves nothing if the string never arrived.
-  await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
+  // proves nothing if the string never arrived. The band's picture names the
+  // pool too and is hidden on a phone, so the match is the one that is shown.
+  await expect(page.getByText(name, { exact: true }).locator('visible=true').first()).toBeVisible();
 
   // And it arrived as text: had it been parsed there would be an img and a
   // script element in the document instead of those characters.

@@ -200,32 +200,56 @@ async function openProblems(page: import('@playwright/test').Page) {
   return drawer;
 }
 
-test('the Overview says how much needs a person without spending the page on it', async ({
+test('the Overview says what needs a person in three rows at most, and the rest is one click away', async ({
   page,
 }) => {
-  // The whole point of the summary: the fleet's own panels are what the page
-  // is for, and a settled configuration warning must not push them under the
-  // fold. So what is on the page is a sentence and a way in -- never the list.
-  await expect(page.getByText(/needs? your attention\.$/).first()).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Review' })).toBeVisible();
-
-  // Nothing in the page's own content lists a problem's fix; that lives in the
-  // drawer, which is not open yet.
-  await expect(page.getByRole('main')).not.toContainText('no webhook has ever arrived');
-
-  // And on a desktop it is still on the first screen, under the matrix and
-  // the numbers, which is exactly what the full-height list used to cost:
-  // the line that says what needs a person must never be the thing a
-  // settled configuration warning pushes out of sight. A phone stacks
-  // everything and cannot promise this, so it is not asserted there.
+  // The card lists the worst three with the fix beside each, as the mock
+  // draws it; everything past three is the drawer's, so a settled
+  // configuration warning never pushes the fleet below the fold.
+  // A phone has no band and keeps the pools on its first screen, so it keeps
+  // the one-line summary with its way into the drawer; the card is for the
+  // screens with room for it.
+  if ((page.viewportSize()?.width ?? 0) < 769) {
+    await expect(page.getByText(/needs? your attention\.$/).first()).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Needs attention', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Review' }).click();
+    await expect(page.getByRole('dialog', { name: 'Problems' })).toBeVisible();
+    return;
+  }
+  const card = page.getByRole('region', { name: 'Needs attention', exact: true });
+  await expect(card).toBeVisible();
+  const rows = card.getByRole('listitem');
+  await expect(rows.first()).toBeVisible();
+  expect(await rows.count()).toBeLessThanOrEqual(3);
+  // The worst first: the fixture seeds errors, so the first row is one.
+  await expect(rows.first()).toContainText('Error');
+  // The fix is on the row now, where the drawer had it alone.
+  await expect(rows.first().locator('.fix')).not.toBeEmpty();
+  // The rest are behind the drawer, which the card's own action opens.
+  const problems = await page.request.get('/api/v1/problems').then((r) => r.json());
+  const active = (problems.items ?? []).length;
+  const action = card.getByRole('button', {
+    name: active > 3 ? `and ${active - 3} more` : 'Open the drawer',
+  });
+  await expect(action).toBeVisible();
+  await action.click();
+  await expect(page.getByRole('dialog', { name: 'Problems' })).toBeVisible();
+  await page.keyboard.press('Escape');
   const viewport = page.viewportSize();
   if ((viewport?.width ?? 0) >= 1180) {
     const box = await page.getByRole('button', { name: 'Review' }).boundingBox();
-    expect(box, 'the problems line is laid out').not.toBeNull();
-    expect(box?.y ?? Infinity, 'the problems line is within the first screen').toBeLessThan(
+    expect(box?.y ?? Infinity, 'the way in is within the first screen').toBeLessThan(
       viewport?.height ?? 0,
     );
   }
+});
+
+test('a problem row opens the page that holds the thing', async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 769, 'a phone keeps the summary line, held above');
+  const card = page.getByRole('region', { name: 'Needs attention', exact: true });
+  const open = card.getByRole('link', { name: /^Open/ }).first();
+  await expect(open).toBeVisible();
+  await expect(open).toHaveAttribute('href', /^\//);
 });
 
 test('the top bar carries the count on every page and opens the list', async ({ page }) => {
@@ -402,6 +426,28 @@ test('per-pool utilisation shows both pools and marks the one at its ceiling', a
   } else {
     await expect(row).not.toContainText('At its ceiling');
   }
+  // A card says its runners and its waiting work as a pair of facts, so the
+  // one at its ceiling can say where the waiting work stands.
+  await expect(row).toContainText(/Runners\s*\d+ of \d+/);
+  await expect(row).toContainText(atCeiling ? /Waiting\s*\d+ and nowhere to run/ : /Waiting\s*\d+/);
+});
+
+test('the pool cards fit a phone with a long name and never widen the page', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  const pools = page.getByRole('region', { name: 'Pools', exact: true });
+  await expect(pools.getByRole('listitem').first()).toBeVisible();
+  const [display, columns] = await pools
+    .locator('ul')
+    .first()
+    .evaluate((el) => {
+      const s = getComputedStyle(el);
+      return [s.display, s.gridTemplateColumns.split(' ').length];
+    });
+  expect(display).toBe('grid');
+  expect(columns).toBe(1);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+  ).toBeLessThanOrEqual(0);
 });
 
 test('the events feed quotes the scheduler verbatim', async ({ page }) => {
@@ -1228,4 +1274,153 @@ test('the overview keeps failed push and scheduled runs in its attention inbox',
   ).toBeVisible();
   await expect(failures.getByText('No failure is waiting on you.')).toHaveCount(0);
   await expect(failures.getByRole('link', { name: 'Fix with Eli' })).toHaveCount(0);
+});
+
+// The body under the band is one grid drawn from the list of panels, in its
+// order, so a later change can save another order and hide some; on a phone
+// it is one column in that same order.
+test('the body is drawn from the registry, in its order, and one column on a phone', async ({
+  page,
+}) => {
+  const order = await page
+    .locator('[data-panel]')
+    .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-panel')));
+  expect(order).toEqual([
+    'attention',
+    'pools',
+    'failures',
+    'jobs',
+    'events',
+    'history',
+    'diagnostics',
+  ]);
+  await page.setViewportSize({ width: 375, height: 800 });
+  const columns = await page
+    .locator('.panels')
+    .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  expect(columns).toBe(1);
+});
+
+// The mark before an event is a pill in the tone of the news, with the icon
+// inside it: the shape and the icon both say what kind it is, never the
+// colour alone.
+test("an event's mark is a pill in its tone, the icon inside it", async ({ page }) => {
+  const feed = page.getByRole('region', { name: 'Recent events', exact: true });
+  const mark = feed.getByRole('listitem').first().locator('.mark');
+  await expect(mark).toBeVisible();
+  const [radius, height, border] = await mark.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return [parseFloat(s.borderTopLeftRadius), el.getBoundingClientRect().height, s.borderTopWidth];
+  });
+  expect(radius).toBeGreaterThanOrEqual(height / 2);
+  expect(border).toBe('1px');
+  await expect(mark.locator('svg')).toHaveCount(1);
+});
+
+/** The attention card drawn over problems this test chooses, with the stream away. */
+async function withProblems(page: Page, items: Record<string, unknown>[]): Promise<void> {
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  // The problems alone: the dismissals and the auto-applied changes live under
+  // the same prefix and keep answering for themselves.
+  await page.route(/\/api\/v1\/problems$/, (route) => route.fulfill({ json: { ok: true, items } }));
+  await reload(page, 'Overview');
+}
+
+const ODD = {
+  code: 'controller.odd',
+  severity: 'error',
+  title: 'the controller is odd',
+  fix: 'restart it',
+  audience: 'fleet',
+};
+const SETTING_A = {
+  code: 'config.odd',
+  severity: 'warning',
+  setting: 'a.b',
+  title: 'a setting is odd',
+  fix: 'change it',
+  audience: 'fleet',
+};
+const SETTING_C = { ...SETTING_A, setting: 'c.d' };
+const SETTING_E = { ...SETTING_A, setting: 'e.f' };
+
+// Two problems can share a code and a title and differ only in the setting they
+// name, and a problem can be about something with no page of its own: the card
+// draws both without a row going missing or an Open link going nowhere.
+test('a problem with no page has no Open link, and exactly three is the drawer alone', async ({
+  page,
+}) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 769, 'a phone keeps the summary line');
+  await withProblems(page, [ODD, SETTING_A, SETTING_C]);
+  const card = page.getByRole('region', { name: 'Needs attention', exact: true });
+  const rows = card.getByRole('listitem');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.first()).toContainText('the controller is odd');
+  await expect(rows.first().getByRole('link', { name: /^Open/ })).toHaveCount(0);
+  await expect(card.getByRole('link', { name: /^Open the setting/ })).toHaveCount(2);
+  await expect(card.getByRole('button', { name: 'Open the drawer' })).toBeVisible();
+});
+
+test('a fourth problem is counted on the card, and none at all is one quiet line', async ({
+  page,
+}) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 769, 'a phone keeps the summary line');
+  await withProblems(page, [ODD, SETTING_A, SETTING_C, SETTING_E]);
+  const card = page.getByRole('region', { name: 'Needs attention', exact: true });
+  await expect(card.getByRole('listitem')).toHaveCount(3);
+  await expect(card.getByRole('button', { name: 'and 1 more' })).toBeVisible();
+  await withProblems(page, []);
+  await expect(page.getByRole('region', { name: 'Needs attention', exact: true })).toHaveCount(0);
+  await expect(page.getByText('No fleet problems need your attention.')).toBeVisible();
+});
+
+// Six cards at most: a fleet with more pools is a count and a link, and a
+// disabled pool is not one of the six.
+test('a seventh pool becomes a count and a link, and a disabled pool is not drawn', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  await page.route('**/api/v1/pools*', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response, body } = read;
+    const seed = body.items?.[0];
+    expect(seed, 'the fixture supplies a pool').toBeTruthy();
+    const items = Array.from({ length: 7 }, (_, i) => ({
+      ...seed,
+      id: `pool_stub${i}`,
+      name: `stub-pool-${i}`,
+      enabled: true,
+    }));
+    items.push({ ...seed, id: 'pool_stuboff', name: 'stub-pool-off', enabled: false });
+    await route.fulfill({ response, json: { ...body, items, total: items.length } });
+  });
+  await reload(page, 'Overview');
+  const pools = page.getByRole('region', { name: 'Pools', exact: true });
+  await expect(pools.getByRole('listitem')).toHaveCount(6);
+  await expect(pools.getByText('stub-pool-off')).toHaveCount(0);
+  // The fixture's own pools come back through the stats as well, so the count
+  // past six is whatever the fleet has; the shape of the line is the claim.
+  await expect(pools.getByRole('link', { name: /^and \d+ more pools?$/ })).toHaveAttribute(
+    'href',
+    '/pools',
+  );
+});
+
+// Three rows and the slim band leave the pools on the first screen of a
+// 1440x900 laptop: the rule the one-line summary was cut down for still holds
+// with the card in its place.
+test('three problems and a slim band leave the pools on the first screen', async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 1180, 'a narrow screen stacks everything');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await withProblems(page, [ODD, SETTING_A, SETTING_C]);
+  await expect(page.getByTestId('fleet-status')).toHaveAttribute('data-size', 'slim');
+  const pools = page.getByRole('region', { name: 'Pools', exact: true });
+  const heading = await pools.getByRole('heading', { name: 'Pools' }).boundingBox();
+  expect(heading?.y ?? Infinity, 'the pools begin on the first screen').toBeLessThan(900);
+  const card = await pools.getByRole('listitem').first().boundingBox();
+  expect(card?.y ?? Infinity, 'the first pool card is within the next few lines').toBeLessThan(
+    1000,
+  );
 });

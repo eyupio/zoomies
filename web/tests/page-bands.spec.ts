@@ -596,13 +596,23 @@ test('the Pools, Queue and Usage bands draw their pictures, and each agrees with
   await expect(bars.getByRole('link').first()).toHaveAccessibleName(
     new RegExp(`^${FIXTURE.linuxPool}: \\d+ busy · \\d+ of \\d+ live`),
   );
-  const sentence = (await page.getByTestId('band-pools').locator('.lede').textContent()) ?? '';
-  if (/is at its ceiling/.test(sentence)) {
-    await expect(bars).toContainText('1 at its ceiling');
-    await expect(bars.getByRole('link').first()).toHaveAccessibleName(/at its ceiling$/);
-  } else {
-    await expect(bars).not.toContainText('at its ceiling');
-  }
+  // Both halves are read in one breath: the fixture's x64 pool leaves its
+  // ceiling as idle runners drain, and a sentence read before that moment
+  // disagrees with bars read after it without either being wrong.
+  await expect(async () => {
+    const [sentence, picture] = await Promise.all([
+      page.getByTestId('band-pools').locator('.lede').textContent(),
+      bars.textContent(),
+    ]);
+    if (/is at its ceiling/.test(sentence ?? '')) {
+      expect(picture).toContain('1 at its ceiling');
+      await expect(bars.getByRole('link').first()).toHaveAccessibleName(/at its ceiling$/, {
+        timeout: 500,
+      });
+    } else {
+      expect(picture).not.toContain('at its ceiling');
+    }
+  }).toPass({ timeout: 10_000 });
 
   await goto(page, '/queue', 'Queue');
   const trend = page.getByTestId('band-queue').getByTestId('band-queue-trend');

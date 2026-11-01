@@ -8,12 +8,19 @@
   height, and neither knew what the other had learnt. Keeping the shape of a
   section in one place is what stops a dashboard of five different card
   designs.
+
+  A panel can carry an icon in a tile beside its title. The Overview's cards
+  all do, so the page has one head and not a tile drawn by each panel in its
+  own way; a panel without one is unchanged.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import type { LucideIcon } from '@lucide/svelte';
 
   interface Props {
     title: string;
+    /** Drawn in a tinted tile before the title, as the Overview's cards are. */
+    icon?: LucideIcon;
     /** One line under the heading, when the heading cannot say it all. */
     description?: string;
     /** A count, a badge, or a link out. Sits opposite the heading. */
@@ -37,6 +44,7 @@
 
   let {
     title,
+    icon: Icon,
     description,
     actions,
     flush = false,
@@ -51,6 +59,7 @@
 
 <section class="panel {className}" class:fill aria-labelledby={headingId}>
   <header>
+    {#if Icon}<span class="tile" aria-hidden="true"><Icon size={18} /></span>{/if}
     <div class="titles">
       <h2 id={headingId}>{title}</h2>
       {#if description}<p>{description}</p>{/if}
@@ -85,7 +94,21 @@
     border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .titles {
+    flex: 1;
     min-width: 0;
+  }
+  .tile {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    align-self: flex-start;
+    width: var(--z-space-10);
+    height: var(--z-space-10);
+    border: var(--z-border-width) solid var(--z-border-strong);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
+    color: var(--z-text);
   }
   h2 {
     margin: 0;

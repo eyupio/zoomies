@@ -12105,7 +12105,22 @@ export interface components {
             };
             assistant?: components["schemas"]["AssistantStyle"];
             bands?: components["schemas"]["BandPreferences"];
+            panels?: components["schemas"]["PanelPreferences"];
         };
+        /** @description How this person arranged each page's panels, by page. Only the Overview has panels to arrange in this build; a page this build cannot arrange, or a panel the page does not have, is refused with the field. */
+        PanelPreferences: {
+            [key: string]: components["schemas"]["PanelLayout"];
+        };
+        /** @description One page's arrangement: the panels in the order drawn, and the ones not drawn. Both are optional, because absent is a choice never made; a panel the order leaves out is drawn after the rest in its default place. */
+        PanelLayout: {
+            order?: components["schemas"]["OverviewPanelId"][];
+            hidden?: components["schemas"]["OverviewPanelId"][];
+        };
+        /**
+         * @description A panel of the Overview's body, by the id its registry gives it.
+         * @enum {string}
+         */
+        OverviewPanelId: "attention" | "pools" | "failures" | "jobs" | "events" | "history" | "diagnostics";
         /** @description How this person's page bands stand: the cut a page takes where it is not the page's default, the bands that are switched off, whether the dog is drawn and at what size, and whether a band's picture (the Overview's punch card, the slot map on Hosts and Runners) is drawn. Every field is optional, because absent is a choice never made. The UI ignores a page or cut it does not know, so a document written by a newer build still opens every band it can. */
         BandPreferences: {
             /** @description Pages whose band is switched off. */

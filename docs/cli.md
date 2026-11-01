@@ -79,6 +79,40 @@ minted for you: create one in the UI under your account's API tokens, or with
 as `token:`. It is the file of whichever account ran the command, so under `sudo` it is
 `root`'s.
 
+## Interactive home
+
+Run `zoomies` with no arguments at a terminal to open the interactive home.
+Choose fleet operations, a read-only host health check, an upgrade preview,
+an upgrade or the guided installer. The fleet menu runs the ordinary CLI
+commands with the saved controller connection. The command reference searches
+every command and opens its help. Use the arrow keys or `j` and `k`, Enter to
+open, `/` to search, Escape to go back and `q` to quit.
+
+The home has a static blue-to-cyan wordmark, one tagline and a compact paw
+indicator. Its two paw icons use the same staggered rhythm as Eli's working
+indicator. Motion pauses for approval questions. Smaller terminals use a
+compact banner. Doctor and upgrade show the paw indicator beside the actual
+task name and elapsed time, without a separate animation panel or repeated
+branding.
+
+The home releases the terminal before a command starts. Its output stays
+visible until you press Enter to return home or `q` to exit. Choosing an
+upgrade or setup first asks you to continue, with cancellation as the default;
+the command's own approval questions still apply.
+
+`zoomies --doctor` and `zoomies --upgrade` are conveniences for `zoomies doctor`
+and `zoomies upgrade`, with the same flags and exit codes. Doctor and upgrade
+show live progress while work runs, including elapsed time and the latest
+observation. There is no timed splash before an upgrade. The progress clears
+before results, approval questions or the new release take over the terminal.
+
+`NO_COLOR` removes colour without disabling keyboard navigation.
+`ZOOMIES_NO_ANIMATION=1` disables motion; doctor and upgrade also accept
+`--no-animation`. CI, `TERM=dumb`, redirected output and upgrades with
+`--non-interactive` receive ordinary output. `doctor --json` never starts an
+animation and keeps redirected output as JSON. Without a usable terminal, plain `zoomies` retains its usage output and
+exit code 2, so an incomplete scripted command cannot wait at a menu.
+
 ## Running Zoomies
 
 | Command | What it does |
@@ -104,38 +138,6 @@ otherwise, see [Naming](naming.md)), `--capacity`,
 The Overview in a terminal: counts, pools, recent scaling and anything wrong.
 `--window` (`1h`) sets the period the rates cover, `--scaling` (`5`) how many
 recent decisions to print.
-
-### `zoomies tui`
-
-A live dashboard for a terminal: the Overview plus tabs for problems, pools,
-runners, hosts and jobs. It needs a terminal on input and output; when the
-output is piped, use `zoomies status` instead.
-
-```sh
-zoomies tui
-zoomies tui --window 24h
-```
-
-It reads the same routes as `status`, the web UI and the MCP server, and keeps
-itself current from `GET /events`. When a proxy will not carry the stream it
-falls back to the held `events recent` poll, and a full refresh every fifteen
-seconds repairs anything a lost frame carried. The header says which of the
-two is in use.
-
-`1` to `6`, tab and shift+tab switch tabs; `j`/`k` or the arrows move; `enter`
-acts on the selected row. Every change is confirmed first:
-
-| where | key | what it does |
-| --- | --- | --- |
-| Problems | `enter` | applies the change the controller proposes for the selected problem, the same request as `problems apply` |
-| Problems | `d` | dismisses every problem of that code for the signed-in account. A controller refuses this for an API token: dismissals are kept per account, and a token has none |
-| Runners | `enter` | drains the selected runner, accepting the same five-minute finish as `runners drain --yes` |
-| Jobs | `enter` | re-runs every failed job in the run, because GitHub has no job-level rerun |
-| Jobs | `a` | marks the failure as known, as `jobs acknowledge` does |
-
-`r` refreshes now, `?` shows the keys and `q` quits. `--window` sets the period
-the completed and failed counts cover. `--url`, `--token`, `--ca-file`,
-`--insecure` and `--timeout` work as they do for every fleet command.
 
 ### `zoomies events`
 
