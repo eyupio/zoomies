@@ -241,9 +241,9 @@ function load(): StoredPrefs {
   }
 }
 
-/** The pages whose panels can be arranged. The Overview, in this build. */
-export type PanelPage = 'overview';
-const PANEL_PAGES: readonly PanelPage[] = ['overview'];
+import { PANEL_PAGES, type PanelPage } from './panel-pages';
+import { panelLayoutsAfterSync } from './panel-sync';
+export type { PanelPage } from './panel-pages';
 
 /** The layouts a stored or received document describes, for the pages this build can arrange. */
 function readPanelLayouts(raw: unknown): Partial<Record<PanelPage, PanelLayout>> {
@@ -485,16 +485,16 @@ class Prefs {
         this account; a browser with no previous account keeps its choices and
         is what the first save carries.
       */
-      /*
-        The panel layouts follow the same rule as the bands: the account's
-        where it has a document, cleared when a browser last used by somebody
-        else would otherwise carry that person's arrangement into this account.
-      */
-      if (remote.panels) {
-        this.#panelLayouts = readPanelLayouts(remote.panels);
-      } else if (previous && previous !== userID) {
-        this.#panelLayouts = {};
-      }
+      // The panel layouts: the account's where it has a document, and
+      // otherwise cleared on any browser an account has used, because the
+      // document carries no `panels` at the default and that is what a reset
+      // made in another browser looks like from here (panel-sync.ts).
+      this.#panelLayouts = panelLayoutsAfterSync(
+        this.#panelLayouts,
+        remote.panels ? readPanelLayouts(remote.panels) : undefined,
+        previous ?? undefined,
+        userID,
+      );
       if (remote.bands) {
         const bands = readBandSettings(remote.bands);
         this.#hiddenBands = bands.hidden;

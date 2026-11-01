@@ -9,6 +9,7 @@ import {
   hiddenPanels,
   isDefaultLayout,
   movePanel,
+  panelRows,
   placePanel,
   readPanelLayout,
   setHidden,
@@ -107,4 +108,48 @@ test('a move swaps neighbours and stops at the ends; a place puts a panel before
   );
   assert.equal(isDefaultLayout(DEFAULT_LAYOUT), true);
   assert.equal(isDefaultLayout(setHidden(DEFAULT_LAYOUT, 'pools', true)), false);
+});
+
+test('the rows are every present panel in order, each saying whether it is hidden', () => {
+  const layout: PanelLayout = { order: [...DEFAULT_LAYOUT.order], hidden: ['pools'] };
+  const rows = panelRows(OVERVIEW_PANELS, layout, { setupPending: true });
+  assert.deepEqual(
+    rows.map((row) => [row.panel.id, row.hidden]),
+    [
+      ['pools', true],
+      ['jobs', false],
+      ['events', false],
+      ['diagnostics', false],
+    ],
+  );
+});
+
+test('a move swaps with the neighbour that is drawn, stepping over a panel the fleet state leaves out', () => {
+  // The first run leaves the failures out, so the panel under Pools on the
+  // screen is the jobs: a press on Move down must put Pools under the jobs,
+  // not swap it with a panel nobody can see and change nothing in view.
+  const drawn = panelRows(OVERVIEW_PANELS, DEFAULT_LAYOUT, { setupPending: true }).map(
+    (row) => row.panel.id,
+  );
+  const down = movePanel(DEFAULT_LAYOUT, 'pools', 1, drawn);
+  assert.deepEqual(down.order, [
+    'attention',
+    'failures',
+    'jobs',
+    'pools',
+    'events',
+    'history',
+    'diagnostics',
+  ]);
+  const drawnAfter = panelRows(OVERVIEW_PANELS, down, { setupPending: true }).map(
+    (row) => row.panel.id,
+  );
+  const back = movePanel(down, 'pools', -1, drawnAfter);
+  // Up again restores what is drawn; where Pools stands against the absent
+  // failures in the saved order is not something anybody can see.
+  assert.deepEqual(
+    panelRows(OVERVIEW_PANELS, back, { setupPending: true }).map((row) => row.panel.id),
+    drawn,
+  );
+  assert.equal(movePanel(DEFAULT_LAYOUT, 'pools', -1, drawn), DEFAULT_LAYOUT);
 });

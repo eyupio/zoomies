@@ -139,8 +139,122 @@ test('hiding every panel leaves Show rows, and Reset brings them all back', asyn
   await arrange(page);
   for (const title of TITLES) await page.getByRole('button', { name: `Hide ${title}` }).click();
   await expect(page.getByRole('button', { name: /^Show / })).toHaveCount(7);
-  await expect(page.locator('[data-panel]')).toHaveCount(0);
+  await expect(page.getByRole('toolbar', { name: /^Arrange / })).toHaveCount(0);
   await page.getByRole('button', { name: 'Reset layout' }).click();
+  expect(await order(page)).toEqual(ORDER);
+});
+
+test('a hidden panel leaves its Show row in its own place, between its neighbours', async ({
+  page,
+}) => {
+  await arrange(page);
+  await page.getByRole('button', { name: 'Hide Pools' }).click();
+  const rows = await page
+    .locator('[data-panel]')
+    .evaluateAll((nodes) =>
+      nodes.map(
+        (n) =>
+          `${n.getAttribute('data-panel')}:${n.querySelector('[role=toolbar]') ? 'card' : 'row'}`,
+      ),
+    );
+  expect(rows.slice(0, 3)).toEqual(['attention:card', 'pools:row', 'failures:card']);
+  // A move steps over the row the eye sees, so Needs attention lands under it.
+  await page.getByRole('button', { name: 'Move Needs attention down' }).click();
+  expect((await order(page)).slice(0, 2)).toEqual(['pools', 'attention']);
+});
+
+test('the events panel moved above the jobs keeps its column, and the two no longer share a row', async ({
+  page,
+}) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 1181, 'a narrow screen is one column');
+  await arrange(page);
+  await page.getByRole('button', { name: 'Move Recent events up' }).click();
+  const events = (await page.locator('[data-panel="events"]').boundingBox())!;
+  const jobs = (await page.locator('[data-panel="jobs"]').boundingBox())!;
+  expect(events.x, 'events stays in the side column').toBeGreaterThan(jobs.x + jobs.width / 2);
+  expect(jobs.y, 'jobs starts below the events').toBeGreaterThanOrEqual(events.y + events.height);
+});
+
+test('a card dropped on the Arrange bar goes first, and one dropped on the end zone goes last', async ({
+  page,
+}) => {
+  // The points are window coordinates, and scrolling one control into view
+  // moves every other, so the page is made tall enough that nothing scrolls
+  // between the press and the drop.
+  const viewport = page.viewportSize()!;
+  await page.setViewportSize({ width: viewport.width, height: 2400 });
+  await arrange(page);
+  const grip = page.getByRole('button', { name: 'Move Pools', exact: true });
+  const bar = page.getByRole('region', { name: 'Arrange the Overview' });
+  const middle = async (box: { x: number; y: number; width: number; height: number } | null) => ({
+    x: box!.x + box!.width / 2,
+    y: box!.y + box!.height / 2,
+  });
+  const from = await middle(await grip.boundingBox());
+  const to = await middle(await bar.boundingBox());
+  const over = await middle(await page.locator('[data-panel="attention"]').boundingBox());
+  await touchDrag(grip, [from, { x: from.x, y: from.y - 40 }, over, to]);
+  expect((await order(page)).slice(0, 2)).toEqual(['pools', 'attention']);
+  const end = page.getByText('Drop here to put it last');
+  await expect(end).toHaveCount(0);
+  await grip.dispatchEvent('pointerdown', {
+    pointerId: 1,
+    pointerType: 'touch',
+    isPrimary: true,
+    button: 0,
+    buttons: 1,
+    clientX: from.x,
+    clientY: from.y,
+  });
+  await grip.dispatchEvent('pointermove', {
+    pointerId: 1,
+    pointerType: 'touch',
+    isPrimary: true,
+    buttons: 1,
+    clientX: from.x,
+    clientY: from.y + 40,
+  });
+  await expect(end).toBeVisible();
+  const last = await centre(end);
+  await grip.dispatchEvent('pointermove', {
+    pointerId: 1,
+    pointerType: 'touch',
+    isPrimary: true,
+    buttons: 1,
+    clientX: last.x,
+    clientY: last.y,
+  });
+  await grip.dispatchEvent('pointerup', {
+    pointerId: 1,
+    pointerType: 'touch',
+    isPrimary: true,
+    buttons: 0,
+    clientX: last.x,
+    clientY: last.y,
+  });
+  expect((await order(page)).at(-1)).toEqual('pools');
+});
+
+test('focus follows Hide to the Show button, Show to the Hide button, and Done to Arrange', async ({
+  page,
+}) => {
+  await arrange(page);
+  await page.getByRole('button', { name: 'Hide Pools' }).click();
+  await expect(page.getByRole('button', { name: 'Show Pools' })).toBeFocused();
+  await page.getByRole('button', { name: 'Show Pools' }).click();
+  await expect(page.getByRole('button', { name: 'Hide Pools' })).toBeFocused();
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByRole('button', { name: 'Arrange' })).toBeFocused();
+});
+
+test('the grip moves its card with the arrow keys', async ({ page }) => {
+  await arrange(page);
+  const grip = page.getByRole('button', { name: 'Move Pools', exact: true });
+  await grip.focus();
+  await grip.press('ArrowDown');
+  expect((await order(page)).slice(1, 3)).toEqual(['failures', 'pools']);
+  await expect(grip).toBeFocused();
+  await grip.press('ArrowUp');
   expect(await order(page)).toEqual(ORDER);
 });
 

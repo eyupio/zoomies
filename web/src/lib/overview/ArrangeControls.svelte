@@ -25,7 +25,20 @@
 </script>
 
 <div class="arrange" role="toolbar" aria-label="Arrange {title}">
-  <button type="button" class="grip" aria-label="Move {title}" onpointerdown={ondrag}>
+  <button
+    type="button"
+    class="grip"
+    aria-label="Move {title}"
+    onpointerdown={ondrag}
+    onkeydown={(event) => {
+      // The grip is the keyboard's handle too: the arrows move the card a
+      // place, as they move a grid's column, and focus stays on it.
+      const delta = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+      if (!delta) return;
+      event.preventDefault();
+      onmove(delta);
+    }}
+  >
     <GripVertical size={16} aria-hidden="true" />
   </button>
   <span class="title">{title}</span>

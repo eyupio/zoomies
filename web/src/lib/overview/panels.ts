@@ -104,14 +104,47 @@ function ordered(panels: readonly OverviewPanel[], layout: PanelLayout): Overvie
     .filter((panel): panel is OverviewPanel => panel !== undefined);
 }
 
-/** The layout with one panel swapped with its neighbour; unchanged at an end. */
-export function movePanel(layout: PanelLayout, id: OverviewPanelId, delta: -1 | 1): PanelLayout {
-  const order = [...layout.order];
-  const at = order.indexOf(id);
-  const to = at + delta;
-  if (at < 0 || to < 0 || to >= order.length) return layout;
-  [order[at], order[to]] = [order[to]!, order[at]!];
-  return { order, hidden: [...layout.hidden] };
+/** A panel as the body draws it while arranging: its card, or a row saying it is hidden. */
+export interface PanelRow {
+  panel: OverviewPanel;
+  hidden: boolean;
+}
+
+/**
+ * Every panel present in this fleet state, in layout order, each saying
+ * whether it is hidden. The body is drawn from this in one pass, so a hidden
+ * panel's row stands where its card would, and a move steps over what the eye
+ * sees rather than over the whole order.
+ */
+export function panelRows(
+  panels: readonly OverviewPanel[],
+  layout: PanelLayout,
+  fleet: { setupPending: boolean },
+): PanelRow[] {
+  return ordered(panels, layout)
+    .filter((panel) => !panel.absentWhen?.(fleet))
+    .map((panel) => ({ panel, hidden: layout.hidden.includes(panel.id) }));
+}
+
+/**
+ * The layout with one panel swapped with its neighbour among the panels
+ * drawn (`among`, the whole order when every panel is); unchanged at an end.
+ * A panel the fleet state leaves out is stepped over, so a press always
+ * changes what is on the screen.
+ */
+export function movePanel(
+  layout: PanelLayout,
+  id: OverviewPanelId,
+  delta: -1 | 1,
+  among: readonly OverviewPanelId[] = layout.order,
+): PanelLayout {
+  const at = among.indexOf(id);
+  const neighbour = among[at + delta];
+  if (at < 0 || neighbour === undefined) return layout;
+  if (delta < 0) return placePanel(layout, id, neighbour);
+  const rest = layout.order.filter((other) => other !== id);
+  const after = rest[rest.indexOf(neighbour) + 1] ?? null;
+  return placePanel(layout, id, after);
 }
 
 /** The layout with one panel placed before another, or last when `before` is null. */
