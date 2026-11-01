@@ -17,7 +17,7 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import { session } from '$lib/state/session.svelte';
   import { formatNumber, pluralise } from '$lib/format';
-  import { poolStatus, runnerStatus } from '$lib/status';
+  import { runnerStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -109,18 +109,18 @@
   });
 
   const pinnedCount = $derived(rows.filter((r) => r.pinned).length);
-  const enabledCount = $derived(rows.filter((r) => r.enabled).length);
-  const { shown, more } = $derived(cap(rows, POOLS_SHOWN));
+  // A disabled pool runs nothing and takes none of the six cards; the Pools
+  // page lists it with the rest.
+  const { shown, more } = $derived(
+    cap(
+      rows.filter((r) => r.enabled),
+      POOLS_SHOWN,
+    ),
+  );
   const canCreate = $derived(session.can('operator'));
 </script>
 
-<Panel
-  title="Pools"
-  icon={Boxes}
-  description={loading ? undefined : `${pluralise(enabledCount, 'pool')} enabled.`}
-  class={className}
-  flush
->
+<Panel title="Pools" icon={Boxes} class={className} flush>
   {#snippet actions()}
     {#if pinnedCount > 0}
       <Badge tone="pending" label="{formatNumber(pinnedCount)} at the ceiling" dot={false} />
@@ -164,12 +164,9 @@
               >{formatNumber(row.min)}–{formatNumber(row.max)} runners</span
             >
             <div class="badges">
-              {#if !row.enabled}
-                <Badge status={poolStatus({ enabled: row.enabled })} size="sm" />
-              {/if}
               {#if row.pinned}
                 <Badge tone="pending" size="sm" label="At its ceiling" dot={false} />
-              {:else if row.enabled}
+              {:else}
                 <!-- What the pool is doing, as a word and the fixed shape of that state:
                      working, waiting for a runner, or ready. -->
                 {#if row.busy > 0}

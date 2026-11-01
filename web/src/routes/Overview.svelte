@@ -252,16 +252,12 @@
             {:else if panel.id === 'events'}
               <div id="events" class="destination" tabindex="-1"><EventsFeed {loading} /></div>
             {:else if panel.id === 'history'}
-              {#if !setupPending}<OverviewDisclosure
-                  id="history"
-                  title="History"
-                  icon={Clock}
-                  summary={historySummary}
-                  ><FleetActivity
-                    bind:this={activity}
-                    onsummary={(value) => (historySummary = value)}
-                  /></OverviewDisclosure
-                >{/if}
+              <OverviewDisclosure id="history" title="History" icon={Clock} summary={historySummary}
+                ><FleetActivity
+                  bind:this={activity}
+                  onsummary={(value) => (historySummary = value)}
+                /></OverviewDisclosure
+              >
             {:else if panel.id === 'diagnostics'}
               <section
                 id="diagnostics"
@@ -420,17 +416,13 @@
     /* The side column is as tall as the main panel beside it, so the two end
        on one line instead of the shorter one trailing off. */
     align-items: stretch;
-    gap: var(--z-space-4);
+    gap: var(--z-space-3);
   }
   .slot {
     min-width: 0;
   }
   .slot.full {
     grid-column: 1 / -1;
-  }
-  /* A history or a diagnostic that is absent in this state leaves no gap. */
-  .slot:empty {
-    display: none;
   }
   .destination,
   .now {

@@ -24,8 +24,8 @@ export interface OverviewPanel {
 
 /**
  * The first-run checklist is the whole message while nothing is configured:
- * a problems card and a failures panel beside it would be two more things
- * explaining the same emptiness.
+ * a problems card, a failures panel and a history of nothing beside it would
+ * be three more things explaining the same emptiness.
  */
 const firstRun = (fleet: { setupPending: boolean }): boolean => fleet.setupPending;
 
@@ -35,7 +35,7 @@ export const OVERVIEW_PANELS: readonly OverviewPanel[] = [
   { id: 'failures', title: 'Recent failures', place: 'full', absentWhen: firstRun },
   { id: 'jobs', title: 'Active jobs', place: 'main' },
   { id: 'events', title: 'Recent events', place: 'side' },
-  { id: 'history', title: 'History', place: 'full' },
+  { id: 'history', title: 'History', place: 'full', absentWhen: firstRun },
   { id: 'diagnostics', title: 'Diagnostics', place: 'full' },
 ];
 

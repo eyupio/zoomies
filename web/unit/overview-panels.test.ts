@@ -26,9 +26,9 @@ test('every panel has a unique id and a side panel follows a main one', () => {
   ]);
 });
 
-test('the attention card and the failures stand down during the first run', () => {
+test('the attention card, the failures and History stand down during the first run', () => {
   const ids = visiblePanels(OVERVIEW_PANELS, { setupPending: true }).map((p) => p.id);
-  assert.deepEqual(ids, ['pools', 'jobs', 'events', 'history', 'diagnostics']);
+  assert.deepEqual(ids, ['pools', 'jobs', 'events', 'diagnostics']);
   assert.equal(
     visiblePanels(OVERVIEW_PANELS, { setupPending: false }).length,
     OVERVIEW_PANELS.length,

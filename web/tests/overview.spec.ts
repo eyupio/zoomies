@@ -207,8 +207,15 @@ test('the Overview says what needs a person in three rows at most, and the rest 
   // draws it; everything past three is the drawer's, so a settled
   // configuration warning never pushes the fleet below the fold.
   // A phone has no band and keeps the pools on its first screen, so it keeps
-  // the one-line summary; the card is for the screens with room for it.
-  test.skip((page.viewportSize()?.width ?? 0) < 769, 'a phone keeps the summary line');
+  // the one-line summary with its way into the drawer; the card is for the
+  // screens with room for it.
+  if ((page.viewportSize()?.width ?? 0) < 769) {
+    await expect(page.getByText(/needs? your attention\.$/).first()).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Needs attention', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Review' }).click();
+    await expect(page.getByRole('dialog', { name: 'Problems' })).toBeVisible();
+    return;
+  }
   const card = page.getByRole('region', { name: 'Needs attention', exact: true });
   await expect(card).toBeVisible();
   const rows = card.getByRole('listitem');
@@ -238,7 +245,7 @@ test('the Overview says what needs a person in three rows at most, and the rest 
 });
 
 test('a problem row opens the page that holds the thing', async ({ page }) => {
-  test.skip((page.viewportSize()?.width ?? 0) < 769, 'a phone keeps the summary line');
+  test.skip((page.viewportSize()?.width ?? 0) < 769, 'a phone keeps the summary line, held above');
   const card = page.getByRole('region', { name: 'Needs attention', exact: true });
   const open = card.getByRole('link', { name: /^Open/ }).first();
   await expect(open).toBeVisible();
@@ -1308,4 +1315,112 @@ test("an event's mark is a pill in its tone, the icon inside it", async ({ page 
   expect(radius).toBeGreaterThanOrEqual(height / 2);
   expect(border).toBe('1px');
   await expect(mark.locator('svg')).toHaveCount(1);
+});
+
+/** The attention card drawn over problems this test chooses, with the stream away. */
+async function withProblems(page: Page, items: Record<string, unknown>[]): Promise<void> {
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  // The problems alone: the dismissals and the auto-applied changes live under
+  // the same prefix and keep answering for themselves.
+  await page.route(/\/api\/v1\/problems$/, (route) => route.fulfill({ json: { ok: true, items } }));
+  await reload(page, 'Overview');
+}
+
+const ODD = {
+  code: 'controller.odd',
+  severity: 'error',
+  title: 'the controller is odd',
+  fix: 'restart it',
+  audience: 'fleet',
+};
+const SETTING_A = {
+  code: 'config.odd',
+  severity: 'warning',
+  setting: 'a.b',
+  title: 'a setting is odd',
+  fix: 'change it',
+  audience: 'fleet',
+};
+const SETTING_C = { ...SETTING_A, setting: 'c.d' };
+const SETTING_E = { ...SETTING_A, setting: 'e.f' };
+
+// Two problems can share a code and a title and differ only in the setting they
+// name, and a problem can be about something with no page of its own: the card
+// draws both without a row going missing or an Open link going nowhere.
+test('a problem with no page has no Open link, and exactly three is the drawer alone', async ({
+  page,
+}) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 769, 'a phone keeps the summary line');
+  await withProblems(page, [ODD, SETTING_A, SETTING_C]);
+  const card = page.getByRole('region', { name: 'Needs attention', exact: true });
+  const rows = card.getByRole('listitem');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.first()).toContainText('the controller is odd');
+  await expect(rows.first().getByRole('link', { name: /^Open/ })).toHaveCount(0);
+  await expect(card.getByRole('link', { name: /^Open the setting/ })).toHaveCount(2);
+  await expect(card.getByRole('button', { name: 'Open the drawer' })).toBeVisible();
+});
+
+test('a fourth problem is counted on the card, and none at all is one quiet line', async ({
+  page,
+}) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 769, 'a phone keeps the summary line');
+  await withProblems(page, [ODD, SETTING_A, SETTING_C, SETTING_E]);
+  const card = page.getByRole('region', { name: 'Needs attention', exact: true });
+  await expect(card.getByRole('listitem')).toHaveCount(3);
+  await expect(card.getByRole('button', { name: 'and 1 more' })).toBeVisible();
+  await withProblems(page, []);
+  await expect(page.getByRole('region', { name: 'Needs attention', exact: true })).toHaveCount(0);
+  await expect(page.getByText('No fleet problems need your attention.')).toBeVisible();
+});
+
+// Six cards at most: a fleet with more pools is a count and a link, and a
+// disabled pool is not one of the six.
+test('a seventh pool becomes a count and a link, and a disabled pool is not drawn', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  await page.route('**/api/v1/pools*', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const read = await readThrough(route);
+    if (!read) return;
+    const { response, body } = read;
+    const seed = body.items?.[0];
+    expect(seed, 'the fixture supplies a pool').toBeTruthy();
+    const items = Array.from({ length: 7 }, (_, i) => ({
+      ...seed,
+      id: `pool_stub${i}`,
+      name: `stub-pool-${i}`,
+      enabled: true,
+    }));
+    items.push({ ...seed, id: 'pool_stuboff', name: 'stub-pool-off', enabled: false });
+    await route.fulfill({ response, json: { ...body, items, total: items.length } });
+  });
+  await reload(page, 'Overview');
+  const pools = page.getByRole('region', { name: 'Pools', exact: true });
+  await expect(pools.getByRole('listitem')).toHaveCount(6);
+  await expect(pools.getByText('stub-pool-off')).toHaveCount(0);
+  // The fixture's own pools come back through the stats as well, so the count
+  // past six is whatever the fleet has; the shape of the line is the claim.
+  await expect(pools.getByRole('link', { name: /^and \d+ more pools?$/ })).toHaveAttribute(
+    'href',
+    '/pools',
+  );
+});
+
+// Three rows and the slim band leave the pools on the first screen of a
+// 1440x900 laptop: the rule the one-line summary was cut down for still holds
+// with the card in its place.
+test('three problems and a slim band leave the pools on the first screen', async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 1180, 'a narrow screen stacks everything');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await withProblems(page, [ODD, SETTING_A, SETTING_C]);
+  await expect(page.getByTestId('fleet-status')).toHaveAttribute('data-size', 'slim');
+  const pools = page.getByRole('region', { name: 'Pools', exact: true });
+  const heading = await pools.getByRole('heading', { name: 'Pools' }).boundingBox();
+  expect(heading?.y ?? Infinity, 'the pools begin on the first screen').toBeLessThan(900);
+  const card = await pools.getByRole('listitem').first().boundingBox();
+  expect(card?.y ?? Infinity, 'the first pool card is within the next few lines').toBeLessThan(
+    1000,
+  );
 });

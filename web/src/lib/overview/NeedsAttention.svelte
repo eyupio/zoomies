@@ -12,10 +12,9 @@
 -->
 <script lang="ts">
   import { TriangleAlert } from '@lucide/svelte';
-  import type { Problem } from '$lib/api/types';
   import { formatNumber } from '$lib/format';
   import { severityStatus } from '$lib/status';
-  import { notifications } from '$lib/state/notifications.svelte';
+  import { notifications, problemKey } from '$lib/state/notifications.svelte';
   import { problemTarget } from '$lib/problems/targets';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -38,10 +37,6 @@
   const { shown, more } = $derived(cap(ordered, ATTENTION_SHOWN));
   const worst = $derived(notifications.worst ?? 'info');
 
-  function key(problem: Problem): string {
-    return problem.code + (problem.target_id ?? '') + problem.title;
-  }
-
   function open(): void {
     notifications.open = true;
   }
@@ -54,19 +49,16 @@
        keeps the one-line summary; the card is for the screens with room. -->
   <div class="phone"><ProblemsSummary {loading} {setupPending} class={className} /></div>
   <div class="attention wide {className}" data-severity={worst}>
-    <Panel
-      title="Needs attention"
-      icon={TriangleAlert}
-      description="Worst first, with the fix the controller suggests."
-      flush
-    >
+    <!-- No description line: the rows say what they are, and the line it
+         would take is a line the pools under the card lose. -->
+    <Panel title="Needs attention" icon={TriangleAlert} flush>
       {#snippet actions()}
         <button type="button" class="more" onclick={open}>
           {more > 0 ? `and ${formatNumber(more)} more` : 'Open the drawer'}
         </button>
       {/snippet}
       <ul class="rows">
-        {#each shown as problem (key(problem))}
+        {#each shown as problem (problemKey(problem))}
           {@const target = problemTarget(problem)}
           <li class="row">
             <Badge status={severityStatus(problem.severity)} size="sm" />
@@ -93,6 +85,11 @@
   /* The worst severity on the card's edge, as the summary line drew it. */
   .attention :global(.panel) {
     border-left-width: var(--z-border-width-rail);
+  }
+  /* A shorter head than the other cards: this one stands between the band and
+     the pools, and every line it spends is a line the pools lose. */
+  .attention :global(.panel > header) {
+    padding-block: var(--z-space-3);
   }
   .attention[data-severity='error'] :global(.panel) {
     border-left-color: var(--z-danger);
