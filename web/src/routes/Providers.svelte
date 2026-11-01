@@ -11,6 +11,7 @@
 <script lang="ts">
   import PageBand from '$lib/bands/PageBand.svelte';
   import type { BandStat } from '$lib/bands/stats';
+  import BandMachines from '$lib/bands/BandMachines.svelte';
   import { providersLine } from '$lib/bands/lines';
   import { Cloud, Plus } from '@lucide/svelte';
   import {
@@ -280,7 +281,12 @@
     <Button variant="primary" icon={Plus} href="/providers/new">Add a provider</Button>
   {/if}
 </PageHeader>
-<PageBand page="providers" line={bandLine} stats={bandFigures} />
+<PageBand page="providers" line={bandLine} stats={bandFigures}>
+  <!-- "Up to 4 at once" drawn: a square per machine the fleet may own. -->
+  {#snippet aside()}
+    {#if loaded}<BandMachines {providers} {machines} />{/if}
+  {/snippet}
+</PageBand>
 
 <div class="content">
   <LoadingBoundary

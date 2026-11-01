@@ -27,7 +27,7 @@
   down, already offers the retry.
 -->
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { getUsage } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { Job } from '$lib/api/types';
@@ -54,14 +54,24 @@
   interface Props {
     /** An hour was chosen: the start of it, for the page to show its detail. */
     onpick?: (at: Date) => void;
+    /**
+     * How many days the card draws, today included: the Overview's week, or
+     * the Jobs band's single row of today. A day is drawn larger, since one
+     * row has the height seven share.
+     */
+    days?: number;
+    /** What a press on an hour does, for the grid's accessible name. */
+    pickHint?: string;
   }
-  let { onpick }: Props = $props();
+  let { onpick, days = 7, pickHint = 'Pick an hour for its detail in History.' }: Props = $props();
 
   const DAY = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
   const HOURS = ['00:00', '06:00', '12:00', '18:00'];
+  const title = $derived(days === 1 ? 'Today, by the hour' : `The last ${days} days, by the hour`);
 
-  // The empty week first, so the grid has its shape before the figures arrive.
-  const initial = rangeWindow(7, 'hour');
+  // The empty window first, so the grid has its shape before the figures arrive.
+  // The day count is fixed for a card's life, so its first read is deliberate.
+  const initial = untrack(() => rangeWindow(days, 'hour'));
   let range = $state.raw<RangeWindow>(initial);
   let series = $state.raw<ActivityBucket[]>(fillWindow([], initial.from, initial.count, 'hour'));
   let fetchedAt = $state(0);
@@ -76,7 +86,7 @@
     pending?.abort();
     const controller = new AbortController();
     pending = controller;
-    const next = rangeWindow(7, 'hour');
+    const next = rangeWindow(days, 'hour');
     const started = Date.now();
     try {
       const report = await getUsage(
@@ -140,7 +150,7 @@
     loading
       ? 'Loading'
       : totals.completed === 0
-        ? 'No jobs finished this week'
+        ? `No jobs finished ${days === 1 ? 'today' : 'this week'}`
         : totals.failed > 0
           ? `${pluralise(totals.completed, 'job')} finished, ${formatNumber(totals.failed)} failed`
           : `${pluralise(totals.completed, 'job')} finished`,
@@ -229,22 +239,19 @@
   <div
     class="card"
     class:loading
+    class:single={days === 1}
     data-testid="fleet-punch-card"
     aria-busy={loading}
     bind:this={root}
   >
     <div class="head">
-      <span class="title">The last 7 days, by the hour</span>
+      <span class="title">{title}</span>
       <span class="summary">{summary}</span>
     </div>
-    <div
-      class="grid"
-      role="grid"
-      aria-label="The last 7 days, by the hour. Pick an hour for its detail in History."
-    >
+    <div class="grid" role="grid" aria-label={`${title}. ${pickHint}`}>
       {#each rows as row (row.date.getTime())}
         <div class="row" role="row">
-          <span class="day" role="rowheader">{DAY.format(row.date)}</span>
+          <span class="day" role="rowheader">{days === 1 ? 'Today' : DAY.format(row.date)}</span>
           {#each row.cells as cell, hour (hour)}
             {#if cell}
               {@const future = isFuture(cell)}
@@ -288,6 +295,10 @@
   */
   .card {
     --cell-max: var(--z-space-4);
+  }
+  /* One row has the height seven share, so its squares are drawn larger. */
+  .card.single {
+    --cell-max: var(--z-space-6);
     display: flex;
     flex-direction: column;
     gap: var(--z-space-2);
