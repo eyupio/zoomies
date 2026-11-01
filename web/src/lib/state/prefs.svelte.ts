@@ -9,7 +9,14 @@
  */
 
 import { getOwnPreferences, replaceOwnPreferences } from '../api/client';
-import type { TableLayoutPreference } from '../api/types';
+import type { PanelPreferences, TableLayoutPreference } from '../api/types';
+import {
+  DEFAULT_LAYOUT,
+  OVERVIEW_PANELS,
+  isDefaultLayout,
+  readPanelLayout,
+  type PanelLayout,
+} from '../overview/panels';
 import { bandSettingsDocument, readBandSettings } from '../bands/settings';
 import {
   DEFAULT_STATUS_STYLE,
@@ -186,6 +193,12 @@ interface StoredPrefs {
   bandLogoPages?: Record<string, boolean>;
   /** Pages whose dog size is not the default above. */
   bandLogoSizes?: Record<string, string>;
+  /**
+   * How this browser arranged each page's panels, by page, as the account
+   * document carries it. Read forgivingly, like the bands: a panel this build
+   * no longer has is dropped and one it gained is drawn in its default place.
+   */
+  panelLayouts?: Record<string, unknown>;
 }
 
 /** The quick ranges the activity matrix offers, as the buttons name them. */
@@ -228,6 +241,33 @@ function load(): StoredPrefs {
   }
 }
 
+/** The pages whose panels can be arranged. The Overview, in this build. */
+export type PanelPage = 'overview';
+const PANEL_PAGES: readonly PanelPage[] = ['overview'];
+
+/** The layouts a stored or received document describes, for the pages this build can arrange. */
+function readPanelLayouts(raw: unknown): Partial<Record<PanelPage, PanelLayout>> {
+  const out: Partial<Record<PanelPage, PanelLayout>> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const page of PANEL_PAGES) {
+    const entry = (raw as Record<string, unknown>)[page];
+    if (entry === undefined) continue;
+    const layout = readPanelLayout(entry, OVERVIEW_PANELS);
+    if (!isDefaultLayout(layout)) out[page] = layout;
+  }
+  return out;
+}
+
+/** The document the account keeps: only the pages somebody arranged. */
+function panelLayoutsDocument(layouts: Partial<Record<PanelPage, PanelLayout>>): PanelPreferences {
+  const out: PanelPreferences = {};
+  for (const page of PANEL_PAGES) {
+    const layout = layouts[page];
+    if (layout) out[page] = { order: [...layout.order], hidden: [...layout.hidden] };
+  }
+  return out;
+}
+
 /** The row counts a grid offers. */
 export const PAGE_SIZES = [25, 50, 100, 200] as const;
 export const DEFAULT_PAGE_SIZE = 50;
@@ -250,6 +290,7 @@ class Prefs {
   #bandLogoSize = $state<BandLogoSize>(DEFAULT_BAND_LOGO_SIZE);
   #bandLogoPages = $state<Partial<Record<BandPage, boolean>>>({});
   #bandLogoSizes = $state<Partial<Record<BandPage, BandLogoSize>>>({});
+  #panelLayouts = $state<Partial<Record<PanelPage, PanelLayout>>>({});
   #accountSync = false;
   // Counts the syncs begun and the accounts disconnected, so a read of the
   // account that is overtaken by a sign-out, or by another account's sign-in,
@@ -303,7 +344,27 @@ class Prefs {
     this.#bandLogoSize = bands.logoSize;
     this.#bandLogoPages = bands.logoPages;
     this.#bandLogoSizes = bands.logoSizes;
+    this.#panelLayouts = readPanelLayouts(stored.panelLayouts);
     this.#applyNav();
+  }
+
+  /** How this person arranged a page's panels; the default where they never did. */
+  panelLayout(page: PanelPage): PanelLayout {
+    return this.#panelLayouts[page] ?? DEFAULT_LAYOUT;
+  }
+
+  setPanelLayout(page: PanelPage, layout: PanelLayout): void {
+    const next = { ...this.#panelLayouts };
+    // The default is an absence, as a band's default cut is, so a default that
+    // moves later reaches everyone who never arranged the page.
+    if (isDefaultLayout(layout)) delete next[page];
+    else next[page] = readPanelLayout(layout, OVERVIEW_PANELS);
+    this.#panelLayouts = next;
+    this.#persist();
+  }
+
+  resetPanelLayout(page: PanelPage): void {
+    this.setPanelLayout(page, DEFAULT_LAYOUT);
   }
 
   /** How Eli answers this person. */
@@ -424,6 +485,16 @@ class Prefs {
         this account; a browser with no previous account keeps its choices and
         is what the first save carries.
       */
+      /*
+        The panel layouts follow the same rule as the bands: the account's
+        where it has a document, cleared when a browser last used by somebody
+        else would otherwise carry that person's arrangement into this account.
+      */
+      if (remote.panels) {
+        this.#panelLayouts = readPanelLayouts(remote.panels);
+      } else if (previous && previous !== userID) {
+        this.#panelLayouts = {};
+      }
       if (remote.bands) {
         const bands = readBandSettings(remote.bands);
         this.#hiddenBands = bands.hidden;
@@ -814,6 +885,7 @@ class Prefs {
         bandLogoSize: this.#bandLogoSize,
         bandLogoPages: this.#bandLogoPages,
         bandLogoSizes: this.#bandLogoSizes,
+        panelLayouts: this.#panelLayouts,
       } satisfies StoredPrefs),
     );
     this.#scheduleAccountSave();
@@ -848,6 +920,7 @@ class Prefs {
           logoPages: this.#bandLogoPages,
           logoSizes: this.#bandLogoSizes,
         }),
+        panels: panelLayoutsDocument(this.#panelLayouts),
       }).catch(() => {
         // The local copy is authoritative until the next successful sign-in;
         // a layout gesture should never turn into an error toast.
