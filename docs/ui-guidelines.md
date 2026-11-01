@@ -683,8 +683,15 @@ opens the same panel, with the same question about where. The choices follow
 the signed-in account, with the browser as the fallback. A figure a band carries
 is a way into the evidence it counts: pressing it narrows the list on this page
 and takes the reader to it, or opens the page that holds the list at that list,
-with the filter in the address. The wrong-address page uses the same stage with
-the dog.
+with the filter in the address. The Overview's band also carries the week as a
+punch card beside its sentence, where the dog stands when it is shown: seven
+rows of twenty-four squares, blue by how many jobs finished in the hour, an
+hour with failures punched through as the matrix draws one, the hours still to
+come faint, and the current hour outlined. It is the activity matrix's 7d range
+at a glance, in the stage's white and blue and nothing else; an hour of it
+opens History with that hour selected. Every cut carries it, since the figures
+give even Slim the height for seven rows. The wrong-address page uses the same
+stage with the dog.
 
 Persistent left navigation, collapsible to icons only (persisted). Order is
 fixed, because muscle memory is the point:
@@ -799,6 +806,9 @@ The one page that has to earn the second monitor.
   The key runs under both, where it explains the squares rather than floating
   at the right with the white space in front of it. The component lives in
   `lib/insights/` because the Usage page draws its range with the same one.
+  The band's punch card is this grid's 7d range drawn small beside the hero's
+  sentence; an hour pressed there lands here, on that hour, so the two are one
+  view at two sizes rather than two views.
 * **Four live figures in the band**: queued jobs, running jobs, live runners and
   median queue wait. Running jobs is this fleet's busy runners, the rows the
   Runners page counts and the link opens; with other runners in scope it counts

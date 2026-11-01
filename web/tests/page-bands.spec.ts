@@ -436,3 +436,63 @@ test('on a phone a figure still opens the page and the list it counts', async ({
   await expect(page).toHaveURL(/\/queue#queue-list$/);
   await expect(page.locator('#queue-list')).toBeFocused();
 });
+
+/**
+ * The Overview's band carries the week as a punch card beside its sentence,
+ * where the dog stands when it is shown. What this protects: it is data and
+ * not decoration (every hour says its figures in words), it keeps out of the
+ * Slim cut, and an hour of it is a way into History with that hour selected.
+ */
+test('the Overview band shows the week by the hour, and an hour of it opens History on that hour', async ({
+  page,
+}) => {
+  await goto(page, '/', 'Overview');
+  const band = page.getByTestId('fleet-status');
+  const card = band.getByTestId('fleet-punch-card');
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('The last 7 days, by the hour');
+  const grid = card.getByRole('grid');
+  await expect(grid.getByRole('gridcell')).toHaveCount(7 * 24);
+  // Hours that have not come yet are drawn, so a row is a day, but say so.
+  await expect(grid.locator('[role="gridcell"][data-future]').first()).toHaveAttribute(
+    'aria-label',
+    /Not yet\.$/,
+  );
+  // The seed's jobs ran in the hours before the controller started, so a square
+  // with completions is in the last day and says what it holds.
+  const busy = grid.locator('[role="gridcell"]:not([data-level="0"])').last();
+  await expect(busy).toHaveAttribute('aria-label', /jobs? finished/);
+  // Only one square is a tab stop, and the arrows walk from it.
+  await expect(grid.locator('[role="gridcell"][tabindex="0"]')).toHaveCount(1);
+
+  // An hour's click opens History on the 7d range with that hour selected.
+  const label = await busy.getAttribute('aria-label');
+  await busy.click();
+  await expect(page).toHaveURL(/#history$/);
+  const history = page.locator('details#history');
+  await expect(history).toHaveJSProperty('open', true);
+  const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
+  await expect(
+    matrix
+      .getByRole('group', { name: 'Range' })
+      .getByRole('button', { name: 'The last 7 days, by the hour' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    matrix.getByRole('grid').locator('[role="gridcell"][aria-selected="true"]'),
+  ).toHaveAttribute('aria-label', label!);
+
+  // Every cut carries it, the default Slim included: the figures give even the
+  // shortest cut the height for seven rows.
+  await expect(band).toHaveAttribute('data-size', 'slim');
+  await band
+    .getByRole('group', { name: 'Overview band size' })
+    .getByRole('button', { name: 'Expanded', exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Expanded band size, where to apply' })
+    .getByRole('button', { name: 'Apply to Overview' })
+    .click();
+  await expect(band).toHaveAttribute('data-size', 'expanded');
+  await expect(card).toBeVisible();
+  await expect(grid.getByRole('gridcell')).toHaveCount(7 * 24);
+});

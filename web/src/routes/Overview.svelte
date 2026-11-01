@@ -83,6 +83,13 @@
     active = id === 'capacity' || id === 'startup' ? 'diagnostics' : id;
   }
 
+  /** An hour chosen on the band's punch card: History opens on it, selected. */
+  function pick(at: Date): void {
+    if (location.hash !== '#history') history.pushState(null, '', '#history');
+    activity?.select(at);
+    void reveal('history', false);
+  }
+
   function jump(event: MouseEvent, id: string): void {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
       return;
@@ -227,7 +234,7 @@
         {/if}
       </div>
     </nav>
-    <FleetStatus {setupPending} />
+    <FleetStatus {setupPending} onpick={pick} />
     <div class="stack">
       <section id="now" tabindex="-1" aria-label="Fleet now" class="now">
         <FirstRun onpending={(pending) => (setupPending = pending)} />
