@@ -9,6 +9,7 @@
   never a full or an empty bar: no reading and no quota are opposite news.
 -->
 <script lang="ts">
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import type { Installation } from '$lib/api/types';
   import { onClockTick } from '$lib/format';
   import { quotaBars, type QuotaReading } from './quota-bars';
@@ -33,9 +34,9 @@
     <ul class="rows">
       {#each data.rows as row (row.id)}
         <li class="row" class:low={row.low}>
-          <span class="name" title={row.name} aria-label={`${row.name}: ${row.note}`}
-            >{row.name}</span
-          >
+          <Tooltip bare whenTruncated text={row.name}>
+            <span class="name" aria-label={`${row.name}: ${row.note}`}>{row.name}</span>
+          </Tooltip>
           <span class="track" class:unread={row.share === null} aria-hidden="true">
             {#if row.share !== null}<i style:width={`${(row.share * 100).toFixed(1)}%`}></i>{/if}
           </span>

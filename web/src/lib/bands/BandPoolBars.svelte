@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import type { Pool, Stats } from '$lib/api/types';
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import { href } from '$lib/router';
   import { poolBars } from './pool-bars';
 
@@ -35,12 +36,11 @@
     <ul class="rows">
       {#each bars.rows as row (row.id)}
         <li class="row" class:ceiling={row.atCeiling}>
-          <a
-            class="name"
-            href={href(`/pools/${row.id}`)}
-            aria-label={`${row.name}: ${row.note}`}
-            title={row.name}>{row.name}</a
-          >
+          <Tooltip bare whenTruncated text={row.name}>
+            <a class="name" href={href(`/pools/${row.id}`)} aria-label={`${row.name}: ${row.note}`}
+              >{row.name}</a
+            >
+          </Tooltip>
           <span class="track" aria-hidden="true">
             <i class="live" style:width={pct(row.live, Math.max(row.max, row.live))}></i>
             <i class="busy" style:width={pct(row.busy, Math.max(row.max, row.live))}></i>

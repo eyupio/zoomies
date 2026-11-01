@@ -270,8 +270,23 @@ const SHOTS = [
     async prepare(page) {
       const pill = page.getByRole('button', { name: /Lent .* of memory/ }).first();
       await pill.scrollIntoViewIfNeeded();
+      // The page redraws a row when a live-update frame lands, and a pill that is
+      // redrawn under a pointer that has not moved gets no new hover, so its card
+      // stays shut. A full run is long enough to meet one, which is how this shot
+      // failed now and then. Taking the pointer off and putting it back is what a
+      // person would do, so that is what is retried.
+      const card = page.locator('.memory-badge-tip .bubble:popover-open');
+      for (let attempt = 0; attempt < 4; attempt++) {
+        await pill.hover();
+        try {
+          await card.waitFor({ timeout: 5000 });
+          return;
+        } catch {
+          await page.mouse.move(0, 0);
+        }
+      }
       await pill.hover();
-      await page.locator('.memory-badge-tip .bubble:popover-open').waitFor();
+      await card.waitFor();
     },
   },
   {

@@ -11,6 +11,7 @@
   fetch draws nothing, as every picture on a stage does.
 -->
 <script lang="ts">
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import { listWorkflowRuns } from '$lib/api/client';
   import type { WorkflowRun } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
@@ -70,12 +71,13 @@
     <ul class="rows">
       {#each data.rows as row (row.repo)}
         <li class="row">
-          <a
-            class="name"
-            href={href(`/jobs?repo=${encodeURIComponent(row.repo)}`)}
-            title={row.repo}
-            aria-label={`${row.repo}: ${row.note}`}>{row.repo}</a
-          >
+          <Tooltip bare whenTruncated text={row.repo}>
+            <a
+              class="name"
+              href={href(`/jobs?repo=${encodeURIComponent(row.repo)}`)}
+              aria-label={`${row.repo}: ${row.note}`}>{row.repo}</a
+            >
+          </Tooltip>
           <span class="squares" aria-hidden="true">
             {#each row.squares.slice(0, MAX_FLIGHT_SQUARES) as kind, i (i)}
               <i class="sq" data-kind={kind}></i>

@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import type { UsageRow } from '$lib/api/types';
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import { usageColumns } from './usage-columns';
 
   interface Props {
@@ -52,13 +53,20 @@
       aria-label={`${data.columns.length} intervals${data.peak ? `, the busiest ${hours(data.peak.hours)} at ${label(data.peak.at)}` : ', none with work'}`}
     >
       {#each data.columns as col (col.at)}
-        <i
-          class:quiet={col.hours === 0}
-          style:height={data.max > 0
-            ? `${Math.max(3, (col.hours / data.max) * 100).toFixed(1)}%`
-            : '3%'}
-          title={`${label(col.at)}: ${hours(col.hours)}, ${col.completed} finished`}
-        ></i>
+        <!-- Scrubbed across, so no wait; the strip already has its summary label. -->
+        <Tooltip
+          bare
+          wait="none"
+          describe={false}
+          text={`${label(col.at)}: ${hours(col.hours)}, ${col.completed} finished`}
+        >
+          <i
+            class:quiet={col.hours === 0}
+            style:height={data.max > 0
+              ? `${Math.max(3, (col.hours / data.max) * 100).toFixed(1)}%`
+              : '3%'}
+          ></i>
+        </Tooltip>
       {/each}
     </div>
     <div class="axis" aria-hidden="true">

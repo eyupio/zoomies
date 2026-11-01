@@ -10,6 +10,7 @@
   picture is a way into the repositories page, worst first.
 -->
 <script lang="ts">
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import type { KennelOverview } from '$lib/api/types';
   import { href } from '$lib/router';
   import { repoSquares } from './repo-squares';
@@ -36,7 +37,10 @@
       aria-label={`${data.summary}. Open the repositories, worst first.`}
     >
       {#each data.squares as square, i (i)}
-        <i class="sq" data-kind={square.kind} title={square.note}></i>
+        <!-- Scrubbed across, so no wait; the link around them carries the summary. -->
+        <Tooltip bare wait="none" describe={false} text={square.note}>
+          <i class="sq" data-kind={square.kind}></i>
+        </Tooltip>
       {/each}
       {#if data.more > 0}<span class="extra">+{data.more}</span>{/if}
     </a>

@@ -9,6 +9,7 @@
   request and follows the stream as the page does.
 -->
 <script lang="ts">
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import type { Machine, Provider } from '$lib/api/types';
   import { MAX_SQUARES, providerMachines } from './provider-machines';
 
@@ -30,9 +31,9 @@
     <ul class="rows">
       {#each data.rows as row (row.id)}
         <li class="row" class:paused={row.paused}>
-          <span class="name" title={row.name} aria-label={`${row.name}: ${row.note}`}
-            >{row.name}</span
-          >
+          <Tooltip bare whenTruncated text={row.name}>
+            <span class="name" aria-label={`${row.name}: ${row.note}`}>{row.name}</span>
+          </Tooltip>
           <span class="squares" aria-hidden="true">
             {#each row.squares.slice(0, MAX_SQUARES) as kind, i (i)}
               <i class="sq" data-kind={kind}></i>

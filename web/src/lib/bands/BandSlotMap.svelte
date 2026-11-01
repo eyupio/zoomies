@@ -16,6 +16,7 @@
 -->
 <script lang="ts">
   import type { Host, Runner } from '$lib/api/types';
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import { href } from '$lib/router';
   import { slotMap } from './slot-map';
 
@@ -54,12 +55,11 @@
     <ul class="rows">
       {#each map.rows as row (row.id)}
         <li class="row" class:unreachable={row.unreachable}>
-          <a
-            class="name"
-            href={href(`/hosts/${row.id}`)}
-            aria-label={`${row.name}: ${row.note}`}
-            title={row.name}>{row.name}</a
-          >
+          <Tooltip bare whenTruncated text={row.name}>
+            <a class="name" href={href(`/hosts/${row.id}`)} aria-label={`${row.name}: ${row.note}`}
+              >{row.name}</a
+            >
+          </Tooltip>
           <span class="slots" style:--n={row.slots.length} aria-hidden="true">
             {#each row.slots as kind, i (i)}
               <i
