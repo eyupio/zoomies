@@ -43,7 +43,14 @@
   import Duration from '$lib/components/Duration.svelte';
   import JobFilters, { EMPTY_JOB_FILTERS } from '$lib/jobs/JobFilters.svelte';
   import type { JobFilterState } from '$lib/jobs/JobFilters.svelte';
-  import FacetMenu from '$lib/jobs/FacetMenu.svelte';
+  import FilterChips from '$lib/components/FilterChips.svelte';
+  import Panel from '$lib/components/Panel.svelte';
+  import {
+    queueChipSelection,
+    queueEyebrow,
+    queueStatusChips,
+    queueTotal,
+  } from '$lib/queue/status-chips';
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
   import JobLabels from '$lib/jobs/JobLabels.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
@@ -295,7 +302,9 @@
       cell: poolCell,
       value: (j) => j.pool_name ?? '',
     },
-    { id: 'labels', header: 'Labels', priority: 'wide', cell: labelsCell },
+    // The mock's table has no labels column, and a row's labels are a press
+    // away in its drawer; Columns brings the column back.
+    { id: 'labels', header: 'Labels', priority: 'wide', hiddenByDefault: true, cell: labelsCell },
     { id: 'queued_at', header: 'Waiting', sortable: true, cell: waitCell, width: '7rem' },
     ...(canOperate
       ? [
@@ -437,51 +446,6 @@
       onchange={patch}
       onclear={clear}
     />
-    <div class="extra-filters">
-      <FacetMenu
-        label="Provisioning"
-        options={statuses}
-        selected={provisioning}
-        onchange={setStatus}
-      />
-      <Input
-        size="sm"
-        value={branch}
-        ariaLabel="Filter by branch"
-        placeholder="Exact branch name"
-        oninput={(e) =>
-          router.setQuery({
-            branch: (e.currentTarget as HTMLInputElement).value || null,
-            offset: null,
-          })}
-      />
-      {#if saved.length}<Select
-          size="sm"
-          ariaLabel="Saved queue views"
-          value=""
-          options={[
-            { value: '', label: 'Saved views' },
-            ...saved.map((v) => ({ value: v.url, label: v.name })),
-          ]}
-          onchange={(url) => {
-            if (url) router.navigate(url);
-          }}
-        />{/if}
-      <Button variant="ghost" size="sm" onclick={clear}>Reset filters</Button>
-      <!--
-        The sentence about how filters combine used to stand in a box of its own
-        between the controls and the rows, on a page an operator reloads all
-        day. It answers a question about the menus, so it lives on the menus'
-        own control: one hover, or one focus, and nothing on screen at rest.
-      -->
-      <Tooltip
-        bare
-        text="Values within a filter match any; filters combine. Labels must all match."
-        placement="top"
-      >
-        <button type="button" class="filter-hint-button" aria-label="How filters combine">?</button>
-      </Tooltip>
-    </div>
   </div>
   {#if report}
     <div class="result" role="status">
@@ -545,30 +509,100 @@
       {/if}
     </div>
   {/if}
+  <!--
+    The list card: the queue's own tile, the demand over the title, the
+    controls that are this page's alone opposite it (the shared job filters
+    stay in their bar above, where Jobs has them too), and the four statuses
+    as chips where the menu of checkboxes was. The grid is bare inside, so the
+    page shows one frame.
+  -->
   <div id="queue-list" class="jump-target" tabindex="-1" use:revealHash>
-    {#key snapshot.length > 0}
-      <DataGrid
-        gridId="provisioning-queue"
-        label="Provisioning queue"
-        {columns}
-        fetcher={fetchRows}
-        {rowId}
-        filters={query}
-        defaultSort="queued_at"
-        defaultOrder="asc"
-        noun="items"
-        {liveKey}
-        selectable={canOperate && !snapshot.length}
-        {bulkActions}
-        onopen={openJob}
-        onrows={takeRows}
-        emptyTitle="No provisioning items match"
-        emptyDescription="New demand appears here when GitHub queues work for this fleet. Widen your filters or review removed items."
-      >
-        {#snippet emptyAction()}<Button variant="secondary" onclick={clear}>Reset filters</Button
-          >{/snippet}
-      </DataGrid>
-    {/key}
+    <Panel
+      title="Provisioning queue"
+      icon={ListOrdered}
+      eyebrow={queueEyebrow(counts)}
+      flush
+      class="list-card"
+    >
+      {#snippet actions()}
+        <div class="branch">
+          <Input
+            size="sm"
+            value={branch}
+            ariaLabel="Filter by branch"
+            placeholder="Exact branch name"
+            oninput={(e) =>
+              router.setQuery({
+                branch: (e.currentTarget as HTMLInputElement).value || null,
+                offset: null,
+              })}
+          />
+        </div>
+        {#if saved.length}<div class="views">
+            <Select
+              size="sm"
+              ariaLabel="Saved queue views"
+              value=""
+              options={[
+                { value: '', label: 'Saved views' },
+                ...saved.map((v) => ({ value: v.url, label: v.name })),
+              ]}
+              onchange={(url) => {
+                if (url) router.navigate(url);
+              }}
+            />
+          </div>{/if}
+        <Button variant="ghost" size="sm" onclick={clear}>Reset filters</Button>
+        <!--
+          The sentence about how filters combine used to stand in a box of its own
+          between the controls and the rows, on a page an operator reloads all
+          day. It answers a question about the menus, so it lives on the menus'
+          own control: one hover, or one focus, and nothing on screen at rest.
+        -->
+        <Tooltip
+          bare
+          text="Values within a filter match any; filters combine. Labels must all match."
+          placement="top"
+        >
+          <button type="button" class="filter-hint-button" aria-label="How filters combine"
+            >?</button
+          >
+        </Tooltip>
+      {/snippet}
+      {#snippet toolbar()}
+        <FilterChips
+          label="Filter by provisioning status"
+          total={queueTotal(counts)}
+          options={queueStatusChips(counts)}
+          selected={queueChipSelection(provisioning)}
+          onchange={setStatus}
+        />
+      {/snippet}
+      {#key snapshot.length > 0}
+        <DataGrid
+          gridId="provisioning-queue"
+          label="Provisioning queue"
+          {columns}
+          fetcher={fetchRows}
+          {rowId}
+          filters={query}
+          defaultSort="queued_at"
+          defaultOrder="asc"
+          noun="items"
+          bare
+          {liveKey}
+          selectable={canOperate && !snapshot.length}
+          {bulkActions}
+          onopen={openJob}
+          onrows={takeRows}
+          emptyTitle="No provisioning items match"
+          emptyDescription="New demand appears here when GitHub queues work for this fleet. Widen your filters or review removed items."
+        >
+          {#snippet emptyAction()}<Button variant="secondary" onclick={clear}>Reset filters</Button
+            >{/snippet}
+        </DataGrid>
+      {/key}
+    </Panel>
   </div>
   <!-- The table is the page. How demand is split and how provisioning is ordered are one
        fold under it. -->
@@ -726,14 +760,13 @@
     flex-direction: column;
     gap: var(--z-space-3);
   }
-  .extra-filters {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--z-space-2);
+  .branch {
+    width: 14rem;
+    max-width: 100%;
   }
-  .extra-filters :global(.wrap) {
-    max-width: 240px;
+  .views {
+    width: 11rem;
+    max-width: 100%;
   }
   .selection-bar,
   .result {
@@ -813,8 +846,9 @@
     .selection-bar {
       position: static;
     }
-    .extra-filters :global(.wrap) {
-      max-width: 100%;
+    .branch,
+    .views {
+      width: 100%;
     }
   }
   .how {

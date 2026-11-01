@@ -179,8 +179,8 @@ the answer reaches.
 Where a page used to spend a row of its height on a panel of figures, the band
 carries them in a strip along its lower edge. The Runners band holds the
 provisioning demand (jobs queued, ready, run now, paused, removed and the age of the
-oldest) and the Queue band holds the provisioning status filters, which still filter
-the list. Providers holds its provider, machine and needing-review counts. A band
+oldest) and the Queue band holds the provisioning status figures, which still filter
+the list: pressing one presses the matching chip on the queue's card alone. Providers holds its provider, machine and needing-review counts. A band
 that is switched off, and any band on a phone, shows those same figures in a plain
 panel in its place, so nothing disappears with the dog.
 

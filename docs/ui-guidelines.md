@@ -934,8 +934,8 @@ restored one at a time or all at once.
 
 ### The list pages
 
-A page whose body is a list (Runners first; Queue, Jobs, Workflows, Pools and
-Audit follow it one at a time) is, under its band, one card: the page's own
+A page whose body is a list (Runners and Queue so far; Jobs, Workflows, Pools
+and Audit follow them one at a time) is, under its band, one card: the page's own
 icon in a tile, a count in small capitals over the title ("11 known, 9 live",
 absent until the stats have arrived), the search field and the menus opposite,
 the primary filter as `FilterChips` in a row of their own, and the grid bare
@@ -946,8 +946,14 @@ takes them away rather than let them disagree with the rows. Everything that
 is context rather than the list (the Runners page's scope line, lifecycle and
 last day's activity) is folded under the card in one *Fleet context*
 disclosure, as the Overview folds its History, and a wide column the mock
-leaves out (Age, CPU on Runners) is hidden by default and a click away in
-Columns, with a saved layout winning as it always has.
+leaves out (Age and CPU on Runners, Labels on Queue) is hidden by default and
+a click away in Columns, with a saved layout winning as it always has. The
+Queue's chips are the four provisioning statuses, counted from the list's own
+counts, with Ready, Run now and Paused pressed by default and Removed a press
+away; the job filters it shares with the Jobs page (`JobFilters`: the search,
+the menus, the date range and the fold a phone gives them) stay in their bar
+above the card, and only the controls that are the page's alone, the branch
+field, the saved views and Reset, sit opposite its title.
 
 ---
 
