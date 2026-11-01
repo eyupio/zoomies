@@ -597,6 +597,32 @@ test('a panel with an icon draws it in a tile beside the title', async ({ page }
   await expect(tile).toHaveAttribute('aria-hidden', 'true');
 });
 
+// The list card the signed-in pages draw: a Panel with a count over its title
+// and the filter chips in a row of their own, holding a grid that has given up
+// its own frame, so the page shows one border and not a box inside a box.
+test('the list card is one frame: an eyebrow over the title, chips in a toolbar, and a bare grid inside', async ({
+  page,
+}) => {
+  await open(page, 'mission-control', 'light');
+  const card = page.getByRole('region', { name: 'Data grid' });
+  const eyebrow = card.locator('header .eyebrow');
+  await expect(eyebrow).toHaveText('11 known, 9 live');
+  await expect(eyebrow.evaluate((el) => getComputedStyle(el).textTransform)).resolves.toBe(
+    'uppercase',
+  );
+  await expect(
+    card.locator('.toolbar').getByRole('group', { name: 'Filter by runner state' }),
+  ).toBeVisible();
+  const grid = card.locator('.grid');
+  await expect(grid).toHaveClass(/bare/);
+  const [gridBorder, cardBorder] = await Promise.all([
+    grid.evaluate((el) => getComputedStyle(el).borderTopWidth),
+    card.evaluate((el) => getComputedStyle(el).borderTopWidth),
+  ]);
+  expect(gridBorder).toBe('0px');
+  expect(parseFloat(cardBorder)).toBeGreaterThan(0);
+});
+
 // The shared look's one button: a pill in the brand's Runner Blue under Zoomies
 // Black, which is 7.3:1 in every combination, where the darkened accent was
 // needed only to carry white text. Held here so a later component cannot drift
