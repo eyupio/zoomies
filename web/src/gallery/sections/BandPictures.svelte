@@ -33,13 +33,23 @@
   import BrandStage from '$lib/public/BrandStage.svelte';
 
   /*
-    Fixtures to the generated types, cast only where a type demands fields a
-    picture never reads. Each is one state the fleet rarely reaches.
+    Fixtures built to the generated types, with no casts, so a shape that moves
+    in the API fails the check here as it would in a unit test. Each is one
+    state the fleet rarely reaches.
   */
-  const host = (id: string, slots: number, extra: Partial<Host> = {}): Host =>
-    ({ id, name: id, slots, capacity: slots, healthy: true, ...extra }) as Host;
-  const runner = (host_id: string, state: Runner['state'], n: number): Runner =>
-    ({ id: `${host_id}-${state}-${n}`, host_id, state }) as Runner;
+  const host = (id: string, slots: number, extra: Partial<Host> = {}): Host => ({
+    id,
+    name: id,
+    slots,
+    capacity: slots,
+    healthy: true,
+    ...extra,
+  });
+  const runner = (host_id: string, state: Runner['state'], n: number): Runner => ({
+    id: `${host_id}-${state}-${n}`,
+    host_id,
+    state,
+  });
 
   const HOSTS: Host[] = [
     host('builder-1', 4),
@@ -63,16 +73,15 @@
     runner('builder-4', 'busy', 1),
   ];
 
-  const pool = (id: string, extra: Partial<Pool> = {}): Pool =>
-    ({
-      id,
-      name: id,
-      enabled: true,
-      min_runners: 1,
-      max_runners: 8,
-      priority: 0,
-      ...extra,
-    }) as Pool;
+  const pool = (id: string, extra: Partial<Pool> = {}): Pool => ({
+    id,
+    name: id,
+    enabled: true,
+    min_runners: 1,
+    max_runners: 8,
+    priority: 0,
+    ...extra,
+  });
   const POOLS: Pool[] = [
     pool('linux-x64'),
     pool('linux-arm64', { max_runners: 4 }),
@@ -80,18 +89,37 @@
     pool('windows', { enabled: false }),
     ...Array.from({ length: 5 }, (_, i) => pool(`extra-${i}`, { max_runners: 2 })),
   ];
-  const STATS = {
+  const STATS: Stats = {
     pools: [
       { pool_id: 'linux-x64', live: 8, busy: 7, max: 8, queued: 5 },
       { pool_id: 'linux-arm64', live: 1, busy: 0, max: 4, queued: 0 },
       { pool_id: 'gpu', live: 2, busy: 2, max: 2, queued: 0 },
     ],
-  } as unknown as Stats;
+  };
 
-  const provider = (id: string, extra: Partial<Provider> = {}): Provider =>
-    ({ id, name: id, kind: 'proxmox', enabled: true, max_machines: 4, ...extra }) as Provider;
-  const machine = (provider_id: string, state: Machine['state'], n: number): Machine =>
-    ({ id: `${provider_id}-${n}`, provider_id, name: `m${n}`, state }) as Machine;
+  const provider = (id: string, extra: Partial<Provider> = {}): Provider => ({
+    id,
+    name: id,
+    kind: 'proxmox',
+    enabled: true,
+    paused: false,
+    credentials_configured: true,
+    machines: {},
+    owned: 0,
+    max_machines: 4,
+    ...extra,
+  });
+  const machine = (provider_id: string, state: Machine['state'], n: number): Machine => ({
+    id: `${provider_id}-${n}`,
+    provider_id,
+    name: `m${n}`,
+    state,
+    labels: {},
+    safe_to_delete: state !== 'ready',
+    timeline: [],
+    created_at: '2026-11-01T08:00:00Z',
+    updated_at: '2026-11-01T08:00:00Z',
+  });
   const PROVIDERS: Provider[] = [
     provider('pve-lab'),
     provider('pve-dc', { paused: true, max_machines: 20 }),
@@ -107,8 +135,13 @@
     machine('pve-old', 'quarantined', 1),
   ];
 
-  const installation = (id: string, extra: Partial<Installation> = {}): Installation =>
-    ({ id, target: id, target_type: 'org', healthy: true, ...extra }) as Installation;
+  const installation = (id: string, extra: Partial<Installation> = {}): Installation => ({
+    id,
+    target: id,
+    target_type: 'org',
+    healthy: true,
+    ...extra,
+  });
   const INSTALLATIONS: Installation[] = [
     installation('acme'),
     installation('acme-labs'),
@@ -127,24 +160,36 @@
     },
   };
 
-  const attention = (name: string, error: number, warning: number) =>
-    ({
-      id: name,
-      name,
-      counts: { error, warning, info: 0, waived: 0 },
-    }) as unknown as KennelOverview['attention'][number];
-  const OVERVIEW = {
+  const attention = (
+    name: string,
+    error: number,
+    warning: number,
+  ): KennelOverview['attention'][number] => ({
+    id: name,
+    name,
+    visibility: 'private',
+    state: 'attention',
+    counts: { error, warning, info: 0, waived: 0 },
+  });
+  const OVERVIEW: KennelOverview = {
     enabled: true,
     scope: 'served',
     repositories: 60,
     not_tracked: 0,
     states: { pending: 4, partial: 6, attention: 5, best_in_show: 45 },
+    counts: { error: 3, warning: 4, info: 0, waived: 0 },
+    score: null,
+    checks: [],
     attention: [
       attention('acme/api', 2, 3),
       attention('acme/site', 0, 1),
       attention('acme/widgets', 1, 0),
     ],
-  } as unknown as KennelOverview;
+    coverage: [],
+    unavailable: [],
+    oldest_evaluation: null,
+    disabled_checks: [],
+  };
 
   const bucket = (hour: number, seconds: number, finished: number) => ({
     from: new Date(Date.UTC(2026, 10, 1, hour)).toISOString(),
@@ -159,15 +204,17 @@
     capacity_samples: 0,
     capacity_reached: 0,
   });
-  const usageRow = (history: ReturnType<typeof bucket>[]): UsageRow =>
-    ({
-      key: 'pool',
-      jobs: 0,
-      jobs_started: 0,
-      jobs_completed: 0,
-      job_execution_seconds: 0,
-      history,
-    }) as unknown as UsageRow;
+  const usageRow = (history: ReturnType<typeof bucket>[]): UsageRow => ({
+    key: 'pool',
+    jobs: 0,
+    jobs_started: 0,
+    jobs_completed: 0,
+    job_execution_seconds: 0,
+    allocated_runner_seconds: null,
+    average_queue_wait_seconds: null,
+    peak_concurrency: 0,
+    history,
+  });
   const USAGE: UsageRow[] = [
     usageRow(
       Array.from({ length: 24 }, (_, h) =>
