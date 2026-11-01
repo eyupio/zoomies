@@ -4,62 +4,14 @@ import { stateLabel } from './history';
 
 /*
   What the pages about automatic repairs say, so a test can hold it without a
-  browser: how much of the allowance is used and when a place frees, what the
-  automation did last, what the stop dialog promises, what a stop reports, and
+  browser: what the automation did last, what the stop dialog promises, what a stop reports, and
   what the repair page tells a person about a repository that repairs itself.
-
-  The numbers come from the controller and are not recomputed here. The allowance
-  is the figure the daily limit is held against, so the words are about that, and
-  a limit lowered below what is used reads as full and never as "7 of 5".
 */
 
 type Repository = Schemas['EliAutomaticRepository'];
 type Repair = Schemas['EliRepair'];
 type StopResult = Schemas['EliAutomaticStopResult'];
 export type StopChoice = Schemas['EliAutomaticStopRequest']['then'];
-
-export interface Allowance {
-  used: number;
-  limit: number;
-  /** No place is left. True too when the limit has been lowered below what is used. */
-  full: boolean;
-  /** How much of the bar to fill, never past full. */
-  ratio: number;
-  words: string;
-}
-
-export function allowanceOf(repo: Pick<Repository, 'used' | 'daily_limit'>): Allowance {
-  const limit = Math.max(0, repo.daily_limit);
-  const used = Math.max(0, repo.used);
-  const full = used >= limit;
-  const ratio = limit === 0 ? 1 : Math.min(1, used / limit);
-  const words = full
-    ? `All ${pluralise(limit, 'attempt')} used in the last 24 hours`
-    : `${used} of ${pluralise(limit, 'attempt')} used in the last 24 hours`;
-  return { used, limit, full, ratio, words };
-}
-
-const CLOCK = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
-
-/**
- * When automatic repairs resume, for a repository with no place left. Empty
- * otherwise. A place frees within a day of the attempt that holds it, so it is
- * said as a time of day, with "tomorrow" when midnight comes first, and how long
- * that is as well, because "in 40m" is the part somebody acts on.
- */
-export function waitsUntil(
-  repo: Pick<Repository, 'used' | 'daily_limit' | 'next_free_at'>,
-  now: number = Date.now(),
-): string {
-  if (!allowanceOf(repo).full) return '';
-  const free = repo.next_free_at ? new Date(repo.next_free_at) : null;
-  if (!free || Number.isNaN(free.getTime())) {
-    return 'Automatic repairs here wait until a place frees.';
-  }
-  const time = CLOCK.format(free);
-  const today = new Date(now).toDateString() === free.toDateString();
-  return `Automatic repairs here wait until ${today ? time : `tomorrow ${time}`} (${relativeTime(free.getTime(), now)}).`;
-}
 
 /** The newest automatic repair still in the history, as a row of the overview shows it. */
 export function lastWords(repo: Pick<Repository, 'last'>, now: number = Date.now()): string {
@@ -209,7 +161,6 @@ export function automaticNote(input: {
   attempt: Repair | undefined;
   /** The repository's row of the overview, when it could be read. */
   repository: Repository | undefined;
-  now?: number;
 }): AutomaticNote | null {
   if (input.mode !== 'automatic') return null;
   if (!input.admin) {
@@ -231,13 +182,6 @@ export function automaticNote(input: {
   const repo = input.repository;
   if (repo?.problem) {
     return { kind: 'none', title, body: `${repo.problem} That is why nothing has started.` };
-  }
-  if (repo && allowanceOf(repo).full) {
-    return {
-      kind: 'none',
-      title,
-      body: `This repository’s allowance is used up, and automatic repairs share it with requests, so none has started. ${waitsUntil(repo, input.now)} The same allowance holds back a repair you start yourself.`,
-    };
   }
   return {
     kind: 'none',

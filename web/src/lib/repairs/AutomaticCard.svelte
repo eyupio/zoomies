@@ -1,7 +1,6 @@
 <!--
   Where the policy behind an automatic repair stands now, beside the repair, for
-  an administrator: still automatic (who pays, what is left of the allowance, and
-  the way to stop it), or no longer. The repair was started by the policy as it
+  an administrator: still automatic (who pays, and the way to stop it), or no longer. The repair was started by the policy as it
   was, and the person reading it is usually here to decide whether to let it
   happen again.
 
@@ -11,7 +10,7 @@
 <script lang="ts">
   import type { Schemas } from '$lib/api/types';
   import Button from '$lib/components/Button.svelte';
-  import { allowanceOf, paidByWords } from './automatic';
+  import { paidByWords } from './automatic';
 
   interface Props {
     repo: string;
@@ -50,7 +49,7 @@
   {:else if repository}
     <p>
       <strong>Automatic repairs are on.</strong>
-      {paidByWords(repository)}. {allowanceOf(repository).words}.
+      {paidByWords(repository)}.
     </p>
     {#if repository.problem}<p class="problem">{repository.problem}</p>{/if}
     {#if unpushed}

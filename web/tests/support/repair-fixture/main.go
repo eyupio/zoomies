@@ -105,8 +105,7 @@ func seed() error {
 // seedAutomatic makes two repositories repair themselves, with an installation
 // provider to pay for it and a few repairs the policy started, so the hub shows its
 // Automatic repairs panel and an attempt shows the card that says where its policy
-// stands. The repairs are recent, inside the 24-hour window the allowance counts, and
-// every one is terminal, so the worker has nothing to run.
+// stands. Every repair is terminal, so the worker has nothing to run.
 func seedAutomatic(ctx context.Context, st *store.Store, installation string, clock *time.Time) error {
 	provider := &store.AssistantProvider{Name: "Team provider (sample)", Kind: "fake", Model: "demo", Enabled: true}
 	if err := st.CreateAssistantProvider(ctx, provider); err != nil {
@@ -115,7 +114,7 @@ func seedAutomatic(ctx context.Context, st *store.Store, installation string, cl
 	for _, repo := range []string{"acme/gateway", "acme/docs"} {
 		if err := st.SetEliRepairPolicy(ctx, store.EliRepairPolicy{
 			Repo: repo, InstallationID: installation, ProviderID: provider.ID,
-			Enabled: true, Automatic: true, DailyLimit: 5,
+			Enabled: true, Automatic: true,
 		}); err != nil {
 			return err
 		}

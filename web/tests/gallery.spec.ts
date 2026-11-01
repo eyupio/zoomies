@@ -381,7 +381,7 @@ test('the Eli repair components show every state they can be in', async ({ page 
     'https://github.com/eyupio/zoomies/settings/access',
   );
   await expect(region.locator('[data-gallery="checks-passed"]')).toContainText(
-    'All 9 checks passed',
+    'All 8 checks passed',
   );
 
   // The decision card at each stage.

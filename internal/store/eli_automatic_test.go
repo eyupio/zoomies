@@ -6,43 +6,6 @@ import (
 	"time"
 )
 
-// The allowance an administrator is shown has to be the one EnqueueEliRepair
-// enforces, or the panel would say a repository has room when the next failure
-// is refused. That one counts every attempt in the last 24 hours, by anyone, and
-// a repair cleared from the history still counts.
-func TestRepairUsageCountsTheLast24HoursPerRepositoryClearedOnesIncluded(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-	now := s.Now()
-	edge := now.Add(-23 * time.Hour)
-	insertRepair(t, s, EliRepair{Repo: "acme/site", CreatedAt: now.Add(-25 * time.Hour)})
-	insertRepair(t, s, EliRepair{Repo: "acme/site", CreatedAt: edge})
-	cleared := insertRepair(t, s, EliRepair{Repo: "acme/site", CreatedAt: now.Add(-time.Hour)})
-	insertRepair(t, s, EliRepair{Repo: "acme/other", Trigger: "automatic", CreatedAt: now.Add(-2 * time.Hour)})
-	insertRepair(t, s, EliRepair{Repo: "acme/stale", CreatedAt: now.Add(-48 * time.Hour)})
-	if _, err := s.ClearEliRepairs(ctx, []string{cleared}, "", false); err != nil {
-		t.Fatal(err)
-	}
-
-	usage, err := s.EliRepairUsage(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	site := usage["acme/site"]
-	if site.Used != 2 {
-		t.Errorf("acme/site used %d, want the 23-hour row and the cleared 1-hour row: 2", site.Used)
-	}
-	if len(site.Times) == 0 || site.Times[0].UnixMilli() != edge.UnixMilli() {
-		t.Errorf("acme/site's oldest attempt in the window is %v, want %s", site.Times, edge)
-	}
-	if usage["acme/other"].Used != 1 {
-		t.Errorf("acme/other used %d, want 1", usage["acme/other"].Used)
-	}
-	if _, ok := usage["acme/stale"]; ok {
-		t.Error("a repository whose only attempt is outside the window has an entry")
-	}
-}
-
 // What an administrator wants beside each repository is whether Eli is working
 // there now and how the last attempt went. Requested repairs are not the
 // automation's, and a repair the administrator cleared from the history is not

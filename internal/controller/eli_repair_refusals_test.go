@@ -23,14 +23,14 @@ type commandSetup struct {
 	user *store.User
 }
 
-func newCommandSetup(t *testing.T, dailyLimit int) *commandSetup {
+func newCommandSetup(t *testing.T) *commandSetup {
 	t.Helper()
-	return newCommandSetupAt(t, nil, dailyLimit)
+	return newCommandSetupAt(t, nil)
 }
 
 // newCommandSetupAt is newCommandSetup on a clock the test holds, for the
 // readiness tests that need two allowance windows to differ.
-func newCommandSetupAt(t *testing.T, clock func() time.Time, dailyLimit int) *commandSetup {
+func newCommandSetupAt(t *testing.T, clock func() time.Time) *commandSetup {
 	t.Helper()
 	h := newHarnessAt(t, clock)
 	inst := h.installation()
@@ -41,7 +41,7 @@ func newCommandSetupAt(t *testing.T, clock func() time.Time, dailyLimit int) *co
 	if err := h.st.CreateAssistantProvider(h.ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: p.ID, Enabled: true, DailyLimit: dailyLimit}); err != nil {
+	if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: p.ID, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	user := &store.User{Username: "octo", Role: store.RoleViewer}
@@ -106,7 +106,7 @@ func (s *commandSetup) refusedWith(t *testing.T, commentID int64, phrases ...str
 }
 
 func TestAWriterWhoIsNotLinkedIsToldHowToBeLinked(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	s.comment(t, 101)
 	if rows := s.rows(t); len(rows) != 0 {
 		t.Fatalf("an unlinked commenter started a repair: %+v", rows)
@@ -118,7 +118,7 @@ func TestAWriterWhoIsNotLinkedIsToldHowToBeLinked(t *testing.T) {
 // the page says administrators cannot give it for them, so a linked account
 // whose owner has not allowed it is a different thing to tell someone.
 func TestAWriterWhoHasNotAllowedTheLinkIsToldToAllowIt(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	s.link(t, false)
 	s.comment(t, 102)
 	if rows := s.rows(t); len(rows) != 0 {
@@ -128,7 +128,7 @@ func TestAWriterWhoHasNotAllowedTheLinkIsToldToAllowIt(t *testing.T) {
 }
 
 func TestAWriterWhoseZoomiesAccountIsDisabledIsToldSo(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	s.link(t, true)
 	s.user.Disabled = true
 	if err := s.h.st.UpdateUser(s.h.ctx, s.user); err != nil {
@@ -141,44 +141,13 @@ func TestAWriterWhoseZoomiesAccountIsDisabledIsToldSo(t *testing.T) {
 	s.refusedWith(t, 103, "disabled", "administrator")
 }
 
-// Automatic repairs and explicit ones share the repository's budget, so a busy
-// repository whose CI keeps failing can spend it all before anyone asks.
-func TestACommandPastTheRepositoryBudgetSaysSoAndNamesTheLimit(t *testing.T) {
-	s := newCommandSetup(t, 1)
-	s.link(t, true)
-	s.comment(t, 104)
-	if rows := s.rows(t); len(rows) != 1 {
-		t.Fatalf("the first request was not admitted: %+v", rows)
-	}
-	s.comment(t, 105)
-	if rows := s.rows(t); len(rows) != 1 {
-		t.Fatalf("a request past the budget was admitted: %+v", rows)
-	}
-	s.refusedWith(t, 105, "1 repair attempt", "24 hours", "automatic", "Repository repair policies")
-}
-
-func TestACommandPastThePersonalBudgetSaysSoAndNamesTheLimit(t *testing.T) {
-	s := newCommandSetup(t, 50)
-	s.link(t, true)
-	for i := 0; i < 10; i++ {
-		if _, err := s.h.st.EnqueueEliRepair(s.h.ctx, &store.EliRepair{Repo: s.repo, InstallationID: s.inst.ID, UserID: s.user.ID, DedupKey: fmt.Sprint("ui:earlier", i)}, 50); err != nil {
-			t.Fatal(err)
-		}
-	}
-	s.comment(t, 106)
-	if rows := s.rows(t); len(rows) != 10 {
-		t.Fatalf("a request past the personal budget was admitted: %d rows", len(rows))
-	}
-	s.refusedWith(t, 106, "10 repairs", "24 hours", "each person")
-}
-
 // Somebody GitHub says cannot write to the repository gets no answer at all, on
 // a public repository especially: a comment from anyone must not make the App
 // post. They were never going to be admitted, linked or not.
 func TestACommenterWhoCannotWriteIsNotAnswered(t *testing.T) {
 	for _, linked := range []bool{false, true} {
 		t.Run(fmt.Sprint("linked=", linked), func(t *testing.T) {
-			s := newCommandSetup(t, 5)
+			s := newCommandSetup(t)
 			s.fake.noWrite = true
 			if linked {
 				s.link(t, true)
@@ -196,7 +165,7 @@ func TestACommenterWhoCannotWriteIsNotAnswered(t *testing.T) {
 
 // A request that is admitted is not also refused.
 func TestAnAdmittedCommandIsNotAlsoRefused(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	s.link(t, true)
 	s.comment(t, 108)
 	if rows := s.rows(t); len(rows) != 1 {
@@ -217,7 +186,7 @@ func TestAnAdmittedCommandIsNotAlsoRefused(t *testing.T) {
 func TestAWriterIsToldWhenRepositoryRepairsAreNotEnabled(t *testing.T) {
 	for _, setup := range []string{"missing", "disabled", "different installation"} {
 		t.Run(setup, func(t *testing.T) {
-			s := newCommandSetup(t, 5)
+			s := newCommandSetup(t)
 			s.link(t, true)
 			policies, err := s.h.st.EliRepairPolicies(s.h.ctx)
 			if err != nil || len(policies) != 1 {
@@ -245,7 +214,7 @@ func TestAWriterIsToldWhenRepositoryRepairsAreNotEnabled(t *testing.T) {
 }
 
 func TestMissingRepositoryPolicyDoesNotAnswerSomeoneWithoutWriteAccess(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	s.repo = s.inst.Target + "/another-repo"
 	s.fake.noWrite = true
 	s.comment(t, 110)
