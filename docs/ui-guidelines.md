@@ -932,6 +932,23 @@ from hiding a real fault:
 Dismissed entries stay listed at the bottom of the drawer, dated, and can be
 restored one at a time or all at once.
 
+### The list pages
+
+A page whose body is a list (Runners first; Queue, Jobs, Workflows, Pools and
+Audit follow it one at a time) is, under its band, one card: the page's own
+icon in a tile, a count in small capitals over the title ("11 known, 9 live",
+absent until the stats have arrived), the search field and the menus opposite,
+the primary filter as `FilterChips` in a row of their own, and the grid bare
+inside, so the page shows one frame. The chips read and write the same query
+parameter the filter always had, so a pasted address and a band figure's link
+land where they did; their counts are the fleet's, so a pool or host filter
+takes them away rather than let them disagree with the rows. Everything that
+is context rather than the list (the Runners page's scope line, lifecycle and
+last day's activity) is folded under the card in one *Fleet context*
+disclosure, as the Overview folds its History, and a wide column the mock
+leaves out (Age, CPU on Runners) is hidden by default and a click away in
+Columns, with a saved layout winning as it always has.
+
 ---
 
 ## 3. Component inventory
@@ -978,9 +995,11 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 
 | Component | Notes |
 | --- | --- |
-| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need* |
+| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need*. `bare` drops its own border, radius and background for a grid drawn inside a `Panel`, so a list card is one frame |
 | `RowActions` | a row's actions as buttons rather than a menu, as an ARIA toolbar: one tab stop per row, `← →` along it, and every button's name carries what it acts on |
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
+| `FilterChips` | a list's primary filter as a row of pills: All, then one per value with its count when the count is true of the rows under it; more than one in force at once, each saying so with `aria-pressed`, a tick and the weight of its words, never by colour alone. The Runners page's states are the first |
+| `Panel` | a titled card: a heading, an optional `icon` in a tinted tile, an optional `eyebrow` in small capitals above the heading (a count or a scope), a `description` under it, `actions` opposite, an optional `toolbar` row between the head and the body for a list's filter chips, and `flush` for a body that draws its own rows. The Overview's cards and the list card are all this |
 | `PageHeader` | title, subtitle, breadcrumb, primary action, and the refresh button where the page passes `onrefresh` |
 | `RefreshButton` | the one refresh: registers the page's handler so the button, `R` and the palette all run it; turning icon while it works |
 | `MetricTile` | number, label, delta, sparkline |
