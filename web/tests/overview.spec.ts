@@ -200,32 +200,45 @@ async function openProblems(page: import('@playwright/test').Page) {
   return drawer;
 }
 
-test('the Overview says how much needs a person without spending the page on it', async ({
+test('the Overview says what needs a person in three rows at most, and the rest is one click away', async ({
   page,
 }) => {
-  // The whole point of the summary: the fleet's own panels are what the page
-  // is for, and a settled configuration warning must not push them under the
-  // fold. So what is on the page is a sentence and a way in -- never the list.
-  await expect(page.getByText(/needs? your attention\.$/).first()).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Review' })).toBeVisible();
-
-  // Nothing in the page's own content lists a problem's fix; that lives in the
-  // drawer, which is not open yet.
-  await expect(page.getByRole('main')).not.toContainText('no webhook has ever arrived');
-
-  // And on a desktop it is still on the first screen, under the matrix and
-  // the numbers, which is exactly what the full-height list used to cost:
-  // the line that says what needs a person must never be the thing a
-  // settled configuration warning pushes out of sight. A phone stacks
-  // everything and cannot promise this, so it is not asserted there.
+  // The card lists the worst three with the fix beside each, as the mock
+  // draws it; everything past three is the drawer's, so a settled
+  // configuration warning never pushes the fleet below the fold.
+  const card = page.getByRole('region', { name: 'Needs attention', exact: true });
+  await expect(card).toBeVisible();
+  const rows = card.getByRole('listitem');
+  await expect(rows.first()).toBeVisible();
+  expect(await rows.count()).toBeLessThanOrEqual(3);
+  // The worst first: the fixture seeds errors, so the first row is one.
+  await expect(rows.first()).toContainText('Error');
+  // The fix is on the row now, where the drawer had it alone.
+  await expect(rows.first().locator('.fix')).not.toBeEmpty();
+  // The rest are behind the drawer, which the card's own action opens.
+  const problems = await page.request.get('/api/v1/problems').then((r) => r.json());
+  const active = (problems.items ?? []).length;
+  const action = card.getByRole('button', {
+    name: active > 3 ? `and ${active - 3} more` : 'Open the drawer',
+  });
+  await expect(action).toBeVisible();
+  await action.click();
+  await expect(page.getByRole('dialog', { name: 'Problems' })).toBeVisible();
+  await page.keyboard.press('Escape');
   const viewport = page.viewportSize();
   if ((viewport?.width ?? 0) >= 1180) {
     const box = await page.getByRole('button', { name: 'Review' }).boundingBox();
-    expect(box, 'the problems line is laid out').not.toBeNull();
-    expect(box?.y ?? Infinity, 'the problems line is within the first screen').toBeLessThan(
+    expect(box?.y ?? Infinity, 'the way in is within the first screen').toBeLessThan(
       viewport?.height ?? 0,
     );
   }
+});
+
+test('a problem row opens the page that holds the thing', async ({ page }) => {
+  const card = page.getByRole('region', { name: 'Needs attention', exact: true });
+  const open = card.getByRole('link', { name: /^Open/ }).first();
+  await expect(open).toBeVisible();
+  await expect(open).toHaveAttribute('href', /^\//);
 });
 
 test('the top bar carries the count on every page and opens the list', async ({ page }) => {

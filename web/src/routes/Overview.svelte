@@ -9,7 +9,6 @@
   import HostCapacityMap from '$lib/insights/HostCapacityMap.svelte';
   import { navigate } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { notifications } from '$lib/state/notifications.svelte';
   import { formatDuration, pluralise } from '$lib/format';
   import { prefs } from '$lib/state/prefs.svelte';
   import ActiveJobs from '$lib/overview/ActiveJobs.svelte';
@@ -17,7 +16,7 @@
   import FleetStatus from '$lib/overview/FleetStatus.svelte';
   import FleetActivity from '$lib/overview/FleetActivity.svelte';
   import PoolUtilisation from '$lib/overview/PoolUtilisation.svelte';
-  import ProblemsSummary from '$lib/overview/ProblemsSummary.svelte';
+  import NeedsAttention from '$lib/overview/NeedsAttention.svelte';
   import RecentFailures from '$lib/overview/RecentFailures.svelte';
   import EventsFeed from '$lib/overview/EventsFeed.svelte';
   import OverviewDisclosure from '$lib/overview/OverviewDisclosure.svelte';
@@ -32,15 +31,6 @@
   let pageNav = $state<HTMLElement>();
   let jumped: { id: string; y: number } | null = null;
   const loading = $derived(!fleet.loaded);
-  // On a desktop the hero says what the problems banner says, with the same way in, so
-  // the banner stands down there. The one thing only it carries is the count of problems
-  // somebody has put away, so it stays when that is all it has to say.
-  const heroSaysIt = $derived(
-    fleet.loaded &&
-      prefs.bandShown('overview') &&
-      !setupPending &&
-      (notifications.active.length > 0 || notifications.dismissed.length === 0),
-  );
   const failed = $derived(!fleet.loaded && fleet.error !== null);
   const others = $derived(prefs.otherRunners);
   const capacity = $derived(fleet.stats?.hosts);
@@ -239,9 +229,7 @@
             known figures; they may be out of date.
           </p>{/if}
         <div class="attention">
-          <div class="problems" class:in-hero={heroSaysIt}>
-            <ProblemsSummary {loading} {setupPending} />
-          </div>
+          <NeedsAttention {loading} {setupPending} />
           {#if !setupPending}<RecentFailures bind:this={failures} />{/if}<RepairOffers />
         </div>
       </section>
@@ -401,11 +389,6 @@
   }
   .attention:empty {
     display: none;
-  }
-  @media (min-width: 769px) {
-    .problems.in-hero {
-      display: none;
-    }
   }
   .work {
     display: grid;
