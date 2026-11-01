@@ -16774,6 +16774,40 @@ components:
           $ref: "#/components/schemas/AssistantStyle"
         bands:
           $ref: "#/components/schemas/BandPreferences"
+        panels:
+          $ref: "#/components/schemas/PanelPreferences"
+
+    PanelPreferences:
+      type: object
+      description: >-
+        How this person arranged each page's panels, by page. Only the Overview
+        has panels to arrange in this build; a page this build cannot arrange,
+        or a panel the page does not have, is refused with the field.
+      additionalProperties:
+        $ref: "#/components/schemas/PanelLayout"
+
+    PanelLayout:
+      type: object
+      description: >-
+        One page's arrangement: the panels in the order drawn, and the ones not
+        drawn. Both are optional, because absent is a choice never made; a panel
+        the order leaves out is drawn after the rest in its default place.
+      properties:
+        order:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/OverviewPanelId"
+        hidden:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/OverviewPanelId"
+
+    OverviewPanelId:
+      type: string
+      description: A panel of the Overview's body, by the id its registry gives it.
+      enum: [attention, pools, failures, jobs, events, history, diagnostics]
 
     BandPreferences:
       type: object

@@ -95,7 +95,6 @@ func commands() []*command {
 		{"gateway", groupRun, "Publish a private provider API, such as a Proxmox cluster at home, to a controller over Tailcat", runGateway},
 
 		{"status", groupFleet, "The Overview, in a terminal", runStatus},
-		{"tui", groupFleet, "A live dashboard for the fleet, in this terminal", runTUI},
 		{"events", groupFleet, "What happened lately, and a wait for the next change", runEvents},
 		{"pools", groupFleet, "What runners to make, and how many", runPools},
 		{"runners", groupFleet, "The runners that exist right now", runRunners},
@@ -156,20 +155,29 @@ func main() {
 	if code, ok := runAsService(ctx, e); ok {
 		os.Exit(code)
 	}
-	os.Exit(dispatch(ctx, e, os.Args[1:]))
+	os.Exit(dispatchWithHome(ctx, e, os.Args[1:]))
 }
 
 // dispatch runs one command and turns its error into an exit code.
 func dispatch(ctx context.Context, e *env, args []string) int {
-	// No arguments at all is not an error the operator made on purpose; it is
-	// somebody finding out what this is. Print the help -- but to stderr, and
-	// exit 2, so a script that reached here by accident notices.
+	// A terminal opens the launcher. A script still gets usage and exits 2,
+	// so accidentally omitting a command cannot leave automation waiting.
 	if len(args) == 0 {
+		if homeAvailable(e) {
+			return report(e, "", runHome(ctx, e))
+		}
 		printHelp(e.err)
 		return exitUsage
 	}
 
 	name := args[0]
+	// These two top-level conveniences share the subcommands' full flag sets.
+	switch name {
+	case "--upgrade":
+		name = "upgrade"
+	case "--doctor":
+		name = "doctor"
+	}
 	if isHelpWord(name) {
 		printHelp(e.out)
 		return exitOK
@@ -179,6 +187,7 @@ func dispatch(ctx context.Context, e *env, args []string) int {
 		if c.name != name {
 			continue
 		}
+		ctx = context.WithValue(ctx, invocationKey{}, append([]string{c.name}, args[1:]...))
 		err := c.run(ctx, e, args[1:])
 		return report(e, c.name, err)
 	}
@@ -269,7 +278,9 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "A self-hosted GitHub Actions runner fleet controller.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  zoomies                                  open the interactive home")
 	fmt.Fprintln(w, "  zoomies <command> [subcommand] [flags]")
+	fmt.Fprintln(w, "  zoomies --doctor | --upgrade [flags]")
 
 	for _, group := range []string{groupRun, groupFleet, groupSetup} {
 		fmt.Fprintf(w, "\n%s\n", group)
@@ -401,4 +412,15 @@ func printGroupUsage(w io.Writer, parent, summary string, subs []*subcommand) {
 		fmt.Fprintf(w, "  %-*s %s\n", groupBriefColumn, line, s.brief)
 	}
 	fmt.Fprintf(w, "\nRun \"zoomies %s <subcommand> --help\" for the flags each one takes.\n", parent)
+}
+
+// A launcher invokes commands without changing os.Args. An upgrade must still
+// resume the command selected there after replacing this process.
+type invocationKey struct{}
+
+func invocationArgs(ctx context.Context) []string {
+	if args, ok := ctx.Value(invocationKey{}).([]string); ok {
+		return args
+	}
+	return processArgs()
 }

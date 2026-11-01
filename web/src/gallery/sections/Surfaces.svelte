@@ -9,6 +9,7 @@
   swatches beside the component above says which.
 -->
 <script lang="ts">
+  import { Boxes } from '@lucide/svelte';
   import Badge from '$lib/components/Badge.svelte';
   import MetricTile from '$lib/components/MetricTile.svelte';
   import Panel from '$lib/components/Panel.svelte';
@@ -102,6 +103,10 @@
       </div>
     {/each}
   </div>
+</Panel>
+
+<Panel title="Panel with a tile" icon={Boxes} description="The Overview's cards carry one.">
+  <p>A tinted tile holds the panel's icon beside its title.</p>
 </Panel>
 
 <Panel

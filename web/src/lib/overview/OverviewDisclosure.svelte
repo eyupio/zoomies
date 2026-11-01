@@ -1,11 +1,12 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
-  import { ChevronRight } from '@lucide/svelte';
+  import { ChevronRight, type LucideIcon } from '@lucide/svelte';
   import { remember, remembered } from '$lib/state/prefs.svelte';
 
   let {
     id,
     title,
+    icon: Icon,
     summary = '',
     children,
     actions,
@@ -13,6 +14,8 @@
   }: {
     id: string;
     title: string;
+    /** Drawn in a tile before the title, as the Overview's cards carry one. */
+    icon?: LucideIcon;
     summary?: string;
     children: Snippet;
     actions?: Snippet;
@@ -46,6 +49,7 @@
 <details {id} class="overview-disclosure {className}" bind:this={details} ontoggle={toggled}>
   <summary>
     <ChevronRight size={16} class="chevron" aria-hidden="true" />
+    {#if Icon}<span class="tile" aria-hidden="true"><Icon size={16} /></span>{/if}
     <span class="title">{title}</span>
     <span class="context">{summary}</span>
     {#if actions}{@render actions()}{/if}
@@ -84,6 +88,18 @@
   }
   details[open] > summary :global(.chevron) {
     transform: rotate(90deg);
+  }
+  .tile {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--z-space-8);
+    height: var(--z-space-8);
+    border: var(--z-border-width) solid var(--z-border-strong);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
+    color: var(--z-text);
   }
   .title {
     font-weight: var(--z-weight-semibold);
