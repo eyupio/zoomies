@@ -1,15 +1,15 @@
 <!-- Current work keeps the same place in both styles; supporting detail stays live when closed. -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { ChevronDown } from '@lucide/svelte';
+  import { ChevronDown, Clock, Gauge, HardDrive } from '@lucide/svelte';
   import RepairOffers from '$lib/repairs/RepairOffers.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
+  import Button from '$lib/components/Button.svelte';
   import Select from '$lib/components/Select.svelte';
   import HostCapacityMap from '$lib/insights/HostCapacityMap.svelte';
   import { navigate } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { notifications } from '$lib/state/notifications.svelte';
   import { formatDuration, pluralise } from '$lib/format';
   import { prefs } from '$lib/state/prefs.svelte';
   import ActiveJobs from '$lib/overview/ActiveJobs.svelte';
@@ -17,11 +17,24 @@
   import FleetStatus from '$lib/overview/FleetStatus.svelte';
   import FleetActivity from '$lib/overview/FleetActivity.svelte';
   import PoolUtilisation from '$lib/overview/PoolUtilisation.svelte';
-  import ProblemsSummary from '$lib/overview/ProblemsSummary.svelte';
+  import NeedsAttention from '$lib/overview/NeedsAttention.svelte';
   import RecentFailures from '$lib/overview/RecentFailures.svelte';
   import EventsFeed from '$lib/overview/EventsFeed.svelte';
   import OverviewDisclosure from '$lib/overview/OverviewDisclosure.svelte';
   import StartupTimings from '$lib/overview/StartupTimings.svelte';
+  import ArrangeBar from '$lib/overview/ArrangeBar.svelte';
+  import ArrangeControls from '$lib/overview/ArrangeControls.svelte';
+  import HiddenPanel from '$lib/overview/HiddenPanel.svelte';
+  import {
+    OVERVIEW_PANELS,
+    isDefaultLayout,
+    movePanel,
+    panelRows,
+    placePanel,
+    setHidden,
+    type OverviewPanelId,
+  } from '$lib/overview/panels';
+  import { startSlotDrag } from '$lib/actions/columnGesture';
 
   let setupPending = $state(false);
   let failures = $state<RecentFailures | null>(null);
@@ -32,15 +45,79 @@
   let pageNav = $state<HTMLElement>();
   let jumped: { id: string; y: number } | null = null;
   const loading = $derived(!fleet.loaded);
-  // On a desktop the hero says what the problems banner says, with the same way in, so
-  // the banner stands down there. The one thing only it carries is the count of problems
-  // somebody has put away, so it stays when that is all it has to say.
-  const heroSaysIt = $derived(
-    fleet.loaded &&
-      prefs.bandShown('overview') &&
-      !setupPending &&
-      (notifications.active.length > 0 || notifications.dismissed.length === 0),
-  );
+  // The body under the band: the registry in this person's order, less what
+  // they hid and what this fleet state leaves out.
+  const layout = $derived(prefs.panelLayout('overview'));
+  // The body is drawn from the rows in one pass, so a hidden panel's Show row
+  // stands where its card would; a move steps over the rows the eye sees.
+  const rows = $derived(panelRows(OVERVIEW_PANELS, layout, { setupPending }));
+  const drawn = $derived(rows.map((row) => row.panel.id));
+  const hiddenCount = $derived(rows.filter((row) => row.hidden).length);
+  // Arranging is for this visit, not remembered: the arrangement is, which is
+  // what somebody opened the mode for.
+  let arranging = $state(false);
+  let body = $state<HTMLElement>();
+  let arrangeButton = $state<HTMLElement>();
+  let dragged = $state<OverviewPanelId | ''>('');
+  // Where a drop would land: before a panel, or after the last ('end'). It is
+  // remembered while the finger is over nothing, as the grid's column drag
+  // does, so a drop on the bar, a Show row or the gap between two cards is
+  // the last place the card was carried over and not a fall to the bottom.
+  let dropTarget = $state<OverviewPanelId | 'end' | ''>('');
+
+  function save(next: ReturnType<typeof movePanel>): void {
+    prefs.setPanelLayout('overview', next);
+  }
+
+  /** The Arrange control with this name, once the page has redrawn. */
+  async function focusControl(label: string): Promise<void> {
+    await tick();
+    body?.querySelector<HTMLElement>(`button[aria-label="${label}"]`)?.focus();
+  }
+
+  /**
+   * Move a panel one place, keeping focus on the control that did it: the
+   * slot is moved in the document, which drops focus, so the same control
+   * (a Move button or the grip under the arrow keys) takes it back.
+   */
+  async function move(id: OverviewPanelId, title: string, delta: -1 | 1): Promise<void> {
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    save(movePanel(layout, id, delta, drawn));
+    await tick();
+    if (active?.isConnected && body?.contains(active)) active.focus();
+    else await focusControl(`Move ${title} ${delta < 0 ? 'up' : 'down'}`);
+  }
+
+  /** Hide a panel and put focus on the way back; show one and put it on the way out. */
+  async function hide(id: OverviewPanelId, title: string, hidden: boolean): Promise<void> {
+    save(setHidden(layout, id, hidden));
+    await focusControl(hidden ? `Show ${title}` : `Hide ${title}`);
+  }
+
+  function done(): void {
+    arranging = false;
+    arrangeButton?.querySelector<HTMLElement>('button')?.focus();
+  }
+
+  function drag(event: PointerEvent, id: OverviewPanelId): void {
+    if (!body) return;
+    startSlotDrag(event, body, 'panel', {
+      over: (target) => {
+        dragged = id;
+        if (target) dropTarget = target === id ? '' : (target as OverviewPanelId | 'end');
+      },
+      drop: (target) => {
+        const at = (target || dropTarget) as OverviewPanelId | 'end' | '';
+        if (at && at !== id) save(placePanel(layout, id, at === 'end' ? null : at));
+        dragged = '';
+        dropTarget = '';
+      },
+      cancel: () => {
+        dragged = '';
+        dropTarget = '';
+      },
+    });
+  }
   const failed = $derived(!fleet.loaded && fleet.error !== null);
   const others = $derived(prefs.otherRunners);
   const capacity = $derived(fleet.stats?.hosts);
@@ -164,6 +241,11 @@
       other page uses. One status, said once; the stale banner below is what
       raises its voice when it matters.
     -->
+    <span bind:this={arrangeButton} class="arrange-toggle">
+      <Button variant="secondary" pressed={arranging} onclick={() => (arranging = !arranging)}
+        >Arrange</Button
+      >
+    </span>
     <div class="scope">
       <Select
         ariaLabel="Overview scope"
@@ -238,46 +320,110 @@
             {fleet.error ? 'The last refresh failed.' : 'Live updates are interrupted.'} Showing the last
             known figures; they may be out of date.
           </p>{/if}
-        <div class="attention">
-          <div class="problems" class:in-hero={heroSaysIt}>
-            <ProblemsSummary {loading} {setupPending} />
+        <RepairOffers />
+      </section>
+      <!--
+        One grid, drawn from the list: a full panel spans both columns, and a
+        main panel with the side panel after it share a row, two thirds and one
+        third. Nothing here decides the order; the list does.
+      -->
+      <div class="panels" class:arranging bind:this={body}>
+        {#if arranging}
+          <div class="slot full">
+            <ArrangeBar
+              hidden={hiddenCount}
+              isDefault={isDefaultLayout(layout)}
+              onreset={() => prefs.resetPanelLayout('overview')}
+              ondone={done}
+            />
           </div>
-          {#if !setupPending}<RecentFailures bind:this={failures} />{/if}<RepairOffers />
-        </div>
-      </section>
-      <div class="work">
-        <div class="primary">
-          <div id="pools" class="destination" tabindex="-1"><PoolUtilisation {loading} /></div>
-          <div id="jobs" class="destination" tabindex="-1"><ActiveJobs /></div>
-        </div>
-        <div id="events" class="destination" tabindex="-1"><EventsFeed {loading} /></div>
+        {/if}
+        {#each rows as { panel, hidden }, i (panel.id)}
+          {#if hidden}
+            {#if arranging}
+              <div class="slot full" class:drop={dropTarget === panel.id} data-panel={panel.id}>
+                <HiddenPanel
+                  title={panel.title}
+                  onshow={() => void hide(panel.id, panel.title, false)}
+                />
+              </div>
+            {/if}
+          {:else}
+            <div
+              class="slot {panel.place}"
+              class:dragging={dragged === panel.id}
+              class:drop={dropTarget === panel.id}
+              data-panel={panel.id}
+            >
+              {#if arranging}
+                <ArrangeControls
+                  title={panel.title}
+                  first={i === 0}
+                  last={i === rows.length - 1}
+                  onmove={(delta) => void move(panel.id, panel.title, delta)}
+                  onhide={() => void hide(panel.id, panel.title, true)}
+                  ondrag={(event) => drag(event, panel.id)}
+                />
+              {/if}
+              {#if panel.id === 'attention'}
+                <NeedsAttention {loading} {setupPending} />
+              {:else if panel.id === 'pools'}
+                <div id="pools" class="destination" tabindex="-1">
+                  <PoolUtilisation {loading} />
+                </div>
+              {:else if panel.id === 'failures'}
+                <RecentFailures bind:this={failures} />
+              {:else if panel.id === 'jobs'}
+                <div id="jobs" class="destination" tabindex="-1"><ActiveJobs /></div>
+              {:else if panel.id === 'events'}
+                <div id="events" class="destination" tabindex="-1"><EventsFeed {loading} /></div>
+              {:else if panel.id === 'history'}
+                <OverviewDisclosure
+                  id="history"
+                  title="History"
+                  icon={Clock}
+                  summary={historySummary}
+                  ><FleetActivity
+                    bind:this={activity}
+                    onsummary={(value) => (historySummary = value)}
+                  /></OverviewDisclosure
+                >
+              {:else if panel.id === 'diagnostics'}
+                <section
+                  id="diagnostics"
+                  class="diagnostics destination"
+                  tabindex="-1"
+                  aria-label="Diagnostics"
+                >
+                  <OverviewDisclosure
+                    id="capacity"
+                    title="Host capacity"
+                    icon={HardDrive}
+                    summary={capacitySummary}
+                    >{#if fleet.loaded}<HostCapacityMap
+                        hosts={fleet.hosts}
+                        page="overview"
+                        onmanage={() => navigate('/hosts')}
+                      />{/if}</OverviewDisclosure
+                  >
+                  <OverviewDisclosure
+                    id="startup"
+                    title="Startup and registration"
+                    icon={Gauge}
+                    summary={timingSummary}
+                    class="performance"><StartupTimings {loading} /></OverviewDisclosure
+                  >
+                </section>
+              {/if}
+            </div>
+          {/if}
+        {/each}
+        {#if dragged}
+          <div class="slot full end" class:drop={dropTarget === 'end'} data-panel="end">
+            Drop here to put it last
+          </div>
+        {/if}
       </div>
-      {#if !setupPending}<OverviewDisclosure id="history" title="History" summary={historySummary}
-          ><FleetActivity
-            bind:this={activity}
-            onsummary={(value) => (historySummary = value)}
-          /></OverviewDisclosure
-        >{/if}
-      <section
-        id="diagnostics"
-        class="diagnostics destination"
-        tabindex="-1"
-        aria-label="Diagnostics"
-      >
-        <OverviewDisclosure id="capacity" title="Host capacity" summary={capacitySummary}
-          >{#if fleet.loaded}<HostCapacityMap
-              hosts={fleet.hosts}
-              page="overview"
-              onmanage={() => navigate('/hosts')}
-            />{/if}</OverviewDisclosure
-        >
-        <OverviewDisclosure
-          id="startup"
-          title="Startup and registration"
-          summary={timingSummary}
-          class="performance"><StartupTimings {loading} /></OverviewDisclosure
-        >
-      </section>
     </div>
   {/if}
 </div>
@@ -391,29 +537,53 @@
   }
   .stack,
   .now,
-  .primary,
-  .diagnostics,
-  .attention {
+  .diagnostics {
     display: flex;
     flex-direction: column;
     gap: var(--z-space-3);
     min-width: 0;
   }
-  .attention:empty {
+  .now:empty {
     display: none;
   }
-  @media (min-width: 769px) {
-    .problems.in-hero {
-      display: none;
-    }
-  }
-  .work {
+  .panels {
     display: grid;
     grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-    /* The events column is as tall as Pools and Active jobs beside it, so the two
-       columns end on one line instead of the shorter one trailing off. */
+    /* The side column is as tall as the main panel beside it, so the two end
+       on one line instead of the shorter one trailing off. */
     align-items: stretch;
-    gap: var(--z-space-4);
+    gap: var(--z-space-3);
+  }
+  .slot {
+    min-width: 0;
+  }
+  .slot.full {
+    grid-column: 1 / -1;
+  }
+  /* While arranging, every card shows its edge, so a drop has somewhere to
+     land; the one being carried fades and the one it will land before gets a
+     line along its top. */
+  .arranging .slot[data-panel] {
+    padding: var(--z-space-2);
+    border: var(--z-border-width) dashed var(--z-border-strong);
+    border-radius: var(--z-radius-xl);
+  }
+  .arranging .slot.dragging {
+    opacity: 0.6;
+  }
+  .arranging .slot.drop {
+    border-top: var(--z-border-width-thick) solid var(--z-accent);
+  }
+  .arrange-toggle {
+    display: contents;
+  }
+  .arranging .slot.end {
+    padding: var(--z-space-3);
+    border: var(--z-border-width) dashed var(--z-border);
+    border-radius: var(--z-radius-xl);
+    text-align: center;
+    font-size: var(--z-text-sm);
+    color: var(--z-text-muted);
   }
   .destination,
   .now {
@@ -440,17 +610,42 @@
       display: none;
     }
   }
+  /* The main and side panels that share a row both fill it, whichever is the
+     taller, so the row ends on one line. */
   @media (min-width: 1181px) {
-    #events {
+    /* A panel keeps its column whatever the order: a side panel placed before
+       the main one stands alone in its column, and the two share a row only
+       when the main comes first. */
+    .slot.main {
+      grid-column: 1;
+    }
+    .slot.side {
+      grid-column: 2;
+    }
+    .slot.main,
+    .slot.side,
+    .slot.main > :global(*),
+    .slot.side > :global(*) {
       display: flex;
       flex-direction: column;
     }
-    #events > :global(.panel) {
+    .slot.main > :global(*),
+    .slot.side > :global(*),
+    .slot.main :global(.panel),
+    .slot.side :global(.panel) {
       flex: 1;
+    }
+    /* The toolbar above a card is a line, not a column: it keeps its own
+       height and width while the card under it fills the row. */
+    .slot.main > :global(.arrange),
+    .slot.side > :global(.arrange) {
+      flex: 0 0 auto;
+      flex-direction: row;
+      align-self: flex-start;
     }
   }
   @media (max-width: 1180px) {
-    .work {
+    .panels {
       grid-template-columns: minmax(0, 1fr);
     }
   }

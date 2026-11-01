@@ -322,6 +322,9 @@ type userPreferences struct {
 	// which are switched off, and the dog's size on each. It travels with the
 	// account for the same reason the layouts do.
 	Bands *bandPreferences `json:"bands,omitempty"`
+	// Panels is how this person arranged each page's panels: the order drawn
+	// and the ones hidden, by page. It travels with the account as the bands do.
+	Panels panelPreferences `json:"panels,omitempty"`
 }
 
 // handleGetPreferences returns choices belonging to this account rather than
@@ -347,7 +350,8 @@ func (s *Server) handleGetPreferences(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePutPreferences replaces the small, private interface document: table
-// layouts, how Eli answers, and how the page bands stand. A whole replacement
+// layouts, how Eli answers, how the page bands stand and how the panels are
+// arranged. A whole replacement
 // makes two open tabs converge on the latest deliberate layout and avoids a
 // patch language for data that is never collaboratively edited.
 func (s *Server) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
@@ -370,6 +374,10 @@ func (s *Server) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
 	}
 	if errs := preferences.Bands.validate("bands"); len(errs) > 0 {
 		unprocessable(w, "a band names a page, cut or logo size this build does not have", errs)
+		return
+	}
+	if errs := preferences.Panels.validate("panels"); len(errs) > 0 {
+		unprocessable(w, "a panel layout names a page or panel this build does not have", errs)
 		return
 	}
 	for tableID, layout := range preferences.TableLayouts {

@@ -807,8 +807,34 @@ The one page that has to earn the second monitor.
   every job GitHub reports, and opens the Jobs page instead. Each figure is a
   way into the records it counts, as every band's figures are; the wait carries
   its p95 and the live figure the slots it fills.
-* **Per-pool utilisation bars**: busy / live, with the pool's min and max marked
-  so an operator can see a pool pinned at its ceiling.
+* **The body is a list of panels.** Under the band, the page is one grid drawn
+  from `web/src/lib/overview/panels.ts` in its order: the problems, the pools,
+  the failures, the running jobs beside the events, then History and the
+  diagnostics. A full panel spans both columns; a main panel and the side panel
+  after it share a row, two thirds and one third, each filling it; a phone is
+  one column in the same order. Every panel carries its icon in a tinted tile
+  beside its title (`Panel`'s `icon`), so the page has one card head and no
+  panel draws its own. The route lays nothing by hand, which is what lets the
+  arrangement be the operator's: **Arrange**, in the page header, puts a
+  toolbar over every card with a grip to drag it by, Move up, Move down and
+  Hide, a Show row in the place of each hidden panel, and a bar at the top with
+  how many are hidden, Reset layout and Done. A move changes the order only;
+  each panel keeps its column, so the jobs and the events share a row wherever
+  they stand together. The layout is kept with the account under `panels` in
+  the preference document (the browser's copy when nobody is signed in), read
+  as forgivingly as the bands: a panel a build no longer has is dropped, one it
+  gained is drawn in its default place, and the registry's own rules (the first
+  run hides the problems and the failures) still win over a layout. Appearance
+  lists the same panels as switches under **Overview panels**, with Reset
+  layout; the order is changed on the page itself, where the cards can be seen
+  moving.
+* **A card per pool**, as the mock draws it: the name, the floor and ceiling,
+  the state as a pill, Runners and Waiting as a pair of facts, and the busy
+  bar with the pool's min and max marked. A pool at its ceiling with work
+  waiting is marked three ways still: the card's pending edge, the badge, and
+  the waiting figure saying "and nowhere to run". Six cards at most; the rest
+  are "and N more pools", a link to the Pools page, so a large fleet's Overview
+  stays one screen.
 * **Recent events**, a reverse-chronological list of what has happened to the
   fleet, whatever kind of thing it was: the scheduler's decisions in its own
   words (*"scaled `linux-x64` 2 → 4: 3 jobs queued > 30s"*), how each job
@@ -849,13 +875,16 @@ The one page that has to earn the second monitor.
   first. How the last jobs ended was a second panel across the bottom of the
   page and is now part of the feed: two reverse-chronological lists on one
   page, each with its own idea of what belonged on it, was one list too many.
-* **Problems summary**: one line saying how many things need a person, worst
-  severity first, with a *Review* button that opens the problems drawer.
-  **When everything is fine it is a single quiet line, not an empty box and not
-  a green celebration.** It is a line rather than a list on purpose: the panels
-  above are what the page is for, and a configuration warning somebody chose
-  deliberately must not push the pools and the running jobs below the fold
-  every day.
+* **Needs attention**: the worst three problems as rows, each with its
+  severity pill, the controller's fix and an *Open* button to the thing it is
+  about, and the card's own action ("and N more", or "Open the drawer")
+  opening the problems drawer for the rest. Three rows and the band still
+  leave the pools on the first screen of a 1440x900 laptop, which is the rule
+  the earlier one-line summary was cut down for; everything past three stays
+  the drawer's. **When everything is fine it is a single quiet line, not an
+  empty box and not a green celebration.** A phone draws no band and keeps its
+  pools on the first screen, so it keeps the one-line summary with its
+  *Review* button, as before.
 * **Recent failures**: unresolved failures nobody has acknowledged, newest first, with the
   count in the panel's header and each row naming the repository, the workflow,
   the job and the step or fault it stopped at. A row opens the job's own drawer,

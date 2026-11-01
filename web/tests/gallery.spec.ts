@@ -581,6 +581,22 @@ test('the Eli repair components show every state they can be in', async ({ page 
   }
 });
 
+// A panel with an icon draws it in a tile beside the title: the Overview's
+// cards share one head, so no page draws its own.
+test('a panel with an icon draws it in a tile beside the title', async ({ page }) => {
+  await open(page, 'mission-control', 'light');
+  const panel = page.locator('.panel', { hasText: 'Panel with a tile' }).first();
+  const tile = panel.locator('header .tile');
+  await expect(tile).toBeVisible();
+  const [w, h, radius] = await tile.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return [r.width, r.height, parseFloat(getComputedStyle(el).borderRadius)];
+  });
+  expect(w).toBe(h);
+  expect(radius).toBeGreaterThan(0);
+  await expect(tile).toHaveAttribute('aria-hidden', 'true');
+});
+
 // The shared look's one button: a pill in the brand's Runner Blue under Zoomies
 // Black, which is 7.3:1 in every combination, where the darkened accent was
 // needed only to carry white text. Held here so a later component cannot drift
