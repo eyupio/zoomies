@@ -16,15 +16,17 @@ const bucket = (from: string, seconds: number, succeeded = 0, failed = 0) => ({
   capacity_samples: 0,
   capacity_reached: 0,
 });
-const row = (history: ReturnType<typeof bucket>[]): UsageRow =>
-  ({
-    key: 'x',
-    jobs: 0,
-    jobs_started: 0,
-    jobs_completed: 0,
-    job_execution_seconds: 0,
-    history,
-  }) as unknown as UsageRow;
+const row = (history: ReturnType<typeof bucket>[]): UsageRow => ({
+  key: 'x',
+  jobs: 0,
+  jobs_started: 0,
+  jobs_completed: 0,
+  job_execution_seconds: 0,
+  allocated_runner_seconds: null,
+  average_queue_wait_seconds: null,
+  peak_concurrency: 0,
+  history,
+});
 
 // The band's columns are the report's intervals summed across its groups, so
 // two pools' hours in one interval are one column, as the chart under it draws.

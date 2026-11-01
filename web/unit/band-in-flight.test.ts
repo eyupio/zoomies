@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import type { WorkflowRun } from '../src/lib/api/types.ts';
 import { inFlight, MAX_FLIGHT_ROWS } from '../src/lib/bands/in-flight.ts';
 
-const run = (repo: string, jobs: WorkflowRun['jobs']): WorkflowRun =>
-  ({ id: `${repo}-${Math.random()}`, repo, jobs }) as unknown as WorkflowRun;
+const run = (repo: string, jobs: WorkflowRun['jobs']): WorkflowRun => ({ repo, jobs });
 
 // Two runs in one repository are one row, and the band's figures (running,
 // waiting) are the sums across the rows.
