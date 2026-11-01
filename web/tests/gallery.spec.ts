@@ -52,6 +52,12 @@ function parseColour(value: string): [number, number, number] {
   return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
 }
 
+/** A token's hex value as the channels getComputedStyle reports. */
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
+}
+
 function luminance(value: string): number {
   const [r, g, b] = parseColour(value).map((channel) => {
     const c = channel / 255;
@@ -571,5 +577,29 @@ test('the Eli repair components show every state they can be in', async ({ page 
     'a-state-from-a-newer-controller',
   ]) {
     await expect(badges.getByText(label, { exact: true })).toBeVisible();
+  }
+});
+
+// The shared look's one button: a pill in the brand's Runner Blue under Zoomies
+// Black, which is 7.3:1 in every combination, where the darkened accent was
+// needed only to carry white text. Held here so a later component cannot drift
+// back to a rectangle or to the accent.
+test('the primary button is a pill in Runner Blue with Zoomies Black text, in every combination', async ({
+  page,
+}) => {
+  for (const { style, mode } of COMBINATIONS) {
+    await open(page, style, mode);
+    const button = page.getByRole('button', { name: 'Create a pool' }).first();
+    const root = page.locator(':root');
+    const [radius, background, colour, runnerBlue, black] = await Promise.all([
+      button.evaluate((el) => getComputedStyle(el).borderRadius),
+      button.evaluate((el) => getComputedStyle(el).backgroundColor),
+      button.evaluate((el) => getComputedStyle(el).color),
+      root.evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-runner-blue').trim()),
+      root.evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-black').trim()),
+    ]);
+    expect(parseFloat(radius), `${style} ${mode}`).toBeGreaterThanOrEqual(999);
+    expect(parseColour(background), `${style} ${mode}`).toEqual(hexToRgb(runnerBlue));
+    expect(parseColour(colour), `${style} ${mode}`).toEqual(hexToRgb(black));
   }
 });
