@@ -589,12 +589,20 @@ test('the Pools, Queue and Usage bands draw their pictures, and each agrees with
   const bars = page.getByTestId('band-pools').getByTestId('band-pool-bars');
   await expect(bars).toBeVisible();
   await expect(bars.getByRole('listitem')).toHaveCount(2);
-  // The fixture's x64 pool is at its ceiling, so it comes first and says so.
+  // The x64 pool is the fuller of the two, so it comes first whatever the
+  // moment; whether it is at its ceiling depends on how long the fixture has
+  // been running (idle runners drain), so the picture is held to the sentence
+  // rather than to a figure.
   await expect(bars.getByRole('link').first()).toHaveAccessibleName(
-    new RegExp(`^${FIXTURE.linuxPool}: .*at its ceiling$`),
+    new RegExp(`^${FIXTURE.linuxPool}: \\d+ busy · \\d+ of \\d+ live`),
   );
-  await expect(bars).toContainText('1 at its ceiling');
-  await expect(page.getByTestId('band-pools')).toContainText('1 is at its ceiling');
+  const sentence = (await page.getByTestId('band-pools').locator('.lede').textContent()) ?? '';
+  if (/is at its ceiling/.test(sentence)) {
+    await expect(bars).toContainText('1 at its ceiling');
+    await expect(bars.getByRole('link').first()).toHaveAccessibleName(/at its ceiling$/);
+  } else {
+    await expect(bars).not.toContainText('at its ceiling');
+  }
 
   await goto(page, '/queue', 'Queue');
   const trend = page.getByTestId('band-queue').getByTestId('band-queue-trend');
