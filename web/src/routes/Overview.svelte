@@ -26,6 +26,7 @@
   let setupPending = $state(false);
   let failures = $state<RecentFailures | null>(null);
   let activity = $state<FleetActivity | null>(null);
+  let status = $state<FleetStatus | null>(null);
   let historySummary = $state('Loading history');
   let active = $state('now');
   let moreOpen = $state(false);
@@ -161,9 +162,12 @@
     title="Overview"
     subtitle="What the fleet is doing, and what needs you."
     onrefresh={() =>
-      Promise.all([fleet.reconcile(), activity?.reload(), failures?.reload()]).then(
-        () => undefined,
-      )}
+      Promise.all([
+        fleet.reconcile(),
+        status?.reload(),
+        activity?.reload(),
+        failures?.reload(),
+      ]).then(() => undefined)}
   >
     <!--
       The connection used to be said here as well as in the top bar's dot,
@@ -234,7 +238,7 @@
         {/if}
       </div>
     </nav>
-    <FleetStatus {setupPending} onpick={pick} />
+    <FleetStatus bind:this={status} {setupPending} onpick={pick} />
     <div class="stack">
       <section id="now" tabindex="-1" aria-label="Fleet now" class="now">
         <FirstRun onpending={(pending) => (setupPending = pending)} />

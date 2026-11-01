@@ -37,6 +37,12 @@
   }
   let { setupPending = false, onpick }: Props = $props();
 
+  let card = $state<FleetPunchCard | null>(null);
+  /** The page's refresh button means the punch card too, as it means History. */
+  export async function reload(): Promise<void> {
+    await card?.reload();
+  }
+
   const line = $derived(
     statusLine({
       problems: notifications.active,
@@ -81,7 +87,7 @@
        before the first job: a week of empty squares says nothing a checklist
        does not. -->
   {#snippet aside()}
-    {#if !setupPending && fleet.loaded}<FleetPunchCard {onpick} />{/if}
+    {#if !setupPending && fleet.loaded}<FleetPunchCard bind:this={card} {onpick} />{/if}
   {/snippet}
 </PageBand>
 

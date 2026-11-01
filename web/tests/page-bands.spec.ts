@@ -453,11 +453,17 @@ test('the Overview band shows the week by the hour, and an hour of it opens Hist
   await expect(card).toContainText('The last 7 days, by the hour');
   const grid = card.getByRole('grid');
   await expect(grid.getByRole('gridcell')).toHaveCount(7 * 24);
-  // Hours that have not come yet are drawn, so a row is a day, but say so.
-  await expect(grid.locator('[role="gridcell"][data-future]').first()).toHaveAttribute(
-    'aria-label',
-    /Not yet\.$/,
-  );
+  // Hours that have not come yet are drawn, so a row is a day, but say so. In
+  // the day's last hour there are none to say it, so the check follows the
+  // browser's clock rather than failing every night between eleven and twelve.
+  const hour = await page.evaluate(() => new Date().getHours());
+  const future = grid.locator('[role="gridcell"][data-future]');
+  if (hour < 23) {
+    await expect(future.first()).toHaveAttribute('aria-label', /Not yet\.$/);
+    await expect(future).toHaveCount(23 - hour);
+  } else {
+    await expect(future).toHaveCount(0);
+  }
   // The seed's jobs ran in the hours before the controller started, so a square
   // with completions is in the last day and says what it holds.
   const busy = grid.locator('[role="gridcell"]:not([data-level="0"])').last();
