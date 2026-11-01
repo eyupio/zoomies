@@ -37,6 +37,7 @@ const SECTIONS = [
   'Data grid',
   'Eli repairs',
   'Public pages',
+  'Terminal and facts',
 ];
 
 function open(page: Page, style: string, mode: string): Promise<unknown> {
@@ -644,4 +645,32 @@ test('a status badge is a pill and keeps its height in both sizes', async ({ pag
     ];
   });
   for (const h of heights) expect([Math.round(md), Math.round(sm)]).toContain(Math.round(h));
+});
+
+// A command the operator runs is shown in a window on the dark stage, the
+// same black in every combination, and a long one wraps inside it on a phone
+// rather than widening the page.
+test('the terminal is a window on the dark stage that wraps a long command', async ({ page }) => {
+  for (const { style, mode } of COMBINATIONS) {
+    await open(page, style, mode);
+    const terminal = page.locator('.terminal').first();
+    const [background, black, radius] = await Promise.all([
+      terminal.evaluate((el) => getComputedStyle(el).backgroundColor),
+      page
+        .locator(':root')
+        .evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-black').trim()),
+      terminal.evaluate((el) => getComputedStyle(el).borderRadius),
+    ]);
+    expect(parseColour(background), `${style} ${mode}`).toEqual(hexToRgb(black));
+    expect(radius).not.toBe('0px');
+    await expect(terminal.locator('.terminal-bar')).toContainText('sam@lab-vm-2');
+    await expect(terminal.getByRole('button', { name: 'Copy the command' })).toBeVisible();
+  }
+  await page.setViewportSize({ width: 375, height: 800 });
+  await open(page, 'mission-control', 'dark');
+  const overflow = await page
+    .locator('.terminal')
+    .first()
+    .evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(overflow).toBe(0);
 });
