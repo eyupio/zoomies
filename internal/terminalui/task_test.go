@@ -5,11 +5,37 @@ import (
 	"context"
 	"errors"
 	"io"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestTaskStringWritesAndCopiesStaySafeWhileProgressReadsLogs(t *testing.T) {
+	logs := &taskOutput{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 1000 {
+			_, _ = io.WriteString(logs, "checking\n")
+			_, _ = io.Copy(logs, io.LimitReader(strings.NewReader("copied\n"), 7))
+			runtime.Gosched()
+		}
+	}()
+	for {
+		_ = logs.latest()
+		select {
+		case <-done:
+			if got := logs.buffer.String(); got != strings.Repeat("checking\ncopied\n", 1000) {
+				t.Fatal("progress lost log output")
+			}
+			return
+		default:
+			runtime.Gosched()
+		}
+	}
+}
 
 func TestRedirectedTasksKeepTheirOutputAndErrorWithoutTerminalControls(t *testing.T) {
 	var out bytes.Buffer

@@ -28,7 +28,7 @@ func Task(ctx context.Context, out io.Writer, label string, disabled bool, work 
 		return work(ctx, out)
 	}
 	return runTask(ctx, out, label, work, func(m taskModel) error {
-		_, err := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(out), tea.WithFPS(30)).Run()
+		_, err := tea.NewProgram(m, tea.WithContext(ctx), tea.WithInput(nil), tea.WithOutput(out), tea.WithFPS(30)).Run()
 		return err
 	})
 }
@@ -37,20 +37,22 @@ type taskResult struct{ err error }
 
 type taskOutput struct {
 	sync.Mutex
-	bytes.Buffer
+	// Embedding would expose WriteString and ReadFrom without the lock when
+	// io.WriteString or io.Copy receives the log writer.
+	buffer bytes.Buffer
 	colour bool
 }
 
 func (b *taskOutput) Write(p []byte) (int, error) {
 	b.Lock()
 	defer b.Unlock()
-	return b.Buffer.Write(p)
+	return b.buffer.Write(p)
 }
 
 func (b *taskOutput) latest() string {
 	b.Lock()
 	defer b.Unlock()
-	s := strings.TrimSpace(ansi.Strip(b.Buffer.String()))
+	s := strings.TrimSpace(ansi.Strip(b.buffer.String()))
 	if i := strings.LastIndexAny(s, "\r\n"); i >= 0 {
 		s = s[i+1:]
 	}
@@ -77,7 +79,7 @@ func runTask(ctx context.Context, out io.Writer, label string, work func(context
 	}
 	// Joining also preserves the operation's rollback and cleanup on Ctrl-C.
 	<-finished
-	_, writeErr := out.Write(logs.Bytes())
+	_, writeErr := out.Write(logs.buffer.Bytes())
 	return errors.Join(result.err, uiErr, writeErr)
 }
 
