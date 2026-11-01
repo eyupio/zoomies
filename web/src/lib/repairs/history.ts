@@ -149,14 +149,13 @@ export function clearSummary(cleared: number, skipped: number): string {
  * repairs, most of them on pages they never looked at. The page has no way to
  * bring a cleared repair back, so that is said here too. The rest is what
  * clearing leaves alone: a cleared repair is hidden and kept, still the record
- * the daily limit and the guard against Eli repairing its own commits read, and
- * an operator who thinks otherwise would take clearing for a way round the limit.
+ * the guard against Eli repairing its own commits reads, and the deduplication
+ * that stops the same webhook delivery being answered twice.
  */
 export function clearConsequences(count: number): readonly string[] {
   const how = `${formatNumber(count)} ${count === 1 ? 'repair' : 'repairs'}`;
   return [
     `${how} will stop showing in this list, and this cannot be undone from this page.`,
-    "They still count towards each repository's daily limit.",
     'Eli will not repair its own commits from them again.',
   ];
 }

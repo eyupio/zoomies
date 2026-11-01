@@ -11,7 +11,7 @@ func TestEliManualPolicyCanBeSavedWithoutAnInstallationProvider(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation()
 	_, admin := h.user("repair-admin", store.RoleAdmin)
-	body := map[string]any{"repo": inst.Target + "/repo", "installation_id": inst.ID, "provider_id": "", "enabled": true, "automatic": false, "ask_first": true, "allow_workflows": false, "daily_limit": 5}
+	body := map[string]any{"repo": inst.Target + "/repo", "installation_id": inst.ID, "provider_id": "", "enabled": true, "automatic": false, "ask_first": true, "allow_workflows": false}
 	h.do(request{method: "PUT", path: "/api/v1/assistant/repairs/policy", cookie: admin, body: body}).mustStatus(t, 200, "manual-only setup needs no installation payer")
 	body["automatic"] = true
 	body["ask_first"] = false
@@ -46,9 +46,9 @@ func TestEliReadinessExplainsMissingSetupWithoutChargingAnAttempt(t *testing.T) 
 
 // The readiness answer is read by the UI through a client generated from the
 // OpenAPI document, so a check or a pull request field the document does not
-// describe is one the page cannot see. The checks are always the same nine, in
+// describe is one the page cannot see. The checks are always the same eight, in
 // the order they are made, whatever stopped the run.
-func TestEliReadinessAlwaysReturnsNineChecksInTheSpecsShape(t *testing.T) {
+func TestEliReadinessAlwaysReturnsEightChecksInTheSpecsShape(t *testing.T) {
 	h := newHarness(t)
 	_, viewer := h.user("repair-viewer", store.RoleViewer)
 	response := h.do(request{method: "GET", path: "/api/v1/assistant/repairs/readiness?repo=acme/repo&pull_number=1", cookie: viewer})
@@ -65,7 +65,7 @@ func TestEliReadinessAlwaysReturnsNineChecksInTheSpecsShape(t *testing.T) {
 	if answer.Pull != nil {
 		t.Fatal("a pull request was returned to someone whose GitHub account was never verified")
 	}
-	want := []string{"identity", "provider", "installation", "access", "policy", "budget", "pull", "checks", "permissions"}
+	want := []string{"identity", "provider", "installation", "access", "policy", "pull", "checks", "permissions"}
 	if len(answer.Checks) != len(want) {
 		t.Fatalf("%d checks, want %d: %s", len(answer.Checks), len(want), response.body)
 	}
@@ -146,7 +146,7 @@ func TestARepairsCaseMatchesTheSpecShapes(t *testing.T) {
 			Jobs: []store.EliRepairCaseJob{{Name: "unit", Step: "Run go test ./...", URL: "https://github.com/acme/repo/actions/runs/900/job/11", DurationMS: 95000}},
 		}},
 	}
-	if added, err := h.st.EnqueueEliRepair(h.ctx, row, 5); err != nil || !added {
+	if added, err := h.st.EnqueueEliRepair(h.ctx, row); err != nil || !added {
 		t.Fatalf("seeding the repair: added=%v, %v", added, err)
 	}
 	response := h.do(request{method: "GET", path: "/api/v1/assistant/repairs", cookie: admin})

@@ -243,14 +243,7 @@ func (c *Controller) enqueueRepairWebhook(ctx context.Context, inst *store.Insta
 	default:
 		return nil
 	}
-	added, err := c.st.EnqueueEliRepair(ctx, r, policy.DailyLimit)
-	if errors.Is(err, store.ErrConflict) {
-		c.log.Info("Eli repair budget reached", "repo", r.Repo, "trigger", r.Trigger)
-		if refuse != nil {
-			refuse(repairBudgetReason(err, policy.DailyLimit))
-		}
-		return nil
-	}
+	added, err := c.st.EnqueueEliRepair(ctx, r)
 	if err == nil && added && acknowledge != nil {
 		// The worker can be busy with another repair for several minutes. Say
 		// the request arrived before waiting for it to reach the front of the queue.
@@ -293,17 +286,6 @@ func repairNotAllowedReason(login string) string {
 
 func repairDisabledReason(login string) string {
 	return fmt.Sprintf("The Zoomies account linked to `@%s` is disabled or no longer exists, so Eli cannot act for it. Ask a Zoomies administrator to enable it or to link your GitHub account to another.", login)
-}
-
-// repairBudgetReason says which of the two limits refused the request. The
-// repository's is shared with automatic repairs, which on a repository whose CI
-// fails often can use it up before anyone asks, so it says so, and says who can
-// raise it.
-func repairBudgetReason(err error, repoLimit int) string {
-	if errors.Is(err, store.ErrEliPersonBudget) {
-		return fmt.Sprintf("You have already asked for %s in the last 24 hours, which is the limit for each person. Ask again when your oldest request is more than 24 hours old.", plural(store.EliPersonDailyLimit, "repair"))
-	}
-	return fmt.Sprintf("This repository has used its %s for the last 24 hours. Explicit requests and automatic repairs share that limit, and an attempt frees its place when it is more than 24 hours old. An administrator can raise the limit, up to 50, under Repository repair policies on the Eli AI Assistant page.", plural(repoLimit, "repair attempt"))
 }
 
 // repairOutputTokens is the room a repair asks a model for when its provider
@@ -1059,8 +1041,7 @@ func (c *Controller) requestPinnedEliRepair(ctx context.Context, userID, repo st
 	if err != nil {
 		return nil, err
 	}
-	policy, err := c.repairPolicy(ctx, repo, inst.ID)
-	if err != nil {
+	if _, err := c.repairPolicy(ctx, repo, inst.ID); err != nil {
 		return nil, err
 	}
 	identities, err := c.st.EliIdentities(ctx)
@@ -1125,7 +1106,7 @@ func (c *Controller) requestPinnedEliRepair(ctx context.Context, userID, repo st
 	if dedup != "" {
 		row.DedupKey = dedup
 	}
-	_, err = c.st.EnqueueEliRepair(ctx, row, policy.DailyLimit)
+	_, err = c.st.EnqueueEliRepair(ctx, row)
 	return row, err
 }
 

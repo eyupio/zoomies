@@ -194,7 +194,7 @@ func TestClearingARepairHidesItFromTheHistoryAndNothingElse(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	row := &EliRepair{Repo: "acme/site", UserID: "owner", DedupKey: "comment:1", CommitSHA: "fixsha"}
-	if _, err := s.EnqueueEliRepair(ctx, row, 1); err != nil {
+	if _, err := s.EnqueueEliRepair(ctx, row); err != nil {
 		t.Fatal(err)
 	}
 	row.State = "succeeded"
@@ -222,18 +222,10 @@ func TestClearingARepairHidesItFromTheHistoryAndNothingElse(t *testing.T) {
 		t.Errorf("clearing changed updated_at from %d to %d (%v)", updated, after, err)
 	}
 
-	// The history is the only reader that forgets it. The budget, the loop
-	// guard and the deduplication all go on counting the row.
-	_, err = s.EnqueueEliRepair(ctx, &EliRepair{Repo: "acme/site", UserID: "owner", DedupKey: "comment:2"}, 1)
-	if !errors.Is(err, ErrConflict) {
-		t.Errorf("clearing reset the daily limit: %v", err)
-	}
+	// The history is the only reader that forgets it. The loop guard and the
+	// deduplication go on counting the row.
 	if own, err := s.IsEliRepairCommit(ctx, "acme/site", "fixsha"); err != nil || !own {
 		t.Errorf("clearing let Eli forget its own commit: %v %v", own, err)
-	}
-	repoUse, personUse, err := s.EliRepairBudget(ctx, "acme/site", "owner")
-	if err != nil || repoUse.Used != 1 || personUse.Used != 1 {
-		t.Errorf("the budget stopped counting a cleared repair: repo %d person %d, %v", repoUse.Used, personUse.Used, err)
 	}
 }
 
@@ -304,7 +296,7 @@ func TestARequestForAClearedRepairBringsItBackIntoView(t *testing.T) {
 	}
 
 	again := &EliRepair{Repo: "acme/site", UserID: "owner", DedupKey: "ui:acme/site:7"}
-	added, err := s.EnqueueEliRepair(ctx, again, 5)
+	added, err := s.EnqueueEliRepair(ctx, again)
 	if err != nil || added || again.ID != id {
 		t.Fatalf("the same request must answer with the saved row: added %v id %s (want %s), %v", added, again.ID, id, err)
 	}
@@ -339,7 +331,7 @@ func TestOnlyAPersonAskingAgainBringsAClearedRepairBack(t *testing.T) {
 			}
 
 			again := &EliRepair{Repo: "acme/site", UserID: "owner", DedupKey: tc.key}
-			added, err := s.EnqueueEliRepair(ctx, again, 5)
+			added, err := s.EnqueueEliRepair(ctx, again)
 			if err != nil || added || again.ID != id {
 				t.Fatalf("a repeat of %q must deduplicate onto the saved row: added %v id %s (want %s), %v", tc.key, added, again.ID, id, err)
 			}
@@ -349,10 +341,6 @@ func TestOnlyAPersonAskingAgainBringsAClearedRepairBack(t *testing.T) {
 			}
 			if back := total == 1; back != tc.back {
 				t.Errorf("after a repeat of %q the repair is back in the history: %v, want %v (total %d)", tc.key, back, tc.back, total)
-			}
-			// Hidden or not, the row is still the ledger entry for the budget.
-			if repoUse, _, err := s.EliRepairBudget(ctx, "acme/site", "owner"); err != nil || repoUse.Used != 1 {
-				t.Errorf("the budget stopped counting the repair: repo %d, %v", repoUse.Used, err)
 			}
 		})
 	}
@@ -369,7 +357,7 @@ func TestAnotherPersonsOfferCannotBringAClearedRepairBack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := s.EnqueueEliRepair(ctx, &EliRepair{Repo: "acme/site", UserID: "someone-else", DedupKey: "offer:opp_9"}, 5)
+	_, err := s.EnqueueEliRepair(ctx, &EliRepair{Repo: "acme/site", UserID: "someone-else", DedupKey: "offer:opp_9"})
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("another person using the offer's key: %v, want a conflict", err)
 	}

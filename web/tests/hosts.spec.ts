@@ -103,10 +103,32 @@ test('the page comes filled in and hands over a command carrying the token', asy
   await page.getByRole('button', { name: 'Get the command' }).click();
   await expect(page.getByRole('heading', { name: 'Run this on the new host' })).toBeVisible();
   const command = installCommand(page);
+  // The command is shown in the window the operator will run it in: the
+  // terminal on the dark stage, with the copy control inside it.
+  const terminal = page
+    .getByRole('region', { name: 'Run this on the new host' })
+    .locator('.terminal')
+    .first();
+  await expect(terminal).toBeVisible();
+  await expect(terminal.locator('pre').first()).toContainText('zoomies');
+  await expect(terminal.getByRole('button', { name: 'Copy the install command' })).toBeVisible();
   await expect(command).toContainText('--mode agent');
   await expect(command).toContainText(`--controller '${origin}'`);
   await expect(command).toContainText('--version dev');
   await expect(page.getByText('Host install channel').locator('..')).toContainText(':dev');
+  // The version facts are the window's own record: the full width of the
+  // command, under it and above the copy control, never beside the control
+  // in the fine print.
+  const geometry = await terminal.evaluate((el) => {
+    const r = (q: string) => el.querySelector(q)!.getBoundingClientRect();
+    const pre = r('pre');
+    const facts = r('.facts-panel');
+    const copy = r('.foot button');
+    return { pre, facts, copy };
+  });
+  expect(geometry.facts.top).toBeGreaterThanOrEqual(geometry.pre.bottom);
+  expect(geometry.copy.top).toBeGreaterThanOrEqual(geometry.facts.bottom);
+  expect(Math.abs(geometry.facts.width - geometry.pre.width)).toBeLessThan(2);
   // What the agent will own on that machine is one click from the command
   // that hands it over, before anybody runs it.
   await expect(

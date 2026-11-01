@@ -355,8 +355,8 @@ func (s *Server) handleSetEliPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	p.Repo = strings.TrimSpace(p.Repo)
 	_, _, kind := github.SplitTarget(p.Repo)
-	if kind != store.TargetRepo || p.DailyLimit < 1 || p.DailyLimit > 50 {
-		unprocessable(w, "choose a repository and a daily repair limit from 1 to 50", nil)
+	if kind != store.TargetRepo {
+		unprocessable(w, "choose a repository", nil)
 		return
 	}
 	if p.Automatic && p.AskFirst {
