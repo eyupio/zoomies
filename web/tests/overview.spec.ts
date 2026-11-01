@@ -1293,3 +1293,19 @@ test('the body is drawn from the registry, in its order, and one column on a pho
     .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
   expect(columns).toBe(1);
 });
+
+// The mark before an event is a pill in the tone of the news, with the icon
+// inside it: the shape and the icon both say what kind it is, never the
+// colour alone.
+test("an event's mark is a pill in its tone, the icon inside it", async ({ page }) => {
+  const feed = page.getByRole('region', { name: 'Recent events', exact: true });
+  const mark = feed.getByRole('listitem').first().locator('.mark');
+  await expect(mark).toBeVisible();
+  const [radius, height, border] = await mark.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return [parseFloat(s.borderTopLeftRadius), el.getBoundingClientRect().height, s.borderTopWidth];
+  });
+  expect(radius).toBeGreaterThanOrEqual(height / 2);
+  expect(border).toBe('1px');
+  await expect(mark.locator('svg')).toHaveCount(1);
+});
