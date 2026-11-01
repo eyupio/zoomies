@@ -219,12 +219,16 @@
     order: 1;
     flex: 0 1 auto;
   }
+  /* The picture takes what the words leave, so the figures keep their one row
+     before it grows: its basis is nothing and it fills from there, down to a
+     floor at which a week of hours is still readable. Past that floor the
+     words give way instead, and a strip of figures wraps. */
   .wide .aside {
     order: 2;
     display: flex;
     justify-content: flex-end;
-    flex: 1 1 auto;
-    min-width: 0;
+    flex: 1 1 0;
+    min-width: 22rem;
     max-width: 46%;
     /* A band's size controls sit in the stage's top corner. A picture taller
        than the words sets the band's height and starts at the padding, where
