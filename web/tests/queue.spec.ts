@@ -370,6 +370,10 @@ test('a band figure presses its chip alone, and the chips carry the counts', asy
 });
 
 test('Labels is hidden by default and a click away in Columns', async ({ page }) => {
+  test.skip(
+    (page.viewportSize()?.width ?? 1000) < 1181,
+    'a narrow window folds wide columns anyway',
+  );
   await goto(page, '/queue', 'Queue');
   await expect(queueGrid(page).locator('tbody tr[data-row]').first()).toBeVisible();
   await expect(queueGrid(page).getByRole('columnheader', { name: /\bLabels\b/ })).toHaveCount(0);

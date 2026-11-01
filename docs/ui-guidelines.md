@@ -953,7 +953,8 @@ counts, with Ready, Run now and Paused pressed by default and Removed a press
 away; the job filters it shares with the Jobs page (`JobFilters`: the search,
 the menus, the date range and the fold a phone gives them) stay in their bar
 above the card, and only the controls that are the page's alone, the branch
-field, the saved views and Reset, sit opposite its title.
+field, the saved views, Reset and the hint on how filters combine, sit opposite
+its title.
 
 ---
 

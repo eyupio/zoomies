@@ -556,8 +556,10 @@
         <!--
           The sentence about how filters combine used to stand in a box of its own
           between the controls and the rows, on a page an operator reloads all
-          day. It answers a question about the menus, so it lives on the menus'
-          own control: one hover, or one focus, and nothing on screen at rest.
+          day. It is one hover, or one focus, and nothing on screen at rest. It
+          sits on the card rather than in the shared filter bar above because the
+          bar is the Jobs page's too, and the question it answers (how the
+          menus, the branch field and the chips narrow one list) is this page's.
         -->
         <Tooltip
           bare
