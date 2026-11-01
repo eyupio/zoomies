@@ -3,22 +3,33 @@ import assert from 'node:assert/strict';
 import type { KennelOverview } from '../src/lib/api/types.ts';
 import { MAX_REPO_SQUARES, repoSquares } from '../src/lib/bands/repo-squares.ts';
 
-const overview = (extra: Partial<KennelOverview>): KennelOverview =>
-  ({
-    enabled: true,
-    scope: 'served',
-    repositories: 6,
-    not_tracked: 0,
-    states: { pending: 1, partial: 1, attention: 2, best_in_show: 2 },
-    attention: [],
-    ...extra,
-  }) as unknown as KennelOverview;
-const named = (name: string, error: number, warning: number) =>
-  ({
-    id: name,
-    name,
-    counts: { error, warning, info: 0, waived: 0 },
-  }) as unknown as KennelOverview['attention'][number];
+const overview = (extra: Partial<KennelOverview>): KennelOverview => ({
+  enabled: true,
+  scope: 'served',
+  repositories: 6,
+  not_tracked: 0,
+  states: { pending: 1, partial: 1, attention: 2, best_in_show: 2 },
+  counts: { error: 0, warning: 0, info: 0, waived: 0 },
+  score: null,
+  checks: [],
+  attention: [],
+  coverage: [],
+  unavailable: [],
+  oldest_evaluation: null,
+  disabled_checks: [],
+  ...extra,
+});
+const named = (
+  name: string,
+  error: number,
+  warning: number,
+): KennelOverview['attention'][number] => ({
+  id: name,
+  name,
+  visibility: 'private',
+  state: 'attention',
+  counts: { error, warning, info: 0, waived: 0 },
+});
 
 // The squares have to add up to the band's own counts: the named ones first
 // with their findings, then the rest by state, nothing invented and nothing lost.
