@@ -675,6 +675,27 @@ test('the terminal is a window on the dark stage that wraps a long command', asy
   expect(overflow).toBe(0);
 });
 
+// The copy control inside the window is the one control on the stage, so its
+// edge has to read against the black (the 3:1 bar for a control's edge), and
+// it is a pill like every other button, not the one rectangle left.
+test('the copy control inside the terminal is a pill whose edge reads on the stage', async ({
+  page,
+}) => {
+  for (const { style, mode } of COMBINATIONS) {
+    await open(page, style, mode);
+    const terminal = page.locator('.terminal').first();
+    const control = terminal.getByRole('button', { name: 'Copy the command' });
+    const [background, edge, radius, height] = await Promise.all([
+      terminal.evaluate((el) => getComputedStyle(el).backgroundColor),
+      control.evaluate((el) => getComputedStyle(el).borderTopColor),
+      control.evaluate((el) => parseFloat(getComputedStyle(el).borderTopLeftRadius)),
+      control.evaluate((el) => el.getBoundingClientRect().height),
+    ]);
+    expect(contrast(edge, background), `${style} ${mode} edge`).toBeGreaterThanOrEqual(3);
+    expect(radius, `${style} ${mode} radius`).toBeGreaterThanOrEqual(height / 2);
+  }
+});
+
 // A block of facts about one thing stands on the dark stage as the terminal
 // does, and on a phone it is one column in which an unbroken value wraps.
 test('the facts panel is on the dark stage and holds an unbroken value', async ({ page }) => {

@@ -27,10 +27,23 @@
     copyLabel?: string;
     size?: 'sm' | 'md';
     class?: string;
+    /**
+     * The window's own record under the command, the full width of it: a
+     * Facts panel, never beside the copy control where fine print goes.
+     */
+    facts?: Snippet;
     /** Fine print under the command: what the token in it does, when it ends. */
     children?: Snippet;
   }
-  let { title, command, copyLabel, size = 'md', class: className = '', children }: Props = $props();
+  let {
+    title,
+    command,
+    copyLabel,
+    size = 'md',
+    class: className = '',
+    facts,
+    children,
+  }: Props = $props();
 
   const lines = $derived(typeof command === 'string' ? command.split('\n') : [...command]);
   const whole = $derived(lines.join('\n'));
@@ -45,6 +58,7 @@
     {#each lines as line, i (i)}
       <pre><code>{line}</code></pre>
     {/each}
+    {#if facts}<div class="facts">{@render facts()}</div>{/if}
     {#if copyLabel || children}
       <div class="foot">
         {#if copyLabel}<CopyButton value={whole} label={copyLabel} size="md" showLabel />{/if}
@@ -60,7 +74,10 @@
     --z-text-muted: var(--z-panel-text-muted);
     --z-text-subtle: var(--z-panel-text-subtle);
     --z-border: var(--z-panel-border);
-    --z-border-strong: var(--z-panel-border);
+    /* The copy control's edge: the panel's hairline would be 1.4:1 on the
+       black, under the 3:1 a control's edge needs, so the strong border is
+       the subtle text colour, which clears it. */
+    --z-border-strong: var(--z-panel-text-subtle);
     --z-surface: var(--z-panel-bg);
     --z-surface-hover: var(--z-panel-raised);
     --z-surface-raised: var(--z-panel-raised);
@@ -117,6 +134,9 @@
     color: var(--z-panel-text);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+  .facts {
+    margin-top: var(--z-space-2);
   }
   .foot {
     display: flex;

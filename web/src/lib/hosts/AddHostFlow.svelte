@@ -606,19 +606,21 @@
           command={installCommand}
           copyLabel={windowsHost ? 'Copy the PowerShell command' : 'Copy the install command'}
         >
-          {#if minted.install_tag}
-            <Facts
-              label="Version selected for this host"
-              items={[
-                {
-                  term: 'Controller build',
-                  value: minted.controller_version || NO_VALUE,
-                  mono: true,
-                },
-                { term: 'Host install channel', value: `:${minted.install_tag}`, mono: true },
-              ]}
-            />
-          {/if}
+          {#snippet facts()}
+            {#if minted?.install_tag}
+              <Facts
+                label="Version selected for this host"
+                items={[
+                  {
+                    term: 'Controller build',
+                    value: minted.controller_version || NO_VALUE,
+                    mono: true,
+                  },
+                  { term: 'Host install channel', value: `:${minted.install_tag}`, mono: true },
+                ]}
+              />
+            {/if}
+          {/snippet}
           <p>The token in it is shown once, only its hash is stored, and works once.</p>
           {#if versionNote}<p>{versionNote}</p>{/if}
         </Terminal>

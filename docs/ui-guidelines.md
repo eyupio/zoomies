@@ -934,8 +934,8 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `Toast` | bottom-right, `aria-live="polite"` (`assertive` for errors), auto-dismiss except on error |
 | `Skeleton` | **the only loading affordance for content.** Spinners are for in-flight *actions* only |
 | `EmptyState` | icon + one sentence of what this is + the action that fills it; a `visual` snippet replaces the icon disc where artwork is wanted, as the not-found page does with the mark |
-| `CopyButton` | wraps any ID; announces "copied" to screen readers |
-| `Terminal` | a command the operator runs somewhere else, in the window they will run it in: a bar with a title, the command in the mono face on the dark stage, the copy control and a line of fine print; a long command wraps inside it. `AddHostFlow`, `HostDoctorCommand` and `RunsOnPreview` draw it |
+| `CopyButton` | wraps any ID; announces "copied" to screen readers; a pill, round when it is the icon alone |
+| `Terminal` | a command the operator runs somewhere else, in the window they will run it in: a bar with a title, the command in the mono face on the dark stage, a `facts` slot the full width of the command beneath it, then the copy control and a line of fine print; a long command wraps inside it. `AddHostFlow`, `HostDoctorCommand` and `RunsOnPreview` draw it |
 | `Facts` | a block of facts about one thing on the dark stage: a definition list in two columns, one on a phone, with a value in the mono face or with its status pill after it. The version selected for a new host is the first to use it |
 | `RelativeTime` | "4m ago", the exact local time and the ISO timestamp in the tooltip, updates itself |
 | `Duration` | humanised, tabular numerals |
