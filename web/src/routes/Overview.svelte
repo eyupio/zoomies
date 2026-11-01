@@ -1,7 +1,7 @@
 <!-- Current work keeps the same place in both styles; supporting detail stays live when closed. -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { ChevronDown } from '@lucide/svelte';
+  import { ChevronDown, Clock, Gauge, HardDrive } from '@lucide/svelte';
   import RepairOffers from '$lib/repairs/RepairOffers.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
@@ -21,6 +21,7 @@
   import EventsFeed from '$lib/overview/EventsFeed.svelte';
   import OverviewDisclosure from '$lib/overview/OverviewDisclosure.svelte';
   import StartupTimings from '$lib/overview/StartupTimings.svelte';
+  import { OVERVIEW_PANELS, visiblePanels } from '$lib/overview/panels';
 
   let setupPending = $state(false);
   let failures = $state<RecentFailures | null>(null);
@@ -31,6 +32,8 @@
   let pageNav = $state<HTMLElement>();
   let jumped: { id: string; y: number } | null = null;
   const loading = $derived(!fleet.loaded);
+  // The body under the band, in the registry's order for this fleet state.
+  const panels = $derived(visiblePanels(OVERVIEW_PANELS, { setupPending }));
   const failed = $derived(!fleet.loaded && fleet.error !== null);
   const others = $derived(prefs.otherRunners);
   const capacity = $derived(fleet.stats?.hosts);
@@ -228,44 +231,67 @@
             {fleet.error ? 'The last refresh failed.' : 'Live updates are interrupted.'} Showing the last
             known figures; they may be out of date.
           </p>{/if}
-        <div class="attention">
-          <NeedsAttention {loading} {setupPending} />
-          {#if !setupPending}<RecentFailures bind:this={failures} />{/if}<RepairOffers />
-        </div>
+        <RepairOffers />
       </section>
-      <div class="work">
-        <div class="primary">
-          <div id="pools" class="destination" tabindex="-1"><PoolUtilisation {loading} /></div>
-          <div id="jobs" class="destination" tabindex="-1"><ActiveJobs /></div>
-        </div>
-        <div id="events" class="destination" tabindex="-1"><EventsFeed {loading} /></div>
+      <!--
+        One grid, drawn from the list: a full panel spans both columns, and a
+        main panel with the side panel after it share a row, two thirds and one
+        third. Nothing here decides the order; the list does.
+      -->
+      <div class="panels">
+        {#each panels as panel (panel.id)}
+          <div class="slot {panel.place}" data-panel={panel.id}>
+            {#if panel.id === 'attention'}
+              <NeedsAttention {loading} {setupPending} />
+            {:else if panel.id === 'pools'}
+              <div id="pools" class="destination" tabindex="-1"><PoolUtilisation {loading} /></div>
+            {:else if panel.id === 'failures'}
+              <RecentFailures bind:this={failures} />
+            {:else if panel.id === 'jobs'}
+              <div id="jobs" class="destination" tabindex="-1"><ActiveJobs /></div>
+            {:else if panel.id === 'events'}
+              <div id="events" class="destination" tabindex="-1"><EventsFeed {loading} /></div>
+            {:else if panel.id === 'history'}
+              {#if !setupPending}<OverviewDisclosure
+                  id="history"
+                  title="History"
+                  icon={Clock}
+                  summary={historySummary}
+                  ><FleetActivity
+                    bind:this={activity}
+                    onsummary={(value) => (historySummary = value)}
+                  /></OverviewDisclosure
+                >{/if}
+            {:else if panel.id === 'diagnostics'}
+              <section
+                id="diagnostics"
+                class="diagnostics destination"
+                tabindex="-1"
+                aria-label="Diagnostics"
+              >
+                <OverviewDisclosure
+                  id="capacity"
+                  title="Host capacity"
+                  icon={HardDrive}
+                  summary={capacitySummary}
+                  >{#if fleet.loaded}<HostCapacityMap
+                      hosts={fleet.hosts}
+                      page="overview"
+                      onmanage={() => navigate('/hosts')}
+                    />{/if}</OverviewDisclosure
+                >
+                <OverviewDisclosure
+                  id="startup"
+                  title="Startup and registration"
+                  icon={Gauge}
+                  summary={timingSummary}
+                  class="performance"><StartupTimings {loading} /></OverviewDisclosure
+                >
+              </section>
+            {/if}
+          </div>
+        {/each}
       </div>
-      {#if !setupPending}<OverviewDisclosure id="history" title="History" summary={historySummary}
-          ><FleetActivity
-            bind:this={activity}
-            onsummary={(value) => (historySummary = value)}
-          /></OverviewDisclosure
-        >{/if}
-      <section
-        id="diagnostics"
-        class="diagnostics destination"
-        tabindex="-1"
-        aria-label="Diagnostics"
-      >
-        <OverviewDisclosure id="capacity" title="Host capacity" summary={capacitySummary}
-          >{#if fleet.loaded}<HostCapacityMap
-              hosts={fleet.hosts}
-              page="overview"
-              onmanage={() => navigate('/hosts')}
-            />{/if}</OverviewDisclosure
-        >
-        <OverviewDisclosure
-          id="startup"
-          title="Startup and registration"
-          summary={timingSummary}
-          class="performance"><StartupTimings {loading} /></OverviewDisclosure
-        >
-      </section>
     </div>
   {/if}
 </div>
@@ -379,24 +405,32 @@
   }
   .stack,
   .now,
-  .primary,
-  .diagnostics,
-  .attention {
+  .diagnostics {
     display: flex;
     flex-direction: column;
     gap: var(--z-space-3);
     min-width: 0;
   }
-  .attention:empty {
+  .now:empty {
     display: none;
   }
-  .work {
+  .panels {
     display: grid;
     grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-    /* The events column is as tall as Pools and Active jobs beside it, so the two
-       columns end on one line instead of the shorter one trailing off. */
+    /* The side column is as tall as the main panel beside it, so the two end
+       on one line instead of the shorter one trailing off. */
     align-items: stretch;
     gap: var(--z-space-4);
+  }
+  .slot {
+    min-width: 0;
+  }
+  .slot.full {
+    grid-column: 1 / -1;
+  }
+  /* A history or a diagnostic that is absent in this state leaves no gap. */
+  .slot:empty {
+    display: none;
   }
   .destination,
   .now {
@@ -423,17 +457,25 @@
       display: none;
     }
   }
+  /* The main and side panels that share a row both fill it, whichever is the
+     taller, so the row ends on one line. */
   @media (min-width: 1181px) {
-    #events {
+    .slot.main,
+    .slot.side,
+    .slot.main > :global(*),
+    .slot.side > :global(*) {
       display: flex;
       flex-direction: column;
     }
-    #events > :global(.panel) {
+    .slot.main > :global(*),
+    .slot.side > :global(*),
+    .slot.main :global(.panel),
+    .slot.side :global(.panel) {
       flex: 1;
     }
   }
   @media (max-width: 1180px) {
-    .work {
+    .panels {
       grid-template-columns: minmax(0, 1fr);
     }
   }

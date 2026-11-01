@@ -25,7 +25,7 @@
 -->
 <script lang="ts">
   import Tooltip from '$lib/components/Tooltip.svelte';
-  import { History, SlidersHorizontal } from '@lucide/svelte';
+  import { Activity, History, SlidersHorizontal } from '@lucide/svelte';
   import { faultLabel } from '$lib/faults';
   import { formatNumber, pluralise } from '$lib/format';
   import { feed } from '$lib/state/feed.svelte';
@@ -101,6 +101,7 @@
 <!-- Expansion uses normal page scrolling, including on touch devices. -->
 <Panel
   title="Recent events"
+  icon={Activity}
   description={everything
     ? 'Newest first.'
     : `Newest first. ${categories.length - hidden} of ${categories.length} kinds.`}

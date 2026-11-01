@@ -50,7 +50,10 @@
 {#if loading || ordered.length === 0}
   <ProblemsSummary {loading} {setupPending} class={className} />
 {:else}
-  <div class="attention {className}" data-severity={worst}>
+  <!-- A phone draws no band and keeps the pools on its first screen, so it
+       keeps the one-line summary; the card is for the screens with room. -->
+  <div class="phone"><ProblemsSummary {loading} {setupPending} class={className} /></div>
+  <div class="attention wide {className}" data-severity={worst}>
     <Panel
       title="Needs attention"
       icon={TriangleAlert}
@@ -145,6 +148,17 @@
     line-height: var(--z-leading-sm);
     color: var(--z-text-muted);
     overflow-wrap: anywhere;
+  }
+  .phone {
+    display: none;
+  }
+  @media (max-width: 768px) {
+    .phone {
+      display: block;
+    }
+    .wide {
+      display: none;
+    }
   }
   @media (max-width: 480px) {
     /* A phone has no room for the button beside the words: it goes under them. */

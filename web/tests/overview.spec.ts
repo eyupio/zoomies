@@ -1268,3 +1268,28 @@ test('the overview keeps failed push and scheduled runs in its attention inbox',
   await expect(failures.getByText('No failure is waiting on you.')).toHaveCount(0);
   await expect(failures.getByRole('link', { name: 'Fix with Eli' })).toHaveCount(0);
 });
+
+// The body under the band is one grid drawn from the list of panels, in its
+// order, so a later change can save another order and hide some; on a phone
+// it is one column in that same order.
+test('the body is drawn from the registry, in its order, and one column on a phone', async ({
+  page,
+}) => {
+  const order = await page
+    .locator('[data-panel]')
+    .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-panel')));
+  expect(order).toEqual([
+    'attention',
+    'pools',
+    'failures',
+    'jobs',
+    'events',
+    'history',
+    'diagnostics',
+  ]);
+  await page.setViewportSize({ width: 375, height: 800 });
+  const columns = await page
+    .locator('.panels')
+    .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  expect(columns).toBe(1);
+});
