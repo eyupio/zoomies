@@ -91,7 +91,7 @@ func seed() error {
 				{RequestBytes: 91234, ElapsedMS: 9000},
 			}
 		}
-		if _, err := st.EnqueueEliRepair(ctx, r, 5); err != nil {
+		if _, err := st.EnqueueEliRepair(ctx, r); err != nil {
 			return err
 		}
 		r.State, r.Message = sample.state, sample.message
@@ -156,7 +156,7 @@ func seedAutomatic(ctx context.Context, st *store.Store, installation string, cl
 				Steps:       []store.EliRepairStep{{InputTokens: 18200, OutputTokens: 1400, UsageReported: true, RequestBytes: 61440, ElapsedMS: 33000}},
 			},
 		}
-		if _, err := st.EnqueueEliRepair(ctx, r, 5); err != nil {
+		if _, err := st.EnqueueEliRepair(ctx, r); err != nil {
 			return err
 		}
 		r.State, r.Message = sample.state, sample.message
