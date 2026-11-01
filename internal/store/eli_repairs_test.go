@@ -13,18 +13,14 @@ func TestRepairQueueDeduplicatesBeforeChargingAndKeepsInterruptedWritesStopped(t
 	s := newTestStore(t)
 	ctx := context.Background()
 	r := &EliRepair{Repo: "acme/repo", DedupKey: "comment:1"}
-	added, e := s.EnqueueEliRepair(ctx, r, 1)
+	added, e := s.EnqueueEliRepair(ctx, r)
 	if e != nil || !added {
 		t.Fatalf("enqueue %v %v", added, e)
 	}
 	duplicate := &EliRepair{Repo: r.Repo, DedupKey: r.DedupKey}
-	added, e = s.EnqueueEliRepair(ctx, duplicate, 1)
+	added, e = s.EnqueueEliRepair(ctx, duplicate)
 	if e != nil || added || duplicate.ID != r.ID {
 		t.Fatalf("duplicate %+v %v %v", duplicate, added, e)
-	}
-	_, e = s.EnqueueEliRepair(ctx, &EliRepair{Repo: r.Repo, DedupKey: "other"}, 1)
-	if !errors.Is(e, ErrConflict) {
-		t.Fatalf("budget %v", e)
 	}
 	r.State = "working"
 	r.CommitSHA = "fix"
@@ -39,7 +35,7 @@ func TestRepairQueueDeduplicatesBeforeChargingAndKeepsInterruptedWritesStopped(t
 		t.Fatalf("repeated interrupted repair: %v", e)
 	}
 	for i := 0; i < 105; i++ {
-		_, e = s.EnqueueEliRepair(ctx, &EliRepair{Repo: fmt.Sprintf("acme/%d", i), DedupKey: fmt.Sprint(i)}, 1)
+		_, e = s.EnqueueEliRepair(ctx, &EliRepair{Repo: fmt.Sprintf("acme/%d", i), DedupKey: fmt.Sprint(i)})
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -75,11 +71,11 @@ func TestCheckingRepairsRemainVisibleBeyondTheHistoryLimit(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	r := &EliRepair{Repo: "acme/check", DedupKey: "check"}
-	s.EnqueueEliRepair(ctx, r, 1)
+	s.EnqueueEliRepair(ctx, r)
 	r.State = "checking"
 	s.SaveEliRepair(ctx, r)
 	for i := 0; i < 105; i++ {
-		s.EnqueueEliRepair(ctx, &EliRepair{Repo: fmt.Sprint(i), DedupKey: fmt.Sprint(i)}, 1)
+		s.EnqueueEliRepair(ctx, &EliRepair{Repo: fmt.Sprint(i), DedupKey: fmt.Sprint(i)})
 	}
 	rows, e := s.CheckingEliRepairs(ctx)
 	if e != nil || len(rows) != 1 || rows[0].ID != r.ID {
@@ -127,11 +123,11 @@ func TestAnExplicitUIRepairCanRetryAFailureWithoutRepeatingAnActiveRepair(t *tes
 	s := newTestStore(t)
 	ctx := context.Background()
 	first := &EliRepair{Repo: "acme/repo", UserID: "owner", DedupKey: "ui:repo:1:head:owner"}
-	if added, err := s.EnqueueEliRepair(ctx, first, 5); err != nil || !added {
+	if added, err := s.EnqueueEliRepair(ctx, first); err != nil || !added {
 		t.Fatal(err)
 	}
 	duplicate := &EliRepair{Repo: first.Repo, UserID: first.UserID, DedupKey: first.DedupKey}
-	if added, err := s.EnqueueEliRepair(ctx, duplicate, 5); err != nil || added || duplicate.ID != first.ID {
+	if added, err := s.EnqueueEliRepair(ctx, duplicate); err != nil || added || duplicate.ID != first.ID {
 		t.Fatalf("duplicate %+v %v", duplicate, err)
 	}
 	first.State = "failed"
@@ -139,11 +135,11 @@ func TestAnExplicitUIRepairCanRetryAFailureWithoutRepeatingAnActiveRepair(t *tes
 		t.Fatal(err)
 	}
 	retry := &EliRepair{Repo: first.Repo, UserID: first.UserID, DedupKey: first.DedupKey}
-	if added, err := s.EnqueueEliRepair(ctx, retry, 5); err != nil || !added || retry.ID == first.ID {
+	if added, err := s.EnqueueEliRepair(ctx, retry); err != nil || !added || retry.ID == first.ID {
 		t.Fatalf("retry %+v %v", retry, err)
 	}
 	duplicate = &EliRepair{Repo: first.Repo, UserID: first.UserID, DedupKey: first.DedupKey}
-	if added, err := s.EnqueueEliRepair(ctx, duplicate, 5); err != nil || added || duplicate.ID != retry.ID {
+	if added, err := s.EnqueueEliRepair(ctx, duplicate); err != nil || added || duplicate.ID != retry.ID {
 		t.Fatalf("active retry duplicated %+v %v", duplicate, err)
 	}
 }
@@ -151,9 +147,9 @@ func TestPersonalRepairHistoryIsFilteredBeforeThePageLimit(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	own := &EliRepair{Repo: "own/repo", UserID: "owner", DedupKey: "own"}
-	s.EnqueueEliRepair(ctx, own, 1)
+	s.EnqueueEliRepair(ctx, own)
 	for i := 0; i < 110; i++ {
-		s.EnqueueEliRepair(ctx, &EliRepair{Repo: fmt.Sprint("repo/", i), UserID: fmt.Sprint("user", i), DedupKey: fmt.Sprint("other", i)}, 1)
+		s.EnqueueEliRepair(ctx, &EliRepair{Repo: fmt.Sprint("repo/", i), UserID: fmt.Sprint("user", i), DedupKey: fmt.Sprint("other", i)})
 	}
 	rows, _, err := s.ListEliRepairsPage(ctx, EliRepairFilter{Scoped: true, OwnerID: "owner", Limit: MaxEliRepairPage})
 	if err != nil || len(rows) != 1 || rows[0].ID != own.ID {
@@ -190,7 +186,7 @@ func TestManualRepairPoliciesNeedNoInstallationPayerAndOffersSpendNoAttempts(t *
 	s := newTestStore(t)
 	ctx := context.Background()
 	inst, _, _ := seedPool(t, s)
-	policy := EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, Enabled: true, AskFirst: true, DailyLimit: 5}
+	policy := EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, Enabled: true, AskFirst: true}
 	if err := s.SetEliRepairPolicy(ctx, policy); err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +246,7 @@ func TestRepairDetailsPreserveReportedAndUnknownUsage(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	row := &EliRepair{Repo: "acme/repo", DedupKey: "details"}
-	if _, err := s.EnqueueEliRepair(ctx, row, 5); err != nil {
+	if _, err := s.EnqueueEliRepair(ctx, row); err != nil {
 		t.Fatal(err)
 	}
 	row.Details = EliRepairDetails{Model: "test", Stage: "prepare_fix", SourceBytes: 123, Steps: []EliRepairStep{{InputTokens: 10, OutputTokens: 5, UsageReported: true}, {UsageReported: false}}}
@@ -267,43 +263,16 @@ func TestConcurrentOfferAcceptancesCannotChargeDifferentPeople(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	first := &EliRepair{Repo: "acme/repo", DedupKey: "offer:one", UserID: "one"}
-	if _, err := s.EnqueueEliRepair(ctx, first, 5); err != nil {
+	if _, err := s.EnqueueEliRepair(ctx, first); err != nil {
 		t.Fatal(err)
 	}
 	second := &EliRepair{Repo: "acme/repo", DedupKey: "offer:one", UserID: "two"}
-	if _, err := s.EnqueueEliRepair(ctx, second, 5); !errors.Is(err, ErrConflict) {
+	if _, err := s.EnqueueEliRepair(ctx, second); !errors.Is(err, ErrConflict) {
 		t.Fatalf("another owner accepted: %v", err)
 	}
 	rows, _, _ := s.ListEliRepairsPage(ctx, EliRepairFilter{Limit: MaxEliRepairPage})
 	if len(rows) != 1 {
 		t.Fatal("duplicate attempt charged")
-	}
-}
-
-// A person who asked for a repair and was refused needs to know whether the
-// repository or they had used up the day, because the cures differ: an
-// administrator can raise the repository's limit, and only waiting clears one
-// person's. Both stay an ErrConflict for callers that do not care which.
-func TestARefusedRepairNamesTheLimitThatRefusedIt(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-	if _, err := s.EnqueueEliRepair(ctx, &EliRepair{Repo: "acme/repo", DedupKey: "a"}, 1); err != nil {
-		t.Fatal(err)
-	}
-	_, err := s.EnqueueEliRepair(ctx, &EliRepair{Repo: "acme/repo", DedupKey: "b"}, 1)
-	if !errors.Is(err, ErrEliRepoBudget) || !errors.Is(err, ErrConflict) || errors.Is(err, ErrEliPersonBudget) {
-		t.Fatalf("the repository's limit was reported as %v", err)
-	}
-
-	// Room in the repository, but one person has asked ten times today.
-	for i := 0; i < 10; i++ {
-		if _, err := s.EnqueueEliRepair(ctx, &EliRepair{Repo: "acme/other", DedupKey: fmt.Sprint("p", i), UserID: "one"}, 50); err != nil {
-			t.Fatal(err)
-		}
-	}
-	_, err = s.EnqueueEliRepair(ctx, &EliRepair{Repo: "acme/other", DedupKey: "p10", UserID: "one"}, 50)
-	if !errors.Is(err, ErrEliPersonBudget) || !errors.Is(err, ErrConflict) || errors.Is(err, ErrEliRepoBudget) {
-		t.Fatalf("one person's limit was reported as %v", err)
 	}
 }
 
@@ -435,7 +404,7 @@ func TestARepairKeepsItsCaseThroughEveryWrite(t *testing.T) {
 		}},
 	}
 	r := &EliRepair{Repo: "acme/repo", DedupKey: "ui:case", Details: EliRepairDetails{Case: want}}
-	if added, e := s.EnqueueEliRepair(ctx, r, 5); e != nil || !added {
+	if added, e := s.EnqueueEliRepair(ctx, r); e != nil || !added {
 		t.Fatalf("enqueue: added=%v, %v", added, e)
 	}
 	r.State = "working"

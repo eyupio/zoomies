@@ -36,7 +36,7 @@ func (h *harness) seedRepairs(t *testing.T, inst *store.Installation, rows ...hi
 			UserID:         row.owner,
 			Trigger:        row.trigger,
 		}
-		if added, err := h.st.EnqueueEliRepair(h.ctx, r, 50); err != nil || !added {
+		if added, err := h.st.EnqueueEliRepair(h.ctx, r); err != nil || !added {
 			t.Fatalf("seeding repair %d: added=%v, %v", i, added, err)
 		}
 		r.State = row.state

@@ -382,13 +382,13 @@ test('the Eli repair components show every state they can be in', async ({ page 
   await expect(blocked.getByRole('listitem').filter({ hasText: 'Write access' })).toContainText(
     'Your linked GitHub account needs write access',
   );
-  await expect(blocked.getByText('Not checked yet.')).toHaveCount(5);
+  await expect(blocked.getByText('Not checked yet.')).toHaveCount(4);
   await expect(blocked.getByRole('link', { name: /Manage access on GitHub/ })).toHaveAttribute(
     'href',
     'https://github.com/eyupio/zoomies/settings/access',
   );
   await expect(region.locator('[data-gallery="checks-passed"]')).toContainText(
-    'All 9 checks passed',
+    'All 8 checks passed',
   );
 
   // The decision card at each stage.

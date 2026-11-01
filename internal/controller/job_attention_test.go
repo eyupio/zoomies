@@ -101,7 +101,7 @@ func TestRepairRequestRechecksBeforeSpendingAnAttempt(t *testing.T) {
 			fake := &repairFake{Client: h.gh.Client(inst.Target, inst.TargetType), check: state}
 			h.c.clients.entries[inst.ID] = &clientEntry{client: fake, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
 			repo := inst.Target + "/repo"
-			if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, Enabled: true, DailyLimit: 5}); err != nil {
+			if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, Enabled: true}); err != nil {
 				t.Fatal(err)
 			}
 			user := &store.User{Username: "owner", Role: store.RoleViewer}
@@ -142,11 +142,11 @@ func TestRepairRequestRechecksBeforeSpendingAnAttempt(t *testing.T) {
 }
 
 func TestQueuedRepairStopsBeforeOpeningAProviderWhenChecksAlreadyPassed(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	s.link(t, true)
 	s.fake.check = "passed"
 	row := &store.EliRepair{DedupKey: "queued-fixed", Repo: s.repo, InstallationID: s.inst.ID, PullNumber: 1, HeadSHA: "old", Trigger: "mention", UserID: s.user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
-	if _, err := s.h.st.EnqueueEliRepair(s.h.ctx, row, 5); err != nil {
+	if _, err := s.h.st.EnqueueEliRepair(s.h.ctx, row); err != nil {
 		t.Fatal(err)
 	}
 	s.h.c.runEliRepair(s.h.ctx, row)
@@ -157,7 +157,7 @@ func TestQueuedRepairStopsBeforeOpeningAProviderWhenChecksAlreadyPassed(t *testi
 }
 
 func TestRepairDoesNotPublishWhenChecksPassWhileTheModelWorks(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	s.link(t, true)
 	s.fake.check = "failed"
 	personal := &store.AssistantProvider{Name: "Personal", OwnerID: s.user.ID, Kind: "openai", Enabled: true}
@@ -171,7 +171,7 @@ func TestRepairDoesNotPublishWhenChecksPassWhileTheModelWorks(t *testing.T) {
 		}}), nil
 	}
 	row := &store.EliRepair{DedupKey: "fixed-during-model", Repo: s.repo, InstallationID: s.inst.ID, PullNumber: 1, HeadSHA: "old", Trigger: "mention", UserID: s.user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
-	if _, err := s.h.st.EnqueueEliRepair(s.h.ctx, row, 5); err != nil {
+	if _, err := s.h.st.EnqueueEliRepair(s.h.ctx, row); err != nil {
 		t.Fatal(err)
 	}
 	s.h.c.runEliRepair(s.h.ctx, row)

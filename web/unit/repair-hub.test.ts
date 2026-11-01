@@ -91,7 +91,6 @@ const policy = (repo: string, over: Partial<Policy> = {}): Policy => ({
   automatic: false,
   ask_first: true,
   allow_workflows: false,
-  daily_limit: 5,
   ...over,
 });
 const input = (

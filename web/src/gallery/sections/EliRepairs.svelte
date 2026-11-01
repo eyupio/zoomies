@@ -10,7 +10,7 @@
   repairs that are running, and history rows with and without their boxes.
 
   The automatic repairs panel is here too: a repository ready to repair, one
-  whose provider cannot pay, one whose allowance is spent, one with a repair
+  whose provider cannot pay, one with a repair
   running, its read failing with and without rows to keep, and the dialog that
   stops them for one repository, for several and when the stop did not go
   through.
@@ -222,7 +222,6 @@
     'installation',
     'access',
     'policy',
-    'budget',
     'pull',
     'checks',
     'permissions',
@@ -233,21 +232,12 @@
     installation: 'eyupio/zoomies is served by the eyupio GitHub installation.',
     access: '@dana can write to eyupio/zoomies.',
     policy: 'Manual repair is on for this repository. Workflow file edits are off.',
-    budget: '4 attempts left in the 24-hour window.',
     pull: 'Pull request #1131 is open and its head is a41c9e2.',
     checks: 'The latest checks are still failing.',
     permissions:
       'Contents and pull requests write, and actions, checks and commit statuses read, are granted.',
   };
   const ACCESS = 'Your linked GitHub account needs write access to this repository.';
-  const BUDGET =
-    'This repository has used all 5 repairs allowed in 24 hours. The next attempt can start once the oldest of them leaves the window.';
-  const spentChecks: Check[] = ORDER.map((code, i): Check => {
-    const at = ORDER.indexOf('budget');
-    if (i < at) return { code, status: 'ok', message: MESSAGES[code] };
-    if (i === at) return { code, status: 'blocked', message: BUDGET, blocker: 'budget' };
-    return { code, status: 'unchecked', message: 'Not checked yet.' };
-  });
   const blockedChecks: Check[] = ORDER.map((code, i): Check => {
     const at = ORDER.indexOf('access');
     if (i < at) return { code, status: 'ok', message: MESSAGES[code] };
@@ -277,8 +267,6 @@
     provider: 'Personal Anthropic',
     model: 'claude-sonnet',
     allow_workflows: false,
-    remaining: 4,
-    reset_at: new Date(Date.now() + 5 * 3_600_000).toISOString(),
     blockers: [],
     checks: passedChecks,
     ...over,
@@ -289,13 +277,6 @@
     blockers: [{ code: 'access', message: ACCESS }],
     checks: blockedChecks,
   });
-  const spent = readiness({
-    ready: false,
-    remaining: 0,
-    reset_at: new Date(Date.now() + 40 * 60_000).toISOString(),
-    blockers: [{ code: 'budget', message: BUDGET }],
-    checks: spentChecks,
-  });
   const ready = readiness({});
   const superseded = readiness({
     ready: false,
@@ -303,7 +284,7 @@
       {
         code: 'superseded',
         message:
-          'The pull request has a newer commit since you reviewed this failure. No repair was started and no attempt was used.',
+          'The pull request has a newer commit since you reviewed this failure. No repair was started.',
       },
     ],
   });
@@ -431,7 +412,6 @@
     automatic: false,
     ask_first: true,
     allow_workflows: false,
-    daily_limit: 5,
   });
   const linked = (confirmed: boolean): Schemas['EliRepairSettings'] => ({
     identities: [{ user_id: 'usr_1', github_user_id: 42, github_login: 'dana', confirmed }],
@@ -462,8 +442,6 @@
     provider_name: 'Team provider',
     model: 'claude-sonnet-5-5',
     allow_workflows: false,
-    daily_limit: 5,
-    used: 2,
     running: 0,
     ...over,
   });
@@ -473,7 +451,6 @@
       provider_id: '',
       provider_name: '',
       model: '',
-      used: 0,
       problem:
         'No installation provider is set for this repository, so automatic repairs cannot start. Choose one in setup.',
     }),
@@ -481,8 +458,6 @@
       repo: 'eyupio/docs-with-a-very-long-repository-name-that-keeps-going',
       provider_name: 'A provider with a rather long name',
       model: 'a-model-with-a-long-name-4-5-20261018',
-      used: 5,
-      next_free_at: iso(NOW + 40 * 60_000),
       last: {
         id: 'eli_docs',
         state: 'checks_failed',
@@ -492,7 +467,6 @@
     }),
     automaticRow({
       repo: 'eyupio/zoomies',
-      used: 3,
       running: 1,
       allow_workflows: true,
       last: {
@@ -513,7 +487,6 @@
       admin: true,
       attempt: undefined,
       repository: undefined,
-      now: NOW,
       ...over,
     })!;
   const notes = {
@@ -521,7 +494,6 @@
       attempt: repair({ id: 'eli_tried', trigger: 'automatic', state: 'checks_failed' }),
     }),
     none: aboutAutomatic({}),
-    spent: aboutAutomatic({ repository: automaticRows[1] }),
     broken: aboutAutomatic({ repository: automaticRows[0] }),
     neutral: aboutAutomatic({ admin: false }),
   };
@@ -788,21 +760,6 @@
       </div>
     </div>
     <div class="pair">
-      <div data-gallery="decision-budget">
-        <DecisionCard
-          stage="blocked"
-          readiness={spent}
-          rows={checkRows(spent, REPO_URL)}
-          busy={false}
-          bind:instruction
-          allowInstruction={true}
-          onstart={noop}
-          onrecheck={noop}
-          onsetup={noop}
-        />
-      </div>
-    </div>
-    <div class="pair">
       <div data-gallery="decision-changed">
         <DecisionCard
           stage="changed"
@@ -899,7 +856,6 @@
         <AutomaticNote note={notes.neutral} />
       </div>
       <div class="stack" data-gallery="automatic-notes-b">
-        <AutomaticNote note={notes.spent} />
         <AutomaticNote note={notes.broken} />
       </div>
     </div>

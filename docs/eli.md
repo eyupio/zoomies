@@ -237,7 +237,7 @@ read a repository's source. It reads as the person asking, through the same rout
 and the same permissions, so it can see nothing that person could not.
 
 Those two repair reads are the feature's whole presence in the toolbox. Asking
-again costs an attempt from the repository's and your own budget and pushes to
+again pushes to
 the pull request with your provider behind it, so starting a repair, accepting
 an offer, clearing the history and setting a repository's policy are not tools:
 they are the presses a person makes at the repairs page, and a model asked for
@@ -642,13 +642,13 @@ without invoking a model. A run this fleet did not run, so it has nothing
 recorded of, is named as GitHub reports it: `Fix with Eli` works for a job that
 never touched this fleet's runners, and the error output is read from GitHub when
 the job is opened. **Can Eli act on this?** appears only when something is
-blocked, showing the blocked rows first with **Show all 9 checks** for the rest.
+blocked, showing the blocked rows first with **Show all 8 checks** for the rest.
 A person decides to spend an attempt once they can see what it would be spent
 on, so **Fix with Eli** is on that page, immediately under the case.
 Missing account or repository setup opens the missing setup inline, under the
 decision that needs it. It reuses existing settings; an administrator can link
-their own GitHub account and enable manual repairs in one save, with five
-attempts per day and workflow edits disabled for a new policy. A personal
+their own GitHub account and enable manual repairs in one save, with workflow
+edits disabled for a new policy. A personal
 provider is still required. Setup checks the same run again before offering the
 repair. Runs without an eligible open PR explain why they cannot be repaired.
 
@@ -688,10 +688,7 @@ For advanced setup across repositories:
    a policy off. Only Automatic requires an installation provider.
    The settings page has its own **On this page** navigation for the account, the
    repositories and the people.
-4. Set the try budget, from 1 to 50 per rolling 24 hours, under **Advanced**.
-   Explicit and automatic tries share this repository budget. Each personal
-   account also has a limit of 10 explicit tries per rolling 24 hours.
-5. An administrator verifies account ownership, selects the Zoomies user and a
+4. An administrator verifies account ownership, selects the Zoomies user and a
    discovered repository where their GitHub account has write permission, then
    links the account once. Each requester confirms **Allow this GitHub account to
    request repairs using my provider** and adds an enabled personal provider.
@@ -706,8 +703,8 @@ For advanced setup across repositories:
    use again, and the move is written to the audit log with the account it was
    taken from. History the old account asked for stays with that account; a
    move is a link, not a takeover of its record.
-6. Return to the original PR and check readiness again. Review the payer, model,
-   workflow permission and remaining allowance before choosing **Fix with Eli**.
+5. Return to the original PR and check readiness again. Review the payer, model
+   and workflow permission before choosing **Fix with Eli**.
 
 Ask me first groups failed jobs into one persistent offer per PR head. The
 Overview shows available offers; **Needs you** on the Eli repairs page lets you
@@ -749,11 +746,9 @@ A command from someone with write access that Eli cannot act on is answered, not
 dropped: Eli puts a confused face on the comment and replies on the PR with the
 reason. The reason is one of these: repairs are not enabled for this repository
 and installation; the GitHub account is not linked to a Zoomies user, or its
-owner has not allowed it; the Zoomies account is disabled; or the
-repository's attempt budget or the person's own limit is used up. A command from
+owner has not allowed it; or the Zoomies account is disabled. A command from
 anyone without write access is ignored without a word, so a stranger's comment
-never makes the App post. The repository budget is shared with automatic repairs,
-which on a repository whose CI fails often can use it up before anyone asks.
+never makes the App post.
 The App's own GitHub handle (for example `@zoomies-eyupio2`, the name GitHub
 autocompletes) works too, once Zoomies has learned the App's slug. Recognition
 uses the comment text and does not require GitHub mention notification routing.
@@ -775,22 +770,15 @@ come first:
 * **Who pays, and whether they can.** A provider that was deleted (which leaves
   the policy with none), is disabled or belongs to a person cannot pay for an
   unattended repair, and the row says so in a sentence with a link to the policy
-  in setup. A failed check there is not queued at all, so it spends none of the
-  allowance and leaves no comment on the pull request.
-* **The allowance.** How many attempts the last 24 hours have used out of the
-  daily limit. It is the repository's, shared by repairs people ask for and by the
-  automation, and a repair cleared from the history still counts. When every
-  attempt is used the row says when a place frees, which after a lowered limit
-  is later than the oldest attempt leaving. Until then no
-  automatic repair starts there, and a repair started by hand is refused for the
-  same reason.
+  in setup. A failed check there is not queued at all, so it spends nothing
+  and leaves no comment on the pull request.
 * **The latest automatic repair** still in the history, which opens, and how many
   are running now.
 
 **Stop automatic repairs** (and **Stop all**, with two or more repositories) asks
 what should happen instead. **Ask me first** hands the decision back: when checks
 fail Eli offers a repair under *Needs you* and waits, and the repository keeps its
-provider, allowance and workflow setting. **Turn repairs off** clears the policy's
+provider and workflow setting. **Turn repairs off** clears the policy's
 enable switch and nothing else, so Eli neither offers nor starts a repair there
 and nobody can request one until the switch is turned back on in repair settings,
 which resumes Automatic as it was. Either way, a repair already queued is blocked
@@ -810,8 +798,8 @@ GitHub's report that a job failed, so a failure reported before Automatic was
 switched on, or whose report never arrived, is not picked up on its own. Anyone
 else who opens that page sees one sentence saying the repository repairs itself.
 
-![An automatic repair that did not fix its failure: Started automatically, the outcome and next steps, and the Automatic repairs card with who pays, the allowance used, Stop automatic repairs and a link to its policy](screenshots/eli-repair-automatic-dark.webp#only-dark){ .zoomies-shot }
-![An automatic repair that did not fix its failure: Started automatically, the outcome and next steps, and the Automatic repairs card with who pays, the allowance used, Stop automatic repairs and a link to its policy](screenshots/eli-repair-automatic-light.webp#only-light){ .zoomies-shot }
+![An automatic repair that did not fix its failure: Started automatically, the outcome and next steps, and the Automatic repairs card with who pays, Stop automatic repairs and a link to its policy](screenshots/eli-repair-automatic-dark.webp#only-dark){ .zoomies-shot }
+![An automatic repair that did not fix its failure: Started automatically, the outcome and next steps, and the Automatic repairs card with who pays, Stop automatic repairs and a link to its policy](screenshots/eli-repair-automatic-light.webp#only-light){ .zoomies-shot }
 
 The panel reads `GET /api/v1/assistant/repairs/automatic` and the stop is
 `POST /api/v1/assistant/repairs/automatic/stop`, both for administrators; the
@@ -819,7 +807,7 @@ The panel reads `GET /api/v1/assistant/repairs/automatic` and the stop is
 
 ## What a repair does
 
-The durable queue deduplicates webhook retries and charges attempts at
+The durable queue deduplicates webhook retries and records each attempt at
 admission. The worker reads the PR's pinned commit, changed text files, repository
 inventory and bounded failed-job evidence. It asks the selected model for a
 strict JSON plan, with at most twelve model turns and eight changed files. Each
@@ -924,8 +912,7 @@ shown. Once every repair on the
 page is chosen and more match, **Select all** takes everything the filters match,
 up to 500 at a time, and says so when there are more than that. **Clear from
 history** asks first, saying how many repairs it will clear, and then hides them
-from this list and does nothing else. A cleared repair is kept: it still counts
-towards each repository's and each person's daily limit, it still stops Eli
+from this list and does nothing else. A cleared repair is kept: it still stops Eli
 repairing its own commit, and it still stops Eli answering the same webhook
 delivery twice. It cannot be restored from the page, but asking again for it,
 from the page or by accepting an offer, brings it back into the history; a

@@ -3,7 +3,7 @@
   in the way and what to do about it, and what was never reached because an
   earlier check stopped the run. When everything passes it folds to one line.
 
-  Checking never calls a model and never uses an attempt, and the panel says so,
+  Checking never calls a model, and the panel says so,
   because a person who is about to press a button that costs one wants to know
   that this one does not.
 -->
@@ -81,7 +81,7 @@
 
 <Panel
   title="Can Eli act on this?"
-  description="Checked on GitHub just now. Checking never calls a model or uses an attempt."
+  description="Checked on GitHub just now. Checking never calls a model."
   flush
 >
   {#snippet actions()}
