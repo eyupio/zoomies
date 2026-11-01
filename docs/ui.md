@@ -934,16 +934,12 @@ behind **More**.
   who or what began it, and when. A row opens the repair. Choosing repairs to
   clear them from the list is behind **Select**, so the list reads as a record
   until you mean to edit it. Clearing hides a repair and does nothing else: a
-  cleared repair leaves the list and its total, but still counts towards the
-  daily limit.
+  cleared repair leaves the list and its total, but stays on record.
 * **Automatic repairs** is an administrator's section after History, closed
   until opened, and appears only when at least one repository is set to
   *Automatic*. Each repository has a row. It says who pays (the installation
   provider and its model) and whether that can work, with a sentence and a
-  **Fix in setup** link when the provider is missing, disabled or a person's; how
-  much of the allowance the last 24 hours have used, which is the repository's
-  and is shared with repairs people ask for, and, when it is all used, when a
-  place frees; the latest automatic repair, which opens, and how many are
+  **Fix in setup** link when the provider is missing, disabled or a person's; the latest automatic repair, which opens, and how many are
   running now. **Stop automatic repairs** opens a dialog that asks what should
   happen instead, **Ask me first** or **Turn repairs off**, and says what
   becomes of a repair already under way: one that has not pushed yet stops
@@ -975,15 +971,15 @@ read the end of its log. Zoomies fetches the error lines from GitHub when you
 ask, takes out anything that looks like a credential and keeps nothing, and does
 so only for a person whose linked GitHub account can write to the repository.
 The decision card sits beside the failure and says who pays (the provider and
-its model), how many tries are left today, whether Eli may edit workflow files
+its model), whether Eli may edit workflow files
 and which branch it pushes to, with room to add a note and **Fix with Eli** to
 start the repair. **Can Eli act on this?** appears only when something is
-blocked, listing the blocked checks first and **Show all 9 checks** for the
+blocked, listing the blocked checks first and **Show all 8 checks** for the
 rest: your GitHub account, the model provider, the GitHub App installation,
-write access, the repository policy, tries left, the pull request, its failing
+write access, the repository policy, the pull request, its failing
 checks and the app's permissions. Each says what passed, what is in the way and
 what to do about it, and a check an earlier one stopped is shown as never
-reached. Checking never calls a model or spends a try. A failure that Eli is
+reached. Checking never calls a model. A failure that Eli is
 already repairing opens that repair instead of offering another, and one that has
 since been fixed, closed or replaced by a newer commit says so instead of
 offering a repair; for a newer commit, **Check the current PR** asks again about
@@ -994,14 +990,14 @@ On a repository set to Automatic, a note sits below that card. For an
 administrator it says whether Eli already tried this failure on its own, with a
 link to the attempt (Eli does not try the same commit twice by itself, so
 starting another attempt here is the retry), or that nothing has started and the
-most likely reason: the provider cannot pay, the allowance is used up, or Eli
+most likely reason: the provider cannot pay, or Eli
 starts from GitHub's report of a failed job and this failure was reported before
 Automatic was switched on or never arrived. For anyone else it is one sentence
 saying the repository repairs itself, because an ordinary person cannot read what
 Eli did on its own.
 
-![The repair page for a pull request Eli cannot yet act on: the failure it is about, the next step naming the GitHub account and model provider in the way, What failed, and the checks with Show all 9 checks](screenshots/eli-repair-readiness-dark.webp#only-dark){ .zoomies-shot }
-![The repair page for a pull request Eli cannot yet act on: the failure it is about, the next step naming the GitHub account and model provider in the way, What failed, and the checks with Show all 9 checks](screenshots/eli-repair-readiness-light.webp#only-light){ .zoomies-shot }
+![The repair page for a pull request Eli cannot yet act on: the failure it is about, the next step naming the GitHub account and model provider in the way, What failed, and the checks with Show all 8 checks](screenshots/eli-repair-readiness-dark.webp#only-dark){ .zoomies-shot }
+![The repair page for a pull request Eli cannot yet act on: the failure it is about, the next step naming the GitHub account and model provider in the way, What failed, and the checks with Show all 8 checks](screenshots/eli-repair-readiness-light.webp#only-light){ .zoomies-shot }
 
 A repair has a page of its own, at `/repairs/<id>`, that follows it from the
 moment it is queued. While Eli works it says one line: the current step, how
@@ -1026,21 +1022,20 @@ the outcome, and the timeline is one press away under **Timeline**.
 A repair the repository's policy started says so under **This attempt**
 (**Started by** Automatic repairs, by the repository's policy), and an
 administrator also gets a card, **Automatic repairs on** the repository, beside
-it. The card says where that policy stands now: still automatic (who pays, how
-much of the allowance is used), with **Stop automatic repairs** and a link to the
-policy in settings, or no longer automatic. While the repair has not pushed yet
+it. The card says where that policy stands now: still automatic (who pays), with
+**Stop automatic repairs** and a link to the policy in settings, or no longer
+automatic. While the repair has not pushed yet
 it says that stopping now also stops this repair.
 
-![An automatic repair that did not fix its failure: Started automatically, the outcome and next steps, and the Automatic repairs card with who pays, the allowance used, Stop automatic repairs and a link to its policy](screenshots/eli-repair-automatic-dark.webp#only-dark){ .zoomies-shot }
-![An automatic repair that did not fix its failure: Started automatically, the outcome and next steps, and the Automatic repairs card with who pays, the allowance used, Stop automatic repairs and a link to its policy](screenshots/eli-repair-automatic-light.webp#only-light){ .zoomies-shot }
+![An automatic repair that did not fix its failure: Started automatically, the outcome and next steps, and the Automatic repairs card with who pays, Stop automatic repairs and a link to its policy](screenshots/eli-repair-automatic-dark.webp#only-dark){ .zoomies-shot }
+![An automatic repair that did not fix its failure: Started automatically, the outcome and next steps, and the Automatic repairs card with who pays, Stop automatic repairs and a link to its policy](screenshots/eli-repair-automatic-light.webp#only-light){ .zoomies-shot }
 
 **Repair settings** has its own **On this page** navigation for the account, the
 repositories and the people. It is where administrators choose the repositories
 and **When should Eli help?**, and link each requester's GitHub account to their
 Zoomies user; the requester then confirms that their own provider pays for the
 repairs they ask for. Start with **Ask me first** to review fixes before spending
-tokens. Workflow edits and the daily try budget sit behind **Advanced** and stay
-off or at five tries until somebody changes them. When a repair page is blocked
+tokens. Workflow edits sit behind **Advanced** and stay off until somebody changes them. When a repair page is blocked
 on setup, a short wizard for that failure fixes what is missing and leaves you on
 it.
 

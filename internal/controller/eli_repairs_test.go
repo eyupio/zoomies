@@ -26,7 +26,7 @@ func TestRepairAdmissionRequiresLinkedHumanCommentAndDeduplicates(t *testing.T) 
 	if e := h.st.CreateAssistantProvider(h.ctx, p); e != nil {
 		t.Fatal(e)
 	}
-	policy := store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: p.ID, Enabled: true, Automatic: true, DailyLimit: 5}
+	policy := store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: p.ID, Enabled: true, Automatic: true}
 	if e := h.st.SetEliRepairPolicy(h.ctx, policy); e != nil {
 		t.Fatal(e)
 	}
@@ -223,7 +223,7 @@ func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testi
 				h.st.SetDefaultAssistantProvider(h.ctx, p.ID)
 			}
 			repo := "acme/repo"
-			h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: shared.ID, Enabled: true, Automatic: true, DailyLimit: 5})
+			h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: shared.ID, Enabled: true, Automatic: true})
 			actualTrigger := "mention"
 			if trigger == "automatic" {
 				actualTrigger = "automatic"
@@ -243,7 +243,7 @@ func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testi
 				dedup = "comment:acme/repo:77"
 			}
 			row := &store.EliRepair{DedupKey: dedup, Repo: repo, InstallationID: inst.ID, PullNumber: 1, HeadSHA: "old", RunID: 9, Trigger: actualTrigger, UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
-			h.st.EnqueueEliRepair(h.ctx, row, 5)
+			h.st.EnqueueEliRepair(h.ctx, row)
 			if trigger == "queued-old" {
 				h.advance(2 * time.Hour)
 				fake.check = "waiting"
@@ -325,9 +325,9 @@ func TestRepairWorkerStopsBeforeModelUseWhenPersonalProviderIsMissing(t *testing
 	p := &store.AssistantProvider{Name: "Shared", Kind: "openai", Enabled: true}
 	h.st.CreateAssistantProvider(h.ctx, p)
 	h.st.SetDefaultAssistantProvider(h.ctx, p.ID)
-	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: p.ID, Enabled: true, DailyLimit: 5})
+	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: p.ID, Enabled: true})
 	row := &store.EliRepair{DedupKey: "missing", Repo: "acme/repo", InstallationID: inst.ID, PullNumber: 1, Trigger: "mention", UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
-	h.st.EnqueueEliRepair(h.ctx, row, 5)
+	h.st.EnqueueEliRepair(h.ctx, row)
 	h.c.runEliRepair(h.ctx, row)
 	if row.State != "failed" || fake.commits != 0 || !strings.Contains(row.Message, "personal provider") {
 		t.Fatalf("installation fallback: %+v", row)
@@ -342,7 +342,7 @@ func TestAutomaticRepairIgnoresNonPRFailuresBeforeChargingTheBudget(t *testing.T
 	h.c.clients.entries[inst.ID] = &clientEntry{client: fake, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
 	p := &store.AssistantProvider{Name: "Install", Kind: "openai", Enabled: true}
 	h.st.CreateAssistantProvider(h.ctx, p)
-	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: p.ID, Enabled: true, Automatic: true, DailyLimit: 1})
+	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: p.ID, Enabled: true, Automatic: true})
 	body, _ := json.Marshal(map[string]any{"action": "completed", "repository": map[string]any{"full_name": repo}, "workflow_job": map[string]any{"id": 12, "run_id": 9, "head_sha": "old", "conclusion": "failure"}})
 	if err := h.c.enqueueRepairWebhook(h.ctx, inst, "workflow_job", body); err != nil {
 		t.Fatal(err)
@@ -369,7 +369,7 @@ func TestLinkedCommentCannotSpendTheBudgetAfterRepositoryAccessIsRemoved(t *test
 	h.c.clients.entries[inst.ID] = &clientEntry{client: fake, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
 	p := &store.AssistantProvider{Name: "Install", Kind: "openai", Enabled: true}
 	h.st.CreateAssistantProvider(h.ctx, p)
-	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: p.ID, Enabled: true, DailyLimit: 1})
+	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: p.ID, Enabled: true})
 	user := &store.User{Username: "octo", Role: store.RoleViewer}
 	h.st.CreateUser(h.ctx, user)
 	h.st.SetEliIdentity(h.ctx, store.EliIdentity{UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"})
@@ -471,9 +471,9 @@ func TestARepairThatCannotReadTheSourceSaysWhy(t *testing.T) {
 	h.st.CreateAssistantProvider(h.ctx, shared)
 	mine := &store.AssistantProvider{Name: "Mine", Kind: "openai", Enabled: true, OwnerID: user.ID}
 	h.st.CreateAssistantProvider(h.ctx, mine)
-	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: shared.ID, Enabled: true, DailyLimit: 5})
+	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: shared.ID, Enabled: true})
 	row := &store.EliRepair{DedupKey: "unreadable", Repo: "acme/repo", InstallationID: inst.ID, PullNumber: 1, Trigger: "mention", UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
-	h.st.EnqueueEliRepair(h.ctx, row, 5)
+	h.st.EnqueueEliRepair(h.ctx, row)
 	h.c.runEliRepair(h.ctx, row)
 	if row.State != "failed" || row.Message != "The PR source could not be read: repository inventory exceeds Eli's repair limit." {
 		t.Fatalf("repair = %+v", row)
@@ -521,9 +521,9 @@ func TestARepairAnswersAnUnofferedToolCallOnceAndNamesItWhenItRepeats(t *testing
 				}
 				h.st.SetDefaultAssistantProvider(h.ctx, p.ID)
 			}
-			h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: shared.ID, Enabled: true, DailyLimit: 5})
+			h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: shared.ID, Enabled: true})
 			row := &store.EliRepair{DedupKey: "comment:acme/repo:77", Repo: "acme/repo", InstallationID: inst.ID, PullNumber: 1, Trigger: "mention", UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
-			h.st.EnqueueEliRepair(h.ctx, row, 5)
+			h.st.EnqueueEliRepair(h.ctx, row)
 			h.c.runEliRepair(h.ctx, row)
 			if len(requests) != 2 {
 				t.Fatalf("the model was asked %d times; a tool call it was not offered is answered once, then the repair gives up", len(requests))
@@ -592,9 +592,9 @@ func TestARepairReadsAToolCallNamedAfterAReplyAsThatReply(t *testing.T) {
 		t.Fatal(e)
 	}
 	h.st.SetDefaultAssistantProvider(h.ctx, personal.ID)
-	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: personal.ID, Enabled: true, DailyLimit: 5})
+	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: personal.ID, Enabled: true})
 	row := &store.EliRepair{DedupKey: "comment:acme/repo:77", Repo: "acme/repo", InstallationID: inst.ID, PullNumber: 1, Trigger: "mention", UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
-	h.st.EnqueueEliRepair(h.ctx, row, 5)
+	h.st.EnqueueEliRepair(h.ctx, row)
 	h.c.runEliRepair(h.ctx, row)
 
 	if len(requests) != 2 {
@@ -657,11 +657,11 @@ func TestARepairPublishesOnlyAfterTheModelCorrectsAMixedAction(t *testing.T) {
 	if err := h.st.SetDefaultAssistantProvider(h.ctx, personal.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: personal.ID, Enabled: true, DailyLimit: 5}); err != nil {
+	if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: personal.ID, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	row := &store.EliRepair{DedupKey: "mixed-action", Repo: "acme/repo", InstallationID: inst.ID, PullNumber: 1, Trigger: "mention", UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
-	if _, err := h.st.EnqueueEliRepair(h.ctx, row, 5); err != nil {
+	if _, err := h.st.EnqueueEliRepair(h.ctx, row); err != nil {
 		t.Fatal(err)
 	}
 	h.c.runEliRepair(h.ctx, row)
@@ -702,9 +702,9 @@ func TestARepairThatCannotPaySaysTheProviderIsOutOfCredit(t *testing.T) {
 		t.Fatal(e)
 	}
 	h.st.SetDefaultAssistantProvider(h.ctx, personal.ID)
-	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: personal.ID, Enabled: true, DailyLimit: 5})
+	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: personal.ID, Enabled: true})
 	row := &store.EliRepair{DedupKey: "comment:acme/repo:77", Repo: "acme/repo", InstallationID: inst.ID, PullNumber: 1, Trigger: "mention", UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
-	h.st.EnqueueEliRepair(h.ctx, row, 5)
+	h.st.EnqueueEliRepair(h.ctx, row)
 	h.c.runEliRepair(h.ctx, row)
 
 	if row.State != "failed" {

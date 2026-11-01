@@ -31,7 +31,6 @@ import {
 } from './support/repairs';
 
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
-const inMinutes = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
 
 /** The section link, opening the phone's More group when the link is behind it. */
 async function sectionLink(page: import('@playwright/test').Page, name: string) {
@@ -75,7 +74,7 @@ test.describe('the hub', () => {
     expect(calls.automaticReads).toBe(0);
   });
 
-  test('lists each automatic repository with who pays, its allowance, its health and its latest repair', async ({
+  test('lists each automatic repository with who pays, its health and its latest repair', async ({
     page,
   }) => {
     await mockRepairApi(page, {
@@ -87,11 +86,9 @@ test.describe('the hub', () => {
           provider_name: '',
           model: '',
           problem: NO_PROVIDER,
-          used: 0,
         }),
         automaticRow({
           repo: 'acme/widgets',
-          used: 3,
           running: 1,
           last: {
             id: 'rep-done',
@@ -126,29 +123,12 @@ test.describe('the hub', () => {
     await expect(healthy.getByRole('heading', { name: 'acme/widgets' })).toBeVisible();
     await expect(healthy).toContainText('Ready');
     await expect(healthy).toContainText('Paid by Team provider (team-model)');
-    await expect(healthy).toContainText('3 of 5 attempts used in the last 24 hours');
-    await expect(
-      healthy.getByRole('meter', { name: 'Allowance used on acme/widgets' }),
-    ).toHaveAttribute('aria-valuenow', '3');
+    await expect(healthy.getByRole('meter')).toHaveCount(0);
     await expect(healthy).toContainText('1 running now');
     await expect(healthy.getByRole('link', { name: /Checks passed on #1127/ })).toHaveAttribute(
       'href',
       '/repairs/rep-done',
     );
-  });
-
-  test('says when a spent allowance has a place again', async ({ page }) => {
-    await mockRepairApi(page, {
-      settings: settingsWithAutomatic('acme/widgets'),
-      automatic: [automaticRow({ used: 5, daily_limit: 5, next_free_at: inMinutes(40) })],
-    });
-    await page.goto('/repairs');
-    const row = page.getByRole('region', { name: 'Automatic repairs' }).getByRole('article');
-    await expect(row).toContainText('Allowance used');
-    await expect(row).toContainText('All 5 attempts used in the last 24 hours');
-    await expect(row).toContainText('Automatic repairs here wait until');
-    await expect(row).toContainText(/\(in (39|40)m\)/);
-    await expect(row.getByRole('meter')).toHaveAttribute('aria-valuenow', '5');
   });
 
   test('is counted in the section navigation', async ({ page }) => {
@@ -353,7 +333,7 @@ test.describe('the attempt page', () => {
     await mockRepairApi(page, {
       settings: settingsWithAutomatic('acme/widgets'),
       attempts: { 'rep-auto': automaticAttempt() },
-      automatic: [automaticRow({ used: 3 })],
+      automatic: [automaticRow({})],
     });
     await page.goto('/repairs/rep-auto');
     const facts = page.getByRole('complementary', { name: 'This attempt' });
@@ -367,12 +347,11 @@ test.describe('the attempt page', () => {
     const { calls } = await mockRepairApi(page, {
       settings: settingsWithAutomatic('acme/widgets'),
       attempts: { 'rep-auto': automaticAttempt() },
-      automatic: [automaticRow({ used: 3 })],
+      automatic: [automaticRow({})],
     });
     await page.goto('/repairs/rep-auto');
     await expect(card(page)).toContainText('Automatic repairs are on');
     await expect(card(page)).toContainText('Paid by Team provider (team-model)');
-    await expect(card(page)).toContainText('3 of 5 attempts used in the last 24 hours');
     await expect(card(page).getByRole('link', { name: 'Policy in setup' })).toHaveAttribute(
       'href',
       '/repairs/setup?repo=acme%2Fwidgets',
@@ -524,7 +503,7 @@ test.describe('the repair page', () => {
       settings: settingsWithAutomatic('acme/widgets'),
       jobs: [failedJob()],
       readiness: automatic(),
-      automatic: [automaticRow({ used: 1 })],
+      automatic: [automaticRow({})],
     });
     await page.goto(FAILURE);
     const aside = note(page);
@@ -533,32 +512,6 @@ test.describe('the repair page', () => {
     ).toBeVisible();
     await expect(aside).toContainText('GitHub’s report of a failed job');
     await expect(aside.getByRole('button', { name: 'Fix with Eli' })).toBeVisible();
-  });
-
-  test('names a spent allowance as the reason, with when it frees', async ({ page }) => {
-    await mockRepairApi(page, {
-      settings: settingsWithAutomatic('acme/widgets'),
-      jobs: [failedJob()],
-      readiness: readiness({
-        policy_mode: 'automatic',
-        ready: false,
-        remaining: 0,
-        blockers: [{ code: 'budget', message: 'The repair allowance is exhausted.' }],
-        checks: stoppedAt('budget', 'The repair allowance is exhausted.', 'budget'),
-      }),
-      automatic: [
-        automaticRow({
-          used: 5,
-          daily_limit: 5,
-          next_free_at: new Date(Date.now() + 40 * 60_000).toISOString(),
-        }),
-      ],
-    });
-    await page.goto(FAILURE);
-    const aside = note(page);
-    await expect(aside).toContainText('allowance is used up');
-    await expect(aside).toContainText(/wait until .+ \(in (39|40)m\)/);
-    await expect(aside).not.toContainText('GitHub’s report of a failed job');
   });
 
   test('names a provider that cannot pay as the reason', async ({ page }) => {

@@ -104,7 +104,6 @@ test('failure setup enables only its repository, rechecks the run and repairs th
       automatic: false,
       ask_first: false,
       allow_workflows: false,
-      daily_limit: 5,
     },
   ]);
   expect(model.checks.length).toBeGreaterThanOrEqual(2);

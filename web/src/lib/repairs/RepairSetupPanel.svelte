@@ -53,7 +53,6 @@
   let provider = $state('');
   let enabled = $state(true);
   let workflows = $state(false);
-  let limit = $state('5');
   let user = $state('');
   let login = $state('');
   let linkInstallation = $state('');
@@ -207,7 +206,6 @@
     enabled = p.enabled;
     mode = p.automatic ? 'automatic' : p.ask_first ? 'ask' : 'manual';
     workflows = p.allow_workflows;
-    limit = String(p.daily_limit);
   }
   async function savePolicies(): Promise<void> {
     bulkResults = [];
@@ -219,7 +217,6 @@
       automatic: mode === 'automatic',
       ask_first: mode === 'ask',
       allow_workflows: workflows,
-      daily_limit: Number(limit),
     };
     for (const repo of targets) {
       try {
@@ -269,7 +266,7 @@
       <summary><Settings2 size={16} /> Repairs in these repositories</summary>
       <p>
         Explicit requests use the requester's provider. Automatic repairs use the installation
-        provider selected here, within the daily budget.
+        provider selected here.
       </p>
       {#if policies.length === 0}
         <p class="lead">No repository has repairs turned on yet. Choose one below to start.</p>
@@ -335,21 +332,6 @@
             label="Allow edits to workflow files"
             description="Off by default. Allows changes to .github/workflows files."
           />
-          <div id="allowance">
-            <Field
-              id="policy-limit"
-              label="Tries per 24 hours"
-              hint="Includes explicit requests and automatic tries. Personal accounts have an additional limit of 10."
-              ><Input
-                id="policy-limit"
-                bind:value={limit}
-                type="number"
-                min={1}
-                max={50}
-                required
-              /></Field
-            >
-          </div>
         </details>
         {#if selectedRepos.length === 0}
           <p class="hint">Choose at least one repository above.</p>

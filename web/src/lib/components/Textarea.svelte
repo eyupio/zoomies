@@ -66,7 +66,7 @@
     color: var(--z-text);
     background: var(--z-surface);
     border: var(--z-border-width) solid var(--z-border-strong);
-    border-radius: var(--z-radius-sm);
+    border-radius: var(--z-radius-lg);
     resize: vertical;
   }
   textarea.mono {

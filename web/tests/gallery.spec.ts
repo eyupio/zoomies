@@ -37,6 +37,7 @@ const SECTIONS = [
   'Data grid',
   'Eli repairs',
   'Public pages',
+  'Terminal and facts',
 ];
 
 function open(page: Page, style: string, mode: string): Promise<unknown> {
@@ -50,6 +51,12 @@ function parseColour(value: string): [number, number, number] {
       ?.split(/[,\s/]+/)
       .map(Number) ?? [];
   return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+}
+
+/** A token's hex value as the channels getComputedStyle reports. */
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
 }
 
 function luminance(value: string): number {
@@ -375,13 +382,13 @@ test('the Eli repair components show every state they can be in', async ({ page 
   await expect(blocked.getByRole('listitem').filter({ hasText: 'Write access' })).toContainText(
     'Your linked GitHub account needs write access',
   );
-  await expect(blocked.getByText('Not checked yet.')).toHaveCount(5);
+  await expect(blocked.getByText('Not checked yet.')).toHaveCount(4);
   await expect(blocked.getByRole('link', { name: /Manage access on GitHub/ })).toHaveAttribute(
     'href',
     'https://github.com/eyupio/zoomies/settings/access',
   );
   await expect(region.locator('[data-gallery="checks-passed"]')).toContainText(
-    'All 9 checks passed',
+    'All 8 checks passed',
   );
 
   // The decision card at each stage.
@@ -588,4 +595,138 @@ test('a panel with an icon draws it in a tile beside the title', async ({ page }
   expect(w).toBe(h);
   expect(radius).toBeGreaterThan(0);
   await expect(tile).toHaveAttribute('aria-hidden', 'true');
+});
+
+// The shared look's one button: a pill in the brand's Runner Blue under Zoomies
+// Black, which is 7.3:1 in every combination, where the darkened accent was
+// needed only to carry white text. Held here so a later component cannot drift
+// back to a rectangle or to the accent.
+test('the primary button is a pill in Runner Blue with Zoomies Black text, in every combination', async ({
+  page,
+}) => {
+  for (const { style, mode } of COMBINATIONS) {
+    await open(page, style, mode);
+    const button = page.getByRole('button', { name: 'Create a pool' }).first();
+    const root = page.locator(':root');
+    const [radius, background, colour, runnerBlue, black] = await Promise.all([
+      button.evaluate((el) => getComputedStyle(el).borderRadius),
+      button.evaluate((el) => getComputedStyle(el).backgroundColor),
+      button.evaluate((el) => getComputedStyle(el).color),
+      root.evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-runner-blue').trim()),
+      root.evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-black').trim()),
+    ]);
+    expect(parseFloat(radius), `${style} ${mode}`).toBeGreaterThanOrEqual(999);
+    expect(parseColour(background), `${style} ${mode}`).toEqual(hexToRgb(runnerBlue));
+    expect(parseColour(colour), `${style} ${mode}`).toEqual(hexToRgb(black));
+  }
+});
+
+// The icon buttons share the pill, and a text field takes the large radius so
+// it reads as the card's child rather than a box inside it; the checkbox and
+// the radio box keep the small one.
+test('icon buttons are pills and text fields take the large radius', async ({ page }) => {
+  await open(page, 'mission-control', 'dark');
+  const large = await page
+    .locator(':root')
+    .evaluate((el) => getComputedStyle(el).getPropertyValue('--z-radius-lg').trim());
+  const icon = page.locator('.icon-btn').first();
+  expect(
+    parseFloat(await icon.evaluate((el) => getComputedStyle(el).borderRadius)),
+  ).toBeGreaterThanOrEqual(999);
+  for (const selector of ['.field input', '.field select', '.field textarea']) {
+    const control = page.locator(selector).first();
+    expect(await control.evaluate((el) => getComputedStyle(el).borderRadius), selector).toBe(large);
+  }
+});
+
+// A status badge is a pill in shape as well as in name. Its two heights do not
+// move, so no grid row grows where a small badge sits beside a medium one.
+test('a status badge is a pill and keeps its height in both sizes', async ({ page }) => {
+  await open(page, 'classic', 'light');
+  const badges = page.locator('.badge');
+  expect(await badges.count()).toBeGreaterThan(1);
+  const first = badges.first();
+  expect(
+    parseFloat(await first.evaluate((el) => getComputedStyle(el).borderRadius)),
+  ).toBeGreaterThanOrEqual(999);
+  const heights = await badges.evaluateAll((els) =>
+    els.map((el) => el.getBoundingClientRect().height),
+  );
+  const [md, sm] = await page.locator(':root').evaluate((el) => {
+    const s = getComputedStyle(el);
+    const rem = parseFloat(s.fontSize);
+    return [
+      parseFloat(s.getPropertyValue('--z-space-5')) * rem,
+      parseFloat(s.getPropertyValue('--z-space-4')) * rem,
+    ];
+  });
+  for (const h of heights) expect([Math.round(md), Math.round(sm)]).toContain(Math.round(h));
+});
+
+// A command the operator runs is shown in a window on the dark stage, the
+// same black in every combination, and a long one wraps inside it on a phone
+// rather than widening the page.
+test('the terminal is a window on the dark stage that wraps a long command', async ({ page }) => {
+  for (const { style, mode } of COMBINATIONS) {
+    await open(page, style, mode);
+    const terminal = page.locator('.terminal').first();
+    const [background, black, radius] = await Promise.all([
+      terminal.evaluate((el) => getComputedStyle(el).backgroundColor),
+      page
+        .locator(':root')
+        .evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-black').trim()),
+      terminal.evaluate((el) => getComputedStyle(el).borderRadius),
+    ]);
+    expect(parseColour(background), `${style} ${mode}`).toEqual(hexToRgb(black));
+    expect(radius).not.toBe('0px');
+    await expect(terminal.locator('.terminal-bar')).toContainText('sam@lab-vm-2');
+    await expect(terminal.getByRole('button', { name: 'Copy the command' })).toBeVisible();
+  }
+  await page.setViewportSize({ width: 375, height: 800 });
+  await open(page, 'mission-control', 'dark');
+  const overflow = await page
+    .locator('.terminal')
+    .first()
+    .evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(overflow).toBe(0);
+});
+
+// The copy control inside the window is the one control on the stage, so its
+// edge has to read against the black (the 3:1 bar for a control's edge), and
+// it is a pill like every other button, not the one rectangle left.
+test('the copy control inside the terminal is a pill whose edge reads on the stage', async ({
+  page,
+}) => {
+  for (const { style, mode } of COMBINATIONS) {
+    await open(page, style, mode);
+    const terminal = page.locator('.terminal').first();
+    const control = terminal.getByRole('button', { name: 'Copy the command' });
+    const [background, edge, radius, height] = await Promise.all([
+      terminal.evaluate((el) => getComputedStyle(el).backgroundColor),
+      control.evaluate((el) => getComputedStyle(el).borderTopColor),
+      control.evaluate((el) => parseFloat(getComputedStyle(el).borderTopLeftRadius)),
+      control.evaluate((el) => el.getBoundingClientRect().height),
+    ]);
+    expect(contrast(edge, background), `${style} ${mode} edge`).toBeGreaterThanOrEqual(3);
+    expect(radius, `${style} ${mode} radius`).toBeGreaterThanOrEqual(height / 2);
+  }
+});
+
+// A block of facts about one thing stands on the dark stage as the terminal
+// does, and on a phone it is one column in which an unbroken value wraps.
+test('the facts panel is on the dark stage and holds an unbroken value', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  await open(page, 'mission-control', 'light');
+  const facts = page.locator('.facts-panel').first();
+  const [background, black] = await Promise.all([
+    facts.evaluate((el) => getComputedStyle(el).backgroundColor),
+    page
+      .locator(':root')
+      .evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-black').trim()),
+  ]);
+  expect(parseColour(background)).toEqual(hexToRgb(black));
+  expect(await facts.evaluate((el) => el.scrollWidth - el.clientWidth)).toBe(0);
+  expect(
+    await facts.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length),
+  ).toBe(1);
 });

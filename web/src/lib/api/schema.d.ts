@@ -4081,8 +4081,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * See the repositories that repair themselves, what they have used and whether they can run
-         * @description One entry for each enabled repository policy set to Automatic, the ones that cannot run first and then by name. `used` is every attempt on the repository in the last 24 hours, by anyone and by any trigger, a repair cleared from the history included: the number the daily limit is held against. Automatic repairs have no owner, so this is an administrator's view and nobody else can read it.
+         * See the repositories that repair themselves and whether they can run
+         * @description One entry for each enabled repository policy set to Automatic, the ones that cannot run first and then by name. Automatic repairs have no owner, so this is an administrator's view and nobody else can read it.
          */
         get: operations["getEliAutomaticRepairs"];
         put?: never;
@@ -4219,7 +4219,7 @@ export interface paths {
         put?: never;
         /**
          * Clear several repairs from the history
-         * @description Hides repairs from the history and does nothing else to them. The repair stays on record, so it still counts towards the repository's and the person's daily limit, still stops Eli answering the same webhook delivery twice, and still stops Eli repairing its own commit. Answers 200 with a result for each distinct id, in the order asked, so a partial failure is visible rather than hidden behind one status code. A repair that is still queued, running or waiting on checks comes back as `still running`. An id that does not exist and an id the caller may not clear both come back as `not found`, so the answer cannot be used to discover which ids are real. The caller may clear their own repairs, and an administrator may clear anyone's, but a token narrowed to `assistant:own` can read an id it cannot clear and is answered `not found` for it. An id that is already cleared is `ok`. One audit row, `assistant.repair_clear`, is written when the request cleared any repair and lists the ids it cleared; an `ok` for an id that was already cleared is not among them, and a request that cleared nothing writes no row.
+         * @description Hides repairs from the history and does nothing else to them. The repair stays on record, so it still stops Eli answering the same webhook delivery twice, and still stops Eli repairing its own commit. Answers 200 with a result for each distinct id, in the order asked, so a partial failure is visible rather than hidden behind one status code. A repair that is still queued, running or waiting on checks comes back as `still running`. An id that does not exist and an id the caller may not clear both come back as `not found`, so the answer cannot be used to discover which ids are real. The caller may clear their own repairs, and an administrator may clear anyone's, but a token narrowed to `assistant:own` can read an id it cannot clear and is answered `not found` for it. An id that is already cleared is `ok`. One audit row, `assistant.repair_clear`, is written when the request cleared any repair and lists the ids it cleared; an `ok` for an id that was already cleared is not among them, and a request that cleared nothing writes no row.
          */
         post: operations["bulkEliRepairAction"];
         delete?: never;
@@ -4270,7 +4270,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Configure a repository’s installation provider and repair budget */
+        /** Configure a repository’s installation provider and repair policy */
         put: operations["setEliRepairPolicy"];
         post?: never;
         delete?: never;
@@ -11555,11 +11555,11 @@ export interface components {
         /** @description One thing readiness looks at and what it found. A check readiness never reached because an earlier one stopped it is unchecked, which is not the same as passed. */
         EliReadinessCheck: {
             /** @enum {string} */
-            code: "identity" | "provider" | "installation" | "access" | "policy" | "budget" | "pull" | "checks" | "permissions";
+            code: "identity" | "provider" | "installation" | "access" | "policy" | "pull" | "checks" | "permissions";
             /** @enum {string} */
             status: "ok" | "blocked" | "unchecked";
             message: string;
-            /** @description On a blocked check, the code of the blocker that stopped it, as it appears in `blockers`. The check says where readiness stopped and the blocker says why, and they are not the same: GitHub not answering (`github`) or the allowance not being readable (`budget_unavailable`) is reported on whichever check it was making. When the target has changed, `blockers` holds that change alone, and a check blocked before it was found still names what stopped it. Absent on a check that passed or was not reached, and from a controller older than this field. */
+            /** @description On a blocked check, the code of the blocker that stopped it, as it appears in `blockers`. The check says where readiness stopped and the blocker says why, and they are not the same: GitHub not answering (`github`) is reported on whichever check it was making. When the target has changed, `blockers` holds that change alone, and a check blocked before it was found still names what stopped it. Absent on a check that passed or was not reached, and from a controller older than this field. */
             blocker?: string;
         };
         /** @description One step of a failed job, as GitHub reported it ended. */
@@ -11603,12 +11603,6 @@ export interface components {
             provider: string;
             model: string;
             allow_workflows: boolean;
-            remaining: number;
-            /**
-             * Format: date-time
-             * @description When the allowance next changes in the person's favour: the instant the oldest attempt in whichever of the repository's and the person's windows has least room leaves it. When both are full it is the later of the two, because a place needs both. Absent when nothing has been spent or the allowance could not be read.
-             */
-            reset_at?: string;
             /**
              * @description How the repository's policy lets Eli help, so a page can say whether the repository would have started a repair itself. Present once readiness has reached the policy check, and not before.
              * @enum {string}
@@ -11621,7 +11615,7 @@ export interface components {
                 code: string;
                 message: string;
             }[];
-            /** @description Every check readiness makes, always the same nine in the order they are made, so a page can show what passed as well as what did not. */
+            /** @description Every check readiness makes, always the same eight in the order they are made, so a page can show what passed as well as what did not. */
             checks: components["schemas"]["EliReadinessCheck"][];
         };
         EliOpportunity: {
@@ -11671,7 +11665,6 @@ export interface components {
             /** @default false */
             ask_first: boolean;
             allow_workflows: boolean;
-            daily_limit: number;
         };
         EliRepairRequest: {
             repo: string;
@@ -11740,14 +11733,6 @@ export interface components {
             /** @description Present only when automatic repairs here cannot run: the provider is missing, disabled or a person's. One sentence that says what to do in setup. */
             problem?: string;
             allow_workflows: boolean;
-            daily_limit: number;
-            /** @description Attempts on this repository in the last 24 hours, by anyone and by any trigger, cleared ones included. The same figure the daily limit is held against. */
-            used: number;
-            /**
-             * Format: date-time
-             * @description When a full allowance has a place again: the oldest of those attempts leaves the 24-hour window, or, when the limit was lowered below what is spent, the one whose leaving brings the count under it. Present when `used` is above zero.
-             */
-            next_free_at?: string;
             /** @description Automatic repairs queued, working or waiting on checks now. */
             running: number;
             last?: components["schemas"]["EliAutomaticLast"];
