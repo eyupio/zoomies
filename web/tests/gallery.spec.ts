@@ -621,3 +621,27 @@ test('icon buttons are pills and text fields take the large radius', async ({ pa
     expect(await control.evaluate((el) => getComputedStyle(el).borderRadius), selector).toBe(large);
   }
 });
+
+// A status badge is a pill in shape as well as in name. Its two heights do not
+// move, so no grid row grows where a small badge sits beside a medium one.
+test('a status badge is a pill and keeps its height in both sizes', async ({ page }) => {
+  await open(page, 'classic', 'light');
+  const badges = page.locator('.badge');
+  expect(await badges.count()).toBeGreaterThan(1);
+  const first = badges.first();
+  expect(
+    parseFloat(await first.evaluate((el) => getComputedStyle(el).borderRadius)),
+  ).toBeGreaterThanOrEqual(999);
+  const heights = await badges.evaluateAll((els) =>
+    els.map((el) => el.getBoundingClientRect().height),
+  );
+  const [md, sm] = await page.locator(':root').evaluate((el) => {
+    const s = getComputedStyle(el);
+    const rem = parseFloat(s.fontSize);
+    return [
+      parseFloat(s.getPropertyValue('--z-space-5')) * rem,
+      parseFloat(s.getPropertyValue('--z-space-4')) * rem,
+    ];
+  });
+  for (const h of heights) expect([Math.round(md), Math.round(sm)]).toContain(Math.round(h));
+});
