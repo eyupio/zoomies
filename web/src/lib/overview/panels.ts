@@ -39,12 +39,105 @@ export const OVERVIEW_PANELS: readonly OverviewPanel[] = [
   { id: 'diagnostics', title: 'Diagnostics', place: 'full' },
 ];
 
-/** The panels drawn in this fleet state, in the list's order. */
-export function visiblePanels(
+export const OVERVIEW_PANEL_IDS: readonly OverviewPanelId[] = OVERVIEW_PANELS.map((p) => p.id);
+
+export function isPanelId(value: unknown): value is OverviewPanelId {
+  return typeof value === 'string' && (OVERVIEW_PANEL_IDS as readonly string[]).includes(value);
+}
+
+/**
+ * How one person has arranged the page: the order the panels are drawn in,
+ * and the ones not drawn. Kept with the account, so the arrangement made at
+ * the desk is the one the phone draws; read forgivingly, because a build
+ * that adds a panel must never hide it and a build that removes one must
+ * never break a layout that named it.
+ */
+export interface PanelLayout {
+  /** Panel ids in the order drawn. A panel not named is appended in default order. */
+  order: OverviewPanelId[];
+  /** Panels not drawn. */
+  hidden: OverviewPanelId[];
+}
+
+export const DEFAULT_LAYOUT: PanelLayout = { order: [...OVERVIEW_PANEL_IDS], hidden: [] };
+
+/** The ids a document names that this build has, each once, in the document's order. */
+function knownIds(value: unknown): OverviewPanelId[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter(isPanelId))];
+}
+
+/** The layout a stored or received document describes, the default where it says nothing this build can honour. */
+export function readPanelLayout(raw: unknown, panels: readonly OverviewPanel[]): PanelLayout {
+  const doc = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const order = knownIds(doc.order);
+  for (const panel of panels) if (!order.includes(panel.id)) order.push(panel.id);
+  return { order, hidden: knownIds(doc.hidden) };
+}
+
+/** The panels drawn: the layout's order, less the hidden, less those the fleet state leaves out. */
+export function visibleLayout(
   panels: readonly OverviewPanel[],
+  layout: PanelLayout,
   fleet: { setupPending: boolean },
 ): OverviewPanel[] {
-  return panels.filter((panel) => !panel.absentWhen?.(fleet));
+  return ordered(panels, layout).filter(
+    (panel) => !layout.hidden.includes(panel.id) && !panel.absentWhen?.(fleet),
+  );
+}
+
+/** The panels a person hid and could show again now: hidden, and not absent in this fleet state. */
+export function hiddenPanels(
+  panels: readonly OverviewPanel[],
+  layout: PanelLayout,
+  fleet: { setupPending: boolean },
+): OverviewPanel[] {
+  return ordered(panels, layout).filter(
+    (panel) => layout.hidden.includes(panel.id) && !panel.absentWhen?.(fleet),
+  );
+}
+
+function ordered(panels: readonly OverviewPanel[], layout: PanelLayout): OverviewPanel[] {
+  const byId = new Map(panels.map((panel) => [panel.id, panel]));
+  return readPanelLayout(layout, panels)
+    .order.map((id) => byId.get(id))
+    .filter((panel): panel is OverviewPanel => panel !== undefined);
+}
+
+/** The layout with one panel swapped with its neighbour; unchanged at an end. */
+export function movePanel(layout: PanelLayout, id: OverviewPanelId, delta: -1 | 1): PanelLayout {
+  const order = [...layout.order];
+  const at = order.indexOf(id);
+  const to = at + delta;
+  if (at < 0 || to < 0 || to >= order.length) return layout;
+  [order[at], order[to]] = [order[to]!, order[at]!];
+  return { order, hidden: [...layout.hidden] };
+}
+
+/** The layout with one panel placed before another, or last when `before` is null. */
+export function placePanel(
+  layout: PanelLayout,
+  id: OverviewPanelId,
+  before: OverviewPanelId | null,
+): PanelLayout {
+  const order = layout.order.filter((other) => other !== id);
+  const at = before === null ? -1 : order.indexOf(before);
+  if (at < 0) order.push(id);
+  else order.splice(at, 0, id);
+  return { order, hidden: [...layout.hidden] };
+}
+
+export function setHidden(layout: PanelLayout, id: OverviewPanelId, hidden: boolean): PanelLayout {
+  const rest = layout.hidden.filter((other) => other !== id);
+  return { order: [...layout.order], hidden: hidden ? [...rest, id] : rest };
+}
+
+export function isDefaultLayout(layout: PanelLayout): boolean {
+  return (
+    layout.hidden.length === 0 &&
+    layout.order.length === OVERVIEW_PANEL_IDS.length &&
+    layout.order.every((id, i) => id === OVERVIEW_PANEL_IDS[i])
+  );
 }
 
 /** Problems the attention card shows before it hands over to the drawer. */

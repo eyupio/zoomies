@@ -21,7 +21,7 @@
   import EventsFeed from '$lib/overview/EventsFeed.svelte';
   import OverviewDisclosure from '$lib/overview/OverviewDisclosure.svelte';
   import StartupTimings from '$lib/overview/StartupTimings.svelte';
-  import { OVERVIEW_PANELS, visiblePanels } from '$lib/overview/panels';
+  import { DEFAULT_LAYOUT, OVERVIEW_PANELS, visibleLayout } from '$lib/overview/panels';
 
   let setupPending = $state(false);
   let failures = $state<RecentFailures | null>(null);
@@ -33,7 +33,7 @@
   let jumped: { id: string; y: number } | null = null;
   const loading = $derived(!fleet.loaded);
   // The body under the band, in the registry's order for this fleet state.
-  const panels = $derived(visiblePanels(OVERVIEW_PANELS, { setupPending }));
+  const panels = $derived(visibleLayout(OVERVIEW_PANELS, DEFAULT_LAYOUT, { setupPending }));
   const failed = $derived(!fleet.loaded && fleet.error !== null);
   const others = $derived(prefs.otherRunners);
   const capacity = $derived(fleet.stats?.hosts);
