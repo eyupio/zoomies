@@ -67,7 +67,11 @@ const child = spawn(
 
 mkdirSync(outDir, { recursive: true });
 const pngDir = mkdtempSync(join(tmpdir(), 'zoomies-gallery-png-'));
-const browser = await chromium.launch();
+// The same override the suite and the documentation captures take, for a
+// machine whose browser lives somewhere Playwright did not put it.
+const browser = await chromium.launch(
+  process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {},
+);
 try {
   await waitForGallery();
   for (const shot of SHOTS) {
