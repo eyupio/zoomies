@@ -16,6 +16,7 @@ import (
 	"github.com/eyupio/zoomies/internal/installer"
 	"github.com/eyupio/zoomies/internal/logging"
 	"github.com/eyupio/zoomies/internal/releasekey"
+	"github.com/eyupio/zoomies/internal/terminalui"
 	"github.com/eyupio/zoomies/internal/version"
 	"golang.org/x/term"
 )
@@ -40,7 +41,7 @@ func runInit(ctx context.Context, e *env, args []string) error {
 	port := fs.Int("port", 0, "host port for the controller; 0 asks interactively or uses the detected default")
 	answers := fs.String("answers", "", "a YAML answer file for unattended setup; implies --non-interactive")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; a missing answer is an error naming the key")
-	noAnimation := fs.Bool("no-animation", false, "skip the short branded terminal splash")
+	noAnimation := fs.Bool("no-animation", false, "disable terminal animations")
 	assumeYes := fs.Bool("yes", false, "accept the confirmations that are not destructive; never the update helper")
 	updateHelper := fs.Bool("update-helper", false, "add the update helper without asking, so that the web UI can update this host; --yes never does")
 	printAnswers := fs.Bool("print-answers", false, "write an annotated example answer file to stdout and exit")
@@ -222,7 +223,7 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	noBackup := fs.Bool("no-backup", false, "go without the verified copy of the database the upgrade takes before it changes anything")
 	updateHelper := fs.Bool("update-helper", false, "add the update helper without asking, so that the web UI can update this host; --yes never does")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; optional deployment changes require --yes")
-	noAnimation := fs.Bool("no-animation", false, "skip the short branded terminal splash")
+	noAnimation := fs.Bool("no-animation", false, "disable terminal animations")
 	fs.example("sudo zoomies upgrade", "zoomies upgrade --check", "zoomies upgrade --dry-run", "sudo zoomies upgrade --yes", "sudo zoomies upgrade --mode agent --version v1.4.0")
 	if err := fs.parse(args); err != nil {
 		return err
@@ -252,18 +253,15 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 		trustedKey = releasekey.Default
 	}
 	opts := installer.UpgradeOptions{
-		Doctor:    func(ctx context.Context, cfg *config.Config) { upgradeDoctor(ctx, e, cfg) },
+		Doctor: func(ctx context.Context, cfg *config.Config) {
+			upgradeDoctor(ctx, e, cfg, *noAnimation || *nonInteractive)
+		},
 		ConfigDir: *configDir, BinaryPath: *binary, DockerHost: *dockerHost, Runtime: *runtime, Image: *image,
-		Mode: parsed, Check: *check, Out: e.out, Continuation: true,
+		Mode: parsed, Check: *check, Out: e.out, Continuation: true, NoAnimation: *noAnimation,
 		In: e.in, Interactive: interactive, NonInteractive: !interactive, AssumeYes: *yes, UpdateHelper: *updateHelper,
 	}
 	ui := installer.PaletteFor(e.out)
 	if os.Getenv("ZOOMIES_UPGRADE_STARTED") == "" {
-		if !*noAnimation && !*nonInteractive && !*check && !*dryRun {
-			if err := installer.Splash(ctx, e.out, "Upgrade"); err != nil {
-				return err
-			}
-		}
 		title := "Zoomies upgrade"
 		if *check || *dryRun {
 			title = "Zoomies upgrade preview"
@@ -275,11 +273,14 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 		// invalid record stops before a download.
 		preview := opts
 		preview.Check, preview.Out, preview.Doctor = true, io.Discard, nil
-		if err := runUpgradeInstall(ctx, preview); err != nil {
+		if err := terminalui.Task(ctx, e.out, "Checking the installed deployment", *noAnimation || *nonInteractive, func(ctx context.Context, _ io.Writer) error {
+			return runUpgradeInstall(ctx, preview)
+		}); err != nil {
 			return err
 		}
 		ui.Rule(e.out, "1/4 Binary")
 		selector := newDeploymentSelector(*configDir, *dockerHost, *runtime, *image, *mode, *yes)
+		selector.NoAnimation = *noAnimation || *nonInteractive
 		if err := selfUpdate(ctx, e, *binary, *wantVersion, selector, true, trustedKey); err != nil {
 			return err
 		}
@@ -306,7 +307,9 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 		if !*noDownload && os.Getenv(installer.SelfUpdateEnv) == "" {
 			preview := opts
 			preview.Check, preview.Out, preview.Doctor = true, io.Discard, nil
-			if err := runUpgradeInstall(ctx, preview); err != nil {
+			if err := terminalui.Task(ctx, e.out, "Checking the installed deployment", *noAnimation || *nonInteractive, func(ctx context.Context, _ io.Writer) error {
+				return runUpgradeInstall(ctx, preview)
+			}); err != nil {
 				return err
 			}
 		}
@@ -316,7 +319,12 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 		// the next restart. The re-executed run, with ZOOMIES_UPGRADE_STARTED
 		// set, has already taken it and must not take a second.
 		if !*noBackup {
-			if _, err := backupBeforeUpgradeInstall(ctx, opts); err != nil {
+			if err := terminalui.Task(ctx, e.out, "Backing up and verifying the database", *noAnimation || *nonInteractive, func(ctx context.Context, out io.Writer) error {
+				backupOpts := opts
+				backupOpts.Out = out
+				_, err := backupBeforeUpgradeInstall(ctx, backupOpts)
+				return err
+			}); err != nil {
 				return fmt.Errorf("the backup before the upgrade failed, so nothing was changed: %w", err)
 			}
 		}
@@ -325,6 +333,7 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 			ui.Done(e.out, "Using the installed binary")
 		} else {
 			selector := newDeploymentSelector(*configDir, *dockerHost, *runtime, *image, *mode, *yes)
+			selector.NoAnimation = *noAnimation || *nonInteractive
 			if err := selfUpdate(ctx, e, *binary, *wantVersion, selector, false, trustedKey); err != nil {
 				return err
 			}
@@ -343,7 +352,8 @@ type deploymentSelector struct {
 	// already honoured it, and a check changes nothing, so the candidate is
 	// given it too; otherwise it would refuse a change the operator approved.
 	// Nothing sets it for an unattended caller that never passes --yes.
-	AssumeYes bool
+	AssumeYes   bool
+	NoAnimation bool
 }
 
 func newDeploymentSelector(configDir, dockerHost, runtime, image, mode string, assumeYes bool) deploymentSelector {
@@ -513,9 +523,14 @@ func selfUpdate(ctx context.Context, e *env, binary, wantVersion string, sel dep
 	}
 	ui := installer.PaletteFor(e.out)
 	ui.Doing(e.out, "Checking for a newer Zoomies")
-	res, err := installer.SelfUpdate(ctx, installer.SelfUpdateOptions{
-		BinaryPath: binary, Version: wantVersion, Current: version.Version, Out: e.out,
-		DryRun: dryRun, ReleaseKey: releaseKey, Preflight: candidatePreflight(binary, sel),
+	var res installer.SelfUpdateResult
+	err := terminalui.Task(ctx, e.out, "Verifying the release and checking compatibility", sel.NoAnimation, func(ctx context.Context, out io.Writer) error {
+		var err error
+		res, err = installer.SelfUpdate(ctx, installer.SelfUpdateOptions{
+			BinaryPath: binary, Version: wantVersion, Current: version.Version, Out: out,
+			DryRun: dryRun, ReleaseKey: releaseKey, Preflight: candidatePreflight(binary, sel),
+		})
+		return err
 	})
 	var refusal *candidateRefusal
 	switch {
@@ -548,8 +563,16 @@ func selfUpdate(ctx context.Context, e *env, binary, wantVersion string, sel dep
 	ui.Done(e.out, "Downloaded %s, checksum verified; continuing with it", res.Tag)
 	fmt.Fprintln(e.out)
 	env := append(os.Environ(), installer.SelfUpdateEnv+"=1", "ZOOMIES_UPGRADE_STARTED=1")
-	if err := reexecBinary(binary, processArgs(), env); err != nil {
+	if fromHome, _ := ctx.Value(homeInvocationKey{}).(bool); fromHome {
+		env = append(env, "ZOOMIES_RETURN_HOME=1")
+	}
+	if err := reexecBinary(binary, invocationArgs(ctx), env); err != nil {
 		return fmt.Errorf("the binary was updated to %s but could not be started: %w; run `zoomies upgrade` again", res.Tag, err)
 	}
 	return nil
+}
+
+func clearUpgradeContinuation() {
+	_ = os.Unsetenv(installer.SelfUpdateEnv)
+	_ = os.Unsetenv("ZOOMIES_UPGRADE_STARTED")
 }
