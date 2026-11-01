@@ -47,8 +47,9 @@ They are available in `brand/brand-tokens.json` and as CSS custom properties
 **Runner Blue is darkened for interactive use.** `#2F80ED` is 3.87:1 on white.
 That is fine for a large shape but fails WCAG AA for 13px text, and it fails for
 white text on a button. So `--z-accent` is a darkened Runner Blue (`#1A63D8`,
-5.5:1) and the pure brand blue is kept for illustrative fills where 3:1 is the
-bar. The dark theme lifts it the other way, to `#78B4FF` at 9.2:1.
+5.5:1) for links and text, and the pure brand blue is kept for illustrative
+fills where 3:1 is the bar and for the filled button, which carries Zoomies
+Black on it (7.3:1) rather than white. The dark theme lifts it the other way, to `#78B4FF` at 9.2:1.
 
 **Fast Cyan is spent on one thing.** The brand guide says to use the accent
 sparingly. In an operations dashboard the single most valuable "look here"
