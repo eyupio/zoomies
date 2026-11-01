@@ -550,7 +550,7 @@ test('a band picture can be switched off in Appearance, per page or for every pa
   // Only the pages that draw one offer the switch.
   await expect(page.getByRole('switch', { name: 'Overview band picture' })).toBeChecked();
   await expect(page.getByRole('switch', { name: 'Hosts band picture' })).toBeChecked();
-  await expect(page.getByRole('switch', { name: 'Pools band picture' })).toHaveCount(0);
+  await expect(page.getByRole('switch', { name: 'Migrate band picture' })).toHaveCount(0);
 
   await page.getByRole('switch', { name: 'Overview band picture' }).click();
   await goto(page, '/', 'Overview');
