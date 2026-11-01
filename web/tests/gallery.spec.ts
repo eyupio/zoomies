@@ -674,3 +674,22 @@ test('the terminal is a window on the dark stage that wraps a long command', asy
     .evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBe(0);
 });
+
+// A block of facts about one thing stands on the dark stage as the terminal
+// does, and on a phone it is one column in which an unbroken value wraps.
+test('the facts panel is on the dark stage and holds an unbroken value', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  await open(page, 'mission-control', 'light');
+  const facts = page.locator('.facts-panel').first();
+  const [background, black] = await Promise.all([
+    facts.evaluate((el) => getComputedStyle(el).backgroundColor),
+    page
+      .locator(':root')
+      .evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-black').trim()),
+  ]);
+  expect(parseColour(background)).toEqual(hexToRgb(black));
+  expect(await facts.evaluate((el) => el.scrollWidth - el.clientWidth)).toBe(0);
+  expect(
+    await facts.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length),
+  ).toBe(1);
+});

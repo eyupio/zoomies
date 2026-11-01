@@ -12,7 +12,9 @@
   import Badge from '$lib/components/Badge.svelte';
   import MetricTile from '$lib/components/MetricTile.svelte';
   import Panel from '$lib/components/Panel.svelte';
+  import Facts from '$lib/components/Facts.svelte';
   import Terminal from '$lib/components/Terminal.svelte';
+  import { runnerStatus } from '$lib/status';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import { toneTokens, type StatusTone } from '$lib/status';
 
@@ -118,6 +120,20 @@
       <p>The token in it is shown once, only its hash is stored, and works once.</p>
     </Terminal>
     <Terminal size="sm" title="What a workflow writes" command={'runs-on: zoomies-linux-x64'} />
+    <Facts
+      label="Version selected for this host"
+      items={[
+        { term: 'Controller build', value: 'v1.4.2 (3480089)', mono: true },
+        { term: 'Host install channel', value: ':stable', mono: true },
+        {
+          term: 'Address',
+          value:
+            'controller0123456789012345678901234567890123456789012345678901234567890123456789.example',
+          mono: true,
+        },
+        { term: 'State', value: 'Joined', status: runnerStatus('idle') },
+      ]}
+    />
   </div>
 </Panel>
 

@@ -35,6 +35,7 @@
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
+  import Facts from '$lib/components/Facts.svelte';
   import Terminal from '$lib/components/Terminal.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
@@ -599,24 +600,25 @@
           This command contains private connection credentials. Run it only on the intended host;
           keep it out of screenshots, chat and source control.
         </p>{/if}
-      {#if minted.install_tag}
-        <dl class="version-match" aria-label="Version selected for this host">
-          <div>
-            <dt>Controller build</dt>
-            <dd class="mono">{minted.controller_version || NO_VALUE}</dd>
-          </div>
-          <div>
-            <dt>Host install channel</dt>
-            <dd class="mono">:{minted.install_tag}</dd>
-          </div>
-        </dl>
-      {/if}
       {#if installCommand}
         <Terminal
           title={windowsHost ? 'PowerShell on the new host' : 'A shell on the new host'}
           command={installCommand}
           copyLabel={windowsHost ? 'Copy the PowerShell command' : 'Copy the install command'}
         >
+          {#if minted.install_tag}
+            <Facts
+              label="Version selected for this host"
+              items={[
+                {
+                  term: 'Controller build',
+                  value: minted.controller_version || NO_VALUE,
+                  mono: true,
+                },
+                { term: 'Host install channel', value: `:${minted.install_tag}`, mono: true },
+              ]}
+            />
+          {/if}
           <p>The token in it is shown once, only its hash is stored, and works once.</p>
           {#if versionNote}<p>{versionNote}</p>{/if}
         </Terminal>
@@ -1034,31 +1036,6 @@
     list-style: none;
   }
 
-  .version-match {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--z-space-3) var(--z-space-6);
-    margin: 0;
-    padding: var(--z-space-3);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-lg);
-    background: var(--z-surface-raised);
-  }
-  .version-match div {
-    display: grid;
-    gap: var(--z-space-1);
-  }
-  .version-match dt {
-    color: var(--z-text-subtle);
-    font-size: var(--z-text-2xs);
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wider);
-  }
-  .version-match dd {
-    margin: 0;
-    color: var(--z-text);
-    font-size: var(--z-text-xs);
-  }
   .fine {
     margin: 0;
     font-size: var(--z-text-xs);
