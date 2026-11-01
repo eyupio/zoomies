@@ -153,3 +153,22 @@ test('a card can be dragged by its grip to a new place', async ({ page }) => {
   await touchDrag(grip, [from, { x: from.x, y: from.y - 40 }, to]);
   expect((await order(page)).slice(0, 2)).toEqual(['pools', 'attention']);
 });
+
+test("Appearance lists the Overview's panels as switches, and one switched off is hidden on the page", async ({
+  page,
+}) => {
+  await goto(page, '/settings/appearance', 'Appearance');
+  const group = page.getByRole('group', { name: 'Overview panels' });
+  await expect(group.getByRole('switch')).toHaveCount(7);
+  await group.getByRole('switch', { name: 'History on the Overview' }).click();
+  await goto(page, '/', 'Overview');
+  await expect(page.locator('#pools')).toBeVisible();
+  await expect(page.locator('#history')).toHaveCount(0);
+  await goto(page, '/settings/appearance', 'Appearance');
+  await page
+    .getByRole('group', { name: 'Overview panels' })
+    .getByRole('button', { name: 'Reset layout' })
+    .click();
+  await goto(page, '/', 'Overview');
+  await expect(page.locator('#history')).toHaveCount(1);
+});
