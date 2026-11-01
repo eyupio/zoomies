@@ -30,6 +30,7 @@ import {
   SECTIONS,
   useClassic,
   withoutTheStream,
+  openFleetContext,
 } from './support/fixtures';
 import {
   automaticPolicy,
@@ -1161,6 +1162,8 @@ test('the host capacity map is read by touch', async ({ page }) => {
  */
 test('fleet activity is read by touch', async ({ page }) => {
   await goto(page, '/runners', 'Runners');
+  // The activity disclosure sits inside Fleet context, under the list.
+  await openFleetContext(page);
   await page.getByText('Explore fleet activity over the last 24 hours', { exact: true }).tap();
   const trend = page.getByRole('region', { name: 'Fleet activity', exact: true });
   const chart = trend.getByRole('img').first();

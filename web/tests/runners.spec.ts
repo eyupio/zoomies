@@ -19,6 +19,7 @@ import {
   reload,
   rowCount,
   waitForRows,
+  withoutTheStream,
 } from './support/fixtures';
 
 /**
@@ -119,6 +120,33 @@ test("the card's eyebrow counts the runners the stats know and the ones that are
   );
 });
 
+test('the Include removed switch keeps its sentence in the card head', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await expect(page.locator('.list-card').getByText('Kept for a while as history.')).toBeVisible();
+});
+
+test('a layout saved before Age was hidden by default keeps Age on the screen', async ({
+  page,
+}) => {
+  test.skip(
+    (page.viewportSize()?.width ?? 1000) < 1181,
+    'a narrow window folds wide columns anyway',
+  );
+  // An operator who arranged this grid before the default changed sees no
+  // change: a record with a layout and no `shown` list is one from before.
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'zoomies.prefs',
+      JSON.stringify({ grids: { runners: { hidden: ['host'] } } }),
+    );
+  });
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await expect(runners(page).getByRole('columnheader', { name: /\bAge\b/ })).toBeVisible();
+  await expect(runners(page).getByRole('columnheader', { name: /\bHost\b/ })).toHaveCount(0);
+});
+
 test('two chips are two states in the address, and All clears them', async ({ page }) => {
   await goto(page, '/runners', 'Runners');
   await runnerRows(page);
@@ -161,6 +189,9 @@ test('the chips drop their counts while a pool filter is in force', async ({ pag
 test('with the stats failed the card still draws, without an eyebrow or counts', async ({
   page,
 }) => {
+  // The stream carries a stats frame every half minute, which would put the
+  // figures back mid-test, so it is taken away first (web/AGENTS.md).
+  await withoutTheStream(page);
   await page.route('**/api/v1/stats*', (route) => route.fulfill({ status: 500, body: 'no' }));
   await goto(page, '/runners', 'Runners');
   await runnerRows(page);

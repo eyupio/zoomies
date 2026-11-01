@@ -621,6 +621,21 @@ test('the list card is one frame: an eyebrow over the title, chips in a toolbar,
   ]);
   expect(gridBorder).toBe('0px');
   expect(parseFloat(cardBorder)).toBeGreaterThan(0);
+  // The titles keep a readable width only on a list card, whose actions are a
+  // row of controls; an ordinary panel's titles still shrink before its
+  // actions wrap, so a narrow Overview card keeps its badge beside its title.
+  // The computed basis comes back in pixels: 14rem at the root's font size.
+  const basis = (locator: import('@playwright/test').Locator) =>
+    locator.evaluate((el) => {
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      return parseFloat(getComputedStyle(el).flexBasis) / rem;
+    });
+  expect(await basis(card.locator('header .titles'))).toBeCloseTo(14, 1);
+  expect(
+    await basis(
+      page.locator('.panel', { hasText: 'Panel with a tile' }).first().locator('header .titles'),
+    ),
+  ).toBe(0);
 });
 
 // A filter chip says it is in force three ways, so the state survives greyscale

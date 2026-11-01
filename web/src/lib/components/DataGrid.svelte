@@ -402,11 +402,16 @@
   // Read once on mount: the operator's stored choice is the starting point, and
   // it is theirs to change from there.
   let visibility = $state<Record<string, boolean>>(
-    untrack(() =>
-      Object.fromEntries(
+    untrack(() => {
+      // A grid arranged before a column became hidden by default keeps it.
+      prefs.upgradeShownColumns(
+        gridId,
+        columns.filter((c) => c.hiddenByDefault).map((c) => c.id),
+      );
+      return Object.fromEntries(
         columns.map((c) => [c.id, prefs.isColumnVisible(gridId, c.id, c.hiddenByDefault)]),
-      ),
-    ),
+      );
+    }),
   );
 
   const orderedColumns = $derived.by(() => {

@@ -63,7 +63,12 @@
   const headingId = $props.id();
 </script>
 
-<section class="panel {className}" class:fill aria-labelledby={headingId}>
+<section
+  class="panel {className}"
+  class:fill
+  class:list={Boolean(toolbar)}
+  aria-labelledby={headingId}
+>
   <header>
     {#if Icon}<span class="tile" aria-hidden="true"><Icon size={18} /></span>{/if}
     <div class="titles">
@@ -102,10 +107,15 @@
     border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .titles {
-    /* The titles keep a readable width; actions that would squeeze them
-       below it wrap under the heading instead, since the header wraps. */
-    flex: 1 1 14rem;
+    flex: 1;
     min-width: 0;
+  }
+  /* A list card's actions are a row of controls, so its titles keep a
+     readable width and the controls wrap under them; an ordinary panel's
+     titles still shrink first, so a narrow card keeps its badge beside its
+     title. */
+  .panel.list .titles {
+    flex: 1 1 14rem;
   }
   .tile {
     display: inline-flex;

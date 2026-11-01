@@ -752,8 +752,10 @@
       </div>
       <Switch
         checked={includeRemoved}
+        size="sm"
         label="Include removed"
         labelToggles={false}
+        description="Kept for a while as history."
         onchange={(on) => router.setQuery({ include_removed: on ? '1' : null })}
       />
     {/snippet}

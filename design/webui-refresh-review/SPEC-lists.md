@@ -136,10 +136,18 @@ Under the band, the page is:
    it gains a `folded` prop that draws its scope row and lifecycle as plain
    content for the Runners page to put inside its own disclosure.
 
-**Default columns.** Status, Name, Pool, Host, Current job, Jobs handled and
-Actions stay visible by default; Age, CPU and Memory become `hiddenByDefault`.
-A saved layout wins over the default as it does now, so an operator who has
-arranged the grid sees no change, and Columns restores any column.
+**Default columns.** Status, Name, Pool, Host, Current job, Jobs handled,
+Memory and Actions stay visible by default; Age and CPU become
+`hiddenByDefault`. A saved layout wins over the default, so an operator who
+has arranged the grid sees no change: a grid arranged before a column became
+hidden by default keeps that column (the grid names it as shown on its first
+mount after the upgrade), and Columns restores any column.
+
+_1 November 2026: the mock leaves Memory out too, and the first draft of this
+document hid it. It stays, because that column carries the memory valve's
+pills, the one place the list says what the valve did for a runner across the
+fleet; a column that is the only place the list shows a feature is not trimmed.
+The rule for the pages that follow is in the last section._
 
 **Words.** The eyebrow and "All runners" and "Fleet context" are the only new
 words; every sentence, label and count the page says today is unchanged.
@@ -196,8 +204,9 @@ turns its primary filter (Queue's provisioning state, Jobs' and Workflows'
 state, Pools' status, Audit's kind) into `FilterChips` in `toolbar`, keeping
 the query parameter it writes today; and folds the context between its band
 and its list into one disclosure under the card, trimming default columns to
-the mock's set with `hiddenByDefault`. A page whose primary filter is already
-multi-valued keeps it so.
+the mock's set with `hiddenByDefault` unless a column is the only place the
+list shows a feature. A page whose primary filter is already multi-valued
+keeps it so.
 
 ## Out of scope
 
