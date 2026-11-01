@@ -121,18 +121,14 @@ func (m homeModel) detailRows(items []homeItem, width int) []string {
 	}
 	item := items[m.cursor]
 	lines := []string{m.paint("36", item.group), m.paint("1", item.title), ""}
-	for _, line := range wrapText(item.detail, width) {
-		lines = append(lines, line)
-	}
+	lines = append(lines, wrapText(item.detail, width)...)
 
 	return lines
 }
 
 func (m homeModel) confirmCard(item homeItem, width, height int) string {
 	lines := []string{m.paint("1;33", item.title+"?"), ""}
-	for _, line := range wrapText(item.detail, max(width-4, 1)) {
-		lines = append(lines, line)
-	}
+	lines = append(lines, wrapText(item.detail, max(width-4, 1))...)
 	// The answer keys are also in the fixed footer, including at the minimum
 	// size where the explanation needs more room than the card has.
 	return terminalui.Panel(lines, width, height, m.colour, true)
