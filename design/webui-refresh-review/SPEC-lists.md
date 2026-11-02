@@ -228,6 +228,15 @@ default although a test read them from the row: the risk badge beside the name
 already names docker-in-docker and persistent runners, so the row still says
 the dangerous settings without the columns._
 
+_2 November 2026, Audit: the page has no band and no context between its
+header and its list, so it is header and card, and nothing is folded. The
+kinds of thing acted on are no endpoint of their own; the chips are the kinds
+the rows have shown plus the one in force, without counts, as the menu they
+replace was gathered. The eyebrow is the total the list's own response
+carries, as the Queue's is. The chips' selection helpers (`toggleChip`,
+`pickOne`) live beside `FilterChips` from this change on, because a second
+single-valued page needed the same reading of a press._
+
 ## Out of scope
 
 - Hosts, Providers and Installations, whose lists are cards today.

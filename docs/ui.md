@@ -1102,8 +1102,8 @@ and the system itself) with the target and the source address. Open an event
 to see exactly what changed. Secrets were redacted when the row was written,
 so nothing here can leak one.
 
-![The Audit grid: when, actor, action, target and source address for each change](screenshots/audit-dark.webp#only-dark){ .zoomies-shot }
-![The Audit grid: when, actor, action, target and source address for each change](screenshots/audit-light.webp#only-light){ .zoomies-shot }
+![The Audit page: one card with the event count over its title, the kinds of thing acted on as chips, and the grid of when, actor, action, target and source address for each change](screenshots/audit-dark.webp#only-dark){ .zoomies-shot }
+![The Audit page: one card with the event count over its title, the kinds of thing acted on as chips, and the grid of when, actor, action, target and source address for each change](screenshots/audit-light.webp#only-light){ .zoomies-shot }
 
 ## Settings
 
