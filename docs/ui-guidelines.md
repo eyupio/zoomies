@@ -908,13 +908,21 @@ The one page that has to earn the second monitor.
   first. How the last jobs ended was a second panel across the bottom of the
   page and is now part of the feed: two reverse-chronological lists on one
   page, each with its own idea of what belonged on it, was one list too many.
-* **Needs attention**: the worst three problems as rows, each with its
-  severity pill, the controller's fix and an *Open* button to the thing it is
-  about, and the card's own action ("and N more", or "Open the drawer")
-  opening the problems drawer for the rest. Three rows and the band still
-  leave the pools on the first screen of a 1440x900 laptop, which is the rule
-  the earlier one-line summary was cut down for; everything past three stays
-  the drawer's. **When everything is fine it is a single quiet line, not an
+* **Needs attention**: a section shut by default whose header says what it
+  holds (how many of each severity, worst first, and the worst problem by
+  name, cut short at the line with the whole sentence in a tooltip), so the
+  page says what is wrong before anything is opened. Open, it is the worst
+  three problems as rows, each with its severity pill, the controller's fix,
+  an *Open* button to the thing it is about and the drawer's own dismiss menu
+  (snooze for a while, snooze every problem of this kind, dismiss until
+  resolved), so a decision made here means what it means in the drawer and is
+  listed there as dismissed. The header also carries *Dismiss all*, the same
+  menu as the drawer's header (snooze everything listed for 15 minutes, 1, 4
+  or 24 hours, or dismiss it all until resolved), whether the card is shut or
+  open; pressing it does not toggle the card. The card's own line ("and N more", or "Open the
+  drawer") opens the problems drawer for the rest; everything past three stays
+  the drawer's. Whether the section is open is remembered like the other
+  sections' choices. **When everything is fine it is a single quiet line, not an
   empty box and not a green celebration.** A phone draws no band and keeps its
   pools on the first screen, so it keeps the one-line summary with its
   *Review* button, as before.
