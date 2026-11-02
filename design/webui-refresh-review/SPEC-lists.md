@@ -250,6 +250,14 @@ Queue. Labels is not trimmed: for a job no pool claims, the labels in the row
 are the reason, and nothing else in the list says it. The eyebrow is the
 list's own total, as on Audit._
 
+_2 November 2026, Workflows: the same chips as Jobs over the runs, with no
+counts, since the band's figures count jobs and the rows are runs; the level
+switch opposite the title; the eyebrow the list's own total of runs. No
+column is trimmed: the mock's row carries every column the page draws, and
+the two timing columns are what the page's sorts are for. With Jobs and
+Workflows converted the row of status buttons (`JobViewFilter`) has no reader
+and is deleted. This closes the six pages the contract named._
+
 ## Out of scope
 
 - Hosts, Providers and Installations, whose lists are cards today.

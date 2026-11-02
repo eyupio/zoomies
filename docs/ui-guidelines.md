@@ -966,8 +966,8 @@ restored one at a time or all at once.
 
 ### The list pages
 
-A page whose body is a list (Runners, Queue, Pools, Audit and Jobs so far;
-Workflows follows them) is, under its band, one card: the page's own
+A page whose body is a list (Runners, Queue, Pools, Audit, Jobs and
+Workflows) is, under its band, one card: the page's own
 icon in a tile, a count in small capitals over the title ("11 known, 9 live",
 absent until the stats have arrived), the search field and the menus opposite,
 the primary filter as `FilterChips` in a row of their own, and the grid bare
@@ -998,7 +998,9 @@ filter no view describes (two states at once, an outcome facet) leaves every
 chip unpressed, All included, as the row of buttons did. On a phone the row
 is one line that scrolls, because the page's rule is records first. Jobs
 keeps its Labels column: for a job no pool claims, the labels in the row are
-why. The
+why. Workflows draws the same chips over its runs with no counts at all,
+because the band's figures count jobs and its rows are runs, so no figure the
+page has would be true of them. The
 Queue's chips are the four provisioning statuses, counted from the list's own
 counts, with Ready, Run now and Paused pressed by default and Removed a press
 away; the job filters it shares with the Jobs page (`JobFilters`: the search,

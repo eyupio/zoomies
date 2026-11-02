@@ -269,3 +269,40 @@ test('a run and the jobs inside it take the Queue page’s controls', async ({ p
     await request.post('/api/v1/provisioning/bulk', { data: { ids, action: 'resume' } });
   }
 });
+
+/*
+ * The list card. The Workflows page is band, the shared job filters and the
+ * card: the workflows' tile, how many runs the view leaves over the title, the
+ * level switch opposite, the status views as chips pressed one at a time, and
+ * the grid bare inside. The chips carry no counts here: the band's figures
+ * count jobs and the rows are runs, so a count would never be true of them.
+ */
+test('the card counts the runs the view leaves, the chips press one at a time and carry no count', async ({
+  page,
+}) => {
+  await goto(page, '/workflows', 'Workflows');
+  const card = page.locator('section.list-card');
+  await expect(card.getByRole('heading', { name: 'All runs' })).toBeVisible();
+  await expect(card.locator('.eyebrow')).toHaveText(`${FIXTURE.runningRuns} runs`);
+  await expect(card.locator('.grid.bare')).toHaveCount(1);
+  const chips = page.getByRole('group', { name: 'Filter jobs by status' });
+  await expect(view(page, 'Running')).toHaveAttribute('aria-pressed', 'true');
+  await expect(chips.locator('.count')).toHaveCount(0);
+
+  await view(page, 'Finished').click();
+  await expect(page).toHaveURL(/[?&]state=completed/);
+  await expect(view(page, 'Running')).toHaveAttribute('aria-pressed', 'false');
+  await view(page, 'Finished').click();
+  await expect(view(page, 'All')).toHaveAttribute('aria-pressed', 'true');
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedRuns} runs`);
+});
+
+test('the eyebrow is not left standing over an error', async ({ page }) => {
+  await goto(page, '/workflows', 'Workflows');
+  const eyebrow = page.locator('section.list-card .eyebrow');
+  await expect(eyebrow).toContainText(/\d+ runs?/);
+  await page.route('**/api/v1/workflow-runs?*', (route) => route.abort('connectionfailed'));
+  await view(page, 'Finished').click();
+  await expect(page.locator('section.list-card').getByRole('alert')).toBeVisible();
+  await expect(eyebrow).toHaveCount(0);
+});
