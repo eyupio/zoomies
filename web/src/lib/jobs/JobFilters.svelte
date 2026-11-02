@@ -28,6 +28,14 @@
      */
     since: string;
     until: string;
+    /**
+     * The same two bounds over when a job finished, not when it was queued, in the same
+     * forms. The activity squares count a job in the hour it finished, so the list behind
+     * one asks the same question. There is no input for them: they are set by pressing a
+     * square or by a link, and drawn as chips so a shorter list says why.
+     */
+    completed_since: string;
+    completed_until: string;
     unmatched: boolean;
     /**
      * `'false'` leaves out the jobs that ran on somebody else's hosted runners, GitHub's
@@ -75,6 +83,8 @@
     provisioning: [],
     since: '',
     until: '',
+    completed_since: '',
+    completed_until: '',
     unmatched: false,
     hosted: '',
     failed: false,
@@ -255,6 +265,26 @@
             label: 'To',
             value: moment(value.until),
             onremove: () => onchange({ until: '' }),
+          },
+        ]
+      : []),
+    ...(value.completed_since
+      ? [
+          {
+            id: 'completed_since',
+            label: 'Finished from',
+            value: moment(value.completed_since),
+            onremove: () => onchange({ completed_since: '' }),
+          },
+        ]
+      : []),
+    ...(value.completed_until
+      ? [
+          {
+            id: 'completed_until',
+            label: 'Finished to',
+            value: moment(value.completed_until),
+            onremove: () => onchange({ completed_until: '' }),
           },
         ]
       : []),

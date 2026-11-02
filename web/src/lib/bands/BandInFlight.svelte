@@ -6,9 +6,10 @@
   It asks for the runs with work in hand itself, rather than reading the grid's
   page: the grid shows whatever view and filters the operator chose, and a
   picture of "running" runs alone would say fewer waiting than the sentence
-  beside it. One request, repeated when the fleet's own queued or running
-  count moves and after a reconnect, so the rows follow the figures. A failed
-  fetch draws nothing, as every picture on a stage does.
+  beside it. Every page of them, which is one request in all but a very large
+  fleet, repeated when the fleet's own queued or running count moves and after
+  a reconnect, so the rows follow the figures. A failed fetch draws nothing, as
+  every picture on a stage does.
 -->
 <script lang="ts">
   import Tooltip from '$lib/components/Tooltip.svelte';
@@ -17,7 +18,7 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import { href } from '$lib/router';
   import Skeleton from '$lib/components/Skeleton.svelte';
-  import { inFlight, MAX_FLIGHT_SQUARES } from './in-flight';
+  import { distinctRuns, inFlight, MAX_FLIGHT_SQUARES, readAllPages, RUNS_PAGE } from './in-flight';
 
   let runs = $state.raw<WorkflowRun[]>([]);
   let failed = $state(false);
@@ -29,17 +30,20 @@
     const controller = new AbortController();
     pending = controller;
     try {
-      const page = await listWorkflowRuns(
-        {
-          state: ['waiting', 'queued', 'in_progress'],
-          managed: true,
-          cancelling: false,
-          limit: 100,
-        },
-        controller.signal,
+      const all = await readAllPages((offset) =>
+        listWorkflowRuns(
+          {
+            state: ['waiting', 'queued', 'in_progress'],
+            managed: true,
+            cancelling: false,
+            limit: RUNS_PAGE,
+            offset,
+          },
+          controller.signal,
+        ),
       );
       if (controller.signal.aborted || pending !== controller) return;
-      runs = page.items ?? [];
+      runs = distinctRuns(all);
       failed = false;
     } catch {
       if (controller.signal.aborted || pending !== controller) return;

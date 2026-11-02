@@ -54,7 +54,7 @@
   import { prefs } from '$lib/state/prefs.svelte';
   import { visualStyle } from '$lib/state/ui-style.svelte';
   import { viewport } from '$lib/state/viewport.svelte';
-  import { endOfDay, startOfDay } from '$lib/jobs/DateRange.svelte';
+  import { endOfDay, endOfMoment, startOfDay, startOfMoment } from '$lib/jobs/DateRange.svelte';
   import { jobFilterState } from '$lib/jobs/filter-state.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
@@ -186,6 +186,8 @@
         cancelling: inHand ? false : undefined,
         since: startOfDay(filters.since),
         until: endOfDay(filters.until),
+        completed_since: startOfMoment(filters.completed_since),
+        completed_until: endOfMoment(filters.completed_until),
         unmatched: filters.unmatched ? true : undefined,
         failed: filters.failed ? true : undefined,
         faulted: filters.faulted ? true : undefined,

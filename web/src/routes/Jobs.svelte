@@ -405,6 +405,8 @@
         cancelling: inHand ? false : undefined,
         since: startOfMoment(filters.since),
         until: endOfMoment(filters.until),
+        completed_since: startOfMoment(filters.completed_since),
+        completed_until: endOfMoment(filters.completed_until),
         unmatched: filters.unmatched ? true : undefined,
         hosted: filters.hosted === 'false' ? false : undefined,
         failed: filters.failed ? true : undefined,
@@ -765,8 +767,9 @@
 >
 <PageBand page="jobs" line={bandLine}>
   <!-- Today, by the hour: the punch card's bottom row alone. An hour pressed
-       narrows the list to it, across every status, since a past hour's jobs
-       have mostly finished. -->
+       narrows the list to the jobs that finished in it, across every status,
+       because that is the question its square answers: it counts a job in the
+       hour it finished, not the hour it was queued. -->
   {#snippet aside()}
     {#if fleet.loaded}<FleetPunchCard
         days={1}
@@ -774,8 +777,10 @@
         onpick={(at) => {
           setView('all');
           patch({
-            since: localMoment(at),
-            until: localMoment(new Date(at.getTime() + 59 * 60_000)),
+            since: '',
+            until: '',
+            completed_since: localMoment(at),
+            completed_until: localMoment(new Date(at.getTime() + 59 * 60_000)),
           });
         }}
       />{/if}

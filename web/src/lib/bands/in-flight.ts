@@ -24,6 +24,49 @@ export interface FlightRows {
   summary: string;
 }
 
+/**
+ * The API's largest page. The picture sums every run with work in hand, so a
+ * page smaller than the fleet's active runs would make it a sample that reads
+ * as a total; at this size one request is enough for all but a very large fleet.
+ */
+export const RUNS_PAGE = 500;
+
+/**
+ * Read a list to its end, a page at a time. A page that says the list is longer
+ * than what has come back asks again from where it stopped, and an empty page
+ * ends it whatever the total says, so a list that shrinks while it is read
+ * cannot hold the loop open.
+ */
+export async function readAllPages<T>(
+  page: (offset: number) => Promise<{ items?: T[]; total: number }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (;;) {
+    const got = await page(out.length);
+    const items = got.items ?? [];
+    out.push(...items);
+    if (items.length === 0 || out.length >= got.total) return out;
+  }
+}
+
+/**
+ * Each run once. The list is newest first and read by offset, so a run queued
+ * between two pages pushes the last row of the first onto the top of the next,
+ * and the sums would count it twice. A run that finishes in that gap drops out
+ * of the list, which is right: it is no longer in flight. A run with no
+ * identity to compare is kept, since it cannot be told from another.
+ */
+export function distinctRuns(runs: readonly WorkflowRun[]): WorkflowRun[] {
+  const seen = new Set<string>();
+  return runs.filter((run) => {
+    if (!run.repo || run.github_run_id === undefined) return true;
+    const key = `${run.repo}#${run.github_run_id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export const MAX_FLIGHT_ROWS = 5;
 export const MAX_FLIGHT_SQUARES = 12;
 
