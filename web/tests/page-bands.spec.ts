@@ -463,6 +463,35 @@ test('an hour of the punch card says what it holds on hover, as the matrix does'
   const bubble = page.locator('.bubble:popover-open');
   await expect(bubble).toContainText(when);
   await expect(bubble).toContainText(rest.join('. ').replace(/\.$/, ''));
+  // The bubble sits over the row above the square it describes. The shared
+  // tooltip hit-tests through its own bubble, so the covered square opens its
+  // own bubble when the reader moves up a row and takes the click that opens
+  // History; a bubble that caught the pointer would make the top of the week
+  // unreachable from the bottom.
+  const busyRowIndex = await busy.evaluate((el) =>
+    Array.from(el.closest('[role="grid"]')!.querySelectorAll('[role="row"]')).indexOf(
+      el.closest('[role="row"]')!,
+    ),
+  );
+  if (busyRowIndex > 0) {
+    // The square straight above: the one in the previous row at the same
+    // left edge, which the bubble over the busy square covers.
+    const busyBox = (await busy.boundingBox())!;
+    const candidates = grid
+      .getByRole('row')
+      .nth(busyRowIndex - 1)
+      .locator('[role="gridcell"]');
+    let above = candidates.first();
+    for (const cell of await candidates.all()) {
+      const box = await cell.boundingBox();
+      if (box && Math.abs(box.x - busyBox.x) < 2) above = cell;
+    }
+    const aboveLabel = (await above.getAttribute('aria-label')) ?? '';
+    await above.hover();
+    await expect(bubble).toContainText(aboveLabel.split('. ')[0] ?? '');
+    await above.click({ timeout: 5_000 });
+    await expect(page).toHaveURL(/#history$/);
+  }
   // An hour still to come says so and nothing else.
   const hour = await page.evaluate(() => new Date().getHours());
   if (hour < 23) {
