@@ -193,6 +193,10 @@ interface StoredPrefs {
   bandLogoPages?: Record<string, boolean>;
   /** Pages whose dog size is not the default above. */
   bandLogoSizes?: Record<string, string>;
+  /** Whether a band's picture is drawn beside its sentence. On by default. */
+  bandPicture?: boolean;
+  /** Pages whose picture is drawn or hidden against the default above. */
+  bandPicturePages?: Record<string, boolean>;
   /**
    * How this browser arranged each page's panels, by page, as the account
    * document carries it. Read forgivingly, like the bands: a panel this build
@@ -290,6 +294,8 @@ class Prefs {
   #bandLogoSize = $state<BandLogoSize>(DEFAULT_BAND_LOGO_SIZE);
   #bandLogoPages = $state<Partial<Record<BandPage, boolean>>>({});
   #bandLogoSizes = $state<Partial<Record<BandPage, BandLogoSize>>>({});
+  #bandPicture = $state(true);
+  #bandPicturePages = $state<Partial<Record<BandPage, boolean>>>({});
   #panelLayouts = $state<Partial<Record<PanelPage, PanelLayout>>>({});
   #accountSync = false;
   // Counts the syncs begun and the accounts disconnected, so a read of the
@@ -337,6 +343,8 @@ class Prefs {
       logo_size: stored.bandLogoSize,
       logo_pages: stored.bandLogoPages,
       logo_sizes: stored.bandLogoSizes,
+      picture: stored.bandPicture,
+      picture_pages: stored.bandPicturePages,
     });
     this.#hiddenBands = bands.hidden;
     this.#bandSizes = bands.sizes;
@@ -344,6 +352,8 @@ class Prefs {
     this.#bandLogoSize = bands.logoSize;
     this.#bandLogoPages = bands.logoPages;
     this.#bandLogoSizes = bands.logoSizes;
+    this.#bandPicture = bands.picture;
+    this.#bandPicturePages = bands.picturePages;
     this.#panelLayouts = readPanelLayouts(stored.panelLayouts);
     this.#applyNav();
   }
@@ -503,6 +513,8 @@ class Prefs {
         this.#bandLogoSize = bands.logoSize;
         this.#bandLogoPages = bands.logoPages;
         this.#bandLogoSizes = bands.logoSizes;
+        this.#bandPicture = bands.picture;
+        this.#bandPicturePages = bands.picturePages;
       } else if (previous && previous !== userID) {
         const bands = readBandSettings({});
         this.#hiddenBands = bands.hidden;
@@ -511,6 +523,8 @@ class Prefs {
         this.#bandLogoSize = bands.logoSize;
         this.#bandLogoPages = bands.logoPages;
         this.#bandLogoSizes = bands.logoSizes;
+        this.#bandPicture = bands.picture;
+        this.#bandPicturePages = bands.picturePages;
       }
       if (Object.keys(layouts).length > 0) {
         // The server document is a replacement, not an overlay. Clearing the
@@ -821,6 +835,47 @@ class Prefs {
     this.#persist();
   }
 
+  /** Whether this page's band draws its picture (the punch card, the slot map). */
+  bandPictureShown(page: BandPage): boolean {
+    return this.#bandPicturePages[page] ?? this.#bandPicture;
+  }
+
+  setBandPictureShown(page: BandPage, shown: boolean): void {
+    const next = { ...this.#bandPicturePages };
+    if (shown === this.#bandPicture) delete next[page];
+    else next[page] = shown;
+    this.#bandPicturePages = next;
+    this.#persist();
+  }
+
+  /** Whether this page's picture differs from the default set in Appearance. */
+  bandPictureCustom(page: BandPage): boolean {
+    return page in this.#bandPicturePages;
+  }
+
+  /** Put one page's picture back on the default set in Appearance. */
+  clearBandPictureOverride(page: BandPage): void {
+    const next = { ...this.#bandPicturePages };
+    delete next[page];
+    this.#bandPicturePages = next;
+    this.#persist();
+  }
+
+  /**
+   * The pictures' default. As with the dog, setting it is a choice for every
+   * page: the switch says "Show the picture in the band", and a page that kept
+   * its own answer would make that a lie.
+   */
+  get bandPicture(): boolean {
+    return this.#bandPicture;
+  }
+
+  set bandPicture(value: boolean) {
+    this.#bandPicture = value;
+    this.#bandPicturePages = {};
+    this.#persist();
+  }
+
   get logoTreatment(): LogoTreatment {
     return this.#logoTreatment;
   }
@@ -885,6 +940,8 @@ class Prefs {
         bandLogoSize: this.#bandLogoSize,
         bandLogoPages: this.#bandLogoPages,
         bandLogoSizes: this.#bandLogoSizes,
+        bandPicture: this.#bandPicture,
+        bandPicturePages: this.#bandPicturePages,
         panelLayouts: this.#panelLayouts,
       } satisfies StoredPrefs),
     );
@@ -919,6 +976,8 @@ class Prefs {
           logoSize: this.#bandLogoSize,
           logoPages: this.#bandLogoPages,
           logoSizes: this.#bandLogoSizes,
+          picture: this.#bandPicture,
+          picturePages: this.#bandPicturePages,
         }),
         panels: panelLayoutsDocument(this.#panelLayouts),
       }).catch(() => {

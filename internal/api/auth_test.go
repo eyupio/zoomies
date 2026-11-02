@@ -116,12 +116,14 @@ func TestBandPreferencesFollowTheSignedInAccount(t *testing.T) {
 
 	put := h.do(request{method: http.MethodPut, path: "/api/v1/auth/preferences", cookie: aliceCookie,
 		body: map[string]any{"bands": map[string]any{
-			"hidden":     []string{"jobs", "kennel"},
-			"sizes":      map[string]any{"runners": "slim", "overview": "expanded"},
-			"logo":       false,
-			"logo_size":  "large",
-			"logo_pages": map[string]any{"pools": true},
-			"logo_sizes": map[string]any{"hosts": "small"},
+			"hidden":        []string{"jobs", "kennel"},
+			"sizes":         map[string]any{"runners": "slim", "overview": "expanded"},
+			"logo":          false,
+			"logo_size":     "large",
+			"logo_pages":    map[string]any{"pools": true},
+			"logo_sizes":    map[string]any{"hosts": "small"},
+			"picture":       true,
+			"picture_pages": map[string]any{"overview": false},
 		}}})
 	put.mustStatus(t, http.StatusOK, "save band preferences")
 
@@ -149,6 +151,10 @@ func TestBandPreferencesFollowTheSignedInAccount(t *testing.T) {
 	logoSizes, _ := bands["logo_sizes"].(map[string]any)
 	if logoSizes["hosts"] != "small" {
 		t.Errorf("logo_sizes = %v, want hosts small", bands["logo_sizes"])
+	}
+	pictures, _ := bands["picture_pages"].(map[string]any)
+	if bands["picture"] != true || pictures["overview"] != false {
+		t.Errorf("picture = %v, picture_pages = %v, want on with the Overview's off", bands["picture"], bands["picture_pages"])
 	}
 
 	other := h.do(request{method: http.MethodGet, path: "/api/v1/auth/preferences", cookie: bobCookie})
@@ -190,6 +196,11 @@ func TestBandPreferencesRefuseAPageOrCutThisBuildDoesNotHave(t *testing.T) {
 			"a dog size for a page this build does not have",
 			map[string]any{"logo_sizes": map[string]any{"audit": "large"}},
 			"bands.logo_sizes.audit",
+		},
+		{
+			"a page with no band among the pictures' pages",
+			map[string]any{"picture_pages": map[string]any{"audit": false}},
+			"bands.picture_pages.audit",
 		},
 	}
 	for _, tc := range cases {

@@ -18,6 +18,7 @@
   import Segmented from '$lib/components/Segmented.svelte';
   import { resolveUIStyle, UI_STYLE_OPTIONS } from '$lib/state/ui-style';
   import { visualStyle } from '$lib/state/ui-style.svelte';
+  import BandPicturesSection from './sections/BandPictures.svelte';
   import ControlsSection from './sections/Controls.svelte';
   import DataSection from './sections/Data.svelte';
   import EliRepairsSection from './sections/EliRepairs.svelte';
@@ -91,6 +92,7 @@
     <DataSection />
     <EliRepairsSection />
     <PublicSection />
+    <BandPicturesSection />
   </div>
 </main>
 

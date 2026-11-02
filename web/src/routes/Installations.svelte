@@ -11,6 +11,7 @@
   import { supportHint } from '$lib/errors';
   import PageBand from '$lib/bands/PageBand.svelte';
   import type { BandStat } from '$lib/bands/stats';
+  import BandQuota from '$lib/bands/BandQuota.svelte';
   import { installationsLine } from '$lib/bands/lines';
 
   import { Plug, Plus } from '@lucide/svelte';
@@ -285,7 +286,12 @@
   {/if}
 </PageHeader>
 
-<PageBand page="installations" line={bandLine} stats={bandFigures} />
+<PageBand page="installations" line={bandLine} stats={bandFigures}>
+  <!-- The figure counts the connections low on quota; the bars show how low. -->
+  {#snippet aside()}
+    {#if !loading && !error}<BandQuota {installations} {rates} />{/if}
+  {/snippet}
+</PageBand>
 
 <div id="installations-list" class="content jump-target" tabindex="-1">
   <LoadingBoundary

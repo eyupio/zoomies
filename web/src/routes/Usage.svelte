@@ -14,6 +14,7 @@
 -->
 <script lang="ts">
   import PageBand from '$lib/bands/PageBand.svelte';
+  import BandUsageColumns from '$lib/bands/BandUsageColumns.svelte';
   import { usageLine, usageStats, usageTotals } from '$lib/bands/usage-stats';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import AskEli from '$lib/assistant/AskEli.svelte';
@@ -412,7 +413,12 @@
   </Button>
 </PageHeader>
 
-<PageBand page="usage" line={bandLine} stats={bandStats} />
+<PageBand page="usage" line={bandLine} stats={bandStats}>
+  <!-- The figures say how many hours the range held; the columns say when. -->
+  {#snippet aside()}
+    {#if report && !error}<BandUsageColumns {rows} />{/if}
+  {/snippet}
+</PageBand>
 
 <div class="controls">
   <DateRange {since} {until} withTime label="Usage between" onchange={setRange} />

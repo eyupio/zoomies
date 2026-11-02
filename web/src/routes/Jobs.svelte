@@ -111,7 +111,8 @@
   import RowActions from '$lib/components/RowActions.svelte';
   import type { RowAction } from '$lib/components/RowActions.svelte';
   import StateCell from '$lib/components/StateCell.svelte';
-  import { endOfMoment, startOfMoment } from '$lib/jobs/DateRange.svelte';
+  import { endOfMoment, localMoment, startOfMoment } from '$lib/jobs/DateRange.svelte';
+  import FleetPunchCard from '$lib/overview/FleetPunchCard.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
   import JobFilters from '$lib/jobs/JobFilters.svelte';
@@ -762,7 +763,24 @@
   onrefresh={refreshPage}
   ><Button href="/comparisons" variant="secondary">Compare runs</Button></PageHeader
 >
-<PageBand page="jobs" line={bandLine} />
+<PageBand page="jobs" line={bandLine}>
+  <!-- Today, by the hour: the punch card's bottom row alone. An hour pressed
+       narrows the list to it, across every status, since a past hour's jobs
+       have mostly finished. -->
+  {#snippet aside()}
+    {#if fleet.loaded}<FleetPunchCard
+        days={1}
+        pickHint="Pick an hour to narrow the list to it."
+        onpick={(at) => {
+          setView('all');
+          patch({
+            since: localMoment(at),
+            until: localMoment(new Date(at.getTime() + 59 * 60_000)),
+          });
+        }}
+      />{/if}
+  {/snippet}
+</PageBand>
 
 {#each layoutSections as section (section)}
   {#if section === 'context'}

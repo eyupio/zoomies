@@ -58,6 +58,12 @@
     artSize?: BandLogoArtSize;
     /** Anything else the stage carries, under the lede. */
     children?: Snippet;
+    /**
+     * Something drawn beside the words in a wide band, between them and the dog:
+     * the Overview's punch card. The stage gives it the room the words leave and
+     * has no opinion about what it is.
+     */
+    aside?: Snippet;
     class?: string;
   }
   const {
@@ -74,6 +80,7 @@
     artExpanded = false,
     artSize,
     children,
+    aside,
     class: klass = '',
   }: Props = $props();
   const lines = $derived(typeof headline === 'string' ? headline.split('\n') : headline);
@@ -112,6 +119,7 @@
     {#if lede}<p class="lede">{lede}</p>{/if}
     {@render children?.()}
   </div>
+  {#if wide && aside}<div class="aside">{@render aside()}</div>{/if}
 </div>
 
 <style>
@@ -196,22 +204,44 @@
     text-wrap: pretty;
     overflow-wrap: anywhere;
   }
-  /* Wide: words and dog side by side in a band, the dog at the right. */
+  /* Wide: words, then whatever stands beside them, then the dog at the right.
+     The dog is first in the document (a phone's stage puts it above the words)
+     so the row is ordered here rather than reversed: reversing would put the
+     aside on the wrong side of the words. */
   .wide {
-    flex-direction: row-reverse;
+    flex-direction: row;
     align-items: center;
     justify-content: space-between;
     gap: var(--z-space-8);
     padding-block: var(--z-space-10);
   }
-  /* Without the dog the words are the only child of a reversed row, so the
-     stage's space-between would push them to the far edge. They stay at the
-     start of the reading direction, where the dog left them. */
-  .wide.no-art {
-    flex-direction: row;
-    justify-content: flex-start;
+  .wide .words {
+    order: 1;
+    flex: 0 1 auto;
+  }
+  /* The picture takes what the words leave, so the figures keep their one row
+     before it grows: its basis is nothing and it fills from there, down to a
+     floor at which a week of hours is still readable. Past that floor the
+     words give way instead, and a strip of figures wraps. */
+  .wide .aside {
+    order: 2;
+    display: flex;
+    justify-content: flex-end;
+    flex: 1 1 0;
+    min-width: 22rem;
+    max-width: 46%;
+    /* A band's size controls sit in the stage's top corner. A picture taller
+       than the words sets the band's height and starts at the padding, where
+       those controls are, so it keeps a line clear of them. */
+    padding-block-start: var(--z-space-6);
+  }
+  /* With the dog on as well, the picture gives up width first, so the words
+     and their figures keep theirs. */
+  .wide:not(.no-art) .aside {
+    max-width: 34%;
   }
   .wide .art {
+    order: 3;
     flex: none;
     width: clamp(8rem, 24%, 13rem);
     padding-block: 0;
@@ -245,6 +275,10 @@
       flex: none;
       width: 5.5rem;
       padding-block: 0;
+    }
+    /* No room beside the words for a picture as well as the dog. */
+    .wide .aside {
+      display: none;
     }
     .art :global(.logo) {
       width: 100%;
