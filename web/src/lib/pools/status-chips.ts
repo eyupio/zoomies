@@ -1,8 +1,10 @@
 /**
  * The pool statuses as the Pools page's filter chips, and the card's eyebrow.
  * Pure, so the counts and the words are held by unit tests. The pools are the
- * fleet cache's, which the page already filters client side, so the counts
- * are true of the rows whatever the search says.
+ * fleet cache's, so the counts are the fleet's as the Runners chips' are, and
+ * a search that narrows the rows leaves them standing; they are withheld
+ * until the cache has loaded, because the grid's own fetch usually answers
+ * first and warms the cache with the filtered page.
  */
 import { pluralise } from '$lib/format';
 
@@ -11,7 +13,7 @@ export type PoolStatusFilter = '' | 'enabled' | 'disabled';
 export interface PoolChip {
   value: 'enabled' | 'disabled';
   label: string;
-  count: number;
+  count?: number;
 }
 
 interface Flagged {
@@ -23,17 +25,23 @@ function isEnabled(pool: Flagged): boolean {
   return pool.enabled !== false;
 }
 
-export function poolStatusChips(pools: readonly Flagged[]): PoolChip[] {
+/** The address bar's word for the status, or no filter when it is not one the product has. */
+export function parseStatus(raw: string): PoolStatusFilter {
+  return raw === 'enabled' || raw === 'disabled' ? raw : '';
+}
+
+export function poolStatusChips(pools: readonly Flagged[], loaded: boolean): PoolChip[] {
   const enabled = pools.filter(isEnabled).length;
+  const counted = (count: number): { count?: number } => (loaded ? { count } : {});
   return [
-    { value: 'enabled', label: 'Enabled', count: enabled },
-    { value: 'disabled', label: 'Disabled', count: pools.length - enabled },
+    { value: 'enabled', label: 'Enabled', ...counted(enabled) },
+    { value: 'disabled', label: 'Disabled', ...counted(pools.length - enabled) },
   ];
 }
 
-/** The card's eyebrow, or nothing while there are no pools to count. */
-export function poolsEyebrow(pools: readonly Flagged[]): string | undefined {
-  if (pools.length === 0) return undefined;
+/** The card's eyebrow, or nothing until the cache has loaded and has pools to count. */
+export function poolsEyebrow(pools: readonly Flagged[], loaded: boolean): string | undefined {
+  if (!loaded || pools.length === 0) return undefined;
   return `${pluralise(pools.length, 'pool')}, ${pools.filter(isEnabled).length} enabled`;
 }
 

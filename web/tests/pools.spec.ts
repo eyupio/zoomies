@@ -1678,10 +1678,10 @@ test('a status chip is one value: Disabled narrows the rows, Enabled replaces it
 });
 
 test('the configuration columns are a click away rather than on by default', async ({ page }) => {
-  test.skip(
-    (page.viewportSize()?.width ?? 1000) < 1181,
-    'a narrow window folds wide columns anyway',
-  );
+  // A phone draws every column in its cards and a desktop its wide ones; only
+  // the laptop widths between fold the wide columns away whatever Columns says.
+  const width = page.viewportSize()?.width ?? 1000;
+  test.skip(width >= 769 && width < 1181, 'a narrow window folds wide columns anyway');
   await goto(page, '/pools', 'Pools');
   const pools = grid(page, 'Pools');
   await expect(dataRows(pools).first()).toBeVisible();

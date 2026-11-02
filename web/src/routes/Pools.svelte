@@ -42,7 +42,7 @@
   import { poolStatus } from '$lib/status';
   import FilterChips from '$lib/components/FilterChips.svelte';
   import Panel from '$lib/components/Panel.svelte';
-  import { pickStatus, poolStatusChips, poolsEyebrow } from '$lib/pools/status-chips';
+  import { parseStatus, pickStatus, poolStatusChips, poolsEyebrow } from '$lib/pools/status-chips';
   import type { PoolStatusFilter } from '$lib/pools/status-chips';
   import { fleet } from '$lib/state/fleet.svelte';
   import { session } from '$lib/state/session.svelte';
@@ -158,7 +158,7 @@
   /* -- filters, kept in the URL so a view can be pasted to a colleague ------ */
 
   const search = $derived(router.param('q'));
-  const status = $derived(router.param('status') as PoolStatusFilter);
+  const status = $derived<PoolStatusFilter>(parseStatus(router.param('status')));
   const filters = $derived({ q: search, status });
   const filtering = $derived(search !== '' || status !== '');
 
@@ -697,9 +697,9 @@
 </PageHeader>
 <PageBand page="pools" line={bandLine} />
 
-<FilterBar {chips} onclear={clearFilters} class="in-effect" />
-
 <AutoPoolsPanel status={autoStatus} />
+
+<FilterBar {chips} onclear={clearFilters} class="in-effect" />
 
 <!--
   The list card: the pools' tile, the count over the title, the search
@@ -708,7 +708,13 @@
   waits on an operator, which a fold under the list would hide.
 -->
 <div id="pools-list" class="jump-target" tabindex="-1" use:revealHash>
-  <Panel title="All pools" icon={Boxes} eyebrow={poolsEyebrow(fleet.pools)} flush class="list-card">
+  <Panel
+    title="All pools"
+    icon={Boxes}
+    eyebrow={poolsEyebrow(fleet.pools, fleet.loaded)}
+    flush
+    class="list-card"
+  >
     {#snippet actions()}
       <div class="search">
         <Input
@@ -727,8 +733,8 @@
     {#snippet toolbar()}
       <FilterChips
         label="Filter by status"
-        total={fleet.pools.length > 0 ? fleet.pools.length : undefined}
-        options={poolStatusChips(fleet.pools)}
+        total={fleet.loaded && fleet.pools.length > 0 ? fleet.pools.length : undefined}
+        options={poolStatusChips(fleet.pools, fleet.loaded)}
         selected={status ? [status] : []}
         onchange={(next) => router.setQuery({ status: pickStatus(status, next) || null })}
       />
@@ -809,7 +815,7 @@
     scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
   }
   .demand {
-    margin: var(--z-space-4) 0;
+    margin: var(--z-space-4) 0 var(--z-space-5);
   }
   .demand summary {
     padding: var(--z-space-3);
@@ -824,7 +830,7 @@
     margin-bottom: var(--z-space-3);
   }
   :global(.in-effect:has(.chip)) {
-    margin-bottom: var(--z-space-4);
+    margin-bottom: var(--z-space-3);
   }
   .search {
     width: 18rem;
