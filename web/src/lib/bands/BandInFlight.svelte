@@ -73,12 +73,32 @@
 <!-- While the first answer is on its way the picture holds its room with the
      shape it will have, so the page under the band does not move when it
      arrives; a hover that was over a row stays over it. -->
+{#snippet legend()}
+  <span class="legend" aria-hidden="true">
+    <span><i class="sq" data-kind="running"></i>Running</span>
+    <span><i class="sq" data-kind="waiting"></i>Waiting</span>
+  </span>
+{/snippet}
+
+<!-- The same head, rows and legend as the loaded picture, so it is the same height
+     for the usual few repositories and nothing under the band moves when the
+     answer lands. -->
 {#if loading && !failed}
   <div class="pic" aria-hidden="true">
-    <div class="head"><span class="title">In flight, by repository</span></div>
-    <div class="placeholder">
-      {#each [0, 1, 2] as i (i)}<Skeleton width="100%" height="var(--z-space-4)" />{/each}
+    <div class="head">
+      <span class="title">In flight, by repository</span>
+      <span class="summary">&nbsp;</span>
     </div>
+    <ul class="rows">
+      {#each [0, 1, 2] as i (i)}
+        <li class="row">
+          <Skeleton width="5rem" height="var(--z-space-4)" />
+          <Skeleton width="100%" height="var(--z-space-4)" />
+          <span class="note">&nbsp;</span>
+        </li>
+      {/each}
+    </ul>
+    <div class="foot">{@render legend()}</div>
   </div>
 {:else if !failed && data.rows.length > 0}
   <div class="pic" data-testid="band-in-flight">
@@ -109,10 +129,7 @@
       {/each}
     </ul>
     <div class="foot">
-      <span class="legend" aria-hidden="true">
-        <span><i class="sq" data-kind="running"></i>Running</span>
-        <span><i class="sq" data-kind="waiting"></i>Waiting</span>
-      </span>
+      {@render legend()}
       {#if data.more > 0}<span class="more"
           >and {data.more} more {data.more === 1 ? 'repository' : 'repositories'}</span
         >{/if}
@@ -128,12 +145,6 @@
     min-width: 0;
     width: 100%;
     color: var(--z-panel-text-muted);
-  }
-  .placeholder {
-    display: flex;
-    flex-direction: column;
-    gap: var(--z-space-2);
-    min-width: 12rem;
   }
   .head,
   .foot {
