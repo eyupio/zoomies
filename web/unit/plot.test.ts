@@ -68,6 +68,30 @@ test('labels stay on local midnights and round hours across a daylight-saving ch
       day.map((at) => new Date(at).getHours()),
       [6, 12, 18, 0],
     );
+    // A chart that starts in the repeated hour is labelled inside its window,
+    // at the second 01:15, 01:30 and 01:45 and not the first, which are
+    // instants before its left edge; and a window over both occurrences gets
+    // both, each after the last.
+    const est = 5 * 60;
+    const second = timeTicks(Date.UTC(2026, 10, 1, 6, 10), Date.UTC(2026, 10, 1, 7, 10), 5);
+    assert.deepEqual(
+      second.map((at) => [new Date(at).getHours(), new Date(at).getMinutes()]),
+      [
+        [1, 15],
+        [1, 30],
+        [1, 45],
+        [2, 0],
+      ],
+    );
+    for (const at of second) {
+      assert.ok(at >= Date.UTC(2026, 10, 1, 6, 10), new Date(at).toString());
+      assert.equal(new Date(at).getTimezoneOffset(), est);
+    }
+    const both = timeTicks(Date.UTC(2026, 10, 1, 4, 50), Date.UTC(2026, 10, 1, 6, 50), 5);
+    assert.deepEqual(
+      both.map((at) => new Date(at).toISOString().slice(11, 16)),
+      ['05:00', '05:30', '06:00', '06:30'],
+    );
     // Spring forward too, where the local hour 02:00 does not exist.
     const spring = timeTicks(
       new Date(2026, 2, 7, 20).getTime(),
