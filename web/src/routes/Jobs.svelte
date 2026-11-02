@@ -24,7 +24,7 @@
   something here could have -- and the "Include other runners" switch widens it
   to everything GitHub has reported.
 
-  Status is the filter this page is opened for, so it is a row of buttons above
+  Status is the filter this page is opened for, so it is a row of chips over
   the grid rather than a menu to open, and a page nobody has asked anything of
   answers "what is running?" before being asked. That default holds for a bare
   visit only: a link that already carries a filter -- the problems panel's, the

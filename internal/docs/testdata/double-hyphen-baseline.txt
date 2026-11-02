@@ -887,7 +887,6 @@ web/src/lib/jobs/JobDrawer.svelte	4
 web/src/lib/jobs/JobFilters.svelte	3
 web/src/lib/jobs/JobLabels.svelte	2
 web/src/lib/jobs/JobTimeline.svelte	1
-web/src/lib/jobs/JobViewFilter.svelte	3
 web/src/lib/jobs/SizeAdvice.svelte	4
 web/src/lib/jobs/UnmatchedNote.svelte	2
 web/src/lib/jobs/activity-status.ts	2

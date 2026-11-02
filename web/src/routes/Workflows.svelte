@@ -24,7 +24,7 @@
   import BandInFlight from '$lib/bands/BandInFlight.svelte';
   import { workflowsLine } from '$lib/bands/lines';
   import Tooltip from '$lib/components/Tooltip.svelte';
-  import { CircleX } from '@lucide/svelte';
+  import { CircleX, Workflow } from '@lucide/svelte';
   import {
     cancelWorkflowRun,
     controlWorkflowRunProvisioning,
@@ -33,7 +33,7 @@
   } from '$lib/api/client';
   import type { Job, WorkflowRun } from '$lib/api/types';
   import { events } from '$lib/api/sse';
-  import { NO_VALUE, formatDuration, formatNumber } from '$lib/format';
+  import { NO_VALUE, formatDuration, formatNumber, pluralise } from '$lib/format';
   import { session } from '$lib/state/session.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
@@ -59,7 +59,9 @@
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
   import JobFilters from '$lib/jobs/JobFilters.svelte';
-  import JobViewFilter from '$lib/jobs/JobViewFilter.svelte';
+  import FilterChips from '$lib/components/FilterChips.svelte';
+  import Panel from '$lib/components/Panel.svelte';
+  import { jobViewChips, pickView, viewSelection } from '$lib/jobs/view-chips';
   import LevelSwitch from '$lib/workflows/LevelSwitch.svelte';
   import RunJobs from '$lib/workflows/RunJobs.svelte';
   import {
@@ -200,7 +202,23 @@
       },
       signal,
     );
+    if (!signal.aborted) total = page.total;
     return { items: page.items ?? [], total: page.total };
+  }
+  // How many runs the view and the filters leave, from the page the grid last
+  // fetched, for the card's eyebrow; absent until the first page has said, and
+  // cleared over an error, where a figure would be the last filter's.
+  let total = $state<number | undefined>();
+  async function fetchCounted(
+    query: GridQuery,
+    signal: AbortSignal,
+  ): Promise<GridPage<WorkflowRun>> {
+    try {
+      return await fetchRuns(query, signal);
+    } catch (error) {
+      if (!signal.aborted) total = undefined;
+      throw error;
+    }
   }
 
   let selected = $state<Job | null>(null);
@@ -638,11 +656,6 @@
 </PageBand>
 
 <div class="content">
-  <div class="toolbar">
-    <JobViewFilter value={view} onchange={setView} />
-    <LevelSwitch level="runs" />
-  </div>
-
   <JobFilters
     {compact}
     statusChips={view === ''}
@@ -654,38 +667,69 @@
     onclear={clearFilters}
   />
 
-  <DataGrid
-    gridId="workflows"
-    label="Workflow runs"
-    {columns}
-    fetcher={fetchRuns}
-    {rowId}
-    {filters}
-    defaultSort="queued_at"
-    defaultOrder="desc"
-    noun="runs"
-    {liveKey}
-    expanded={runJobs}
-    expandHeader="Jobs"
-    {emptyTitle}
-    {emptyDescription}
+  <!--
+    The list card: the workflows' tile, how many runs the view leaves over the
+    title, the level switch opposite, and the status views as chips where the
+    row of buttons was, pressed one at a time. The chips carry no counts here:
+    the band's figures count jobs and these rows are runs, so no figure the
+    page has is true of them. The grid is bare inside, so the page shows one
+    frame.
+  -->
+  <Panel
+    title="All runs"
+    icon={Workflow}
+    eyebrow={total ? pluralise(total, 'run') : undefined}
+    flush
+    class="list-card"
   >
-    {#snippet emptyAction()}
-      {#if narrowed}
-        <Button variant="secondary" onclick={clearFilters}>Clear filters</Button>
-      {:else if view !== '' && view !== 'all'}
-        <Button variant="secondary" onclick={() => setView('all')}>Show every status</Button>
-      {:else if !filters.unmatched}
-        {#if filters.all}
-          <Button variant="secondary" href="/installations">Check webhook delivery</Button>
-        {:else}
-          <Button variant="secondary" onclick={() => patch({ all: true })}>
-            Include other runners
-          </Button>
-        {/if}
-      {/if}
+    {#snippet actions()}
+      <LevelSwitch level="runs" />
     {/snippet}
-  </DataGrid>
+    {#snippet toolbar()}
+      {@const pressed = viewSelection(view)}
+      <FilterChips
+        label="Filter jobs by status"
+        options={jobViewChips(undefined, false)}
+        selected={pressed.selected}
+        none={pressed.none}
+        scroll
+        onchange={(next) => setView(pickView(view, next))}
+      />
+    {/snippet}
+    <DataGrid
+      gridId="workflows"
+      label="Workflow runs"
+      {columns}
+      fetcher={fetchCounted}
+      {rowId}
+      {filters}
+      defaultSort="queued_at"
+      defaultOrder="desc"
+      noun="runs"
+      bare
+      {liveKey}
+      expanded={runJobs}
+      expandHeader="Jobs"
+      {emptyTitle}
+      {emptyDescription}
+    >
+      {#snippet emptyAction()}
+        {#if narrowed}
+          <Button variant="secondary" onclick={clearFilters}>Clear filters</Button>
+        {:else if view !== '' && view !== 'all'}
+          <Button variant="secondary" onclick={() => setView('all')}>Show every status</Button>
+        {:else if !filters.unmatched}
+          {#if filters.all}
+            <Button variant="secondary" href="/installations">Check webhook delivery</Button>
+          {:else}
+            <Button variant="secondary" onclick={() => patch({ all: true })}>
+              Include other runners
+            </Button>
+          {/if}
+        {/if}
+      {/snippet}
+    </DataGrid>
+  </Panel>
 </div>
 
 <JobDrawer bind:open={drawerOpen} job={selected} onclose={() => (selected = null)} />
@@ -728,13 +772,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--z-space-4);
-  }
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--z-space-3);
   }
   .state,
   .run {
