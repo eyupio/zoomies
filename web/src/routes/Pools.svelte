@@ -23,6 +23,7 @@
     PowerOff,
     Search,
     Trash2,
+    Boxes,
   } from '@lucide/svelte';
   import {
     deletePool,
@@ -39,6 +40,10 @@
   import { registerSearch } from '$lib/keys';
   import { navigate, router } from '$lib/router';
   import { poolStatus } from '$lib/status';
+  import FilterChips from '$lib/components/FilterChips.svelte';
+  import Panel from '$lib/components/Panel.svelte';
+  import { parseStatus, pickStatus, poolStatusChips, poolsEyebrow } from '$lib/pools/status-chips';
+  import type { PoolStatusFilter } from '$lib/pools/status-chips';
   import { fleet } from '$lib/state/fleet.svelte';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
@@ -59,7 +64,6 @@
   import type { FilterChip } from '$lib/components/FilterBar.svelte';
   import Input from '$lib/components/Input.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
-  import Select from '$lib/components/Select.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import AutoPoolsPanel from '$lib/pools/AutoPoolsPanel.svelte';
   import ImportPoolsDialog from '$lib/pools/ImportPoolsDialog.svelte';
@@ -154,7 +158,7 @@
   /* -- filters, kept in the URL so a view can be pasted to a colleague ------ */
 
   const search = $derived(router.param('q'));
-  const status = $derived(router.param('status'));
+  const status = $derived<PoolStatusFilter>(parseStatus(router.param('status')));
   const filters = $derived({ q: search, status });
   const filtering = $derived(search !== '' || status !== '');
 
@@ -509,6 +513,7 @@
         id: 'backend',
         header: 'Backend',
         priority: 'wide',
+        hiddenByDefault: true,
         sortable: true,
         value: (row) => backendLabel(row.backend),
       },
@@ -516,6 +521,7 @@
         id: 'platform',
         header: 'Platform',
         priority: 'wide',
+        hiddenByDefault: true,
         sortable: true,
         value: (row) => platformLabelOrAny(row.platform),
       },
@@ -541,6 +547,7 @@
         id: 'idle_timeout',
         header: 'Idle timeout',
         priority: 'wide',
+        hiddenByDefault: true,
         sortable: true,
         align: 'end',
         value: (row) => formatGoDuration(row.idle_timeout),
@@ -550,12 +557,14 @@
         header: 'Lifetime',
         help: 'Whether a runner takes one job and is then removed, or is kept and reused for more.',
         priority: 'wide',
+        hiddenByDefault: true,
         value: (row) => (row.ephemeral === false ? 'Reused' : 'One job'),
       },
       {
         id: 'docker_mode',
         header: 'Docker',
         priority: 'wide',
+        hiddenByDefault: true,
         value: (row) => dockerModeLabel(row.docker_mode),
       },
       {
@@ -688,74 +697,84 @@
 </PageHeader>
 <PageBand page="pools" line={bandLine} />
 
-<div class="filters">
-  <FilterBar {chips} onclear={clearFilters}>
-    <div class="search">
-      <Input
-        bind:element={searchField}
-        value={search}
-        type="search"
-        icon={Search}
-        size="sm"
-        placeholder="Search pools by name, label or target"
-        ariaLabel="Search pools"
-        oninput={(event) =>
-          router.setQuery({ q: (event.currentTarget as HTMLInputElement).value || null })}
-      />
-    </div>
-    <div class="status-filter">
-      <Select
-        value={status}
-        size="sm"
-        ariaLabel="Filter by status"
-        options={[
-          { value: '', label: 'Any status' },
-          { value: 'enabled', label: 'Enabled' },
-          { value: 'disabled', label: 'Disabled' },
-        ]}
-        onchange={(value) => router.setQuery({ status: value || null })}
-      />
-    </div>
-  </FilterBar>
-</div>
-
 <AutoPoolsPanel status={autoStatus} />
 
+<FilterBar {chips} onclear={clearFilters} class="in-effect" />
+
+<!--
+  The list card: the pools' tile, the count over the title, the search
+  opposite it, and Enabled and Disabled as chips where the status menu was.
+  The size-class panel stays above the card: it opens by itself when a change
+  waits on an operator, which a fold under the list would hide.
+-->
 <div id="pools-list" class="jump-target" tabindex="-1" use:revealHash>
-  <DataGrid
-    gridId="pools"
-    label="Pools"
-    {columns}
-    {filters}
-    fetcher={fetchPools}
-    rowId={(row) => row.id ?? ''}
-    defaultSort="name"
-    defaultOrder="asc"
-    selectable={canOperate}
-    {bulkActions}
-    liveKey={fleet.shape}
-    noun="pools"
-    onopen={(row) => navigate(`/pools/${row.id ?? ''}`)}
-    onrows={takeRows}
-    emptyTitle={filtering ? 'No pools match those filters' : 'No pools yet'}
-    emptyDescription={filtering
-      ? 'Every pool is hidden by the search or the status filter currently applied.'
-      : noInstallation
-        ? 'A pool decides what labels your runners answer to and how many of them exist. It registers those runners with a GitHub App installation, so that comes first.'
-        : 'A pool decides what labels your runners answer to and how many of them exist.'}
+  <Panel
+    title="All pools"
+    icon={Boxes}
+    eyebrow={poolsEyebrow(fleet.pools, fleet.loaded)}
+    flush
+    class="list-card"
   >
-    {#snippet emptyAction()}
-      {#if filtering}
-        <Button onclick={clearFilters}>Clear filters</Button>
-      {:else if canOperate && noInstallation}
-        <Button variant="primary" icon={Plug} href="/installations">Connect GitHub</Button>
-      {:else if canOperate}
-        <Button variant="primary" icon={Plus} href="/pools/new">Create a pool</Button>
-      {:else}
-        <p class="no-permission">Ask an operator to create one.</p>
-      {/if}
+    {#snippet actions()}
+      <div class="search">
+        <Input
+          bind:element={searchField}
+          value={search}
+          type="search"
+          icon={Search}
+          size="sm"
+          placeholder="Search pools by name, label or target"
+          ariaLabel="Search pools"
+          oninput={(event) =>
+            router.setQuery({ q: (event.currentTarget as HTMLInputElement).value || null })}
+        />
+      </div>
     {/snippet}
-  </DataGrid>
+    {#snippet toolbar()}
+      <FilterChips
+        label="Filter by status"
+        total={fleet.loaded && fleet.pools.length > 0 ? fleet.pools.length : undefined}
+        options={poolStatusChips(fleet.pools, fleet.loaded)}
+        selected={status ? [status] : []}
+        onchange={(next) => router.setQuery({ status: pickStatus(status, next) || null })}
+      />
+    {/snippet}
+    <DataGrid
+      gridId="pools"
+      label="Pools"
+      {columns}
+      {filters}
+      fetcher={fetchPools}
+      rowId={(row) => row.id ?? ''}
+      defaultSort="name"
+      defaultOrder="asc"
+      selectable={canOperate}
+      {bulkActions}
+      liveKey={fleet.shape}
+      noun="pools"
+      bare
+      onopen={(row) => navigate(`/pools/${row.id ?? ''}`)}
+      onrows={takeRows}
+      emptyTitle={filtering ? 'No pools match those filters' : 'No pools yet'}
+      emptyDescription={filtering
+        ? 'Every pool is hidden by the search or the status filter currently applied.'
+        : noInstallation
+          ? 'A pool decides what labels your runners answer to and how many of them exist. It registers those runners with a GitHub App installation, so that comes first.'
+          : 'A pool decides what labels your runners answer to and how many of them exist.'}
+    >
+      {#snippet emptyAction()}
+        {#if filtering}
+          <Button onclick={clearFilters}>Clear filters</Button>
+        {:else if canOperate && noInstallation}
+          <Button variant="primary" icon={Plug} href="/installations">Connect GitHub</Button>
+        {:else if canOperate}
+          <Button variant="primary" icon={Plus} href="/pools/new">Create a pool</Button>
+        {:else}
+          <p class="no-permission">Ask an operator to create one.</p>
+        {/if}
+      {/snippet}
+    </DataGrid>
+  </Panel>
 </div>
 
 <!-- The table is what a person came for, and it carries every pool's own figures. The
@@ -796,7 +815,7 @@
     scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
   }
   .demand {
-    margin: 0 0 var(--z-space-4);
+    margin: var(--z-space-4) 0 var(--z-space-5);
   }
   .demand summary {
     padding: var(--z-space-3);
@@ -810,15 +829,12 @@
   .demand[open] summary {
     margin-bottom: var(--z-space-3);
   }
-  .filters {
-    margin-bottom: var(--z-space-4);
+  :global(.in-effect:has(.chip)) {
+    margin-bottom: var(--z-space-3);
   }
   .search {
-    min-width: 18rem;
-    flex: 1 1 18rem;
-  }
-  .status-filter {
-    width: 10rem;
+    width: 18rem;
+    max-width: 100%;
   }
   /* The badge under the name, not beside it: the Name column is the first the
      grid narrows on a laptop, and a name squeezed to one letter beside its own
