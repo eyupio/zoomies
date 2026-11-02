@@ -217,6 +217,17 @@ actions; Jobs and Workflows, which share it, do the same. The Queue's default
 of three statuses in force is three pressed chips, and the All chip is every
 status, Removed included, as the page already spells it when nothing narrows._
 
+_2 November 2026, Pools: the size-class panel (`AutoPoolsPanel`) is not
+context and is not folded. Off, it is one quiet sentence; on, it opens by
+itself when a change waits on an operator or the controller could not make
+one, and a fold under the list would hide exactly that. It stays above the
+card, as the Runners page's analysis card does. The status parameter holds one
+value, so the chips press one at a time: a second chip replaces the first, and
+the same chip again, or All, clears it. Lifetime and Docker are hidden by
+default although a test read them from the row: the risk badge beside the name
+already names docker-in-docker and persistent runners, so the row still says
+the dangerous settings without the columns._
+
 ## Out of scope
 
 - Hosts, Providers and Installations, whose lists are cards today.
