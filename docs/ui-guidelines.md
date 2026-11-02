@@ -915,7 +915,10 @@ The one page that has to earn the second monitor.
   an *Open* button to the thing it is about and the drawer's own dismiss menu
   (snooze for a while, snooze every problem of this kind, dismiss until
   resolved), so a decision made here means what it means in the drawer and is
-  listed there as dismissed. The card's own line ("and N more", or "Open the
+  listed there as dismissed. The header also carries *Dismiss all*, the same
+  menu as the drawer's header (snooze everything listed for 15 minutes, 1, 4
+  or 24 hours, or dismiss it all until resolved), whether the card is shut or
+  open; pressing it does not toggle the card. The card's own line ("and N more", or "Open the
   drawer") opens the problems drawer for the rest; everything past three stays
   the drawer's. Whether the section is open is remembered like the other
   sections' choices. **When everything is fine it is a single quiet line, not an

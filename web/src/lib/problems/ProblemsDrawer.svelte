@@ -15,7 +15,6 @@
   bottom, with the date the decision was made.
 -->
 <script lang="ts">
-  import { CheckCheck } from '@lucide/svelte';
   import { pluralise } from '$lib/format';
   import { severityStatus } from '$lib/status';
   import { problemKey } from './identity';
@@ -24,6 +23,7 @@
   import Drawer from '$lib/components/Drawer.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
   import AutoApplied from './AutoApplied.svelte';
+  import BulkDismiss from './BulkDismiss.svelte';
   import ProblemItem from './ProblemItem.svelte';
 
   const active = $derived(notifications.active);
@@ -48,14 +48,7 @@
 >
   {#if active.length > 0}
     <div class="bulk">
-      <Button
-        size="sm"
-        variant="ghost"
-        icon={CheckCheck}
-        onclick={() => notifications.dismissAll()}
-      >
-        Dismiss all
-      </Button>
+      <BulkDismiss />
     </div>
   {/if}
 
