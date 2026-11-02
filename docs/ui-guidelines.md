@@ -677,8 +677,13 @@ figures. A band takes one of four cuts, Slim, Compact, Standard or Expanded,
 chosen per page from the band itself or in Appearance; a size pressed on a band
 asks where it lands (this page, pages picked one at a time, or every page), so
 one deliberate answer serves every page that needs it. Each is switched off per
-page in Appearance (a list of hidden pages, so a band added later is on), and a
-phone never shows one. A band's dog is off by default, giving the sentence the
+page in Appearance (a list of hidden pages, so a band added later is on). A
+phone draws a band only to carry its picture, slim: the sentence, then the
+picture at the full width, with the figures in their own panel under it and the
+cut and the dismiss left to Appearance; a band with no picture, or with its
+picture switched off, is hidden on a phone as it always was, so the rows stay on
+the first screen. Below 1000px, a tablet included, a picture takes a row of its
+own under the sentence instead of standing beside it. A band's dog is off by default, giving the sentence the
 whole band, and can be switched on or drawn at a chosen size in Appearance (Auto
 follows the band's own size; Small, Medium and Large pin it); pressing the dog
 opens the same panel, with the same question about where. The choices follow
@@ -915,9 +920,9 @@ The one page that has to earn the second monitor.
   leave the pools on the first screen of a 1440x900 laptop, which is the rule
   the earlier one-line summary was cut down for; everything past three stays
   the drawer's. **When everything is fine it is a single quiet line, not an
-  empty box and not a green celebration.** A phone draws no band and keeps its
-  pools on the first screen, so it keeps the one-line summary with its
-  *Review* button, as before.
+  empty box and not a green celebration.** A phone keeps the one-line summary
+  with its *Review* button, as before, under the slim band that carries the
+  week.
 * **Recent failures**: unresolved failures nobody has acknowledged, newest first, with the
   count in the panel's header and each row naming the repository, the workflow,
   the job and the step or fault it stopped at. A row opens the job's own drawer,

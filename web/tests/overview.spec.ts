@@ -212,7 +212,8 @@ test('the Overview says what needs a person in three rows at most, and the rest 
   if ((page.viewportSize()?.width ?? 0) < 769) {
     await expect(page.getByText(/needs? your attention\.$/).first()).toBeVisible();
     await expect(page.getByRole('region', { name: 'Needs attention', exact: true })).toHaveCount(0);
-    await page.getByRole('button', { name: 'Review' }).click();
+    // The band's own Review and the summary line's both open the drawer.
+    await page.getByRole('button', { name: 'Review' }).first().click();
     await expect(page.getByRole('dialog', { name: 'Problems' })).toBeVisible();
     return;
   }

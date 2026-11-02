@@ -232,4 +232,38 @@
     width: var(--z-space-2);
     height: var(--z-space-2);
   }
+  /*
+    A phone gives the picture the width of the band and no more, so a row cannot
+    hold its name, its picture and its note on one line: the name and the note
+    share the first line and the picture has the whole second one. Without this
+    the name's column is squeezed to nothing and a row is a picture and a number
+    with no one to say whose.
+  */
+  @media (max-width: 768px) {
+    .rows {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: var(--z-space-3);
+    }
+    .row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--z-space-1) var(--z-space-3);
+    }
+    .row .name {
+      grid-column: 1;
+      grid-row: 1;
+      max-width: none;
+    }
+    .row .note {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .row .squares {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+  }
 </style>

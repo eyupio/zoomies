@@ -72,10 +72,92 @@ test("switching the Overview's band off puts its problems line back", async ({ p
   await expect(page.getByRole('heading', { name: 'Overview', level: 1 })).toBeVisible();
 });
 
-test('a band is not drawn on a phone, switch or no switch', async ({ page }) => {
+// A phone draws a band only to carry its picture, slim: the sentence, then the
+// picture at the full width. A band with nothing to carry, or with its picture
+// switched off, stays hidden so the rows are on the first screen as they were.
+test('a phone draws a band to carry its picture, and only then', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 800 });
   await goto(page, '/runners', 'Runners');
+  const band = page.getByTestId('band-runners');
+  await expect(band).toBeVisible();
+  await expect(band.getByTestId('band-slot-map')).toBeVisible();
+  // The figures are in their own panel under it, not in the band as well.
+  await expect(band.getByRole('list', { name: 'Key figures' })).toBeHidden();
+  await expect(page.getByRole('list', { name: 'Key figures' })).toBeVisible();
+  // The cut and the dismiss are for a screen with the room.
+  await expect(band.getByRole('button', { name: /^Hide the .* band/ })).toBeHidden();
+
+  // Nothing to carry: no band, as before.
+  await goto(page, '/migrate', 'Migrate repositories');
+  await expect(page.getByTestId('band-migrate')).toBeHidden();
+
+  // The picture switched off in Appearance takes the band with it on a phone.
+  await goto(page, '/settings/appearance', 'Appearance');
+  await page.getByRole('switch', { name: 'Runners band picture' }).click();
+  await goto(page, '/runners', 'Runners');
   await expect(page.getByTestId('band-runners')).toBeHidden();
+  await expect(page.getByRole('list', { name: 'Key figures' })).toBeVisible();
+});
+
+// Each row of a picture has the width of the band and no more: its name and its
+// note share a line and the picture has the next. Before that the name's column
+// was squeezed to nothing and a row was a picture and a number with no one to
+// say whose.
+test('on a phone every picture fits the width and every row names what it is about', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  for (const [path, heading, picture] of [
+    ['/', 'Overview', 'fleet-punch-card'],
+    ['/hosts', 'Hosts', 'band-slot-map'],
+    ['/runners', 'Runners', 'band-slot-map'],
+    ['/pools', 'Pools', 'band-pool-bars'],
+    ['/queue', 'Queue', 'band-queue-trend'],
+    ['/usage', 'Usage', 'band-usage-columns'],
+    ['/jobs', 'Jobs', 'fleet-punch-card'],
+    ['/workflows', 'Workflows', 'band-in-flight'],
+  ] as const) {
+    await goto(page, path, heading);
+    const pic = page.getByTestId(picture).first();
+    await expect(pic, `${heading} draws its picture`).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+      `${heading} has no sideways scroll`,
+    ).toBeLessThanOrEqual(0);
+    const box = await pic.boundingBox();
+    expect(box?.width ?? 0, `${heading}'s picture has the band's width`).toBeGreaterThan(250);
+    // A named row shows its name: a link with a width, not an empty column.
+    for (const link of await pic.locator('a.name').all()) {
+      expect((await link.boundingBox())?.width ?? 0, `${heading}: a row's name`).toBeGreaterThan(
+        20,
+      );
+    }
+  }
+});
+
+// Below 1000px the picture does not fit beside the words and still read, so it
+// takes a row of its own under them: a tablet and a phone are one rule.
+test('a tablet stacks the picture under the sentence and a laptop keeps it beside', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 820, height: 1000 });
+  await goto(page, '/hosts', 'Hosts');
+  let band = page.getByTestId('band-hosts');
+  let headline = await band.locator('.headline').boundingBox();
+  let picture = await band.getByTestId('band-slot-map').boundingBox();
+  expect(picture?.y ?? 0, 'the picture is under the sentence').toBeGreaterThan(
+    (headline?.y ?? 0) + (headline?.height ?? 0),
+  );
+  expect(picture?.width ?? 0, 'and has the band to itself').toBeGreaterThan(500);
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await goto(page, '/hosts', 'Hosts');
+  band = page.getByTestId('band-hosts');
+  headline = await band.locator('.headline').boundingBox();
+  picture = await band.getByTestId('band-slot-map').boundingBox();
+  expect(picture?.x ?? 0, 'the picture is beside the sentence').toBeGreaterThan(
+    (headline?.x ?? 0) + (headline?.width ?? 0) - 1,
+  );
 });
 
 test('every page opens on a slim band', async ({ page }) => {
@@ -419,10 +501,12 @@ test('every page names itself, underlines it and says what it is', async ({ page
   }
 });
 
-test('a phone, which never draws a band, still gets its figures', async ({ page }) => {
+test('a phone gets its figures in their own panel, not in the band', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 800 });
   await goto(page, '/queue', 'Queue');
-  await expect(page.getByTestId('band-queue')).toBeHidden();
+  await expect(
+    page.getByTestId('band-queue').getByRole('list', { name: 'Key figures' }),
+  ).toBeHidden();
   await expect(page.getByRole('list', { name: 'Key figures' })).toBeVisible();
 });
 

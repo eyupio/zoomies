@@ -260,6 +260,32 @@
   .stage.wide[data-art-size='large'] .art {
     width: clamp(8rem, 24%, 13rem);
   }
+  /*
+    Stacked: below this the picture does not fit beside the words and the dog
+    and still read, so it takes a row of its own under them, the full width the
+    band has. A tablet and a phone are one rule, and the beside layout stays for
+    the widths that have the room.
+  */
+  @media (max-width: 1000px) {
+    .wide {
+      flex-wrap: wrap;
+      align-items: flex-start;
+    }
+    .wide .words {
+      flex: 1 1 12rem;
+    }
+    .wide .art {
+      order: 2;
+    }
+    .wide .aside,
+    .wide:not(.no-art) .aside {
+      order: 3;
+      flex: 1 1 100%;
+      min-width: 0;
+      max-width: none;
+      padding-block-start: var(--z-space-2);
+    }
+  }
   @media (max-width: 800px) {
     .stage,
     .wide {
@@ -275,10 +301,6 @@
       flex: none;
       width: 5.5rem;
       padding-block: 0;
-    }
-    /* No room beside the words for a picture as well as the dog. */
-    .wide .aside {
-      display: none;
     }
     .art :global(.logo) {
       width: 100%;
