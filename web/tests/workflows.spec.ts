@@ -58,13 +58,35 @@ test('the filters are one row of same-height controls, with the switches on a li
   // start beneath it.
   await page.setViewportSize({ width: 1280, height: 900 });
   await goto(page, '/workflows', 'Workflows');
-  const search = await page.getByRole('searchbox', { name: 'Search jobs' }).boundingBox();
-  const menus = await Promise.all(
-    ['Repository', 'Workflow', 'Pool', 'Label', 'Outcome'].map((label) =>
-      facetTrigger(page, label).boundingBox(),
-    ),
+  // The row is measured once it has settled, and in one reading. The page
+  // paints in the fallback font and swaps to Inter when it arrives, and the
+  // band above the bar draws its picture once its runs arrive; on a slow
+  // runner both land after the heading is up, and a search measured before
+  // them and a menu measured after sat a row apart without either being out
+  // of place.
+  await page.evaluate(() => document.fonts.ready);
+  await expect(page.getByTestId('band-workflows').getByTestId('band-in-flight')).toBeVisible();
+  const handles = await Promise.all(
+    [
+      page.getByRole('searchbox', { name: 'Search jobs' }),
+      ...['Repository', 'Workflow', 'Pool', 'Label', 'Outcome'].map((label) =>
+        facetTrigger(page, label),
+      ),
+      page.getByRole('switch', { name: 'Unmatched only' }),
+    ].map((locator) => locator.elementHandle()),
   );
-  const unmatched = await page.getByRole('switch', { name: 'Unmatched only' }).boundingBox();
+  const boxes = await page.evaluate(
+    (elements) =>
+      elements.map((element) => {
+        if (!element) return null;
+        const { x, y, width, height } = element.getBoundingClientRect();
+        return { x, y, width, height };
+      }),
+    handles,
+  );
+  const [search, ...rest] = boxes;
+  const unmatched = rest.pop();
+  const menus = rest;
   if (!search || !unmatched) throw new Error('the search and the switches are on the page');
 
   for (const menu of menus) {

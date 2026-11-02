@@ -47,6 +47,67 @@ test('labels fall on round local times, not on evenly spaced odd minutes', () =>
   }
 });
 
+test('labels stay on local midnights and round hours across a daylight-saving change', () => {
+  // A zone with daylight saving: on 1 November 2026 New York falls back an hour.
+  // Ticks stepped from the window's first offset alone landed at 01:00 for the
+  // rest of a fortnight's chart, and a day's chart across the change read 01:00,
+  // 07:00, 13:00. The labels say local time, so they are held to it in each half.
+  const zone = process.env.TZ;
+  process.env.TZ = 'America/New_York';
+  try {
+    const end = new Date(2026, 10, 8, 11, 4).getTime();
+    for (const at of timeTicks(end - 14 * 86_400_000, end, 5)) {
+      assert.equal(new Date(at).getHours(), 0, new Date(at).toString());
+    }
+    const day = timeTicks(
+      new Date(2026, 10, 1, 1, 30).getTime(),
+      new Date(2026, 10, 2, 1, 30).getTime(),
+      5,
+    );
+    assert.deepEqual(
+      day.map((at) => new Date(at).getHours()),
+      [6, 12, 18, 0],
+    );
+    // A chart that starts in the repeated hour is labelled inside its window,
+    // at the second 01:15, 01:30 and 01:45 and not the first, which are
+    // instants before its left edge; and a window over both occurrences gets
+    // both, each after the last.
+    const est = 5 * 60;
+    const second = timeTicks(Date.UTC(2026, 10, 1, 6, 10), Date.UTC(2026, 10, 1, 7, 10), 5);
+    assert.deepEqual(
+      second.map((at) => [new Date(at).getHours(), new Date(at).getMinutes()]),
+      [
+        [1, 15],
+        [1, 30],
+        [1, 45],
+        [2, 0],
+      ],
+    );
+    for (const at of second) {
+      assert.ok(at >= Date.UTC(2026, 10, 1, 6, 10), new Date(at).toString());
+      assert.equal(new Date(at).getTimezoneOffset(), est);
+    }
+    const both = timeTicks(Date.UTC(2026, 10, 1, 4, 50), Date.UTC(2026, 10, 1, 6, 50), 5);
+    assert.deepEqual(
+      both.map((at) => new Date(at).toISOString().slice(11, 16)),
+      ['05:00', '05:30', '06:00', '06:30'],
+    );
+    // Spring forward too, where the local hour 02:00 does not exist.
+    const spring = timeTicks(
+      new Date(2026, 2, 7, 20).getTime(),
+      new Date(2026, 2, 8, 20).getTime(),
+      5,
+    );
+    assert.deepEqual(
+      spring.map((at) => new Date(at).getHours()),
+      [0, 6, 12, 18],
+    );
+  } finally {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  }
+});
+
 test('labels at the ends of the lines are pushed apart, and back up from the bottom', () => {
   // Three lines ending within a few pixels of each other get three labels a
   // label's height apart, in the order the lines are in.
