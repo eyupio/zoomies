@@ -252,6 +252,9 @@
 >
   {#snippet meta()}
     {#if repair}
+      <strong class="repository"
+        >{repair.repo}{repair.pull_number > 0 ? ` #${repair.pull_number}` : ''}</strong
+      >
       <RepairStatusBadge state={repair.state} />
       <Badge tone="neutral" label={requestedBy(repair)} dot={false} />
       <span class="started"><RelativeTime value={repair.created_at} prefix="Started" /></span>
@@ -359,6 +362,11 @@
 {/if}
 
 <style>
+  .repository {
+    color: var(--z-text);
+    font-size: var(--z-text-sm);
+    overflow-wrap: anywhere;
+  }
   .started {
     color: var(--z-text-muted);
     font-size: var(--z-text-sm);

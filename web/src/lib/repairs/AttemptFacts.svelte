@@ -1,7 +1,7 @@
 <!--
   This attempt, at a glance: which repair it is, who paid for the model, what
-  was sent to it and which commit came of it. The state, stage and start time
-  belong to the page header and the progress card, so they are not repeated here.
+  was sent to it and which commit came of it. Repository, age and the failing
+  head stay visible even when the supporting evidence is closed.
 
   Only what the row recorded is here. A fact the repair has not got yet (no model
   call, no commit) is left out until it exists, and one that is simply absent
@@ -11,6 +11,7 @@
 -->
 <script lang="ts">
   import CopyButton from '$lib/components/CopyButton.svelte';
+  import RelativeTime from '$lib/components/RelativeTime.svelte';
   import type { Schemas } from '$lib/api/types';
   import { formatBytes, formatDuration, NO_VALUE, shortId } from '$lib/format';
   import { providerWords, tookMs } from './attempt';
@@ -34,6 +35,23 @@
 <div class="card">
   <h2>This attempt</h2>
   <dl class="facts">
+    <dt>Repository</dt>
+    <dd>{view.repo}</dd>
+    {#if view.pullNumber}
+      <dt>Pull request</dt>
+      <dd>#{view.pullNumber}</dd>
+    {/if}
+    <dt>Age</dt>
+    <dd><RelativeTime value={repair.created_at} /></dd>
+    <dt>Last updated</dt>
+    <dd><RelativeTime value={repair.updated_at} /></dd>
+    <dt>Failing head</dt>
+    <dd class="mono">
+      {repair.head_sha.slice(0, 7)}<CopyButton
+        value={repair.head_sha}
+        label="Copy the failing head SHA"
+      />
+    </dd>
     <dt>Attempt</dt>
     <dd class="mono">
       {shortId(repair.id)}
@@ -59,8 +77,8 @@
       <dt>Model calls</dt>
       <dd class="tnum">{calls}</dd>
     {/if}
+    <dt>Commit pushed</dt>
     {#if commit}
-      <dt>Commit pushed</dt>
       <dd class="mono">
         {#if commitLink}
           <a href={commitLink} target="_blank" rel="noreferrer"
@@ -70,6 +88,8 @@
           {commit.slice(0, 7)}
         {/if}
       </dd>
+    {:else}
+      <dd>None</dd>
     {/if}
     {#if view.branch}
       <dt>Pushes to</dt>

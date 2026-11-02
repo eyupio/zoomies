@@ -734,3 +734,51 @@ func TestAReadIsRefusedWhenTheSnapshotLeavesLessInputRoomThanSource(t *testing.T
 		t.Fatalf("the refused read spent %d bytes", s.bytes)
 	}
 }
+
+// A large snapshot lowers the effective source allowance. Reporting the nominal
+// allowance sent a model round in circles asking for progressively smaller CSS
+// windows, although none of that advertised space was actually available.
+func TestReducedAllowanceReportsUsableSpaceAndAllowsANarrowerRepair(t *testing.T) {
+	const path = "web/src/app.css"
+	reader := files{path: {Path: path, Content: "old\n" + source(MaxFileBytes-4), Mode: "100644"}}
+	step := 0
+	remaining := 0
+	model := budgetModel(func(messages []Message) (string, error) {
+		step++
+		note := messages[len(messages)-1].Content
+		switch step {
+		case 1:
+			at := strings.LastIndex(note, "Source budget:")
+			var supplied int
+			if at < 0 {
+				t.Fatal("source budget was not supplied")
+			}
+			if _, err := fmt.Sscanf(note[at:], "Source budget: %d bytes supplied; %d bytes remain", &supplied, &remaining); err != nil {
+				t.Fatal(err)
+			}
+			if remaining <= 4 || remaining >= MaxFileBytes {
+				t.Fatalf("fixture did not lower the allowance: %d", remaining)
+			}
+			return `{"read":["web/src/app.css"]}`, nil
+		case 2:
+			if !strings.Contains(note, fmt.Sprintf("%d bytes of the", remaining)) {
+				t.Fatalf("refusal advertised unusable space: %s", note)
+			}
+			return `{"windows":[{"path":"web/src/app.css","start_line":1,"end_line":1}]}`, nil
+		case 3:
+			if !strings.Contains(note, `"content":"old\n"`) {
+				t.Fatalf("narrower source was not supplied: %s", note)
+			}
+			return `{"summary":"Fix the sizing rule","edits":[{"path":"web/src/app.css","before":"old\n","after":"fixed\n"}]}`, nil
+		}
+		t.Fatal("unexpected extra model call")
+		return "", nil
+	})
+	plan, err := Generate(t.Context(), model, reader, Snapshot{Body: strings.Repeat("x", 110<<10), Files: []File{{Path: "app.svelte", Content: source(MaxFileBytes), Mode: "100644"}}}, "fix the overflow", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if step != 3 || len(plan.Files) != 1 || !strings.HasPrefix(plan.Files[0].Content, "fixed\n") {
+		t.Fatalf("no supported fix: %+v", plan)
+	}
+}
