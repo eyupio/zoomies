@@ -28,6 +28,7 @@
   import Button from '$lib/components/Button.svelte';
   import DropdownMenu from '$lib/components/DropdownMenu.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
+  import BulkDismiss from '$lib/problems/BulkDismiss.svelte';
   import OverviewDisclosure from './OverviewDisclosure.svelte';
   import ProblemsSummary from './ProblemsSummary.svelte';
   import { attentionSummary } from './attention';
@@ -68,9 +69,21 @@
   <div class="attention wide {className}" data-severity={worst}>
     <OverviewDisclosure id="attention" title="Needs attention" icon={TriangleAlert} {summary}>
       {#snippet actions()}
+        <!-- Everything on the card can be put away from its header, shut or
+             open, with the drawer's own menu. A click on a control in the
+             header is not a click on the header, so none of them toggles it. -->
+        <span
+          class="bulk"
+          role="presentation"
+          onclick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        >
+          <BulkDismiss />
+        </span>
         <!-- The rest are the drawer's; the line says how many, or that there
-             are none, and is the way in either way, shut or open. A click on
-             it is not a click on the header, so it must not toggle the card. -->
+             are none, and is the way in either way, shut or open. -->
         <button
           type="button"
           class="more"

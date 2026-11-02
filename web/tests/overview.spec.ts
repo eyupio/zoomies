@@ -388,10 +388,36 @@ test('a snooze can cover every problem of the same kind, not just the one', asyn
 test('dismissing the last problem closes the drawer', async ({ page }) => {
   const problems = await openProblems(page);
 
-  // "Dismiss all" clears every active entry in one action, so there is
-  // nothing left the drawer needs to keep the operator looking at.
+  // "Dismiss all until resolved" clears every active entry in one action, so
+  // there is nothing left the drawer needs to keep the operator looking at.
   await problems.getByRole('button', { name: 'Dismiss all' }).click();
+  await page.getByRole('menuitem', { name: 'Dismiss all until resolved' }).click();
   await expect(page.getByRole('dialog', { name: 'Problems' })).not.toBeVisible();
+});
+
+test('everything listed can be snoozed at once from the drawer, and comes back on its own', async ({
+  page,
+}) => {
+  const problems = await openProblems(page);
+  const before = await problems.getByRole('listitem').count();
+  expect(before).toBeGreaterThan(1);
+  await problems.getByRole('button', { name: 'Dismiss all' }).click();
+  const menu = page.getByRole('menu');
+  // How long, as each problem's own menu offers it, then outright.
+  for (const label of ['15 minutes', '1 hour', '4 hours', '24 hours']) {
+    await expect(menu.getByRole('menuitem', { name: `Snooze all for ${label}` })).toBeVisible();
+  }
+  await menu.getByRole('menuitem', { name: 'Snooze all for 1 hour' }).click();
+  // Every one is put away, the drawer has nothing left to hold open, and the
+  // Overview says what became of them.
+  await expect(page.getByRole('dialog', { name: 'Problems' })).not.toBeVisible();
+  await expect(page.getByText('No fleet problems need your attention.')).toBeVisible();
+  await expect(page.getByRole('button', { name: `${before} problems dismissed` })).toBeVisible();
+  // Each is a snooze, not a dismissal: it carries its own end.
+  await page.getByRole('button', { name: `${before} problems dismissed` }).click();
+  const dismissed = page.getByRole('dialog', { name: 'Problems' });
+  await dismissed.getByRole('button', { name: /dismissed problem/ }).click();
+  await expect(dismissed.getByText(/back in/i).first()).toBeVisible();
 });
 
 test('per-pool utilisation shows both pools and marks the one at its ceiling', async ({ page }) => {
@@ -1462,6 +1488,27 @@ test("a row can be dismissed or snoozed from the card, and is then the drawer's 
   await expect(page.getByRole('region', { name: 'Needs attention', exact: true })).toHaveCount(0);
   await expect(page.getByText('No fleet problems need your attention.')).toBeVisible();
   await expect(page.getByRole('button', { name: '3 problems dismissed' })).toBeVisible();
+});
+
+test('the card puts everything on it away from its header, without opening or closing it', async ({
+  page,
+}) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 769, 'a phone keeps the summary line');
+  await withProblems(page, [ODD, SETTING_A, SETTING_C, SETTING_E]);
+  const disclosure = page.locator('#attention');
+  const header = disclosure.locator('> summary');
+  const wasOpen = await disclosure.evaluate((d: HTMLDetailsElement) => d.open);
+  await header.getByRole('button', { name: 'Dismiss all' }).click();
+  // The same menu as the drawer's header, and pressing it did not toggle the card.
+  const menu = page.getByRole('menu');
+  await expect(menu.getByRole('menuitem', { name: 'Snooze all for 15 minutes' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Dismiss all until resolved' })).toBeVisible();
+  expect(await disclosure.evaluate((d: HTMLDetailsElement) => d.open)).toBe(wasOpen);
+  await menu.getByRole('menuitem', { name: 'Snooze all for 4 hours' }).click();
+  // All four, though the card shows three: it is everything listed.
+  await expect(page.getByRole('region', { name: 'Needs attention', exact: true })).toHaveCount(0);
+  await expect(page.getByText('No fleet problems need your attention.')).toBeVisible();
+  await expect(page.getByRole('button', { name: '4 problems dismissed' })).toBeVisible();
 });
 
 // Six cards at most: a fleet with more pools is a count and a link, and a
