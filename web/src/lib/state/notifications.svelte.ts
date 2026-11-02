@@ -40,6 +40,7 @@ import {
   fromServer,
   rank,
   severityOf as severity,
+  SEVERITY_NOUN,
   SEVERITY_ORDER,
   spentKeys,
   toServer,
@@ -51,19 +52,12 @@ import { storage } from './prefs.svelte';
 
 // One definition of "the same fault", shared with the Overview's feed, which
 // reports a problem the first time it is raised.
-export { problemKey, SEVERITY_ORDER };
+export { problemKey, SEVERITY_NOUN, SEVERITY_ORDER };
 
 const DISMISSED_KEY = 'zoomies.problems.dismissed';
 // Which account the local copy was last reconciled with. A copy that belongs to
 // somebody else is never uploaded into this account.
 const ACCOUNT_KEY = 'zoomies.problems.dismissed.account';
-
-/** What one of each is called in a sentence an operator reads. */
-export const SEVERITY_NOUN: Record<Severity, string> = {
-  error: 'error',
-  warning: 'warning',
-  info: 'note',
-};
 
 export interface SnoozeOption {
   id: string;
@@ -332,7 +326,19 @@ class Notifications {
     this.#apply({ [problemTypeKey(problem)]: this.#snoozed(problem, ms) }, []);
   }
 
-  /** Put away everything currently listed. The drawer's one bulk action. */
+  /**
+   * Put everything currently listed away for a fixed while: each problem's own
+   * snooze, so one raised after it is not covered and one that gets worse
+   * comes back, which is the rule a single snooze has. Not a snooze of whole
+   * kinds: "everything listed" is what was in front of the operator.
+   */
+  snoozeAll(ms: number): void {
+    const set: Dismissals = {};
+    for (const problem of this.active) set[problemKey(problem)] = this.#snoozed(problem, ms);
+    this.#apply(set, []);
+  }
+
+  /** Put away everything currently listed, until the controller stops reporting it. */
   dismissAll(): void {
     const at = new Date().toISOString();
     const set: Dismissals = {};

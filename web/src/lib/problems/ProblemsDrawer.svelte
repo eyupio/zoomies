@@ -15,14 +15,15 @@
   bottom, with the date the decision was made.
 -->
 <script lang="ts">
-  import { CheckCheck } from '@lucide/svelte';
   import { pluralise } from '$lib/format';
   import { severityStatus } from '$lib/status';
+  import { problemKey } from './identity';
   import { notifications, SEVERITY_NOUN } from '$lib/state/notifications.svelte';
   import Button from '$lib/components/Button.svelte';
   import Drawer from '$lib/components/Drawer.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
   import AutoApplied from './AutoApplied.svelte';
+  import BulkDismiss from './BulkDismiss.svelte';
   import ProblemItem from './ProblemItem.svelte';
 
   const active = $derived(notifications.active);
@@ -47,14 +48,7 @@
 >
   {#if active.length > 0}
     <div class="bulk">
-      <Button
-        size="sm"
-        variant="ghost"
-        icon={CheckCheck}
-        onclick={() => notifications.dismissAll()}
-      >
-        Dismiss all
-      </Button>
+      <BulkDismiss />
     </div>
   {/if}
 
@@ -65,7 +59,7 @@
       {pluralise(group.items.length, SEVERITY_NOUN[group.severity])}
     </h3>
     <ul class="items">
-      {#each group.items as problem (problem.code + (problem.target_id ?? '') + problem.title)}
+      {#each group.items as problem (problemKey(problem))}
         <ProblemItem
           {problem}
           onask={() => (notifications.open = false)}
@@ -111,7 +105,7 @@
         </p>
         {#each dismissedGroups as group (group.severity)}
           <ul class="items">
-            {#each group.items as problem (problem.code + (problem.target_id ?? '') + problem.title)}
+            {#each group.items as problem (problemKey(problem))}
               <ProblemItem
                 {problem}
                 onask={() => (notifications.open = false)}

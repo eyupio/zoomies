@@ -51,12 +51,36 @@ export function timeTicks(start: number, end: number, target = 5): number[] {
   ].map((s) => s * 1000);
   const span = end - start;
   const step = steps.find((s) => span / s <= target) ?? steps[steps.length - 1]!;
-  // Multiples of the step in local time, which is what the labels say.
-  const offset = new Date(start).getTimezoneOffset() * MINUTE;
-  const first = Math.ceil((start - offset) / step) * step + offset;
+  // Multiples of the step in local time, which is what the labels say. The
+  // multiples are found on the wall clock and each is then placed in the zone's
+  // offset at its own instant, not the window's first: a window that crosses a
+  // daylight-saving change has two offsets, and ticks stepped from the first
+  // alone land at 01:00 or 23:00 for the rest of the chart. A wall-clock time
+  // the spring change skipped (02:00 on that morning) has no instant and gets
+  // no tick; one the autumn change repeated (01:30 twice) has two, and both
+  // are ticks when both are in the window, in the order the chart draws them,
+  // so a chart that starts in the repeated hour is never labelled before its
+  // own left edge.
+  const wall = (t: number) => t - new Date(t).getTimezoneOffset() * MINUTE;
+  const instants = (m: number): number[] => {
+    // The offsets in force within a day either side of this wall-clock time,
+    // which is every offset a change that day can have put it in.
+    const offsets = new Set<number>();
+    for (const probe of [m - DAY * 1000, m, m + DAY * 1000]) {
+      offsets.add(new Date(probe).getTimezoneOffset() * MINUTE);
+    }
+    return [...offsets].map((offset) => m + offset).filter((at) => wall(at) === m);
+  };
+  // The first multiple is taken a day before the window on the wall clock,
+  // because an instant inside the window can carry a wall-clock time from
+  // before it: the second 01:00 of the autumn morning, read against a start
+  // of 01:50 in the first.
   const out: number[] = [];
-  for (let at = first; at <= end; at += step) out.push(at);
-  return out;
+  const first = Math.ceil((wall(start) - DAY * 1000) / step) * step;
+  for (let m = first; m <= wall(end) + DAY * 1000; m += step) {
+    for (const at of instants(m)) if (at >= start && at <= end) out.push(at);
+  }
+  return out.sort((a, b) => a - b);
 }
 
 /**
