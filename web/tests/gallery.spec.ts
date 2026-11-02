@@ -663,6 +663,20 @@ test('filter chips say which are in force with a tick and aria-pressed, in every
   }
 });
 
+// A filter the chips cannot say leaves every chip unpressed, All included, and a
+// chip's hint is the shared tooltip, so a word like "Our failures" can explain
+// itself without a word more in the row.
+test('a filter no chip says presses nothing, and a chip with a hint explains itself on hover', async ({
+  page,
+}) => {
+  await open(page, 'mission-control', 'dark');
+  const group = page.getByRole('group', { name: 'Filter jobs by status' }).first();
+  for (const button of await group.getByRole('button').all())
+    await expect(button).toHaveAttribute('aria-pressed', 'false');
+  await group.getByRole('button', { name: /^Our failures/ }).hover();
+  await expect(page.locator('.bubble:popover-open')).toContainText('Failures this fleet caused');
+});
+
 // The shared look's one button: a pill in the brand's Runner Blue under Zoomies
 // Black, which is 7.3:1 in every combination, where the darkened accent was
 // needed only to carry white text. Held here so a later component cannot drift

@@ -975,8 +975,8 @@ restored one at a time or all at once.
 
 ### The list pages
 
-A page whose body is a list (Runners, Queue, Pools and Audit so far; Jobs and
-Workflows follow them) is, under its band, one card: the page's own
+A page whose body is a list (Runners, Queue, Pools, Audit, Jobs and
+Workflows) is, under its band, one card: the page's own
 icon in a tile, a count in small capitals over the title ("11 known, 9 live",
 absent until the stats have arrived), the search field and the menus opposite,
 the primary filter as `FilterChips` in a row of their own, and the grid bare
@@ -999,7 +999,17 @@ one a pasted address names, uncounted because kinds are no endpoint of their
 own, and its eyebrow is how many events the filters leave, from the page the
 grid last fetched, absent over an error or an empty result. The Audit chips
 read a press through `pickOne` beside `FilterChips`: the chip that changed, or
-none. The
+none. The Jobs chips are the page's status views (Needs attention, Running,
+Queued, Failed, Our failures, Finished), pressed one at a time with the All
+view as the All chip, each with its hint in the shared tooltip; Running and
+Queued carry the band's figures while nothing else narrows the rows, and a
+filter no view describes (two states at once, an outcome facet) leaves every
+chip unpressed, All included, as the row of buttons did. On a phone the row
+is one line that scrolls, because the page's rule is records first. Jobs
+keeps its Labels column: for a job no pool claims, the labels in the row are
+why. Workflows draws the same chips over its runs with no counts at all,
+because the band's figures count jobs and its rows are runs, so no figure the
+page has would be true of them. The
 Queue's chips are the four provisioning statuses, counted from the list's own
 counts, with Ready, Run now and Paused pressed by default and Removed a press
 away; the job filters it shares with the Jobs page (`JobFilters`: the search,
@@ -1057,7 +1067,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need*. `bare` drops its own border, radius and background for a grid drawn inside a `Panel`, so a list card is one frame |
 | `RowActions` | a row's actions as buttons rather than a menu, as an ARIA toolbar: one tab stop per row, `← →` along it, and every button's name carries what it acts on |
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
-| `FilterChips` | a list's primary filter as a row of pills: All, then one per value with its count when the count is true of the rows under it; more than one in force at once, each saying so with `aria-pressed`, a tick and the weight of its words, never by colour alone. The Runners page's states are the first |
+| `FilterChips` | a list's primary filter as a row of pills: All, then one per value with its count when the count is true of the rows under it; more than one in force at once, each saying so with `aria-pressed`, a tick and the weight of its words, never by colour alone; a chip may carry a `hint` in the shared tooltip, a row may be drawn with nothing pressed (`none`) when the filter in force is one no chip can say, and on a phone may be one line that scrolls (`scroll`) where a page's rule is records first. The Runners page's states are the first |
 | `Panel` | a titled card: a heading, an optional `icon` in a tinted tile, an optional `eyebrow` in small capitals above the heading (a count or a scope), a `description` under it, `actions` opposite, an optional `toolbar` row between the head and the body for a list's filter chips, and `flush` for a body that draws its own rows. The Overview's cards and the list card are all this |
 | `PageHeader` | title, subtitle, breadcrumb, primary action, and the refresh button where the page passes `onrefresh` |
 | `RefreshButton` | the one refresh: registers the page's handler so the button, `R` and the palette all run it; turning icon while it works |

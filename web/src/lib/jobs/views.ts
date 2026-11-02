@@ -8,13 +8,12 @@
  * reckoning of a job that went wrong, which includes a runner that died under
  * one, and no conclusion value says that.
  *
- * Each view therefore writes every status-shaped key, so pressing a button
+ * Each view therefore writes every status-shaped key, so pressing a chip
  * gives exactly the view it names and never half of the last one. The narrower
  * filters -- repository, workflow, pool, labels, dates -- are untouched, so
  * switching view keeps the operator where they were looking.
  */
 import { JOB_STATES, type JobState } from '../api/types';
-import { jobStatus, RUNNER_LOST, type StatusMeta } from '../status';
 
 export type JobView =
   'attention' | 'running' | 'queued' | 'failed' | 'faulted' | 'finished' | 'all';
@@ -34,8 +33,6 @@ export interface JobStatusFilters {
 export interface JobViewDef {
   id: JobView;
   label: string;
-  /** The status whose shape and colour the button wears, where one fits. */
-  status?: StatusMeta;
   /** One line an operator can act on, for the tooltip. */
   hint: string;
   filters: JobStatusFilters;
@@ -59,10 +56,9 @@ const NOTHING: JobStatusFilters = {
  *
  * "Needs attention" is not one value of one key like the rest: it is the
  * server's composite question, failed and recent and unacknowledged and not
- * replaced by a later attempt, kept in one place so the button, the Overview's
+ * replaced by a later attempt, kept in one place so the chip, the Overview's
  * failures panel and the API's own filter cannot disagree about what is still
- * owed. Its button wears no status shape, because it is not a state a job is
- * in: it is a question about a failure.
+ * owed.
  */
 export const JOB_VIEWS: readonly JobViewDef[] = [
   {
@@ -74,21 +70,18 @@ export const JOB_VIEWS: readonly JobViewDef[] = [
   {
     id: 'running',
     label: 'Running',
-    status: jobStatus('in_progress'),
     hint: 'Jobs a runner is working on right now.',
     filters: { ...NOTHING, state: ['in_progress'] },
   },
   {
     id: 'queued',
     label: 'Queued',
-    status: jobStatus('queued'),
     hint: 'Jobs GitHub has queued and nothing has started yet.',
     filters: { ...NOTHING, state: ['queued'] },
   },
   {
     id: 'failed',
     label: 'Failed',
-    status: jobStatus('completed', 'failure'),
     hint: 'Failing conclusions, and runners that stopped under a job.',
     filters: { ...NOTHING, failed: true },
   },
@@ -101,14 +94,12 @@ export const JOB_VIEWS: readonly JobViewDef[] = [
      */
     id: 'faulted',
     label: 'Our failures',
-    status: RUNNER_LOST,
     hint: 'Failures this fleet caused: a runner that never started, or one that stopped under the job. GitHub records these as ordinary failures, so nothing on GitHub tells them apart.',
     filters: { ...NOTHING, faulted: true },
   },
   {
     id: 'finished',
     label: 'Finished',
-    status: jobStatus('completed'),
     hint: 'Every job that has ended, however it ended.',
     filters: { ...NOTHING, state: ['completed'] },
   },
@@ -152,8 +143,8 @@ function narrowing(state: readonly string[]): string {
 
 /**
  * Which view the filters currently in force are, or `''` when they are
- * something a button does not say -- a conclusion facet, the unmatched
- * switch, two states at once. No button is pressed then, which is the truth:
+ * something no chip says: a conclusion facet, the unmatched switch, two
+ * states at once. No chip is pressed then, which is the truth:
  * the chips above the grid are what is narrowing it.
  */
 export function currentJobView(value: JobStatusFilters): JobView | '' {

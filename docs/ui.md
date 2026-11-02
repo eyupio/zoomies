@@ -340,10 +340,11 @@ of grid filters, while selecting a pool scopes the headline runner metrics.
 
 ## Queue
 
-Provisioning demand has its own view: ready, expedited, paused and removed
-counts as status buttons, then the table with its filtering and bulk controls.
-How demand splits and how provisioning is ordered sit in a disclosure under the
-table. Job queue depth can remain high
+Provisioning demand has its own view: the job filters, then one card with the
+active demand over its title, the four provisioning statuses as chips with
+their counts, and the table with its filtering and bulk controls inside. How
+demand splits and how provisioning is ordered sit in a disclosure under the
+card. Job queue depth can remain high
 when provisioning demand is paused; these are separate measures. Removing an
 item is the exception: an operator who takes work out of the queue has said it
 is not for this fleet, so it stops counting as queued everywhere; the
@@ -364,6 +365,9 @@ job has finished, the worst outcome among them, so a run whose failed job was
 re-run to success reads as a success. The row says how many jobs the run has
 and how they are getting on, when it was queued, how long it waited and how
 long it took, and links to the same run on GitHub.
+
+![The Workflows page: a band saying what is in flight, the job filters, then one card with the run count over its title, the status views as chips and the runs inside, each opening in place to its jobs](screenshots/workflows-dark.webp#only-dark){ .zoomies-shot }
+![The Workflows page: a band saying what is in flight, the job filters, then one card with the run count over its title, the status views as chips and the runs inside, each opening in place to its jobs](screenshots/workflows-light.webp#only-light){ .zoomies-shot }
 
 Each row opens in place (press it, or the chevron, or the right arrow) to
 the jobs inside the run: every job with its state, the pool that claimed it,
@@ -405,10 +409,11 @@ top goes back up with the same filters in force. Everything this fleet claims,
 runs or is waiting to run is listed, with each job's queue wait and duration.
 The fleet's own figures, the outcome mix, the activity history and the size
 advice are one fold, **Fleet context and activity**, under the grid.
-Status is the filter this page is opened for, so it is a row of buttons above
-the grid (**Needs attention**, **Running**, **Queued**, **Failed**, **Our
-failures**, **Finished**, **All**) and the page opens on *Running*, which is the
-question an operator arrives with. That default is for a bare visit only: every
+Status is the filter this page is opened for, so it is a row of chips over
+the grid, inside the card (**All**, **Needs attention**, **Running**,
+**Queued**, **Failed**, **Our failures**, **Finished**), one pressed at a
+time, and the page opens on *Running*, which is the question an operator
+arrives with. That default is for a bare visit only: every
 link into this page that already carries a filter keeps it, so the problems
 drawer's unmatched link and the Overview's outcome links still show what they
 promised.
@@ -472,8 +477,8 @@ immediately (queued demand paused, runners taken back) and records that it
 did, so the tiles and the lists agree from that moment rather than from
 whenever GitHub gets round to it.
 
-![The Jobs page: a band saying what is running and waiting, then status buttons and filters above the job grid, with the fleet context folded under it](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
-![The Jobs page: a band saying what is running and waiting, then status buttons and filters above the job grid, with the fleet context folded under it](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
+![The Jobs page: a band saying what is running and waiting, the job filters, then one card with the job count over its title, the status views as chips and the job grid inside, with the fleet context folded under it](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
+![The Jobs page: a band saying what is running and waiting, the job filters, then one card with the job count over its title, the status views as chips and the job grid inside, with the fleet context folded under it](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
 
 Opening a job says where it went wrong first: the step that failed and how
 long it ran, with a link to that step's log on GitHub, or, when the runner

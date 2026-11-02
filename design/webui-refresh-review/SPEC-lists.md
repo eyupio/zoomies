@@ -237,6 +237,27 @@ carries, as the Queue's is. The chips' selection helpers (`toggleChip`,
 `pickOne`) live beside `FilterChips` from this change on, because a second
 single-valued page needed the same reading of a press._
 
+_2 November 2026, Jobs (the owner's choice: the views as chips, one at a
+time): the seven status views become `FilterChips` pressed one at a time, the
+All view as the All chip, each view's hint in the shared tooltip (the chips
+gained `hint`), and a filter no view describes drawn with nothing pressed
+(the chips gained `none`), as the row of buttons was honest about. Running
+and Queued carry the band's figures while nothing else narrows. On a phone
+the row is one line that scrolls (the chips gained `scroll`): seven chips
+wrapped are three lines before the first row, which the Jobs page's
+records-first rule forbids. The shared job filters stay above the card, as on
+Queue. Labels is not trimmed: for a job no pool claims, the labels in the row
+are the reason, and nothing else in the list says it. The eyebrow is the
+list's own total, as on Audit._
+
+_2 November 2026, Workflows: the same chips as Jobs over the runs, with no
+counts, since the band's figures count jobs and the rows are runs; the level
+switch opposite the title; the eyebrow the list's own total of runs. No
+column is trimmed: the mock's row carries every column the page draws, and
+the two timing columns are what the page's sorts are for. With Jobs and
+Workflows converted the row of status buttons (`JobViewFilter`) has no reader
+and is deleted. This closes the six pages the contract named._
+
 ## Out of scope
 
 - Hosts, Providers and Installations, whose lists are cards today.
