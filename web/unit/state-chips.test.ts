@@ -1,11 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  liveRunners,
-  runnerStateChips,
-  runnersEyebrow,
-  toggleChip,
-} from '../src/lib/runners/state-chips.ts';
+import { liveRunners, runnerStateChips, runnersEyebrow } from '../src/lib/runners/state-chips.ts';
 
 const stats = { provisioning: 1, registering: 1, idle: 3, busy: 3, draining: 1, failed: 1 };
 
@@ -46,10 +41,4 @@ test('no stats means no eyebrow and chips with no counts, never undefined on the
 test('the eyebrow counts known and live', () => {
   assert.equal(runnersEyebrow({ total: 11, ...stats }), '11 known, 9 live');
   assert.equal(liveRunners(stats), 9);
-});
-
-test('toggling a chip adds it, toggling again removes it, and All is the empty selection', () => {
-  assert.deepEqual(toggleChip([], 'busy'), ['busy']);
-  assert.deepEqual(toggleChip(['busy'], 'idle'), ['busy', 'idle']);
-  assert.deepEqual(toggleChip(['busy', 'idle'], 'busy'), ['idle']);
 });

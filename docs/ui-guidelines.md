@@ -934,8 +934,8 @@ restored one at a time or all at once.
 
 ### The list pages
 
-A page whose body is a list (Runners, Queue and Pools so far; Jobs, Workflows
-and Audit follow them one at a time) is, under its band, one card: the page's own
+A page whose body is a list (Runners, Queue, Pools and Audit so far; Jobs and
+Workflows follow them) is, under its band, one card: the page's own
 icon in a tile, a count in small capitals over the title ("11 known, 9 live",
 absent until the stats have arrived), the search field and the menus opposite,
 the primary filter as `FilterChips` in a row of their own, and the grid bare
@@ -952,7 +952,13 @@ a click away in Columns, with a saved layout winning as it always has. The
 Pools chips are Enabled and Disabled, counted from the fleet's pools, one in
 force at a time as the `status` parameter always was; the size-class panel
 stays above the card, because it opens by itself when a change waits on an
-operator and a fold under the list would hide that. The
+operator and a fold under the list would hide that. The Audit chips are the
+kinds of thing acted on, gathered from the rows the page has shown plus the
+one a pasted address names, uncounted because kinds are no endpoint of their
+own, and its eyebrow is how many events the filters leave, from the page the
+grid last fetched, absent over an error or an empty result. The Audit chips
+read a press through `pickOne` beside `FilterChips`: the chip that changed, or
+none. The
 Queue's chips are the four provisioning statuses, counted from the list's own
 counts, with Ready, Run now and Paused pressed by default and Removed a press
 away; the job filters it shares with the Jobs page (`JobFilters`: the search,

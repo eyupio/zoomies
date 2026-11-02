@@ -17,7 +17,7 @@
 
 <script lang="ts" generics="T extends string">
   import { Check } from '@lucide/svelte';
-  import { toggleChip } from '$lib/runners/state-chips';
+  import { toggleChip } from './chip-selection';
 
   interface Props {
     options: readonly FilterChipOption<T>[];

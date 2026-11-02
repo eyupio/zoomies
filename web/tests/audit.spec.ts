@@ -15,6 +15,8 @@ import { dataRows, goto, grid } from './support/fixtures';
 
 const log = (page: Page) => grid(page, 'Audit log');
 const rows = (page: Page) => dataRows(log(page));
+const kindChips = (page: Page) =>
+  page.getByRole('group', { name: 'Filter by the kind of thing acted on' });
 
 /**
  * What the seed writes, and therefore what an assertion may rely on.
@@ -119,9 +121,12 @@ test('a filtered log is a link somebody else can open', async ({ page }) => {
     rows(page).filter({ hasText: 'installation.create' }),
     'nor is an installation',
   ).toHaveCount(0);
-  await expect(
-    page.getByRole('combobox', { name: 'Filter by the kind of thing acted on' }),
-  ).toHaveValue('pool');
+  // The pressed chip is there although the rows are all pools and have never
+  // shown another kind: a filter in force has to be visible to be undone.
+  await expect(kindChips(page).getByRole('button', { name: 'pool', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
 });
 
 test('a search that matches nothing settles on an empty state that offers a way out', async ({
@@ -151,4 +156,96 @@ test('an entry opens and says what changed', async ({ page }) => {
 
   await page.keyboard.press('Escape');
   await expect(drawer).toBeHidden();
+});
+
+/*
+ * The list card. The Audit page has no band and nothing between its header
+ * and its list, so it is header and card: the log's tile, the count over the
+ * title, the search, the action and actor menus and the dates opposite, the
+ * kinds of thing acted on as chips in place of the menu, and the grid bare
+ * inside. The chips read and write the `target_kind` parameter as the menu
+ * did, one kind at a time.
+ */
+test('the eyebrow counts the events the filters leave, as the API counts them', async ({
+  page,
+  request,
+}) => {
+  const { total } = (await (await request.get('/api/v1/audit?limit=1')).json()) as {
+    total: number;
+  };
+  await goto(page, '/audit', 'Audit');
+  const card = page.locator('section.list-card');
+  await expect(card.getByRole('heading', { name: 'All events' })).toBeVisible();
+  // Every spec that changes something writes a row here, so the figure is read
+  // again rather than pinned: what is held is that the card says the API's total.
+  await expect
+    .poll(async () => {
+      const said = await card.locator('.eyebrow').textContent();
+      const now = (await (await request.get('/api/v1/audit?limit=1')).json()) as {
+        total: number;
+      };
+      return said === `${now.total} events` || said === `${total} events`;
+    })
+    .toBe(true);
+  await expect(card.locator('.grid.bare')).toHaveCount(1);
+});
+
+test('a figure is not left standing over an error or over nothing', async ({ page }) => {
+  await goto(page, '/audit', 'Audit');
+  const eyebrow = page.locator('section.list-card .eyebrow');
+  await expect(eyebrow).toContainText(/\d+ events?/);
+  // The next page fails: the card must not keep saying the last filter's count
+  // beside the grid's error.
+  await page.route('**/api/v1/audit?*', (route) => route.abort('connectionfailed'));
+  await page.getByRole('combobox', { name: 'Filter by action' }).selectOption({ index: 1 });
+  await expect(page.locator('section.list-card').getByRole('alert')).toBeVisible();
+  await expect(eyebrow).toHaveCount(0);
+  await page.unroute('**/api/v1/audit?*');
+  // A search nothing matches is the empty state's to explain, not the eyebrow's.
+  await goto(page, '/audit?q=nothing-ever-did-this-zzz', 'Audit');
+  await expect(page.getByText('Nothing matches those filters')).toBeVisible();
+  await expect(eyebrow).toHaveCount(0);
+});
+
+test('a kind chip narrows the log to that kind, a second replaces it, and the same again clears it', async ({
+  page,
+}) => {
+  // Starting from a pasted address rather than a cold list: whether a host
+  // row is on page one of an unfiltered log depends on how many specs ran
+  // before this one, and the pressed kind's chip exists by construction.
+  await goto(page, '/audit?target_kind=host', 'Audit');
+  await expect(rows(page).filter({ hasText: 'host.join' }).first()).toBeVisible();
+  const chips = kindChips(page);
+  await expect(chips.getByRole('button', { name: 'host', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByRole('button', { name: /Remove the Thing filter host/ })).toBeVisible();
+
+  // The same chip again is no filter.
+  await chips.getByRole('button', { name: 'host', exact: true }).click();
+  await expect(page).not.toHaveURL(/target_kind=/);
+  await expect(chips.getByRole('button', { name: /^All/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(rows(page).first()).toBeVisible();
+
+  // One kind at a time: whichever other kind the rows have shown replaces
+  // host when pressed, and host is no longer pressed.
+  // The rows the unfiltered page brings grow the chips; wait for a kind the
+  // host-only page could not have shown.
+  let kind = '';
+  await expect
+    .poll(async () => {
+      const names = (await chips.getByRole('button').allTextContents()).map((text) => text.trim());
+      kind = names.find((name) => name !== 'All' && name !== 'host') ?? '';
+      return kind;
+    }, 'another kind of thing has been shown')
+    .not.toBe('');
+  await chips.getByRole('button', { name: kind, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`[?&]target_kind=${kind}(?:&|#|$)`));
+  await expect(chips.getByRole('button', { name: 'host', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await expect(rows(page).filter({ hasText: 'host.join' })).toHaveCount(0);
+  for (const row of await rows(page).all()) await expect(row.locator('.kind')).toHaveText(kind);
 });
