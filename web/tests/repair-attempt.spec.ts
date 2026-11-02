@@ -487,3 +487,30 @@ test('no horizontal scroll on a phone, and the track stacks', async ({ page }) =
   ({ scrollWidth, inner } = await overflow());
   expect(scrollWidth).toBeLessThanOrEqual(inner);
 });
+
+test('kept evidence stays open and reads its log once across polling and manual refresh', async ({
+  page,
+}) => {
+  await page.clock.install({ time: NOW });
+  const { calls } = await mockRepairApi(page, { attempts: { 'rep-run': running() } });
+  await page.goto('/repairs/rep-run');
+  const asked = page.getByRole('region', { name: 'What Eli was asked to fix' });
+  await asked.locator('summary').first().click();
+  await asked.locator('details.job > summary').first().click();
+  await expect.poll(() => calls.errorOutput.length).toBe(1);
+  const facts = page.getByRole('complementary', { name: 'This attempt' });
+  await expect(facts).toContainText('acme/widgets');
+  await expect(facts).toContainText('#17');
+  await expect(facts.locator('dt')).toContainText([
+    'Repository',
+    'Pull request',
+    'Age',
+    'Last updated',
+    'Failing head',
+  ]);
+  await expect(facts).toContainText('None');
+  await page.clock.runFor(13_000);
+  await page.locator('.page-header').getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(asked.locator('details').first()).toHaveAttribute('open', '');
+  expect(calls.errorOutput.length).toBe(1);
+});

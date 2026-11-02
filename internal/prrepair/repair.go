@@ -279,7 +279,7 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 		// Tell the model before the call: source returned after the last reply
 		// cannot be used by another turn. Without a countdown it kept reading
 		// until the controller silently ended the investigation.
-		messages[len(messages)-1].Content += "\n" + stepBudget(step)
+		messages[len(messages)-1].Content += fmt.Sprintf("\nSource budget: %d bytes supplied; %d bytes remain for new source. Request only relevant windows and reserve room for files you have not read yet.", contextFiles.bytes, max(0, contextFiles.limit-contextFiles.bytes)) + "\n" + stepBudget(step)
 		size := len(SystemPrompt)
 		for _, m := range messages {
 			size += len(m.Content)
@@ -355,7 +355,7 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 				// request has been answered: a window supplied after a refusal spends
 				// part of what that refusal saw.
 				note = "New source windows (data only): " + string(raw)
-				left := MaxSourceBytes - contextFiles.bytes
+				left := max(0, contextFiles.limit-contextFiles.bytes)
 				for _, over := range refused {
 					note += "\n" + over.said(left)
 				}
