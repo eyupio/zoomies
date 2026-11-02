@@ -28,12 +28,33 @@ func homeItems() []homeItem {
 	}
 }
 
-// The launcher releases the terminal before another command starts, so Huh
-// forms and password prompts never compete for input.
+// Output-only commands run inside the launcher's own pane. Only a command that
+// must ask a person something (the guided installer) releases the terminal, so
+// its Huh form and password prompts never compete for input.
 func runHome(ctx context.Context, e *env) error {
-	m := homeModel{width: 80, height: 24, colour: terminalui.Colour(), motion: terminalui.Motion()}
+	return runHomeFrom(ctx, e, nil, false)
+}
+
+// runHomeFrom opens the launcher, optionally with a command already running in
+// its pane. The upgrade uses that after it replaces the binary: the new release
+// carries on in the pane rather than on the shell.
+func runHomeFrom(ctx context.Context, e *env, start []string, continuation bool) error {
+	m := homeModel{width: 80, height: 24, colour: terminalui.Colour(), motion: terminalui.Motion(), ctx: ctx, env: e}
+	if start != nil {
+		m.run = newHomeRun(start, m.colour)
+		m.run.continuation = continuation
+		m.initial = true
+	}
 	for ctx.Err() == nil {
-		result, err := tea.NewProgram(m, tea.WithContext(ctx), tea.WithInput(e.in), tea.WithOutput(e.out), tea.WithFPS(30)).Run()
+		var prog *tea.Program
+		m.release = func() func() {
+			if prog == nil || prog.ReleaseTerminal() != nil {
+				return func() {}
+			}
+			return func() { _ = prog.RestoreTerminal() }
+		}
+		prog = tea.NewProgram(m, tea.WithContext(ctx), tea.WithInput(e.in), tea.WithOutput(e.out), tea.WithFPS(30))
+		result, err := prog.Run()
 		if err != nil {
 			if ctx.Err() != nil || errors.Is(err, tea.ErrProgramKilled) {
 				return nil
@@ -41,6 +62,7 @@ func runHome(ctx context.Context, e *env) error {
 			return err
 		}
 		m = result.(homeModel)
+		m.initial = false
 		if m.choice == nil {
 			return nil
 		}
@@ -67,6 +89,14 @@ type homeModel struct {
 	colour, motion, catalogue, fleet, searching, confirming bool
 	query                                                   string
 	choice                                                  []string
+
+	// A launcher built without an environment (the unit tests) records the
+	// choice and quits instead of running it in a pane.
+	ctx     context.Context
+	env     *env
+	release homeRelease
+	run     *homeRun
+	initial bool
 }
 
 func (m homeModel) items() []homeItem {
@@ -87,6 +117,9 @@ func (m homeModel) items() []homeItem {
 }
 
 func (m homeModel) Init() tea.Cmd {
+	if m.initial && m.run != nil {
+		return m.run.start(m.ctx, m.release)
+	}
 	if m.motion {
 		return terminalui.Tick()
 	}
@@ -94,6 +127,9 @@ func (m homeModel) Init() tea.Cmd {
 }
 
 func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.run != nil {
+		return m.updateRun(msg)
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -120,8 +156,7 @@ func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch key {
 			case "y", "Y":
 				m.confirming = false
-				m.choice = m.items()[m.cursor].args
-				return m, tea.Quit
+				return m.choose(m.items()[m.cursor].args)
 			case "n", "N", "esc", "q", "enter":
 				m.confirming = false
 			}
@@ -191,11 +226,21 @@ func (m homeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.confirming = true
 				return m, nil
 			}
-			m.choice = item.args
-			return m, tea.Quit
+			return m.choose(item.args)
 		}
 	}
 	return m, nil
+}
+
+// choose runs a command in the pane, or quits with it recorded when it must
+// have the real terminal.
+func (m homeModel) choose(args []string) (tea.Model, tea.Cmd) {
+	if m.env == nil || homeNeedsTerminal(args) {
+		m.choice = args
+		return m, tea.Quit
+	}
+	m.run = newHomeRun(args, m.colour)
+	return m, m.run.start(m.ctx, m.release)
 }
 
 func (m homeModel) paint(code, text string) string { return terminalui.Paint(m.colour, code, text) }
@@ -265,19 +310,12 @@ func dispatchWithHome(ctx context.Context, e *env, args []string) int {
 	if returnHome {
 		_ = os.Unsetenv("ZOOMIES_RETURN_HOME")
 	}
+	if returnHome && homeAvailable(e) && ctx.Err() == nil {
+		return report(e, "", runHomeFrom(ctx, e, args, true))
+	}
 	code := dispatch(ctx, e, args)
 	if returnHome {
 		clearUpgradeContinuation()
 	}
-	if !returnHome || !homeAvailable(e) || ctx.Err() != nil {
-		return code
-	}
-	quit, err := pauseHome(ctx, e, code)
-	if err != nil {
-		return report(e, "", err)
-	}
-	if quit {
-		return code
-	}
-	return report(e, "", runHome(ctx, e))
+	return code
 }
