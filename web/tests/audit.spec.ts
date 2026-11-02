@@ -198,7 +198,7 @@ test('a figure is not left standing over an error or over nothing', async ({ pag
   // beside the grid's error.
   await page.route('**/api/v1/audit?*', (route) => route.abort('connectionfailed'));
   await page.getByRole('combobox', { name: 'Filter by action' }).selectOption({ index: 1 });
-  await expect(page.getByRole('grid', { name: 'Audit log' }).getByRole('alert')).toBeVisible();
+  await expect(page.locator('section.list-card').getByRole('alert')).toBeVisible();
   await expect(eyebrow).toHaveCount(0);
   await page.unroute('**/api/v1/audit?*');
   // A search nothing matches is the empty state's to explain, not the eyebrow's.
@@ -230,14 +230,17 @@ test('a kind chip narrows the log to that kind, a second replaces it, and the sa
 
   // One kind at a time: whichever other kind the rows have shown replaces
   // host when pressed, and host is no longer pressed.
-  const other = chips
-    .getByRole('button')
-    .filter({ hasNotText: /^All/ })
-    .filter({ hasNotText: /^host$/ })
-    .first();
-  const kind = (await other.textContent())?.trim() ?? '';
-  expect(kind, 'another kind of thing has been shown').not.toBe('');
-  await other.click();
+  // The rows the unfiltered page brings grow the chips; wait for a kind the
+  // host-only page could not have shown.
+  let kind = '';
+  await expect
+    .poll(async () => {
+      const names = (await chips.getByRole('button').allTextContents()).map((text) => text.trim());
+      kind = names.find((name) => name !== 'All' && name !== 'host') ?? '';
+      return kind;
+    }, 'another kind of thing has been shown')
+    .not.toBe('');
+  await chips.getByRole('button', { name: kind, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`[?&]target_kind=${kind}(?:&|#|$)`));
   await expect(chips.getByRole('button', { name: 'host', exact: true })).toHaveAttribute(
     'aria-pressed',
