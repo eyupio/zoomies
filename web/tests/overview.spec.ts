@@ -817,7 +817,7 @@ test('selecting a day opens its hours and leads to its jobs', async ({ page }) =
 
   await day.click();
   await jobs.click();
-  await expect(page.getByRole('heading', { name: 'Jobs' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Jobs', level: 1 })).toBeVisible();
   await expect(page.locator('tbody tr[data-row]').first()).toBeVisible();
   await expect(page).toHaveURL(/since=/);
 });
