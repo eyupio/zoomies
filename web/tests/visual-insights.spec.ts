@@ -22,6 +22,8 @@ test('the provisioning figures are in the Runners band, with the way to the queu
   );
   // And the strip that used to stand between the band and the list is not there twice.
   await expect(page.getByLabel('Provisioning demand context')).toHaveCount(0);
+  // The activity disclosure sits inside Fleet context, under the list.
+  await openFleetContext(page);
   await page.getByText('Explore fleet activity over the last 24 hours', { exact: true }).click();
   await expect(page.getByRole('slider', { name: 'Inspect a moment' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('fleet-history.png'), fullPage: true });
@@ -65,6 +67,8 @@ test('fleet activity draws the chosen figures together and reads a moment across
   page,
 }) => {
   await goto(page, '/runners', 'Runners');
+  // The activity disclosure sits inside Fleet context, under the list.
+  await openFleetContext(page);
   await page.getByText('Explore fleet activity over the last 24 hours', { exact: true }).click();
   const trend = page.getByRole('region', { name: 'Fleet activity', exact: true });
   const figures = trend.getByRole('group', { name: 'Figures shown' });
@@ -146,6 +150,8 @@ test('fleet activity draws the chosen figures together and reads a moment across
  */
 test('fleet activity names the peak in view and the spells with nothing free', async ({ page }) => {
   await goto(page, '/runners', 'Runners');
+  // The activity disclosure sits inside Fleet context, under the list.
+  await openFleetContext(page);
   await page.getByText('Explore fleet activity over the last 24 hours', { exact: true }).click();
   const trend = page.getByRole('region', { name: 'Fleet activity', exact: true });
   await trend.getByRole('button', { name: 'The last hour, minute by minute' }).click();
@@ -166,6 +172,8 @@ test('fleet activity names the peak in view and the spells with nothing free', a
   // The choice of window and figures is remembered, so an operator who came
   // back to a page does not set it up again.
   await page.reload();
+  // The activity disclosure sits inside Fleet context, under the list.
+  await openFleetContext(page);
   await page.getByText('Explore fleet activity over the last 24 hours', { exact: true }).click();
   await expect(
     trend.getByRole('button', { name: 'The last hour, minute by minute' }),
@@ -181,7 +189,8 @@ test('the runner lifecycle draws the state machine with live counts and links', 
   page,
 }) => {
   await goto(page, '/runners', 'Runners');
-  await page.getByText('How runners move through their states', { exact: true }).click();
+  // The lifecycle is inside the Fleet context disclosure under the list.
+  await page.getByText('Fleet context', { exact: true }).click();
   const lifecycle = page.getByRole('region', { name: 'Runner lifecycle', exact: true });
   const steps = lifecycle.getByRole('list', { name: 'Runner lifecycle, in order' });
   await expect(steps.getByRole('listitem')).toHaveCount(5);
@@ -233,9 +242,8 @@ for (const route of [
       // The Pools page keeps demand and headroom behind a disclosure, as Runners keeps its lifecycle.
       if (route.path === '/pools')
         await page.getByText('How pool demand compares with headroom', { exact: true }).click();
-      // The Runners page keeps its lifecycle behind a disclosure.
-      if (route.path === '/runners')
-        await page.getByText('How runners move through their states', { exact: true }).click();
+      // The Runners page keeps its lifecycle inside Fleet context, under the list.
+      if (route.path === '/runners') await page.getByText('Fleet context', { exact: true }).click();
       // The Queue page keeps demand and ordering behind a disclosure.
       if (route.path === '/queue')
         await page

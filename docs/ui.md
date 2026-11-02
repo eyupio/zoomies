@@ -179,8 +179,8 @@ the answer reaches.
 Where a page used to spend a row of its height on a panel of figures, the band
 carries them in a strip along its lower edge. The Runners band holds the
 provisioning demand (jobs queued, ready, run now, paused, removed and the age of the
-oldest) and the Queue band holds the provisioning status filters, which still filter
-the list. Providers holds its provider, machine and needing-review counts. A band
+oldest) and the Queue band holds the provisioning status figures, which still filter
+the list: pressing one presses the matching chip on the queue's card alone. Providers holds its provider, machine and needing-review counts. A band
 that is switched off, and any band on a phone, shows those same figures in a plain
 panel in its place, so nothing disappears with the dog.
 
@@ -202,8 +202,8 @@ how queue pressure compares with configured headroom is behind a disclosure,
 **How pool demand compares with headroom**, as the Runners page keeps its
 lifecycle.
 
-![The Pools page: a band saying how many pools are enabled, then the pool list with a folded explanation of queue pressure and headroom under it](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
-![The Pools page: a band saying how many pools are enabled, then the pool list with a folded explanation of queue pressure and headroom under it](screenshots/pools-light.webp#only-light){ .zoomies-shot }
+![The Pools page: a band saying how many pools are enabled, then one card with the pool count over its title, Enabled and Disabled as chips and the pool list inside, with a folded explanation of queue pressure and headroom under it](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
+![The Pools page: a band saying how many pools are enabled, then one card with the pool count over its title, Enabled and Disabled as chips and the pool list inside, with a folded explanation of queue pressure and headroom under it](screenshots/pools-light.webp#only-light){ .zoomies-shot }
 
 The page that creates one is the pool editor. It is six sections (**Name and
 labels**, **Hosts**, **Runner**, **Size**, **Scaling** and **Speed-ups**) and
@@ -261,15 +261,18 @@ Every runner that exists right now and what each one is doing. Removed runners
 are hidden by default, because a busy fleet makes and destroys thousands of
 them and they are all history. Rows select for bulk drain or delete, and the
 state filter is a real filter: it narrows the set rather than repainting it.
-Above the grid are a band that says how many runners are live and how they split,
-and the provisioning demand row, whose first figure is the number of jobs queued
-(a link to them, in the warning colour once it reaches the queue threshold),
-followed by the ready, run now, paused and removed counts and a way to the queue;
-the other tiles the page used to carry live on the Overview and the Queue. Behind a disclosure, **How runners move through their states**,
-the runner lifecycle is the controller's own state machine drawn out
-(provisioning, registering, idle, busy, draining) with how many runners are at
-each step this moment and a link into each; under it, a bar of the same states
-whose segments are links too, and say their share when you hover them.
+Above the grid is a band that says how many runners are live and how they
+split, with the jobs queued, running, ready, run now, paused and removed figures
+along its lower edge and a way to the queue. The list is one card: a count of
+the runners the controller knows and the ones that are live over its title, the
+search and the pool and host menus opposite, and the runner states as chips
+with their counts, more than one at a time; a pool or host filter takes the
+counts away, since they are the fleet's. Under the card, **Fleet context** folds
+the scope line, the runner lifecycle (the controller's own state machine drawn
+out, provisioning, registering, idle, busy, draining, with how many runners are
+at each step this moment and a link into each, and under it a bar of the same
+states whose segments are links too) and the last day's activity. Age and CPU
+are a click away in Columns rather than on by default.
 
 When the state filter includes failed runners, a **What keeps failing to start**
 card above the grid names the host or pool that keeps failing to start runners
@@ -279,8 +282,8 @@ list is narrowed to, and that the list's search is not applied to it. It is the
 answer [`zoomies analyse startup-failures`](cli.md#zoomies-analyse) prints, with
 its evidence folded under the next steps.
 
-![The Runners page: a band saying how many runners are live, the provisioning row with the jobs queued figure first, and a folded explanation of how runners move through their states above the runner grid](screenshots/runners-dark.webp#only-dark){ .zoomies-shot }
-![The Runners page: a band saying how many runners are live, the provisioning row with the jobs queued figure first, and a folded explanation of how runners move through their states above the runner grid](screenshots/runners-light.webp#only-light){ .zoomies-shot }
+![The Runners page: a band saying how many runners are live, then one card with the count over its title, the runner states as chips and the runner grid inside, and Fleet context folded under it](screenshots/runners-dark.webp#only-dark){ .zoomies-shot }
+![The Runners page: a band saying how many runners are live, then one card with the count over its title, the runner states as chips and the runner grid inside, and Fleet context folded under it](screenshots/runners-light.webp#only-light){ .zoomies-shot }
 
 A runner's page carries the job it is on, a timeline of how long it spent in
 each state (provisioning, registering, idle, busy) its resource usage as the
@@ -347,8 +350,8 @@ is not for this fleet, so it stops counting as queued everywhere; the
 Overview's queue depth and pool bars, `zoomies_jobs_queued` and the queue age
 with it. Restoring it from the Removed view puts it back.
 
-![The Queue page: a band saying how many jobs are waiting, then status filters above the provisioning table, with demand and ordering folded under it](screenshots/queue-dark.webp#only-dark){ .zoomies-shot }
-![The Queue page: a band saying how many jobs are waiting, then status filters above the provisioning table, with demand and ordering folded under it](screenshots/queue-light.webp#only-light){ .zoomies-shot }
+![The Queue page: a band saying how many jobs are waiting, the job filters, then one card with the active demand over its title, the four provisioning statuses as chips and the table inside, with demand and ordering folded under it](screenshots/queue-dark.webp#only-dark){ .zoomies-shot }
+![The Queue page: a band saying how many jobs are waiting, the job filters, then one card with the active demand over its title, the four provisioning statuses as chips and the table inside, with demand and ordering folded under it](screenshots/queue-light.webp#only-light){ .zoomies-shot }
 
 ## Workflows
 
@@ -1099,8 +1102,8 @@ and the system itself) with the target and the source address. Open an event
 to see exactly what changed. Secrets were redacted when the row was written,
 so nothing here can leak one.
 
-![The Audit grid: when, actor, action, target and source address for each change](screenshots/audit-dark.webp#only-dark){ .zoomies-shot }
-![The Audit grid: when, actor, action, target and source address for each change](screenshots/audit-light.webp#only-light){ .zoomies-shot }
+![The Audit page: one card with the event count over its title, the kinds of thing acted on as chips, and the grid of when, actor, action, target and source address for each change](screenshots/audit-dark.webp#only-dark){ .zoomies-shot }
+![The Audit page: one card with the event count over its title, the kinds of thing acted on as chips, and the grid of when, actor, action, target and source address for each change](screenshots/audit-light.webp#only-light){ .zoomies-shot }
 
 ## Settings
 

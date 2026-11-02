@@ -356,8 +356,8 @@ pass; the runners already on it stay where they are.
 
 ## Adding a pool
 
-![The Pools page: a band saying how many pools are enabled, then the pool list with a folded explanation of queue pressure and headroom under it](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
-![The Pools page: a band saying how many pools are enabled, then the pool list with a folded explanation of queue pressure and headroom under it](screenshots/pools-light.webp#only-light){ .zoomies-shot }
+![The Pools page: a band saying how many pools are enabled, then one card with the pool count over its title, Enabled and Disabled as chips and the pool list inside, with a folded explanation of queue pressure and headroom under it](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
+![The Pools page: a band saying how many pools are enabled, then one card with the pool count over its title, Enabled and Disabled as chips and the pool list inside, with a folded explanation of queue pressure and headroom under it](screenshots/pools-light.webp#only-light){ .zoomies-shot }
 
 One pool is enough until the fleet has to answer two different questions. Add a
 second when a job needs something the first cannot give it:
