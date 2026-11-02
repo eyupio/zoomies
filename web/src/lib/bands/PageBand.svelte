@@ -60,8 +60,24 @@
     testid?: string;
     /** Anything the band offers beside its sentence, like the Overview's Review. */
     actions?: Snippet;
+    /**
+     * A picture drawn beside the words, where the dog stands when it is shown:
+     * the Overview's punch card, the slot map. Every cut carries it, since the
+     * figures give even Slim the height for seven rows of squares, and
+     * Appearance can switch it off per page or for every page.
+     */
+    aside?: Snippet;
   }
-  let { page, line, stats = [], more, eyebrow = 'Right now', testid, actions }: Props = $props();
+  let {
+    page,
+    line,
+    stats = [],
+    more,
+    eyebrow = 'Right now',
+    testid,
+    actions,
+    aside,
+  }: Props = $props();
 
   /*
     One glyph for each cut, read as a scale: a line, a short bar, a square
@@ -174,6 +190,7 @@
       artAction={openLogo}
       artActionLabel={`${name} band logo settings`}
       artExpanded={pending?.kind === 'logo'}
+      aside={prefs.bandPictureShown(page) ? aside : undefined}
     >
       {#if actions}<div class="actions">{@render actions()}</div>{/if}
       {#if stats.length > 0}

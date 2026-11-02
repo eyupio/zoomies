@@ -21,6 +21,7 @@
 -->
 <script lang="ts">
   import PageBand from '$lib/bands/PageBand.svelte';
+  import BandInFlight from '$lib/bands/BandInFlight.svelte';
   import { workflowsLine } from '$lib/bands/lines';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { CircleX } from '@lucide/svelte';
@@ -53,7 +54,7 @@
   import { prefs } from '$lib/state/prefs.svelte';
   import { visualStyle } from '$lib/state/ui-style.svelte';
   import { viewport } from '$lib/state/viewport.svelte';
-  import { endOfDay, startOfDay } from '$lib/jobs/DateRange.svelte';
+  import { endOfDay, endOfMoment, startOfDay, startOfMoment } from '$lib/jobs/DateRange.svelte';
   import { jobFilterState } from '$lib/jobs/filter-state.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
@@ -185,6 +186,8 @@
         cancelling: inHand ? false : undefined,
         since: startOfDay(filters.since),
         until: endOfDay(filters.until),
+        completed_since: startOfMoment(filters.completed_since),
+        completed_until: endOfMoment(filters.completed_until),
         unmatched: filters.unmatched ? true : undefined,
         failed: filters.failed ? true : undefined,
         faulted: filters.faulted ? true : undefined,
@@ -627,7 +630,12 @@
     : 'The workflow runs this fleet claims, runs or is waiting to run, and the jobs inside each.'}
   onrefresh={refreshPage}
 />
-<PageBand page="workflows" line={bandLine} />
+<PageBand page="workflows" line={bandLine}>
+  <!-- The sentence counts the jobs in flight; the rows say whose they are. -->
+  {#snippet aside()}
+    {#if fleet.loaded}<BandInFlight />{/if}
+  {/snippet}
+</PageBand>
 
 <div class="content">
   <div class="toolbar">

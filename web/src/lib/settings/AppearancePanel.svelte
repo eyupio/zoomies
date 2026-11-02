@@ -25,7 +25,7 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Segmented from '$lib/components/Segmented.svelte';
   import Switch from '$lib/components/Switch.svelte';
-  import { BAND_PAGES, BAND_SIZES, type BandSize } from '$lib/bands/pages';
+  import { BAND_PAGES, BAND_PICTURE_PAGES, BAND_SIZES, type BandSize } from '$lib/bands/pages';
   import Button from '$lib/components/Button.svelte';
   import { OVERVIEW_PANELS, isDefaultLayout, setHidden } from '$lib/overview/panels';
   import { ALL_BAND_PAGES } from '$lib/bands/scope';
@@ -62,6 +62,9 @@
 
   const customLogoPages = $derived(
     BAND_PAGES.filter((page) => prefs.bandLogoCustom(page.key)).length,
+  );
+  const customPicturePages = $derived(
+    BAND_PICTURE_PAGES.filter((page) => prefs.bandPictureCustom(page.key)).length,
   );
 
   const seconds = Math.round(CLOCK_INTERVAL_MS / 1000);
@@ -209,6 +212,32 @@
                 {/if}
               </div>
             </div>
+            {#if 'picture' in page}
+              <div class="band-line logo-line">
+                <span class="line-label"
+                  >Picture <span class="line-hint">({page.picture})</span></span
+                >
+                <div class="logo-page-controls">
+                  <Switch
+                    label={`${page.label} band picture`}
+                    hideLabel
+                    size="sm"
+                    checked={prefs.bandPictureShown(page.key)}
+                    disabled={!prefs.bandShown(page.key)}
+                    onchange={(on) => prefs.setBandPictureShown(page.key, on)}
+                  />
+                  {#if prefs.bandPictureCustom(page.key)}
+                    <button
+                      type="button"
+                      class="reset"
+                      onclick={() => prefs.clearBandPictureOverride(page.key)}
+                    >
+                      Use the default
+                    </button>
+                  {/if}
+                </div>
+              </div>
+            {/if}
           </div>
         {/each}
       </div>
@@ -286,6 +315,32 @@
         onchange={(value) => (prefs.bandLogoSize = value as BandLogoSize)}
       />
     </div>
+  </div>
+
+  <div class="setting">
+    <div class="text">
+      <p class="label">Picture in the band</p>
+      <p class="description">
+        The default for every page whose band draws a picture beside its sentence, from the week by
+        the hour on the Overview to the API quota on Installations; each page's line above says what
+        its picture is. Switching it off gives the sentence the whole band, as hiding the dog does.
+        It applies to every page; a page can be given its own answer in Page bands above.
+      </p>
+      {#if customPicturePages > 0}
+        <p class="description custom">
+          {customPicturePages === 1
+            ? 'One page has its own picture setting'
+            : `${customPicturePages} pages have their own picture setting`}, so the switch you
+          choose here applies to every page.
+        </p>
+      {/if}
+    </div>
+    <Switch
+      label="Show the picture in the band"
+      hideLabel
+      checked={prefs.bandPicture}
+      onchange={(on) => (prefs.bandPicture = on)}
+    />
   </div>
 
   <div class="setting">
@@ -450,6 +505,9 @@
   .line-label {
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
+  }
+  .line-hint {
+    color: var(--z-text-subtle);
   }
   .logo-page-controls {
     display: flex;

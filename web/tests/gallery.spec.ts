@@ -38,6 +38,7 @@ const SECTIONS = [
   'Eli repairs',
   'Public pages',
   'Terminal and facts',
+  'Band pictures',
 ];
 
 function open(page: Page, style: string, mode: string): Promise<unknown> {

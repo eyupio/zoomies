@@ -26,6 +26,17 @@
     remembered(key, false, (value): value is boolean => typeof value === 'boolean'),
   );
   let previous = untrack(() => open);
+  let details: HTMLDetailsElement | null = $state(null);
+
+  // The state drives the element from an effect of its own rather than an
+  // attribute in the template. A page jump opens the element directly and the
+  // toggle event that would sync the state back is asynchronous; an attribute
+  // shares its template effect with the summary text, so a summary that changed
+  // in that gap (History's does, when its range moves) wrote the stale state
+  // back over the open the jump had just made.
+  $effect(() => {
+    if (details && details.open !== open) details.open = open;
+  });
 
   function toggled(event: Event): void {
     open = (event.currentTarget as HTMLDetailsElement).open;
@@ -35,7 +46,7 @@
   }
 </script>
 
-<details {id} class="overview-disclosure {className}" {open} ontoggle={toggled}>
+<details {id} class="overview-disclosure {className}" bind:this={details} ontoggle={toggled}>
   <summary>
     <ChevronRight size={16} class="chevron" aria-hidden="true" />
     {#if Icon}<span class="tile" aria-hidden="true"><Icon size={16} /></span>{/if}

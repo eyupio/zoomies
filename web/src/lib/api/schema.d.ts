@@ -12121,7 +12121,7 @@ export interface components {
          * @enum {string}
          */
         OverviewPanelId: "attention" | "pools" | "failures" | "jobs" | "events" | "history" | "diagnostics";
-        /** @description How this person's page bands stand: the cut a page takes where it is not the page's default, the bands that are switched off, and whether the dog is drawn and at what size. Every field is optional, because absent is a choice never made. The UI ignores a page or cut it does not know, so a document written by a newer build still opens every band it can. */
+        /** @description How this person's page bands stand: the cut a page takes where it is not the page's default, the bands that are switched off, whether the dog is drawn and at what size, and whether a band's picture (the Overview's punch card, the slot map on Hosts and Runners) is drawn. Every field is optional, because absent is a choice never made. The UI ignores a page or cut it does not know, so a document written by a newer build still opens every band it can. */
         BandPreferences: {
             /** @description Pages whose band is switched off. */
             hidden?: components["schemas"]["BandPage"][];
@@ -12139,6 +12139,12 @@ export interface components {
             /** @description Pages whose dog size differs from `logo_size`. */
             logo_sizes?: {
                 [key: string]: components["schemas"]["BandLogoSize"];
+            };
+            /** @description Whether a band's picture is drawn beside its sentence on a page that has not chosen otherwise. On when absent. */
+            picture?: boolean;
+            /** @description Pages whose picture is shown or hidden against `picture`. */
+            picture_pages?: {
+                [key: string]: boolean;
             };
         };
         /**
@@ -17701,6 +17707,10 @@ export interface operations {
                 since?: string;
                 /** @description Only jobs queued before this instant. The end is not included, so a window cut at one instant -- the last 30 days and the 30 before them -- counts every job once. */
                 until?: string;
+                /** @description Only jobs that finished at or after this instant. The start is included. A job still waiting or running has not finished and is left out. Reads when a job finished where `since` reads when it was queued, and the two windows compose. */
+                completed_since?: string;
+                /** @description Only jobs that finished before this instant. The end is not included, so two windows cut at one instant count every job once. */
+                completed_until?: string;
                 /** @description Only jobs stamped with one of these controller versions, as `controller_version` shows it. `unknown` matches the jobs that were never stamped: recorded before the field existed, or never claimed by a pool here. */
                 controller_version?: string[];
                 /** @description Only jobs that ran on one of these hosts, as stamped when a runner took the job. */
@@ -17767,6 +17777,10 @@ export interface operations {
                 since?: string;
                 /** @description End of the window */
                 until?: string;
+                /** @description Narrow the jobs counted to those that finished at or after this instant, inside the window `since` and `until` already cut by queue time. The start is included. */
+                completed_since?: string;
+                /** @description Narrow the jobs counted to those that finished before this instant. The end is not included. */
+                completed_until?: string;
                 /** @description What to group by, at most two, each named once. `controller_version` groups releases in the order they were first seen, `day` is the UTC day the job was queued, `host` and `pool` are IDs, `size` is the size of the runner the job ran on as an operator would say it (`3 CPU / 8 GB`, or `unknown` for a job nothing recorded one for), and the values are what the listing's `controller_version`, `host_id`, `pool_id`, `job_name` and `size` filters take back. Leave out for one group covering the window. */
                 group_by?: ("controller_version" | "day" | "host" | "pool" | "job_name" | "size")[];
                 repo?: string[];
@@ -18110,6 +18124,10 @@ export interface operations {
                 q?: string;
                 since?: string;
                 until?: string;
+                /** @description Only jobs that finished at or after this instant. The start is included. A job still waiting or running has not finished and is left out. Reads when a job finished where `since` reads when it was queued, and the two windows compose. */
+                completed_since?: string;
+                /** @description Only jobs that finished before this instant. The end is not included, so two windows cut at one instant count every job once. */
+                completed_until?: string;
                 /** @description Runs with a job that is still queued and that no enabled pool claims. */
                 unmatched?: boolean;
                 /** @description Runs Zoomies has a hand in */

@@ -8,7 +8,9 @@
   carries neutral white and the brand's blue and no status colour, because the
   panel is Zoomies Black in both themes and a colour chosen for one of them would
   be wrong on the other; the problem is named in counts, and the line under the
-  hero is the way in.
+  hero is the way in. Beside the sentence, where the dog stands when it is shown,
+  the week as a punch card says when the fleet is busy, in the same blue; an hour
+  of it opens History with that hour selected.
 
   A phone stacks everything and the pools must still be on its first screen, which
   even a slim band costs, so the hero is for the screens that have room for both.
@@ -23,14 +25,23 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import { notifications } from '$lib/state/notifications.svelte';
   import { prefs } from '$lib/state/prefs.svelte';
+  import FleetPunchCard from './FleetPunchCard.svelte';
   import { overviewMetrics, runningJobs } from './metric-stats';
   import { statusLine } from './status-line';
 
   interface Props {
     /** The first-run checklist is on screen: nothing is configured yet. */
     setupPending?: boolean;
+    /** An hour of the punch card was chosen: the page shows its detail in History. */
+    onpick?: (at: Date) => void;
   }
-  let { setupPending = false }: Props = $props();
+  let { setupPending = false, onpick }: Props = $props();
+
+  let card = $state<FleetPunchCard | null>(null);
+  /** The page's refresh button means the punch card too, as it means History. */
+  export async function reload(): Promise<void> {
+    await card?.reload();
+  }
 
   const line = $derived(
     statusLine({
@@ -71,6 +82,12 @@
     {#if line.needsYou}
       <Button variant="primary" onclick={() => (notifications.open = true)}>Review</Button>
     {/if}
+  {/snippet}
+  <!-- The week beside the sentence, where the dog stands when it is shown. Not
+       before the first job: a week of empty squares says nothing a checklist
+       does not. -->
+  {#snippet aside()}
+    {#if !setupPending && fleet.loaded}<FleetPunchCard bind:this={card} {onpick} />{/if}
   {/snippet}
 </PageBand>
 

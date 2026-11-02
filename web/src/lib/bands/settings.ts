@@ -26,6 +26,10 @@ export interface BandSettings {
   logoPages: Partial<Record<BandPage, boolean>>;
   /** Pages that differ from `logoSize`. */
   logoSizes: Partial<Record<BandPage, BandLogoSize>>;
+  /** Whether a band's picture (the punch card, the slot map) is drawn by default. On. */
+  picture: boolean;
+  /** Pages that differ from `picture`. */
+  picturePages: Partial<Record<BandPage, boolean>>;
 }
 
 export const DEFAULT_BAND_SETTINGS: BandSettings = {
@@ -35,6 +39,8 @@ export const DEFAULT_BAND_SETTINGS: BandSettings = {
   logoSize: 'auto',
   logoPages: {},
   logoSizes: {},
+  picture: true,
+  picturePages: {},
 };
 
 function pageList(value: unknown): BandPage[] {
@@ -69,6 +75,8 @@ export function readBandSettings(raw: unknown): BandSettings {
     logoSize: isBandLogoSize(doc.logo_size) ? doc.logo_size : DEFAULT_BAND_SETTINGS.logoSize,
     logoPages: pageMap(doc.logo_pages, isBoolean),
     logoSizes: pageMap(doc.logo_sizes, isBandLogoSize),
+    picture: isBoolean(doc.picture) ? doc.picture : DEFAULT_BAND_SETTINGS.picture,
+    picturePages: pageMap(doc.picture_pages, isBoolean),
   };
 }
 
@@ -87,5 +95,7 @@ export function bandSettingsDocument(settings: BandSettings): BandPreferences {
     logo_size: settings.logoSize,
     logo_pages: { ...settings.logoPages },
     logo_sizes: { ...settings.logoSizes },
+    picture: settings.picture,
+    picture_pages: { ...settings.picturePages },
   };
 }

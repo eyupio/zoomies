@@ -24,16 +24,19 @@ var bandCuts = []string{"slim", "compact", "standard", "expanded"}
 var bandLogoSizes = []string{"auto", "small", "medium", "large"}
 
 // bandPreferences is the `bands` object of an account's private preferences:
-// where each band stands, which are switched off, and whether the dog is drawn
-// and at what size. Every field is optional, because an absent one is a choice
-// never made and the page keeps its default.
+// where each band stands, which are switched off, whether the dog is drawn and
+// at what size, and whether a band's picture (the punch card, the slot map) is
+// drawn. Every field is optional, because an absent one is a choice never made
+// and the page keeps its default.
 type bandPreferences struct {
-	Hidden    []string          `json:"hidden,omitempty"`
-	Sizes     map[string]string `json:"sizes,omitempty"`
-	Logo      *bool             `json:"logo,omitempty"`
-	LogoSize  string            `json:"logo_size,omitempty"`
-	LogoPages map[string]bool   `json:"logo_pages,omitempty"`
-	LogoSizes map[string]string `json:"logo_sizes,omitempty"`
+	Hidden       []string          `json:"hidden,omitempty"`
+	Sizes        map[string]string `json:"sizes,omitempty"`
+	Logo         *bool             `json:"logo,omitempty"`
+	LogoSize     string            `json:"logo_size,omitempty"`
+	LogoPages    map[string]bool   `json:"logo_pages,omitempty"`
+	LogoSizes    map[string]string `json:"logo_sizes,omitempty"`
+	Picture      *bool             `json:"picture,omitempty"`
+	PicturePages map[string]bool   `json:"picture_pages,omitempty"`
 }
 
 // validate says which part of a band document this build does not have, or
@@ -78,6 +81,11 @@ func (in *bandPreferences) validate(field string) []fieldError {
 		}
 		if size := in.LogoSizes[page]; !slices.Contains(bandLogoSizes, size) {
 			errs = append(errs, fieldError{field + ".logo_sizes." + page, "one of " + strings.Join(bandLogoSizes, ", ")})
+		}
+	}
+	for _, page := range slices.Sorted(maps.Keys(in.PicturePages)) {
+		if !slices.Contains(bandPages, page) {
+			errs = append(errs, fieldError{field + ".picture_pages." + page, "not a page with a band"})
 		}
 	}
 	return errs

@@ -25,6 +25,7 @@
   import { untrack } from 'svelte';
   import { Trophy } from '@lucide/svelte';
   import PageBand from '$lib/bands/PageBand.svelte';
+  import BandRepositories from '$lib/bands/BandRepositories.svelte';
   import { kennelLine } from '$lib/bands/lines';
   import type { BandStat } from '$lib/bands/stats';
   import { getKennelOverview, listKennelChecks } from '$lib/api/client';
@@ -350,7 +351,16 @@
       stats={bandStats}
       more={bandMore}
       eyebrow={overview?.enabled && overview.states.attention > 0 ? 'Needs attention' : 'Right now'}
-    />
+    >
+      <!-- The sentence counts the repositories that need attention; the squares
+           show them among the rest, worst first. -->
+      {#snippet aside()}
+        <BandRepositories
+          {overview}
+          to={toRepositories({ state: 'attention', everything: true })}
+        />
+      {/snippet}
+    </PageBand>
   </section>
 
   <div class="content">

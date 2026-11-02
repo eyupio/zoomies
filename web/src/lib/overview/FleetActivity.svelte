@@ -35,6 +35,7 @@
   import ActivityMatrix, { type ActivityRange } from '$lib/insights/ActivityMatrix.svelte';
   import {
     addDays,
+    bucketIndex,
     calendarWindow,
     fillWindow,
     foldJob,
@@ -135,6 +136,29 @@
   let selected = $state<number | null>(null);
   let seen = newSeen();
   let pending: AbortController | null = null;
+  /** An hour asked for from outside before the series that holds it has arrived. */
+  let wanted: Date | null = null;
+
+  /**
+   * Select the square a moment falls in, from the band's punch card. The
+   * range moves to 7d if it is elsewhere, because the card is that range,
+   * and the selection waits for the fetch that change starts: the series on
+   * screen until then is a different window and its indices mean nothing
+   * for this one.
+   */
+  export function select(at: Date): void {
+    if (prefs.activityRange !== '7d') {
+      wanted = at;
+      prefs.activityRange = '7d';
+      return;
+    }
+    if (loading) {
+      wanted = at;
+      return;
+    }
+    const index = bucketIndex(series, at.getTime(), range.interval);
+    selected = index < 0 ? null : index;
+  }
 
   export async function reload(): Promise<void> {
     pending?.abort();
@@ -166,6 +190,11 @@
       seen = newSeen();
       fetchedAt = started;
       error = null;
+      if (wanted) {
+        const index = bucketIndex(series, wanted.getTime(), next.interval);
+        selected = index < 0 ? null : index;
+        wanted = null;
+      }
     } catch (cause) {
       if (controller.signal.aborted || pending !== controller) return;
       error = cause;

@@ -16,6 +16,7 @@
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { readableJobText } from '$lib/jobs/name';
   import RunnerInsights from '$lib/insights/RunnerInsights.svelte';
+  import BandSlotMap from '$lib/bands/BandSlotMap.svelte';
   import PageBand from '$lib/bands/PageBand.svelte';
   import { demandMore, demandStats } from '$lib/bands/demand-stats';
   import { revealHash } from '$lib/bands/jump';
@@ -617,7 +618,18 @@
         draining: fleet.stats.runners.draining ?? 0,
       })
     : null}
-/>
+>
+  <!-- The same slots the Hosts band draws, coloured by what the runners on them
+       are doing: the sentence's busy and idle, placed. -->
+  {#snippet aside()}
+    {#if fleet.loaded}<BandSlotMap
+        hosts={fleet.hosts}
+        runners={fleet.runners}
+        detail="state"
+        title="Runners by host"
+      />{/if}
+  {/snippet}
+</PageBand>
 <!-- The filters in effect, each removable; it draws nothing when there are none. -->
 <FilterBar {chips} onclear={clearFilters} class="in-effect" />
 

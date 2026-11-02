@@ -3498,6 +3498,19 @@ paths:
             at one instant -- the last 30 days and the 30 before them -- counts every job
             once.
           schema: { type: string, format: date-time }
+        - name: completed_since
+          in: query
+          description: >-
+            Only jobs that finished at or after this instant. The start is included. A job
+            still waiting or running has not finished and is left out. Reads when a job
+            finished where `since` reads when it was queued, and the two windows compose.
+          schema: { type: string, format: date-time }
+        - name: completed_until
+          in: query
+          description: >-
+            Only jobs that finished before this instant. The end is not included, so two
+            windows cut at one instant count every job once.
+          schema: { type: string, format: date-time }
         - name: controller_version
           in: query
           description: >-
@@ -3682,6 +3695,18 @@ paths:
       parameters:
         - { name: since, in: query, description: Start of the window, included. Defaults to a week before `until`., schema: { type: string, format: date-time } }
         - { name: until, in: query, description: End of the window, not included. Defaults to now., schema: { type: string, format: date-time } }
+        - name: completed_since
+          in: query
+          description: >-
+            Narrow the jobs counted to those that finished at or after this instant, inside
+            the window `since` and `until` already cut by queue time. The start is included.
+          schema: { type: string, format: date-time }
+        - name: completed_until
+          in: query
+          description: >-
+            Narrow the jobs counted to those that finished before this instant. The end is
+            not included.
+          schema: { type: string, format: date-time }
         - name: group_by
           in: query
           description: >-
@@ -4030,6 +4055,19 @@ paths:
         - { name: q, in: query, schema: { type: string } }
         - { name: since, in: query, schema: { type: string, format: date-time } }
         - { name: until, in: query, schema: { type: string, format: date-time } }
+        - name: completed_since
+          in: query
+          description: >-
+            Only jobs that finished at or after this instant. The start is included. A job
+            still waiting or running has not finished and is left out. Reads when a job
+            finished where `since` reads when it was queued, and the two windows compose.
+          schema: { type: string, format: date-time }
+        - name: completed_until
+          in: query
+          description: >-
+            Only jobs that finished before this instant. The end is not included, so two
+            windows cut at one instant count every job once.
+          schema: { type: string, format: date-time }
         - { name: unmatched, in: query, description: Runs with a job that is still queued and that no enabled pool claims., schema: { type: boolean } }
         - { name: managed, in: query, description: Runs Zoomies has a hand in, through any job of theirs., schema: { type: boolean } }
         - { name: failed, in: query, description: Runs with a job that went wrong on either side, counting only the latest attempt of each job., schema: { type: boolean } }
@@ -16813,10 +16851,12 @@ components:
       type: object
       description: >-
         How this person's page bands stand: the cut a page takes where it is not
-        the page's default, the bands that are switched off, and whether the dog
-        is drawn and at what size. Every field is optional, because absent is a
-        choice never made. The UI ignores a page or cut it does not know, so a
-        document written by a newer build still opens every band it can.
+        the page's default, the bands that are switched off, whether the dog is
+        drawn and at what size, and whether a band's picture (the Overview's
+        punch card, the slot map on Hosts and Runners) is drawn. Every field is
+        optional, because absent is a choice never made. The UI ignores a page
+        or cut it does not know, so a document written by a newer build still
+        opens every band it can.
       properties:
         hidden:
           type: array
@@ -16844,6 +16884,16 @@ components:
           description: Pages whose dog size differs from `logo_size`.
           additionalProperties:
             $ref: "#/components/schemas/BandLogoSize"
+        picture:
+          type: boolean
+          description: >-
+            Whether a band's picture is drawn beside its sentence on a page that
+            has not chosen otherwise. On when absent.
+        picture_pages:
+          type: object
+          description: Pages whose picture is shown or hidden against `picture`.
+          additionalProperties:
+            type: boolean
 
     BandPage:
       type: string

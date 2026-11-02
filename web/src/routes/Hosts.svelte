@@ -14,6 +14,7 @@
   fleet does.
 -->
 <script lang="ts">
+  import BandSlotMap from '$lib/bands/BandSlotMap.svelte';
   import PageBand from '$lib/bands/PageBand.svelte';
   import { hostsLine } from '$lib/bands/lines';
   import Tooltip from '$lib/components/Tooltip.svelte';
@@ -579,7 +580,13 @@
     <Button variant="primary" icon={Plus} href="/hosts/new">Add a host</Button>
   {/if}
 </PageHeader>
-<PageBand page="hosts" line={bandLine} />
+<PageBand page="hosts" line={bandLine}>
+  <!-- The sentence counts the slots; the map beside it shows which machine holds
+       them, which is the thing a count cannot say. -->
+  {#snippet aside()}
+    {#if fleet.loaded}<BandSlotMap {hosts} runners={fleet.runners} detail="occupancy" />{/if}
+  {/snippet}
+</PageBand>
 
 <div class="content">
   {#if canAdmin}
