@@ -17,8 +17,12 @@ export function auditKindChips(kinds: readonly string[], selected: string): Filt
   return all.map((kind) => ({ value: kind, label: kind }));
 }
 
-/** How many events the filters leave, or nothing until the first page has said. */
+/**
+ * How many events the filters leave, or nothing until the first page has
+ * said or when it said none. The order is the grid's to say, since When,
+ * Actor and Action all sort; an empty result is the empty state's.
+ */
 export function auditEyebrow(total: number | undefined): string | undefined {
-  if (total === undefined) return undefined;
-  return `${pluralise(total, 'event')}, newest first`;
+  if (total === undefined || total === 0) return undefined;
+  return pluralise(total, 'event');
 }

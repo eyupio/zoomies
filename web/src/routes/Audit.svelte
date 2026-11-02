@@ -68,8 +68,9 @@
 
   /**
    * Actors and target kinds are not endpoints of their own, so they are
-   * gathered from the rows that have been through this page. The menu says so
-   * rather than pretending to be exhaustive.
+   * gathered from the rows that have been through this page: the actor menu
+   * says so rather than pretending to be exhaustive, and the kind chips grow
+   * as the operator reads.
    */
   let actors = $state<Record<string, string>>({});
   let kinds = $state<string[]>([]);
@@ -173,6 +174,18 @@
     );
     if (!signal.aborted) total = page.total;
     return { items: page.items ?? [], total: page.total };
+  }
+  // A figure over an error would be the last filter's, read as this one's.
+  async function fetchCounted(
+    query: GridQuery,
+    signal: AbortSignal,
+  ): Promise<GridPage<AuditEvent>> {
+    try {
+      return await fetchAudit(query, signal);
+    } catch (error) {
+      if (!signal.aborted) total = undefined;
+      throw error;
+    }
   }
 
   /* -- the target of an event --------------------------------------------------
@@ -386,13 +399,7 @@
     acted on as chips where the menu was. The grid is bare inside, so the page
     shows one frame; there is nothing between the header and the list to fold.
   -->
-  <Panel
-    title="All changes"
-    icon={ScrollText}
-    eyebrow={auditEyebrow(total)}
-    flush
-    class="list-card"
-  >
+  <Panel title="All events" icon={ScrollText} eyebrow={auditEyebrow(total)} flush class="list-card">
     {#snippet actions()}
       <div class="search">
         <Input
@@ -412,10 +419,9 @@
       </div>
 
       <!--
-        Sised and wrapped: a Select is as wide as the space it is given, so bare
-        in a wrapping row each one took a line of its own and the five controls
-        stood in a column about 170px tall. The Jobs page has put its filters in
-        one row all along, and this is the same bar.
+        Sized: a Select is as wide as the space it is given, so bare in the
+        card's wrapping row each would take a line of its own and the controls
+        would stand in a column rather than read as one set of choices.
       -->
       <div class="field">
         <Select
@@ -462,7 +468,7 @@
       gridId="audit"
       label="Audit log"
       {columns}
-      fetcher={fetchAudit}
+      fetcher={fetchCounted}
       {rowId}
       {filters}
       defaultSort="created_at"
@@ -571,9 +577,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--z-space-4);
-  }
-  :global(.in-effect:has(.chip)) {
-    margin-bottom: var(--z-space-4);
   }
   .search {
     width: 16rem;

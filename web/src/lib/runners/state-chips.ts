@@ -60,6 +60,3 @@ export function runnersEyebrow(stats: RunnerStateCounts | undefined): string | u
   if (!stats || typeof stats.total !== 'number') return undefined;
   return `${stats.total} known, ${liveRunners(stats)} live`;
 }
-
-/** Kept for the page's tests; the helper itself lives beside FilterChips now. */
-export { toggleChip } from '$lib/components/chip-selection';

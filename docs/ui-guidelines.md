@@ -956,8 +956,9 @@ operator and a fold under the list would hide that. The Audit chips are the
 kinds of thing acted on, gathered from the rows the page has shown plus the
 one a pasted address names, uncounted because kinds are no endpoint of their
 own, and its eyebrow is how many events the filters leave, from the page the
-grid last fetched. A single-valued filter reads a press through `pickOne`
-beside `FilterChips`: the chip that changed, or none. The
+grid last fetched, absent over an error or an empty result. The Audit chips
+read a press through `pickOne` beside `FilterChips`: the chip that changed, or
+none. The
 Queue's chips are the four provisioning statuses, counted from the list's own
 counts, with Ready, Run now and Paused pressed by default and Removed a press
 away; the job filters it shares with the Jobs page (`JobFilters`: the search,

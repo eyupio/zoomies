@@ -1,8 +1,9 @@
 /**
  * How a press on a FilterChips row changes what is in force. Pure, and
- * beside the component rather than in a page's module, because every list
- * page reads it: the Runners and Queue chips hold several values, the Pools
- * and Audit chips hold one.
+ * beside the component rather than in a page's module, because more than
+ * one list page reads it: the Runners and Queue chips hold several values,
+ * the Audit chips hold one (the Pools page reads its own one-valued press
+ * the same way in its module).
  */
 
 /** A chip pressed: in the selection if it was out, out if it was in. Empty is All. */
