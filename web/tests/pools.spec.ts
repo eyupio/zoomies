@@ -136,12 +136,9 @@ test('the list shows both pools and names the risk the arm64 one carries', async
   // else -- rather than only appearing on hover.
   await expect(arm).toContainText('docker-in-docker');
   await expect(arm).toContainText('persistent runners');
-  await expect(arm).toContainText('Docker in Docker');
-  await expect(arm).toContainText('Reused');
 
   // The safe pool says so by having nothing to say.
   await expect(linux).not.toContainText('risk');
-  await expect(linux).toContainText('One job');
 
   // The row's own figures are the way into the runners they count: "n of m
   // busy" narrows the Runners page to this pool, which is one URL away and
@@ -1614,4 +1611,97 @@ test('the Providers section says how a provider comes to rent for the pool, and 
   await section(page, 'providers').getByLabel('Rule 1 key').fill('no-such-label');
   await expect(section(page, 'providers')).toContainText('provider selector leaves it out');
   await expect(section(page, 'providers')).toContainText(/Only providers where no-such-label/);
+});
+
+/*
+ * The list card. The Pools page is band, the size-class panel, the card and
+ * one fold under it: the card has the pools' tile, a count over its title,
+ * the search opposite, Enabled and Disabled as chips in place of the status
+ * menu, and the grid bare inside. The chips read and write the `status`
+ * parameter the menu did, one value at a time.
+ */
+const statusChips = (page: Page) => page.getByRole('group', { name: 'Filter by status' });
+
+test('the eyebrow counts the pools and how many are enabled, as the API lists them', async ({
+  page,
+  request,
+}) => {
+  const { items } = (await (await request.get('/api/v1/pools')).json()) as {
+    items: { enabled?: boolean }[];
+  };
+  const enabled = items.filter((pool) => pool.enabled !== false).length;
+  await goto(page, '/pools', 'Pools');
+  const card = page.locator('section.list-card');
+  await expect(card.getByRole('heading', { name: 'All pools' })).toBeVisible();
+  await expect(card.locator('.eyebrow')).toHaveText(
+    `${items.length} ${items.length === 1 ? 'pool' : 'pools'}, ${enabled} enabled`,
+  );
+  await expect(card.locator('.grid.bare')).toHaveCount(1);
+  await expect(
+    statusChips(page)
+      .getByRole('button', { name: /^Enabled/ })
+      .locator('.count'),
+  ).toHaveText(String(enabled));
+});
+
+test('a status chip is one value: Disabled narrows the rows, Enabled replaces it, and again clears it', async ({
+  page,
+}) => {
+  await goto(page, '/pools', 'Pools');
+  await expect(dataRows(grid(page, 'Pools')).first()).toBeVisible();
+  const chips = statusChips(page);
+  await expect(chips.getByRole('button', { name: /^All/ })).toHaveAttribute('aria-pressed', 'true');
+
+  await chips.getByRole('button', { name: /^Disabled/ }).click();
+  await expect(page).toHaveURL(/[?&]status=disabled(?:&|#|$)/);
+  await expect(chips.getByRole('button', { name: /^Disabled/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(
+    page.getByRole('button', { name: 'Remove the Status filter Disabled' }),
+  ).toBeVisible();
+
+  // The parameter holds one value, so the second chip replaces the first.
+  await chips.getByRole('button', { name: /^Enabled/ }).click();
+  await expect(page).toHaveURL(/[?&]status=enabled(?:&|#|$)/);
+  await expect(chips.getByRole('button', { name: /^Disabled/ })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  for (const row of await dataRows(grid(page, 'Pools')).all())
+    await expect(row).toContainText('Enabled');
+
+  await chips.getByRole('button', { name: /^Enabled/ }).click();
+  await expect(page).not.toHaveURL(/status=/);
+  await expect(chips.getByRole('button', { name: /^All/ })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('the configuration columns are a click away rather than on by default', async ({ page }) => {
+  test.skip(
+    (page.viewportSize()?.width ?? 1000) < 1181,
+    'a narrow window folds wide columns anyway',
+  );
+  await goto(page, '/pools', 'Pools');
+  const pools = grid(page, 'Pools');
+  await expect(dataRows(pools).first()).toBeVisible();
+  for (const name of ['Backend', 'Platform', 'Idle timeout', 'Lifetime', 'Docker'])
+    await expect(
+      pools.getByRole('columnheader', { name: new RegExp(`\\b${name}\\b`) }),
+    ).toHaveCount(0);
+  for (const name of ['Target', 'Queued', 'Status'])
+    await expect(
+      pools.getByRole('columnheader', { name: new RegExp(`\\b${name}\\b`) }),
+    ).toHaveCount(1);
+  await page.getByRole('button', { name: 'Columns' }).click();
+  const layout = page.getByRole('group', { name: 'Column layout' });
+  await layout.getByRole('checkbox', { name: 'Lifetime' }).check();
+  await layout.getByRole('checkbox', { name: 'Docker' }).check();
+  await page.keyboard.press('Escape');
+  // Restored, the columns say the settings the risk badge warned about, in
+  // words: the arm64 pool keeps its runners and runs Docker in Docker.
+  const arm = dataRows(pools).filter({ hasText: FIXTURE.armPool });
+  await expect(arm).toContainText('Reused');
+  await expect(arm).toContainText('Docker in Docker');
+  await expect(dataRows(pools).filter({ hasText: FIXTURE.linuxPool })).toContainText('One job');
 });
