@@ -598,14 +598,18 @@ test('the Pools, Queue and Usage bands draw their pictures, and each agrees with
   );
   // Both halves are read in one breath: the fixture's x64 pool leaves its
   // ceiling as idle runners drain, and a sentence read before that moment
-  // disagrees with bars read after it without either being wrong.
+  // disagrees with bars read after it without either being wrong. The
+  // sentence for no pool at its ceiling is "None is at its ceiling.", so the
+  // test asks for the count, not for the phrase.
   await expect(async () => {
     const [sentence, picture] = await Promise.all([
       page.getByTestId('band-pools').locator('.lede').textContent(),
       bars.textContent(),
     ]);
-    if (/is at its ceiling/.test(sentence ?? '')) {
-      expect(picture).toContain('1 at its ceiling');
+    const counted = /^(\d+) (is|are) at its ceiling/.exec(sentence ?? '');
+    if (counted) {
+      const n = Number(counted[1]);
+      expect(picture).toContain(`${n} at ${n === 1 ? 'its' : 'their'} ceiling`);
       await expect(bars.getByRole('link').first()).toHaveAccessibleName(/at its ceiling$/, {
         timeout: 500,
       });
