@@ -4,17 +4,17 @@
 -->
 <script lang="ts">
   import AskEli from '$lib/assistant/AskEli.svelte';
-  import { Clock, Layers, Undo2, Wrench, X } from '@lucide/svelte';
+  import { Layers, Undo2, Wrench, X } from '@lucide/svelte';
   import type { Problem } from '$lib/api/types';
   import { severityStatus } from '$lib/status';
-  import { notifications, SNOOZE_OPTIONS } from '$lib/state/notifications.svelte';
-  import type { MenuItem } from '$lib/components/DropdownMenu.svelte';
+  import { notifications } from '$lib/state/notifications.svelte';
   import DropdownMenu from '$lib/components/DropdownMenu.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
   import ApplyRemedy from './ApplyRemedy.svelte';
+  import { dismissMenuItems } from './dismiss-menu';
   import { problemTarget } from './targets';
 
   interface Props {
@@ -55,32 +55,7 @@
     class: className = '',
   }: Props = $props();
 
-  /** Snooze options first, then dismissing outright -- the menu reads as a
-   * choice of how long, with "indefinitely" as the last, most drastic one. */
-  const dismissItems = $derived.by<MenuItem[]>(() => [
-    ...SNOOZE_OPTIONS.map((option) => ({
-      id: `snooze-${option.id}`,
-      label: `Snooze for ${option.label}`,
-      icon: Clock,
-      onSelect: () => onsnooze?.(problem, option.ms),
-    })),
-    ...(onsnoozetype
-      ? SNOOZE_OPTIONS.map((option, i) => ({
-          id: `snooze-type-${option.id}`,
-          label: `Snooze all like this for ${option.label}`,
-          icon: Clock,
-          separated: i === 0,
-          onSelect: () => onsnoozetype(problem, option.ms),
-        }))
-      : []),
-    {
-      id: 'dismiss',
-      label: 'Dismiss until resolved',
-      icon: X,
-      separated: true,
-      onSelect: () => ondismiss?.(problem),
-    },
-  ]);
+  const dismissItems = $derived(dismissMenuItems(problem, { ondismiss, onsnooze, onsnoozetype }));
 
   /**
    * One line saying which layer set the offending value, or '' when the fix

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
   import { ChevronRight, type LucideIcon } from '@lucide/svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import { remember, remembered } from '$lib/state/prefs.svelte';
 
   let {
@@ -51,7 +52,12 @@
     <ChevronRight size={16} class="chevron" aria-hidden="true" />
     {#if Icon}<span class="tile" aria-hidden="true"><Icon size={16} /></span>{/if}
     <span class="title">{title}</span>
-    <span class="context">{summary}</span>
+    <!-- One line, cut short at the edge: a summary that wrapped would push
+         the header to two lines on the screens the shut card is for, and the
+         bubble carries the whole sentence when it is cut. -->
+    <Tooltip bare whenTruncated text={summary}>
+      <span class="context">{summary}</span>
+    </Tooltip>
     {#if actions}{@render actions()}{/if}
   </summary>
   <div class="content">{@render children()}</div>
@@ -105,13 +111,25 @@
     font-weight: var(--z-weight-semibold);
   }
   .context {
+    display: block;
     margin-left: auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--z-text-muted);
-    overflow-wrap: anywhere;
     font-size: var(--z-text-xs);
   }
   .context:empty {
     display: none;
+  }
+  /* The bubble opens on the pointer; the keyboard reaches the header and not
+     the span inside it, so a header focused from the keyboard lets its
+     sentence wrap instead, and nothing is read only by hovering. */
+  summary:focus-visible .context {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .content {
     padding: var(--z-space-3);

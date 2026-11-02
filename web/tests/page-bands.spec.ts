@@ -78,7 +78,16 @@ test('a band is not drawn on a phone, switch or no switch', async ({ page }) => 
   await expect(page.getByTestId('band-runners')).toBeHidden();
 });
 
+/**
+ * The time a test that visits every page in turn is given. A visit takes about a
+ * second on a quiet machine and several on a busy runner, and the list gains a page
+ * every few weeks, so a fixed thirty seconds is a test that fails on the day the
+ * runners are busy. The budget grows with the list, as the tooltips spec's does.
+ */
+const everyPageBudget = () => 30_000 + PAGES.length * 6_000;
+
 test('every page opens on a slim band', async ({ page }) => {
+  test.setTimeout(everyPageBudget());
   for (const item of PAGES) {
     await goto(page, item.path, item.heading);
     await expect(page.getByTestId(item.band)).toHaveAttribute('data-size', 'slim');
@@ -410,6 +419,7 @@ test('a figure whose list is on another page opens that page at the list', async
 });
 
 test('every page names itself, underlines it and says what it is', async ({ page }) => {
+  test.setTimeout(everyPageBudget());
   for (const item of PAGES) {
     await goto(page, item.path, item.heading);
     const header = page.locator('.page-header');

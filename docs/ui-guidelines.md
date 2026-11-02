@@ -908,13 +908,21 @@ The one page that has to earn the second monitor.
   first. How the last jobs ended was a second panel across the bottom of the
   page and is now part of the feed: two reverse-chronological lists on one
   page, each with its own idea of what belonged on it, was one list too many.
-* **Needs attention**: the worst three problems as rows, each with its
-  severity pill, the controller's fix and an *Open* button to the thing it is
-  about, and the card's own action ("and N more", or "Open the drawer")
-  opening the problems drawer for the rest. Three rows and the band still
-  leave the pools on the first screen of a 1440x900 laptop, which is the rule
-  the earlier one-line summary was cut down for; everything past three stays
-  the drawer's. **When everything is fine it is a single quiet line, not an
+* **Needs attention**: a section shut by default whose header says what it
+  holds (how many of each severity, worst first, and the worst problem by
+  name, cut short at the line with the whole sentence in a tooltip), so the
+  page says what is wrong before anything is opened. Open, it is the worst
+  three problems as rows, each with its severity pill, the controller's fix,
+  an *Open* button to the thing it is about and the drawer's own dismiss menu
+  (snooze for a while, snooze every problem of this kind, dismiss until
+  resolved), so a decision made here means what it means in the drawer and is
+  listed there as dismissed. The header also carries *Dismiss all*, the same
+  menu as the drawer's header (snooze everything listed for 15 minutes, 1, 4
+  or 24 hours, or dismiss it all until resolved), whether the card is shut or
+  open; pressing it does not toggle the card. The card's own line ("and N more", or "Open the
+  drawer") opens the problems drawer for the rest; everything past three stays
+  the drawer's. Whether the section is open is remembered like the other
+  sections' choices. **When everything is fine it is a single quiet line, not an
   empty box and not a green celebration.** A phone draws no band and keeps its
   pools on the first screen, so it keeps the one-line summary with its
   *Review* button, as before.
@@ -965,6 +973,41 @@ from hiding a real fault:
 Dismissed entries stay listed at the bottom of the drawer, dated, and can be
 restored one at a time or all at once.
 
+### The list pages
+
+A page whose body is a list (Runners, Queue, Pools and Audit so far; Jobs and
+Workflows follow them) is, under its band, one card: the page's own
+icon in a tile, a count in small capitals over the title ("11 known, 9 live",
+absent until the stats have arrived), the search field and the menus opposite,
+the primary filter as `FilterChips` in a row of their own, and the grid bare
+inside, so the page shows one frame. The chips read and write the same query
+parameter the filter always had, so a pasted address and a band figure's link
+land where they did; their counts are the fleet's, so a pool or host filter
+takes them away rather than let them disagree with the rows. Everything that
+is context rather than the list (the Runners page's scope line, lifecycle and
+last day's activity) is folded under the card in one *Fleet context*
+disclosure, as the Overview folds its History, and a wide column the mock
+leaves out (Age and CPU on Runners, Labels on Queue, the Backend, Platform,
+Idle timeout, Lifetime and Docker settings on Pools) is hidden by default and
+a click away in Columns, with a saved layout winning as it always has. The
+Pools chips are Enabled and Disabled, counted from the fleet's pools, one in
+force at a time as the `status` parameter always was; the size-class panel
+stays above the card, because it opens by itself when a change waits on an
+operator and a fold under the list would hide that. The Audit chips are the
+kinds of thing acted on, gathered from the rows the page has shown plus the
+one a pasted address names, uncounted because kinds are no endpoint of their
+own, and its eyebrow is how many events the filters leave, from the page the
+grid last fetched, absent over an error or an empty result. The Audit chips
+read a press through `pickOne` beside `FilterChips`: the chip that changed, or
+none. The
+Queue's chips are the four provisioning statuses, counted from the list's own
+counts, with Ready, Run now and Paused pressed by default and Removed a press
+away; the job filters it shares with the Jobs page (`JobFilters`: the search,
+the menus, the date range and the fold a phone gives them) stay in their bar
+above the card, and only the controls that are the page's alone, the branch
+field, the saved views, Reset and the hint on how filters combine, sit opposite
+its title.
+
 ---
 
 ## 3. Component inventory
@@ -1011,9 +1054,11 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 
 | Component | Notes |
 | --- | --- |
-| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need* |
+| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need*. `bare` drops its own border, radius and background for a grid drawn inside a `Panel`, so a list card is one frame |
 | `RowActions` | a row's actions as buttons rather than a menu, as an ARIA toolbar: one tab stop per row, `← →` along it, and every button's name carries what it acts on |
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
+| `FilterChips` | a list's primary filter as a row of pills: All, then one per value with its count when the count is true of the rows under it; more than one in force at once, each saying so with `aria-pressed`, a tick and the weight of its words, never by colour alone. The Runners page's states are the first |
+| `Panel` | a titled card: a heading, an optional `icon` in a tinted tile, an optional `eyebrow` in small capitals above the heading (a count or a scope), a `description` under it, `actions` opposite, an optional `toolbar` row between the head and the body for a list's filter chips, and `flush` for a body that draws its own rows. The Overview's cards and the list card are all this |
 | `PageHeader` | title, subtitle, breadcrumb, primary action, and the refresh button where the page passes `onrefresh` |
 | `RefreshButton` | the one refresh: registers the page's handler so the button, `R` and the palette all run it; turning icon while it works |
 | `MetricTile` | number, label, delta, sparkline |

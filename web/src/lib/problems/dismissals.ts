@@ -9,6 +9,13 @@ import type { Problem, ProblemDismissal, Severity } from '../api/types';
 /** Worst first. The panel, the badge and the summary all read this order. */
 export const SEVERITY_ORDER: readonly Severity[] = ['error', 'warning', 'info'];
 
+/** What one of each is called in a sentence an operator reads. */
+export const SEVERITY_NOUN: Record<Severity, string> = {
+  error: 'error',
+  warning: 'warning',
+  info: 'note',
+};
+
 export function severityOf(problem: Problem): Severity {
   return problem.severity ?? 'info';
 }

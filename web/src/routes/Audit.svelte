@@ -11,7 +11,7 @@
 -->
 <script lang="ts">
   import Tooltip from '$lib/components/Tooltip.svelte';
-  import { Search } from '@lucide/svelte';
+  import { ScrollText, Search } from '@lucide/svelte';
   import { listAudit, listAuditActions } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { AuditEvent } from '$lib/api/types';
@@ -25,6 +25,10 @@
   import type { GridColumn, GridPage, GridQuery } from '$lib/components/DataGrid.svelte';
   import Drawer from '$lib/components/Drawer.svelte';
   import FilterBar from '$lib/components/FilterBar.svelte';
+  import FilterChips from '$lib/components/FilterChips.svelte';
+  import Panel from '$lib/components/Panel.svelte';
+  import { pickOne } from '$lib/components/chip-selection';
+  import { auditEyebrow, auditKindChips } from '$lib/audit/kind-chips';
   import type { FilterChip } from '$lib/components/FilterBar.svelte';
   import Input from '$lib/components/Input.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
@@ -64,8 +68,9 @@
 
   /**
    * Actors and target kinds are not endpoints of their own, so they are
-   * gathered from the rows that have been through this page. The menu says so
-   * rather than pretending to be exhaustive.
+   * gathered from the rows that have been through this page: the actor menu
+   * says so rather than pretending to be exhaustive, and the kind chips grow
+   * as the operator reads.
    */
   let actors = $state<Record<string, string>>({});
   let kinds = $state<string[]>([]);
@@ -84,10 +89,6 @@
   const actionOptions = $derived([
     { value: '', label: 'Any action' },
     ...actions.map((name) => ({ value: name, label: name })),
-  ]);
-  const kindOptions = $derived([
-    { value: '', label: 'Any kind of thing' },
-    ...kinds.map((kind) => ({ value: kind, label: kind })),
   ]);
   const actorOptions = $derived([
     { value: '', label: 'Anyone' },
@@ -151,6 +152,9 @@
 
   let liveKey = $state(0);
   $effect(() => events.subscribe('audit', () => (liveKey += 1)));
+  // How many events the filters leave, from the page the grid last fetched,
+  // for the card's eyebrow. Absent until the first page has said.
+  let total = $state<number | undefined>();
 
   async function fetchAudit(query: GridQuery, signal: AbortSignal): Promise<GridPage<AuditEvent>> {
     const page = await listAudit(
@@ -168,7 +172,20 @@
       },
       signal,
     );
+    if (!signal.aborted) total = page.total;
     return { items: page.items ?? [], total: page.total };
+  }
+  // A figure over an error would be the last filter's, read as this one's.
+  async function fetchCounted(
+    query: GridQuery,
+    signal: AbortSignal,
+  ): Promise<GridPage<AuditEvent>> {
+    try {
+      return await fetchAudit(query, signal);
+    } catch (error) {
+      if (!signal.aborted) total = undefined;
+      throw error;
+    }
   }
 
   /* -- the target of an event --------------------------------------------------
@@ -374,96 +391,105 @@
 />
 
 <div class="content">
-  <FilterBar {chips} onclear={anyFilter ? clearFilters : undefined}>
-    <div class="search">
-      <Input
-        bind:element={searchField}
-        value={search}
-        type="search"
-        size="sm"
-        icon={Search}
-        placeholder="Search actor, action or target"
-        ariaLabel="Search the audit log"
-        oninput={(event) =>
-          router.setQuery({
-            q: (event.currentTarget as HTMLInputElement).value || null,
-            offset: null,
-          })}
-      />
-    </div>
+  <FilterBar {chips} onclear={anyFilter ? clearFilters : undefined} class="in-effect" />
 
-    <!--
-      Sised and wrapped: a Select is as wide as the space it is given, so bare
-      in a wrapping row each one took a line of its own and the five controls
-      stood in a column about 170px tall. The Jobs page has put its filters in
-      one row all along, and this is the same bar.
-    -->
-    <div class="field">
-      <Select
-        value={action}
-        options={actionOptions}
-        size="sm"
-        ariaLabel="Filter by action"
-        onchange={(value) => router.setQuery({ action: value || null, offset: null })}
-      />
-    </div>
-    <div class="field">
-      <Select
-        value={targetKind}
-        options={kindOptions}
-        size="sm"
-        ariaLabel="Filter by the kind of thing acted on"
-        onchange={(value) => router.setQuery({ target_kind: value || null, offset: null })}
-      />
-    </div>
-    <div class="field">
-      <Select
-        value={actorId}
-        options={actorOptions}
-        size="sm"
-        ariaLabel="Filter by actor"
-        onchange={(value) => router.setQuery({ actor_id: value || null, offset: null })}
-      />
-    </div>
-    <div class="dates">
-      <DateRange
-        {since}
-        {until}
-        label="Changed between"
-        onchange={(next) =>
-          router.setQuery({
-            since: next.since || null,
-            until: next.until || null,
-            offset: null,
-          })}
-      />
-    </div>
-  </FilterBar>
+  <!--
+    The list card: the log's tile, how many events the filters leave over the
+    title, the search, the menus and the dates opposite, and the kinds of thing
+    acted on as chips where the menu was. The grid is bare inside, so the page
+    shows one frame; there is nothing between the header and the list to fold.
+  -->
+  <Panel title="All events" icon={ScrollText} eyebrow={auditEyebrow(total)} flush class="list-card">
+    {#snippet actions()}
+      <div class="search">
+        <Input
+          bind:element={searchField}
+          value={search}
+          type="search"
+          size="sm"
+          icon={Search}
+          placeholder="Search actor, action or target"
+          ariaLabel="Search the audit log"
+          oninput={(event) =>
+            router.setQuery({
+              q: (event.currentTarget as HTMLInputElement).value || null,
+              offset: null,
+            })}
+        />
+      </div>
 
-  <DataGrid
-    gridId="audit"
-    label="Audit log"
-    {columns}
-    fetcher={fetchAudit}
-    {rowId}
-    {filters}
-    defaultSort="created_at"
-    defaultOrder="desc"
-    noun="events"
-    {liveKey}
-    onopen={openRow}
-    onrows={remember}
-    emptyTitle={anyFilter ? 'Nothing matches those filters' : 'Nothing recorded yet'}
-    emptyDescription={anyFilter
-      ? 'Try a wider date range, or clear a filter.'
-      : 'Zoomies writes a row here whenever somebody changes something: a pool, a runner, a user, a setting. Reading things is not recorded.'}
-  >
-    {#snippet emptyAction()}
-      {#if anyFilter}
-        <Button onclick={clearFilters}>Clear filters</Button>
-      {/if}
+      <!--
+        Sized: a Select is as wide as the space it is given, so bare in the
+        card's wrapping row each would take a line of its own and the controls
+        would stand in a column rather than read as one set of choices.
+      -->
+      <div class="field">
+        <Select
+          value={action}
+          options={actionOptions}
+          size="sm"
+          ariaLabel="Filter by action"
+          onchange={(value) => router.setQuery({ action: value || null, offset: null })}
+        />
+      </div>
+      <div class="field">
+        <Select
+          value={actorId}
+          options={actorOptions}
+          size="sm"
+          ariaLabel="Filter by actor"
+          onchange={(value) => router.setQuery({ actor_id: value || null, offset: null })}
+        />
+      </div>
+      <div class="dates">
+        <DateRange
+          {since}
+          {until}
+          label="Changed between"
+          onchange={(next) =>
+            router.setQuery({
+              since: next.since || null,
+              until: next.until || null,
+              offset: null,
+            })}
+        />
+      </div>
     {/snippet}
-  </DataGrid>
+    {#snippet toolbar()}
+      <FilterChips
+        label="Filter by the kind of thing acted on"
+        options={auditKindChips(kinds, targetKind)}
+        selected={targetKind ? [targetKind] : []}
+        onchange={(next) =>
+          router.setQuery({ target_kind: pickOne(targetKind, next) || null, offset: null })}
+      />
+    {/snippet}
+    <DataGrid
+      gridId="audit"
+      label="Audit log"
+      {columns}
+      fetcher={fetchCounted}
+      {rowId}
+      {filters}
+      defaultSort="created_at"
+      defaultOrder="desc"
+      noun="events"
+      bare
+      {liveKey}
+      onopen={openRow}
+      onrows={remember}
+      emptyTitle={anyFilter ? 'Nothing matches those filters' : 'Nothing recorded yet'}
+      emptyDescription={anyFilter
+        ? 'Try a wider date range, or clear a filter.'
+        : 'Zoomies writes a row here whenever somebody changes something: a pool, a runner, a user, a setting. Reading things is not recorded.'}
+    >
+      {#snippet emptyAction()}
+        {#if anyFilter}
+          <Button onclick={clearFilters}>Clear filters</Button>
+        {/if}
+      {/snippet}
+    </DataGrid>
+  </Panel>
 </div>
 
 <Drawer
@@ -553,17 +579,17 @@
     gap: var(--z-space-4);
   }
   .search {
-    min-width: 12rem;
-    flex: 1 1 14rem;
-    max-width: 22rem;
+    width: 16rem;
+    max-width: 100%;
   }
   .field {
-    flex: 0 1 11rem;
-    min-width: 8rem;
+    width: 11rem;
+    max-width: 100%;
   }
   .dates {
     flex: 0 1 auto;
     min-width: 0;
+    max-width: 100%;
   }
   /*
     max-width, because min-width alone does not do it. An inline-flex box inside

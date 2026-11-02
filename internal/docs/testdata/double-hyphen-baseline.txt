@@ -973,7 +973,6 @@ web/src/lib/runners/MemoryBadgePill.svelte	1
 web/src/lib/runners/MemoryBar.svelte	2
 web/src/lib/runners/RunnerJob.svelte	1
 web/src/lib/runners/RunnerResources.svelte	3
-web/src/lib/runners/RunnerStateFilter.svelte	1
 web/src/lib/runners/RunnerTimeline.svelte	1
 web/src/lib/runners/allocation.ts	2
 web/src/lib/runners/memory-badges.ts	3
