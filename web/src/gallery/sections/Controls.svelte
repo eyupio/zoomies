@@ -12,6 +12,7 @@
   import Segmented from '$lib/components/Segmented.svelte';
   import FilterChips from '$lib/components/FilterChips.svelte';
   import { runnerStateChips } from '$lib/runners/state-chips';
+  import { jobViewChips } from '$lib/jobs/view-chips';
   import type { RunnerState } from '$lib/api/types';
   import { THEME_OPTIONS } from '$lib/state/theme.svelte';
 
@@ -124,6 +125,18 @@
       selected={chipStates}
       total={11}
       onchange={(next) => (chipStates = next)}
+    />
+    <p class="note">
+      One view at a time, each with a hint on hover; and the filter no chip can say, which leaves
+      nothing pressed, All included.
+    </p>
+    <FilterChips
+      label="Filter jobs by status"
+      options={jobViewChips({ running_jobs: 3, queued_jobs: 6 }, true)}
+      selected={[]}
+      none
+      scroll
+      onchange={() => {}}
     />
   </div>
 

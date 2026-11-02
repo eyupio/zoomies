@@ -966,8 +966,8 @@ restored one at a time or all at once.
 
 ### The list pages
 
-A page whose body is a list (Runners, Queue, Pools and Audit so far; Jobs and
-Workflows follow them) is, under its band, one card: the page's own
+A page whose body is a list (Runners, Queue, Pools, Audit and Jobs so far;
+Workflows follows them) is, under its band, one card: the page's own
 icon in a tile, a count in small capitals over the title ("11 known, 9 live",
 absent until the stats have arrived), the search field and the menus opposite,
 the primary filter as `FilterChips` in a row of their own, and the grid bare
@@ -990,7 +990,15 @@ one a pasted address names, uncounted because kinds are no endpoint of their
 own, and its eyebrow is how many events the filters leave, from the page the
 grid last fetched, absent over an error or an empty result. The Audit chips
 read a press through `pickOne` beside `FilterChips`: the chip that changed, or
-none. The
+none. The Jobs chips are the page's status views (Needs attention, Running,
+Queued, Failed, Our failures, Finished), pressed one at a time with the All
+view as the All chip, each with its hint in the shared tooltip; Running and
+Queued carry the band's figures while nothing else narrows the rows, and a
+filter no view describes (two states at once, an outcome facet) leaves every
+chip unpressed, All included, as the row of buttons did. On a phone the row
+is one line that scrolls, because the page's rule is records first. Jobs
+keeps its Labels column: for a job no pool claims, the labels in the row are
+why. The
 Queue's chips are the four provisioning statuses, counted from the list's own
 counts, with Ready, Run now and Paused pressed by default and Removed a press
 away; the job filters it shares with the Jobs page (`JobFilters`: the search,

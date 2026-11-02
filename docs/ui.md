@@ -472,8 +472,8 @@ immediately (queued demand paused, runners taken back) and records that it
 did, so the tiles and the lists agree from that moment rather than from
 whenever GitHub gets round to it.
 
-![The Jobs page: a band saying what is running and waiting, then status buttons and filters above the job grid, with the fleet context folded under it](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
-![The Jobs page: a band saying what is running and waiting, then status buttons and filters above the job grid, with the fleet context folded under it](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
+![The Jobs page: a band saying what is running and waiting, the job filters, then one card with the job count over its title, the status views as chips and the job grid inside, with the fleet context folded under it](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
+![The Jobs page: a band saying what is running and waiting, the job filters, then one card with the job count over its title, the status views as chips and the job grid inside, with the fleet context folded under it](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
 
 Opening a job says where it went wrong first: the step that failed and how
 long it ran, with a link to that step's log on GitHub, or, when the runner

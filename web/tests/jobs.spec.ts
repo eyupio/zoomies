@@ -309,7 +309,7 @@ test('the page opens on what is running, and the status row moves between views'
   page,
 }) => {
   await goto(page, '/jobs', 'Jobs');
-  const running = statusFilter(page).getByRole('button', { name: 'Running', exact: true });
+  const running = statusFilter(page).getByRole('button', { name: /^Running/ });
   await expect(running).toHaveAttribute('aria-pressed', 'true');
   await expect(rowCount(page)).toContainText(`of ${FIXTURE.runningJobs} jobs`);
   await statesSettle(page, /^Running$/);
@@ -320,7 +320,9 @@ test('the page opens on what is running, and the status row moves between views'
   await expect(page.getByRole('group', { name: 'Filters in effect' })).toHaveCount(0);
 
   // Another view is one press, and it is a link somebody else can open.
-  await statusFilter(page).getByRole('button', { name: 'Queued', exact: true }).click();
+  await statusFilter(page)
+    .getByRole('button', { name: /^Queued/ })
+    .click();
   await expect(page).toHaveURL(/[?&]state=queued/);
   await expect(running).toHaveAttribute('aria-pressed', 'false');
   await statesSettle(page, /Queued/);
@@ -359,9 +361,10 @@ test('narrowing something else keeps the status the page is showing', async ({ p
   await page.keyboard.press('Escape');
 
   await expect(page).toHaveURL(/[?&]state=in_progress/);
-  await expect(
-    statusFilter(page).getByRole('button', { name: 'Running', exact: true }),
-  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(statusFilter(page).getByRole('button', { name: /^Running/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
 });
 
 /*
@@ -584,7 +587,9 @@ test("the fleet's own failures are one click from everything that failed", async
   await expect(dataRows(jobs(page)).first()).toBeVisible();
   const everything = await dataRows(jobs(page)).count();
 
-  await page.getByRole('button', { name: 'Our failures' }).click();
+  await statusFilter(page)
+    .getByRole('button', { name: /^Our failures/ })
+    .click();
   await expect(page).toHaveURL(/faulted=true/);
   // Polled rather than counted once: the rows already on the page are the
   // previous view's until the refetch lands, and a count taken before it does
@@ -599,7 +604,7 @@ test("the fleet's own failures are one click from everything that failed", async
 
   // A copied link reproduces it, which is how this gets sent to somebody.
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Our failures' })).toHaveAttribute(
+  await expect(statusFilter(page).getByRole('button', { name: /^Our failures/ })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
@@ -799,7 +804,7 @@ test('a failure can be marked as known and put back, from the row or the drawer'
 }) => {
   await goto(page, '/jobs?attention=true', 'Jobs');
   await expect(
-    statusFilter(page).getByRole('button', { name: 'Needs attention', exact: true }),
+    statusFilter(page).getByRole('button', { name: /^Needs attention/ }),
   ).toHaveAttribute('aria-pressed', 'true');
 
   const rows = dataRows(jobs(page));
@@ -831,4 +836,61 @@ test('a failure can be marked as known and put back, from the row or the drawer'
   await expect(drawer.getByText('Known', { exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(rows).toHaveCount(before);
+});
+
+/*
+ * The list card. The Jobs page is band, the shared job filters, the card and
+ * one fold under it: the card has the workflows' tile, a count over its
+ * title, the level switch opposite, the status views as chips pressed one at
+ * a time, and the grid bare inside. The chips read and write the same keys
+ * the row of buttons did.
+ */
+test('the card counts the jobs the view leaves, and the view chips press one at a time', async ({
+  page,
+}) => {
+  await goto(page, '/jobs', 'Jobs');
+  const card = page.locator('section.list-card');
+  await expect(card.getByRole('heading', { name: 'All jobs' })).toBeVisible();
+  await expect(card.locator('.eyebrow')).toHaveText(`${FIXTURE.runningJobs} jobs`);
+  await expect(card.locator('.grid.bare')).toHaveCount(1);
+  const chips = statusFilter(page);
+  const running = chips.getByRole('button', { name: /^Running/ });
+  await expect(running).toHaveAttribute('aria-pressed', 'true');
+  // Running and Queued carry the band's figures; the rest have no count the
+  // fleet keeps.
+  await expect(running.locator('.count')).toHaveText(String(FIXTURE.runningJobs));
+  await expect(chips.getByRole('button', { name: /^Failed/ }).locator('.count')).toHaveCount(0);
+
+  // A second view replaces the first rather than joining it.
+  await chips.getByRole('button', { name: /^Finished/ }).click();
+  await expect(page).toHaveURL(/[?&]state=completed/);
+  await expect(page).not.toHaveURL(/state=in_progress/);
+  await expect(running).toHaveAttribute('aria-pressed', 'false');
+
+  // The pressed chip again is All, written out in full as the All view is.
+  await chips.getByRole('button', { name: /^Finished/ }).click();
+  await expect(page).toHaveURL(/state=queued.*state=completed|state=completed.*state=queued/);
+  await expect(chips.getByRole('button', { name: /^All/ })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a filter no view says leaves every chip unpressed, and a chip explains itself on hover', async ({
+  page,
+}) => {
+  test.skip(Boolean(test.info().project.use.isMobile), 'a hover has no finger');
+  // Two states at once is nothing a button ever said.
+  await goto(page, '/jobs?state=queued&state=in_progress', 'Jobs');
+  for (const button of await statusFilter(page).getByRole('button').all())
+    await expect(button).toHaveAttribute('aria-pressed', 'false');
+  await statusFilter(page)
+    .getByRole('button', { name: /^Our failures/ })
+    .hover();
+  await expect(page.locator('.bubble:popover-open')).toContainText('Failures this fleet caused');
+});
+
+test("a repository filter takes the counts off the chips, since the figures are the fleet's", async ({
+  page,
+}) => {
+  await goto(page, `/jobs?repo=${encodeURIComponent(FIXTURE.repos[0])}`, 'Jobs');
+  await expect(statusFilter(page).getByRole('button', { name: /^Running/ })).toBeVisible();
+  await expect(statusFilter(page).locator('.count')).toHaveCount(0);
 });

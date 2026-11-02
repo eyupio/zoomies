@@ -12,11 +12,14 @@
     label: string;
     /** Shown muted after the label when known. */
     count?: number;
+    /** One line an operator can act on, in the shared tooltip, for a chip whose word is not enough. */
+    hint?: string;
   }
 </script>
 
 <script lang="ts" generics="T extends string">
   import { Check } from '@lucide/svelte';
+  import Tooltip from './Tooltip.svelte';
   import { toggleChip } from './chip-selection';
 
   interface Props {
@@ -30,6 +33,18 @@
     /** The count on the All chip, when known. */
     total?: number;
     onchange: (selected: T[]) => void;
+    /**
+     * Nothing a chip says is in force, All included: the filter is something
+     * the chips cannot express (two states at once, a facet), so pressing All
+     * would be a lie. The row is drawn with no chip pressed.
+     */
+    none?: boolean;
+    /**
+     * On a phone, one line that scrolls sideways rather than wrapping. For a
+     * row of seven on a page whose rule is records first: three lines of
+     * chips before the first row is what the rule exists to prevent.
+     */
+    scroll?: boolean;
     class?: string;
   }
   let {
@@ -39,29 +54,35 @@
     allLabel = 'All',
     total,
     onchange,
+    none = false,
+    scroll = false,
     class: className = '',
   }: Props = $props();
-  const allPressed = $derived(selected.length === 0);
+  const allPressed = $derived(!none && selected.length === 0);
 </script>
 
-<div class="chips {className}" role="group" aria-label={label}>
+<div class="chips {className}" class:scroll role="group" aria-label={label}>
   <button type="button" class="chip" aria-pressed={allPressed} onclick={() => onchange([])}>
     {#if allPressed}<Check size={12} aria-hidden="true" />{/if}
     <span>{allLabel}</span>
     {#if total !== undefined}<span class="count">{total}</span>{/if}
   </button>
   {#each options as option (option.value)}
-    {@const pressed = selected.includes(option.value)}
-    <button
-      type="button"
-      class="chip"
-      aria-pressed={pressed}
-      onclick={() => onchange(toggleChip(selected, option.value))}
-    >
-      {#if pressed}<Check size={12} aria-hidden="true" />{/if}
-      <span>{option.label}</span>
-      {#if option.count !== undefined}<span class="count">{option.count}</span>{/if}
-    </button>
+    {@const pressed = !none && selected.includes(option.value)}
+    <!-- The hint rides the shared tooltip, bare so the row lays the button out
+         as it would without one; a chip with no hint has no wrapper. -->
+    <Tooltip bare text={option.hint ?? ''}>
+      <button
+        type="button"
+        class="chip"
+        aria-pressed={pressed}
+        onclick={() => onchange(toggleChip(selected, option.value))}
+      >
+        {#if pressed}<Check size={12} aria-hidden="true" />{/if}
+        <span>{option.label}</span>
+        {#if option.count !== undefined}<span class="count">{option.count}</span>{/if}
+      </button>
+    </Tooltip>
   {/each}
 </div>
 
@@ -104,6 +125,22 @@
   @media (max-width: 768px) {
     .chip {
       min-height: var(--z-control-touch);
+    }
+    /* The row's own gutter is given back as inset so the first chip lines up
+       with the card's text, and the mask at the edge says there is more. */
+    .chips.scroll {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      margin-inline: calc(-1 * var(--z-space-5));
+      padding-inline: var(--z-space-5);
+      scroll-padding-inline: var(--z-space-5);
+      scrollbar-width: none;
+    }
+    .chips.scroll::-webkit-scrollbar {
+      display: none;
+    }
+    .chips.scroll .chip {
+      flex: none;
     }
   }
 </style>
