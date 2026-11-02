@@ -32,6 +32,8 @@ const FILTER_KEYS = [
   'provisioning',
   'since',
   'until',
+  'completed_since',
+  'completed_until',
   'unmatched',
   'hosted',
   'failed',
@@ -136,6 +138,8 @@ export function jobFilterState(): JobFilterHandle {
     provisioning,
     since: router.param('since'),
     until: router.param('until'),
+    completed_since: router.param('completed_since'),
+    completed_until: router.param('completed_until'),
     unmatched: router.param('unmatched') === 'true',
     // Anything but `false` is no filter: the API refuses it with a 400, and a typo in an
     // address is not worth an error page.

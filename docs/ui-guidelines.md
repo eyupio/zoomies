@@ -704,7 +704,7 @@ and running, from the minute samples the fleet trend reads, with the newest
 point the band's own figures; Usage draws the chosen range's execution hours as
 one column per interval of the report the page already holds. Jobs draws today
 alone as the punch card's one row, larger, and an hour pressed narrows the list
-to it; Providers draws a square per machine a provider may own against its
+to the jobs that finished in it, which is how the square counts them; Providers draws a square per machine a provider may own against its
 ceiling, owned solid, on the way half-shade, leaving faint, headroom hollow and
 one that needs review punched through; Installations draws each App's remaining
 API quota as a bar, lowest first, edged in white below the tenth the band's own

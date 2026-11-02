@@ -662,12 +662,15 @@ test('the Jobs, Workflows, Providers, Installations and Kennel Club bands draw t
   await expect(today).toBeVisible();
   await expect(today).toContainText('Today, by the hour');
   await expect(today.getByRole('gridcell')).toHaveCount(24);
-  // Pressing a past hour narrows the list to that hour, across every status.
+  // Pressing a past hour narrows the list to the jobs that finished in it, across every status.
   const busy = today.locator('[role="gridcell"]:not([data-level="0"]):not([data-future])').last();
   await expect(busy).toBeVisible();
   await busy.click();
-  await expect(page).toHaveURL(/since=\d{4}-\d{2}-\d{2}T\d{2}%3A00/);
-  await expect(page).toHaveURL(/until=\d{4}-\d{2}-\d{2}T\d{2}%3A59/);
+  await expect(page).toHaveURL(/completed_since=\d{4}-\d{2}-\d{2}T\d{2}%3A00/);
+  await expect(page).toHaveURL(/completed_until=\d{4}-\d{2}-\d{2}T\d{2}%3A59/);
+  // The queued window is left out, and the shorter list says why.
+  await expect(page).not.toHaveURL(/[?&](since|until)=/);
+  await expect(page.getByText('Finished from')).toBeVisible();
 
   await goto(page, '/workflows', 'Workflows');
   const flight = page.getByTestId('band-workflows').getByTestId('band-in-flight');
