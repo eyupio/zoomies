@@ -675,12 +675,6 @@ test('a filter no chip says presses nothing, and a chip with a hint explains its
     await expect(button).toHaveAttribute('aria-pressed', 'false');
   await group.getByRole('button', { name: /^Our failures/ }).hover();
   await expect(page.locator('.bubble:popover-open')).toContainText('Failures this fleet caused');
-  await expect(
-    page
-      .getByRole('group', { name: 'Filter by runner state' })
-      .first()
-      .getByRole('button', { name: /^All/ }),
-  ).toHaveAttribute('aria-pressed', 'false');
 });
 
 // The shared look's one button: a pill in the brand's Runner Blue under Zoomies

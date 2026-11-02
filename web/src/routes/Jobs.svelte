@@ -437,10 +437,24 @@
     !narrowed &&
       !filters.since &&
       !filters.until &&
+      !filters.completed_since &&
+      !filters.completed_until &&
       !filters.unmatched &&
       filters.hosted === '' &&
-      !filters.all,
+      !filters.all &&
+      // The Queued view's own default is the whole queue; a provisioning
+      // status chosen in the address narrows the rows to part of it.
+      router.paramList('provisioning').length === 0,
   );
+  // A figure over an error would be the last filter's, read as this one's.
+  async function fetchCounted(query: GridQuery, signal: AbortSignal): Promise<GridPage<Job>> {
+    try {
+      return await fetchJobs(query, signal);
+    } catch (error) {
+      if (!signal.aborted) total = undefined;
+      throw error;
+    }
+  }
 
   let selected = $state<Job | null>(null);
   let drawerOpen = $state(false);
@@ -875,7 +889,7 @@
             gridId="jobs"
             label="Jobs"
             {columns}
-            fetcher={fetchJobs}
+            fetcher={fetchCounted}
             {rowId}
             {filters}
             defaultSort="queued_at"

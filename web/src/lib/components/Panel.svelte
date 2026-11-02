@@ -146,6 +146,9 @@
     color: var(--z-text-muted);
   }
   .toolbar {
+    /* Named for a chips row that scrolls on a phone, so it can run to the
+       card's edge and start where the text does. */
+    --chips-inset: var(--z-space-5);
     padding: var(--z-space-3) var(--z-space-5);
     border-bottom: var(--z-border-width) solid var(--z-border);
   }

@@ -1,5 +1,6 @@
 /**
- * The Jobs and Workflows pages' status views as filter chips. Pure, so the
+ * The Jobs page's status views as filter chips (Workflows reads the same views
+ * and follows). Pure, so the
  * words and the counts are held by unit tests. A view is one whole answer
  * (`views.ts`), pressed one at a time: the chips read it back as the one
  * pressed chip, All as the All chip, and a filter no view describes as

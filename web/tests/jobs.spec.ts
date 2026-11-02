@@ -887,10 +887,35 @@ test('a filter no view says leaves every chip unpressed, and a chip explains its
   await expect(page.locator('.bubble:popover-open')).toContainText('Failures this fleet caused');
 });
 
-test("a repository filter takes the counts off the chips, since the figures are the fleet's", async ({
+test("anything that narrows the rows takes the counts off the chips, since the figures are the fleet's", async ({
   page,
 }) => {
-  await goto(page, `/jobs?repo=${encodeURIComponent(FIXTURE.repos[0])}`, 'Jobs');
-  await expect(statusFilter(page).getByRole('button', { name: /^Running/ })).toBeVisible();
-  await expect(statusFilter(page).locator('.count')).toHaveCount(0);
+  // Every key that leaves the rows narrower than the fleet, the completion
+  // window a pressed hour on the band writes included.
+  const narrowing = [
+    `repo=${encodeURIComponent(FIXTURE.repos[0])}`,
+    'hosted=false',
+    'all=true',
+    'unmatched=true',
+    'since=2026-01-01',
+    'completed_since=2026-01-01T00:00&completed_until=2026-01-01T01:00',
+    'state=queued&provisioning=deleted',
+  ];
+  for (const query of narrowing) {
+    await goto(page, `/jobs?${query}`, 'Jobs');
+    await expect(statusFilter(page).getByRole('button', { name: /^Running/ })).toBeVisible();
+    await expect(statusFilter(page).locator('.count'), query).toHaveCount(0);
+  }
+});
+
+test('the eyebrow is not left standing over an error', async ({ page }) => {
+  await goto(page, '/jobs', 'Jobs');
+  const eyebrow = page.locator('section.list-card .eyebrow');
+  await expect(eyebrow).toContainText(/\d+ jobs?/);
+  await page.route('**/api/v1/jobs?*', (route) => route.abort('connectionfailed'));
+  await statusFilter(page)
+    .getByRole('button', { name: /^Finished/ })
+    .click();
+  await expect(page.locator('section.list-card').getByRole('alert')).toBeVisible();
+  await expect(eyebrow).toHaveCount(0);
 });

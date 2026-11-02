@@ -70,7 +70,9 @@
   {#each options as option (option.value)}
     {@const pressed = !none && selected.includes(option.value)}
     <!-- The hint rides the shared tooltip, bare so the row lays the button out
-         as it would without one; a chip with no hint has no wrapper. -->
+         as it would without one; with no hint the wrapper is inert, with no
+         description and no bubble, so the chips' accessibility tree is the
+         button alone either way. -->
     <Tooltip bare text={option.hint ?? ''}>
       <button
         type="button"
@@ -126,14 +128,17 @@
     .chip {
       min-height: var(--z-control-touch);
     }
-    /* The row's own gutter is given back as inset so the first chip lines up
-       with the card's text, and the mask at the edge says there is more. */
+    /* The line runs edge to edge of whatever holds it and gives the holder's
+       gutter back as inset, so the first chip lines up with the text beside
+       it and a chip cut at the edge says there is more. The holder names its
+       gutter in --chips-inset (a Panel's toolbar does); with none, the row
+       is as wide as its box. */
     .chips.scroll {
       flex-wrap: nowrap;
       overflow-x: auto;
-      margin-inline: calc(-1 * var(--z-space-5));
-      padding-inline: var(--z-space-5);
-      scroll-padding-inline: var(--z-space-5);
+      margin-inline: calc(-1 * var(--chips-inset, 0px));
+      padding-inline: var(--chips-inset, 0px);
+      scroll-padding-inline: var(--chips-inset, 0px);
       scrollbar-width: none;
     }
     .chips.scroll::-webkit-scrollbar {
