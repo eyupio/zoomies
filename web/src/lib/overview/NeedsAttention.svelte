@@ -1,26 +1,36 @@
 <!--
   What needs a person, as rows: the worst three with the fix the controller
-  suggests beside each, and a way to the thing each is about.
+  suggests beside each, a way to the thing each is about, and a way to put each
+  one down.
 
-  The page used to say only the count here and keep the list in the drawer,
-  because the whole list pushed the fleet below the fold. Three rows do not,
-  and three rows answer the question an operator opens the page with before
-  they have clicked anything; everything past three is still the drawer's, and
-  the card says how many are there. With nothing wrong there is no card at
-  all, only the quiet line the summary has always been, so a working fleet is
-  never announced with a banner.
+  The card is shut by default and its header says what it holds (how many of
+  each severity, and the worst problem by name), so the page says what is
+  wrong before anything is opened and the pools stay on the first screen
+  whatever the fleet is carrying; a reader who wants the fix opens it, and the
+  choice is remembered like the other sections'. Everything past three is
+  still the drawer's, and the card says how many are there. With nothing wrong
+  there is no card at all, only the quiet line the summary has always been, so
+  a working fleet is never announced with a banner.
+
+  Each row carries the drawer's own dismiss menu (snooze for a while, snooze
+  every problem of this kind, or dismiss until resolved) so a decision made
+  here means exactly what it means there, and is listed there as dismissed.
 -->
 <script lang="ts">
-  import { TriangleAlert } from '@lucide/svelte';
+  import { TriangleAlert, X } from '@lucide/svelte';
+  import type { Problem } from '$lib/api/types';
   import { formatNumber } from '$lib/format';
   import { severityStatus } from '$lib/status';
   import { notifications, problemKey } from '$lib/state/notifications.svelte';
+  import { dismissMenuItems } from '$lib/problems/dismiss-menu';
   import { problemTarget } from '$lib/problems/targets';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
-  import Panel from '$lib/components/Panel.svelte';
+  import DropdownMenu from '$lib/components/DropdownMenu.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
+  import OverviewDisclosure from './OverviewDisclosure.svelte';
   import ProblemsSummary from './ProblemsSummary.svelte';
+  import { attentionSummary } from './attention';
   import { ATTENTION_SHOWN, cap } from './panels';
 
   interface Props {
@@ -36,6 +46,13 @@
   const ordered = $derived(notifications.groups.flatMap((group) => group.items));
   const { shown, more } = $derived(cap(ordered, ATTENTION_SHOWN));
   const worst = $derived(notifications.worst ?? 'info');
+  const summary = $derived(attentionSummary(notifications.groups));
+
+  const handlers = {
+    ondismiss: (p: Problem) => notifications.dismiss(p),
+    onsnooze: (p: Problem, ms: number) => notifications.snooze(p, ms),
+    onsnoozetype: (p: Problem, ms: number) => notifications.snoozeType(p, ms),
+  };
 
   function open(): void {
     notifications.open = true;
@@ -49,53 +66,76 @@
        keeps the one-line summary; the card is for the screens with room. -->
   <div class="phone"><ProblemsSummary {loading} {setupPending} class={className} /></div>
   <div class="attention wide {className}" data-severity={worst}>
-    <!-- No description line: the rows say what they are, and the line it
-         would take is a line the pools under the card lose. -->
-    <Panel title="Needs attention" icon={TriangleAlert} flush>
+    <OverviewDisclosure id="attention" title="Needs attention" icon={TriangleAlert} {summary}>
       {#snippet actions()}
-        <button type="button" class="more" onclick={open}>
+        <!-- The rest are the drawer's; the line says how many, or that there
+             are none, and is the way in either way, shut or open. A click on
+             it is not a click on the header, so it must not toggle the card. -->
+        <button
+          type="button"
+          class="more"
+          onclick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            open();
+          }}
+        >
           {more > 0 ? `and ${formatNumber(more)} more` : 'Open the drawer'}
         </button>
       {/snippet}
-      <ul class="rows">
-        {#each shown as problem (problemKey(problem))}
-          {@const target = problemTarget(problem)}
-          <li class="row">
-            <Badge status={severityStatus(problem.severity)} size="sm" />
-            <div class="words">
-              <p class="title">{problem.title}</p>
-              {#if problem.fix}<p class="fix"><RemedyText text={problem.fix} /></p>{/if}
-            </div>
-            {#if target}
-              <Button
-                variant="secondary"
-                size="sm"
-                href={target.href}
-                ariaLabel="{target.label}: {problem.title}">Open</Button
-              >
-            {/if}
-          </li>
-        {/each}
-      </ul>
-    </Panel>
+      <section class="card" aria-label="Needs attention">
+        <ul class="rows">
+          {#each shown as problem (problemKey(problem))}
+            {@const target = problemTarget(problem)}
+            <li class="row">
+              <Badge status={severityStatus(problem.severity)} size="sm" />
+              <div class="words">
+                <p class="title">{problem.title}</p>
+                {#if problem.fix}<p class="fix"><RemedyText text={problem.fix} /></p>{/if}
+              </div>
+              <span class="actions">
+                {#if target}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    href={target.href}
+                    ariaLabel="{target.label}: {problem.title}">Open</Button
+                  >
+                {/if}
+                <DropdownMenu
+                  label="Dismiss or snooze: {problem.title}"
+                  triggerIcon={X}
+                  items={dismissMenuItems(problem, handlers)}
+                  size="sm"
+                />
+              </span>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    </OverviewDisclosure>
   </div>
 {/if}
 
 <style>
   /* The worst severity on the card's edge, as the summary line drew it. */
-  .attention :global(.panel) {
+  .attention :global(details) {
     border-left-width: var(--z-border-width-rail);
   }
-  /* A shorter head than the other cards: this one stands between the band and
-     the pools, and every line it spends is a line the pools lose. */
-  .attention :global(.panel > header) {
-    padding-block: var(--z-space-3);
-  }
-  .attention[data-severity='error'] :global(.panel) {
+  .attention[data-severity='error'] :global(details) {
     border-left-color: var(--z-danger);
   }
-  .attention[data-severity='warning'] :global(.panel) {
+  .attention[data-severity='warning'] :global(details) {
     border-left-color: var(--z-pending);
+  }
+  /* The rows run edge to edge under the header, as they did in the panel. */
+  .attention :global(.overview-disclosure > .content) {
+    padding: 0;
+  }
+  .actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-1);
   }
   .more {
     padding: 0 var(--z-space-1);
@@ -162,7 +202,7 @@
     .row {
       grid-template-columns: auto minmax(0, 1fr);
     }
-    .row > :global(:last-child:not(.words)) {
+    .row > .actions {
       grid-column: 2;
       justify-self: start;
     }

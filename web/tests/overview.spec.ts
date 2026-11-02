@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
   // These checks exercise the detailed panels. Default disclosure state and
   // the compact monitoring layout have their own Calm operations tests.
   await page.addInitScript(() => {
-    for (const id of ['history', 'failures'])
+    for (const id of ['attention', 'history', 'failures'])
       localStorage.setItem(`zoomies.overview.${id}.open`, 'true');
     localStorage.setItem('zoomies.overview.events.expanded', 'true');
   });
@@ -228,7 +228,7 @@ test('the Overview says what needs a person in three rows at most, and the rest 
   // The rest are behind the drawer, which the card's own action opens.
   const problems = await page.request.get('/api/v1/problems').then((r) => r.json());
   const active = (problems.items ?? []).length;
-  const action = card.getByRole('button', {
+  const action = page.locator('#attention').getByRole('button', {
     name: active > 3 ? `and ${active - 3} more` : 'Open the drawer',
   });
   await expect(action).toBeVisible();
@@ -1358,7 +1358,9 @@ test('a problem with no page has no Open link, and exactly three is the drawer a
   await expect(rows.first()).toContainText('the controller is odd');
   await expect(rows.first().getByRole('link', { name: /^Open/ })).toHaveCount(0);
   await expect(card.getByRole('link', { name: /^Open the setting/ })).toHaveCount(2);
-  await expect(card.getByRole('button', { name: 'Open the drawer' })).toBeVisible();
+  await expect(
+    page.locator('#attention').getByRole('button', { name: 'Open the drawer' }),
+  ).toBeVisible();
 });
 
 test('a fourth problem is counted on the card, and none at all is one quiet line', async ({
@@ -1368,10 +1370,88 @@ test('a fourth problem is counted on the card, and none at all is one quiet line
   await withProblems(page, [ODD, SETTING_A, SETTING_C, SETTING_E]);
   const card = page.getByRole('region', { name: 'Needs attention', exact: true });
   await expect(card.getByRole('listitem')).toHaveCount(3);
-  await expect(card.getByRole('button', { name: 'and 1 more' })).toBeVisible();
+  await expect(
+    page.locator('#attention').getByRole('button', { name: 'and 1 more' }),
+  ).toBeVisible();
   await withProblems(page, []);
   await expect(page.getByRole('region', { name: 'Needs attention', exact: true })).toHaveCount(0);
   await expect(page.getByText('No fleet problems need your attention.')).toBeVisible();
+});
+
+// The card is shut by default and its header carries the counts and the worst
+// problem by name, so the page says what is wrong before anything is opened;
+// a dismissal made on a row means what it means in the drawer, and the row
+// goes where the drawer lists the dismissed.
+test('the card opens shut with its counts and the worst problem in its header', async ({
+  page,
+}) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 769, 'a phone keeps the summary line');
+  // Once, not on every load: the setup above opens the card for the other
+  // tests, and this one is about what a browser with no choice made sees.
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('attention-spec-reset')) return;
+    sessionStorage.setItem('attention-spec-reset', '1');
+    localStorage.removeItem('zoomies.overview.attention.open');
+  });
+  await withProblems(page, [ODD, SETTING_A, SETTING_C, SETTING_E]);
+  const disclosure = page.locator('#attention');
+  await expect(disclosure).not.toHaveAttribute('open');
+  const header = disclosure.locator('> summary');
+  await expect(header).toContainText('Needs attention');
+  await expect(header).toContainText('1 error and 3 warnings · the controller is odd');
+  // The way to the rest is in the header, so it is there shut or open, and
+  // pressing it opens the drawer rather than the card.
+  await header.getByRole('button', { name: 'and 1 more' }).click();
+  await expect(page.getByRole('dialog', { name: 'Problems' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(disclosure).not.toHaveAttribute('open');
+  // The rows are behind the header until it is pressed.
+  await expect(page.getByRole('region', { name: 'Needs attention', exact: true })).toBeHidden();
+  await header.getByText('Needs attention').click();
+  await expect(disclosure).toHaveAttribute('open');
+  const card = page.getByRole('region', { name: 'Needs attention', exact: true });
+  await expect(card.getByRole('listitem')).toHaveCount(3);
+  // The choice is kept where the other sections keep theirs.
+  expect(await page.evaluate(() => localStorage.getItem('zoomies.overview.attention.open'))).toBe(
+    'true',
+  );
+});
+
+test("a row can be dismissed or snoozed from the card, and is then the drawer's dismissed one", async ({
+  page,
+}) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 769, 'a phone keeps the summary line');
+  await withProblems(page, [ODD, SETTING_A, SETTING_C]);
+  const card = page.getByRole('region', { name: 'Needs attention', exact: true });
+  const rows = card.getByRole('listitem');
+  await expect(rows).toHaveCount(3);
+  // The menu is the drawer's: how long, then indefinitely.
+  await card.getByRole('button', { name: 'Dismiss or snooze: the controller is odd' }).click();
+  const menu = page.getByRole('menu');
+  await expect(menu.getByRole('menuitem', { name: 'Snooze for 15 minutes' })).toBeVisible();
+  await expect(
+    menu.getByRole('menuitem', { name: 'Snooze all like this for 24 hours' }),
+  ).toBeVisible();
+  await menu.getByRole('menuitem', { name: 'Dismiss until resolved' }).click();
+  // The row has gone, the header's counts follow, and the drawer lists it as dismissed.
+  await expect(rows).toHaveCount(2);
+  await expect(card).not.toContainText('the controller is odd');
+  await expect(page.locator('#attention > summary')).toContainText('2 warnings · a setting is odd');
+  await page.locator('#attention').getByRole('button', { name: 'Open the drawer' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Problems' });
+  await expect(drawer).toContainText('1 dismissed problem');
+  await page.keyboard.press('Escape');
+  // Snoozing the last two leaves nothing: the card gives way to the quiet line.
+  for (const title of ['a setting is odd', 'a setting is odd']) {
+    await card
+      .getByRole('button', { name: `Dismiss or snooze: ${title}` })
+      .first()
+      .click();
+    await page.getByRole('menu').getByRole('menuitem', { name: 'Snooze for 1 hour' }).click();
+  }
+  await expect(page.getByRole('region', { name: 'Needs attention', exact: true })).toHaveCount(0);
+  await expect(page.getByText('No fleet problems need your attention.')).toBeVisible();
+  await expect(page.getByRole('button', { name: '3 problems dismissed' })).toBeVisible();
 });
 
 // Six cards at most: a fleet with more pools is a count and a link, and a

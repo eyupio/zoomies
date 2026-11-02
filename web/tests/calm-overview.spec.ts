@@ -27,6 +27,14 @@ for (const style of ['classic', 'mission-control']) {
       for (const id of ['history', 'capacity', 'startup'])
         await expect(page.locator(`#${id}`)).not.toHaveAttribute('open');
       await expect(page.locator('#history > summary')).toContainText(/finished/);
+      // The problems card is shut too, and its header says what it holds; a
+      // phone has no card and keeps the one-line summary.
+      if (width > 768) {
+        await expect(page.locator('#attention')).not.toHaveAttribute('open');
+        await expect(page.locator('#attention > summary')).toContainText(
+          /\d+ (error|warning|note)s?.* · /,
+        );
+      }
       expect((await pools.getByRole('listitem').first().boundingBox())!.y).toBeLessThan(
         width === 375 ? 800 : 1000,
       );

@@ -40,6 +40,7 @@ import {
   fromServer,
   rank,
   severityOf as severity,
+  SEVERITY_NOUN,
   SEVERITY_ORDER,
   spentKeys,
   toServer,
@@ -51,19 +52,12 @@ import { storage } from './prefs.svelte';
 
 // One definition of "the same fault", shared with the Overview's feed, which
 // reports a problem the first time it is raised.
-export { problemKey, SEVERITY_ORDER };
+export { problemKey, SEVERITY_NOUN, SEVERITY_ORDER };
 
 const DISMISSED_KEY = 'zoomies.problems.dismissed';
 // Which account the local copy was last reconciled with. A copy that belongs to
 // somebody else is never uploaded into this account.
 const ACCOUNT_KEY = 'zoomies.problems.dismissed.account';
-
-/** What one of each is called in a sentence an operator reads. */
-export const SEVERITY_NOUN: Record<Severity, string> = {
-  error: 'error',
-  warning: 'warning',
-  info: 'note',
-};
 
 export interface SnoozeOption {
   id: string;
