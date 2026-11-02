@@ -492,10 +492,18 @@ test('the Eli repair components show every state they can be in', async ({ page 
       .getByRole('link', { name: /Open pull request/ }),
   ).toHaveCount(0);
 
-  // The facts leave out what the row does not have, and the timeline holds the moments it recorded.
+  // The facts surface the attempt's own details, omit what the row has not got,
+  // and say "None" for a commit that was not pushed. The timeline holds the
+  // moments it recorded.
   const running = region.locator('[data-gallery="facts-running"]');
   await expect(running).toContainText('Personal provider');
-  await expect(running).not.toContainText('Commit pushed');
+  await expect(running).toContainText('Repository');
+  await expect(running).toContainText('Pull request');
+  await expect(running).toContainText('Age');
+  await expect(running).toContainText('Last updated');
+  await expect(running).toContainText('Failing head');
+  await expect(running).toContainText('Commit pushed');
+  await expect(running).toContainText('None');
   const done = region.locator('[data-gallery="facts-finished"]');
   await expect(done.getByRole('link', { name: /b7d3e91/ })).toHaveAttribute(
     'href',

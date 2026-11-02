@@ -4,10 +4,12 @@
   head stay visible even when the supporting evidence is closed.
 
   Only what the row recorded is here. A fact the repair has not got yet (no model
-  call, no commit) is left out until it exists, and one that is simply absent
-  reads as the shared placeholder, so the card never says "0" for a thing nobody
-  measured. It makes no claim about the repair's future beyond the standing
-  promise in its last line, which is true of every repair.
+  call) is left out until it exists, and one that is simply absent reads as the
+  shared placeholder, so the card never says "0" for a thing nobody measured. A
+  commit that was not pushed reads as "None" rather than disappearing, so the
+  card always says whether one exists. It makes no claim about the repair's
+  future beyond the standing promise in its last line, which is true of every
+  repair.
 -->
 <script lang="ts">
   import CopyButton from '$lib/components/CopyButton.svelte';
