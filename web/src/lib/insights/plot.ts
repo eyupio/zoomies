@@ -51,11 +51,27 @@ export function timeTicks(start: number, end: number, target = 5): number[] {
   ].map((s) => s * 1000);
   const span = end - start;
   const step = steps.find((s) => span / s <= target) ?? steps[steps.length - 1]!;
-  // Multiples of the step in local time, which is what the labels say.
-  const offset = new Date(start).getTimezoneOffset() * MINUTE;
-  const first = Math.ceil((start - offset) / step) * step + offset;
+  // Multiples of the step in local time, which is what the labels say. The
+  // multiples are found on the wall clock and each is then placed in the zone's
+  // offset at that instant, not the window's first: a window that crosses a
+  // daylight-saving change has two offsets, and ticks stepped from the first
+  // alone land at 01:00 or 23:00 for the rest of the chart. A wall-clock time
+  // the change skipped (02:00 on the spring morning) has no instant, and the
+  // tick moves on to the next multiple.
+  const wall = (t: number) => t - new Date(t).getTimezoneOffset() * MINUTE;
+  const place = (m: number): number | null => {
+    const guess = m + new Date(m).getTimezoneOffset() * MINUTE;
+    if (wall(guess) === m) return guess;
+    const again = m + new Date(guess).getTimezoneOffset() * MINUTE;
+    return wall(again) === m ? again : null;
+  };
   const out: number[] = [];
-  for (let at = first; at <= end; at += step) out.push(at);
+  for (let m = Math.ceil(wall(start) / step) * step; ; m += step) {
+    const at = place(m);
+    if (at === null) continue;
+    if (at > end) break;
+    out.push(at);
+  }
   return out;
 }
 
