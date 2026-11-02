@@ -61,9 +61,5 @@ export function runnersEyebrow(stats: RunnerStateCounts | undefined): string | u
   return `${stats.total} known, ${liveRunners(stats)} live`;
 }
 
-/** A chip pressed: in the selection if it was out, out if it was in. Empty is All. */
-export function toggleChip<T extends string>(selected: readonly T[], value: T): T[] {
-  return selected.includes(value)
-    ? selected.filter((other) => other !== value)
-    : [...selected, value];
-}
+/** Kept for the page's tests; the helper itself lives beside FilterChips now. */
+export { toggleChip } from '$lib/components/chip-selection';
