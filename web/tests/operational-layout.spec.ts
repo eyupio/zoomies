@@ -210,6 +210,9 @@ test.describe('touch phone', () => {
     const box = await inspect.boundingBox();
     expect(box!.height).toBeGreaterThanOrEqual(44);
     expect(box!.width).toBeGreaterThanOrEqual(44);
-    expect(box!.y + box!.height).toBeLessThan(900);
+    // A phone draws the slim band that carries the day by the hour (decision
+    // 0015's addendum), so the first row begins under it, within the second
+    // screen: one scroll away, not hidden under a long page.
+    expect(box!.y + box!.height).toBeLessThan(1300);
   });
 });

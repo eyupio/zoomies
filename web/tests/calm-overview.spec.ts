@@ -35,8 +35,11 @@ for (const style of ['classic', 'mission-control']) {
           /\d+ (error|warning|note)s?.* · /,
         );
       }
+      // A phone draws the slim band that carries the week of hours (decision 0015's
+      // addendum), so its first pool begins under that and not on the first screen:
+      // within the second one, with the sections' tabs and the problems line above.
       expect((await pools.getByRole('listitem').first().boundingBox())!.y).toBeLessThan(
-        width === 375 ? 800 : 1000,
+        width === 375 ? 1300 : 1000,
       );
       const order = await page
         .locator('#now, #pools, #jobs, #events, #history, #diagnostics')

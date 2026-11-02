@@ -72,6 +72,17 @@ Adding a band picture means adding to the grammar, not beside it: a new kind
 needs a shade or a shape the list above does not already use, and a new colour
 is not available. Status colours stay out of the stage.
 
-`docs/ui-guidelines.md` describes the pictures and the switch, the docs
-screenshots were recaptured, and the pictures are not drawn on a phone; that is
-left open.
+`docs/ui-guidelines.md` describes the pictures and the switch, and the docs
+screenshots were recaptured. The pictures were first not drawn on a phone.
+
+## Addendum, 2 November 2026: the phone and the tablet
+
+The owner chose, from mock-ups of two phone layouts and two tablet ones, to
+bring the band back on a phone as a slim one that carries its picture, and to
+stack the picture under the sentence below 1000px. On a phone the band is
+drawn only when it has a picture and the picture is switched on; the figures
+stay in their own panel under it; the cut and the dismiss are for a screen with
+the room. A picture's rows keep the name and the note on one line and give the
+picture the next, so a name is never squeezed out. The first screen of a phone
+now holds the band and not the rows, which is what the owner traded for seeing
+the picture.

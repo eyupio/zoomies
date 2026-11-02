@@ -94,6 +94,9 @@
   const shown = $derived(prefs.bandShown(page));
   const size = $derived(prefs.bandSize(page));
   const logoShown = $derived(prefs.bandLogoShown(page));
+  // Whether the band carries a picture: the page gave one and the operator has not
+  // switched it off. A phone draws the band only for that.
+  const pictureShown = $derived(aside !== undefined && prefs.bandPictureShown(page));
   const logoSize = $derived(prefs.bandLogoSizeFor(page));
   const name = $derived(BAND_PAGES.find((p) => p.key === page)?.label ?? page);
   const placement = $derived(
@@ -177,7 +180,12 @@
 </script>
 
 {#if line && shown}
-  <div class="band" data-size={size} data-testid={testid ?? `band-${page}`}>
+  <div
+    class="band"
+    class:with-picture={pictureShown}
+    data-size={size}
+    data-testid={testid ?? `band-${page}`}
+  >
     <BrandStage
       wide
       {eyebrow}
@@ -190,7 +198,7 @@
       artAction={openLogo}
       artActionLabel={`${name} band logo settings`}
       artExpanded={pending?.kind === 'logo'}
-      aside={prefs.bandPictureShown(page) ? aside : undefined}
+      aside={pictureShown ? aside : undefined}
     >
       {#if actions}<div class="actions">{@render actions()}</div>{/if}
       {#if stats.length > 0}
@@ -461,9 +469,45 @@
     }
   }
 
+  /*
+    A phone draws the band when it has a picture to carry, slim: the sentence,
+    then the picture at the full width, with the figures in their own panel
+    under it (the cut and the dismiss are for a screen with the room, and
+    Appearance has the switches). A band with no picture, or with its picture
+    switched off, is hidden as it always was, so the rows stay on the first screen.
+  */
   @media (max-width: 768px) {
-    .band {
+    .band:not(.with-picture) {
       display: none;
+    }
+    .band .figures,
+    .band .tools {
+      display: none;
+    }
+    /* The operator's cut is a desktop preference (it syncs from there), so a
+       phone takes the slim one whatever it says: the selector is more specific
+       than the four cuts' own, which would otherwise win and draw an Expanded
+       band's headline and air on a screen with no room for either. */
+    .band.with-picture[data-size] :global(.stage) {
+      padding-block: var(--z-space-5);
+      padding-inline: var(--z-space-5);
+    }
+    .band.with-picture[data-size] :global(.art) {
+      width: clamp(3rem, 7%, 5rem);
+    }
+    .band.with-picture[data-size] :global(.headline) {
+      font-size: var(--z-text-xl);
+      line-height: var(--z-leading-xl);
+    }
+    .band.with-picture[data-size] :global(.eyebrow) {
+      margin-bottom: var(--z-space-2);
+    }
+    .band.with-picture[data-size] :global(.rule) {
+      margin-block: var(--z-space-2);
+    }
+    .band.with-picture[data-size] :global(.lede) {
+      font-size: var(--z-text-sm);
+      line-height: var(--z-leading-sm);
     }
   }
   @media (min-width: 769px) {
