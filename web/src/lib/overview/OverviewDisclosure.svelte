@@ -124,6 +124,13 @@
   .context:empty {
     display: none;
   }
+  /* The bubble opens on the pointer; the keyboard reaches the header and not
+     the span inside it, so a header focused from the keyboard lets its
+     sentence wrap instead, and nothing is read only by hovering. */
+  summary:focus-visible .context {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .content {
     padding: var(--z-space-3);
     border-top: var(--z-border-width) solid var(--z-border);

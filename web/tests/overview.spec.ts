@@ -1405,6 +1405,16 @@ test('the card opens shut with its counts and the worst problem in its header', 
   await expect(page.getByRole('dialog', { name: 'Problems' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(disclosure).not.toHaveAttribute('open');
+  // The sentence is cut short at the edge for the pointer, which has the
+  // bubble; a header reached from the keyboard lets it wrap instead, so the
+  // whole of it can be read without a pointer.
+  await header.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await expect(header).toBeFocused();
+  expect(await header.locator('.context').evaluate((el) => getComputedStyle(el).whiteSpace)).toBe(
+    'normal',
+  );
   // The rows are behind the header until it is pressed.
   await expect(page.getByRole('region', { name: 'Needs attention', exact: true })).toBeHidden();
   await header.getByText('Needs attention').click();
