@@ -32,6 +32,7 @@
   import { events } from '$lib/api/sse';
   import type { Job } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import { formatNumber, onClockTick, pluralise } from '$lib/format';
   import { managedJob } from '$lib/status';
   import {
@@ -171,6 +172,22 @@
     return cell.date.getTime() > now;
   }
 
+  /**
+   * The square's sentence, which is also its accessible name, and the same
+   * sentence split for the bubble: the hour as the heading, the figures under
+   * it. An hour still to come says only that.
+   */
+  function words(
+    cell: CalendarCell,
+    future: boolean,
+  ): { label: string; when: string; figures: string } {
+    const sentence = describe(cell.bucket, cell.date, 'hour');
+    const stop = sentence.indexOf('. ');
+    const when = stop < 0 ? sentence : sentence.slice(0, stop);
+    if (future) return { label: `${when}. Not yet.`, when, figures: 'Not yet.' };
+    return { label: sentence, when, figures: stop < 0 ? '' : sentence.slice(stop + 2) };
+  }
+
   function pick(cell: CalendarCell): void {
     if (isFuture(cell)) return;
     focusIndex = cell.index;
@@ -255,23 +272,27 @@
           {#each row.cells as cell, hour (hour)}
             {#if cell}
               {@const future = isFuture(cell)}
-              <div
-                role="gridcell"
-                class="sq"
-                class:current={current?.index === cell.index}
-                data-index={cell.index}
-                data-level={future ? 0 : level(completedIn(cell.bucket), scale.completed)}
-                data-failing={!future && cell.bucket.failed > 0 ? '' : undefined}
-                data-future={future ? '' : undefined}
-                tabindex={tabStop === cell.index ? 0 : -1}
-                aria-label={future
-                  ? `${describe(cell.bucket, cell.date, 'hour').split('.')[0]}. Not yet.`
-                  : describe(cell.bucket, cell.date, 'hour')}
-                aria-disabled={future ? 'true' : undefined}
-                aria-current={current?.index === cell.index ? 'time' : undefined}
-                onclick={() => pick(cell)}
-                onkeydown={(e) => onKeydown(e, cell)}
-              ></div>
+              {@const said = words(cell, future)}
+              <!-- Scrubbed across, so no wait; the square's own label already
+                   says the sentence to assistive technology, so the bubble is
+                   for the eye alone and describes nothing twice. -->
+              <Tooltip bare wait="none" describe={false} title={said.when} text={said.figures}>
+                <div
+                  role="gridcell"
+                  class="sq"
+                  class:current={current?.index === cell.index}
+                  data-index={cell.index}
+                  data-level={future ? 0 : level(completedIn(cell.bucket), scale.completed)}
+                  data-failing={!future && cell.bucket.failed > 0 ? '' : undefined}
+                  data-future={future ? '' : undefined}
+                  tabindex={tabStop === cell.index ? 0 : -1}
+                  aria-label={said.label}
+                  aria-disabled={future ? 'true' : undefined}
+                  aria-current={current?.index === cell.index ? 'time' : undefined}
+                  onclick={() => pick(cell)}
+                  onkeydown={(e) => onKeydown(e, cell)}
+                ></div>
+              </Tooltip>
             {:else}
               <span class="sq blank" role="gridcell" aria-hidden="true"></span>
             {/if}

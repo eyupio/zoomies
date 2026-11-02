@@ -691,7 +691,8 @@ rows of twenty-four squares, blue by how many jobs finished in the hour, an
 hour with failures punched through as the matrix draws one, the hours still to
 come faint, and the current hour outlined. It is the activity matrix's 7d range
 at a glance, in the stage's white and blue and nothing else; an hour of it
-opens History with that hour selected. Every cut carries it, since the figures
+hovered says the hour and its figures in the shared tooltip, as the matrix's
+squares do, and an hour of it pressed opens History with that hour selected. Every cut carries it, since the figures
 give even Slim the height for seven rows. The Hosts and Runners bands carry the
 same fourteen slots from two sides as a slot map: a row per host, a square per
 slot, solid while held, half-shade while starting, empty when free, dashed on a
