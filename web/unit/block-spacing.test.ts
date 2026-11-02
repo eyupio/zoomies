@@ -109,13 +109,12 @@ test('no page in the UI continues a sentence across the edge of a block', () => 
 // any checkout whose path had one: exit 0 with the lost space still in the page.
 const script = join(import.meta.dirname, '..', 'scripts', 'block-spacing.mjs');
 
-// Each run starts a Node process that loads the Svelte compiler and lints every
-// template in the tree, about two seconds on a quiet machine. The fleet's own
-// runner has the Go shards on it at the same moment, and one run of the suite
-// had four of these time out at twenty seconds with nothing wrong in the script
-// or the tree. The limit is there so a hung child cannot hold the suite for
-// ever, not to time the lint, so it is set well clear of a busy machine.
-const SPAWN_TIMEOUT_MS = 120_000;
+// Each test starts a Node process that loads the Svelte compiler. That takes about
+// two seconds on a quiet machine and over twenty on a CI runner that is running
+// the whole fleet's jobs, where four of these failed with ETIMEDOUT while the
+// check itself was right. The limit is only there to end a child that never
+// returns, so it is generous.
+const CHILD_TIMEOUT_MS = 120_000;
 
 // The plain name is the control: it shows the copy below can find a lost space
 // at all, so a failure on the others is about the path.
@@ -145,7 +144,7 @@ for (const [kind, name] of [
       );
       const run = spawnSync(process.execPath, [join(home, 'scripts', 'block-spacing.mjs')], {
         encoding: 'utf8',
-        timeout: SPAWN_TIMEOUT_MS,
+        timeout: CHILD_TIMEOUT_MS,
       });
       assert.equal(run.error, undefined);
       assert.equal(
@@ -166,7 +165,7 @@ test('imported from a snippet that has no script path, the check neither runs no
   const run = spawnSync(
     process.execPath,
     ['--input-type=module', '-e', `import ${JSON.stringify(pathToFileURL(script).href)};`],
-    { encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS },
+    { encoding: 'utf8', timeout: CHILD_TIMEOUT_MS },
   );
   assert.equal(run.error, undefined);
   assert.equal(run.status, 0, run.stderr);
