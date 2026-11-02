@@ -243,6 +243,12 @@
     .row .note {
       grid-column: 2;
       grid-row: 1;
+      /* A host with runners in several states has a long note; on one line it
+         takes the whole row and the name is squeezed out, so it wraps and is
+         right-aligned in a column no wider than half the row. */
+      white-space: normal;
+      max-width: 60%;
+      text-align: end;
     }
     .row .slots {
       grid-column: 1 / -1;

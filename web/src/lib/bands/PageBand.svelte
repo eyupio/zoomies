@@ -484,8 +484,30 @@
     .band .tools {
       display: none;
     }
-    .band :global(.stage) {
+    /* The operator's cut is a desktop preference (it syncs from there), so a
+       phone takes the slim one whatever it says: the selector is more specific
+       than the four cuts' own, which would otherwise win and draw an Expanded
+       band's headline and air on a screen with no room for either. */
+    .band.with-picture[data-size] :global(.stage) {
       padding-block: var(--z-space-5);
+      padding-inline: var(--z-space-5);
+    }
+    .band.with-picture[data-size] :global(.art) {
+      width: clamp(3rem, 7%, 5rem);
+    }
+    .band.with-picture[data-size] :global(.headline) {
+      font-size: var(--z-text-xl);
+      line-height: var(--z-leading-xl);
+    }
+    .band.with-picture[data-size] :global(.eyebrow) {
+      margin-bottom: var(--z-space-2);
+    }
+    .band.with-picture[data-size] :global(.rule) {
+      margin-block: var(--z-space-2);
+    }
+    .band.with-picture[data-size] :global(.lede) {
+      font-size: var(--z-text-sm);
+      line-height: var(--z-leading-sm);
     }
   }
   @media (min-width: 769px) {

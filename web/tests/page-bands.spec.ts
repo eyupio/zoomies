@@ -99,6 +99,25 @@ test('a phone draws a band to carry its picture, and only then', async ({ page }
   await expect(page.getByRole('list', { name: 'Key figures' })).toBeVisible();
 });
 
+// The cut is a desktop preference that syncs to every screen, so an Expanded
+// choice must not draw an Expanded band on a phone: it takes the slim one.
+test('a phone draws the slim band whatever cut the operator chose', async ({ page }) => {
+  await goto(page, '/settings/appearance', 'Appearance');
+  const size = page.getByRole('group', { name: 'Runners band size' });
+  const slim = async () => {
+    await goto(page, '/runners', 'Runners');
+    return page
+      .getByTestId('band-runners')
+      .locator('.headline')
+      .evaluate((el) => getComputedStyle(el).fontSize);
+  };
+  await page.setViewportSize({ width: 375, height: 812 });
+  const before = await slim();
+  await goto(page, '/settings/appearance', 'Appearance');
+  await size.getByRole('button', { name: 'Expanded' }).click();
+  expect(await slim(), 'an Expanded cut reads as slim on a phone').toBe(before);
+});
+
 // Each row of a picture has the width of the band and no more: its name and its
 // note share a line and the picture has the next. Before that the name's column
 // was squeezed to nothing and a row was a picture and a number with no one to
