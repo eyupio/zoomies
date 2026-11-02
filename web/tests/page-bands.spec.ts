@@ -443,6 +443,64 @@ test('on a phone a figure still opens the page and the list it counts', async ({
  * not decoration (every hour says its figures in words), it keeps out of the
  * Slim cut, and an hour of it is a way into History with that hour selected.
  */
+test('an hour of the punch card says what it holds on hover, as the matrix does', async ({
+  page,
+}) => {
+  test.skip(Boolean(test.info().project.use.isMobile), 'a hover has no finger');
+  await goto(page, '/', 'Overview');
+  const card = page.getByTestId('fleet-status').getByTestId('fleet-punch-card');
+  await expect(card).toBeVisible();
+  const grid = card.getByRole('grid');
+  await expect(grid.getByRole('gridcell')).toHaveCount(7 * 24);
+  const busy = grid.locator('[role="gridcell"]:not([data-level="0"])').last();
+  await expect(busy).toHaveAttribute('aria-label', /jobs? finished/);
+  const label = (await busy.getAttribute('aria-label')) ?? '';
+  const [when = '', ...rest] = label.split('. ');
+  await busy.hover();
+  // The bubble is the square's own sentence in two parts: the hour as its
+  // heading, the figures under it, so a reader scrubbing across the week
+  // need not open History to read one square.
+  const bubble = page.locator('.bubble:popover-open');
+  await expect(bubble).toContainText(when);
+  await expect(bubble).toContainText(rest.join('. ').replace(/\.$/, ''));
+  // The bubble sits over the row above the square it describes. The shared
+  // tooltip hit-tests through its own bubble, so the covered square opens its
+  // own bubble when the reader moves up a row and takes the click that opens
+  // History; a bubble that caught the pointer would make the top of the week
+  // unreachable from the bottom.
+  const busyRowIndex = await busy.evaluate((el) =>
+    Array.from(el.closest('[role="grid"]')!.querySelectorAll('[role="row"]')).indexOf(
+      el.closest('[role="row"]')!,
+    ),
+  );
+  if (busyRowIndex > 0) {
+    // The square straight above: the one in the previous row at the same
+    // left edge, which the bubble over the busy square covers.
+    const busyBox = (await busy.boundingBox())!;
+    const candidates = grid
+      .getByRole('row')
+      .nth(busyRowIndex - 1)
+      .locator('[role="gridcell"]');
+    let above = candidates.first();
+    for (const cell of await candidates.all()) {
+      const box = await cell.boundingBox();
+      if (box && Math.abs(box.x - busyBox.x) < 2) above = cell;
+    }
+    const aboveLabel = (await above.getAttribute('aria-label')) ?? '';
+    await above.hover();
+    await expect(bubble).toContainText(aboveLabel.split('. ')[0] ?? '');
+    await above.click({ timeout: 5_000 });
+    await expect(page).toHaveURL(/#history$/);
+  }
+  // An hour still to come says so and nothing else.
+  const hour = await page.evaluate(() => new Date().getHours());
+  if (hour < 23) {
+    await grid.locator('[role="gridcell"][data-future]').first().hover();
+    await expect(bubble).toContainText('Not yet');
+    await expect(bubble).not.toContainText('succeeded');
+  }
+});
+
 test('the Overview band shows the week by the hour, and an hour of it opens History on that hour', async ({
   page,
 }) => {
