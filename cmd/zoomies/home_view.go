@@ -11,6 +11,9 @@ import (
 )
 
 func (m homeModel) View() tea.View {
+	if m.run != nil {
+		return m.runView()
+	}
 	w, h := m.width, m.height
 	if w <= 0 {
 		w = 80

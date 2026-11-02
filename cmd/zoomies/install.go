@@ -566,7 +566,11 @@ func selfUpdate(ctx context.Context, e *env, binary, wantVersion string, sel dep
 	if fromHome, _ := ctx.Value(homeInvocationKey{}).(bool); fromHome {
 		env = append(env, "ZOOMIES_RETURN_HOME=1")
 	}
+	// The new release replaces this process, so the launcher gives the
+	// terminal back first and takes it again if the replacement fails.
+	restore := releaseHomeTerminal(ctx)
 	if err := reexecBinary(binary, invocationArgs(ctx), env); err != nil {
+		restore()
 		return fmt.Errorf("the binary was updated to %s but could not be started: %w; run `zoomies upgrade` again", res.Tag, err)
 	}
 	return nil
