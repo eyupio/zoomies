@@ -68,6 +68,30 @@ async function joinToken(page: Page): Promise<string | undefined> {
   return /--join-token\s+['"]?(zoojoin_[^'"\s]+)/.exec(command)?.[1];
 }
 
+/**
+ * Keep a joined host at the capacity it joined with.
+ *
+ * The controller keeps a host at its recommended size unless the host says
+ * otherwise, and a host that reports a machine with no memory to spare has a
+ * recommendation of one runner. The pass that applies it runs every few
+ * seconds, so on a fast machine a test finishes first and on a slow runner the
+ * capacity it asserts has already been changed under it: "throttled to 1 of 1"
+ * and "throttled from 1" for a host that joined with two or four. These tests
+ * are about the throttle and what the card says of it, so the host is set to be
+ * left alone. The capacity travels with the setting and the host is read back,
+ * so a pass that got in between the join and this request is undone rather than
+ * left for the test to find.
+ */
+async function keepCapacity(page: Page, hostId: string, capacity: number): Promise<void> {
+  const kept = await page.request.patch(`/api/v1/hosts/${hostId}`, {
+    data: { auto_adjust: 'off', capacity },
+  });
+  expect(kept.ok(), 'the host was set to be left alone').toBeTruthy();
+  const host = (await kept.json()) as { capacity: number; auto_adjust: string };
+  expect(host.auto_adjust, 'the host keeps its own capacity').toBe('off');
+  expect(host.capacity, 'the host has the capacity it joined with').toBe(capacity);
+}
+
 /** The chips offering the labels the seeded pools select hosts by. */
 function labelOffers(page: Page) {
   return page.getByRole('group', { name: 'Labels pools here select hosts by' });
@@ -239,6 +263,7 @@ test('host usage distinguishes a connected agent from held new starts and recove
     expect(join.ok()).toBeTruthy();
     const credentials = (await join.json()) as { host_id: string; agent_token: string };
     hostId = credentials.host_id;
+    await keepCapacity(page, hostId, 2);
     const heartbeat = async (memory: number, runtime?: object) => {
       const response = await page.request.post('/api/v1/agent/heartbeat', {
         headers: { Authorization: `Bearer ${credentials.agent_token}` },
@@ -352,6 +377,7 @@ test('a host under sustained pressure is throttled, says why, and an operator ca
     expect(join.ok()).toBeTruthy();
     const credentials = (await join.json()) as { host_id: string; agent_token: string };
     hostId = credentials.host_id;
+    await keepCapacity(page, hostId, 4);
     // A load average of twenty on eight CPUs is a runnable queue the machine
     // is not draining, and it steps the throttle up on the first beat: memory
     // is left healthy so the sentence names the load and nothing else.
