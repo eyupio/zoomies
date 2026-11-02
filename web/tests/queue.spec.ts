@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { goto, openFilters } from './support/fixtures';
 
 type ProvisioningRow = {
@@ -272,4 +272,119 @@ test('the bulk-action bar stays below the top bar while a long queue scrolls', a
     { x: button!.x + button!.width / 2, y: button!.y + button!.height / 2 },
   );
   expect(reached).toBe('Select all matching');
+});
+
+/*
+ * The list card. The Queue is band, card and one fold under it: the card has
+ * the queue's tile, a count over its title, the branch field and the saved
+ * views opposite, the four provisioning statuses as chips, and the grid bare
+ * inside. The chips read and write the `provisioning` parameter the menu
+ * they replace did.
+ */
+const statusChips = (page: Page) =>
+  page.getByRole('group', { name: 'Filter by provisioning status' });
+const queueGrid = (page: Page) => page.getByRole('grid', { name: 'Provisioning queue' });
+
+test('the eyebrow says the active demand and what is on hold, as the counts report them', async ({
+  page,
+  request,
+}) => {
+  const { counts } = (await (await request.get('/api/v1/provisioning?limit=1')).json()) as {
+    counts: Record<string, number>;
+  };
+  await goto(page, '/queue', 'Queue');
+  const card = page.locator('section.list-card');
+  await expect(card.getByRole('heading', { name: 'Provisioning queue' })).toBeVisible();
+  await expect(card.locator('.eyebrow')).toHaveText(
+    `${(counts.ready ?? 0) + (counts.expedited ?? 0)} active demand, ${counts.paused ?? 0} on hold`,
+  );
+  // The grid draws no frame of its own: the card is the one frame.
+  await expect(card.locator('.grid.bare')).toHaveCount(1);
+});
+
+test('the chips start with Ready, Run now and Paused pressed, and Removed a press away', async ({
+  page,
+}) => {
+  await goto(page, '/queue', 'Queue');
+  const chips = statusChips(page);
+  for (const name of ['Ready', 'Run now', 'Paused'])
+    await expect(chips.getByRole('button', { name: new RegExp(`^${name}`) })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  await expect(chips.getByRole('button', { name: /^Removed/ })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await expect(chips.getByRole('button', { name: /^All/ })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+
+  // Pressing the fourth is every status, which the page spells out in full
+  // and the chips read back as All.
+  await chips.getByRole('button', { name: /^Removed/ }).click();
+  await expect(page).toHaveURL(/provisioning=deleted/);
+  await expect(chips.getByRole('button', { name: /^All/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(chips.getByRole('button', { name: /^Removed/ })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+
+  // Pressing Paused from the default leaves Ready and Run now in the address.
+  await page.getByRole('button', { name: 'Reset filters', exact: true }).first().click();
+  await chips.getByRole('button', { name: /^Paused/ }).click();
+  await expect(page).toHaveURL(/provisioning=ready&provisioning=expedited(?:&|#|$)/);
+  await expect(page).not.toHaveURL(/provisioning=paused/);
+  await expect(chips.getByRole('button', { name: /^Paused/ })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+});
+
+test('a band figure presses its chip alone, and the chips carry the counts', async ({
+  page,
+  request,
+}) => {
+  const { counts } = (await (await request.get('/api/v1/provisioning?limit=1')).json()) as {
+    counts: Record<string, number>;
+  };
+  await goto(page, '/queue', 'Queue');
+  const paused = test.info().project.use.isMobile
+    ? page.getByRole('list', { name: 'Key figures' }).getByRole('button', { name: /^Paused/ })
+    : page.getByTestId('band-queue').getByRole('button', { name: /^Paused/ });
+  await paused.click();
+  await expect(page).toHaveURL(/[?&]provisioning=paused(?:&|#|$)/);
+  const chips = statusChips(page);
+  await expect(chips.getByRole('button', { name: /^Paused/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(chips.getByRole('button', { name: /^Ready/ })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await expect(chips.getByRole('button', { name: /^Paused/ }).locator('.count')).toHaveText(
+    String(counts.paused ?? 0),
+  );
+});
+
+test('Labels is hidden by default and a click away in Columns', async ({ page }) => {
+  test.skip(
+    (page.viewportSize()?.width ?? 1000) < 1181,
+    'a narrow window folds wide columns anyway',
+  );
+  await goto(page, '/queue', 'Queue');
+  await expect(queueGrid(page).locator('tbody tr[data-row]').first()).toBeVisible();
+  await expect(queueGrid(page).getByRole('columnheader', { name: /\bLabels\b/ })).toHaveCount(0);
+  await expect(queueGrid(page).getByRole('columnheader', { name: /\bRepository\b/ })).toHaveCount(
+    1,
+  );
+  await page.getByRole('button', { name: 'Columns' }).click();
+  await page
+    .getByRole('group', { name: 'Column layout' })
+    .getByRole('checkbox', { name: 'Labels' })
+    .check();
+  await page.keyboard.press('Escape');
+  await expect(queueGrid(page).getByRole('columnheader', { name: /\bLabels\b/ })).toBeVisible();
 });

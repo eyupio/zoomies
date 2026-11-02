@@ -179,8 +179,8 @@ the answer reaches.
 Where a page used to spend a row of its height on a panel of figures, the band
 carries them in a strip along its lower edge. The Runners band holds the
 provisioning demand (jobs queued, ready, run now, paused, removed and the age of the
-oldest) and the Queue band holds the provisioning status filters, which still filter
-the list. Providers holds its provider, machine and needing-review counts. A band
+oldest) and the Queue band holds the provisioning status figures, which still filter
+the list: pressing one presses the matching chip on the queue's card alone. Providers holds its provider, machine and needing-review counts. A band
 that is switched off, and any band on a phone, shows those same figures in a plain
 panel in its place, so nothing disappears with the dog.
 
@@ -350,8 +350,8 @@ is not for this fleet, so it stops counting as queued everywhere; the
 Overview's queue depth and pool bars, `zoomies_jobs_queued` and the queue age
 with it. Restoring it from the Removed view puts it back.
 
-![The Queue page: a band saying how many jobs are waiting, then status filters above the provisioning table, with demand and ordering folded under it](screenshots/queue-dark.webp#only-dark){ .zoomies-shot }
-![The Queue page: a band saying how many jobs are waiting, then status filters above the provisioning table, with demand and ordering folded under it](screenshots/queue-light.webp#only-light){ .zoomies-shot }
+![The Queue page: a band saying how many jobs are waiting, the job filters, then one card with the active demand over its title, the four provisioning statuses as chips and the table inside, with demand and ordering folded under it](screenshots/queue-dark.webp#only-dark){ .zoomies-shot }
+![The Queue page: a band saying how many jobs are waiting, the job filters, then one card with the active demand over its title, the four provisioning statuses as chips and the table inside, with demand and ordering folded under it](screenshots/queue-light.webp#only-light){ .zoomies-shot }
 
 ## Workflows
 
