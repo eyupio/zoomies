@@ -21,7 +21,7 @@ import {
 
 const runs = (page: Page) => grid(page, 'Workflow runs');
 
-/** The row of status buttons above the grid, by the view it names. */
+/** The row of status chips over the grid, by the view it names. */
 function view(page: Page, name: string) {
   return page.getByRole('group', { name: 'Filter jobs by status' }).getByRole('button', { name });
 }

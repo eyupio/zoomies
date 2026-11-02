@@ -309,6 +309,7 @@ const SHOTS = [
   { name: 'queue', path: '/queue', heading: 'Queue' },
   { name: 'runner', path: `/runners/${FIXTURE.busyRunner}` },
   { name: 'jobs', path: '/jobs', heading: 'Jobs' },
+  { name: 'workflows', path: '/workflows', heading: 'Workflows' },
   {
     name: 'jobs-mobile',
     path: '/jobs',
