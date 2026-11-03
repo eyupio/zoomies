@@ -106,15 +106,31 @@ const input = (
 
 // The bar says whether the person can repair, in the one word an operator looks
 // for, and what stands in the way in words that name the next thing to do.
-test('a linked account that has allowed repairs is ready', () => {
+test('a confirmed personal link does not claim full repair readiness', () => {
   const summary = setupSummary(input({ identities: [identity(true)], policies: [] }));
   assert.deepEqual(summary, {
     state: 'ready',
-    headline: 'Ready to repair',
-    account: 'GitHub @dana linked',
+    headline: 'Personal GitHub account linked',
+    account: 'GitHub @dana linked; provider and PR readiness are checked when you request a repair',
     askFirst: null,
     automatic: null,
   });
+});
+
+test('repository automation setup does not depend on a personal GitHub link', () => {
+  const configured = setupSummary(
+    input(
+      { identities: [], policies: [policy('acme/a', { automatic: true, ask_first: false })] },
+      { admin: true },
+    ),
+  );
+  assert.equal(configured.state, 'ready');
+  assert.equal(configured.headline, 'Repository repairs configured');
+  const empty = setupSummary(
+    input({ identities: [identity(true)], policies: [] }, { admin: true }),
+  );
+  assert.equal(empty.state, 'needed');
+  assert.equal(empty.headline, 'Choose repositories');
 });
 
 test('a linked account that has not allowed repairs yet is not ready, and says what is missing', () => {

@@ -44,6 +44,7 @@
   import OfferList from '$lib/repairs/OfferList.svelte';
   import PullRequestBar from '$lib/repairs/PullRequestBar.svelte';
   import RepairHistory from '$lib/repairs/RepairHistory.svelte';
+  import RepairRow from '$lib/repairs/RepairRow.svelte';
   import RepairTargetDialog from '$lib/repairs/RepairTargetDialog.svelte';
   import SetupBar from '$lib/repairs/SetupBar.svelte';
   import StopAutomaticDialog from '$lib/repairs/StopAutomaticDialog.svelte';
@@ -65,6 +66,10 @@
   let offersLoaded = $state(false);
   let running = $state<Schemas['EliRepair'][]>([]);
   let runningTotal = $state(0);
+  let attention = $state<Schemas['EliRepair'][]>([]);
+  let attentionTotal = $state(0);
+  let attentionLoaded = $state(false);
+  let attentionFailed = $state(false);
   let error = $state('');
   /** The repositories that repair themselves, for an administrator; empty for everyone else. */
   let automatic = $state<Schemas['EliAutomaticRepository'][]>([]);
@@ -132,7 +137,7 @@
   // link is the way back to the choices.
   const showSetup = $derived(setup.state === 'needed' || setup.state === 'off');
   const navItems = $derived([
-    { id: 'needs', label: 'Needs you', count: offers.length },
+    { id: 'needs', label: 'Needs you', count: offers.length + attentionTotal },
     { id: 'running', label: 'In progress', count: running.length },
     { id: 'history', label: 'History', secondary: true },
     ...(administrator && showAutomatic
@@ -170,15 +175,16 @@
 
   async function refresh(): Promise<void> {
     const readOffers = offering && Date.now() - offersReadAt >= OFFERS_EVERY_MS;
-    const [read, offered, going, automaticRead] = await Promise.allSettled([
+    const [read, offered, going, automaticRead, needs] = await Promise.allSettled([
       getEliRepairSettings(),
       readOffers ? listEliOpportunities() : Promise.resolve(null),
       listEliRepairs({ group: 'active', limit: RUNNING_LIMIT }),
       administrator ? getEliAutomaticRepairs() : Promise.resolve(null),
+      listEliRepairs({ group: 'needs_action', limit: RUNNING_LIMIT }),
     ]);
     // One read failing leaves the others standing, and the first failure is the one said.
     // The automatic repairs say their own, in their panel, so one failure is not said twice.
-    const failed = [read, offered, going].find((result) => result.status === 'rejected');
+    const failed = [read, offered, going, needs].find((result) => result.status === 'rejected');
     error = failed ? failure(failed.reason) : '';
     if (read.status === 'fulfilled') settings = read.value;
     if (automaticRead.status === 'fulfilled') {
@@ -190,6 +196,12 @@
     if (going.status === 'fulfilled') {
       running = going.value.items;
       runningTotal = going.value.total;
+    }
+    attentionFailed = needs.status === 'rejected';
+    if (needs.status === 'fulfilled') {
+      attention = needs.value.items;
+      attentionTotal = needs.value.total;
+      attentionLoaded = true;
     }
     if (offered.status === 'fulfilled' && offered.value) {
       offersReadAt = Date.now();
@@ -203,6 +215,13 @@
   async function reload(): Promise<void> {
     offersReadAt = 0;
     await Promise.all([refresh(), history?.reload()]);
+  }
+
+  function reviewAll(): void {
+    const section = document.getElementById('history');
+    if (section instanceof HTMLDetailsElement) section.open = true;
+    history?.reviewNeedsAction();
+    section?.scrollIntoView({ block: 'start' });
   }
 
   async function dismiss(id: string): Promise<void> {
@@ -299,23 +318,35 @@
 
     <PullRequestBar />
 
-    {#if offering && offers.length}
+    {#if (offering && offers.length) || attention.length}
       <Disclosure
         id="needs"
         title="Needs you"
-        summary="{pluralise(offers.length, 'failed check')} · reviewing never calls a model"
+        summary="{pluralise(offers.length + attentionTotal, 'item')} needs review"
         tone="danger"
         open
         flush
       >
         <OfferList {offers} {cases} busy={dismissing} ondismiss={(id) => void dismiss(id)} bare />
+        {#each attention as repair (repair.id)}
+          <RepairRow
+            {repair}
+            selecting={false}
+            selected={false}
+            waiting={attentionFailed}
+            onselect={() => {}}
+          />
+        {/each}
+        {#if attentionTotal > attention.length}
+          <Button onclick={reviewAll}>Review all {attentionTotal} repairs needing attention</Button>
+        {/if}
       </Disclosure>
-    {:else if offering && offersLoaded}
+    {:else if offering && offersLoaded && attentionLoaded && !attentionFailed && !error}
       <section id="needs" class="clear" aria-label="Needs you">
         <CircleCheck size={16} aria-hidden="true" />
         <p>
-          <strong>No failed pull requests need you.</strong> When checks fail on a repository Eli
-          may fix, they appear here. <a href="/repairs/new">Fix a failed check</a> to start one yourself.
+          <strong>No repair offers or stopped repairs need review.</strong>
+          <a href="/repairs/new">Fix a failed check</a> to check another pull request.
         </p>
       </section>
     {/if}

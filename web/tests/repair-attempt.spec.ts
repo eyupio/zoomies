@@ -14,6 +14,69 @@ import { keptCase, mockRepairApi, repairRow } from './support/repairs';
 const NOW = new Date('2026-10-18T09:21:03Z');
 const COMMIT = 'b7d3e9150c2a4f8e6d1b0a93c5e7f2a4d6b8c0e1';
 
+test('the published fix stays readable after the outcome changes', async ({ page }) => {
+  await mockRepairApi(page, {
+    attempts: {
+      'rep-summary': repairRow({
+        id: 'rep-summary',
+        state: 'checks_failed',
+        commit_sha: COMMIT,
+        message: 'The new lint check failed.',
+        details: {
+          summary: 'Preserve the retry deadline.',
+          changed_files: ['client.go'],
+          case: keptCase(),
+        },
+      }),
+    },
+  });
+  await page.goto('/repairs/rep-summary');
+  const changed = page.getByRole('region', { name: 'What Eli changed' });
+  await expect(changed).toContainText('Preserve the retry deadline.');
+  await expect(changed).toContainText('client.go');
+  await expect(changed.getByRole('link', { name: 'Review fix' })).toHaveAttribute(
+    'href',
+    `https://github.com/acme/widgets/commit/${COMMIT}`,
+  );
+  await expect(page.getByText('The new lint check failed.', { exact: true })).toBeVisible();
+});
+
+test('a closed PR does not suggest another repair attempt', async ({ page }) => {
+  await mockRepairApi(page, {
+    attempts: {
+      'rep-closed': repairRow({
+        id: 'rep-closed',
+        state: 'superseded',
+        details: { failure_code: 'closed', case: keptCase() },
+      }),
+    },
+  });
+  await page.goto('/repairs/rep-closed');
+  await expect(page.getByRole('region', { name: 'What to try next' })).toContainText(
+    'The pull request was closed or merged',
+  );
+  await expect(page.getByRole('link', { name: 'Try another attempt' })).toHaveCount(0);
+});
+
+test('changed paths stay visible without a summary and do not invent a fix link', async ({
+  page,
+}) => {
+  await mockRepairApi(page, {
+    attempts: {
+      'rep-paths': repairRow({
+        id: 'rep-paths',
+        state: 'failed',
+        commit_sha: '',
+        details: { changed_files: ['client.go'], case: keptCase() },
+      }),
+    },
+  });
+  await page.goto('/repairs/rep-paths');
+  const changed = page.getByRole('region', { name: 'What Eli changed' });
+  await expect(changed).toContainText('client.go');
+  await expect(changed.getByRole('link', { name: 'Review fix' })).toHaveCount(0);
+});
+
 const running = (over = {}) =>
   repairRow({
     id: 'rep-run',

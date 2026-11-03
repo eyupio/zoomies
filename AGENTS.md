@@ -276,6 +276,15 @@ Before using prepared repository context, read `.zoomies/AI_CONTEXT.md`. It expl
 
 ## Agent skills
 
+### Eli Repair implementation
+
+Before changing Eli PR repairs, read
+[`roadmap/eli-repair-implementation-handoff.md`](roadmap/eli-repair-implementation-handoff.md).
+Every PR for this work must update that file in the same PR: record the actual
+scope, implementation status, validation results, PR link and next unfinished
+step. Keep planned capabilities distinct from shipped ones. A new session must
+be able to continue from the file without the chat history.
+
 ### Issue tracker
 
 Issues live in GitHub Issues for eyupio/zoomies, driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.

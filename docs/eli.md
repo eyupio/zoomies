@@ -673,22 +673,34 @@ The wizard below uses a sample failure; no real PR was changed.
 
 ![Eli repair setup for a sample failed run, with the repository's installation preselected and a single save action](screenshots/eli-failure-setup-dark.png){ .zoomies-shot }
 
-For advanced setup across repositories:
+For repository automation:
 
 1. Open **Eli repairs** from the navigation and choose **Repair settings**, or
    use **Fix with Eli** beside a failed job. **Fix a failed check** lists recent
    failures and checks readiness without invoking a model; **Paste a pull request
    link** is the fallback.
-2. On the settings page, in **Repairs in these repositories**, choose a GitHub
-   installation, search its repositories and select the ones to enable together.
-   Owner and installation details come from discovery. Each selected repository
-   reports its own save result.
-3. Choose **Ask me first**, **Manual only** or **Automatic**. New setup recommends
-   Ask me first; existing policies retain their behaviour. The enable switch turns
-   a policy off. Only Automatic requires an installation provider.
-   The settings page has its own **On this page** navigation for the account, the
-   repositories and the people.
-4. An administrator verifies account ownership, selects the Zoomies user and a
+2. Under **Choose repositories**, search and select a few repositories or use
+   **Select all matching repositories** across discovery pages. With one GitHub
+   connection it is already selected; with several, choose the connection first.
+   Discovery is bounded to 500 repositories and says when it is capped. Selection
+   alone enables nothing, and a failed discovery page leaves the selection intact.
+3. Choose **Fix failed checks automatically**, **Offer a fix for failed checks**
+   or **Manual requests only**. Automatic repairs use an enabled installation
+   provider, with the saved default or sole provider preselected. The page explains
+   a missing provider. Personal GitHub linking is not needed for automation.
+   Save reports each repository's result; partial or failed saves offer a retry
+   for only the failed repositories, using the settings from that save.
+   **Configured repositories** shows the saved behaviour and **Pause** or
+   **Resume**. Pausing does not need a working model provider. Existing policies
+   keep their settings, and workflow edits remain under **Advanced**.
+   Filter configured repositories by name to find their controls. The list shows
+   enabled and paused totals. **Edit** moves focus to that repository's settings;
+   **Add repositories instead** starts a fresh selection with workflow edits off.
+
+For individual requests using a personal provider, open **Personal repair
+requests**. These are separate from repository automation:
+
+1. An administrator verifies account ownership, selects the Zoomies user and a
    discovered repository where their GitHub account has write permission, then
    links the account once. Each requester confirms **Allow this GitHub account to
    request repairs using my provider** and adds an enabled personal provider.
@@ -703,10 +715,10 @@ For advanced setup across repositories:
    use again, and the move is written to the audit log with the account it was
    taken from. History the old account asked for stays with that account; a
    move is a link, not a takeover of its record.
-5. Return to the original PR and check readiness again. Review the payer, model
+2. Return to the original PR and check readiness again. Review the payer, model
    and workflow permission before choosing **Fix with Eli**.
 
-Ask me first groups failed jobs into one persistent offer per PR head. The
+Offer a fix for failed checks (the Ask me first policy) groups failed jobs into one persistent offer per PR head. The
 Overview shows available offers; **Needs you** on the Eli repairs page lets you
 review or dismiss them, and says for each which pull request it is about, its
 branch, when it failed and which jobs stopped at which step. Offers do not invoke
@@ -715,6 +727,14 @@ only to that commit. A bounded reconciliation every five minutes looks back at
 recent failed jobs, including failures that predate setup. Access and the pinned
 head are checked again before acceptance. Existing closed, superseded or now-green
 PR offers are retired during reconciliation. External notifications are not sent.
+
+**Needs you** also shows the latest failed, blocked, interrupted or unverified
+attempt for each PR. A newer attempt, including one cleared from history,
+supersedes an older failure. The inbox is a record of repairs needing review,
+not a fresh claim about GitHub's current PR head. An unavailable read never
+produces an all-clear. The attempt page keeps **What Eli changed**, its changed
+paths and its commit separately from the subsequent check outcome. **Review fix**
+opens the published commit's diff, so it can be reviewed even if checks later fail.
 
 The GitHub App needs **Contents: write**, **Pull requests: write**,
 **Issues: write**, **Actions: read**, **Checks: read** and **Commit statuses: read**
@@ -808,7 +828,12 @@ The panel reads `GET /api/v1/assistant/repairs/automatic` and the stop is
 ## What a repair does
 
 The durable queue deduplicates webhook retries and records each attempt at
-admission. The worker reads the PR's pinned commit, changed text files, repository
+admission. Repair generation runs one attempt at a time. Published repair commits
+have their checks observed separately, so a slow model does not delay their
+outcomes. Pausing repository automation still allows published commits to finish
+being checked. This does not enable continuous PR watching or additional fixes.
+
+The worker reads the PR's pinned commit, changed text files, repository
 inventory and bounded failed-job evidence. It asks the selected model for a
 strict JSON plan, with at most twelve model turns and eight changed files. Each
 turn tells the model how many replies remain and asks it to batch related reads,
@@ -894,6 +919,11 @@ It reports checks passed, checks failed, a newer PR head, or unverified after an
 hour without complete results. Reported checks are not a guarantee that every
 branch-protection requirement is satisfied. Automatic repair will not start
 another attempt on an Eli commit. A maintainer can request another attempt.
+
+Check reads include up to ten pages of 100 check runs. Incomplete coverage stays
+pending and cannot certify success; a confirmed failure remains a failure even
+if a later page cannot be read. Closing or merging the PR stops verification
+promptly and preserves the published fix on record.
 
 Queued work survives restart. A repair interrupted during publication has an
 uncertain outcome, so it is marked interrupted and never replayed automatically.

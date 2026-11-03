@@ -282,6 +282,9 @@ func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testi
 			if len(models) != 1 || models[0] != want || row.State != "checking" || fake.commits != 1 {
 				t.Fatalf("models %v repair %+v commits %d", models, row, fake.commits)
 			}
+			if row.Details.Summary != "Fix cause" || fmt.Sprint(row.Details.ChangedFiles) != "[main.go]" {
+				t.Fatalf("published fix was not kept separately from its outcome: %+v", row.Details)
+			}
 			// The comment that asked is acknowledged; a repair nobody asked for in a
 			// comment has nothing to react to.
 			if trigger == "mention" && (len(fake.reacted) != 1 || fake.reacted[0] != 77) || trigger == "automatic" && len(fake.reacted) != 0 {
@@ -309,6 +312,9 @@ func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testi
 			all, _, _ := h.st.ListEliRepairsPage(h.ctx, store.EliRepairFilter{Limit: store.MaxEliRepairPage})
 			if all[0].State != "checks_failed" {
 				t.Fatalf("false success %+v", all[0])
+			}
+			if all[0].Details.Summary != "Fix cause" || fmt.Sprint(all[0].Details.ChangedFiles) != "[main.go]" {
+				t.Fatalf("verification lost the fix summary: %+v", all[0].Details)
 			}
 		})
 	}

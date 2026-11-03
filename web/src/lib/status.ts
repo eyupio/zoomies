@@ -950,7 +950,7 @@ const REPAIR: Record<string, StatusMeta> = {
     'neutral',
     'square',
     CircleMinus,
-    'The pull request has a newer commit.',
+    'The pull request moved on or no longer needs this repair.',
   ),
   unverified: meta(
     'unverified',

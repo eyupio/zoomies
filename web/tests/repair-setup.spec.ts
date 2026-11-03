@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { Schemas } from '../src/lib/api/types';
-import { blockedAt, readiness as makeReadiness, stoppedAt } from './support/repairs';
+import { blockedAt, readiness as makeReadiness, repairRow, stoppedAt } from './support/repairs';
 
 const repo = 'acme/widgets';
 const identity: Schemas['EliIdentity'] = {
@@ -80,6 +80,19 @@ async function mockFailure(page: Page, role: 'admin' | 'operator' = 'admin') {
     repairs.push(route.request().postDataJSON());
     await route.fulfill({ json: { id: 'repair-1' } });
   });
+  // The page the start button moves to asks for the new repair. Give it a
+  // complete row rather than the empty list the fallback above answers with.
+  await page.route('**/api/v1/assistant/repairs/repair-1', (route) =>
+    route.fulfill({
+      json: repairRow({
+        id: 'repair-1',
+        repo,
+        pull_number: 17,
+        head_sha: 'reviewed-head',
+        details: { model: 'test-model', stage: 'published', source_bytes: 0, steps: [] },
+      }),
+    }),
+  );
   return { checks, writes, repairs };
 }
 

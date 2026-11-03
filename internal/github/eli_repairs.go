@@ -42,6 +42,7 @@ type RepairPull struct {
 	// Base is the branch the pull request merges into, which is not always the
 	// repository's default branch: it can target a release branch.
 	Base          string
+	BaseSHA       string
 	HeadSHA       string
 	Title         string
 	Body          string
@@ -175,12 +176,13 @@ func (c *appClient) RepairPull(ctx context.Context, repo string, number int) (Re
 		} `json:"head"`
 		Base struct {
 			Ref string `json:"ref"`
+			SHA string `json:"sha"`
 		} `json:"base"`
 	}
 	if err := c.repairRequest(ctx, http.MethodGet, base+"/pulls/"+strconv.Itoa(number), nil, &p); err != nil {
 		return RepairPull{}, err
 	}
-	out := RepairPull{Number: p.Number, AuthorID: p.User.ID, Author: p.User.Login, Branch: p.Head.Ref, Base: p.Base.Ref, HeadSHA: p.Head.SHA, Title: p.Title, Body: p.Body, URL: p.HTMLURL, DefaultBranch: p.Head.Repo.DefaultBranch, Fork: p.Head.Repo.FullName != repo, Open: p.State == "open"}
+	out := RepairPull{Number: p.Number, AuthorID: p.User.ID, Author: p.User.Login, Branch: p.Head.Ref, Base: p.Base.Ref, BaseSHA: p.Base.SHA, HeadSHA: p.Head.SHA, Title: p.Title, Body: p.Body, URL: p.HTMLURL, DefaultBranch: p.Head.Repo.DefaultBranch, Fork: p.Head.Repo.FullName != repo, Open: p.State == "open"}
 	if out.Number > 0 && p.State == "closed" {
 		return out, &RepairTargetChanged{Code: "closed", Message: fmt.Sprintf("PR #%d is closed or merged. This failure no longer needs a PR repair. You can still inspect the original run on GitHub.", out.Number)}
 	}
@@ -588,7 +590,25 @@ func (c *appClient) RepairChecks(ctx context.Context, repo, sha string) (string,
 			Conclusion string `json:"conclusion"`
 		} `json:"check_runs"`
 	}
-	checksErr := c.repairRequest(ctx, http.MethodGet, base+"/commits/"+url.PathEscape(sha)+"/check-runs?per_page=100", nil, &checks)
+	// Matrix jobs regularly fill a page. Keep the read bounded, but do not
+	// turn the first hundred successes into a permanent wait for page two.
+	var checksErr error
+	for page := 1; page <= 10; page++ {
+		part := checks
+		part.Runs = nil
+		endpoint := base + "/commits/" + url.PathEscape(sha) + "/check-runs?per_page=100"
+		if page > 1 {
+			endpoint += "&page=" + strconv.Itoa(page)
+		}
+		if checksErr = c.repairRequest(ctx, http.MethodGet, endpoint, nil, &part); checksErr != nil {
+			break
+		}
+		checks.Total = max(checks.Total, part.Total)
+		checks.Runs = append(checks.Runs, part.Runs...)
+		if len(checks.Runs) >= checks.Total || len(part.Runs) < 100 {
+			break
+		}
+	}
 	var statuses struct {
 		Total int    `json:"total_count"`
 		State string `json:"state"`
@@ -599,9 +619,6 @@ func (c *appClient) RepairChecks(ctx context.Context, repo, sha string) (string,
 	}
 	pending := checks.Total > len(checks.Runs) || statuses.Total > 0 && statuses.State != "success"
 	passed := statuses.Total > 0 && statuses.State == "success"
-	if checksErr != nil {
-		checks.Runs = nil
-	}
 	for _, r := range checks.Runs {
 		if r.Status != "completed" {
 			pending = true

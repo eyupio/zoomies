@@ -518,8 +518,8 @@ test('the Eli repair components show every state they can be in', async ({ page 
   const bars = region
     .locator('[data-gallery="setup-bars"]')
     .getByRole('region', { name: 'Repair settings' });
-  await expect(bars.nth(0)).toContainText('Ready to repair');
-  await expect(bars.nth(0)).toContainText('GitHub @dana linked');
+  await expect(bars.nth(0)).toContainText('Repository repairs configured');
+  await expect(bars.nth(0)).toContainText('Readiness is checked for each repair');
   await expect(bars.nth(0)).toContainText('Ask me first on 3 repositories');
   await expect(bars.nth(1)).toContainText('Setup needed');
   await expect(bars.nth(1)).toContainText('repairs not allowed yet');
@@ -582,7 +582,7 @@ test('the Eli repair components show every state they can be in', async ({ page 
     'Could not repair',
     'Needs attention',
     'Interrupted',
-    'Newer commit',
+    'No longer needed',
     'Unverified',
     'a-state-from-a-newer-controller',
   ]) {

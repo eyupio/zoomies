@@ -22,7 +22,7 @@ const (
 //
 // attention is every state that is neither running nor passed, which is why
 // a new failure state lands in it without anyone remembering to list it.
-var EliRepairGroups = []string{"attention", "active", "passed"}
+var EliRepairGroups = []string{"attention", "active", "passed", "needs_action"}
 
 // EliRepairTriggers are how a repair began: Eli acting on its own, or a person
 // asking. The stored value for a person's request is "mention", whatever the
@@ -64,6 +64,13 @@ func (f EliRepairFilter) where(clearable bool) (string, []any) {
 		args = append(args, f.OwnerID)
 	}
 	switch f.Group {
+	case "needs_action":
+		// The inbox is about the newest attempt for each PR. An older failed
+		// attempt must not ask for help after a retry passed or is still working.
+		// Cleared newer attempts still supersede older ones.
+		clauses = append(clauses, `state IN ('failed','blocked','checks_failed','interrupted','unverified') AND NOT EXISTS (
+			SELECT 1 FROM eli_repairs newer WHERE newer.repo=eli_repairs.repo COLLATE NOCASE AND newer.pull_number=eli_repairs.pull_number
+			AND (newer.created_at>eli_repairs.created_at OR (newer.created_at=eli_repairs.created_at AND newer.id>eli_repairs.id)))`)
 	case "active":
 		clauses = append(clauses, "state IN "+eliRepairActive)
 	case "passed":

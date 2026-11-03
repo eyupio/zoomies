@@ -30,6 +30,7 @@ const (
 	// PrefixAssistantConversation names one person's saved chat with Eli.
 	PrefixAssistantConversation    = "asc"
 	PrefixEliRepair                = "erf"
+	PrefixEliRepairWatch           = "erw"
 	PrefixEliOpportunity           = "eop"
 	PrefixOptimisationPreview      = "opv"
 	PrefixOptimisationCachePreview = "opc"

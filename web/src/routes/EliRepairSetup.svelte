@@ -15,19 +15,15 @@
   let panel = $state<RepairSetupPanel | null>(null);
   const admin = $derived(session.can('admin'));
   const navItems = $derived([
-    { id: 'access', label: 'Account' },
-    ...(admin
-      ? [
-          { id: 'repositories', label: 'Repositories' },
-          { id: 'link-account', label: 'People', secondary: true },
-        ]
-      : []),
+    ...(admin ? [{ id: 'repositories', label: 'Repositories' }] : []),
+    { id: 'access', label: 'Personal requests', secondary: admin },
+    ...(admin ? [{ id: 'link-account', label: 'People', secondary: true }] : []),
   ]);
 </script>
 
 <PageHeader
   title="Repair settings"
-  subtitle="Link your GitHub account, and choose which repositories Eli may repair and when."
+  subtitle="Choose repositories and turn on failed-check repairs. Personal repair requests are set up separately."
   breadcrumb={[{ label: 'Eli repairs', href: '/repairs' }, { label: 'Settings' }]}
   onrefresh={() => panel?.reload()}
 >
