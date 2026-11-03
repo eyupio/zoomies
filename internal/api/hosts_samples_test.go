@@ -119,3 +119,24 @@ func TestHostSamplesAndUsageCarrySteal(t *testing.T) {
 		t.Errorf("host_a steal = %v, want %v", seen["host_a"], steal)
 	}
 }
+
+// The route serves what the housekeeping tick sampled and never samples, so a
+// controller that has not ticked says it has nothing fresh and does not invent a
+// reading; and it is a read a viewer may make and a stranger may not.
+func TestTheControllersMachineIsServedToAViewerWithoutSamplingOnRequest(t *testing.T) {
+	h := newHarness(t)
+	viewer := h.token("viewer", store.RoleViewer)
+	res := h.do(request{method: http.MethodGet, path: "/api/v1/controller/machine", token: viewer})
+	res.mustStatus(t, http.StatusOK, "viewer")
+	var got struct {
+		Usage      map[string]any `json:"usage"`
+		UsageFresh *bool          `json:"usage_fresh"`
+	}
+	if err := json.Unmarshal(res.body, &got); err != nil {
+		t.Fatalf("%v: %s", err, truncate(res.body))
+	}
+	if got.UsageFresh == nil || *got.UsageFresh || got.Usage != nil {
+		t.Fatalf("answer = %s, want usage_fresh false and no usage before the tick has sampled", truncate(res.body))
+	}
+	h.do(request{method: http.MethodGet, path: "/api/v1/controller/machine"}).mustStatus(t, http.StatusUnauthorized, "no credentials")
+}

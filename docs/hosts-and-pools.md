@@ -1214,7 +1214,14 @@ own work, and no change to the pools on it will give the rest back. It is a
 measurement only, shown beside the CPU figure and kept in the history; nothing
 the scheduler decides is judged on it. A physical machine measures zero, and a
 kernel that does not report it measures nothing, which is not the same.
-Available memory includes reclaimable cache. The load
+Available memory includes reclaimable cache. The machine the controller itself runs on is
+sampled the same way on the controller's thirty-second tick and read from
+`GET /api/v1/controller/machine`: it is for a controller whose agents are all
+elsewhere, which has no host of its own to read that machine from and would
+otherwise be a machine nobody can see. It is the machine as the controller's
+procfs describes it, which in a container is the host's, so its CPU count and
+memory come from the same files its figures do. A controller with an embedded
+agent reports the same machine as a host. The load
 average is there because CPU occupancy pins at 100% and then stops saying
 anything: load keeps counting what is queued behind the cores, so it is what
 says a host has been pushed *past* them rather than merely to them. Sampling

@@ -214,7 +214,7 @@ where it is named.
 | `loop` | `step` | What it covers |
 | --- | --- | --- |
 | `reconcile` | `host_cleanup`, `snapshot`, `decide`, `apply`, `fallbacks`, `drain` | The scheduling pass in the order it runs: finishing the cleanup of a host that was removed, reading the fleet, deciding (the part that reads no clock and no database), carrying the decision out, routing work no pool claimed, and finishing a transfer's drain. |
-| `housekeeping` | `sweep_tasks`, `host_health`, `throttles`, `auto_adjust`, `expire_queued`, `expire_running` | The jobs on the thirty-second tick that run every time. |
+| `housekeeping` | `sweep_tasks`, `host_health`, `throttles`, `auto_adjust`, `expire_queued`, `expire_running`, `machine` | The jobs on the thirty-second tick that run every time. `machine` samples the machine the controller itself runs on (see `GET /api/v1/controller/machine`): three small reads of procfs, never a request to Docker or the database. |
 | `housekeeping` | `sample`, `prune`, `image_refresh`, `update_check`, `toolchain_scan` | The jobs on that tick that fall due less often: the minute's fleet sample, the hourly retention pass (the one that holds the single writer longest, so read it beside `zoomies_store_write_held_seconds`), and the ones the settings put on an interval. |
 | `derived` | `all`, `stats`, `problems`, `kennel`, `updates`, `transfer`, `hosts`, `machines` | The views worked out for the live event stream, which every scheduling pass and the housekeeping tick ask for. `all` is one whole run and the rest are its parts. Only timed while something is connected. |
 | `job_attention` | `refresh` | The thirty-second check of failed runs against GitHub. |

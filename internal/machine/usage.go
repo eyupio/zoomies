@@ -106,6 +106,36 @@ func (s *UsageSampler) Sample(cpus int, memoryMB int64) Usage {
 	return out
 }
 
+// Machine reads the size of the machine procfs describes: how many CPUs it
+// counts and how much memory it has. An agent is told its machine's size by the
+// container runtime it works through, which reports the host and not whatever
+// cgroup the agent happens to be in. A controller that has no runtime to ask has
+// only procfs, which in a container is the host's too, so it takes both from the
+// same files its figures come from: they cannot then disagree about which machine
+// they describe, and it is the machine as procfs describes it, whatever that is.
+func (s *UsageSampler) Machine() (cpus int, memoryMB int64, ok bool) {
+	s.mu.Lock()
+	root := s.root
+	s.mu.Unlock()
+	stat, err := os.ReadFile(filepath.Join(root, "/proc/stat"))
+	if err != nil {
+		return 0, 0, false
+	}
+	_, _, cpus, ok = cpuTicks(string(stat))
+	if !ok {
+		return 0, 0, false
+	}
+	mem, err := os.ReadFile(filepath.Join(root, "/proc/meminfo"))
+	if err != nil {
+		return 0, 0, false
+	}
+	total, _, ok := availableMemory(string(mem))
+	if !ok {
+		return 0, 0, false
+	}
+	return cpus, total, true
+}
+
 // MemoryReadable reports whether this platform has a way to read the host's
 // memory that the memory valve can check a loan against: Linux's procfs, and
 // nothing else for now.
