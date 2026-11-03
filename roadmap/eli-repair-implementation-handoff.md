@@ -587,15 +587,18 @@ Validation on 3 November 2026:
   stale-release, restart-recovery, attempt-link and capability-refusal cases.
 - `go vet ./internal/controller ./internal/store ./internal/api ./internal/github`:
   pass.
+- `go test -count=1 -timeout 10m ./internal/store`: pass (59.851s), the complete
+  store suite without the race detector, including every migration test.
 - `go test ./internal/docs -count=1`: pass (9.395s), with the architecture text
   and this handoff tracked.
 - `git diff --check` and changed-file `gofmt`: pass.
 - No OpenAPI regeneration was needed because no public contract changed.
 
-Full repository `make test-short`, browser suites, a full store suite beyond the
-focused migration names, a live model and end-to-end repairs against real GitHub
-PRs were not run for S2b. `make test` was not run. The migration-name contract
-and the focused store repair suite both passed.
+Full repository `make test-short`, browser suites, the complete store suite with
+the race detector, a live model and end-to-end repairs against real GitHub PRs
+were not run for S2b. `make test` was not run. The full store suite without the
+race detector, the focused store repair suite and the migration-name contract
+all passed.
 
 Limits of this slice:
 
