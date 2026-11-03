@@ -336,8 +336,8 @@ next: k3f9a2.1207
 
 Passing each answer's `next` back keeps following the fleet, and `kinds` and
 `topic` narrow what counts as a change. With no `kinds`, a wait is for every
-kind of event that says the fleet changed. It leaves out six: `stats` and
-`kennel.summary`, which move as time passes; `host.updated`, which moves on
+kind of event that says the fleet changed. It leaves out seven: `stats`,
+`kennel.summary` and `controller.machine`, which move as time passes; `host.updated`, which moves on
 every heartbeat, and `updates.updated`, which moves as a soak counts down,
 though both also carry real changes (a host cordoned, throttled or back after
 going quiet, and a new release); and `audit` and `webhook.delivery`, which are

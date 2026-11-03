@@ -50,6 +50,9 @@ const (
 	stepTransfer = "transfer"
 	stepHosts    = "hosts"
 	stepMachines = "machines"
+	// stepControllerMachine is the controller's own machine, which is not one of
+	// the provider machines above.
+	stepControllerMachine = "controller_machine"
 
 	// The two loops that run a step on every beat.
 	stepRefresh = "refresh"

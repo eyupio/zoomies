@@ -435,6 +435,8 @@ type Controller struct {
 	lastProblems []byte
 	// lastKennel is the Overview's document as it was last sent.
 	lastKennel []byte
+	// lastMachine is the controller's own machine as it was last sent.
+	lastMachine []byte
 	// lastUpdates is the update status as it was last sent.
 	lastUpdates []byte
 	// lastTransfer is the transfer preparation as it was last sent.

@@ -362,6 +362,8 @@ export interface EventPayloads {
    * to process operators when it changes.
    */
   'transfer.updated': Schemas['TransferProgress'];
+  /** The machine the controller itself runs on, as `GET /controller/machine` returns it, sent when it changes. */
+  'controller.machine': Schemas['ControllerMachine'];
   heartbeat: unknown;
   /**
    * The first frame on a reconnection whose gap the server could not replay:

@@ -46,6 +46,8 @@
   import { NO_VALUE, onClockTick, pluralise } from '$lib/format';
   import { href, router } from '$lib/router';
   import { checkHostPriority } from '$lib/api/client';
+  import { controllerMachine } from '$lib/state/controller-machine.svelte';
+  import { machineCardShown, machineFigures } from '$lib/hosts/machine';
   import { fleet } from '$lib/state/fleet.svelte';
   import { remember, remembered } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
@@ -96,6 +98,26 @@
     [...fleet.hosts].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
   );
   const connected = $derived(hosts.filter((h) => h.healthy === true).length);
+
+  /* -- the machine the controller runs on --------------------------------------
+   * A controller whose agents are all elsewhere has no host card of its own, so
+   * the machine it runs on is drawn once here. It is followed on the stream for as
+   * long as the page is open and costs nothing when nobody is on it.
+   * ---------------------------------------------------------------------- */
+  $effect(() => controllerMachine.follow());
+  const machineView = $derived(controllerMachine.view);
+  // Not before the hosts are known: until then there is no telling whether one of them is this machine.
+  const machineShown = $derived(fleet.loaded && machineCardShown(hosts, machineView));
+  const machineItems = $derived(
+    machineView
+      ? machineFigures(machineView).map((f) => ({
+          label: f.label,
+          value: f.value,
+          detail: f.detail,
+          tone: f.key === 'steal' ? ('warning' as const) : ('neutral' as const),
+        }))
+      : [],
+  );
   // The slots hosts take, which is what the machines hold of a standard size
   // where one is set, not the sum of the operators' ceilings.
   const capacity = $derived(hosts.reduce((sum, h) => sum + slotsOf(h), 0));
@@ -628,6 +650,25 @@
             {/if}
           {/snippet}
         </RolloutStatus>
+      </div>
+    </section>
+  {/if}
+  {#if machineShown && machineView}
+    <!-- Only for a controller with no agent of its own: with one, that machine is a
+         host and its card says all of this. -->
+    <section class="panel" aria-labelledby="controller-machine-heading">
+      <header>
+        <div>
+          <h2 id="controller-machine-heading">This machine</h2>
+          <p>
+            The machine this controller runs on, sampled every 30 seconds.
+            {#if !machineView.usage_fresh}The controller has stopped sampling, so these figures are
+              the last it took.{/if}
+          </p>
+        </div>
+      </header>
+      <div class="panel-body">
+        <MetricGrid strip items={machineItems} />
       </div>
     </section>
   {/if}

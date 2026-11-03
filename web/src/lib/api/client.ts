@@ -748,6 +748,9 @@ export const revokeMCPClient = (id: string) =>
  * repository to be read again. Waivers come with the dialog that makes them.
  * ------------------------------------------------------------------------ */
 
+export const getControllerMachine = (signal?: AbortSignal) =>
+  api.get<Result<'getControllerMachine'>>('/controller/machine', { signal });
+
 export const getKennelOverview = (signal?: AbortSignal) =>
   api.get<Result<'getKennelOverview'>>('/kennel', { signal });
 
