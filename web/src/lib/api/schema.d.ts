@@ -5450,6 +5450,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/diagnostics/cpu-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where this controller's CPU is going
+         * @description Samples the controller's own CPU for a few seconds and returns the profile in the format `go tool pprof` reads. It is for the question the metrics cannot answer: `zoomies_loop_step_seconds` says which loop and step took the time, and a profile says what inside it did, down to the function. Every loop's goroutines carry a `loop` label, so a profile can be read by loop, for example with `go tool pprof -tagfocus=loop=housekeeping cpu.pprof`.
+         *
+         *     It is taken on request and never left running. Sampling costs the controller a little CPU of its own, and the runtime has one profiler, so a second request while one is being taken is refused with 409 rather than allowed to cut the first short. The request holds the connection for as long as the sample lasts, and a client that hangs up ends it.
+         */
+        get: operations["getCpuProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/settings": {
         parameters: {
             query?: never;
@@ -22845,6 +22867,42 @@ export interface operations {
                     "application/json": components["schemas"]["SupportBundle"];
                 };
             };
+        };
+    };
+    getCpuProfile: {
+        parameters: {
+            query?: {
+                /** @description How long to sample, in seconds. */
+                seconds?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The profile */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description `seconds` is not a whole number from 1 to 30. The message says what to change. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
         };
     };
     getSettings: {

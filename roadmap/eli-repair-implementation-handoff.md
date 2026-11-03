@@ -349,6 +349,23 @@ the stacked [PR #1369](https://github.com/eyupio/zoomies/pull/1369) without drop
 its S2a implementation or handoff. The new CI result remains separate from
 these local checks; an action-download failure is not an application test result.
 
+`main` then advanced to `ce17858c` through PR #1367, adding controller profiling
+and metrics. The generated `internal/api/openapi_spec.go` conflicted and GitHub
+stopped scheduling the normal pull-request checks. Merge that main revision and
+regenerate both API clients with `make openapi` from the merged YAML, retaining
+the CPU-profile endpoint and the repair `needs_action` contract. No store files,
+`go.mod` or `go.sum` changed relative to the verified correction, so the complete
+store result above still applies. Merge validation passes:
+
+- `go test -race -count=1 -run 'Eli|Repair|CPUProfile|Profile|Route|Stream|Timed|Timing|Loop|MigrationNamesAreFixedAndNewPrefixesAreUnique'`
+  on `./internal/api ./internal/controller ./internal/store ./internal/github`.
+- `go vet` on those four packages, `go test ./internal/docs -count=1` and
+  `npm run check` (zero errors/warnings in both configurations).
+- `make openapi` regenerated both clients; `git diff --check` passes.
+
+Before publishing, check the live base branch ref as well as PR metadata; the
+PR's recorded base SHA can lag behind the branch that mergeability uses.
+
 The full repository `make test-short`, all browser suites outside the affected
 repair pages, a live-model evaluation and end-to-end Eli repairs against real GitHub PR
 branches were not run. Publishing this implementation PR is separate from

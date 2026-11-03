@@ -439,6 +439,85 @@ remedy rather than a list of possibilities, and
 separately from the job-failure rate: it is the only signal a fleet in this
 state produces.
 
+## The controller itself is busy
+
+Most of what is slow is the fleet: a queue, a host that is full, a runner that
+will not start, and the sections above are for those. This is for the other
+case, where the controller process is using a lot of CPU, or answers slowly,
+and the fleet is not the reason. The numbers are all on `/metrics`
+([the controller's own time](metrics.md#where-the-controllers-own-time-goes))
+and each step below rules something in or out, so go in order.
+
+**Is it the controller, or the machine it is on?** `process_cpu_seconds_total`
+is the controller's own CPU, so `rate(process_cpu_seconds_total[5m])` is the
+number of cores it is using. Set it against the machine's own CPU from whatever
+you already watch it with. If the machine is busy and the controller is not,
+something else is on the machine. On a virtual machine, look for *steal* as
+well: it is CPU the hypervisor took away from the machine, so a total that counts
+it reads as busy when nothing on the machine did the work. A controller that is
+slow on a machine reporting steal is being starved, and nothing in the
+controller changes that. Move it to a machine with dedicated CPUs, or ask the
+provider whether the machine's CPU is shared or capped.
+
+**What starts the work?** `zoomies_reconcile_passes_total` splits the
+scheduling passes by what started them. Passes that are nearly all `timer` are
+the controller keeping its own pace, which `scheduler.interval` sets. Passes that
+are nearly all `nudge` are the fleet driving it: a heartbeat, a webhook or an API
+write each asks for one. `zoomies_reconcile_nudges_total` runs ahead of them by
+the number it folded together, so a burst of webhooks costs one pass and not a
+hundred.
+
+**Which part of a pass?** `zoomies_loop_step_seconds` times the pass in its
+phases and the housekeeping tick in its jobs. The steps that add up to the most
+time are where to look:
+
+```promql
+topk(5, sum by (loop, step) (rate(zoomies_loop_step_seconds_sum[5m])))
+```
+
+A large `snapshot` is the database. A large `decide` is the size of the fleet,
+since that step reads no clock and no database. A large `apply` is GitHub or a
+host being slow to answer, and `prune` is the hourly retention pass, which holds
+the one database writer for as long as it takes (read it beside
+`zoomies_store_write_held_seconds`). The tick that runs every thirty seconds
+shares its second with the other loops that tick at the same rate, so a burst
+that recurs at the same seconds of every minute is worth matching against it.
+
+**Is anybody watching?** While something is connected to the live event stream,
+every pass and every housekeeping tick works out the statistics, the problems
+list and the host views for it. `zoomies_event_subscribers` is how many are
+connected: open browser tabs, MCP clients, anything following changes.
+`zoomies_derived_skipped_total` counts the times that work was skipped because
+there was nobody to send it to. If the `derived` steps are a large share of the
+time, close the tabs and see whether the CPU falls, which is the cheapest test
+there is.
+
+**Who is asking?** `zoomies_api_requests_total` and
+`zoomies_api_request_seconds` are the API by route group. A group that is
+suddenly large is a client polling something it should not, and the group says
+which part of the API it is.
+
+**What is it doing, to the function?** When the metrics say which loop and not
+what inside it, take a profile. It needs an administrator token, samples for as
+long as `seconds` says (one to thirty, ten if left out) and returns the file
+`go tool pprof` reads:
+
+```sh
+curl -sS -H "Authorization: Bearer $ZOOMIES_TOKEN" \
+  "https://zoomies.example.com/api/v1/diagnostics/cpu-profile?seconds=30" -o cpu.pprof
+go tool pprof -top cpu.pprof
+go tool pprof -top -tagfocus=loop=housekeeping cpu.pprof
+```
+
+Every loop's goroutines carry a `loop` label, so the last line shows only what
+that loop was doing: the loops share the database and the views, and without the
+label a profile can only say that the database was busy, not who asked. Take the
+profile while the CPU is high, which for a burst that recurs means starting it a
+second or two before the burst. Sampling costs the controller a little CPU of
+its own, so it is taken when asked for and never left running, only one can be
+taken at a time, and a client that hangs up ends it. Each one is recorded in the
+audit log.
+
 ## Reporting a bug
 
 `zoomies diagnostics` writes a support bundle: this instance's build and

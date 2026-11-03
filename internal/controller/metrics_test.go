@@ -320,7 +320,7 @@ func TestAFailedReconcilePassIsCounted(t *testing.T) {
 		t.Fatalf("closing the store: %v", err)
 	}
 
-	h.c.reconcileNow(h.ctx)
+	h.c.reconcileNow(h.ctx, triggerRequest)
 
 	if got, _ := gatherValue(t, h.c, "zoomies_reconcile_errors_total", nil); got != 1 {
 		t.Errorf("zoomies_reconcile_errors_total = %v after a failed pass, want 1", got)
@@ -364,10 +364,18 @@ func TestNoMetricDeclaresAnUnboundedLabel(t *testing.T) {
 		// test draws: a job id would multiply every series by the day's work,
 		// and nine categories do not.
 		"domain": true, "fault": true,
-		// "trigger" is the two ways a re-run is asked for -- the button and
-		// the setting -- and both are constants in the source. What it must
-		// never become is who asked, which would grow with the people.
+		// "trigger" is the two ways a re-run is asked for (the button and
+		// the setting) and, on the scheduling passes, the four things that
+		// start one: startup, the timer, a nudge or a request. All are
+		// constants in the source. What it must never become is who asked,
+		// which would grow with the people.
 		"trigger": true,
+		// "loop" and "step" are the controller's own loops and the stretches of
+		// them that are timed, written in loopmetrics.go. They grow when
+		// somebody adds a loop, never with the fleet's work. "group" is the
+		// first part of a route's pattern, never of the path a request used,
+		// so it is bounded by the router; internal/api holds that to a number.
+		"loop": true, "step": true, "group": true,
 		// "limit" is the three per-host agent limits -- rate, poll and
 		// runners -- constants in the source. The host that met one is in the
 		// log line instead, because refusals are exactly where an unbounded

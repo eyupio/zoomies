@@ -15,7 +15,9 @@ func (c *Controller) jobAttentionLoop(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		if c.mayAct() && !c.transferDraining.Load() {
+			done := c.stepTimer(loopJobAttention, stepRefresh)
 			c.refreshJobAttention(ctx)
+			done()
 		}
 		select {
 		case <-ctx.Done():

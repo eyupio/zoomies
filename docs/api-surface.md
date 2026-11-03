@@ -630,6 +630,7 @@ this controller.
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
 | GET | `/api/v1/diagnostics/bundle` | admin | This instance in one JSON document, for a bug report. Admin because it contains the settings section, which is. It stays the fleet's to collect ("send me a bundle" is the platform's first support question) but below `platform` the `instance` section is reduced to the build it all ran on (version, commit, date and Go), and the configuration section carries only fleet-scoped keys. |
+| GET | `/api/v1/diagnostics/cpu-profile` | admin | A CPU profile of the controller process, in the format `go tool pprof` reads, taken for `seconds` (1 to 30, ten if left out) and returned as an attachment. It is for what the metrics cannot say: [`zoomies_loop_step_seconds`](metrics.md#where-the-controllers-own-time-goes) names the loop and step that took the time, and a profile names the function. Every loop's goroutines carry a `loop` label, so `go tool pprof -tagfocus=loop=housekeeping` reads one loop. Taken on request and never left running; one at a time, so a second request while one is being taken is a 409, and a client that hangs up ends the sample. Recorded in the audit log. |
 
 The bundle is assembled from the same renderings the routes above serve, so a
 section that is secret-free on its own route is secret-free here; the

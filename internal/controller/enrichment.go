@@ -27,10 +27,18 @@ func (c *Controller) enrichOnce(ctx context.Context) {
 	if !c.mayAct() {
 		return
 	}
+	// This runs every second, so the claim is timed apart from the work it
+	// finds: the claim is the cost of an idle controller, and the work is the
+	// cost of a busy one.
+	done := c.stepTimer(loopEnrichment, stepClaim)
 	items, err := c.st.ClaimEnrichment(ctx, 4)
+	done()
 	if err != nil {
 		c.log.Warn("could not claim GitHub enrichment", "error", err)
 		return
+	}
+	if len(items) > 0 {
+		defer c.stepTimer(loopEnrichment, stepWork)()
 	}
 	var wg sync.WaitGroup
 	for _, item := range items {
