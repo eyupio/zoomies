@@ -14,7 +14,7 @@ PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 | Investigated baseline | `871eff7d0073622f0b5f1c7d672583bd9288d633` on `main` |
 | Working branch | `codex/eli-repair-setup` |
 | Implementation | Initial commit `21c5e001b080f6162b702397d5404bc57181c36f`, plus the S1 UX follow-up in the same PR described below |
-| Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; migration-list correction under validation after CI failure |
+| Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; migration correction and full store race suite verified; CI rerunning |
 | Current slice | S1 complete and locally verified; awaiting PR/CI review |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Planned, not implemented |
@@ -336,10 +336,18 @@ GitHub returned HTTP 429 while downloading the pinned `actions/checkout`
 archive. Those jobs did not execute the application checks. The arm64 run
 completed the other Go packages and failed in the store migration-name guard.
 
-Correction validation: the migration-name regression and store vet check pass.
-The full store race suite is running. Refresh this record after verification
-and apply the correction to the stacked [PR #1369](https://github.com/eyupio/zoomies/pull/1369)
-without dropping its S2a handoff or implementation.
+Correction validation:
+
+- `go test -race -count=1 -run TestMigrationNamesAreFixedAndNewPrefixesAreUnique ./internal/store`:
+  passes.
+- `go test -race -count=1 -timeout 30m ./internal/store`: the complete store
+  suite passes in 390.769 seconds, without a test-name filter.
+- `go vet ./internal/store`, changed-file `gofmt` and `git diff --check`: pass.
+
+Correction `c1eab9dc` is published to PR #1368; CI is rerunning. Carry it into
+the stacked [PR #1369](https://github.com/eyupio/zoomies/pull/1369) without dropping
+its S2a implementation or handoff. The new CI result remains separate from
+these local checks; an action-download failure is not an application test result.
 
 The full repository `make test-short`, all browser suites outside the affected
 repair pages, a live-model evaluation and end-to-end Eli repairs against real GitHub PR
@@ -394,7 +402,7 @@ Useful commands (see `AGENTS.md` for prerequisites):
 make openapi
 npm --prefix web run check
 npm --prefix web run test:unit
-make test TEST_PKGS='./internal/github ./internal/controller ./internal/api ./internal/store' TEST_RUN='Eli|Repair'
+make test TEST_PKGS='./internal/github ./internal/controller ./internal/api ./internal/store' TEST_RUN='Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique'
 make lint
 ```
 
