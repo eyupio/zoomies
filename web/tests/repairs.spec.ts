@@ -78,15 +78,15 @@ test('Settings, Eli AI Assistant links to the hub and to setup and no longer lis
 });
 
 // Arriving from a failure names a repository, and the forms start with it chosen, so
-// the person fixes that one and does not have to find it again.
+// the person fixes that one and does not have to find it again. Use a repository
+// the earlier test has not configured: a configured one correctly opens in edit
+// mode, which has no repository picker to check.
 test('a repository named in the address is ready in the policy and link forms', async ({
   page,
 }) => {
-  await goto(page, '/repairs/setup?repo=acme%2Fsite', 'Repair settings');
+  await goto(page, '/repairs/setup?repo=acme%2Fapi', 'Repair settings');
   const repositories = page.getByRole('group', { name: 'Select repositories', exact: true });
-  await expect(
-    repositories.getByRole('checkbox', { name: 'acme/site', exact: true }),
-  ).toBeChecked();
+  await expect(repositories.getByRole('checkbox', { name: 'acme/api', exact: true })).toBeChecked();
   await expect(
     repositories.getByRole('checkbox', { name: 'acme/widgets', exact: true }),
   ).not.toBeChecked();
