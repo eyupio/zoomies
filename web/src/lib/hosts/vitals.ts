@@ -108,6 +108,24 @@ function reasonOf(key: VitalKey, host: Host, silent: boolean): string {
     : 'This agent has not reported available memory.';
 }
 
+/**
+ * Steal is worth a word on a host's card only once it is more than a
+ * measurement's noise: a physical machine reports a measured zero, and a
+ * hypervisor with room reports a point or two.
+ */
+export const STEAL_SHOWN_PERCENT = 5;
+
+/**
+ * The share of CPU time the hypervisor kept from the host, or null where there
+ * is nothing to say: not measured (an older agent, or a kernel that does not
+ * report it), or too small to matter. It is not read as zero, because "CPU usage"
+ * counts it as busy and a host that is being starved would otherwise look like
+ * one that is simply hard at work.
+ */
+export function stealShown(percent: number | undefined): number | null {
+  return percent !== undefined && percent >= STEAL_SHOWN_PERCENT ? percent : null;
+}
+
 /** The CPU elastic CPU has lent to runners, as a share of the whole host. Zero where none is. */
 function lentOf(host: Host): number {
   return Math.max(host.usage?.lent_cpu_percent ?? 0, 0);

@@ -2597,6 +2597,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/controller/machine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The machine the controller itself runs on
+         * @description What the controller measured of its own machine: its CPU count and memory as its procfs describes them, and the whole-machine CPU, steal, I/O wait, one-minute load average and available memory it last sampled. It is for a controller whose agents are all elsewhere, which has no host of its own to read the machine from; one with an embedded agent reports the same machine as a host. Sampled on the controller's housekeeping tick and read here without sampling, so asking never sets the interval the shares are taken over. `usage` is absent until two samples have been taken, and on a platform with no procfs; `usage_fresh` says whether a recent measurement stands behind it.
+         */
+        get: operations["getControllerMachine"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hosts/{id}": {
         parameters: {
             query?: never;
@@ -10454,6 +10474,8 @@ export interface components {
             lent_cpu_percent?: number;
             /** @description The share of CPU time the machine spent idle with something waiting on disk between samples. cpu_percent counts that time as busy; this is what tells a host stalled on its disk from one hard at work. Absent when unmeasured. */
             io_wait_percent?: number;
+            /** @description The share of CPU time the hypervisor kept from this virtual machine between samples. `cpu_percent` counts that time as busy, so a machine that is being starved reads as one hard at work; this is what says which it is. Absent when unmeasured, or on a kernel that does not report it. */
+            steal_percent?: number;
             /**
              * Format: date-time
              * @description When I/O wait rose to 20% and has not fallen below 10% since. A host that has been there for ten minutes is called disk-bound
@@ -10461,6 +10483,34 @@ export interface components {
             io_wait_high_since?: string;
             /** @description The kernel's one-minute load average for the whole machine, as the agent read it from /proc/loadavg. Absent when unmeasured. Judged against the host's CPU count: a load of at least twice the CPUs is what steps the throttle up, because a runnable queue that deep is a machine that has stopped keeping up even when the CPU figure saturates at 100. */
             load_average_1m?: number;
+        };
+        ControllerMachine: {
+            /** @description The CPUs its procfs counts. Absent where there is no procfs. */
+            cpus?: number;
+            /**
+             * Format: int64
+             * @description Its procfs's total memory in MB. Absent where there is no procfs.
+             */
+            memory_mb?: number;
+            usage?: {
+                /** @description Whole-machine CPU occupied between two samples. Counts I/O wait and steal as busy. */
+                cpu_percent?: number;
+                /** @description The share of that interval the machine spent idle with something waiting on disk. */
+                io_wait_percent?: number;
+                /** @description The share of that interval the hypervisor kept the CPU from this virtual machine. Absent on a kernel that does not report it. */
+                steal_percent?: number;
+                /** @description The kernel's one-minute load average. */
+                load_average_1m?: number;
+                /**
+                 * Format: int64
+                 * @description Available memory including reclaimable cache.
+                 */
+                memory_available_mb?: number;
+                /** Format: date-time */
+                sampled_at: string;
+            };
+            /** @description Whether a measurement from the last 90 seconds stands behind usage. */
+            usage_fresh: boolean;
         };
         /** @description One host at one minute. Absent measurements are gaps, never zero. */
         HostSample: {
@@ -10474,6 +10524,8 @@ export interface components {
             cpu_percent?: number;
             /** @description Share of CPU time the host spent idle with work waiting on disk. `cpu_percent` counts that time as busy, so this is what tells a host stalled on its disk from one doing arithmetic. Absent when unmeasured or stale. */
             io_wait_percent?: number;
+            /** @description Share of CPU time the hypervisor kept from the host. `cpu_percent` counts that time as busy, so this is what tells a virtual machine that is being starved from one doing arithmetic. Absent when unmeasured or stale, and on a kernel that does not report it. */
+            steal_percent?: number;
             /** @description The kernel's one-minute load average. Absent when unmeasured or stale. */
             load_average_1m?: number;
             /** @description The machine's CPUs */
@@ -18330,6 +18382,26 @@ export interface operations {
                     "application/json": {
                         items?: components["schemas"]["HostSample"][];
                     };
+                };
+            };
+        };
+    };
+    getControllerMachine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllerMachine"];
                 };
             };
         };

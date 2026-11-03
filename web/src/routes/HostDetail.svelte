@@ -571,6 +571,7 @@
           'Available memory (MB)': host.usage?.memory_available_mb,
           'CPU admission held': host.usage?.cpu_held,
           'I/O wait (%)': host.usage?.io_wait_percent,
+          'Steal (%)': host.usage?.steal_percent,
           'Sample received at': host.usage?.sampled_at,
         },
         question:

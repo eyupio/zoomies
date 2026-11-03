@@ -27,7 +27,13 @@ type HostSample struct {
 	// tells a host stalled on its disk from one doing arithmetic. Nil is a
 	// host that did not measure it, which is a gap, not a quiet disk.
 	IOWaitPercent *float64 `json:"io_wait_percent,omitempty"`
-	LoadAverage1  *float64 `json:"load_average_1m,omitempty"`
+	// StealPercent is the share of CPU time the hypervisor kept from the host.
+	// CPUPercent counts that time as busy, so a virtual machine that is being
+	// starved reads as one hard at work, and this is the figure that says which it
+	// was. Nil is a host that did not measure it, which is a gap, not a machine
+	// that was never starved.
+	StealPercent *float64 `json:"steal_percent,omitempty"`
+	LoadAverage1 *float64 `json:"load_average_1m,omitempty"`
 	// CPUs and MemoryMB are the machine's size, carried on every row because
 	// the ratio is what the chart draws and a host can be resized between
 	// samples.
@@ -57,14 +63,15 @@ func (s *Store) RecordHostSamples(ctx context.Context, samples []HostSample) err
 		for _, h := range samples {
 			minute := h.At.UTC().Truncate(time.Minute)
 			if _, err := tx.ExecContext(ctx, `INSERT INTO host_samples
-				(host_id, at, capacity, active_runners, cpu_percent, io_wait_percent, load_average_1m,
+				(host_id, at, capacity, active_runners, cpu_percent, io_wait_percent, steal_percent, load_average_1m,
 				 cpus, memory_mb, memory_available_mb, allocatable_cpus, allocatable_memory_mb,
 				 reserved_cpus, reserved_memory_mb, disk_total_mb, disk_free_mb)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 				ON CONFLICT(host_id, at) DO UPDATE SET capacity=excluded.capacity,
 					active_runners=excluded.active_runners,
 					cpu_percent=excluded.cpu_percent,
 					io_wait_percent=excluded.io_wait_percent,
+					steal_percent=excluded.steal_percent,
 					load_average_1m=excluded.load_average_1m,
 					cpus=excluded.cpus, memory_mb=excluded.memory_mb,
 					memory_available_mb=excluded.memory_available_mb,
@@ -73,7 +80,7 @@ func (s *Store) RecordHostSamples(ctx context.Context, samples []HostSample) err
 					reserved_cpus=excluded.reserved_cpus,
 					reserved_memory_mb=excluded.reserved_memory_mb,
 					disk_total_mb=excluded.disk_total_mb, disk_free_mb=excluded.disk_free_mb`,
-				h.HostID, ms(minute), h.Capacity, h.ActiveRunners, h.CPUPercent, h.IOWaitPercent, h.LoadAverage1,
+				h.HostID, ms(minute), h.Capacity, h.ActiveRunners, h.CPUPercent, h.IOWaitPercent, h.StealPercent, h.LoadAverage1,
 				h.CPUs, h.MemoryMB, h.MemoryAvailableMB, h.AllocatableCPUs, h.AllocatableMemoryMB,
 				h.ReservedCPUs, h.ReservedMemoryMB, h.DiskTotalMB, h.DiskFreeMB); err != nil {
 				return err
@@ -112,16 +119,16 @@ func (s *Store) ListHostSamples(ctx context.Context, since time.Time, hostID str
 // hostSampleCols and scanHostSample are one sample's columns and their scan,
 // shared by every read of host_samples so a column added to one cannot be
 // missing from another.
-const hostSampleCols = `host_id, at, capacity, active_runners, cpu_percent, io_wait_percent, load_average_1m,
+const hostSampleCols = `host_id, at, capacity, active_runners, cpu_percent, io_wait_percent, steal_percent, load_average_1m,
 	cpus, memory_mb, memory_available_mb, allocatable_cpus, allocatable_memory_mb,
 	reserved_cpus, reserved_memory_mb, disk_total_mb, disk_free_mb`
 
 func scanHostSample(sc interface{ Scan(...any) error }) (HostSample, error) {
 	var h HostSample
 	var t int64
-	var cpu, ioWait, load, reservedCPUs sql.NullFloat64
+	var cpu, ioWait, steal, load, reservedCPUs sql.NullFloat64
 	var memAvail, reservedMem sql.NullInt64
-	if err := sc.Scan(&h.HostID, &t, &h.Capacity, &h.ActiveRunners, &cpu, &ioWait, &load,
+	if err := sc.Scan(&h.HostID, &t, &h.Capacity, &h.ActiveRunners, &cpu, &ioWait, &steal, &load,
 		&h.CPUs, &h.MemoryMB, &memAvail, &h.AllocatableCPUs, &h.AllocatableMemoryMB,
 		&reservedCPUs, &reservedMem, &h.DiskTotalMB, &h.DiskFreeMB); err != nil {
 		return HostSample{}, err
@@ -132,6 +139,9 @@ func scanHostSample(sc interface{ Scan(...any) error }) (HostSample, error) {
 	}
 	if ioWait.Valid {
 		h.IOWaitPercent = &ioWait.Float64
+	}
+	if steal.Valid {
+		h.StealPercent = &steal.Float64
 	}
 	if load.Valid {
 		h.LoadAverage1 = &load.Float64

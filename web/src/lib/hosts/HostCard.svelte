@@ -48,7 +48,7 @@
   import { backendTrouble } from './backends';
   import { committedNotice } from './committed';
   import { byHandLink, hostUpdateWords, skewFact } from './update';
-  import { hostVitals } from './vitals';
+  import { hostVitals, stealShown } from './vitals';
 
   interface Props {
     host: Host;
@@ -851,6 +851,17 @@
           {#if host.usage_fresh && host.usage}
             {#if host.usage.cpu_percent !== undefined}
               <span class="tabular">CPU usage {round(host.usage.cpu_percent)}%</span>
+            {/if}
+            {#if stealShown(host.usage.steal_percent) !== null}
+              <!-- CPU usage counts this time as busy, so a host being starved by its
+                 hypervisor would read as one hard at work without a word about it. -->
+              <Tooltip
+                bare
+                text="The share of CPU time the hypervisor kept from this virtual machine. CPU usage counts it as busy."
+                ><button type="button" class="tabular help-term"
+                  >steal {round(host.usage.steal_percent ?? 0)}%</button
+                ></Tooltip
+              >
             {/if}
             {#if host.usage.memory_available_mb !== undefined}
               <span class="tabular"
