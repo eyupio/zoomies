@@ -14,7 +14,7 @@ PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 | Investigated baseline | `871eff7d0073622f0b5f1c7d672583bd9288d633` on `main` |
 | Working branch | `codex/eli-repair-setup` |
 | Implementation | Initial commit `21c5e001b080f6162b702397d5404bc57181c36f`, plus the S1 UX follow-up in the same PR described below |
-| Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open as a draft; CI pending |
+| Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; latest CI pending |
 | Current slice | S1 complete and locally verified; awaiting PR/CI review |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Planned, not implemented |
@@ -297,7 +297,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 
 | PR | Scope | Validation | Remaining work |
 | --- | --- | --- | --- |
-| [#1368](https://github.com/eyupio/zoomies/pull/1368), draft | S1 and this handoff | Local checks below pass; CI pending | S2, S3, S4; start with independent observation and durable watches |
+| [#1368](https://github.com/eyupio/zoomies/pull/1368), open | S1, UX follow-up and this handoff | Local checks below pass; latest CI pending | S2, S3, S4; start with independent observation and durable watches |
 
 S1 validation on 3 November 2026:
 
@@ -337,7 +337,7 @@ explicit follow-ups; S1 does not widen raw response or log permissions.
 
 ### S1 UX follow-up in PR #1368, 3 November 2026
 
-The existing draft PR also includes three small improvements requested after
+The existing PR also includes three small improvements requested after
 the first checkpoint:
 
 - Configured-repository search is case-insensitive and ignores surrounding
