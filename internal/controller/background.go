@@ -287,6 +287,7 @@ func (c *Controller) hostSample(h *store.Host, now time.Time) store.HostSample {
 	if h.Usage.Fresh(now) {
 		s.CPUPercent = h.Usage.CPUPercent
 		s.IOWaitPercent = h.Usage.IOWaitPercent
+		s.StealPercent = h.Usage.StealPercent
 		s.LoadAverage1 = h.Usage.LoadAverage1
 		s.MemoryAvailableMB = h.Usage.MemoryAvailableMB
 	}

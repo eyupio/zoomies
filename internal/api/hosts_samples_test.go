@@ -84,3 +84,38 @@ func TestAHostViewCarriesItsDiskPulse(t *testing.T) {
 		t.Fatalf("usage = %+v, want I/O wait %v", view.Usage, wait)
 	}
 }
+
+// The history route and the host's own view both carry steal, so the figure that
+// tells a starved virtual machine from a busy one is reachable wherever CPU is.
+func TestHostSamplesAndUsageCarrySteal(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+	now := h.ctrl.Now()
+	cpu, steal := 68.0, 36.0
+	if err := h.ctrl.Store().RecordHostSamples(h.ctx, []store.HostSample{
+		{HostID: "host_a", At: now.Add(-2 * time.Minute), Capacity: 4, CPUPercent: &cpu, StealPercent: &steal},
+		{HostID: "host_b", At: now.Add(-2 * time.Minute), Capacity: 2, CPUPercent: &cpu},
+	}); err != nil {
+		t.Fatalf("RecordHostSamples: %v", err)
+	}
+	res := h.do(request{method: http.MethodGet, path: "/api/v1/hosts/samples?window=1h", cookie: cookie})
+	res.mustStatus(t, http.StatusOK, "samples")
+	var out struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(res.body, &out); err != nil {
+		t.Fatalf("%v: %s", err, truncate(res.body))
+	}
+	seen := map[string]any{}
+	for _, it := range out.Items {
+		v, present := it["steal_percent"]
+		seen[it["host_id"].(string)] = v
+		if it["host_id"] == "host_b" && present {
+			t.Errorf("a host that did not measure steal sent %v, want the field left out", v)
+		}
+	}
+	if seen["host_a"] != steal {
+		t.Errorf("host_a steal = %v, want %v", seen["host_a"], steal)
+	}
+}

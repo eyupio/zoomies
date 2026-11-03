@@ -482,9 +482,11 @@ var (
 		"1 while an installation is inside its GitHub rate-limit backoff and every background sweep is standing down from it, 0 otherwise.",
 		[]string{"installation"}, nil)
 	descHostCPUUsage = prometheus.NewDesc("zoomies_host_cpu_usage_percent",
-		"Recent whole-host CPU occupied, including I/O wait. Absent when stale or unmeasured.", []string{"host"}, nil)
+		"Recent whole-host CPU occupied, including I/O wait and steal. Absent when stale or unmeasured.", []string{"host"}, nil)
 	descHostIOWait = prometheus.NewDesc("zoomies_host_io_wait_percent",
 		"Recent whole-host share of CPU time spent idle with work waiting on disk. cpu_usage_percent counts this as busy. Absent when stale or unmeasured.", []string{"host"}, nil)
+	descHostSteal = prometheus.NewDesc("zoomies_host_steal_percent",
+		"Recent whole-host share of CPU time the hypervisor kept from this virtual machine. cpu_usage_percent counts this as busy. Absent when stale or unmeasured, and on a kernel that does not report it.", []string{"host"}, nil)
 	descHostDiskTotal = prometheus.NewDesc("zoomies_host_disk_total_bytes",
 		"Size of the filesystem holding the agent's work directory. Absent when the host has not measured it.", []string{"host"}, nil)
 	descHostDiskFree = prometheus.NewDesc("zoomies_host_disk_free_bytes",
@@ -570,6 +572,7 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descProviderQuarantined
 	ch <- descHostLoadAverage
 	ch <- descHostIOWait
+	ch <- descHostSteal
 	ch <- descHostDiskTotal
 	ch <- descHostDiskFree
 	ch <- descHostDiskBound
@@ -694,6 +697,9 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 			}
 			if v := h.Usage.IOWaitPercent; v != nil {
 				gauge(descHostIOWait, *v, h.ID)
+			}
+			if v := h.Usage.StealPercent; v != nil {
+				gauge(descHostSteal, *v, h.ID)
 			}
 		}
 		// Disk is measured on the host rather than sampled from its heartbeat

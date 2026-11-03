@@ -10454,6 +10454,8 @@ export interface components {
             lent_cpu_percent?: number;
             /** @description The share of CPU time the machine spent idle with something waiting on disk between samples. cpu_percent counts that time as busy; this is what tells a host stalled on its disk from one hard at work. Absent when unmeasured. */
             io_wait_percent?: number;
+            /** @description The share of CPU time the hypervisor kept from this virtual machine between samples. `cpu_percent` counts that time as busy, so a machine that is being starved reads as one hard at work; this is what says which it is. Absent when unmeasured, or on a kernel that does not report it. */
+            steal_percent?: number;
             /**
              * Format: date-time
              * @description When I/O wait rose to 20% and has not fallen below 10% since. A host that has been there for ten minutes is called disk-bound
@@ -10474,6 +10476,8 @@ export interface components {
             cpu_percent?: number;
             /** @description Share of CPU time the host spent idle with work waiting on disk. `cpu_percent` counts that time as busy, so this is what tells a host stalled on its disk from one doing arithmetic. Absent when unmeasured or stale. */
             io_wait_percent?: number;
+            /** @description Share of CPU time the hypervisor kept from the host. `cpu_percent` counts that time as busy, so this is what tells a virtual machine that is being starved from one doing arithmetic. Absent when unmeasured or stale, and on a kernel that does not report it. */
+            steal_percent?: number;
             /** @description The kernel's one-minute load average. Absent when unmeasured or stale. */
             load_average_1m?: number;
             /** @description The machine's CPUs */

@@ -1206,7 +1206,15 @@ figure that tells the two apart. It is judged the way CPU is: it starts a clock
 at 20% and holds it until it falls below 10%, and a host that has been there for
 ten minutes is called *disk-bound*, which is what
 [keeping the work folder in memory](#keeping-the-work-folder-in-memory) is
-suggested on. Available memory includes reclaimable cache. The load
+suggested on. Steal is the same kind of figure for a virtual machine: the share of
+time its hypervisor kept the CPU from it, which CPU occupancy also counts as
+busy, so a machine that is being starved by the host it runs on reads as one
+hard at work. A host at 70% busy with 40% of it steal is doing about 30% of its
+own work, and no change to the pools on it will give the rest back. It is a
+measurement only, shown beside the CPU figure and kept in the history; nothing
+the scheduler decides is judged on it. A physical machine measures zero, and a
+kernel that does not report it measures nothing, which is not the same.
+Available memory includes reclaimable cache. The load
 average is there because CPU occupancy pins at 100% and then stops saying
 anything: load keeps counting what is queued behind the cores, so it is what
 says a host has been pushed *past* them rather than merely to them. Sampling
