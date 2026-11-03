@@ -21,19 +21,12 @@ var bandPages = []string{
 
 var bandCuts = []string{"slim", "compact", "standard", "expanded"}
 
-var bandLogoSizes = []string{"auto", "small", "medium", "large"}
-
 // bandPreferences is the `bands` object of an account's private preferences:
-// where each band stands, which are switched off, and whether the dog is drawn
-// and at what size. Every field is optional, because an absent one is a choice
+// where each band stands and which are switched off. Every field is optional, because an absent one is a choice
 // never made and the page keeps its default.
 type bandPreferences struct {
-	Hidden    []string          `json:"hidden,omitempty"`
-	Sizes     map[string]string `json:"sizes,omitempty"`
-	Logo      *bool             `json:"logo,omitempty"`
-	LogoSize  string            `json:"logo_size,omitempty"`
-	LogoPages map[string]bool   `json:"logo_pages,omitempty"`
-	LogoSizes map[string]string `json:"logo_sizes,omitempty"`
+	Hidden []string          `json:"hidden,omitempty"`
+	Sizes  map[string]string `json:"sizes,omitempty"`
 }
 
 // validate says which part of a band document this build does not have, or
@@ -61,23 +54,6 @@ func (in *bandPreferences) validate(field string) []fieldError {
 		}
 		if cut := in.Sizes[page]; !slices.Contains(bandCuts, cut) {
 			errs = append(errs, fieldError{field + ".sizes." + page, "one of " + strings.Join(bandCuts, ", ")})
-		}
-	}
-	if in.LogoSize != "" && !slices.Contains(bandLogoSizes, in.LogoSize) {
-		errs = append(errs, fieldError{field + ".logo_size", "one of " + strings.Join(bandLogoSizes, ", ")})
-	}
-	for _, page := range slices.Sorted(maps.Keys(in.LogoPages)) {
-		if !slices.Contains(bandPages, page) {
-			errs = append(errs, fieldError{field + ".logo_pages." + page, "not a page with a band"})
-		}
-	}
-	for _, page := range slices.Sorted(maps.Keys(in.LogoSizes)) {
-		if !slices.Contains(bandPages, page) {
-			errs = append(errs, fieldError{field + ".logo_sizes." + page, "not a page with a band"})
-			continue
-		}
-		if size := in.LogoSizes[page]; !slices.Contains(bandLogoSizes, size) {
-			errs = append(errs, fieldError{field + ".logo_sizes." + page, "one of " + strings.Join(bandLogoSizes, ", ")})
 		}
 	}
 	return errs

@@ -319,7 +319,7 @@ type userPreferences struct {
 	// here, with the account, so a choice made at the desk holds on the phone.
 	Assistant *assistantStyleInput `json:"assistant,omitempty"`
 	// Bands is how this person's page bands stand: the cut each page takes,
-	// which are switched off, and the dog's size on each. It travels with the
+	// and which are switched off. It travels with the
 	// account for the same reason the layouts do.
 	Bands *bandPreferences `json:"bands,omitempty"`
 }
@@ -369,7 +369,7 @@ func (s *Server) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errs := preferences.Bands.validate("bands"); len(errs) > 0 {
-		unprocessable(w, "a band names a page, cut or logo size this build does not have", errs)
+		unprocessable(w, "a band names a page or cut this build does not have", errs)
 		return
 	}
 	for tableID, layout := range preferences.TableLayouts {

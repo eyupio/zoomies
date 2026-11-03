@@ -86,8 +86,6 @@
         headline="Fleet status"
         lede="The dog hidden, so the sentence has the whole band."
       />
-      <BrandStage wide artSize="small" headline="Fleet status" lede="A small dog." />
-      <BrandStage wide artSize="large" headline="Fleet status" lede="A large dog." />
     </div>
   </div>
 

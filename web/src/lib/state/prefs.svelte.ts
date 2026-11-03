@@ -27,7 +27,6 @@ import {
 } from './logo-treatment';
 import { defaultBandSize, type BandPage, type BandSize } from '../bands/pages';
 import { ALL_BAND_PAGES } from '../bands/scope';
-import { DEFAULT_BAND_LOGO_SIZE, isBandLogoSize, type BandLogoSize } from '../bands/band-logo';
 import { storage } from './storage';
 
 const PREFS_KEY = 'zoomies.prefs';
@@ -174,18 +173,6 @@ interface StoredPrefs {
    * who never chose.
    */
   bandSizes?: Record<string, string>;
-  /** Whether the dog is drawn in the band. Off by default, and the default for every page. */
-  bandLogo?: boolean;
-  /** How large the dog in the band is drawn; `auto` follows the band's size. */
-  bandLogoSize?: BandLogoSize;
-  /**
-   * Pages whose dog is drawn or hidden against the default above. The exception,
-   * as `hiddenBands` is, so a page keeps following the default until it is told
-   * otherwise and a default that moves later reaches everyone who never chose.
-   */
-  bandLogoPages?: Record<string, boolean>;
-  /** Pages whose dog size is not the default above. */
-  bandLogoSizes?: Record<string, string>;
 }
 
 /** The quick ranges the activity matrix offers, as the buttons name them. */
@@ -246,10 +233,6 @@ class Prefs {
   #logoTreatment = $state<LogoTreatment>(DEFAULT_LOGO_TREATMENT);
   #hiddenBands = $state<BandPage[]>([]);
   #bandSizes = $state<Partial<Record<BandPage, BandSize>>>({});
-  #bandLogo = $state(false);
-  #bandLogoSize = $state<BandLogoSize>(DEFAULT_BAND_LOGO_SIZE);
-  #bandLogoPages = $state<Partial<Record<BandPage, boolean>>>({});
-  #bandLogoSizes = $state<Partial<Record<BandPage, BandLogoSize>>>({});
   #accountSync = false;
   // Counts the syncs begun and the accounts disconnected, so a read of the
   // account that is overtaken by a sign-out, or by another account's sign-in,
@@ -292,17 +275,9 @@ class Prefs {
     const bands = readBandSettings({
       hidden: stored.hiddenBands,
       sizes: stored.bandSizes,
-      logo: stored.bandLogo,
-      logo_size: stored.bandLogoSize,
-      logo_pages: stored.bandLogoPages,
-      logo_sizes: stored.bandLogoSizes,
     });
     this.#hiddenBands = bands.hidden;
     this.#bandSizes = bands.sizes;
-    this.#bandLogo = bands.logo;
-    this.#bandLogoSize = bands.logoSize;
-    this.#bandLogoPages = bands.logoPages;
-    this.#bandLogoSizes = bands.logoSizes;
     this.#applyNav();
   }
 
@@ -428,18 +403,10 @@ class Prefs {
         const bands = readBandSettings(remote.bands);
         this.#hiddenBands = bands.hidden;
         this.#bandSizes = bands.sizes;
-        this.#bandLogo = bands.logo;
-        this.#bandLogoSize = bands.logoSize;
-        this.#bandLogoPages = bands.logoPages;
-        this.#bandLogoSizes = bands.logoSizes;
       } else if (previous && previous !== userID) {
         const bands = readBandSettings({});
         this.#hiddenBands = bands.hidden;
         this.#bandSizes = bands.sizes;
-        this.#bandLogo = bands.logo;
-        this.#bandLogoSize = bands.logoSize;
-        this.#bandLogoPages = bands.logoPages;
-        this.#bandLogoSizes = bands.logoSizes;
       }
       if (Object.keys(layouts).length > 0) {
         // The server document is a replacement, not an overlay. Clearing the
@@ -650,106 +617,6 @@ class Prefs {
     this.#persist();
   }
 
-  /** Whether this page's band draws the dog. */
-  bandLogoShown(page: BandPage): boolean {
-    return this.#bandLogoPages[page] ?? this.#bandLogo;
-  }
-
-  setBandLogoShown(page: BandPage, shown: boolean): void {
-    this.applyBandLogoShown([page], shown);
-  }
-
-  applyBandLogoShown(pages: readonly BandPage[], shown: boolean): void {
-    const next = { ...this.#bandLogoPages };
-    for (const page of pages) {
-      if (shown === this.#bandLogo) delete next[page];
-      else next[page] = shown;
-    }
-    this.#bandLogoPages = next;
-    this.#persist();
-  }
-
-  /** The size of this page's dog, which follows the default until it is told otherwise. */
-  bandLogoSizeFor(page: BandPage): BandLogoSize {
-    return this.#bandLogoSizes[page] ?? this.#bandLogoSize;
-  }
-
-  setBandLogoSizeFor(page: BandPage, size: BandLogoSize): void {
-    this.applyBandLogoSize([page], size);
-  }
-
-  applyBandLogoSize(pages: readonly BandPage[], size: BandLogoSize): void {
-    const next = { ...this.#bandLogoSizes };
-    for (const page of pages) {
-      if (size === this.#bandLogoSize) delete next[page];
-      else next[page] = size;
-    }
-    this.#bandLogoSizes = next;
-    this.#persist();
-  }
-
-  /**
-   * Both halves of the dog in one save: the band's own control asks whether it
-   * is drawn and how large, and applying that as two writes would put a
-   * half-made choice on the account and repaint the band twice.
-   */
-  applyBandLogo(pages: readonly BandPage[], logo: { shown: boolean; size: BandLogoSize }): void {
-    const shown = { ...this.#bandLogoPages };
-    const sizes = { ...this.#bandLogoSizes };
-    for (const page of pages) {
-      if (logo.shown === this.#bandLogo) delete shown[page];
-      else shown[page] = logo.shown;
-      if (logo.size === this.#bandLogoSize) delete sizes[page];
-      else sizes[page] = logo.size;
-    }
-    this.#bandLogoPages = shown;
-    this.#bandLogoSizes = sizes;
-    this.#persist();
-  }
-
-  /** Whether this page's dog differs from the default set in Appearance. */
-  bandLogoCustom(page: BandPage): boolean {
-    return page in this.#bandLogoPages || page in this.#bandLogoSizes;
-  }
-
-  /** Put one page's dog back on the default set in Appearance. */
-  clearBandLogoOverride(page: BandPage): void {
-    const shown = { ...this.#bandLogoPages };
-    const sizes = { ...this.#bandLogoSizes };
-    delete shown[page];
-    delete sizes[page];
-    this.#bandLogoPages = shown;
-    this.#bandLogoSizes = sizes;
-    this.#persist();
-  }
-
-  /**
-   * The dog's default. Setting it is a choice for every page, not a new default
-   * for pages that have not chosen: the switch says "Show the logo in the
-   * band", and a page that quietly kept the old answer would make it a lie.
-   */
-  get bandLogo(): boolean {
-    return this.#bandLogo;
-  }
-
-  set bandLogo(value: boolean) {
-    this.#bandLogo = value;
-    this.#bandLogoPages = {};
-    this.#persist();
-  }
-
-  /** How large the dog in the band is drawn; `auto` follows the band's size. */
-  get bandLogoSize(): BandLogoSize {
-    return this.#bandLogoSize;
-  }
-
-  set bandLogoSize(value: BandLogoSize) {
-    if (!isBandLogoSize(value)) return;
-    this.#bandLogoSize = value;
-    this.#bandLogoSizes = {};
-    this.#persist();
-  }
-
   get logoTreatment(): LogoTreatment {
     return this.#logoTreatment;
   }
@@ -810,10 +677,6 @@ class Prefs {
         logoTreatment: this.#logoTreatment,
         hiddenBands: this.#hiddenBands,
         bandSizes: this.#bandSizes,
-        bandLogo: this.#bandLogo,
-        bandLogoSize: this.#bandLogoSize,
-        bandLogoPages: this.#bandLogoPages,
-        bandLogoSizes: this.#bandLogoSizes,
       } satisfies StoredPrefs),
     );
     this.#scheduleAccountSave();
@@ -843,10 +706,6 @@ class Prefs {
         bands: bandSettingsDocument({
           hidden: this.#hiddenBands,
           sizes: this.#bandSizes,
-          logo: this.#bandLogo,
-          logoSize: this.#bandLogoSize,
-          logoPages: this.#bandLogoPages,
-          logoSizes: this.#bandLogoSizes,
         }),
       }).catch(() => {
         // The local copy is authoritative until the next successful sign-in;

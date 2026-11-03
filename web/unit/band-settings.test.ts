@@ -14,17 +14,15 @@ test('a document this build cannot draw falls back field by field', () => {
   const bands = readBandSettings({
     hidden: ['jobs', 'audit', 'jobs'],
     sizes: { runners: 'slim', pools: 'vast', settings: 'compact' },
-    logo: 'yes',
-    logo_size: 'huge',
-    logo_pages: { hosts: false, audit: true },
-    logo_sizes: { usage: 'large', settings: 'small' },
+    // Fields an older build wrote for the dog are not read any more.
+    logo: true,
+    logo_size: 'large',
+    logo_pages: { hosts: false },
+    logo_sizes: { usage: 'large' },
   });
   assert.deepEqual(bands.hidden, ['jobs']);
   assert.deepEqual(bands.sizes, { runners: 'slim' });
-  assert.equal(bands.logo, DEFAULT_BAND_SETTINGS.logo);
-  assert.equal(bands.logoSize, 'auto');
-  assert.deepEqual(bands.logoPages, { hosts: false });
-  assert.deepEqual(bands.logoSizes, { usage: 'large' });
+  assert.deepEqual(Object.keys(bands).sort(), ['hidden', 'sizes']);
 });
 
 test('an empty or foreign document is the defaults, not a failure', () => {
@@ -32,10 +30,6 @@ test('an empty or foreign document is the defaults, not a failure', () => {
     assert.deepEqual(readBandSettings(raw), {
       hidden: [],
       sizes: {},
-      logo: false,
-      logoSize: 'auto',
-      logoPages: {},
-      logoSizes: {},
     });
   }
 });
@@ -46,19 +40,11 @@ test('what is written back carries every field and survives a read', () => {
   const settings: BandSettings = {
     hidden: ['kennel'],
     sizes: { overview: 'expanded' },
-    logo: false,
-    logoSize: 'medium',
-    logoPages: { jobs: true },
-    logoSizes: { hosts: 'small' },
   };
   const document = bandSettingsDocument(settings);
   assert.deepEqual(document, {
     hidden: ['kennel'],
     sizes: { overview: 'expanded' },
-    logo: false,
-    logo_size: 'medium',
-    logo_pages: { jobs: true },
-    logo_sizes: { hosts: 'small' },
   });
   assert.deepEqual(readBandSettings(document), settings);
 });
@@ -68,16 +54,10 @@ test('the document is a copy, so a later change does not rewrite what was sent',
     ...DEFAULT_BAND_SETTINGS,
     hidden: ['jobs'],
     sizes: { runners: 'slim' },
-    logoPages: { pools: false },
-    logoSizes: { hosts: 'large' },
   };
   const document = bandSettingsDocument(settings);
   settings.hidden.push('pools');
   settings.sizes.runners = 'compact';
-  settings.logoPages.pools = true;
-  settings.logoSizes.hosts = 'small';
   assert.deepEqual(document.hidden, ['jobs']);
   assert.deepEqual(document.sizes, { runners: 'slim' });
-  assert.deepEqual(document.logo_pages, { pools: false });
-  assert.deepEqual(document.logo_sizes, { hosts: 'large' });
 });
