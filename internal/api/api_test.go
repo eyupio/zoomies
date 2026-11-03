@@ -55,7 +55,7 @@ func (f *fakeFactory) For(_ context.Context, inst *store.Installation, pem []byt
 // served from an httptest listener so that every test exercises the same
 // middleware chain a browser would.
 type harness struct {
-	t    *testing.T
+	t    testing.TB
 	srv  *httptest.Server
 	api  *Server
 	ctrl *controller.Controller
@@ -132,7 +132,7 @@ func (c *logCapture) text() string {
 	return strings.Join(c.sink.lines, "\n")
 }
 
-func testConfig(t *testing.T) *config.Config {
+func testConfig(t testing.TB) *config.Config {
 	t.Helper()
 	cfg := config.Default()
 	cfg.Server.Bind = "127.0.0.1:0"
@@ -147,12 +147,12 @@ func testConfig(t *testing.T) *config.Config {
 	return cfg
 }
 
-func newHarness(t *testing.T, opts ...func(*config.Config)) *harness {
+func newHarness(t testing.TB, opts ...func(*config.Config)) *harness {
 	t.Helper()
 	return newHarnessWithProviders(t, []provider.Factory{provider.NewFakeFactory()}, opts...)
 }
 
-func newHarnessWithProviders(t *testing.T, factories []provider.Factory, opts ...func(*config.Config)) *harness {
+func newHarnessWithProviders(t testing.TB, factories []provider.Factory, opts ...func(*config.Config)) *harness {
 	t.Helper()
 	ctx := context.Background()
 
@@ -339,7 +339,7 @@ func (h *harness) do(req request) *response {
 }
 
 // json decodes a response body, failing the test when it is not JSON.
-func (r *response) json(t *testing.T) map[string]any {
+func (r *response) json(t testing.TB) map[string]any {
 	t.Helper()
 	var out map[string]any
 	if err := json.Unmarshal(r.body, &out); err != nil {
@@ -348,7 +348,7 @@ func (r *response) json(t *testing.T) map[string]any {
 	return out
 }
 
-func (r *response) into(t *testing.T, v any) {
+func (r *response) into(t testing.TB, v any) {
 	t.Helper()
 	if err := json.Unmarshal(r.body, v); err != nil {
 		t.Fatalf("decoding response (status %d): %v\nbody: %s", r.status, err, truncate(r.body))
@@ -357,7 +357,7 @@ func (r *response) into(t *testing.T, v any) {
 
 // errorCode returns the code of an error envelope, or "" when the body is not
 // one.
-func (r *response) errorCode(t *testing.T) string {
+func (r *response) errorCode(t testing.TB) string {
 	t.Helper()
 	var env errorEnvelope
 	if err := json.Unmarshal(r.body, &env); err != nil {
@@ -366,7 +366,7 @@ func (r *response) errorCode(t *testing.T) string {
 	return env.Error.Code
 }
 
-func (r *response) errorMessage(t *testing.T) string {
+func (r *response) errorMessage(t testing.TB) string {
 	t.Helper()
 	var env errorEnvelope
 	if err := json.Unmarshal(r.body, &env); err != nil {
@@ -382,7 +382,7 @@ func truncate(b []byte) string {
 	return string(b)
 }
 
-func (r *response) mustStatus(t *testing.T, want int, what string) {
+func (r *response) mustStatus(t testing.TB, want int, what string) {
 	t.Helper()
 	if r.status != want {
 		t.Fatalf("%s: status %d, want %d\nbody: %s", what, r.status, want, truncate(r.body))
@@ -907,6 +907,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "DELETE", path: "/api/v1/jobs/" + ids.job + "/acknowledge", role: store.RoleOperator, action: auth.ActionJobsAcknowledge},
 
 		{method: "GET", path: "/api/v1/diagnostics/bundle", role: store.RoleAdmin, action: auth.ActionDiagnosticsRead},
+		{method: "GET", path: "/api/v1/diagnostics/cpu-profile?seconds=1", role: store.RoleAdmin, action: auth.ActionDiagnosticsRead},
 
 		{method: "GET", path: "/api/v1/backups", role: store.RolePlatform, action: auth.ActionBackupsRead},
 		{method: "POST", path: "/api/v1/backups", role: store.RolePlatform, action: auth.ActionBackupsWrite},

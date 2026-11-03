@@ -8407,6 +8407,45 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SupportBundle" }
 
+  /diagnostics/cpu-profile:
+    get:
+      operationId: getCpuProfile
+      tags: [diagnostics]
+      summary: Where this controller's CPU is going
+      description: >-
+        Samples the controller's own CPU for a few seconds and returns the profile in the
+        format `go tool pprof` reads. It is for the question the metrics cannot answer:
+        `zoomies_loop_step_seconds` says which loop and step took the time, and a profile
+        says what inside it did, down to the function. Every loop's goroutines carry a `loop`
+        label, so a profile can be read by loop, for example with
+        `go tool pprof -tagfocus=loop=housekeeping cpu.pprof`.
+
+
+        It is taken on request and never left running. Sampling costs the controller a
+        little CPU of its own, and the runtime has one profiler, so a second request while
+        one is being taken is refused with 409 rather than allowed to cut the first short.
+        The request holds the connection for as long as the sample lasts, and a client that
+        hangs up ends it.
+      x-zoomies-role: admin
+      parameters:
+        - { name: seconds, in: query, description: "How long to sample, in seconds.", schema: { type: integer, minimum: 1, maximum: 30, default: 10 } }
+      responses:
+        "200":
+          description: The profile
+          headers:
+            Content-Disposition:
+              schema: { type: string, examples: ['attachment; filename="zoomies-cpu-20261103-103000.pprof"'] }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "400":
+          description: >-
+            `seconds` is not a whole number from 1 to 30. The message says what to change.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /settings:
     get:
       operationId: getSettings
