@@ -595,6 +595,29 @@ func repairToolNames(calls []assistant.ToolCall) string {
 	return strings.Join(names, ", ")
 }
 
+func (c *Controller) startRepairLoops(ctx context.Context) {
+	c.spawn("eli-repairs", ctx, c.repairLoop)
+	c.spawn("eli-repair-checks", ctx, c.repairCheckLoop)
+}
+
+// A slow model must not hold up verification of commits already published.
+// Each loop is guarded, restarted and joined by the controller independently.
+func (c *Controller) repairCheckLoop(ctx context.Context) {
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		c.checkEliRepairs(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
 func (c *Controller) repairLoop(ctx context.Context) {
 	if err := c.st.InterruptEliRepairs(ctx); err != nil {
 		c.log.Error("could not recover Eli repairs", "error", err)
@@ -611,7 +634,6 @@ func (c *Controller) repairLoop(ctx context.Context) {
 			if row, err := c.st.NextEliRepair(ctx); err == nil {
 				c.runEliRepair(ctx, row)
 			}
-			c.checkEliRepairs(ctx)
 			if time.Now().After(nextOffers) {
 				c.reconcileEliOpportunities(ctx)
 				nextOffers = time.Now().Add(5 * time.Minute)
@@ -666,6 +688,13 @@ func (c *Controller) repairNotice(ctx context.Context, client github.RepairClien
 	if r.PullNumber <= 0 {
 		return
 	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	current, err := c.st.GetEliRepair(ctx, r.ID, "", false)
+	if err != nil || current.State != r.State {
+		return
+	}
+	r.CommentID = current.CommentID
 	text = repairHeading(r.State) + "\n\n" + text + "\n\n<sub>Repair `" + r.ID + "`. 🐾 Zoomies. Eli fetches fixes but never merges: that part stays with you. Ask again with `/eli fix`.</sub>\n<!-- zoomies-eli-repair:" + r.ID + " -->"
 	id, err := client.RepairComment(ctx, r.Repo, r.PullNumber, r.CommentID, text)
 	if err != nil {
@@ -673,7 +702,9 @@ func (c *Controller) repairNotice(ctx context.Context, client github.RepairClien
 		return
 	}
 	r.CommentID = id
-	_ = c.st.SaveEliRepair(ctx, r)
+	if err := c.st.SetEliRepairComment(ctx, r.ID, id); err != nil {
+		c.log.Warn("could not record Eli's PR comment", "repair", r.ID)
+	}
 }
 
 // Model deadlines stop work, but must not prevent recording its terminal outcome.
@@ -965,6 +996,9 @@ func (c *Controller) checkEliRepairs(ctx context.Context) {
 		return
 	}
 	for _, r := range rows {
+		if ctx.Err() != nil || !c.mayAct() || c.transferDraining.Load() {
+			return
+		}
 		if r.State != "checking" {
 			continue
 		}
@@ -977,8 +1011,13 @@ func (c *Controller) checkEliRepairs(ctx context.Context) {
 		if c.Now().Sub(r.UpdatedAt) < 30*time.Second {
 			continue
 		}
-		raw, e := c.ClientFor(ctx, r.InstallationID)
+		checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		raw, e := c.ClientFor(checkCtx, r.InstallationID)
 		if e != nil {
+			cancel()
+			if ctx.Err() != nil || !c.mayAct() || c.transferDraining.Load() {
+				return
+			}
 			if c.Now().Sub(checkStarted) >= time.Hour {
 				r.State = "unverified"
 				r.Message = "The GitHub installation is unavailable. Check the PR's CI results before accepting the repair."
@@ -988,9 +1027,9 @@ func (c *Controller) checkEliRepairs(ctx context.Context) {
 		}
 		client, ok := raw.(github.RepairClient)
 		if !ok {
+			cancel()
 			continue
 		}
-		checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		p, e := client.RepairPull(checkCtx, r.Repo, r.PullNumber)
 		state := "waiting"
 		var changed *github.RepairTargetChanged
@@ -1002,6 +1041,9 @@ func (c *Controller) checkEliRepairs(ctx context.Context) {
 			state, e = client.RepairChecks(checkCtx, r.Repo, r.CommitSHA)
 		}
 		cancel()
+		if ctx.Err() != nil || !c.mayAct() || c.transferDraining.Load() {
+			return
+		}
 		if e != nil && c.Now().Sub(checkStarted) < time.Hour {
 			continue
 		}

@@ -17,7 +17,7 @@ the live PR states.
 
 | Item | State |
 | --- | --- |
-| This PR | [#1368](https://github.com/eyupio/zoomies/pull/1368): S1 setup, outcomes and corrections |
+| This PR | [#1369](https://github.com/eyupio/zoomies/pull/1369): S2a independent published-commit monitoring |
 | Investigated baseline | `871eff7d0073622f0b5f1c7d672583bd9288d633` on `main` |
 | Working branches | `codex/eli-repair-setup` for S1 (#1368); `codex/eli-repair-monitoring` for S1 plus S2a (#1369) |
 | Verified code checkpoints | #1368: `432177647e8d987839b49afa9ec09f6a6c203b2c`; #1369: `3e216980897da27ac5dca07853fe2ef531fef97c`; subsequent handoff-only commits do not change runtime code |
