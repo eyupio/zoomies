@@ -7,16 +7,26 @@ continuous PR watching and merge-conflict repair work. Read it before changing
 these features. Update it in every PR for this initiative, including corrective
 PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 
+This is the shared workstream record on both PR branches. S1 code is in
+PR #1368; S2a code is in PR #1369 only. Describing the follow-up here does not
+add its runtime implementation to the S1 branch. Neither PR is merged at this
+checkpoint. Continue implementation from the monitoring branch after checking
+the live PR states.
+
 ## Current checkpoint
 
 | Item | State |
 | --- | --- |
+| This PR | [#1369](https://github.com/eyupio/zoomies/pull/1369): S2a independent published-commit monitoring |
 | Investigated baseline | `871eff7d0073622f0b5f1c7d672583bd9288d633` on `main` |
-| Working branch | `codex/eli-repair-monitoring` |
+| Working branches | `codex/eli-repair-setup` for S1 (#1368); `codex/eli-repair-monitoring` for S1 plus S2a (#1369) |
+| Verified code checkpoints | #1368: `432177647e8d987839b49afa9ec09f6a6c203b2c`; #1369: `3e216980897da27ac5dca07853fe2ef531fef97c`; subsequent handoff-only commits do not change runtime code |
 | Implementation | S1 in PR #1368; S2a implementation commit `db70f80d801e620baabdaba7263db5ba499f7cd9` separates observation from the serial model worker |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; migration correction and full store race suite verified; CI rerunning |
 | Follow-up PR | [#1369](https://github.com/eyupio/zoomies/pull/1369), open for review; CI pending; incorporates PR #1368 through main-integration commit `432177647e8d987839b49afa9ec09f6a6c203b2c` |
-| Current slice | S2a implemented and locally verified; awaiting PR/CI review |
+| Current slice | S1 and S2a implemented on their respective PR branches and locally verified; both await PR/CI review |
+| Next implementation | S2b: durable watch state, explicit admission and restart recovery, then existing-PR discovery and bounded repair chains |
+| CI snapshot | Both PRs still have pending checks; no completed failures at the verified code checkpoints when this record was refreshed. Recheck the live PRs before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Planned, not implemented |
 | Merge-conflict repair | Planned, not implemented |
@@ -146,7 +156,8 @@ or remove the own-commit recursion guard.
 
 ### S2: persistent PR watcher and check repair chains
 
-Status: first foundation slice S2a implemented and locally verified below.
+Status: first foundation slice S2a is implemented and locally verified in
+[PR #1369](https://github.com/eyupio/zoomies/pull/1369) only, not in PR #1368.
 Durable watches and repair chains are not implemented. Split the remaining
 foundation, execution and UI into reviewable PRs; update this file in every one.
 
@@ -311,7 +322,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 
 | PR | Scope | Validation | Remaining work |
 | --- | --- | --- | --- |
-| [#1368](https://github.com/eyupio/zoomies/pull/1368), open | S1, UX follow-up and this handoff | Local checks below pass; latest CI pending | S2, S3, S4; start with independent observation and durable watches |
+| [#1368](https://github.com/eyupio/zoomies/pull/1368), open | S1, UX follow-up and this handoff | Local checks below pass; latest CI pending | Review S2a in #1369, then durable watches; S3 and S4 remain |
 | [#1369](https://github.com/eyupio/zoomies/pull/1369), open | S2a: independent check observation and comment-write isolation | Repair and lifecycle race tests, vet, docs and formatting pass; CI pending | Durable watches and admission/recovery, then check evidence and repair chains |
 
 S1 validation on 3 November 2026:
@@ -359,9 +370,9 @@ Correction validation:
   suite passes in 390.769 seconds, without a test-name filter.
 - `go vet ./internal/store`, changed-file `gofmt` and `git diff --check`: pass.
 
-Correction `c1eab9dc` is published to PR #1368; CI is rerunning. Carry it into
-the stacked [PR #1369](https://github.com/eyupio/zoomies/pull/1369) without dropping
-its S2a implementation or handoff. The new CI result remains separate from
+Correction `c1eab9dc` was published to PR #1368 and carried into the stacked
+[PR #1369](https://github.com/eyupio/zoomies/pull/1369), retaining its S2a
+implementation and handoff. CI is rerunning. The new CI result remains separate from
 these local checks; an action-download failure is not an application test result.
 
 PR #1369 incorporates this correction through a merge from PR #1368, retaining
@@ -373,9 +384,9 @@ changed in that initial sync. The complete store-suite result above is from S1.
 
 `main` then advanced to `ce17858c` through PR #1367, adding controller profiling
 and metrics. The generated `internal/api/openapi_spec.go` conflicted and GitHub
-stopped scheduling the normal pull-request checks. Merge that main revision and
-regenerate both API clients with `make openapi` from the merged YAML, retaining
-the CPU-profile endpoint and the repair `needs_action` contract. No store files,
+stopped scheduling the normal pull-request checks. That main revision was merged
+in `43217764`; both API clients were regenerated with `make openapi` from the
+merged YAML, retaining the CPU-profile endpoint and repair `needs_action` contract. No store files,
 `go.mod` or `go.sum` changed relative to the verified correction, so the complete
 store result above still applies. Merge validation passes:
 
@@ -538,7 +549,10 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
 
 1. Read this file, root/scoped `AGENTS.md`, and the actual latest PR diff/status.
    Confirm which slices merged; a branch or checked box alone is not proof.
-2. Check the working tree and current base. Preserve unrelated user changes.
+2. Check the working tree and live base branch. Preserve unrelated user changes.
+   Review #1368 and #1369 before starting a new slice. For further implementation,
+   start from `codex/eli-repair-monitoring` or its merged successor. Do not redo
+   S2a/F10; durable watch admission and recovery are the next unfinished work.
 3. Continue the first unfinished acceptance criterion. Read the existing store,
    API and model boundaries before adding another path around them.
 4. Add regression tests for the observable behaviour and regenerate contracts
