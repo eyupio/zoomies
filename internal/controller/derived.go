@@ -109,6 +109,15 @@ func (c *Controller) publishDerived(ctx context.Context) {
 	done = c.stepTimer(loopDerived, stepMachines)
 	c.publishMachineChanges(ctx)
 	done()
+
+	// The machine the controller runs on is sampled on every housekeeping tick and
+	// nothing writes a row when it is, so nothing in the store could announce it.
+	// It is sent when its bytes move, which is each tick while one is being taken.
+	done = c.stepTimer(loopDerived, stepControllerMachine)
+	if raw, changed := c.derivedChanged(&c.lastMachine, c.ControllerMachine()); changed {
+		c.bus.Publish(events.KindControllerMachine, "", json.RawMessage(raw))
+	}
+	done()
 }
 
 // publishMachineChanges announces every machine whose rendered view has moved

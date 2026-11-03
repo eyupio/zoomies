@@ -839,7 +839,7 @@ func busKinds(t *testing.T) []string {
 // them off, so a wait for every kind would come back within a pass to say a
 // host is still alive.
 func TestAWaitWithNoKindsLeavesOutTheFramesThatAreNotAChangeToTheFleet(t *testing.T) {
-	want := []string{"audit", "heartbeat", "host.updated", "kennel.summary", "stats", "updates.updated", "webhook.delivery"}
+	want := []string{"audit", "controller.machine", "heartbeat", "host.updated", "kennel.summary", "stats", "updates.updated", "webhook.delivery"}
 	if got := slices.Sorted(maps.Keys(quietKinds)); !slices.Equal(got, want) {
 		t.Errorf("the quiet kinds are %v, want %v", got, want)
 	}

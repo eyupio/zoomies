@@ -73,6 +73,12 @@ const (
 	// an operator watches while the fleet drains is the one that should not
 	// need reloading.
 	KindTransfer Kind = "transfer.updated"
+	// KindControllerMachine is the machine the controller itself runs on, in the
+	// shape GET /controller/machine returns. Like stats it is computed and moves
+	// with time, because its sample is renewed on every housekeeping tick, so it
+	// is published when its bytes change and not when a row is written, and
+	// only while somebody is connected to the stream.
+	KindControllerMachine Kind = "controller.machine"
 	// KindHeartbeat is an empty keep-alive so that proxies do not close an
 	// idle SSE connection.
 	KindHeartbeat Kind = "heartbeat"

@@ -723,7 +723,7 @@ flowchart LR
 `problems.updated` · `stats` · `audit` · `webhook.delivery` ·
 `provider.updated` · `provider.deleted` · `machine.updated` ·
 `machine.deleted` · `kennel.updated` · `kennel.deleted` · `kennel.summary` ·
-`updates.updated` · `transfer.updated` · `heartbeat` · `resync`
+`updates.updated` · `transfer.updated` · `controller.machine` · `heartbeat` · `resync`
 
 A frame is sent only to a caller who could `GET` what it carries: `audit` to
 somebody who may read the audit log, `transfer.updated` to whoever may read
@@ -781,7 +781,9 @@ client ever has to poll or ask the operator to reload:
   is one repository's `GET` shape and `kennel.deleted` carries `{ "id": … }`.
   `updates.updated` is `GET /updates` whole, sent when it changes, because nothing
   writes a row when a soak ends and the sentence in it moves with the clock.
-  `transfer.updated` is `GET /transfers/preparation` whole, sent when it changes
+  `controller.machine` is `GET /controller/machine` whole, sent when it changes,
+  which is on each housekeeping tick that takes a sample, to whoever may read
+  hosts. `transfer.updated` is `GET /transfers/preparation` whole, sent when it changes
   and only to process operators, because a runner confirmed gone or a job
   finishing moves every count in it without any row saying "the transfer
   moved"; nothing is computed while no transfer is being prepared.
