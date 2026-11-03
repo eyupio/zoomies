@@ -24,6 +24,7 @@
 
   const guidance = $derived(guidanceFor(repair));
   const succeeded = $derived(repair.state === 'succeeded');
+  const closed = $derived(repair.details?.failure_code === 'closed');
   const again = $derived(
     targetHref(
       repair.pull_number > 0
@@ -41,7 +42,7 @@
     {/each}
   </ol>
   <div class="go">
-    {#if !succeeded}<Button href={again}>Try another attempt</Button>{/if}
+    {#if !succeeded && !closed}<Button href={again}>Try another attempt</Button>{/if}
     {#if pullLink}
       <Button variant="secondary" href={pullLink} newTab iconAfter={ExternalLink}
         >Open pull request</Button

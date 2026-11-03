@@ -8,7 +8,7 @@ import { formatNumber, pluralise } from '../format';
   file never looks at a repair's fields beyond its state.
 */
 
-export type RepairGroup = 'all' | 'attention' | 'active' | 'passed';
+export type RepairGroup = 'all' | 'attention' | 'active' | 'passed' | 'needs_action';
 export type RepairTrigger = 'any' | 'automatic' | 'requested';
 
 export interface RepairFilters {
@@ -41,7 +41,7 @@ export const stateLabel = (state: string) =>
     checks_failed: 'Checks failed',
     interrupted: 'Interrupted',
     unverified: 'Unverified',
-    superseded: 'Newer commit',
+    superseded: 'No longer needed',
     blocked: 'Needs attention',
     failed: 'Could not repair',
   })[state] ?? state;

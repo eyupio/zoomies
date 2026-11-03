@@ -109,6 +109,18 @@ export function setupSummary(input: {
   const own = userId
     ? settings.identities.find((identity) => identity.user_id === userId)
     : undefined;
+  if (admin) {
+    const configured = settings.policies.some((policy) => policy.enabled);
+    return {
+      state: configured ? 'ready' : 'needed',
+      headline: configured ? 'Repository repairs configured' : 'Choose repositories',
+      account: configured
+        ? 'Readiness is checked for each repair'
+        : 'Select repositories and choose when Eli should fix failed checks',
+      askFirst,
+      automatic,
+    };
+  }
   if (!own) {
     return {
       state: 'needed',
@@ -129,8 +141,8 @@ export function setupSummary(input: {
   }
   return {
     state: 'ready',
-    headline: 'Ready to repair',
-    account: `GitHub @${own.github_login} linked`,
+    headline: 'Personal GitHub account linked',
+    account: `GitHub @${own.github_login} linked; provider and PR readiness are checked when you request a repair`,
     askFirst,
     automatic,
   };

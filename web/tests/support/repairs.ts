@@ -311,11 +311,22 @@ export async function mockRepairApi(
       const rows = state.repairs.filter((row) =>
         group === 'active'
           ? ACTIVE.includes(row.state)
-          : group === 'attention'
-            ? !ACTIVE.includes(row.state) && row.state !== 'succeeded'
-            : group === 'passed'
-              ? row.state === 'succeeded'
-              : true,
+          : group === 'needs_action'
+            ? ['failed', 'blocked', 'checks_failed', 'interrupted', 'unverified'].includes(
+                row.state,
+              ) &&
+              !state.repairs.some(
+                (newer) =>
+                  newer.repo.toLowerCase() === row.repo.toLowerCase() &&
+                  newer.pull_number === row.pull_number &&
+                  (Date.parse(newer.created_at) > Date.parse(row.created_at) ||
+                    (newer.created_at === row.created_at && newer.id > row.id)),
+              )
+            : group === 'attention'
+              ? !ACTIVE.includes(row.state) && row.state !== 'succeeded'
+              : group === 'passed'
+                ? row.state === 'succeeded'
+                : true,
       );
       const limit = Number(url.searchParams.get('limit') ?? 50);
       const offset = Number(url.searchParams.get('offset') ?? 0);
@@ -667,6 +678,8 @@ export const REPAIR_PAGES = [
     path: '/repairs/setup',
     heading: 'Repair settings',
     stubbed: false,
-    ready: (page: Page) => page.getByRole('heading', { name: 'Your GitHub account' }),
+    // Setup now leads with the repositories an administrator came to choose;
+    // the optional personal account card is folded below it.
+    ready: (page: Page) => page.getByRole('heading', { name: 'Choose repositories' }),
   },
 ] as const;

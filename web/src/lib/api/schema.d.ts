@@ -11579,6 +11579,10 @@ export interface components {
             jobs?: components["schemas"]["EliRepairCaseJob"][];
         };
         EliRepairDetails: {
+            /** @description What the published fix changed, retained separately from its check outcome. */
+            summary?: string;
+            /** @description Paths changed by the published fix, at most eight. Absent on older repairs. */
+            changed_files?: string[];
             model?: string;
             stage?: string;
             failure_code?: string;
@@ -14164,8 +14168,8 @@ export interface components {
         AnalysisSince: string;
         /** @description End of the period, not included. Defaults to now. A later instant is read as now: the rest has not happened, and a job still waiting would be counted as waiting through it. The finding's `until` is the instant read. */
         AnalysisUntil: string;
-        /** @description Only repairs in this group of states. `attention` is every state that is neither running nor passed, `active` is queued, working and checking, and `passed` is succeeded. Anything else is a 422. */
-        EliRepairGroup: "attention" | "active" | "passed";
+        /** @description Only repairs in this group of states. `attention` is every state that is neither running nor passed, `active` is queued, working and checking, and `passed` is succeeded. `needs_action` lists failed, blocked, interrupted and unverified attempts only when no newer attempt exists for that PR, including a newer attempt cleared from history. It does not claim that GitHub's current PR head still fails. Anything else is a 422. */
+        EliRepairGroup: "attention" | "active" | "passed" | "needs_action";
         /** @description Only repairs whose repository contains this text, ignoring case. The 200 characters are counted as sent, spaces included; spaces at either end are then dropped. */
         EliRepairRepo: string;
         /** @description How the repair began. `automatic` is one Eli started on its own; `requested` is one a person asked for, however they asked. Anything else is a 422. */
@@ -20913,7 +20917,7 @@ export interface operations {
     listEliRepairs: {
         parameters: {
             query?: {
-                /** @description Only repairs in this group of states. `attention` is every state that is neither running nor passed, `active` is queued, working and checking, and `passed` is succeeded. Anything else is a 422. */
+                /** @description Only repairs in this group of states. `attention` is every state that is neither running nor passed, `active` is queued, working and checking, and `passed` is succeeded. `needs_action` lists failed, blocked, interrupted and unverified attempts only when no newer attempt exists for that PR, including a newer attempt cleared from history. It does not claim that GitHub's current PR head still fails. Anything else is a 422. */
                 group?: components["parameters"]["EliRepairGroup"];
                 /** @description Only repairs whose repository contains this text, ignoring case. The 200 characters are counted as sent, spaces included; spaces at either end are then dropped. */
                 repo?: components["parameters"]["EliRepairRepo"];
@@ -20993,7 +20997,7 @@ export interface operations {
     selectEliRepairs: {
         parameters: {
             query?: {
-                /** @description Only repairs in this group of states. `attention` is every state that is neither running nor passed, `active` is queued, working and checking, and `passed` is succeeded. Anything else is a 422. */
+                /** @description Only repairs in this group of states. `attention` is every state that is neither running nor passed, `active` is queued, working and checking, and `passed` is succeeded. `needs_action` lists failed, blocked, interrupted and unverified attempts only when no newer attempt exists for that PR, including a newer attempt cleared from history. It does not claim that GitHub's current PR head still fails. Anything else is a 422. */
                 group?: components["parameters"]["EliRepairGroup"];
                 /** @description Only repairs whose repository contains this text, ignoring case. The 200 characters are counted as sent, spaces included; spaces at either end are then dropped. */
                 repo?: components["parameters"]["EliRepairRepo"];

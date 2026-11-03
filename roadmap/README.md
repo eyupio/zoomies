@@ -50,6 +50,9 @@ the row in `progress.md` is the record of what shipped.
   runner services ship, compared with this repository.
 * [eli-review.md](eli-review.md): what Eli was, what competitors ship, what to
   do next.
+* [eli-repair-implementation-handoff.md](eli-repair-implementation-handoff.md):
+  the live continuation record for repository repair setup, PR watching and
+  conflict resolution. Update it in every PR for that initiative.
 * [fleet-analysis.md](fleet-analysis.md): the design for the fleet window and
   the analyses over MCP.
 * [in-product-updates.md](in-product-updates.md),

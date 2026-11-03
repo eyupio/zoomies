@@ -23,6 +23,7 @@
   import Disclosure from '$lib/components/Disclosure.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
+  import Panel from '$lib/components/Panel.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import SectionNav from '$lib/components/SectionNav.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
@@ -35,7 +36,7 @@
   import { caseFromSnapshot } from '$lib/repairs/case';
   import { isActive } from '$lib/repairs/history';
   import { REPAIR_TRACK, trackIndex } from '$lib/repairs/journey';
-  import { safeHttpUrl } from '$lib/repairs/links';
+  import { commitUrl, safeHttpUrl } from '$lib/repairs/links';
   import { stopAutomatic } from '$lib/repairs/stop';
   import AttemptFacts from '$lib/repairs/AttemptFacts.svelte';
   import AttemptTimeline from '$lib/repairs/AttemptTimeline.svelte';
@@ -69,6 +70,7 @@
   const view = $derived(repair ? caseFromSnapshot(repair) : null);
   const pullLink = $derived(safeHttpUrl(view?.pullUrl));
   const runLink = $derived(safeHttpUrl(view?.runUrl));
+  const fixLink = $derived(commitUrl(view?.repoUrl, repair?.commit_sha ?? ''));
   const navItems = $derived([
     { id: 'summary', label: 'Summary' },
     { id: 'what-failed', label: 'What failed', count: view?.jobs.length ?? 0 },
@@ -303,6 +305,22 @@
           <NextSteps {repair} {view} />
         {/if}
       </div>
+      {#if repair.details?.summary || repair.details?.changed_files?.length}
+        <Panel title="What Eli changed" description={repair.details?.summary}>
+          {#snippet actions()}
+            {#if fixLink}
+              <Button variant="secondary" size="sm" href={fixLink} newTab iconAfter={ExternalLink}
+                >Review fix</Button
+              >
+            {/if}
+          {/snippet}
+          {#if repair.details.changed_files?.length}
+            <ul>
+              {#each repair.details.changed_files as path (path)}<li><code>{path}</code></li>{/each}
+            </ul>
+          {/if}
+        </Panel>
+      {/if}
       <Disclosure id="what-failed" title="What Eli was asked to fix" summary={caseSummary}>
         <div class="case">
           <CaseCard

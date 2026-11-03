@@ -363,7 +363,9 @@ func (s *Server) handleSetEliPolicy(w http.ResponseWriter, r *http.Request) {
 		unprocessable(w, "Choose automatic repairs or ask first, not both.", nil)
 		return
 	}
-	if p.Automatic || p.ProviderID != "" {
+	// Stopping must not depend on the provider that made a policy unusable.
+	// A disabled policy keeps its settings; enabling it validates them again.
+	if p.Enabled && (p.Automatic || p.ProviderID != "") {
 		provider, err := s.ctrl.Store().GetAssistantProvider(r.Context(), p.ProviderID)
 		if err != nil || provider.OwnerID != "" || p.Enabled && !provider.Enabled {
 			unprocessable(w, "choose an enabled installation provider for unattended repairs", []fieldError{{"provider_id", "a personal provider cannot pay for unattended repairs"}})

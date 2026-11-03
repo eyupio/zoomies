@@ -72,6 +72,40 @@ const failed = () =>
     },
   });
 
+test('a failed automatic repair is visible in Needs you without opening history', async ({
+  page,
+}) => {
+  await mockRepairApi(page, {
+    repairs: [
+      repairRow({
+        state: 'checks_failed',
+        trigger: 'automatic',
+        message: 'The new lint check failed.',
+      }),
+    ],
+  });
+  await page.goto('/repairs');
+  const needs = page.getByRole('region', { name: 'Needs you' });
+  await expect(needs.getByRole('article')).toHaveCount(1);
+  await expect(needs).toContainText('The new lint check failed.');
+  await expect(page.getByText('No repair offers or stopped repairs need review.')).toHaveCount(0);
+});
+
+test('a failed attention read never shows an all-clear', async ({ page }) => {
+  await mockRepairApi(page);
+  await page.route('**/api/v1/assistant/repairs?*', (route) => {
+    if (new URL(route.request().url()).searchParams.get('group') !== 'needs_action')
+      return route.fallback();
+    return route.fulfill({
+      status: 503,
+      json: { error: { code: 'internal', message: 'Attention could not be read.' } },
+    });
+  });
+  await page.goto('/repairs');
+  await expect(page.getByRole('alert')).toContainText('Attention could not be read.');
+  await expect(page.getByText('No repair offers or stopped repairs need review.')).toHaveCount(0);
+});
+
 test('the hub lists offers, running repairs and history with the failing job on every row', async ({
   page,
 }) => {
@@ -85,7 +119,10 @@ test('the hub lists offers, running repairs and history with the failing job on 
   await expect(page.getByRole('heading', { level: 1, name: 'Eli repairs' })).toBeVisible();
 
   // Needs you: the pull request, where it is, and the jobs that failed in it.
-  const offer = page.getByRole('region', { name: 'Needs you' }).getByRole('article');
+  const offer = page
+    .getByRole('region', { name: 'Needs you' })
+    .getByRole('article')
+    .filter({ hasText: 'Retry transient 502s' });
   await expect(offer).toHaveCount(1);
   await expect(offer.getByRole('heading', { name: /Retry transient 502s/ })).toBeVisible();
   await expect(offer).toContainText('#17');
@@ -151,7 +188,7 @@ test('the hub puts current work first and keeps the history behind a summary', a
   await page.goto('/repairs');
 
   const nav = page.getByRole('navigation', { name: 'On this page' });
-  await expect(nav.getByRole('link', { name: 'Needs you 1' })).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'Needs you 2' })).toBeVisible();
   await expect(nav.getByRole('link', { name: 'In progress 1' })).toBeVisible();
   if ((page.viewportSize()?.width ?? 0) > 768) {
     await expect(nav.getByRole('link', { name: 'History' })).toBeVisible();
@@ -220,7 +257,7 @@ test('with nothing to review or running, the hub says where offers come from', a
   await page.goto('/repairs');
 
   const needs = page.getByRole('region', { name: 'Needs you' });
-  await expect(needs.getByText('No failed pull requests need you')).toBeVisible();
+  await expect(needs.getByText('No repair offers or stopped repairs need review.')).toBeVisible();
   await expect(needs.getByText('Fix a failed check')).toBeVisible();
   await expect(page.getByRole('region', { name: 'In progress' })).toHaveCount(0);
   const history = page.getByRole('region', { name: 'History' });
@@ -238,8 +275,8 @@ async function refresh(page: Page) {
   await button.click();
 }
 
-test('the setup bar appears only when the person cannot repair yet', async ({ page }) => {
-  const { state } = await mockRepairApi(page, { settings: linkedAs('dana') });
+test('personal setup guidance is separate from repository automation', async ({ page }) => {
+  const { state } = await mockRepairApi(page, { settings: linkedAs('dana'), role: 'operator' });
   await page.goto('/repairs');
   await expect(page.getByRole('region', { name: 'Repair settings' })).toHaveCount(0);
 
@@ -305,6 +342,7 @@ test('a pull request link can be pasted directly on the hub without opening a di
 
 test('Fix a failed check lists recent failures and Settings goes to settings', async ({ page }) => {
   await mockRepairApi(page, {
+    role: 'operator',
     settings: linkedAs('dana'),
     jobs: [failedJob(), lintJob()],
   });

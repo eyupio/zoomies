@@ -228,21 +228,21 @@ func TestRepairRunResolvesMissingPullLinksAndKeepsAdmissionChecks(t *testing.T) 
 // A repair page names the pull request it is about, and where it is going. The
 // base is not the repository's default branch: a pull request can target a
 // release branch, and the page must say which.
-func TestRepairPullReadsTitleAuthorBranchAndBase(t *testing.T) {
+func TestRepairPullReadsTitleAuthorBranchAndBaseIdentity(t *testing.T) {
 	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path != "/repos/acme/repo/pulls/7" {
 			http.NotFound(w, r)
 			return
 		}
-		w.Write([]byte(`{"number":7,"state":"open","title":"Retry transient 502s","html_url":"https://github.com/acme/repo/pull/7","user":{"id":9,"login":"dana"},"head":{"ref":"fix/retry","sha":"abc","repo":{"full_name":"acme/repo","default_branch":"main"}},"base":{"ref":"release/1.2"}}`))
+		w.Write([]byte(`{"number":7,"state":"open","title":"Retry transient 502s","html_url":"https://github.com/acme/repo/pull/7","user":{"id":9,"login":"dana"},"head":{"ref":"fix/retry","sha":"abc","repo":{"full_name":"acme/repo","default_branch":"main"}},"base":{"ref":"release/1.2","sha":"def"}}`))
 	})
 	got, err := c.RepairPull(t.Context(), "acme/repo", 7)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := RepairPull{
-		Number: 7, AuthorID: 9, Author: "dana", Branch: "fix/retry", Base: "release/1.2",
+		Number: 7, AuthorID: 9, Author: "dana", Branch: "fix/retry", Base: "release/1.2", BaseSHA: "def",
 		HeadSHA: "abc", Title: "Retry transient 502s", URL: "https://github.com/acme/repo/pull/7",
 		DefaultBranch: "main", Open: true,
 	}
