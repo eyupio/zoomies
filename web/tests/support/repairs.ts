@@ -678,6 +678,8 @@ export const REPAIR_PAGES = [
     path: '/repairs/setup',
     heading: 'Repair settings',
     stubbed: false,
-    ready: (page: Page) => page.getByRole('heading', { name: 'Your GitHub account' }),
+    // Setup now leads with the repositories an administrator came to choose;
+    // the optional personal account card is folded below it.
+    ready: (page: Page) => page.getByRole('heading', { name: 'Choose repositories' }),
   },
 ] as const;
