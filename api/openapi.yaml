@@ -16944,8 +16944,7 @@ components:
       type: object
       description: >-
         How this person's page bands stand: the cut a page takes where it is not
-        the page's default, the bands that are switched off, whether the dog is
-        drawn and at what size, and whether a band's picture (the Overview's
+        the page's default, the bands that are switched off, and whether a band's picture (the Overview's
         punch card, the slot map on Hosts and Runners) is drawn. Every field is
         optional, because absent is a choice never made. The UI ignores a page
         or cut it does not know, so a document written by a newer build still
@@ -16962,21 +16961,6 @@ components:
           description: Cuts that differ from the page's own default.
           additionalProperties:
             $ref: "#/components/schemas/BandCut"
-        logo:
-          type: boolean
-          description: Whether the dog is drawn on a page that has not chosen otherwise. On when absent.
-        logo_size:
-          $ref: "#/components/schemas/BandLogoSize"
-        logo_pages:
-          type: object
-          description: Pages whose dog is shown or hidden against `logo`.
-          additionalProperties:
-            type: boolean
-        logo_sizes:
-          type: object
-          description: Pages whose dog size differs from `logo_size`.
-          additionalProperties:
-            $ref: "#/components/schemas/BandLogoSize"
         picture:
           type: boolean
           description: >-
@@ -16998,12 +16982,6 @@ components:
       description: >-
         How much air and type a band takes, from the shortest cut to the tallest.
       enum: [slim, compact, standard, expanded]
-
-    BandLogoSize:
-      type: string
-      description: >-
-        The dog's size in a band. `auto` follows the band's cut; the rest pin it.
-      enum: [auto, small, medium, large]
 
     ProblemDismissal:
       type: object

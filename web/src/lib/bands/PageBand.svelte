@@ -9,9 +9,8 @@
   Four sizes, from Slim (the shortest) through Compact and Standard to Expanded. Each page
   has a default, and the operator's choice is per page: the same four sizes sit on the band,
   as Eli's panel sizes do, and in Appearance. Pressing one asks where it lands (this page,
-  pages picked one at a time, or every page). The dog can be resized or removed, and asks
-  the same question about where. Both choices follow the signed-in account, with this
-  browser as the fallback.
+  pages picked one at a time, or every page). The choice follows the signed-in account,
+  with this browser as the fallback.
 
   A band can carry figures (`stats`) in a strip along its lower edge, which is how a
   page gives up the panel it used to spend a row of its height on. They are never lost
@@ -40,7 +39,6 @@
   import { toasts } from '$lib/state/toasts.svelte';
   import BandApplyPanel from './BandApplyPanel.svelte';
   import BandStats from './BandStats.svelte';
-  import type { BandLogoSize } from './band-logo';
   import { figuresPlacement } from './placement';
   import { BAND_PAGES, BAND_SIZES, type BandPage, type BandSize } from './pages';
   import { bandPageLabel } from './scope';
@@ -61,10 +59,9 @@
     /** Anything the band offers beside its sentence, like the Overview's Review. */
     actions?: Snippet;
     /**
-     * A picture drawn beside the words, where the dog stands when it is shown:
-     * the Overview's punch card, the slot map. Every cut carries it, since the
-     * figures give even Slim the height for seven rows of squares, and
-     * Appearance can switch it off per page or for every page.
+     * A picture drawn beside the words: the Overview's punch card, the slot map.
+     * Every cut carries it, since the figures give even Slim the height for seven
+     * rows of squares, and Appearance can switch it off per page or for every page.
      */
     aside?: Snippet;
   }
@@ -93,11 +90,9 @@
 
   const shown = $derived(prefs.bandShown(page));
   const size = $derived(prefs.bandSize(page));
-  const logoShown = $derived(prefs.bandLogoShown(page));
   // Whether the band carries a picture: the page gave one and the operator has not
   // switched it off. A phone draws the band only for that.
   const pictureShown = $derived(aside !== undefined && prefs.bandPictureShown(page));
-  const logoSize = $derived(prefs.bandLogoSizeFor(page));
   const name = $derived(BAND_PAGES.find((p) => p.key === page)?.label ?? page);
   const placement = $derived(
     figuresPlacement({ shown, hasLine: line !== null, hasStats: stats.length > 0 }),
@@ -109,26 +104,17 @@
    * it was opened from, because that is where focus goes back to when the panel
    * closes, and the cut, because the icon that opened it is the cut chosen.
    */
-  type Pending =
-    { kind: 'size'; size: BandSize; anchor: HTMLElement } | { kind: 'logo'; anchor: HTMLElement };
+  type Pending = { size: BandSize; anchor: HTMLElement };
   let pending = $state<Pending | null>(null);
 
   function openSize(next: BandSize, anchor: HTMLElement): void {
     // The control that opens a panel also closes it: a second press on the size
     // already chosen puts the panel away rather than starting it again.
-    if (pending?.kind === 'size' && pending.size === next && pending.anchor === anchor) {
+    if (pending?.size === next && pending.anchor === anchor) {
       pending = null;
       return;
     }
-    pending = { kind: 'size', size: next, anchor };
-  }
-
-  function openLogo(anchor: HTMLElement): void {
-    if (pending?.kind === 'logo' && pending.anchor === anchor) {
-      pending = null;
-      return;
-    }
-    pending = { kind: 'logo', anchor };
+    pending = { size: next, anchor };
   }
 
   function closePanel(): void {
@@ -136,32 +122,17 @@
   }
 
   /** Apply what the panel asked for, then put the keyboard back where it was. */
-  function apply(pages: BandPage[], logo: { shown: boolean; size: BandLogoSize } | null): void {
+  function apply(pages: BandPage[]): void {
     const change = pending;
     if (!change) return;
-    if (change.kind === 'size') {
-      prefs.applyBandSize(pages, change.size);
-      const cut = BAND_SIZES.find((option) => option.key === change.size)?.label ?? change.size;
-      toasts.success(
-        pages.length === 1
-          ? `${bandPageLabel(pages[0] ?? page)} band set to ${cut}`
-          : `${pages.length} bands set to ${cut}`,
-        saveNote(),
-      );
-    } else if (logo) {
-      prefs.applyBandLogo(pages, logo);
-      const what = !logo.shown
-        ? 'Dog hidden'
-        : logo.size === 'auto'
-          ? 'Dog follows the cut'
-          : `${logo.size.charAt(0).toUpperCase()}${logo.size.slice(1)} dog`;
-      toasts.success(
-        pages.length === 1
-          ? `${what} on ${bandPageLabel(pages[0] ?? page)}`
-          : `${what} on ${pages.length} bands`,
-        saveNote(),
-      );
-    }
+    prefs.applyBandSize(pages, change.size);
+    const cut = BAND_SIZES.find((option) => option.key === change.size)?.label ?? change.size;
+    toasts.success(
+      pages.length === 1
+        ? `${bandPageLabel(pages[0] ?? page)} band set to ${cut}`
+        : `${pages.length} bands set to ${cut}`,
+      saveNote(),
+    );
     pending = null;
     if (document.contains(change.anchor)) change.anchor.focus();
   }
@@ -193,11 +164,7 @@
       accent={line.accent || undefined}
       lede={line.lede}
       treatment={prefs.logoTreatment}
-      art={logoShown}
-      artSize={logoSize === 'auto' ? undefined : logoSize}
-      artAction={openLogo}
-      artActionLabel={`${name} band logo settings`}
-      artExpanded={pending?.kind === 'logo'}
+      art={false}
       aside={pictureShown ? aside : undefined}
     >
       {#if actions}<div class="actions">{@render actions()}</div>{/if}
@@ -216,7 +183,7 @@
               aria-label={option.label}
               aria-pressed={size === option.key}
               aria-haspopup="dialog"
-              aria-expanded={pending?.kind === 'size' && pending.size === option.key}
+              aria-expanded={pending?.size === option.key}
               onclick={(event) => openSize(option.key, event.currentTarget)}
             >
               <SizeIcon size={16} aria-hidden="true" />
@@ -240,9 +207,8 @@
 
 {#if pending}
   <BandApplyPanel
-    kind={pending.kind}
     {page}
-    size={pending.kind === 'size' ? pending.size : undefined}
+    size={pending.size}
     anchor={pending.anchor}
     onclose={closePanel}
     onapply={apply}
@@ -322,7 +288,7 @@
     line-height: var(--z-leading-base);
   }
 
-  /* Compact: less air above and below, a smaller dog and a smaller headline. */
+  /* Compact: less air above and below, a smaller headline. */
   .band[data-size='compact'] :global(.stage) {
     padding-block: var(--z-space-6);
     padding-inline: var(--z-space-10);
@@ -350,7 +316,7 @@
     line-height: var(--z-leading-2xl);
   }
 
-  /* Expanded: more air, a larger dog and a headline that can carry a quiet page. */
+  /* Expanded: more air, a headline that can carry a quiet page. */
   .band[data-size='expanded'] :global(.stage) {
     padding-block: var(--z-space-12);
   }

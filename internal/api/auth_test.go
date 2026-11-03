@@ -118,10 +118,6 @@ func TestBandPreferencesFollowTheSignedInAccount(t *testing.T) {
 		body: map[string]any{"bands": map[string]any{
 			"hidden":        []string{"jobs", "kennel"},
 			"sizes":         map[string]any{"runners": "slim", "overview": "expanded"},
-			"logo":          false,
-			"logo_size":     "large",
-			"logo_pages":    map[string]any{"pools": true},
-			"logo_sizes":    map[string]any{"hosts": "small"},
 			"picture":       true,
 			"picture_pages": map[string]any{"overview": false},
 		}}})
@@ -137,20 +133,9 @@ func TestBandPreferencesFollowTheSignedInAccount(t *testing.T) {
 	if len(hidden) != 2 || hidden[0] != "jobs" || hidden[1] != "kennel" {
 		t.Errorf("hidden = %v, want jobs then kennel", bands["hidden"])
 	}
-	if bands["logo"] != false || bands["logo_size"] != "large" {
-		t.Errorf("logo = %v, size = %v, want hidden at large", bands["logo"], bands["logo_size"])
-	}
 	sizes, _ := bands["sizes"].(map[string]any)
 	if sizes["runners"] != "slim" || sizes["overview"] != "expanded" {
 		t.Errorf("sizes = %v, want runners slim and overview expanded", bands["sizes"])
-	}
-	pages, _ := bands["logo_pages"].(map[string]any)
-	if pages["pools"] != true {
-		t.Errorf("logo_pages = %v, want pools shown", bands["logo_pages"])
-	}
-	logoSizes, _ := bands["logo_sizes"].(map[string]any)
-	if logoSizes["hosts"] != "small" {
-		t.Errorf("logo_sizes = %v, want hosts small", bands["logo_sizes"])
 	}
 	pictures, _ := bands["picture_pages"].(map[string]any)
 	if bands["picture"] != true || pictures["overview"] != false {
@@ -181,21 +166,6 @@ func TestBandPreferencesRefuseAPageOrCutThisBuildDoesNotHave(t *testing.T) {
 			"a cut this build does not have",
 			map[string]any{"sizes": map[string]any{"runners": "vast"}},
 			"bands.sizes.runners",
-		},
-		{
-			"a dog size this build does not draw",
-			map[string]any{"logo_size": "huge"},
-			"bands.logo_size",
-		},
-		{
-			"a page with no band among the dog's pages",
-			map[string]any{"logo_pages": map[string]any{"audit": true}},
-			"bands.logo_pages.audit",
-		},
-		{
-			"a dog size for a page this build does not have",
-			map[string]any{"logo_sizes": map[string]any{"audit": "large"}},
-			"bands.logo_sizes.audit",
 		},
 		{
 			"a page with no band among the pictures' pages",

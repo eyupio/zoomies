@@ -3,14 +3,13 @@
  *
  * One shape serves both copies: the browser's localStorage, which is the
  * immediate fallback, and the account document, which is what carries a choice
- * from the desk to the phone. Reading is deliberately forgiving: a page, a cut
- * or a logo size this build no longer knows is dropped rather than failing, so
+ * from the desk to the phone. Reading is deliberately forgiving: a page or a cut
+ * this build no longer knows is dropped rather than failing, so
  * an operator who signs in to an older controller sees the bands it can draw
  * instead of none at all.
  */
 
 import type { BandPreferences } from '../api/types';
-import { isBandLogoSize, type BandLogoSize } from './band-logo';
 import { isBandPage, isBandSize, type BandPage, type BandSize } from './pages';
 
 export interface BandSettings {
@@ -18,14 +17,6 @@ export interface BandSettings {
   hidden: BandPage[];
   /** Page cuts that are not the page's default. */
   sizes: Partial<Record<BandPage, BandSize>>;
-  /** Whether the dog is drawn by default. Off, so the sentence has the band. */
-  logo: boolean;
-  /** The dog's size by default; `auto` follows each band's cut. */
-  logoSize: BandLogoSize;
-  /** Pages that differ from `logo`. */
-  logoPages: Partial<Record<BandPage, boolean>>;
-  /** Pages that differ from `logoSize`. */
-  logoSizes: Partial<Record<BandPage, BandLogoSize>>;
   /** Whether a band's picture (the punch card, the slot map) is drawn by default. On. */
   picture: boolean;
   /** Pages that differ from `picture`. */
@@ -35,10 +26,6 @@ export interface BandSettings {
 export const DEFAULT_BAND_SETTINGS: BandSettings = {
   hidden: [],
   sizes: {},
-  logo: false,
-  logoSize: 'auto',
-  logoPages: {},
-  logoSizes: {},
   picture: true,
   picturePages: {},
 };
@@ -71,10 +58,6 @@ export function readBandSettings(raw: unknown): BandSettings {
   return {
     hidden: pageList(doc.hidden),
     sizes: pageMap(doc.sizes, isBandSize),
-    logo: isBoolean(doc.logo) ? doc.logo : DEFAULT_BAND_SETTINGS.logo,
-    logoSize: isBandLogoSize(doc.logo_size) ? doc.logo_size : DEFAULT_BAND_SETTINGS.logoSize,
-    logoPages: pageMap(doc.logo_pages, isBoolean),
-    logoSizes: pageMap(doc.logo_sizes, isBandLogoSize),
     picture: isBoolean(doc.picture) ? doc.picture : DEFAULT_BAND_SETTINGS.picture,
     picturePages: pageMap(doc.picture_pages, isBoolean),
   };
@@ -91,10 +74,6 @@ export function bandSettingsDocument(settings: BandSettings): BandPreferences {
   return {
     hidden: [...settings.hidden],
     sizes: { ...settings.sizes },
-    logo: settings.logo,
-    logo_size: settings.logoSize,
-    logo_pages: { ...settings.logoPages },
-    logo_sizes: { ...settings.logoSizes },
     picture: settings.picture,
     picture_pages: { ...settings.picturePages },
   };

@@ -17,10 +17,7 @@
   import Checkbox from '$lib/components/Checkbox.svelte';
   import Popover from '$lib/components/Popover.svelte';
   import RadioGroup from '$lib/components/RadioGroup.svelte';
-  import Segmented from '$lib/components/Segmented.svelte';
-  import Switch from '$lib/components/Switch.svelte';
   import { prefs } from '$lib/state/prefs.svelte';
-  import { BAND_LOGO_SIZE_OPTIONS, type BandLogoSize } from './band-logo';
   import { BAND_PAGES, BAND_SIZES, type BandPage, type BandSize } from './pages';
   import {
     BAND_SCOPE_OPTIONS,
@@ -31,30 +28,23 @@
   } from './scope';
 
   interface Props {
-    /** What the panel is changing: the band's cut, or the dog on it. */
-    kind: 'size' | 'logo';
     /** The page whose band opened the panel. */
     page: BandPage;
-    /** The cut chosen on the band. Required when `kind` is `size`. */
-    size?: BandSize;
+    /** The cut chosen on the band. */
+    size: BandSize;
     /** The control the panel points at. Null while it is closed. */
     anchor: HTMLElement | null;
     onclose: () => void;
-    onapply: (pages: BandPage[], logo: { shown: boolean; size: BandLogoSize } | null) => void;
+    onapply: (pages: BandPage[]) => void;
   }
 
-  let { kind, page, size, anchor, onclose, onapply }: Props = $props();
+  let { page, size, anchor, onclose, onapply }: Props = $props();
 
   // This page is the answer most of the time, so it starts chosen and the
   // panel's primary button is a single press. Read once, when the panel opens:
   // the page it was opened from does not change under it.
   let scope = $state<BandScope>('page');
   let selected = $state<BandPage[]>(untrack(() => [page]));
-
-  // The dog's two answers start where this page stands, so pressing Apply
-  // without touching them keeps the page exactly as it was.
-  let logoShown = $state(untrack(() => prefs.bandLogoShown(page)));
-  let logoSize = $state(untrack(() => prefs.bandLogoSizeFor(page)));
 
   const sizeOption = $derived(BAND_SIZES.find((option) => option.key === size) ?? BAND_SIZES[0]);
   const pages = $derived(pagesForScope(scope, page, selected));
@@ -64,23 +54,12 @@
   /** The current answer for a page, in the words the rest of the panel uses. */
   function pageState(entry: BandPage): string {
     const bandOff = prefs.bandShown(entry) ? '' : ', band off';
-    if (kind === 'size') {
-      const cut = BAND_SIZES.find((option) => option.key === prefs.bandSize(entry));
-      return `${cut?.label ?? prefs.bandSize(entry)}${bandOff}`;
-    }
-    if (!prefs.bandLogoShown(entry)) return `No dog${bandOff}`;
-    const dog = BAND_LOGO_SIZE_OPTIONS.find(
-      (option) => option.value === prefs.bandLogoSizeFor(entry),
-    );
-    return `${dog?.label ?? prefs.bandLogoSizeFor(entry)}${bandOff}`;
+    const cut = BAND_SIZES.find((option) => option.key === prefs.bandSize(entry));
+    return `${cut?.label ?? prefs.bandSize(entry)}${bandOff}`;
   }
 
-  const title = $derived(kind === 'size' ? `Apply ${sizeOption.label}` : 'The dog on the band');
-  const hint = $derived(
-    kind === 'size'
-      ? sizeOption.name
-      : "Auto follows each band's cut. The named sizes pin the dog whatever the cut.",
-  );
+  const title = $derived(`Apply ${sizeOption.label}`);
+  const hint = $derived(sizeOption.name);
 
   const applyLabel = $derived.by(() => {
     if (count === 0) return 'Apply';
@@ -91,19 +70,7 @@
   const target = $derived.by(() => {
     if (count === 0) return 'Choose at least one page.';
     const which = count === 1 ? bandPagesSentence(pages) : `${count} bands`;
-    if (kind === 'size') return `${which} will take the ${sizeOption.label} cut.`;
-    if (!logoShown) return count === 1 ? `No dog on ${which}.` : `No dog on ${count} bands.`;
-    if (logoSize === 'auto') {
-      return count === 1
-        ? `The dog on ${which} will follow the cut.`
-        : `The dog will follow the cut on ${count} bands.`;
-    }
-    const word = BAND_LOGO_SIZE_OPTIONS.find(
-      (option) => option.value === logoSize,
-    )?.label.toLowerCase();
-    return count === 1
-      ? `The dog on ${which} will be drawn ${word}.`
-      : `The dog will be drawn ${word} on ${count} bands.`;
+    return `${which} will take the ${sizeOption.label} cut.`;
   });
 
   const orderedPages = $derived.by(() => {
@@ -121,40 +88,25 @@
 
   function apply(): void {
     if (count === 0) return;
-    onapply(pages, kind === 'logo' ? { shown: logoShown, size: logoSize } : null);
+    onapply(pages);
   }
 </script>
 
 <Popover
   open={anchor !== null}
   {anchor}
-  label={kind === 'size'
-    ? `${sizeOption.label} band size, where to apply`
-    : 'Band logo, where to apply'}
+  label={`${sizeOption.label} band size, where to apply`}
   {onclose}
 >
   <div class="panel">
     <header class="head">
-      <p class="eyebrow">{kind === 'size' ? 'Band size' : 'Band logo'}</p>
+      <p class="eyebrow">Band size</p>
       <h2 class="title">{title}</h2>
       <p class="hint">{hint}</p>
     </header>
 
-    {#if kind === 'logo'}
-      <div class="logo-row">
-        <Switch label="Show the dog" checked={logoShown} onchange={(on) => (logoShown = on)} />
-        <Segmented
-          options={BAND_LOGO_SIZE_OPTIONS}
-          value={logoSize}
-          label="Dog size"
-          disabled={!logoShown}
-          onchange={(value) => (logoSize = value as BandLogoSize)}
-        />
-      </div>
-    {/if}
-
     <RadioGroup
-      name={`band-${kind}-scope`}
+      name="band-size-scope"
       legend="Where to apply"
       options={BAND_SCOPE_OPTIONS}
       value={scope}
@@ -191,7 +143,7 @@
       </div>
     {/if}
 
-    {#if offCount > 0 && kind === 'size'}
+    {#if offCount > 0}
       <p class="aside">
         {offCount === 1
           ? 'One of these bands is switched off'
@@ -236,19 +188,6 @@
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
-  }
-  /* The dog's two answers sit together, apart from the question about where
-     they land, so the panel reads as "what" then "where". */
-  .logo-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--z-space-3);
-    padding: var(--z-space-3);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-md);
-    background: var(--z-surface-sunken);
   }
   .picker {
     min-width: 0;

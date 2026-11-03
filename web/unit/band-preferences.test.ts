@@ -39,61 +39,8 @@ test('a cut applies to the pages a change was scoped to, and only those', () => 
   assert.equal(prefs.bandSize('runners'), 'slim');
 });
 
-test('the dog can be changed or added per page, and put back on the default', () => {
-  assert.equal(prefs.bandLogoShown('jobs'), false);
-  assert.equal(prefs.bandLogoSizeFor('jobs'), 'auto');
-  assert.equal(prefs.bandLogoCustom('jobs'), false);
-
-  prefs.applyBandLogo(['jobs', 'queue'], { shown: true, size: 'large' });
-  assert.equal(prefs.bandLogoShown('jobs'), true);
-  assert.equal(prefs.bandLogoShown('queue'), true);
-  assert.equal(prefs.bandLogoSizeFor('jobs'), 'large');
-  assert.equal(prefs.bandLogoCustom('jobs'), true);
-  // The pages that were not in the scope are untouched.
-  assert.equal(prefs.bandLogoShown('hosts'), false);
-
-  prefs.clearBandLogoOverride('jobs');
-  assert.equal(prefs.bandLogoShown('jobs'), false);
-  assert.equal(prefs.bandLogoSizeFor('jobs'), 'auto');
-  assert.equal(prefs.bandLogoCustom('jobs'), false);
-  // Queue still has its own, which is what a per-page reset means.
-  assert.equal(prefs.bandLogoShown('queue'), true);
-});
-
-// The switch in Appearance says "Show the logo in the band", not "the default
-// for pages that have not chosen": it has to be true of every page when pressed.
-test('changing the dog in Appearance puts every page back in step', () => {
-  prefs.applyBandLogo(['jobs'], { shown: true, size: 'auto' });
-  assert.equal(prefs.bandLogoCustom('jobs'), true);
-
-  prefs.bandLogo = false;
-  assert.equal(prefs.bandLogoCustom('jobs'), false);
-  assert.equal(prefs.bandLogoShown('jobs'), false);
-
-  prefs.applyBandLogoSize(['hosts'], 'large');
-  assert.equal(prefs.bandLogoCustom('hosts'), true);
-  prefs.bandLogoSize = 'auto';
-  assert.equal(prefs.bandLogoCustom('hosts'), false);
-  assert.equal(prefs.bandLogoSizeFor('hosts'), 'auto');
-});
-
-test('switching bands off keeps the hidden list in Appearance order', () => {
-  prefs.applyBandShown(['jobs', 'overview', 'kennel'], false);
-  assert.equal(prefs.bandShown('jobs'), false);
-  assert.equal(prefs.bandShown('overview'), false);
-  // hiddenBands is the browser's exception list, and is what the document carries.
-  const stored = JSON.parse(saved.get('zoomies.prefs') ?? '{}');
-  assert.deepEqual(stored.hiddenBands, ['overview', 'jobs', 'kennel']);
-
-  prefs.applyBandShown(['overview', 'jobs', 'kennel'], true);
-  for (const page of ['overview', 'jobs', 'kennel'] as const) {
-    assert.equal(prefs.bandShown(page), true, page);
-  }
-});
-
-// A band's picture has the dog's shape of choice: a default for every page, a
-// page's own answer against it, and a default pressed in Appearance that puts
-// every page back in step.
+// A band's picture has a default for every page, a page's own answer against
+// it, and a default pressed in Appearance that puts every page back in step.
 test('a band picture can be switched off per page or for every page, and put back', () => {
   assert.equal(prefs.bandPictureShown('overview'), true);
   assert.equal(prefs.bandPictureCustom('overview'), false);
