@@ -5,12 +5,6 @@ test('repair settings discovers repositories and saves a manual policy without a
   page,
 }) => {
   await goto(page, '/repairs/setup', 'Repair settings');
-  const policies = page
-    .locator('details')
-    .filter({ has: page.locator('#policy-installation') })
-    .last();
-  if (!(await page.locator('#policy-installation').isVisible()))
-    await policies.locator('summary').first().click();
   await page.locator('#repair-mode').selectOption('manual');
   const repositories = page.getByRole('group', { name: 'Select repositories', exact: true });
   await repositories.getByRole('checkbox', { name: 'acme/site', exact: true }).check();
@@ -36,8 +30,9 @@ test('the setup page holds the account card, the repository policies and the lin
   page,
 }) => {
   await goto(page, '/repairs/setup', 'Repair settings');
+  await expect(page.getByRole('heading', { name: 'Choose repositories' })).toBeVisible();
+  await page.getByText('Personal repair requests (optional)', { exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Your GitHub account' })).toBeVisible();
-  await expect(page.getByText('Repairs in these repositories')).toBeVisible();
   await expect(page.getByText('Link a GitHub account', { exact: true })).toBeVisible();
   await expect(page.getByText('This repair is not in your history')).toHaveCount(0);
   // The way back to the hub is the breadcrumb, and the hub's own list is not here.
@@ -51,7 +46,9 @@ test('the setup page holds the account card, the repository policies and the lin
 test('the setup page has an in-page navigation for its sections', async ({ page }) => {
   await goto(page, '/repairs/setup', 'Repair settings');
   const nav = page.getByRole('navigation', { name: 'On this page' });
-  await expect(nav.getByRole('link', { name: 'Account', exact: true })).toHaveAttribute(
+  if (!(await nav.getByRole('link', { name: 'Personal requests', exact: true }).isVisible()))
+    await nav.locator('details.more > summary').click();
+  await expect(nav.getByRole('link', { name: 'Personal requests', exact: true })).toHaveAttribute(
     'href',
     '#access',
   );

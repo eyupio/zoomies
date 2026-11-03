@@ -23,6 +23,7 @@
   import Disclosure from '$lib/components/Disclosure.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
+  import Panel from '$lib/components/Panel.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import SectionNav from '$lib/components/SectionNav.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
@@ -303,6 +304,15 @@
           <NextSteps {repair} {view} />
         {/if}
       </div>
+      {#if repair.details?.summary}
+        <Panel title="What Eli changed" description={repair.details.summary}>
+          {#if repair.details.changed_files?.length}
+            <ul>
+              {#each repair.details.changed_files as path (path)}<li><code>{path}</code></li>{/each}
+            </ul>
+          {/if}
+        </Panel>
+      {/if}
       <Disclosure id="what-failed" title="What Eli was asked to fix" summary={caseSummary}>
         <div class="case">
           <CaseCard

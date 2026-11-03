@@ -49,6 +49,48 @@ func repairIDs(rows []*EliRepair) []string {
 	return ids
 }
 
+func TestNeedsActionContainsOnlyTheLatestUnsettledRepairForEachPR(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	base := s.Now().Add(-time.Hour)
+	var wanted []string
+	for i, row := range []struct {
+		pull  int
+		state string
+		repo  string
+	}{
+		{1, "failed", "acme/repo"}, {1, "succeeded", "acme/repo"},
+		{2, "failed", "acme/repo"}, {2, "working", "acme/repo"},
+		{3, "checks_failed", "acme/repo"},
+		{4, "interrupted", "acme/repo"}, {4, "unverified", "acme/repo"},
+		{5, "superseded", "acme/repo"},
+		{6, "failed", "acme/repo"}, {6, "succeeded", "Acme/Repo"},
+	} {
+		id := insertRepair(t, s, EliRepair{Repo: row.repo, PullNumber: row.pull, State: row.state, CreatedAt: base.Add(time.Duration(i) * time.Minute)})
+		if row.state == "checks_failed" || row.state == "unverified" {
+			wanted = append(wanted, id)
+		}
+		if i == 9 {
+			// Hiding a successful retry must not resurrect its earlier failure.
+			if _, err := s.exec(ctx, `UPDATE eli_repairs SET cleared_at=? WHERE id=?`, ms(s.Now()), id); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	rows, total, err := s.ListEliRepairsPage(ctx, EliRepairFilter{Group: "needs_action", Limit: 1})
+	if err != nil || total != 2 || len(rows) != 1 || rows[0].ID != wanted[1] {
+		t.Fatalf("first page=%v total=%d error=%v", repairIDs(rows), total, err)
+	}
+	rows, _, err = s.ListEliRepairsPage(ctx, EliRepairFilter{Group: "needs_action", Limit: 1, Offset: 1})
+	if err != nil || len(rows) != 1 || rows[0].ID != wanted[0] {
+		t.Fatalf("second page=%v error=%v", repairIDs(rows), err)
+	}
+	rows, total, err = s.ListEliRepairsPage(ctx, EliRepairFilter{Group: "needs_action", OwnerID: "someone-else", Scoped: true})
+	if err != nil || len(rows) != 0 || total != 0 {
+		t.Fatalf("attention escaped owner scope: %v %d %v", rows, total, err)
+	}
+}
+
 func TestTheRepairHistoryIsPagedFilteredAndCounted(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

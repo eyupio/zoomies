@@ -185,6 +185,12 @@
     await load();
   }
 
+  export function reviewNeedsAction(): void {
+    showFilterFields = true;
+    refilter({ group: 'needs_action', repo: '', trigger: 'any' });
+    repoText = '';
+  }
+
   /** Any change to what is listed starts again from the first page. */
   function refilter(change: Partial<RepairFilters>): void {
     clearTimeout(pause);
@@ -406,6 +412,7 @@
             options={[
               { value: 'all', label: 'All repairs' },
               { value: 'attention', label: 'Needs attention' },
+              { value: 'needs_action', label: 'Latest repair needs review' },
               { value: 'active', label: 'In progress' },
               { value: 'passed', label: 'Checks passed' },
             ]}

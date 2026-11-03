@@ -11,7 +11,7 @@
 -->
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import { Link, Settings2 } from '@lucide/svelte';
+  import { Link } from '@lucide/svelte';
   import {
     ApiError,
     getEliRepairSettings,
@@ -46,9 +46,14 @@
   let users = $state<User[]>([]);
   let providers = $state<AssistantProvider[]>([]);
   let selectedRepos = $state<string[]>([]);
+  let selectingAll = $state(false);
   let linkRepos = $state<string[]>([]);
-  let mode = $state('ask');
-  let bulkResults = $state<string[]>([]);
+  let mode = $state('automatic');
+  type SaveResult = { repo: string; saved: boolean; error?: string };
+  type PolicySettings = Omit<Schemas['EliRepairPolicy'], 'repo'>;
+  let bulkResults = $state<SaveResult[]>([]);
+  let lastSettings = $state<PolicySettings | null>(null);
+  let editing = $state(false);
   let installation = $state('');
   let provider = $state('');
   let enabled = $state(true);
@@ -61,12 +66,17 @@
   // in the way, and this is the refusal the move button answers.
   let linkHeld = $state<HeldLink | null>(null);
   let busy = $state(false);
-  let error = $state('');
+  let settingsError = $state('');
+  let choicesError = $state('');
+  const error = $derived([settingsError, choicesError].filter(Boolean).join(' '));
   /** Which reads have answered, so a repository handed in is prepared once both have. */
   let heard = $state({ settings: false, choices: false });
   let prepared = false;
   const admin = $derived(session.can('admin'));
   const ownIdentity = $derived(identities.find((i) => i.user_id === session.identity?.id));
+  const usableProviders = $derived(providers.filter((p) => p.enabled));
+  const selectedProvider = $derived(providers.find((p) => p.id === provider));
+  const failedRepos = $derived(bulkResults.filter((r) => !r.saved).map((r) => r.repo));
   const installationOptions = $derived(
     installations.map((i) => ({ value: i.id ?? '', label: i.target ?? i.id ?? 'Installation' })),
   );
@@ -76,9 +86,9 @@
       const settings = await getEliRepairSettings();
       identities = settings.identities;
       policies = settings.policies;
-      error = '';
+      settingsError = '';
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Could not read PR repairs.';
+      settingsError = cause instanceof ApiError ? cause.message : 'Could not read PR repairs.';
     } finally {
       heard.settings = true;
     }
@@ -103,8 +113,15 @@
         linkInstallation = installations[0]?.id ?? '';
       users = u.items ?? [];
       providers = (p.items ?? []).filter((p) => !p.owner_id);
+      choicesError = '';
+      if (!editing && !provider) {
+        const available = providers.filter((item) => item.enabled);
+        provider =
+          available.find((item) => item.is_default)?.id ??
+          (available.length === 1 ? available[0]!.id : '');
+      }
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Could not read repair settings.';
+      choicesError = cause instanceof ApiError ? cause.message : 'Could not read repair settings.';
     } finally {
       heard.choices = true;
     }
@@ -200,6 +217,7 @@
   /** Moving the link is the same verification again, with the confirmation sent. */
   const moveHeld = (): Promise<void> => linkIdentity(true);
   function editPolicy(p: Schemas['EliRepairPolicy']): void {
+    editing = true;
     selectedRepos = [p.repo];
     installation = p.installation_id;
     provider = p.provider_id;
@@ -207,142 +225,260 @@
     mode = p.automatic ? 'automatic' : p.ask_first ? 'ask' : 'manual';
     workflows = p.allow_workflows;
   }
-  async function savePolicies(): Promise<void> {
-    bulkResults = [];
-    const targets = [...selectedRepos];
-    const settings = {
+  async function savePolicies(
+    targets = [...selectedRepos],
+    settings: PolicySettings = {
       installation_id: installation,
       provider_id: mode === 'automatic' ? provider : '',
       enabled,
       automatic: mode === 'automatic',
       ask_first: mode === 'ask',
       allow_workflows: workflows,
-    };
+    },
+  ): Promise<void> {
+    if (busy) return;
+    busy = true;
+    bulkResults = [];
+    lastSettings = settings;
     for (const repo of targets) {
       try {
         await setEliRepairPolicy({ repo, ...settings });
-        bulkResults = [...bulkResults, `${repo}: saved`];
+        bulkResults = [...bulkResults, { repo, saved: true }];
       } catch (cause) {
         bulkResults = [
           ...bulkResults,
-          `${repo}: ${cause instanceof ApiError ? cause.message : 'Could not save; try again.'}`,
+          {
+            repo,
+            saved: false,
+            error: cause instanceof ApiError ? cause.message : 'Could not save; try again.',
+          },
         ];
       }
     }
+    const saved = bulkResults.filter((result) => result.saved).length;
+    if (saved === targets.length)
+      toasts.success(
+        `Saved repair settings in ${saved} ${saved === 1 ? 'repository' : 'repositories'}`,
+      );
+    else
+      toasts.error(
+        saved ? `Saved ${saved} of ${targets.length} repositories` : 'No repository settings saved',
+        'Review the failed repositories below, then retry.',
+      );
+    await refresh();
+    busy = false;
   }
+  const modeLabel = (p: Schemas['EliRepairPolicy']): string =>
+    !p.enabled
+      ? 'Paused'
+      : p.automatic
+        ? 'Fix failed checks automatically'
+        : p.ask_first
+          ? 'Offer a fix for failed checks'
+          : 'Manual requests only';
 </script>
 
 <section class="setup" aria-label="Repair settings">
   {#if error}<p role="alert" class="error">{error}</p>{/if}
-  <div class="card" id="access">
-    <h2>Your GitHub account</h2>
-    {#if ownIdentity}<p>
-        Linked to <strong>@{ownIdentity.github_login}</strong>. Comment
-        <code>/eli fix this PR</code>
-        or <code>/zoomies fix this issue</code> on a PR. Eli uses your personal provider: your default,
-        or the first usable one you own.
-      </p>
-    {:else}<p>
-        Ask an administrator to verify and link your GitHub account. You also need a personal
-        provider and repository write access.
-      </p>{/if}
-    {#if ownIdentity}
-      <Switch
-        checked={ownIdentity.confirmed}
-        label="Allow this GitHub account to request repairs using my provider"
-        description="Enable only if this is your GitHub account. You can revoke access here at any time."
-        disabled={busy}
-        onchange={(value) =>
-          void act(
-            () =>
-              setEliRepairConsent({ github_user_id: ownIdentity.github_user_id, enabled: value }),
-            value ? 'Personal repair access enabled' : 'Personal repair access disabled',
-          )}
-      />
-    {/if}
-  </div>
   {#if admin}
-    <details class="card" id="repositories" open>
-      <summary><Settings2 size={16} /> Repairs in these repositories</summary>
+    <section class="card" id="repositories" aria-labelledby="repository-repairs-heading">
+      <h2 id="repository-repairs-heading">Choose repositories</h2>
       <p>
-        Explicit requests use the requester's provider. Automatic repairs use the installation
-        provider selected here.
+        Enable failed-check repairs for a few repositories or all the repositories you select. No
+        personal GitHub link is needed for automatic repairs.
       </p>
-      {#if policies.length === 0}
-        <p class="lead">No repository has repairs turned on yet. Choose one below to start.</p>
-      {/if}
-      {#if policies.length}<div class="policy-list">
-          {#each policies as p (p.repo)}<Button
-              size="sm"
-              variant="secondary"
-              onclick={() => editPolicy(p)}>{p.repo}{p.enabled ? '' : ' (disabled)'}</Button
-            >{/each}
-        </div>{/if}
       <form
-        onsubmit={(e) => {
-          e.preventDefault();
-          void act(savePolicies, 'Repository policies processed');
+        onsubmit={(event) => {
+          event.preventDefault();
+          void savePolicies();
         }}
       >
-        <div class="fields">
-          <Field id="policy-installation" label="GitHub installation"
-            ><Select
+        {#if installations.length > 1}
+          <Field id="policy-installation" label="GitHub connection">
+            <Select
               id="policy-installation"
               bind:value={installation}
               onchange={() => (selectedRepos = [])}
               options={installationOptions}
-              placeholder="Choose an installation"
+              placeholder="Choose a connection"
               required
-            /></Field
-          >
-          {#if mode === 'automatic'}<Field id="policy-provider" label="Installation provider"
-              ><Select
-                id="policy-provider"
-                bind:value={provider}
-                options={providers.map((p) => ({
-                  value: p.id,
-                  label: p.enabled ? p.name : `${p.name} (disabled)`,
-                }))}
-                placeholder="Choose a provider"
-                required
-              /></Field
-            >{/if}
-        </div>
-        <Switch bind:checked={enabled} label="Allow PR repairs in this repository" />
-        <Field id="repair-mode" label="When should Eli help?"
-          ><Select
+              disabled={busy}
+            />
+          </Field>
+        {:else if installations.length === 1}
+          <p>Connected through {installations[0]?.target}.</p>
+        {:else if heard.choices && !choicesError}
+          <p><a href="/installations">Connect GitHub</a> to choose repositories.</p>
+        {/if}
+        {#key installation}<RepositoryPicker
+            {installation}
+            bind:selected={selectedRepos}
+            bind:selectingAll
+            disabled={busy}
+          />{/key}
+        <Field id="repair-mode" label="What should Eli do?">
+          <Select
             id="repair-mode"
             bind:value={mode}
+            disabled={busy}
             options={[
-              { value: 'ask', label: 'Ask me first (recommended)' },
-              { value: 'manual', label: 'Manual only' },
-              { value: 'automatic', label: 'Automatic' },
+              { value: 'automatic', label: 'Fix failed checks automatically' },
+              { value: 'ask', label: 'Offer a fix for failed checks' },
+              { value: 'manual', label: 'Manual requests only' },
             ]}
-          /></Field
-        >
-        <p>
-          Ask me first offers help without spending model tokens. Automatic repairs use the
-          installation provider and publish one commit per failed head.
-        </p>
-        {#key installation}<RepositoryPicker {installation} bind:selected={selectedRepos} />{/key}
+          />
+        </Field>
+        {#if mode === 'automatic' && enabled}
+          {#if usableProviders.length === 1 && selectedProvider?.enabled}
+            <p>
+              Using <strong>{selectedProvider.name}</strong> ({selectedProvider.model}), paid by the
+              installation. <a href="/settings/assistant">Manage model providers</a>.
+            </p>
+          {:else if usableProviders.length}
+            <Field id="policy-provider" label="Team model provider">
+              <Select
+                id="policy-provider"
+                bind:value={provider}
+                disabled={busy}
+                options={usableProviders.map((p) => ({ value: p.id, label: p.name }))}
+                placeholder="Choose a provider"
+                required
+              />
+            </Field>
+          {:else}
+            <p role="status">
+              Add an enabled installation model provider to turn on automatic repairs. <a
+                href="/settings/assistant">Set up a model provider</a
+              >, then refresh this page.
+            </p>
+          {/if}
+          <p>
+            Eli reads source and failed-job evidence, publishes one fix per failing commit, then
+            checks CI. It never merges. Earlier failures are not picked up automatically.
+          </p>
+        {:else if mode === 'ask'}
+          <p>
+            Eli offers help when checks fail. Reviewing an offer uses no model tokens. Accepting it
+            uses your personal provider.
+          </p>
+        {:else if mode === 'manual'}
+          <p>
+            A person requests each repair using their own provider. Personal repair setup is below.
+          </p>
+        {/if}
         <details class="advanced">
           <summary>Advanced</summary>
           <Switch
+            bind:checked={enabled}
+            disabled={busy}
+            label="Allow PR repairs in these repositories"
+            description="Turn off to pause repairs while keeping these settings."
+          />
+          <Switch
             bind:checked={workflows}
+            disabled={busy}
             label="Allow edits to workflow files"
             description="Off by default. Allows changes to .github/workflows files."
           />
         </details>
-        {#if selectedRepos.length === 0}
-          <p class="hint">Choose at least one repository above.</p>
-        {/if}
-        <Button type="submit" disabled={busy || !selectedRepos.length}
+        {#if !selectedRepos.length}<p class="hint">Choose at least one repository above.</p>{/if}
+        <Button
+          type="submit"
+          disabled={busy ||
+            selectingAll ||
+            !!error ||
+            !selectedRepos.length ||
+            (enabled && mode === 'automatic' && !selectedProvider?.enabled)}
+          loading={busy}
           >Save in {selectedRepos.length}
           {selectedRepos.length === 1 ? 'repository' : 'repositories'}</Button
         >
-        {#each bulkResults as result (result)}<p role="status">{result}</p>{/each}
+        {#if bulkResults.length}
+          <div aria-live="polite">
+            {#each bulkResults as result (result.repo)}<p class:error={!result.saved}>
+                {result.repo}: {result.saved ? 'saved' : result.error}
+              </p>{/each}
+          </div>
+        {/if}
+        {#if failedRepos.length && lastSettings}
+          <Button disabled={busy} onclick={() => void savePolicies([...failedRepos], lastSettings!)}
+            >Retry {failedRepos.length} failed {failedRepos.length === 1
+              ? 'repository'
+              : 'repositories'}</Button
+          >
+        {/if}
       </form>
-    </details>
+      {#if policies.length}
+        <h3>Configured repositories</h3>
+        <p>
+          Pausing stops new fixes. Work already running stops before publication unless it is
+          already publishing. Pushed commits keep being checked.
+        </p>
+        <div class="policy-list">
+          {#each policies as p (p.repo)}
+            <div class="policy-row">
+              <div>
+                <strong>{p.repo}</strong>
+                <p>{modeLabel(p)}</p>
+              </div>
+              <Button
+                size="sm"
+                disabled={busy}
+                onclick={() => editPolicy(p)}
+                ariaLabel="Edit repair settings for {p.repo}">Edit</Button
+              >
+              <Button
+                size="sm"
+                disabled={busy}
+                onclick={() =>
+                  void act(
+                    () => setEliRepairPolicy({ ...p, enabled: !p.enabled }),
+                    p.enabled ? `Repairs paused on ${p.repo}` : `Repairs enabled on ${p.repo}`,
+                  )}
+                ariaLabel="{p.enabled ? 'Pause' : 'Resume'} repairs on {p.repo}"
+                >{p.enabled ? 'Pause' : 'Resume'}</Button
+              >
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {/if}
+  <details class="card" id="access" open={!admin}>
+    <summary>Personal repair requests{admin ? ' (optional)' : ''}</summary>
+    <p>
+      Use your own model provider when requesting an individual repair. This is separate from
+      repository automation.
+    </p>
+    <div id="personal-account">
+      <h2>Your GitHub account</h2>
+      {#if ownIdentity}<p>
+          Linked to <strong>@{ownIdentity.github_login}</strong>. Comment
+          <code>/eli fix this PR</code>
+          or <code>/zoomies fix this issue</code> on a PR. Eli uses your personal provider: your default,
+          or the first usable one you own.
+        </p>
+      {:else}<p>
+          Ask an administrator to verify and link your GitHub account. You also need a personal
+          provider and repository write access.
+        </p>{/if}
+      {#if ownIdentity}
+        <Switch
+          checked={ownIdentity.confirmed}
+          label="Allow this GitHub account to request repairs using my provider"
+          description="Enable only if this is your GitHub account. You can revoke access here at any time."
+          disabled={busy}
+          onchange={(value) =>
+            void act(
+              () =>
+                setEliRepairConsent({ github_user_id: ownIdentity.github_user_id, enabled: value }),
+              value ? 'Personal repair access enabled' : 'Personal repair access disabled',
+            )}
+        />
+      {/if}
+    </div>
+  </details>
+  {#if admin}
     <details class="card" id="link-account">
       <summary><Link size={16} /> Link a GitHub account</summary>
       <p>
@@ -471,9 +607,6 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--z-space-4);
   }
-  .lead {
-    color: var(--z-text);
-  }
   .hint {
     margin: 0;
     color: var(--z-text-muted);
@@ -494,10 +627,23 @@
     margin: 0 var(--z-space-4) var(--z-space-4);
   }
   .policy-list {
+    display: grid;
+    gap: var(--z-space-3);
+    margin-top: var(--z-space-3);
+  }
+  .policy-row {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--z-space-2);
-    margin-bottom: var(--z-space-4);
+    gap: var(--z-space-3);
+    align-items: center;
+  }
+  .policy-row > div {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .policy-row p {
+    margin: var(--z-space-1) 0 0;
   }
   .identity {
     display: flex;

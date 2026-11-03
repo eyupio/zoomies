@@ -30,6 +30,10 @@ const STILL_WORKING: Guidance = {
 };
 
 const TABLE: Record<string, Guidance> = {
+  closed: {
+    headline: 'The pull request was closed or merged',
+    steps: ['No further repair is needed. You can still review the commit Eli published.'],
+  },
   unsupported_fix: UNSUPPORTED_FIX,
   context_limit: {
     headline: 'The failure and the source were too big for one attempt',

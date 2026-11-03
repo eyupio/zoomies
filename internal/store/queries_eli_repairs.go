@@ -71,12 +71,14 @@ type EliRepairCase struct {
 // whatever lives here survives each stage without a second write path. A row
 // made before Case existed has none, and every reader has to cope with that.
 type EliRepairDetails struct {
-	Model       string          `json:"model"`
-	Stage       string          `json:"stage"`
-	FailureCode string          `json:"failure_code,omitempty"`
-	SourceBytes int             `json:"source_bytes"`
-	Steps       []EliRepairStep `json:"steps"`
-	Case        *EliRepairCase  `json:"case,omitempty"`
+	Summary      string          `json:"summary,omitempty"`
+	ChangedFiles []string        `json:"changed_files,omitempty"`
+	Model        string          `json:"model"`
+	Stage        string          `json:"stage"`
+	FailureCode  string          `json:"failure_code,omitempty"`
+	SourceBytes  int             `json:"source_bytes"`
+	Steps        []EliRepairStep `json:"steps"`
+	Case         *EliRepairCase  `json:"case,omitempty"`
 }
 type EliRepair struct {
 	Details        EliRepairDetails `json:"details"`

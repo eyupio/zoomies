@@ -588,7 +588,25 @@ func (c *appClient) RepairChecks(ctx context.Context, repo, sha string) (string,
 			Conclusion string `json:"conclusion"`
 		} `json:"check_runs"`
 	}
-	checksErr := c.repairRequest(ctx, http.MethodGet, base+"/commits/"+url.PathEscape(sha)+"/check-runs?per_page=100", nil, &checks)
+	// Matrix jobs regularly fill a page. Keep the read bounded, but do not
+	// turn the first hundred successes into a permanent wait for page two.
+	var checksErr error
+	for page := 1; page <= 10; page++ {
+		part := checks
+		part.Runs = nil
+		endpoint := base + "/commits/" + url.PathEscape(sha) + "/check-runs?per_page=100"
+		if page > 1 {
+			endpoint += "&page=" + strconv.Itoa(page)
+		}
+		if checksErr = c.repairRequest(ctx, http.MethodGet, endpoint, nil, &part); checksErr != nil {
+			break
+		}
+		checks.Total = max(checks.Total, part.Total)
+		checks.Runs = append(checks.Runs, part.Runs...)
+		if len(checks.Runs) >= checks.Total || len(part.Runs) < 100 {
+			break
+		}
+	}
 	var statuses struct {
 		Total int    `json:"total_count"`
 		State string `json:"state"`
@@ -599,9 +617,6 @@ func (c *appClient) RepairChecks(ctx context.Context, repo, sha string) (string,
 	}
 	pending := checks.Total > len(checks.Runs) || statuses.Total > 0 && statuses.State != "success"
 	passed := statuses.Total > 0 && statuses.State == "success"
-	if checksErr != nil {
-		checks.Runs = nil
-	}
 	for _, r := range checks.Runs {
 		if r.Status != "completed" {
 			pending = true

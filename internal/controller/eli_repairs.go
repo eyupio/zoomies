@@ -924,6 +924,11 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 		return
 	}
 	r.CommitSHA = sha
+	r.Details.Summary, _ = redact.Text(plan.Summary)
+	r.Details.ChangedFiles = make([]string, 0, len(plan.Files))
+	for _, file := range plan.Files {
+		r.Details.ChangedFiles = append(r.Details.ChangedFiles, file.Path)
+	}
 	published := c.Now()
 	r.PublishedAt = &published
 	r.State = "checking"
@@ -988,7 +993,10 @@ func (c *Controller) checkEliRepairs(ctx context.Context) {
 		checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		p, e := client.RepairPull(checkCtx, r.Repo, r.PullNumber)
 		state := "waiting"
-		if e == nil && p.HeadSHA != r.CommitSHA {
+		var changed *github.RepairTargetChanged
+		if errors.As(e, &changed) && changed.Code == "closed" {
+			state, e = "closed", nil
+		} else if e == nil && p.HeadSHA != r.CommitSHA {
 			state = "superseded"
 		} else if e == nil {
 			state, e = client.RepairChecks(checkCtx, r.Repo, r.CommitSHA)
@@ -998,6 +1006,10 @@ func (c *Controller) checkEliRepairs(ctx context.Context) {
 			continue
 		}
 		switch state {
+		case "closed":
+			r.State = "superseded"
+			r.Details.FailureCode = "closed"
+			r.Message = "The pull request was closed or merged. Eli stopped watching its checks. The repair commit remains on record."
 		case "passed":
 			r.State = "succeeded"
 			r.Message = "The reported checks on Eli's commit passed. Normal PR review still applies."

@@ -10038,8 +10038,11 @@ components:
       description: >-
         Only repairs in this group of states. `attention` is every state that is neither
         running nor passed, `active` is queued, working and checking, and `passed` is
-        succeeded. Anything else is a 422.
-      schema: { type: string, enum: [attention, active, passed] }
+        succeeded. `needs_action` lists failed, blocked, interrupted and unverified attempts
+        only when no newer attempt exists for that PR, including a newer attempt cleared
+        from history. It does not claim that GitHub's current PR head still fails.
+        Anything else is a 422.
+      schema: { type: string, enum: [attention, active, passed, needs_action] }
     EliRepairRepo:
       name: repo
       in: query
@@ -16017,6 +16020,14 @@ components:
     EliRepairDetails:
       type: object
       properties:
+        summary:
+          type: string
+          description: What the published fix changed, retained separately from its check outcome.
+        changed_files:
+          type: array
+          description: Paths changed by the published fix, at most eight. Absent on older repairs.
+          maxItems: 8
+          items: { type: string }
         model: { type: string }
         stage: { type: string }
         failure_code: { type: string }

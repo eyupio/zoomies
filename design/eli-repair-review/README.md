@@ -1,5 +1,18 @@
 # Eli repairs UX review and concepts
 
+## Repository-first implementation, 3 November 2026
+
+These captures show the S1 implementation described in
+[`eli-repair-implementation-handoff.md`](../../eli-repair-implementation-handoff.md),
+using the actual built UI with labelled fixture data. No real PR or policy was
+changed to produce them. The older review and concepts below remain historical.
+
+- [Repository-first setup, desktop](setup-repository-first-dark-1440.png).
+- [Repository-first setup, mobile](setup-repository-first-dark-390.png).
+- [Failed automatic repair visible in Needs you](attention-failed-repair-dark-1440.png).
+
+## Original design review
+
 19 October 2026. Design review only. No application source, API, test or
 documentation page was changed. The worktree contains this folder and its
 captures; production behaviour is untouched.
