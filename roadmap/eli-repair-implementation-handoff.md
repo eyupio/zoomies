@@ -17,10 +17,10 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| This PR | [#NEW](https://github.com/eyupio/zoomies/pull/NEW): S2b durable watch state, explicit admission and restart recovery |
+| This PR | [#1372](https://github.com/eyupio/zoomies/pull/1372): S2b durable watch state, explicit admission and restart recovery |
 | Investigated baseline | `ab47587500d01301b75729422bc086e5170841ce` on `codex/eli-repair-monitoring`, itself based on `ce17858c4` on `main` |
 | Working branches | `codex/eli-repair-setup` for S1 (#1368); `codex/eli-repair-monitoring` for S1 plus S2a (#1369); `codex/eli-repair-watches` for S2b stacked on #1369 |
-| Verified code checkpoints | #1368: `432177647e8d987839b49afa9ec09f6a6c203b2c`; #1369: `3e216980897da27ac5dca07853fe2ef531fef97c`; S2b: this PR's implementation commit, recorded after publication. Later handoff-only commits do not change runtime code |
+| Verified code checkpoints | #1368: `432177647e8d987839b49afa9ec09f6a6c203b2c`; #1369: `3e216980897da27ac5dca07853fe2ef531fef97c`; S2b: `eadb8cacf603aa12b5755469f42e4aed464b4664`; later handoff-only commits do not change runtime code |
 | Implementation | S1 in PR #1368; S2a implementation commit `db70f80d801e620baabdaba7263db5ba499f7cd9` separates observation from the serial model worker; S2b adds migration 0137, store watch rows and leases, explicit controller admission and startup recovery |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; migration correction and full store race suite verified; no completed check failure at this checkpoint |
 | Follow-up PR | [#1369](https://github.com/eyupio/zoomies/pull/1369), open for review; no completed check failure at this checkpoint; incorporates PR #1368 through main-integration commit `432177647e8d987839b49afa9ec09f6a6c203b2c` |
@@ -349,7 +349,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | --- | --- | --- | --- |
 | [#1368](https://github.com/eyupio/zoomies/pull/1368), open | S1, UX follow-up and this handoff | Local checks below pass; latest CI pending | Review S2a in #1369, then durable watches; S3 and S4 remain |
 | [#1369](https://github.com/eyupio/zoomies/pull/1369), open | S2a: independent check observation and comment-write isolation | Repair and lifecycle race tests, vet, docs and formatting pass; no completed check failure at this checkpoint | Durable watches and admission/recovery, then check evidence and repair chains |
-| [#NEW](https://github.com/eyupio/zoomies/pull/NEW), open, stacked on #1369 | S2b: durable watch state, explicit admission, work leases and restart recovery | Focused repair and migration race suites, vet, docs and formatting pass; no UI or public API change | Watcher loop, existing-PR discovery and bounded repair chains |
+| [#1372](https://github.com/eyupio/zoomies/pull/1372), open, stacked on #1369 | S2b: durable watch state, explicit admission, work leases and restart recovery | Focused repair and migration race suites, vet, docs and formatting pass; no UI or public API change | Watcher loop, existing-PR discovery and bounded repair chains |
 
 S1 validation on 3 November 2026:
 
