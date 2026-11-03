@@ -23,6 +23,9 @@ type EliRepairPolicy struct {
 	AskFirst       bool   `json:"ask_first"`
 	Automatic      bool   `json:"automatic"`
 	AllowWorkflows bool   `json:"allow_workflows"`
+	// UpdatedAt is the policy revision a durable watch records when it is
+	// admitted. It is internal because the policy response has never carried it.
+	UpdatedAt time.Time `json:"-"`
 }
 type EliRepairStep struct {
 	InputTokens       int    `json:"input_tokens"`
@@ -102,8 +105,11 @@ type EliRepair struct {
 	State          string           `json:"state"`
 	Message        string           `json:"message"`
 	CommentID      int64            `json:"comment_id"`
-	CreatedAt      time.Time        `json:"created_at"`
-	UpdatedAt      time.Time        `json:"updated_at"`
+	// WatchID is the explicit durable watch that authorised this attempt. It is
+	// empty for the legacy one-attempt automatic mode, which has no watch.
+	WatchID   string    `json:"watch_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func (s *Store) SetEliIdentity(ctx context.Context, in EliIdentity) error {
@@ -176,7 +182,7 @@ func (s *Store) SetEliRepairPolicy(ctx context.Context, p EliRepairPolicy) error
 	return wrapWrite(err)
 }
 
-var eliRepairPoliciesQuery = hot(`SELECT repo,installation_id,COALESCE(provider_id,''),enabled,automatic,ask_first,allow_workflows FROM eli_repair_policies ORDER BY repo`)
+var eliRepairPoliciesQuery = hot(`SELECT repo,installation_id,COALESCE(provider_id,''),enabled,automatic,ask_first,allow_workflows,updated_at FROM eli_repair_policies ORDER BY repo`)
 
 func (s *Store) EliRepairPolicies(ctx context.Context) ([]EliRepairPolicy, error) {
 	rows, err := s.hotRead().Query(ctx, eliRepairPoliciesQuery)
@@ -187,22 +193,24 @@ func (s *Store) EliRepairPolicies(ctx context.Context) ([]EliRepairPolicy, error
 	out := []EliRepairPolicy{}
 	for rows.Next() {
 		var p EliRepairPolicy
-		if err := rows.Scan(&p.Repo, &p.InstallationID, &p.ProviderID, &p.Enabled, &p.Automatic, &p.AskFirst, &p.AllowWorkflows); err != nil {
+		var updated int64
+		if err := rows.Scan(&p.Repo, &p.InstallationID, &p.ProviderID, &p.Enabled, &p.Automatic, &p.AskFirst, &p.AllowWorkflows, &updated); err != nil {
 			return nil, err
 		}
+		p.UpdatedAt = at(updated)
 		out = append(out, p)
 	}
 	return out, rows.Err()
 }
 
-const eliRepairCols = `id,dedup_key,installation_id,repo,pull_number,job_id,run_id,head_sha,commit_sha,user_id,github_user_id,github_login,provider_id,trigger,requester_admin,instruction,state,message,comment_id,published_at,created_at,updated_at,details`
+const eliRepairCols = `id,dedup_key,installation_id,repo,pull_number,job_id,run_id,head_sha,commit_sha,user_id,github_user_id,github_login,provider_id,trigger,requester_admin,instruction,state,message,comment_id,published_at,created_at,updated_at,details,watch_id`
 
 func scanEliRepair(row interface{ Scan(...any) error }) (*EliRepair, error) {
 	var v EliRepair
 	var created, updated int64
 	var published sql.NullInt64
 	var details string
-	err := row.Scan(&v.ID, &v.DedupKey, &v.InstallationID, &v.Repo, &v.PullNumber, &v.JobID, &v.RunID, &v.HeadSHA, &v.CommitSHA, &v.UserID, &v.GitHubUserID, &v.GitHubLogin, &v.ProviderID, &v.Trigger, &v.RequesterAdmin, &v.Instruction, &v.State, &v.Message, &v.CommentID, &published, &created, &updated, &details)
+	err := row.Scan(&v.ID, &v.DedupKey, &v.InstallationID, &v.Repo, &v.PullNumber, &v.JobID, &v.RunID, &v.HeadSHA, &v.CommitSHA, &v.UserID, &v.GitHubUserID, &v.GitHubLogin, &v.ProviderID, &v.Trigger, &v.RequesterAdmin, &v.Instruction, &v.State, &v.Message, &v.CommentID, &published, &created, &updated, &details, &v.WatchID)
 	if err == nil {
 		err = json.Unmarshal([]byte(details), &v.Details)
 	}
@@ -283,7 +291,7 @@ func (s *Store) EnqueueEliRepair(ctx context.Context, r *EliRepair) (bool, error
 		r.State = "queued"
 		r.CreatedAt = s.Now()
 		r.UpdatedAt = r.CreatedAt
-		_, err = tx.ExecContext(ctx, `INSERT INTO eli_repairs (`+eliRepairCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.ID, r.DedupKey, r.InstallationID, r.Repo, r.PullNumber, r.JobID, r.RunID, r.HeadSHA, r.CommitSHA, r.UserID, r.GitHubUserID, r.GitHubLogin, r.ProviderID, r.Trigger, boolInt(r.RequesterAdmin), r.Instruction, r.State, r.Message, r.CommentID, msp(r.PublishedAt), ms(r.CreatedAt), ms(r.UpdatedAt), repairDetailsJSON(r.Details))
+		_, err = tx.ExecContext(ctx, `INSERT INTO eli_repairs (`+eliRepairCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.ID, r.DedupKey, r.InstallationID, r.Repo, r.PullNumber, r.JobID, r.RunID, r.HeadSHA, r.CommitSHA, r.UserID, r.GitHubUserID, r.GitHubLogin, r.ProviderID, r.Trigger, boolInt(r.RequesterAdmin), r.Instruction, r.State, r.Message, r.CommentID, msp(r.PublishedAt), ms(r.CreatedAt), ms(r.UpdatedAt), repairDetailsJSON(r.Details), r.WatchID)
 		added = err == nil
 		return err
 	})
@@ -300,7 +308,7 @@ func (s *Store) NextEliRepair(ctx context.Context) (*EliRepair, error) {
 // Lifecycle writes leave comment delivery metadata to SetEliRepairComment.
 func (s *Store) SaveEliRepair(ctx context.Context, r *EliRepair) error {
 	r.UpdatedAt = s.Now()
-	_, err := s.exec(ctx, `UPDATE eli_repairs SET pull_number=?,head_sha=?,commit_sha=?,user_id=?,provider_id=?,state=?,message=?,published_at=?,updated_at=?,details=? WHERE id=?`, r.PullNumber, r.HeadSHA, r.CommitSHA, r.UserID, r.ProviderID, r.State, r.Message, msp(r.PublishedAt), ms(r.UpdatedAt), repairDetailsJSON(r.Details), r.ID)
+	_, err := s.exec(ctx, `UPDATE eli_repairs SET pull_number=?,head_sha=?,commit_sha=?,user_id=?,provider_id=?,state=?,message=?,published_at=?,updated_at=?,details=?,watch_id=? WHERE id=?`, r.PullNumber, r.HeadSHA, r.CommitSHA, r.UserID, r.ProviderID, r.State, r.Message, msp(r.PublishedAt), ms(r.UpdatedAt), repairDetailsJSON(r.Details), r.WatchID, r.ID)
 	return err
 }
 

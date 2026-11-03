@@ -25,7 +25,7 @@ func (c *Controller) repairPolicy(ctx context.Context, repo, installation string
 		return nil, err
 	}
 	for _, p := range policies {
-		if p.Repo == repo && p.InstallationID == installation && p.Enabled {
+		if strings.EqualFold(p.Repo, repo) && p.InstallationID == installation && p.Enabled {
 			return &p, nil
 		}
 	}
@@ -596,6 +596,13 @@ func repairToolNames(calls []assistant.ToolCall) string {
 }
 
 func (c *Controller) startRepairLoops(ctx context.Context) {
+	// A watch is a person's durable decision, so a restart must not lose it or
+	// leave it leased to a process that no longer exists. Observation is
+	// read-only, so replaying an interrupted observation is safe; an uncertain
+	// publication is recovered separately by InterruptEliRepairs.
+	if err := c.st.RecoverEliRepairWatches(ctx, c.Now()); err != nil {
+		c.log.Error("could not recover Eli repair watches", "error", err)
+	}
 	c.spawn("eli-repairs", ctx, c.repairLoop)
 	c.spawn("eli-repair-checks", ctx, c.repairCheckLoop)
 }

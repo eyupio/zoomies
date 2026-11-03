@@ -771,7 +771,20 @@ with them. Eli observes published repair commits in a separate guarded loop, so
 a model request cannot hold up their check outcomes. Generation stays serial;
 both loops stop with the controller and respect its fence, lease and transfer
 drain. Comment delivery records only the comment ID, leaving the check outcome
-and polling clock intact. Each subsystem is bounded at its edges before anything is written:
+and polling clock intact.
+
+A durable watch is the separate record that a person asked for one pull request
+to keep being followed. It is admitted explicitly from an enabled Automatic
+policy and a live pull request, never inferred from a policy or a failed job.
+The watch stores its own owner, provider and policy revision, the head and base
+it started from, its capability selection and its next check, and an attempt
+may point back at the watch that authorised it. A short lease keeps one observer
+on a watch at a time; a restart releases a lease left by the previous process
+and makes that interrupted observation due again, because observing a pull
+request is read-only. An uncertain publication is still never replayed: the
+attempt is marked interrupted, as it always was.
+
+Each subsystem is bounded at its edges before anything is written:
 `internal/redact` strips credentials and commit authors' email addresses from
 text bound for a model, and `internal/prrepair` holds the path allow-list, the
 blob caps and the refusal of anything credential-shaped on the server, where

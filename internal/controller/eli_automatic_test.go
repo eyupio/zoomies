@@ -146,6 +146,9 @@ func policyOf(t *testing.T, h *harness, repo string) store.EliRepairPolicy {
 	}
 	for _, p := range policies {
 		if p.Repo == repo {
+			// The policy revision is internal bookkeeping for a durable watch;
+			// these tests compare the policy a person set, not its save time.
+			p.UpdatedAt = time.Time{}
 			return p
 		}
 	}
