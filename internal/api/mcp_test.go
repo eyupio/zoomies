@@ -30,7 +30,7 @@ type mcpReply struct {
 	Error  *mcp.RPCError   `json:"error"`
 }
 
-func decodeMCP(t *testing.T, resp *response) mcpReply {
+func decodeMCP(t testing.TB, resp *response) mcpReply {
 	t.Helper()
 	if resp.status != http.StatusOK {
 		t.Fatalf("MCP request answered %d: %s", resp.status, resp.body)

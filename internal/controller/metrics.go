@@ -48,25 +48,40 @@ type metrics struct {
 	kennelRequests, kennelOpened, kennelClosed, kennelWaived                                     *prometheus.CounterVec
 	kennelHolds                                                                                  prometheus.Counter
 	reconcileDuration                                                                            prometheus.Histogram
-	storeWriteWait                                                                               prometheus.Histogram
-	storeWriteHeld                                                                               prometheus.Histogram
-	reconcileErrors                                                                              prometheus.Counter
-	cleanups                                                                                     *prometheus.CounterVec
-	schedulingLatency, cleanupDuration                                                           *prometheus.HistogramVec
-	pollsShed                                                                                    prometheus.Counter
-	agentLimited                                                                                 *prometheus.CounterVec
-	logRelayDropped                                                                              prometheus.Counter
-	buildInfo                                                                                    *prometheus.GaugeVec
-	providerOperations                                                                           *prometheus.CounterVec
-	providerOperationSeconds                                                                     *prometheus.HistogramVec
-	runtimeFailures                                                                              *prometheus.CounterVec
-	imagePullFailures                                                                            *prometheus.CounterVec
-	imagePrewarms                                                                                *prometheus.CounterVec
-	imagePrewarmDuration                                                                         *prometheus.HistogramVec
-	elasticCPUDecisions                                                                          *prometheus.CounterVec
-	elasticCPUFactor                                                                             *prometheus.HistogramVec
-	elasticMemoryDecisions, elasticMemoryNearLimit                                               *prometheus.CounterVec
-	updateAttempts                                                                               *prometheus.CounterVec
+	// loopStep is where a loop's time goes, by loop and step. reconcileDuration
+	// says a pass was slow; this says which part of it was.
+	loopStep *prometheus.HistogramVec
+	// reconcilePasses and nudges together say whether the control loop is
+	// keeping its own pace or being driven by the fleet, and how many wake-ups
+	// the single-token channel folded into each pass.
+	reconcilePasses *prometheus.CounterVec
+	nudges          prometheus.Counter
+	// derivedSkipped counts the times the computed views were not worked out
+	// because nobody was watching.
+	derivedSkipped prometheus.Counter
+	// apiRequests and apiDuration are the controller's own API as it is used,
+	// by route group. They exist because the access log is debug only.
+	apiRequests                                    *prometheus.CounterVec
+	apiDuration                                    *prometheus.HistogramVec
+	storeWriteWait                                 prometheus.Histogram
+	storeWriteHeld                                 prometheus.Histogram
+	reconcileErrors                                prometheus.Counter
+	cleanups                                       *prometheus.CounterVec
+	schedulingLatency, cleanupDuration             *prometheus.HistogramVec
+	pollsShed                                      prometheus.Counter
+	agentLimited                                   *prometheus.CounterVec
+	logRelayDropped                                prometheus.Counter
+	buildInfo                                      *prometheus.GaugeVec
+	providerOperations                             *prometheus.CounterVec
+	providerOperationSeconds                       *prometheus.HistogramVec
+	runtimeFailures                                *prometheus.CounterVec
+	imagePullFailures                              *prometheus.CounterVec
+	imagePrewarms                                  *prometheus.CounterVec
+	imagePrewarmDuration                           *prometheus.HistogramVec
+	elasticCPUDecisions                            *prometheus.CounterVec
+	elasticCPUFactor                               *prometheus.HistogramVec
+	elasticMemoryDecisions, elasticMemoryNearLimit *prometheus.CounterVec
+	updateAttempts                                 *prometheus.CounterVec
 }
 
 // UnmatchedPool is the `pool` label for work no pool here claims.
@@ -256,6 +271,34 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_reconcile_errors_total",
 			Help: "Reconcile passes that failed. The loop carries on, so a rising count is a fleet deciding nothing while looking idle.",
 		}),
+		// The buckets start at a millisecond because most steps are a handful
+		// of queries, and the interesting ones are the few that are not.
+		loopStep: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "zoomies_loop_step_seconds",
+			Help:    "How long one step of a controller loop took, by loop and step: the scheduling pass in its phases, the housekeeping tick in its jobs, and the views worked out for the event stream. Read it beside zoomies_reconcile_duration_seconds to see which part of a slow pass was slow.",
+			Buckets: []float64{.001, .005, .025, .1, .5, 2.5, 10, 30},
+		}, []string{"loop", "step"}),
+		reconcilePasses: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_reconcile_passes_total",
+			Help: "Scheduling passes started, by what started them: startup, timer, nudge or request. Against zoomies_reconcile_nudges_total it shows how many wake-ups each pass absorbed.",
+		}, []string{"trigger"}),
+		nudges: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "zoomies_reconcile_nudges_total",
+			Help: "Times something asked the scheduler to look again: a heartbeat, a webhook, an API write. A burst of them costs one pass, so this runs ahead of the nudge passes by the amount that was folded together.",
+		}),
+		derivedSkipped: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "zoomies_derived_skipped_total",
+			Help: "Times the statistics, problems and host views for the event stream were not worked out because nothing was connected to it. While this stays flat and zoomies_event_subscribers is above zero, those views are being worked out on every pass and every housekeeping tick.",
+		}),
+		apiRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_api_requests_total",
+			Help: "Requests the controller served, by route group (the first part of the API path, or ui, health, webhook, metrics, mcp) and status class. Long-lived routes (the event stream, a log tail, an agent's task poll) are counted here and left out of the timings.",
+		}, []string{"group", "status"}),
+		apiDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "zoomies_api_request_seconds",
+			Help:    "How long a request took to answer, by route group. A route that holds a connection open for its purpose is not in it.",
+			Buckets: []float64{.005, .025, .1, .5, 2.5, 10, 30},
+		}, []string{"group"}),
 		// Taking a runner away is the half of the lifecycle that leaves
 		// something behind when it goes wrong, and it goes wrong on the host
 		// rather than in the fleet -- so it is invisible in every other series
@@ -345,7 +388,20 @@ func newMetrics(c *Controller) *metrics {
 	}
 	m.buildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
 
+	// Read at scrape time, like the fleet gauges: the stream's own count is
+	// the truth, and a copy kept here could only drift from it.
+	subscribers := prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "zoomies_event_subscribers",
+		Help: "Clients connected to the live event stream: open browser tabs, MCP clients, anything following changes. While it is zero the controller skips the views it would otherwise work out for them.",
+	}, func() float64 {
+		if c.bus == nil {
+			return 0
+		}
+		return float64(c.bus.Subscribers())
+	})
+
 	m.reg.MustRegister(
+		m.loopStep, m.reconcilePasses, m.nudges, m.derivedSkipped, m.apiRequests, m.apiDuration, subscribers,
 		m.jobsTotal, m.jobsRunnerLost, m.jobReruns, m.jobFailures, m.jobsSized, m.jobsRan, m.jobsRerouted, m.runnerStartFailures, m.queueWait, m.jobDuration, m.jobCPUThrottled, m.scalingEvents,
 		m.registrationsDeferred,
 		m.webhookDeliveries, m.githubRequests, m.kennelRequests, m.kennelOpened, m.kennelClosed, m.kennelWaived, m.kennelHolds, m.reconcileDuration, m.storeWriteWait, m.storeWriteHeld, m.reconcileErrors, m.cleanups, m.pollsShed, m.agentLimited, m.logRelayDropped, m.buildInfo,

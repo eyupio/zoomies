@@ -276,6 +276,11 @@ const (
 	// the bundle carries the settings section, and settings.read is admin. A
 	// viewer-readable bundle would hand out the one section this project has
 	// always kept behind an admin.
+	//
+	// It also covers the on-demand CPU profile, for a different reason that
+	// lands in the same place: a profile is the running process's own
+	// internals, and taking one costs the controller CPU it may be short of, so
+	// it is not something to leave to a role that can only watch.
 	ActionDiagnosticsRead Action = "diagnostics.read"
 	// ActionRecoveryWrite lifts the fence a restore sets. It is its own action
 	// rather than settings.write because it is not a setting: it is a promise

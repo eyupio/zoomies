@@ -15,7 +15,7 @@ PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 | Working branch | `codex/eli-repair-monitoring` |
 | Implementation | S1 in PR #1368; S2a implementation commit `db70f80d801e620baabdaba7263db5ba499f7cd9` separates observation from the serial model worker |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; migration correction and full store race suite verified; CI rerunning |
-| Follow-up PR | [#1369](https://github.com/eyupio/zoomies/pull/1369), open for review; CI pending; incorporates PR #1368 through `035ff983f1f2930dc4ae25cfc6624cfb60ccab10` |
+| Follow-up PR | [#1369](https://github.com/eyupio/zoomies/pull/1369), open for review; CI pending; incorporates PR #1368 through main-integration commit `432177647e8d987839b49afa9ec09f6a6c203b2c` |
 | Current slice | S2a implemented and locally verified; awaiting PR/CI review |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Planned, not implemented |
@@ -365,11 +365,28 @@ its S2a implementation or handoff. The new CI result remains separate from
 these local checks; an action-download failure is not an application test result.
 
 PR #1369 incorporates this correction through a merge from PR #1368, retaining
-its S2a implementation and continuation record. The sync changes only the
-migration contract and this handoff. Its migration-name and comment metadata
+its S2a implementation and continuation record. The initial correction sync
+changed only the migration contract and this handoff. Its migration-name and comment metadata
 race regressions pass, as do documentation tests after `make build-nogui`
 provides the isolated worktree's embedded UI placeholder. No S2a runtime code
-changed in the sync. The complete store-suite result above is from S1.
+changed in that initial sync. The complete store-suite result above is from S1.
+
+`main` then advanced to `ce17858c` through PR #1367, adding controller profiling
+and metrics. The generated `internal/api/openapi_spec.go` conflicted and GitHub
+stopped scheduling the normal pull-request checks. Merge that main revision and
+regenerate both API clients with `make openapi` from the merged YAML, retaining
+the CPU-profile endpoint and the repair `needs_action` contract. No store files,
+`go.mod` or `go.sum` changed relative to the verified correction, so the complete
+store result above still applies. Merge validation passes:
+
+- `go test -race -count=1 -run 'Eli|Repair|CPUProfile|Profile|Route|Stream|Timed|Timing|Loop|MigrationNamesAreFixedAndNewPrefixesAreUnique'`
+  on `./internal/api ./internal/controller ./internal/store ./internal/github`.
+- `go vet` on those four packages, `go test ./internal/docs -count=1` and
+  `npm run check` (zero errors/warnings in both configurations).
+- `make openapi` regenerated both clients; `git diff --check` passes.
+
+Before publishing, check the live base branch ref as well as PR metadata; the
+PR's recorded base SHA can lag behind the branch that mergeability uses.
 
 The full repository `make test-short`, all browser suites outside the affected
 repair pages, a live-model evaluation and end-to-end Eli repairs against real GitHub PR
@@ -477,6 +494,22 @@ the tests pass with local loopback access. Full repository tests, UI/browser
 suites, a live model and end-to-end repairs against real PR targets were not run
 for S2a. No UI or public API changed; S1's UI evidence above remains its own.
 The new PR's CI result must be checked separately after publication.
+
+The subsequent base sync incorporates PR #1368's main-integration commit
+`43217764`, including PR #1367's profiler labels. Keep both the independent
+`startRepairLoops` wiring and the updated guarded `spawn` implementation.
+The generated API clients come from the resolved S1 tree without further edits.
+Sync validation passes:
+
+- `go test -race -count=1 -run 'Eli|Repair|EveryLoopRunsUnderItsOwnProfilerLabel|MigrationNamesAreFixedAndNewPrefixesAreUnique'`
+  on `./internal/controller ./internal/store ./internal/api ./internal/github`.
+- `go test ./internal/docs -count=1`, vet on those four packages, changed-file
+  `gofmt` and `git diff --check`.
+
+Initial documentation/vet launches hit workspace capacity before completing.
+Generated binaries were removed, recent Go cache objects moved to temporary
+storage, and the checks rerun sequentially with temporary cache/build paths.
+These were environment failures; the completed checks above pass.
 
 Useful commands (see `AGENTS.md` for prerequisites):
 
