@@ -39,19 +39,19 @@ func (c *Controller) reconcileLoop(ctx context.Context) {
 
 	// One pass at startup so a controller that was down while jobs queued
 	// starts creating runners without waiting out the interval.
-	c.reconcileNow(ctx)
+	c.reconcileNow(ctx, triggerStartup)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			c.reconcileNow(ctx)
+			c.reconcileNow(ctx, triggerTimer)
 		case <-c.nudges:
 			// Every nudge that arrived while the previous pass ran has already
 			// collapsed into the single token we just took, so this is one
 			// pass for the whole burst.
-			c.reconcileNow(ctx)
+			c.reconcileNow(ctx, triggerNudge)
 		}
 		// The interval is a runtime setting, and UpdateConfig nudges this
 		// loop, so a change is in force from the pass after it was accepted.
@@ -64,8 +64,8 @@ func (c *Controller) reconcileLoop(ctx context.Context) {
 
 // reconcileNow runs one pass and logs a failure rather than propagating it: a
 // transient database or GitHub error must not stop the loop.
-func (c *Controller) reconcileNow(ctx context.Context) {
-	if err := c.Reconcile(ctx); err != nil && ctx.Err() == nil {
+func (c *Controller) reconcileNow(ctx context.Context, trigger string) {
+	if err := c.reconcile(ctx, trigger); err != nil && ctx.Err() == nil {
 		c.metrics.reconcileErrors.Inc()
 		c.log.Error("reconcile pass failed; the next pass will try again", "error", err)
 	}
@@ -75,6 +75,15 @@ func (c *Controller) reconcileNow(ctx context.Context) {
 // apply. It is exported so that tests and the API can force a pass and know it
 // has finished, which Nudge deliberately cannot promise.
 func (c *Controller) Reconcile(ctx context.Context) error {
+	return c.reconcile(ctx, triggerRequest)
+}
+
+// reconcile is a pass and the count of what started it. The count is taken
+// when the pass starts and not when it succeeds, so a pass that fails is still
+// a pass the loop ran: zoomies_reconcile_errors_total is the part of them that
+// did not work.
+func (c *Controller) reconcile(ctx context.Context, trigger string) error {
+	c.metrics.reconcilePasses.WithLabelValues(trigger).Inc()
 	started, err := c.reconcileLocked(ctx)
 	if err != nil {
 		return err
@@ -103,14 +112,22 @@ func (c *Controller) reconcileLocked(ctx context.Context) (time.Time, error) {
 	// pass either gets those creations through or holds them back again, and
 	// the problems list should describe now rather than then.
 	c.resetDeferredMints()
-	if err := c.recoverHostCleanup(ctx); err != nil {
+	done := c.stepTimer(loopReconcile, stepHostCleanup)
+	err := c.recoverHostCleanup(ctx)
+	done()
+	if err != nil {
 		return started, fmt.Errorf("recovering unfinished host cleanup: %w", err)
 	}
 	placementVersion := c.placementVersion.Load()
+	done = c.stepTimer(loopReconcile, stepSnapshot)
 	snap, err := c.snapshot(ctx)
+	done()
 	if err != nil {
 		return started, err
 	}
+	// Decide is the pure half, so it is where a slow pass is slow because the
+	// fleet is large, as against slow because the database or GitHub is.
+	done = c.stepTimer(loopReconcile, stepDecide)
 	plan := scheduler.Decide(snap)
 	if c.cfg().Scheduler.PlacementMode == "shadow" {
 		candidate := snap
@@ -118,6 +135,7 @@ func (c *Controller) reconcileLocked(ctx context.Context) (time.Time, error) {
 		alternative := scheduler.Decide(candidate)
 		c.log.Debug("compared host placement policies", "current", plan.Pools, "readiness", alternative.Pools)
 	}
+	done()
 	for _, pp := range plan.Pools {
 		if pp.History != "" {
 			c.log.Debug("job history placement", "pool", pp.PoolName, "mode", snap.HistorySizing, "decision", pp.History)
@@ -126,12 +144,19 @@ func (c *Controller) reconcileLocked(ctx context.Context) (time.Time, error) {
 	c.rememberPlacement(snap, plan, placementVersion)
 	c.setLastPlan(plan)
 	c.setReserved(snap)
+	done = c.stepTimer(loopReconcile, stepApply)
 	c.apply(ctx, snap, plan)
+	done()
 	if !c.transferDraining.Load() {
+		done = c.stepTimer(loopReconcile, stepFallbacks)
 		c.routeFallbacks(ctx, snap, plan)
 		c.publishCapacitySignals(ctx, snap, plan)
+		done()
 	}
-	if err := c.finishTransferDrain(ctx); err != nil {
+	done = c.stepTimer(loopReconcile, stepDrain)
+	err = c.finishTransferDrain(ctx)
+	done()
+	if err != nil {
 		return started, err
 	}
 	return started, nil

@@ -4,10 +4,12 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"runtime"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
@@ -175,6 +177,51 @@ func (s *Server) handleDiagnosticsBundle(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(raw)
+}
+
+// handleDiagnosticsCPUProfile answers GET /api/v1/diagnostics/cpu-profile.
+//
+// It holds the connection for as long as the sample lasts, which is the point
+// and the reason it is bounded: from one second to thirty, ten unless asked.
+// A client that goes away ends the sample, so nobody can leave the profiler on
+// by hanging up.
+func (s *Server) handleDiagnosticsCPUProfile(w http.ResponseWriter, r *http.Request) {
+	seconds := controller.DefaultCPUProfileSeconds
+	if raw := r.URL.Query().Get("seconds"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < controller.MinCPUProfileSeconds || n > controller.MaxCPUProfileSeconds {
+			badRequestField(w, "seconds", fmt.Sprintf("seconds must be a whole number from %d to %d",
+				controller.MinCPUProfileSeconds, controller.MaxCPUProfileSeconds))
+			return
+		}
+		seconds = n
+	}
+
+	profile, err := s.ctrl.CaptureCPUProfile(r.Context(), time.Duration(seconds)*time.Second)
+	switch {
+	case errors.Is(err, controller.ErrCPUProfileBusy):
+		conflict(w, "a CPU profile is already being taken; try again when it has finished")
+		return
+	case r.Context().Err() != nil:
+		// The client left. There is nobody to answer, and the profiler has
+		// already been stopped by the capture returning.
+		return
+	case err != nil:
+		s.internal(w, r, "taking a CPU profile", err)
+		return
+	}
+
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "diagnostics.cpu_profile", "instance", "", map[string]any{
+		"seconds": seconds, "bytes": len(profile),
+	})
+	// An attachment, because the reader is `go tool pprof` or a profile viewer
+	// and a browser has nothing to show. no-store because it describes the
+	// moment it was taken.
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"zoomies-cpu-%s.pprof\"", s.ctrl.Now().Format("20060102-150405")))
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(profile)
 }
 
 // supportBundle assembles the document.

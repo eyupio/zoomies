@@ -48,12 +48,27 @@ type housekeeping struct {
 // that a test can run a pass without waiting for one.
 func (c *Controller) housekeep(ctx context.Context, last *housekeeping) {
 	now := c.Now()
+	// Each job is timed on its own. They share a tick, so a slow tick says
+	// nothing about which of them it was, and several run in the same second
+	// as the other loops that tick on the same beat.
+	done := c.stepTimer(loopHousekeeping, stepSweepTasks)
 	c.sweepTasks(ctx, now)
+	done()
+	done = c.stepTimer(loopHousekeeping, stepHostHealth)
 	c.checkHostHealth(ctx)
+	done()
+	done = c.stepTimer(loopHousekeeping, stepThrottles)
 	c.settleThrottles(ctx, now)
+	done()
+	done = c.stepTimer(loopHousekeeping, stepAutoAdjust)
 	c.autoAdjustHosts(ctx, now)
+	done()
+	done = c.stepTimer(loopHousekeeping, stepExpireQueued)
 	c.expireStaleQueuedJobs(ctx, now)
+	done()
+	done = c.stepTimer(loopHousekeeping, stepExpireRunning)
 	c.expireStaleRunningJobs(ctx, now)
+	done()
 	// A host going quiet is a problem and a capacity change, and neither
 	// waits for the next reconcile pass to be told about.
 	c.publishDerived(ctx)
@@ -69,33 +84,46 @@ func (c *Controller) housekeep(ctx context.Context, last *housekeeping) {
 	// minute harmless.
 	if now.Truncate(time.Minute).After(last.sample.Truncate(time.Minute)) {
 		last.sample = now
+		done = c.stepTimer(loopHousekeeping, stepSample)
 		if err := c.sample(ctx); err != nil {
 			c.log.Warn("could not record a fleet sample", "error", err)
 		}
+		done()
 	}
 	if now.Sub(last.prune) >= pruneInterval {
 		last.prune = now
+		// The hourly one, and the one that holds the single writer longest, so
+		// it is the step to read beside zoomies_store_write_held_seconds.
+		done = c.stepTimer(loopHousekeeping, stepPrune)
 		c.prune(ctx)
+		done()
 	}
 	// The zero time is deliberately allowed to fire on the first tick: a
 	// controller that has just come back up has no idea what moved while it
 	// was down, and the pass is idempotent.
 	if d := c.cfg().Images.RefreshInterval; d > 0 && now.Sub(last.imageRefresh) >= d {
 		last.imageRefresh = now
+		done = c.stepTimer(loopHousekeeping, stepImageRefresh)
 		c.refreshPoolImages(ctx)
+		done()
 	}
 	if d := c.cfg().Updates.CheckInterval; d > 0 && now.Sub(last.updateCheck) >= d {
 		last.updateCheck = now
+		done = c.stepTimer(loopHousekeeping, stepUpdateCheck)
 		c.checkForRelease(ctx)
+		done()
 	}
 	// In the background, and it ends with the controller: a scan takes minutes
 	// on a large organisation, and this pass must not. One already running,
-	// started by hand, is the answer, and this tick is not retried.
+	// started by hand, is the answer, and this tick is not retried. Only the
+	// start is timed here, which is the part this tick waits for.
 	if d := c.cfg().GitHub.ToolchainScanInterval; d > 0 && now.Sub(last.toolchainScan) >= d {
 		last.toolchainScan = now
+		done = c.stepTimer(loopHousekeeping, stepToolchainScan)
 		if err := c.startToolchainScan(ctx); err != nil && !errors.Is(err, ErrToolchainScanRunning) {
 			c.log.Warn("could not start the scheduled toolchain scan", "error", err)
 		}
+		done()
 	}
 }
 

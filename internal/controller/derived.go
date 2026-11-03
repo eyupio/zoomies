@@ -31,9 +31,21 @@ const statsEventWindow = time.Hour
 // is connected to the stream: a controller nobody is watching should not do
 // the watchers' work.
 func (c *Controller) publishDerived(ctx context.Context) {
-	if c.bus == nil || c.bus.Subscribers() == 0 || ctx.Err() != nil {
+	if c.bus == nil || ctx.Err() != nil {
 		return
 	}
+	if c.bus.Subscribers() == 0 {
+		// Counted, so that a controller doing this work every pass can be told
+		// from one that is skipping it: the pair of this and the subscriber
+		// gauge says which of the two a busy instance is.
+		c.metrics.derivedSkipped.Inc()
+		return
+	}
+
+	// Called from seven places, so the whole is timed here and not by each of
+	// them. The parts are timed apart because they are very different sizes,
+	// and the one that is large on a big fleet is the one worth caching.
+	defer c.stepTimer(loopDerived, stepAll)()
 
 	c.derivedMu.Lock()
 	defer c.derivedMu.Unlock()
@@ -42,27 +54,33 @@ func (c *Controller) publishDerived(ctx context.Context) {
 	// between them and not once each.
 	ctx = withFleetReads(ctx)
 
+	done := c.stepTimer(loopDerived, stepStats)
 	if stats, err := c.Stats(ctx, statsEventWindow); err != nil {
 		c.log.Warn("could not compute fleet statistics for the event stream", "error", err)
 	} else if raw, changed := c.derivedChanged(&c.lastStats, stats); changed {
 		c.bus.Publish(events.KindStats, "", json.RawMessage(raw))
 	}
+	done()
 
+	done = c.stepTimer(loopDerived, stepProblems)
 	if problems, err := c.SharedProblems(ctx); err != nil {
 		c.log.Warn("could not gather the current problems for the event stream", "error", err)
 	} else if raw, changed := c.derivedChanged(&c.lastProblems, NewProblemsView(problems)); changed {
 		c.bus.Publish(events.KindProblems, "", json.RawMessage(raw))
 	}
+	done()
 
 	// The Overview of Kennel Club is computed, not stored: nothing writes a row
 	// when an evaluation grows older, so nothing could announce that it did. With
 	// the feature off this costs no query -- the document is the same "off" one
 	// each time -- and is sent once when it flips.
+	done = c.stepTimer(loopDerived, stepKennel)
 	if overview, err := c.KennelOverview(ctx); err != nil {
 		c.log.Warn("could not compute the Kennel Club overview for the event stream", "error", err)
 	} else if raw, changed := c.derivedChanged(&c.lastKennel, overview); changed {
 		c.bus.Publish(events.KindKennelSummary, "", json.RawMessage(raw))
 	}
+	done()
 
 	// What an update would take is computed too: a soak ends when the clock passes
 	// it and nothing is written, so no row could announce that auto may now act.
@@ -71,18 +89,26 @@ func (c *Controller) publishDerived(ctx context.Context) {
 	//
 	// A request and a closed attempt send their own frame through the same
 	// memory, so this one says nothing a button has just said.
+	done = c.stepTimer(loopDerived, stepUpdates)
 	if status, err := c.UpdatesView(ctx); err != nil {
 		c.log.Warn("could not work out the update status for the event stream", "error", err)
 	} else {
 		c.sendUpdates(status)
 	}
+	done()
 
 	// A transfer's preparation is the same again: every count in it moves as
 	// runners are confirmed gone and jobs finish, and no row says so.
+	done = c.stepTimer(loopDerived, stepTransfer)
 	c.sendTransfer(ctx)
+	done()
 
+	done = c.stepTimer(loopDerived, stepHosts)
 	c.publishHostChanges(ctx)
+	done()
+	done = c.stepTimer(loopDerived, stepMachines)
 	c.publishMachineChanges(ctx)
+	done()
 }
 
 // publishMachineChanges announces every machine whose rendered view has moved

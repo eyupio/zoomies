@@ -184,7 +184,7 @@ func (f *releaseFeed) RoundTrip(r *http.Request) (*http.Response, error) {
 
 // useVersion stamps the build for one test: the whole question an update asks is
 // what the binary was built from, and the test binary is "dev".
-func useVersion(t *testing.T, v string) {
+func useVersion(t testing.TB, v string) {
 	t.Helper()
 	was := version.Version
 	version.Version = v
