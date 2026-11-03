@@ -212,12 +212,22 @@ func (s *Store) ReleaseEliRepairWatch(ctx context.Context, id, token, headSHA, b
 }
 
 func (s *Store) PauseEliRepairWatch(ctx context.Context, id, reason string) error {
-	_, err := s.exec(ctx, `UPDATE eli_repair_watches SET enabled=0,paused_reason=?,stop_reason='',lease_token='',lease_until=0,updated_at=? WHERE id=?`, reason, ms(s.Now()), id)
-	return err
+	return s.setEliRepairWatchEnabled(ctx, id, `paused_reason=?,stop_reason=''`, reason)
 }
 
 func (s *Store) StopEliRepairWatch(ctx context.Context, id, reason string) error {
-	_, err := s.exec(ctx, `UPDATE eli_repair_watches SET enabled=0,paused_reason='',stop_reason=?,lease_token='',lease_until=0,updated_at=? WHERE id=?`, reason, ms(s.Now()), id)
+	return s.setEliRepairWatchEnabled(ctx, id, `paused_reason='',stop_reason=?`, reason)
+}
+
+func (s *Store) setEliRepairWatchEnabled(ctx context.Context, id, fields, reason string) error {
+	result, err := s.exec(ctx, `UPDATE eli_repair_watches SET enabled=0,`+fields+`,lease_token='',lease_until=0,updated_at=? WHERE id=?`, reason, ms(s.Now()), id)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err == nil && n == 0 {
+		return ErrNotFound
+	}
 	return err
 }
 

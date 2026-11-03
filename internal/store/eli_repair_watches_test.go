@@ -46,6 +46,9 @@ func TestAnExplicitAdmissionIsTheOnlyThingThatCreatesOrResumesAWatch(t *testing.
 	if err := s.PauseEliRepairWatch(ctx, first.ID, "Paused for this pull request."); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.PauseEliRepairWatch(ctx, "erw_missing", "Paused."); err != ErrNotFound {
+		t.Fatalf("pausing an unknown watch answered %v", err)
+	}
 	paused, err := s.EliRepairWatch(ctx, first.ID)
 	if err != nil {
 		t.Fatal(err)
