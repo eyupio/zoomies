@@ -13,9 +13,9 @@ PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 | --- | --- |
 | Investigated baseline | `871eff7d0073622f0b5f1c7d672583bd9288d633` on `main` |
 | Working branch | `codex/eli-repair-monitoring` |
-| Implementation | S1 in PR #1368; S2a separates published-commit observation from the serial model worker |
+| Implementation | S1 in PR #1368; S2a implementation commit `db70f80d801e620baabdaba7263db5ba499f7cd9` separates observation from the serial model worker |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; latest CI pending |
-| Follow-up PR | Being prepared on `codex/eli-repair-monitoring`, stacked on PR #1368 at `a640c3dadbe2a6bd37bf99e932d26f0160d75d8f` |
+| Follow-up PR | [#1369](https://github.com/eyupio/zoomies/pull/1369), open as a draft; CI pending; stacked on PR #1368 at `a640c3dadbe2a6bd37bf99e932d26f0160d75d8f` |
 | Current slice | S2a implemented and locally verified; awaiting PR/CI review |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Planned, not implemented |
@@ -312,7 +312,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | PR | Scope | Validation | Remaining work |
 | --- | --- | --- | --- |
 | [#1368](https://github.com/eyupio/zoomies/pull/1368), open | S1, UX follow-up and this handoff | Local checks below pass; latest CI pending | S2, S3, S4; start with independent observation and durable watches |
-| Follow-up PR pending | S2a: independent check observation and comment-write isolation | Repair and lifecycle race tests, vet, docs and formatting pass | Durable watches and admission/recovery, then check evidence and repair chains |
+| [#1369](https://github.com/eyupio/zoomies/pull/1369), draft | S2a: independent check observation and comment-write isolation | Repair and lifecycle race tests, vet, docs and formatting pass; CI pending | Durable watches and admission/recovery, then check evidence and repair chains |
 
 S1 validation on 3 November 2026:
 
@@ -387,7 +387,7 @@ Follow-up validation:
 
 ### S2a: independent published-commit observation, 3 November 2026
 
-This follow-up is stacked on PR #1368 while that PR is open. Retarget it to
+PR [#1369](https://github.com/eyupio/zoomies/pull/1369) is stacked on PR #1368 while that PR is open. Retarget it to
 `main` after S1 merges and verify the resulting diff contains only S2a work.
 Do not merge S1 as part of this slice without the normal review.
 
