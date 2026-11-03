@@ -369,6 +369,10 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionJobsAcknowledge)).Delete("/{id}/acknowledge", s.handleReopenJobAttention)
 		})
 
+		// The machine the controller itself runs on, for a controller whose agents are
+		// all elsewhere and which has no host of its own to read it from.
+		r.With(s.require(auth.ActionHostsRead)).Get("/controller/machine", s.handleControllerMachine)
+
 		// Hosts and enrolment.
 		r.Route("/hosts", func(r chi.Router) {
 			r.With(s.require(auth.ActionHostsRead)).Get("/", s.handleListHosts)

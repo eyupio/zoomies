@@ -276,6 +276,9 @@ type Controller struct {
 	// profiler, so this is what lets a second request be refused rather than
 	// fail inside it; see cpu_profile.go.
 	profiling atomic.Bool
+	// machine is the controller's own machine, sampled on the housekeeping tick:
+	// see machine_self.go.
+	machine machineProbe
 
 	// backups is the scheduled-backup loop's own state; see backups.go.
 	backups backupState

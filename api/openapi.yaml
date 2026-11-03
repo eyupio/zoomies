@@ -4254,6 +4254,30 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/HostSample" }
 
+  /controller/machine:
+    get:
+      operationId: getControllerMachine
+      tags: [hosts]
+      summary: The machine the controller itself runs on
+      description: >-
+        What the controller measured of its own machine: its CPU count and memory
+        as its procfs describes them, and the whole-machine CPU, steal, I/O wait,
+        one-minute load average and available memory it last sampled. It is for a
+        controller whose agents are all elsewhere, which has no host of its own to
+        read the machine from; one with an embedded agent reports the same machine
+        as a host. Sampled on the controller's housekeeping tick and read here
+        without sampling, so asking never sets the interval the shares are taken
+        over. `usage` is absent until two samples have been taken, and on a platform
+        with no procfs; `usage_fresh` says whether a recent measurement stands
+        behind it.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ControllerMachine" }
+
   /hosts/{id}:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
     get:
@@ -14820,6 +14844,7 @@ components:
         cpu_held: { type: boolean, description: Admission held after sustained CPU pressure. Running jobs continue. Owned by the controller. }
         lent_cpu_percent: { type: number, minimum: 0, maximum: 100, description: The part of cpu_percent runners were using out of CPU elastic CPU lent them. The admission hold and the throttle judge CPU without it. Owned by the controller. }
         io_wait_percent: { type: number, minimum: 0, maximum: 100, description: The share of CPU time the machine spent idle with something waiting on disk between samples. cpu_percent counts that time as busy; this is what tells a host stalled on its disk from one hard at work. Absent when unmeasured. }
+        steal_percent: { type: number, minimum: 0, maximum: 100, description: "The share of CPU time the hypervisor kept from this virtual machine between samples. `cpu_percent` counts that time as busy, so a machine that is being starved reads as one hard at work; this is what says which it is. Absent when unmeasured, or on a kernel that does not report it." }
         io_wait_high_since: { type: string, format: date-time, description: When I/O wait rose to 20% and has not fallen below 10% since. A host that has been there for ten minutes is called disk-bound, which is what a pool's advice to keep its scratch folders in memory rests on. Owned by the controller. }
         load_average_1m:
           type: number
@@ -14830,6 +14855,23 @@ components:
             a load of at least twice the CPUs is what steps the throttle up, because a
             runnable queue that deep is a machine that has stopped keeping up even when the
             CPU figure saturates at 100.
+    ControllerMachine:
+      type: object
+      required: [usage_fresh]
+      properties:
+        cpus: { type: integer, description: "The CPUs its procfs counts. Absent where there is no procfs." }
+        memory_mb: { type: integer, format: int64, description: "Its procfs's total memory in MB. Absent where there is no procfs." }
+        usage:
+          type: object
+          required: [sampled_at]
+          properties:
+            cpu_percent: { type: number, minimum: 0, maximum: 100, description: "Whole-machine CPU occupied between two samples. Counts I/O wait and steal as busy." }
+            io_wait_percent: { type: number, minimum: 0, maximum: 100, description: "The share of that interval the machine spent idle with something waiting on disk." }
+            steal_percent: { type: number, minimum: 0, maximum: 100, description: "The share of that interval the hypervisor kept the CPU from this virtual machine. Absent on a kernel that does not report it." }
+            load_average_1m: { type: number, minimum: 0, description: "The kernel's one-minute load average." }
+            memory_available_mb: { type: integer, format: int64, minimum: 0, description: "Available memory including reclaimable cache." }
+            sampled_at: { type: string, format: date-time }
+        usage_fresh: { type: boolean, description: "Whether a measurement from the last 90 seconds stands behind usage." }
     HostSample:
       type: object
       description: One host at one minute. Absent measurements are gaps, never zero.
@@ -14841,6 +14883,7 @@ components:
         active_runners: { type: integer }
         cpu_percent: { type: number, minimum: 0, maximum: 100, description: Whole-host CPU occupied, as the agent measured it. Absent when unmeasured or stale. }
         io_wait_percent: { type: number, minimum: 0, maximum: 100, description: "Share of CPU time the host spent idle with work waiting on disk. `cpu_percent` counts that time as busy, so this is what tells a host stalled on its disk from one doing arithmetic. Absent when unmeasured or stale." }
+        steal_percent: { type: number, minimum: 0, maximum: 100, description: "Share of CPU time the hypervisor kept from the host. `cpu_percent` counts that time as busy, so this is what tells a virtual machine that is being starved from one doing arithmetic. Absent when unmeasured or stale, and on a kernel that does not report it." }
         load_average_1m: { type: number, minimum: 0, description: The kernel's one-minute load average. Absent when unmeasured or stale. }
         cpus: { type: integer, description: The machine's CPUs, carried on every row so the chart can draw load against size. }
         memory_mb: { type: integer, format: int64 }

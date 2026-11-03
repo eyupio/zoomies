@@ -21,7 +21,7 @@ implementation from the newest branch after checking the live PR states.
 | Investigated baseline | `ab47587500d01301b75729422bc086e5170841ce` on `codex/eli-repair-monitoring`, itself based on `ce17858c4` on `main` |
 | Working branches | `codex/eli-repair-setup` for S1 (#1368); `codex/eli-repair-monitoring` for S1 plus S2a (#1369); `codex/eli-repair-watches` for S2b stacked on #1369 |
 | Verified code checkpoints | #1368: `432177647e8d987839b49afa9ec09f6a6c203b2c`; #1369: `3e216980897da27ac5dca07853fe2ef531fef97c`; S2b: `7836cbe05bbaeb7dbbbb20fe993a063755c04bc5`; later test-only and handoff commits do not change runtime code |
-| Implementation | S1 in PR #1368; S2a implementation commit `db70f80d801e620baabdaba7263db5ba499f7cd9` separates observation from the serial model worker; S2b adds migration 0137, store watch rows and leases, explicit controller admission and startup recovery |
+| Implementation | S1 in PR #1368; S2a implementation commit `db70f80d801e620baabdaba7263db5ba499f7cd9` separates observation from the serial model worker; S2b adds migration 0138, store watch rows and leases, explicit controller admission and startup recovery |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; migration correction and full store race suite verified; no completed check failure at this checkpoint |
 | Follow-up PR | [#1369](https://github.com/eyupio/zoomies/pull/1369), open for review; no completed check failure at this checkpoint; incorporates PR #1368 through main-integration commit `432177647e8d987839b49afa9ec09f6a6c203b2c` |
 | Current slice | S2b implemented on top of #1369 and locally verified; awaits PR/CI review |
@@ -179,7 +179,7 @@ S2a scope:
 
 S2b scope, this PR only:
 
-- [x] Add additive migration 0137 for durable watches and an optional `watch_id`
+- [x] Add additive migration 0138 for durable watches and an optional `watch_id`
   on repair attempts. Watches carry installation/repository/PR identity, owner
   and policy provenance, the policy revision, check/conflict capabilities,
   enabled or paused state, head/base identity, last observation, next check,
@@ -497,6 +497,25 @@ reads the latest state/comment ID before posting, skips a notice whose state is
 stale, and bounds the request to ten seconds. This prevents a delayed worker
 comment from overwriting a newer terminal outcome, and prevents a check save
 from erasing a comment ID written while the check read was in flight.
+
+### Main integration and migration renumbering, 3 November 2026
+
+`main` advanced to `f19751696` while the stack was open and added
+`0137_host_samples_steal.sql`. The S1 migration stays `0136` and the S2b watch
+migration is now `0138`, so the fixed migration list reads 0136, 0137, 0138 in
+that order. The merge from `main` also regenerated both OpenAPI clients with
+`make openapi`; the only conflict outside the migration list was the generated
+`internal/api/openapi_spec.go`.
+
+Integration validation:
+
+- `go test -race -count=1 -run 'MigrationNamesAreFixedAndNewPrefixesAreUnique|Eli|Repair|HostSample|Steal|OpenAPI|Contract|Route'`
+  on `./internal/store ./internal/controller ./internal/api ./internal/machine ./internal/agent ./internal/mcp`:
+  all six packages pass.
+- `go vet` on those six packages and `go test ./internal/docs -count=1`: pass.
+- `make openapi` regenerated both clients; `git diff --cached --check` passes.
+- #1369 and #1372 were merged into this branch after the review corrections, so
+  this branch now carries S1, S2a and S2b. #1368 remains the PR into `main`.
 
 Limits of this slice:
 

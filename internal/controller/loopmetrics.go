@@ -35,6 +35,7 @@ const (
 	stepExpireQueued  = "expire_queued"
 	stepExpireRunning = "expire_running"
 	stepSample        = "sample"
+	stepMachine       = "machine"
 	stepPrune         = "prune"
 	stepImageRefresh  = "image_refresh"
 	stepUpdateCheck   = "update_check"

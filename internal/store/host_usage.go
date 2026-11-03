@@ -34,6 +34,13 @@ type HostUsage struct {
 	// CPUPercent counts that time as busy, so a build stalled on a saturated disk
 	// reads as a host hard at work; this is the figure that says otherwise.
 	IOWaitPercent *float64 `json:"io_wait_percent,omitempty"`
+	// StealPercent is the share of CPU time the hypervisor kept from this machine,
+	// as the agent measured it between heartbeats. CPUPercent counts that time as
+	// busy, so a virtual machine that is being starved reads as one hard at work;
+	// this is the figure that says otherwise. It is a measurement only: nothing
+	// the scheduler decides is judged on it, so a host's room is still what the
+	// busy figure says it is.
+	StealPercent *float64 `json:"steal_percent,omitempty"`
 	// IOWaitHighSince is when I/O wait rose to IOWaitHighPercent and has not
 	// fallen below IOWaitCalmPercent since. The controller owns it, for the reason
 	// it owns CPUHighSince: an agent that sent its own could keep a host looking
@@ -133,6 +140,15 @@ func ObserveHostUsage(previous, measured HostUsage, lentPercent float64, memoryM
 			since := *previous.IOWaitHighSince
 			u.IOWaitHighSince = &since
 		}
+	}
+	// Steal is part of what CPUPercent calls busy, taken from the same interval,
+	// so it is only a figure beside a CPU one and can never be more than it. One
+	// that is would be an agent that read something other than /proc/stat, and is
+	// dropped rather than recorded; a tenth of a point is rounding.
+	if v := measured.StealPercent; v != nil && u.CPUPercent != nil && !math.IsNaN(*v) && !math.IsInf(*v, 0) &&
+		*v >= 0 && *v <= 100 && *v <= *u.CPUPercent+0.1 {
+		taken := *v
+		u.StealPercent = &taken
 	}
 	// A load average has no ceiling -- that is the point of it -- but it is
 	// never negative, and a NaN or an infinity is an agent that read

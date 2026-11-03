@@ -69,6 +69,12 @@ func (c *Controller) housekeep(ctx context.Context, last *housekeeping) {
 	done = c.stepTimer(loopHousekeeping, stepExpireRunning)
 	c.expireStaleRunningJobs(ctx, now)
 	done()
+	// The machine the controller itself runs on, every tick: its figures are shares
+	// of the interval between two samples, so the interval is the tick and a request
+	// for it never sets one.
+	done = c.stepTimer(loopHousekeeping, stepMachine)
+	c.sampleMachine()
+	done()
 	// A host going quiet is a problem and a capacity change, and neither
 	// waits for the next reconcile pass to be told about.
 	c.publishDerived(ctx)
@@ -287,6 +293,7 @@ func (c *Controller) hostSample(h *store.Host, now time.Time) store.HostSample {
 	if h.Usage.Fresh(now) {
 		s.CPUPercent = h.Usage.CPUPercent
 		s.IOWaitPercent = h.Usage.IOWaitPercent
+		s.StealPercent = h.Usage.StealPercent
 		s.LoadAverage1 = h.Usage.LoadAverage1
 		s.MemoryAvailableMB = h.Usage.MemoryAvailableMB
 	}
