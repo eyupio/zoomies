@@ -14,8 +14,8 @@ PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 | Investigated baseline | `871eff7d0073622f0b5f1c7d672583bd9288d633` on `main` |
 | Working branch | `codex/eli-repair-monitoring` |
 | Implementation | S1 in PR #1368; S2a implementation commit `db70f80d801e620baabdaba7263db5ba499f7cd9` separates observation from the serial model worker |
-| Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; latest CI pending |
-| Follow-up PR | [#1369](https://github.com/eyupio/zoomies/pull/1369), open as a draft; CI pending; stacked on PR #1368 at `a640c3dadbe2a6bd37bf99e932d26f0160d75d8f` |
+| Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; migration correction and full store race suite verified; CI rerunning |
+| Follow-up PR | [#1369](https://github.com/eyupio/zoomies/pull/1369), open for review; CI pending; incorporates PR #1368 through `035ff983f1f2930dc4ae25cfc6624cfb60ccab10` |
 | Current slice | S2a implemented and locally verified; awaiting PR/CI review |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Planned, not implemented |
@@ -312,7 +312,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | PR | Scope | Validation | Remaining work |
 | --- | --- | --- | --- |
 | [#1368](https://github.com/eyupio/zoomies/pull/1368), open | S1, UX follow-up and this handoff | Local checks below pass; latest CI pending | S2, S3, S4; start with independent observation and durable watches |
-| [#1369](https://github.com/eyupio/zoomies/pull/1369), draft | S2a: independent check observation and comment-write isolation | Repair and lifecycle race tests, vet, docs and formatting pass; CI pending | Durable watches and admission/recovery, then check evidence and repair chains |
+| [#1369](https://github.com/eyupio/zoomies/pull/1369), open | S2a: independent check observation and comment-write isolation | Repair and lifecycle race tests, vet, docs and formatting pass; CI pending | Durable watches and admission/recovery, then check evidence and repair chains |
 
 S1 validation on 3 November 2026:
 
@@ -337,6 +337,39 @@ S1 validation on 3 November 2026:
 - New fixture captures in `design/eli-repair-review/` show setup on desktop/mobile
   and a failed automatic repair visible in Needs you.
 - `git diff --check`: pass.
+
+### S1 CI correction in PR #1368, 3 November 2026
+
+The full Linux arm64 run on `a640c3da` found that migration
+`0136_eli_repair_latest_attempt.sql` was missing from `shippedMigrations` in
+`internal/store/migrations_test.go`. The earlier focused repair regex did not
+select `TestMigrationNamesAreFixedAndNewPrefixesAreUnique`. Add the new name to
+that existing contract without changing a shipped name or relaxing the test.
+
+Ten other completed failed jobs in CI run `41644271159` stopped before checkout:
+GitHub returned HTTP 429 while downloading the pinned `actions/checkout`
+archive. Those jobs did not execute the application checks. The arm64 run
+completed the other Go packages and failed in the store migration-name guard.
+
+Correction validation:
+
+- `go test -race -count=1 -run TestMigrationNamesAreFixedAndNewPrefixesAreUnique ./internal/store`:
+  passes.
+- `go test -race -count=1 -timeout 30m ./internal/store`: the complete store
+  suite passes in 390.769 seconds, without a test-name filter.
+- `go vet ./internal/store`, changed-file `gofmt` and `git diff --check`: pass.
+
+Correction `c1eab9dc` is published to PR #1368; CI is rerunning. Carry it into
+the stacked [PR #1369](https://github.com/eyupio/zoomies/pull/1369) without dropping
+its S2a implementation or handoff. The new CI result remains separate from
+these local checks; an action-download failure is not an application test result.
+
+PR #1369 incorporates this correction through a merge from PR #1368, retaining
+its S2a implementation and continuation record. The sync changes only the
+migration contract and this handoff. Its migration-name and comment metadata
+race regressions pass, as do documentation tests after `make build-nogui`
+provides the isolated worktree's embedded UI placeholder. No S2a runtime code
+changed in the sync. The complete store-suite result above is from S1.
 
 The full repository `make test-short`, all browser suites outside the affected
 repair pages, a live-model evaluation and end-to-end Eli repairs against real GitHub PR
@@ -451,7 +484,7 @@ Useful commands (see `AGENTS.md` for prerequisites):
 make openapi
 npm --prefix web run check
 npm --prefix web run test:unit
-make test TEST_PKGS='./internal/github ./internal/controller ./internal/api ./internal/store' TEST_RUN='Eli|Repair'
+make test TEST_PKGS='./internal/github ./internal/controller ./internal/api ./internal/store' TEST_RUN='Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique'
 make lint
 ```
 
