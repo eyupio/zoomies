@@ -40,7 +40,6 @@
   import { toasts } from '$lib/state/toasts.svelte';
   import BandApplyPanel from './BandApplyPanel.svelte';
   import BandStats from './BandStats.svelte';
-  import type { BandLogoSize } from './band-logo';
   import { figuresPlacement } from './placement';
   import { BAND_PAGES, BAND_SIZES, type BandPage, type BandSize } from './pages';
   import { bandPageLabel } from './scope';
@@ -77,8 +76,6 @@
 
   const shown = $derived(prefs.bandShown(page));
   const size = $derived(prefs.bandSize(page));
-  const logoShown = $derived(prefs.bandLogoShown(page));
-  const logoSize = $derived(prefs.bandLogoSizeFor(page));
   const name = $derived(BAND_PAGES.find((p) => p.key === page)?.label ?? page);
   const placement = $derived(
     figuresPlacement({ shown, hasLine: line !== null, hasStats: stats.length > 0 }),
@@ -90,26 +87,17 @@
    * it was opened from, because that is where focus goes back to when the panel
    * closes, and the cut, because the icon that opened it is the cut chosen.
    */
-  type Pending =
-    { kind: 'size'; size: BandSize; anchor: HTMLElement } | { kind: 'logo'; anchor: HTMLElement };
+  type Pending = { size: BandSize; anchor: HTMLElement };
   let pending = $state<Pending | null>(null);
 
   function openSize(next: BandSize, anchor: HTMLElement): void {
     // The control that opens a panel also closes it: a second press on the size
     // already chosen puts the panel away rather than starting it again.
-    if (pending?.kind === 'size' && pending.size === next && pending.anchor === anchor) {
+    if (pending?.size === next && pending.anchor === anchor) {
       pending = null;
       return;
     }
-    pending = { kind: 'size', size: next, anchor };
-  }
-
-  function openLogo(anchor: HTMLElement): void {
-    if (pending?.kind === 'logo' && pending.anchor === anchor) {
-      pending = null;
-      return;
-    }
-    pending = { kind: 'logo', anchor };
+    pending = { size: next, anchor };
   }
 
   function closePanel(): void {
@@ -117,32 +105,17 @@
   }
 
   /** Apply what the panel asked for, then put the keyboard back where it was. */
-  function apply(pages: BandPage[], logo: { shown: boolean; size: BandLogoSize } | null): void {
+  function apply(pages: BandPage[]): void {
     const change = pending;
     if (!change) return;
-    if (change.kind === 'size') {
-      prefs.applyBandSize(pages, change.size);
-      const cut = BAND_SIZES.find((option) => option.key === change.size)?.label ?? change.size;
-      toasts.success(
-        pages.length === 1
-          ? `${bandPageLabel(pages[0] ?? page)} band set to ${cut}`
-          : `${pages.length} bands set to ${cut}`,
-        saveNote(),
-      );
-    } else if (logo) {
-      prefs.applyBandLogo(pages, logo);
-      const what = !logo.shown
-        ? 'Dog hidden'
-        : logo.size === 'auto'
-          ? 'Dog follows the cut'
-          : `${logo.size.charAt(0).toUpperCase()}${logo.size.slice(1)} dog`;
-      toasts.success(
-        pages.length === 1
-          ? `${what} on ${bandPageLabel(pages[0] ?? page)}`
-          : `${what} on ${pages.length} bands`,
-        saveNote(),
-      );
-    }
+    prefs.applyBandSize(pages, change.size);
+    const cut = BAND_SIZES.find((option) => option.key === change.size)?.label ?? change.size;
+    toasts.success(
+      pages.length === 1
+        ? `${bandPageLabel(pages[0] ?? page)} band set to ${cut}`
+        : `${pages.length} bands set to ${cut}`,
+      saveNote(),
+    );
     pending = null;
     if (document.contains(change.anchor)) change.anchor.focus();
   }
@@ -169,11 +142,7 @@
       accent={line.accent || undefined}
       lede={line.lede}
       treatment={prefs.logoTreatment}
-      art={logoShown}
-      artSize={logoSize === 'auto' ? undefined : logoSize}
-      artAction={openLogo}
-      artActionLabel={`${name} band logo settings`}
-      artExpanded={pending?.kind === 'logo'}
+      art={false}
     >
       {#if actions}<div class="actions">{@render actions()}</div>{/if}
       {#if stats.length > 0}
@@ -191,7 +160,7 @@
               aria-label={option.label}
               aria-pressed={size === option.key}
               aria-haspopup="dialog"
-              aria-expanded={pending?.kind === 'size' && pending.size === option.key}
+              aria-expanded={pending?.size === option.key}
               onclick={(event) => openSize(option.key, event.currentTarget)}
             >
               <SizeIcon size={16} aria-hidden="true" />
@@ -215,9 +184,8 @@
 
 {#if pending}
   <BandApplyPanel
-    kind={pending.kind}
     {page}
-    size={pending.kind === 'size' ? pending.size : undefined}
+    size={pending.size}
     anchor={pending.anchor}
     onclose={closePanel}
     onapply={apply}

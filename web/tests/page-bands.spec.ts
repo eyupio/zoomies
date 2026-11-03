@@ -207,71 +207,19 @@ test('one answer can give every band the same cut', async ({ page }) => {
   ).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('the dog can be resized or removed, and the choice scoped like a cut', async ({ page }) => {
-  // The dog is off by default, so this test starts from a browser that asked for it.
-  // Seed once: the script runs on every navigation, and a later load must keep the
-  // per-page sizes this test sets rather than restore the seed over them.
-  await page.addInitScript(() => {
-    if (sessionStorage.getItem('band-logo-seeded')) return;
-    localStorage.setItem('zoomies.prefs', JSON.stringify({ bandLogo: true }));
-    sessionStorage.setItem('band-logo-seeded', '1');
-  });
+test('a band offers no logo, even to a browser that once asked for one', async ({ page }) => {
+  // Older builds let a band draw the dog, and a browser may still hold that choice.
+  await page.addInitScript(() =>
+    localStorage.setItem('zoomies.prefs', JSON.stringify({ bandLogo: true })),
+  );
   await goto(page, '/runners', 'Runners');
-  await page.getByRole('button', { name: 'Runners band logo settings' }).click();
-
-  const panel = page.getByRole('dialog', { name: 'Band logo, where to apply' });
-  await expect(panel).toBeVisible();
-  await panel
-    .getByRole('group', { name: 'Dog size' })
-    .getByRole('button', { name: 'Large' })
-    .click();
-  await panel.getByRole('radio', { name: 'Choose pages' }).check();
-  await panel.getByRole('checkbox', { name: 'Pools', exact: true }).check();
-  await panel.getByRole('button', { name: 'Apply to 2 pages' }).click();
-
-  await expect(page.getByTestId('band-runners').locator('.stage')).toHaveAttribute(
-    'data-art-size',
-    'large',
-  );
-  await goto(page, '/pools', 'Pools');
-  await expect(page.getByTestId('band-pools').locator('.stage')).toHaveAttribute(
-    'data-art-size',
-    'large',
-  );
-  // A page that was not picked still follows the default.
-  await goto(page, '/hosts', 'Hosts');
-  await expect(page.getByTestId('band-hosts').locator('.stage')).not.toHaveAttribute(
-    'data-art-size',
-    'large',
-  );
-
-  // Removing it from this page leaves the other page's dog alone.
-  await goto(page, '/runners', 'Runners');
-  const wordsBefore = await page.getByTestId('band-runners').locator('.words').boundingBox();
-  await page.getByRole('button', { name: 'Runners band logo settings' }).click();
-  const again = page.getByRole('dialog', { name: 'Band logo, where to apply' });
-  await again.getByRole('switch', { name: 'Show the dog' }).click();
-  await again.getByRole('button', { name: 'Apply to Runners' }).click();
   await expect(page.getByTestId('band-runners').locator('.art')).toHaveCount(0);
-  // The sentence stays where it was rather than sliding into the dog's place.
-  const wordsAfter = await page.getByTestId('band-runners').locator('.words').boundingBox();
-  expect(Math.abs((wordsAfter?.x ?? 0) - (wordsBefore?.x ?? 0))).toBeLessThan(2);
+  await expect(page.getByRole('button', { name: 'Runners band logo settings' })).toHaveCount(0);
 
-  // Appearance reflects both pages, and offers each a way back to the default.
   await goto(page, '/settings/appearance', 'Appearance');
-  await expect(page.getByRole('switch', { name: 'Runners band logo' })).not.toBeChecked();
-  await expect(page.getByRole('switch', { name: 'Pools band logo' })).toBeChecked();
-  await expect(page.getByRole('combobox', { name: 'Pools logo size' })).toHaveValue('large');
-  await expect(page.getByRole('button', { name: 'Use the default' })).toHaveCount(2);
-
-  // The reset puts one page back on the default without touching the other.
-  await page
-    .getByRole('group', { name: 'Page bands' })
-    .getByRole('button', { name: 'Use the default' })
-    .first()
-    .click();
-  await expect(page.getByRole('switch', { name: 'Runners band logo' })).toBeChecked();
-  await expect(page.getByRole('switch', { name: 'Pools band logo' })).toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Runners band logo' })).toHaveCount(0);
+  await expect(page.getByRole('combobox', { name: 'Runners logo size' })).toHaveCount(0);
+  await expect(page.getByRole('switch', { name: 'Show the logo in the band' })).toHaveCount(0);
 });
 
 test('a size is only offered for a band that is on', async ({ page }) => {
