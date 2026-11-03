@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -173,5 +174,32 @@ func TestStartingTheRepairLoopsRecoversAnInterruptedWatch(t *testing.T) {
 	recovered, err := h.st.EliRepairWatch(h.ctx, watch.ID)
 	if err != nil || recovered.LeaseToken != "" || recovered.NextCheckAt.UnixMilli() > h.c.Now().UnixMilli() {
 		t.Fatalf("startup did not recover the watch: %+v, %v", recovered, err)
+	}
+}
+
+func TestAPolicyLookupDoesNotCrossCasingToAnEnabledRow(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	provider := &store.AssistantProvider{Name: "Team", Kind: "openai", Enabled: true}
+	if err := h.st.CreateAssistantProvider(h.ctx, provider); err != nil {
+		t.Fatal(err)
+	}
+	for _, policy := range []store.EliRepairPolicy{
+		{Repo: "ACME/REPO", InstallationID: inst.ID, ProviderID: provider.ID, Enabled: true, Automatic: true},
+		{Repo: "acme/repo", InstallationID: inst.ID, ProviderID: provider.ID, Enabled: false},
+	} {
+		if err := h.st.SetEliRepairPolicy(h.ctx, policy); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := h.c.repairPolicy(h.ctx, "acme/repo", inst.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a disabled exact policy was bypassed through another casing: %v", err)
+	}
+	if _, err := h.c.repairPolicy(h.ctx, "Acme/Repo", inst.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("an ambiguous casing selected a policy: %v", err)
+	}
+	got, err := h.c.repairPolicy(h.ctx, "ACME/REPO", inst.ID)
+	if err != nil || !got.Enabled {
+		t.Fatalf("the exact enabled policy was not selected: %+v, %v", got, err)
 	}
 }

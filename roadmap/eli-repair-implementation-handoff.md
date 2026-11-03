@@ -582,6 +582,15 @@ wait for `Choose repositories`, use an unconfigured repository for the
 query-string case, and answer the new repair endpoint with a complete row. They
 are committed on #1368 and merged through #1369 into this PR.
 
+The Codex review of the implementation found two concurrency and authorisation
+edges, both now fixed. A case-insensitive policy lookup could select an enabled
+row while the exact row for that repository was disabled; the lookup now gives
+an exact name priority, falls back to a case-insensitive match only when it is
+unique, and refuses an ambiguous list. A repeated admission also cleared a live
+watch lease and made the watch claimable again; an admission now leaves the
+lease, identity and next check of an observation in flight untouched. Both have
+regressions beside the existing watch tests.
+
 S2b adds no user-visible control. The repository policy modes and
 `/api/v1/assistant/repairs/*` contract are unchanged, so no OpenAPI client was
 regenerated. The `watch_id` field is store-internal and the policy revision is
@@ -593,10 +602,10 @@ Validation on 3 November 2026:
 
 - `go test -race -count=1 -run 'Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique'`
   on `./internal/controller ./internal/store ./internal/api ./internal/github`:
-  all four packages pass (controller 20.240s, store 36.269s, api 46.198s,
-  github 1.299s). This includes the new watch admission, idempotency, pause and
-  stop, unknown-watch refusal, lease, stale-release, restart-recovery,
-  attempt-link and capability-refusal cases.
+  all four packages pass (controller 29.999s, store 55.432s, api 56.105s,
+  github 1.422s). This includes the new watch admission, idempotency, pause and
+  stop, unknown-watch refusal, lease, repeated-admission, stale-release,
+  restart-recovery, attempt-link, policy-casing and capability-refusal cases.
 - `go vet ./internal/controller ./internal/store ./internal/api ./internal/github`:
   pass.
 - `go test -count=1 -timeout 10m ./internal/store`: pass (59.851s), the complete

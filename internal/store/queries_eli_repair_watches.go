@@ -93,6 +93,11 @@ func (s *Store) AdmitEliRepairWatch(ctx context.Context, w EliRepairWatch) (*Eli
 		case err != nil:
 			return err
 		}
+		// A repeated admission must not break an observation already in
+		// flight: its lease, identity and next check are the observer's to
+		// finish. The explicit decision can still update who authorised the
+		// watch and which capabilities it has.
+		observing := existing.LeaseToken != "" && existing.LeaseUntil.After(now)
 		existing.InstallationID = w.InstallationID
 		existing.OwnerID = w.OwnerID
 		existing.PolicyProviderID = w.PolicyProviderID
@@ -100,14 +105,20 @@ func (s *Store) AdmitEliRepairWatch(ctx context.Context, w EliRepairWatch) (*Eli
 		existing.Checks, existing.Conflicts = w.Checks, w.Conflicts
 		existing.Enabled = true
 		existing.PausedReason, existing.StopReason = "", ""
-		existing.HeadSHA, existing.BaseRef, existing.BaseSHA = w.HeadSHA, w.BaseRef, w.BaseSHA
-		existing.LeaseToken, existing.LeaseUntil = "", time.Time{}
-		existing.NextCheckAt = now
 		existing.UpdatedAt = now
-		_, err = tx.ExecContext(ctx, `UPDATE eli_repair_watches SET installation_id=?,owner_id=?,policy_provider_id=?,policy_updated_at=?,checks=?,conflicts=?,enabled=?,paused_reason=?,head_sha=?,base_ref=?,base_sha=?,next_check_at=?,lease_token='',lease_until=0,stop_reason='',updated_at=? WHERE id=?`,
-			existing.InstallationID, existing.OwnerID, existing.PolicyProviderID, ms(existing.PolicyUpdatedAt),
-			boolInt(existing.Checks), boolInt(existing.Conflicts), boolInt(existing.Enabled), existing.PausedReason,
-			existing.HeadSHA, existing.BaseRef, existing.BaseSHA, ms(existing.NextCheckAt), ms(existing.UpdatedAt), existing.ID)
+		if observing {
+			_, err = tx.ExecContext(ctx, `UPDATE eli_repair_watches SET installation_id=?,owner_id=?,policy_provider_id=?,policy_updated_at=?,checks=?,conflicts=?,enabled=1,paused_reason='',stop_reason='',updated_at=? WHERE id=?`,
+				existing.InstallationID, existing.OwnerID, existing.PolicyProviderID, ms(existing.PolicyUpdatedAt),
+				boolInt(existing.Checks), boolInt(existing.Conflicts), ms(existing.UpdatedAt), existing.ID)
+		} else {
+			existing.HeadSHA, existing.BaseRef, existing.BaseSHA = w.HeadSHA, w.BaseRef, w.BaseSHA
+			existing.LeaseToken, existing.LeaseUntil = "", time.Time{}
+			existing.NextCheckAt = now
+			_, err = tx.ExecContext(ctx, `UPDATE eli_repair_watches SET installation_id=?,owner_id=?,policy_provider_id=?,policy_updated_at=?,checks=?,conflicts=?,enabled=1,paused_reason='',head_sha=?,base_ref=?,base_sha=?,next_check_at=?,lease_token='',lease_until=0,stop_reason='',updated_at=? WHERE id=?`,
+				existing.InstallationID, existing.OwnerID, existing.PolicyProviderID, ms(existing.PolicyUpdatedAt),
+				boolInt(existing.Checks), boolInt(existing.Conflicts), existing.HeadSHA, existing.BaseRef, existing.BaseSHA,
+				ms(existing.NextCheckAt), ms(existing.UpdatedAt), existing.ID)
+		}
 		if err != nil {
 			return err
 		}

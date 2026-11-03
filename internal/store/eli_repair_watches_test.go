@@ -22,6 +22,7 @@ func TestAnExplicitAdmissionIsTheOnlyThingThatCreatesOrResumesAWatch(t *testing.
 	policy := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
 	in := EliRepairWatch{InstallationID: inst.ID, Repo: "Acme/Repo", PullNumber: 7, OwnerID: "usr_one",
 		PolicyProviderID: "asp_one", PolicyUpdatedAt: policy, Checks: true, HeadSHA: "head-a", BaseRef: "main", BaseSHA: "base-a"}
+	started := s.Now()
 	first, err := s.AdmitEliRepairWatch(ctx, in)
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +30,7 @@ func TestAnExplicitAdmissionIsTheOnlyThingThatCreatesOrResumesAWatch(t *testing.
 	if !first.Enabled || first.ID == "" || !first.Checks || first.Conflicts {
 		t.Fatalf("admitted watch %+v", first)
 	}
-	if first.NextCheckAt.UnixMilli() != s.Now().UnixMilli() {
+	if first.NextCheckAt.UnixMilli() < started.UnixMilli() || first.NextCheckAt.UnixMilli() > s.Now().UnixMilli() {
 		t.Fatalf("a new watch is not due now: %s", first.NextCheckAt)
 	}
 
@@ -177,5 +178,41 @@ func TestAnAttemptCarriesTheWatchThatAuthorisedIt(t *testing.T) {
 	got, err := s.GetEliRepair(ctx, r.ID, "", false)
 	if err != nil || got.WatchID != w.ID {
 		t.Fatalf("watch link lost: %+v, %v", got, err)
+	}
+}
+
+func TestRepeatedAdmissionLeavesAnActiveObservationAlone(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	inst := watchInstallation(t, s)
+	w, err := s.AdmitEliRepairWatch(ctx, EliRepairWatch{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, OwnerID: "usr_one", Checks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := s.Now().Add(time.Second)
+	claimed, err := s.ClaimDueEliRepairWatch(ctx, now, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeated, err := s.AdmitEliRepairWatch(ctx, EliRepairWatch{
+		InstallationID: inst.ID, Repo: "ACME/REPO", PullNumber: 1, OwnerID: "usr_two", Checks: true,
+		HeadSHA: "new-head", BaseRef: "main", BaseSHA: "new-base",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repeated.ID != w.ID || repeated.LeaseToken != claimed.LeaseToken ||
+		repeated.LeaseUntil.UnixMilli() != claimed.LeaseUntil.UnixMilli() ||
+		repeated.NextCheckAt.UnixMilli() != claimed.NextCheckAt.UnixMilli() {
+		t.Fatalf("repeated admission disturbed the active lease: %+v, claimed %+v", repeated, claimed)
+	}
+	if repeated.HeadSHA != "" || repeated.BaseSHA != "" {
+		t.Fatalf("repeated admission changed an observation in flight: %+v", repeated)
+	}
+	if _, err := s.ClaimDueEliRepairWatch(ctx, now.Add(time.Second), time.Hour); err != ErrNotFound {
+		t.Fatalf("a second observer claimed the leased watch: %v", err)
+	}
+	if err := s.ReleaseEliRepairWatch(ctx, repeated.ID, claimed.LeaseToken, "head", "main", "base", now.Add(time.Minute)); err != nil {
+		t.Fatalf("the original observer could not record its result: %v", err)
 	}
 }
