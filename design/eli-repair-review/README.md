@@ -3,9 +3,10 @@
 ## Repository-first implementation, 3 November 2026
 
 These captures show the S1 implementation described in
-[`eli-repair-implementation-handoff.md`](../../eli-repair-implementation-handoff.md),
+[`eli-repair-implementation-handoff.md`](../../roadmap/eli-repair-implementation-handoff.md),
 using the actual built UI with labelled fixture data. No real PR or policy was
 changed to produce them. The older review and concepts below remain historical.
+The setup captures include the configured-repository filter and fresh setup heading.
 
 - [Repository-first setup, desktop](setup-repository-first-dark-1440.png).
 - [Repository-first setup, mobile](setup-repository-first-dark-390.png).

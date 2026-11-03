@@ -693,6 +693,9 @@ For repository automation:
    **Configured repositories** shows the saved behaviour and **Pause** or
    **Resume**. Pausing does not need a working model provider. Existing policies
    keep their settings, and workflow edits remain under **Advanced**.
+   Filter configured repositories by name to find their controls. The list shows
+   enabled and paused totals. **Edit** moves focus to that repository's settings;
+   **Add repositories instead** starts a fresh selection with workflow edits off.
 
 For individual requests using a personal provider, open **Personal repair
 requests**. These are separate from repository automation:
@@ -730,7 +733,8 @@ attempt for each PR. A newer attempt, including one cleared from history,
 supersedes an older failure. The inbox is a record of repairs needing review,
 not a fresh claim about GitHub's current PR head. An unavailable read never
 produces an all-clear. The attempt page keeps **What Eli changed**, its changed
-paths and its commit separately from the subsequent check outcome.
+paths and its commit separately from the subsequent check outcome. **Review fix**
+opens the published commit's diff, so it can be reviewed even if checks later fail.
 
 The GitHub App needs **Contents: write**, **Pull requests: write**,
 **Issues: write**, **Actions: read**, **Checks: read** and **Commit statuses: read**

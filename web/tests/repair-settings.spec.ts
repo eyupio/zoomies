@@ -220,3 +220,71 @@ test('a broken automatic policy can be paused without choosing a replacement pro
   expect(model.writes[0]?.automatic).toBe(true);
   expect(model.writes[0]?.provider_id).toBe('');
 });
+
+test('configured repositories can be filtered without changing their policies', async ({
+  page,
+}) => {
+  const policy = {
+    installation_id: 'inst-1',
+    provider_id: 'provider-1',
+    automatic: true,
+    ask_first: false,
+    allow_workflows: false,
+  };
+  const model = await repositorySetup(page, {
+    policies: [
+      { ...policy, repo: 'acme/site', enabled: true },
+      { ...policy, repo: 'acme/widgets', enabled: false },
+    ],
+  });
+  await page.goto('/repairs/setup');
+  await expect(page.getByRole('status').filter({ hasText: 'Showing 2 of 2' })).toContainText(
+    '1 enabled, 1 paused.',
+  );
+  await page.getByRole('searchbox', { name: 'Filter configured repositories' }).fill(' WIDGETS ');
+  await expect(page.getByRole('button', { name: 'Resume repairs on acme/widgets' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pause repairs on acme/site' })).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Showing 1 of 2' })).toBeVisible();
+  await page.getByRole('searchbox', { name: 'Filter configured repositories' }).fill('missing');
+  await expect(page.getByRole('status').filter({ hasText: 'Showing 0 of 2' })).toBeVisible();
+  expect(model.writes).toEqual([]);
+});
+
+test('editing stays on one repository and adding repositories starts with safe defaults', async ({
+  page,
+}) => {
+  const policy: Schemas['EliRepairPolicy'] = {
+    repo: 'acme/widgets',
+    installation_id: 'inst-1',
+    provider_id: 'provider-1',
+    enabled: false,
+    automatic: true,
+    ask_first: false,
+    allow_workflows: true,
+  };
+  const model = await repositorySetup(page, { policies: [policy] });
+  await page.goto('/repairs/setup');
+  await page.getByRole('button', { name: 'Edit repair settings for acme/widgets' }).click();
+  await expect(page.getByRole('heading', { name: 'Editing acme/widgets' })).toBeFocused();
+  await expect(page.getByRole('group', { name: 'Select repositories', exact: true })).toHaveCount(
+    0,
+  );
+  await page.getByRole('button', { name: 'Save in 1 repository' }).click();
+  await expect.poll(() => model.writes.length).toBe(1);
+  expect(model.writes[0]).toEqual(policy);
+  await page.getByRole('button', { name: 'Add repositories instead' }).click();
+  await expect(page.getByRole('heading', { name: 'Add repository repairs' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Save in 0 repositories' })).toBeDisabled();
+  await page
+    .getByRole('group', { name: 'Select repositories', exact: true })
+    .getByRole('checkbox', { name: 'acme/site', exact: true })
+    .check();
+  await page.getByRole('button', { name: 'Save in 1 repository' }).click();
+  await expect.poll(() => model.writes.length).toBe(2);
+  expect(model.writes[1]).toEqual({
+    ...policy,
+    repo: 'acme/site',
+    enabled: true,
+    allow_workflows: false,
+  });
+});

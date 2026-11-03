@@ -10,7 +10,7 @@
   (RepairSetup), so somebody fixing what is missing stays on the failure.
 -->
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { Link } from '@lucide/svelte';
   import {
     ApiError,
@@ -23,6 +23,7 @@
     setEliRepairConsent,
   } from '$lib/api/client';
   import type { Schemas, Installation, User, AssistantProvider } from '$lib/api/types';
+  import { pluralise } from '$lib/format';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import RepositoryPicker from '$lib/repairs/RepositoryPicker.svelte';
@@ -53,7 +54,8 @@
   type PolicySettings = Omit<Schemas['EliRepairPolicy'], 'repo'>;
   let bulkResults = $state<SaveResult[]>([]);
   let lastSettings = $state<PolicySettings | null>(null);
-  let editing = $state(false);
+  let editing = $state('');
+  let policySearch = $state('');
   let installation = $state('');
   let provider = $state('');
   let enabled = $state(true);
@@ -77,6 +79,10 @@
   const usableProviders = $derived(providers.filter((p) => p.enabled));
   const selectedProvider = $derived(providers.find((p) => p.id === provider));
   const failedRepos = $derived(bulkResults.filter((r) => !r.saved).map((r) => r.repo));
+  const filteredPolicies = $derived(
+    policies.filter((p) => p.repo.toLowerCase().includes(policySearch.trim().toLowerCase())),
+  );
+  const enabledPolicies = $derived(policies.filter((p) => p.enabled).length);
   const installationOptions = $derived(
     installations.map((i) => ({ value: i.id ?? '', label: i.target ?? i.id ?? 'Installation' })),
   );
@@ -216,14 +222,34 @@
 
   /** Moving the link is the same verification again, with the confirmation sent. */
   const moveHeld = (): Promise<void> => linkIdentity(true);
-  function editPolicy(p: Schemas['EliRepairPolicy']): void {
-    editing = true;
+  async function focusPolicyForm(): Promise<void> {
+    await tick();
+    document.getElementById('policy-form-heading')?.focus();
+  }
+  function editPolicy(p: Schemas['EliRepairPolicy'], focus = false): void {
+    editing = p.repo;
+    bulkResults = [];
+    lastSettings = null;
     selectedRepos = [p.repo];
     installation = p.installation_id;
     provider = p.provider_id;
     enabled = p.enabled;
     mode = p.automatic ? 'automatic' : p.ask_first ? 'ask' : 'manual';
     workflows = p.allow_workflows;
+    if (focus) void focusPolicyForm();
+  }
+  function startNewPolicy(): void {
+    editing = '';
+    selectedRepos = [];
+    mode = 'automatic';
+    enabled = true;
+    workflows = false;
+    provider =
+      usableProviders.find((p) => p.is_default)?.id ??
+      (usableProviders.length === 1 ? usableProviders[0]!.id : '');
+    bulkResults = [];
+    lastSettings = null;
+    void focusPolicyForm();
   }
   async function savePolicies(
     targets = [...selectedRepos],
@@ -293,6 +319,12 @@
           void savePolicies();
         }}
       >
+        <h3 id="policy-form-heading" tabindex="-1">
+          {editing ? `Editing ${editing}` : 'Add repository repairs'}
+        </h3>
+        {#if editing}
+          <Button disabled={busy} onclick={startNewPolicy}>Add repositories instead</Button>
+        {/if}
         {#if installations.length > 1}
           <Field id="policy-installation" label="GitHub connection">
             <Select
@@ -302,7 +334,7 @@
               options={installationOptions}
               placeholder="Choose a connection"
               required
-              disabled={busy}
+              disabled={busy || !!editing}
             />
           </Field>
         {:else if installations.length === 1}
@@ -310,12 +342,14 @@
         {:else if heard.choices && !choicesError}
           <p><a href="/installations">Connect GitHub</a> to choose repositories.</p>
         {/if}
-        {#key installation}<RepositoryPicker
-            {installation}
-            bind:selected={selectedRepos}
-            bind:selectingAll
-            disabled={busy}
-          />{/key}
+        {#if !editing}
+          {#key installation}<RepositoryPicker
+              {installation}
+              bind:selected={selectedRepos}
+              bind:selectingAll
+              disabled={busy}
+            />{/key}
+        {/if}
         <Field id="repair-mode" label="What should Eli do?">
           <Select
             id="repair-mode"
@@ -410,12 +444,23 @@
       </form>
       {#if policies.length}
         <h3>Configured repositories</h3>
+        <Field id="policy-search" label="Filter configured repositories">
+          <Input id="policy-search" type="search" bind:value={policySearch} />
+        </Field>
+        <p role="status">
+          Showing {filteredPolicies.length} of {pluralise(
+            policies.length,
+            'configured repository',
+            'configured repositories',
+          )}.
+          {enabledPolicies} enabled, {policies.length - enabledPolicies} paused.
+        </p>
         <p>
           Pausing stops new fixes. Work already running stops before publication unless it is
           already publishing. Pushed commits keep being checked.
         </p>
         <div class="policy-list">
-          {#each policies as p (p.repo)}
+          {#each filteredPolicies as p (p.repo)}
             <div class="policy-row">
               <div>
                 <strong>{p.repo}</strong>
@@ -423,8 +468,8 @@
               </div>
               <Button
                 size="sm"
-                disabled={busy}
-                onclick={() => editPolicy(p)}
+                disabled={busy || selectingAll}
+                onclick={() => editPolicy(p, true)}
                 ariaLabel="Edit repair settings for {p.repo}">Edit</Button
               >
               <Button
@@ -601,6 +646,14 @@
   form {
     display: grid;
     gap: var(--z-space-4);
+  }
+  #policy-form-heading {
+    margin: 0;
+    scroll-margin-top: calc(var(--z-topbar-height) + var(--z-control-touch) + var(--z-space-3));
+  }
+  #policy-form-heading:focus-visible {
+    outline: none;
+    box-shadow: var(--z-focus-ring);
   }
   .fields {
     display: grid;

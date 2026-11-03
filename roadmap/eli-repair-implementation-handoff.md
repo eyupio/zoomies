@@ -13,7 +13,7 @@ PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 | --- | --- |
 | Investigated baseline | `871eff7d0073622f0b5f1c7d672583bd9288d633` on `main` |
 | Working branch | `codex/eli-repair-setup` |
-| Implementation commit | `21c5e001b080f6162b702397d5404bc57181c36f`; later handoff-only updates do not change the tested implementation |
+| Implementation | Initial commit `21c5e001b080f6162b702397d5404bc57181c36f`, plus the S1 UX follow-up in the same PR described below |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open as a draft; CI pending |
 | Current slice | S1 complete and locally verified; awaiting PR/CI review |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
@@ -133,6 +133,9 @@ Scope:
 - [x] Finish check monitoring promptly after authoritative PR closure.
 - [x] Retain the published fix summary and changed paths separately from outcome.
 - [x] Update generated API contracts, user documentation and focused tests.
+- [x] Filter configured repositories and show enabled/paused counts. Keep edits
+  scoped to one repository, move focus to the form and offer a fresh setup path
+  that resets workflow permission. Link the change summary to the actual fix commit.
 
 S1 intentionally uses truthful labels for the existing implementation:
 **Fix failed checks automatically**, **Offer a fix for failed checks**, and
@@ -302,7 +305,9 @@ S1 validation on 3 November 2026:
   on `./internal/github ./internal/controller ./internal/api ./internal/store`:
   all four packages pass, including the new index migration.
 - `go vet` on those four packages: pass.
-- `go test ./internal/docs -count=1`: pass.
+- `go test ./internal/docs -count=1`: initially passed before the new handoff
+  was tracked. The tracked-file rerun found its root placement invalid; the S1
+  follow-up moves it into `roadmap/`, updates the index and reruns the suite.
 - `make openapi`: both generated contracts regenerated with the repository tools.
 - `npm run check` in `web`: zero errors and zero warnings in both configurations.
 - `npm run test:unit` in `web`: 1,313 passed, one skipped, zero failures.
@@ -329,6 +334,41 @@ The next PR should address F10 (observation independent from model generation)
 as part of the S2 foundation, then durable watch admission and recovery. F9's
 repository-authorised visibility and F7's post-repair per-check outcomes remain
 explicit follow-ups; S1 does not widen raw response or log permissions.
+
+### S1 UX follow-up in PR #1368, 3 November 2026
+
+The existing draft PR also includes three small improvements requested after
+the first checkpoint:
+
+- Configured-repository search is case-insensitive and ignores surrounding
+  whitespace. The status line shows matching, enabled and paused counts. Search
+  performs no policy writes.
+- Edit identifies the repository and moves keyboard focus to its form. The
+  target repository and connection stay fixed while editing. **Add repositories
+  instead** clears the selection and prior save results, restores the team
+  provider default and enables repairs with workflow edits off. Saving an edit
+  preserves the existing paused/workflow settings unless explicitly changed.
+- **Review fix** next to **What Eli changed** opens the actual published commit,
+  including when subsequent checks fail. Changed paths remain visible without
+  a retained summary, and a missing commit never links to the original PR head.
+
+The handoff now lives at `roadmap/eli-repair-implementation-handoff.md`, indexed
+in `roadmap/README.md`. `AGENTS.md`, the design record and PR description point
+there. This follows the existing root-document rule without weakening its test.
+
+Follow-up validation:
+
+- UI type-check: zero errors and warnings in both configurations. UI lint and
+  production build pass, including asset budgets. The binary was rebuilt after
+  the UI for browser testing.
+- All 74 cases in the affected setup/settings/attempt browser suites pass on
+  desktop and mobile, including filtering without writes, focused/scoped edits,
+  fresh defaults and the actual fix link. Setup screenshots refreshed from fixtures.
+- `go test ./internal/docs -count=1` passes after the handoff move is staged,
+  so the tracked-file layout and roadmap index rules are exercised.
+- `git diff --check` passes. Backend regression and complete UI unit coverage
+  remain the initial S1 results above; no backend or shared helper logic changes
+  in this follow-up. Live-model and real repair-target testing remain unrun.
 
 Useful commands (see `AGENTS.md` for prerequisites):
 
