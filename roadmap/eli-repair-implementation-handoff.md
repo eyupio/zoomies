@@ -14,7 +14,7 @@ PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 | Investigated baseline | `871eff7d0073622f0b5f1c7d672583bd9288d633` on `main` |
 | Working branch | `codex/eli-repair-setup` |
 | Implementation | Initial commit `21c5e001b080f6162b702397d5404bc57181c36f`, plus the S1 UX follow-up in the same PR described below |
-| Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; latest CI pending |
+| Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; migration-list correction under validation after CI failure |
 | Current slice | S1 complete and locally verified; awaiting PR/CI review |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Planned, not implemented |
@@ -322,6 +322,24 @@ S1 validation on 3 November 2026:
 - New fixture captures in `design/eli-repair-review/` show setup on desktop/mobile
   and a failed automatic repair visible in Needs you.
 - `git diff --check`: pass.
+
+### S1 CI correction in PR #1368, 3 November 2026
+
+The full Linux arm64 run on `a640c3da` found that migration
+`0136_eli_repair_latest_attempt.sql` was missing from `shippedMigrations` in
+`internal/store/migrations_test.go`. The earlier focused repair regex did not
+select `TestMigrationNamesAreFixedAndNewPrefixesAreUnique`. Add the new name to
+that existing contract without changing a shipped name or relaxing the test.
+
+Ten other completed failed jobs in CI run `41644271159` stopped before checkout:
+GitHub returned HTTP 429 while downloading the pinned `actions/checkout`
+archive. Those jobs did not execute the application checks. The arm64 run
+completed the other Go packages and failed in the store migration-name guard.
+
+Correction validation: the migration-name regression and store vet check pass.
+The full store race suite is running. Refresh this record after verification
+and apply the correction to the stacked [PR #1369](https://github.com/eyupio/zoomies/pull/1369)
+without dropping its S2a handoff or implementation.
 
 The full repository `make test-short`, all browser suites outside the affected
 repair pages, a live-model evaluation and end-to-end Eli repairs against real GitHub PR
