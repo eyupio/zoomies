@@ -483,3 +483,15 @@ func bidiControl(r rune) bool {
 		(r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069') ||
 		r == '\u2028' || r == '\u2029'
 }
+
+// Terminal capability is independent of colour preference: NO_COLOR must not
+// prevent an operator from navigating the home screen.
+func terminalWriter(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
+}
+
+func terminalReader(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
+}

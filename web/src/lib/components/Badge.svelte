@@ -66,7 +66,7 @@
     align-items: center;
     gap: var(--z-space-2);
     border: var(--z-border-width) solid var(--badge-border);
-    border-radius: var(--z-radius-sm);
+    border-radius: var(--z-radius-full);
     background: var(--badge-subtle);
     color: var(--badge-colour);
     font-weight: var(--z-weight-medium);
@@ -79,7 +79,8 @@
   }
   .sm {
     height: var(--z-space-4);
-    padding: 0 var(--z-space-1) 0 var(--z-space-2);
+    /* The curve of a pill meets the dot sooner than a corner did. */
+    padding: 0 var(--z-space-2);
     font-size: var(--z-text-2xs);
   }
   .badge[data-tone='accent'] {

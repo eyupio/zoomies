@@ -95,33 +95,6 @@ Examples:
   zoomies status --output json
 ```
 
-### zoomies tui
-
-A live dashboard for the fleet, in this terminal
-
-```text
-A live dashboard for a controller: counts, pools, runners, hosts, jobs and problems.
-
-It keeps itself current from the controller's event stream and falls back to the held
-long poll when a proxy will not carry a stream. Operator actions ask for confirmation
-before they change anything.
-
-Usage:
-  zoomies tui [--window 1h]
-
-Flags:
-  --ca-file                  PEM file holding the controller's certificate
-  --insecure                 do not verify the controller's certificate
-  --timeout=30s              how long to wait for one request
-  --token                    an API token (or ZOOMIES_TOKEN)
-  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
-  --window=1h                the window the completed/failed counts and queue waits cover
-
-Examples:
-  zoomies tui
-  zoomies tui --window 24h
-```
-
 ### zoomies events
 
 What happened lately, and a wait for the next change
@@ -3053,7 +3026,7 @@ Flags:
   --installed-binary         where the binary lives, which is what the service unit will exec
   --join-token               for --mode agent: a join token from the UI
   --mode                     single (a controller with an embedded agent), controller, or agent; empty asks
-  --no-animation             skip the short branded terminal splash
+  --no-animation             disable terminal animations
   --no-tune                  do not offer or apply tuning
   --non-interactive          never prompt; a missing answer is an error naming the key
   --port=0                   host port for the controller; 0 asks interactively or uses the detected default
@@ -3089,7 +3062,7 @@ Flags:
   --image                    replacement image for a custom container deployment
   --installed-binary         the binary path used by the existing service
   --mode                     select agent, controller or single; empty detects installed services
-  --no-animation             skip the short branded terminal splash
+  --no-animation             disable terminal animations
   --no-backup                go without the verified copy of the database the upgrade takes before it changes anything
   --no-download              apply the binary that is already installed; do not look for a newer one
   --non-interactive          never prompt; optional deployment changes require --yes
@@ -3125,7 +3098,7 @@ Flags:
   --image                    replacement image for a custom container deployment
   --installed-binary         the binary path used by the existing service
   --mode                     select agent, controller or single; empty detects installed services
-  --no-animation             skip the short branded terminal splash
+  --no-animation             disable terminal animations
   --no-backup                go without the verified copy of the database the upgrade takes before it changes anything
   --no-download              apply the binary that is already installed; do not look for a newer one
   --non-interactive          never prompt; optional deployment changes require --yes
@@ -3291,7 +3264,7 @@ Flags:
   --image                    replacement image for a custom container deployment
   --installed-binary         the binary path used by the existing service
   --mode                     select agent, controller or single; empty detects installed services
-  --no-animation             skip the short branded terminal splash
+  --no-animation             disable terminal animations
   --no-backup                go without the verified copy of the database the upgrade takes before it changes anything
   --no-download              apply the binary that is already installed; do not look for a newer one
   --non-interactive          never prompt; optional deployment changes require --yes
@@ -3800,6 +3773,7 @@ Flags:
   --interactive              offer individual local fixes after showing the report
   --json                     print a machine-readable report
   --kill-running             with --force, stop containers still running when --wait is over, which ends their jobs
+  --no-animation             disable terminal animations
   --report-file              with --watch: observation JSON file, readable by the container
   --tier=safe                safe, aggressive or dedicated; kernel checks appear in every tier
   --timeout=30s              how long to wait for one request

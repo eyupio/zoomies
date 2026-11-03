@@ -23,8 +23,6 @@ type EliReadiness struct {
 	Provider       string            `json:"provider"`
 	Model          string            `json:"model"`
 	AllowWorkflows bool              `json:"allow_workflows"`
-	Remaining      int               `json:"remaining"`
-	ResetAt        *time.Time        `json:"reset_at,omitempty"`
 	// PolicyMode is how the repository's policy lets Eli help: automatic,
 	// ask_first or manual. A page that offers to start a repair needs it to say
 	// whether the repository would have started one itself. It is set once
@@ -110,7 +108,7 @@ const (
 
 // eliCheckCodes are the checks in the order readiness makes them, which is the
 // order a page lists them in.
-var eliCheckCodes = []string{"identity", "provider", "installation", "access", "policy", "budget", "pull", "checks", "permissions"}
+var eliCheckCodes = []string{"identity", "provider", "installation", "access", "policy", "pull", "checks", "permissions"}
 
 // eliChecks records what readiness found as it goes. Anything it never reached
 // is reported as not checked, whichever way the function returned.
@@ -142,33 +140,6 @@ func shortSHA(sha string) string {
 		return sha[:7]
 	}
 	return sha
-}
-
-// earlierTime and laterTime compare two allowance windows, putting a zero time
-// (a limit with nothing spent) after or before every real instant: a zero time
-// is not a deadline, so it never wins the race to be soonest.
-func earlierTime(a, b time.Time) time.Time {
-	switch {
-	case a.IsZero():
-		return b
-	case b.IsZero():
-		return a
-	case b.Before(a):
-		return b
-	}
-	return a
-}
-
-func laterTime(a, b time.Time) time.Time {
-	switch {
-	case a.IsZero():
-		return b
-	case b.IsZero():
-		return a
-	case b.After(a):
-		return b
-	}
-	return a
 }
 
 // repairMode is the same distinction in the words the API uses.
@@ -318,44 +289,6 @@ func (c *Controller) EliReadiness(ctx context.Context, user, repo string, pull i
 		out.AllowWorkflows = policy.AllowWorkflows
 		out.PolicyMode = repairMode(policy)
 		checks.set("policy", EliCheckOK, repairModeWords(policy)+" is on for this repository. Workflow file edits are "+map[bool]string{true: "on", false: "off"}[policy.AllowWorkflows]+".")
-		repoUse, personUse, e := c.st.EliRepairBudget(ctx, repo, user)
-		if e != nil {
-			block("budget", "budget_unavailable", "Repair allowance could not be checked. Try again.")
-		} else {
-			repoLeft := policy.DailyLimit - repoUse.Used
-			personLeft := store.EliPersonDailyLimit - personUse.Used
-			out.Remaining = max(0, min(repoLeft, personLeft))
-			repoFree := repoUse.FreesAt(policy.DailyLimit)
-			personFree := personUse.FreesAt(store.EliPersonDailyLimit)
-			var free time.Time
-			if out.Remaining > 0 {
-				// The next place comes from whichever limit has least room; when
-				// they are equal, either window freeing raises it.
-				switch {
-				case repoLeft < personLeft:
-					free = repoFree
-				case personLeft < repoLeft:
-					free = personFree
-				default:
-					free = earlierTime(repoFree, personFree)
-				}
-				checks.set("budget", EliCheckOK, plural(out.Remaining, "attempt")+" left in the 24-hour window.")
-			} else if repoLeft <= 0 && personLeft <= 0 {
-				// A place needs both limits to have room, so the later window is
-				// the one that keeps the page waiting.
-				free = laterTime(repoFree, personFree)
-				block("budget", "budget", fmt.Sprintf("This repository has used all %d repairs allowed in 24 hours, and you have used all %d one person may request. The next attempt can start once both limits have a place.", policy.DailyLimit, store.EliPersonDailyLimit))
-			} else if personLeft <= 0 {
-				free = personFree
-				block("budget", "budget", fmt.Sprintf("You have used all %d repairs one person may request in 24 hours. The next attempt can start once the oldest of them leaves the window.", store.EliPersonDailyLimit))
-			} else {
-				free = repoFree
-				block("budget", "budget", fmt.Sprintf("This repository has used all %d repairs allowed in 24 hours. The next attempt can start once the oldest of them leaves the window.", policy.DailyLimit))
-			}
-			if !free.IsZero() {
-				out.ResetAt = &free
-			}
-		}
 	}
 	checked := c.st.Now()
 	var pr github.RepairPull
@@ -505,6 +438,11 @@ func (c *Controller) ActEliOpportunity(ctx context.Context, user, id, action str
 // A bounded reconciliation catches jobs learnt through polling and failures
 // that existed before setup. It runs independently of opening the UI.
 func (c *Controller) reconcileEliOpportunities(parent context.Context) {
+	// Retiring what no longer needs a repair comes first, and has a budget of its
+	// own. It used to run after discovery inside one shared budget, so a pass
+	// whose discovery used the time up never reached it, and an offer for a PR
+	// that had since been closed or fixed stayed on the page for good.
+	c.retireStaleEliOffers(parent)
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	policies, err := c.st.EliRepairPolicies(ctx)
@@ -557,9 +495,22 @@ func (c *Controller) reconcileEliOpportunities(parent context.Context) {
 		}
 		_ = c.st.OfferEliRepair(ctx, store.EliRepairOpportunity{Repo: j.Repo, InstallationID: p.InstallationID, PullNumber: pr.Number, HeadSHA: pr.HeadSHA, RunID: j.GitHubRunID, Title: pr.Title})
 	}
-	// Dismissals remain tied to their original head, never to a future commit.
-	rows, _ := c.st.EliRepairOpportunities(ctx, "")
+}
+
+// retireStaleEliOffers marks an offer superseded once its PR is closed, merged,
+// no longer repairable, has newer commits, or its checks now pass. Dismissals
+// remain tied to their original head, never to a future commit.
+func (c *Controller) retireStaleEliOffers(parent context.Context) {
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	defer cancel()
+	rows, err := c.st.EliRepairOpportunities(ctx, "")
+	if err != nil {
+		return
+	}
 	for _, o := range rows {
+		if ctx.Err() != nil {
+			return
+		}
 		raw, e := c.ClientFor(ctx, o.InstallationID)
 		if e != nil {
 			continue

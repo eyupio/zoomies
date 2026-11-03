@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,9 +26,6 @@ func installationProvider(t *testing.T, h *harness, name string, enabled bool) *
 
 func savePolicy(t *testing.T, h *harness, p store.EliRepairPolicy) {
 	t.Helper()
-	if p.DailyLimit == 0 {
-		p.DailyLimit = 5
-	}
 	if err := h.st.SetEliRepairPolicy(h.ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +51,7 @@ func TestTheAutomaticOverviewListsOnlyEnabledAutomaticPolicies(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation()
 	team := installationProvider(t, h, "Team", true)
-	savePolicy(t, h, store.EliRepairPolicy{Repo: "acme/auto", InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, Automatic: true, AllowWorkflows: true, DailyLimit: 7})
+	savePolicy(t, h, store.EliRepairPolicy{Repo: "acme/auto", InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, Automatic: true, AllowWorkflows: true})
 	savePolicy(t, h, store.EliRepairPolicy{Repo: "acme/asks", InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, AskFirst: true})
 	savePolicy(t, h, store.EliRepairPolicy{Repo: "acme/manual", InstallationID: inst.ID, Enabled: true})
 	savePolicy(t, h, store.EliRepairPolicy{Repo: "acme/off", InstallationID: inst.ID, ProviderID: team.ID, Enabled: false, Automatic: true})
@@ -66,10 +62,10 @@ func TestTheAutomaticOverviewListsOnlyEnabledAutomaticPolicies(t *testing.T) {
 	}
 	auto := got["acme/auto"]
 	if auto.InstallationID != inst.ID || auto.ProviderID != team.ID || auto.ProviderName != "Team" || auto.Model != "Team-model" ||
-		!auto.AllowWorkflows || auto.DailyLimit != 7 {
+		!auto.AllowWorkflows {
 		t.Errorf("the entry does not carry the policy and its provider: %+v", auto)
 	}
-	if auto.Problem != "" || auto.Used != 0 || auto.Running != 0 || auto.NextFreeAt != nil || auto.Last != nil {
+	if auto.Problem != "" || auto.Running != 0 || auto.Last != nil {
 		t.Errorf("a repository nothing has happened to reads as busy or broken: %+v", auto)
 	}
 }
@@ -114,51 +110,6 @@ func TestTheAutomaticOverviewSaysWhyAProviderCannotPay(t *testing.T) {
 	}
 	if got["acme/fine"].Problem != "" {
 		t.Errorf("a working provider is reported as a problem: %q", got["acme/fine"].Problem)
-	}
-}
-
-// The allowance is the repository's, shared by requests and by the automation,
-// and the page needs the moment a place frees, not only that none is left.
-func TestTheAutomaticOverviewCountsTheAllowanceAndSaysWhenAPlaceFrees(t *testing.T) {
-	// The store stamps attempts from its own clock, which h.advance does not move,
-	// so the test holds one that both the store and the controller read.
-	start := time.Now().Truncate(time.Millisecond)
-	var moved atomic.Int64
-	h := newHarnessAt(t, func() time.Time { return start.Add(time.Duration(moved.Load())) })
-	inst := h.installation()
-	team := installationProvider(t, h, "Team", true)
-	savePolicy(t, h, store.EliRepairPolicy{Repo: "acme/busy", InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, Automatic: true, DailyLimit: 2})
-	savePolicy(t, h, store.EliRepairPolicy{Repo: "acme/idle", InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, Automatic: true, DailyLimit: 5})
-	enqueue := func(key, trigger string) {
-		t.Helper()
-		if _, err := h.st.EnqueueEliRepair(h.ctx, &store.EliRepair{DedupKey: key, Repo: "acme/busy", InstallationID: inst.ID, Trigger: trigger, PullNumber: 1, HeadSHA: "abc"}, 10); err != nil {
-			t.Fatal(err)
-		}
-	}
-	enqueue("comment:acme/busy:1", "mention")
-	moved.Add(int64(2 * time.Hour))
-	enqueue("automatic:acme/busy:abc", "automatic")
-
-	rows, _, err := h.st.ListEliRepairsPage(h.ctx, store.EliRepairFilter{Limit: store.MaxEliRepairPage})
-	if err != nil || len(rows) != 2 {
-		t.Fatalf("expected the two attempts, got %d (%v)", len(rows), err)
-	}
-	oldest, newest := rows[1], rows[0]
-
-	got := overviewOf(t, h)
-	busy := got["acme/busy"]
-	if busy.Used != 2 || busy.DailyLimit != 2 {
-		t.Errorf("the allowance reads %d of %d, want 2 of 2 (a request and an automatic repair share it)", busy.Used, busy.DailyLimit)
-	}
-	if busy.NextFreeAt == nil || busy.NextFreeAt.UnixMilli() != oldest.CreatedAt.Add(24*time.Hour).UnixMilli() {
-		t.Errorf("a place frees at %v, want the oldest attempt plus 24 hours: %v", busy.NextFreeAt, oldest.CreatedAt.Add(24*time.Hour))
-	}
-	if busy.Running != 1 || busy.Last == nil || busy.Last.ID != newest.ID || busy.Last.State != "queued" {
-		t.Errorf("activity reads %d running and last %+v, want the one queued automatic repair %s", busy.Running, busy.Last, newest.ID)
-	}
-	idle := got["acme/idle"]
-	if idle.Used != 0 || idle.NextFreeAt != nil || idle.Last != nil || idle.Running != 0 {
-		t.Errorf("a repository nothing was spent at reads as used: %+v", idle)
 	}
 }
 
@@ -209,13 +160,13 @@ func TestStoppingAutomaticRepairsToAskFirstKeepsTheProviderAndLimits(t *testing.
 	h := newHarness(t)
 	inst := h.installation()
 	team := installationProvider(t, h, "Team", true)
-	savePolicy(t, h, store.EliRepairPolicy{Repo: "acme/auto", InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, Automatic: true, AllowWorkflows: true, DailyLimit: 9})
+	savePolicy(t, h, store.EliRepairPolicy{Repo: "acme/auto", InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, Automatic: true, AllowWorkflows: true})
 
 	got, err := h.c.StopEliAutomatic(h.ctx, []string{"acme/auto"}, EliStopAskFirst)
 	if err != nil || len(got) != 1 || !got[0].Changed || got[0].Error != "" {
 		t.Fatalf("results %+v, error %v", got, err)
 	}
-	want := store.EliRepairPolicy{Repo: "acme/auto", InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, AskFirst: true, AllowWorkflows: true, DailyLimit: 9}
+	want := store.EliRepairPolicy{Repo: "acme/auto", InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, AskFirst: true, AllowWorkflows: true}
 	if p := policyOf(t, h, "acme/auto"); p != want {
 		t.Errorf("policy %+v, want %+v", p, want)
 	}
@@ -227,13 +178,13 @@ func TestStoppingAutomaticRepairsToOffOnlyClearsTheSwitch(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation()
 	team := installationProvider(t, h, "Team", true)
-	savePolicy(t, h, store.EliRepairPolicy{Repo: "acme/auto", InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, Automatic: true, AllowWorkflows: true, DailyLimit: 9})
+	savePolicy(t, h, store.EliRepairPolicy{Repo: "acme/auto", InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, Automatic: true, AllowWorkflows: true})
 
 	got, err := h.c.StopEliAutomatic(h.ctx, []string{"acme/auto"}, EliStopOff)
 	if err != nil || len(got) != 1 || !got[0].Changed {
 		t.Fatalf("results %+v, error %v", got, err)
 	}
-	want := store.EliRepairPolicy{Repo: "acme/auto", InstallationID: inst.ID, ProviderID: team.ID, Enabled: false, Automatic: true, AllowWorkflows: true, DailyLimit: 9}
+	want := store.EliRepairPolicy{Repo: "acme/auto", InstallationID: inst.ID, ProviderID: team.ID, Enabled: false, Automatic: true, AllowWorkflows: true}
 	if p := policyOf(t, h, "acme/auto"); p != want {
 		t.Errorf("policy %+v, want %+v", p, want)
 	}
@@ -320,12 +271,12 @@ func TestStoppingARepositoryWithNoPolicySaysSoAndTakesEachNameOnce(t *testing.T)
 func TestAStoppedRepositoryBlocksItsQueuedAutomaticRepair(t *testing.T) {
 	for _, then := range []string{EliStopAskFirst, EliStopOff} {
 		t.Run(then, func(t *testing.T) {
-			s := newCommandSetup(t, 5)
+			s := newCommandSetup(t)
 			policy := policyOf(t, s.h, s.repo)
 			policy.Automatic = true
 			savePolicy(t, s.h, policy)
 			row := &store.EliRepair{DedupKey: "automatic:" + s.repo + ":old", Repo: s.repo, InstallationID: s.inst.ID, PullNumber: 1, HeadSHA: "old", RunID: 9, Trigger: "automatic"}
-			if _, err := s.h.st.EnqueueEliRepair(s.h.ctx, row, 5); err != nil {
+			if _, err := s.h.st.EnqueueEliRepair(s.h.ctx, row); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := s.h.c.StopEliAutomatic(s.h.ctx, []string{s.repo}, then); err != nil {
@@ -346,41 +297,6 @@ func TestAStoppedRepositoryBlocksItsQueuedAutomaticRepair(t *testing.T) {
 				t.Errorf("a repair blocked by a stop to %s says %q, want it to mention %q", then, row.Message, want)
 			}
 		})
-	}
-}
-
-// Lowering the limit leaves more attempts in the window than the limit allows. A
-// place frees when the count drops below the limit, which is when the attempt
-// that many from the oldest leaves the window, not the oldest itself: telling an
-// administrator "tomorrow at nine" and then still refusing at nine is worse than
-// no time at all.
-func TestTheAutomaticOverviewSaysWhenAPlaceFreesAfterTheLimitWasLowered(t *testing.T) {
-	start := time.Now().Truncate(time.Millisecond)
-	var moved atomic.Int64
-	h := newHarnessAt(t, func() time.Time { return start.Add(time.Duration(moved.Load())) })
-	inst := h.installation()
-	team := installationProvider(t, h, "Team", true)
-	savePolicy(t, h, store.EliRepairPolicy{Repo: "acme/busy", InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, Automatic: true, DailyLimit: 10})
-	for i := range 3 {
-		if _, err := h.st.EnqueueEliRepair(h.ctx, &store.EliRepair{DedupKey: fmt.Sprintf("comment:acme/busy:%d", i), Repo: "acme/busy", InstallationID: inst.ID, Trigger: "mention", PullNumber: 1, HeadSHA: "abc"}, 10); err != nil {
-			t.Fatal(err)
-		}
-		moved.Add(int64(time.Hour))
-	}
-	savePolicy(t, h, store.EliRepairPolicy{Repo: "acme/busy", InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, Automatic: true, DailyLimit: 1})
-
-	rows, _, err := h.st.ListEliRepairsPage(h.ctx, store.EliRepairFilter{Limit: store.MaxEliRepairPage})
-	if err != nil || len(rows) != 3 {
-		t.Fatalf("expected three attempts, got %d (%v)", len(rows), err)
-	}
-	newest := rows[0]
-	busy := overviewOf(t, h)["acme/busy"]
-	if busy.Used != 3 || busy.DailyLimit != 1 {
-		t.Fatalf("the allowance reads %d of %d, want 3 of 1", busy.Used, busy.DailyLimit)
-	}
-	// Used 3, limit 1: the count must fall to 0, so all three must leave.
-	if busy.NextFreeAt == nil || busy.NextFreeAt.UnixMilli() != newest.CreatedAt.Add(24*time.Hour).UnixMilli() {
-		t.Errorf("a place frees at %v, want when the newest attempt leaves the window: %v", busy.NextFreeAt, newest.CreatedAt.Add(24*time.Hour))
 	}
 }
 
@@ -425,7 +341,7 @@ func TestAFailedCheckIsNotQueuedWhenTheProviderCannotPay(t *testing.T) {
 			fake := &repairFake{Client: h.gh.Client(inst.Target, inst.TargetType)}
 			h.c.clients.entries[inst.ID] = &clientEntry{client: fake, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
 			providerID := tc.setup(t, h, inst.ID)
-			savePolicy(t, h, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: providerID, Enabled: true, Automatic: true, DailyLimit: 3})
+			savePolicy(t, h, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: providerID, Enabled: true, Automatic: true})
 			if tc.after != nil {
 				tc.after(t, h, providerID)
 			}
@@ -469,7 +385,7 @@ func TestAStopWhileTheModelIsWorkingPublishesNothing(t *testing.T) {
 			}
 			savePolicy(t, h, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: team.ID, Enabled: true, Automatic: true})
 			row := &store.EliRepair{DedupKey: "automatic:" + repo + ":old", Repo: repo, InstallationID: inst.ID, PullNumber: 1, HeadSHA: "old", RunID: 9, Trigger: "automatic"}
-			if _, err := h.st.EnqueueEliRepair(h.ctx, row, 5); err != nil {
+			if _, err := h.st.EnqueueEliRepair(h.ctx, row); err != nil {
 				t.Fatal(err)
 			}
 

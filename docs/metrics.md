@@ -59,8 +59,9 @@ memory, so they are always current and never drift.
 | `zoomies_host_capacity` | gauge | - | Runner slots across healthy, uncordoned hosts: what their operators set, or (on a host given a standard runner size) what its machine holds of that size, up to the capacity set. |
 | `zoomies_host_effective_capacity` | gauge | - | The same slots as the hosts' throttles leave them. Equal to the previous while no host is throttled; the gap between the two is the throttle. |
 | `zoomies_host_capacity_used` | gauge | - | Slots occupied on healthy, uncordoned hosts; the same hosts the two capacity figures count, so dividing by the effective figure gives utilisation. Runners still finishing on a cordoned or silent host are not in it; `zoomies_runners` counts every live runner. |
-| `zoomies_host_cpu_usage_percent` | gauge | `host` | Recent whole-host CPU occupied, including I/O wait. Missing when stale or unmeasured. |
+| `zoomies_host_cpu_usage_percent` | gauge | `host` | Recent whole-host CPU occupied, including I/O wait and steal. Missing when stale or unmeasured. |
 | `zoomies_host_io_wait_percent` | gauge | `host` | Recent whole-host share of CPU time spent idle with work waiting on disk. `cpu_usage_percent` counts that time as busy, so a build stalled on a saturated disk reads as a host hard at work without this. Missing when stale or unmeasured. |
+| `zoomies_host_steal_percent` | gauge | `host` | Recent whole-host share of CPU time the hypervisor kept from this virtual machine. `cpu_usage_percent` counts that time as busy, so a host that is being starved by its provider reads as one hard at work without this: a host at 70% busy with 40% of it steal is doing about 30% of its own work. Missing when stale or unmeasured, and on a kernel that does not report it, which is not a machine that was never starved. Nothing the scheduler decides is judged on it. |
 | `zoomies_host_disk_total_bytes` | gauge | `host` | Size of the filesystem holding the agent's work directory. Missing when the host has not measured it, which is not a full disk. |
 | `zoomies_host_disk_free_bytes` | gauge | `host` | Space a runner may still write to on that filesystem, which is less than the space unused by the reserve the filesystem keeps for root. Missing when the host has not measured it. |
 | `zoomies_host_disk_bound` | gauge | `host` | 1 while the host has been waiting on its disk for at least ten minutes with I/O wait above 20%, 0 otherwise. Reported for every host, so a threshold rule keeps matching when nothing is wrong; `zoomies_host_usage_fresh` says whether a zero has a recent measurement behind it. The same condition drives the `pool.tmpfs_suggested` advice. |
@@ -182,6 +183,42 @@ backends and watch `failed` rise before reducing refresh intervals.
 | `zoomies_reconcile_duration_seconds` | histogram | One reconcile pass, including its GitHub calls. A rising p99 means the control loop is being held up by GitHub rather than by itself. |
 | `zoomies_provider_operation_seconds` | histogram | One request to a provider, labelled `kind`. It measures the request, not the clone the request starts: a create that takes four minutes at the hypervisor appears here as the second it took to accept the job. |
 | `zoomies_elastic_cpu_target_factor` | histogram | Planned CPU target divided by the runner's guaranteed CPU, labelled by `pool` and policy `mode`. A value of 2 means the planner found room to double the quota. |
+
+## Where the controller's own time goes
+
+The metrics above describe the fleet. These describe the controller: where a
+scheduling pass spends its time, what starts one, who is connected to the live
+event stream, and how the API is used. They are what to read when the
+controller is busy or slow and the fleet is not the reason; the troubleshooting
+page walks through them in
+[the controller itself is busy](troubleshooting.md#the-controller-itself-is-busy).
+
+| Metric | Type | Labels | What it is |
+| --- | --- | --- | --- |
+| `zoomies_loop_step_seconds` | histogram | `loop`, `step` | How long one step of a controller loop took. The scheduling pass is timed in its phases, the housekeeping tick in its jobs and the views worked out for the live stream one by one; the table below lists every `loop` and `step`. Read it beside `zoomies_reconcile_duration_seconds`, which is the whole pass: this says which part of a slow one was slow. |
+| `zoomies_reconcile_passes_total` | counter | `trigger` | Scheduling passes started, by what started them: `startup`, `timer`, `nudge` or `request`. A controller whose passes are nearly all `timer` is keeping its own pace; one whose passes are nearly all `nudge` is being driven by the fleet. |
+| `zoomies_reconcile_nudges_total` | counter | - | Times something asked the scheduler to look again: a heartbeat, a webhook, an API write. A burst of them costs one pass, so this runs ahead of the `nudge` passes by the number it folded together. |
+| `zoomies_event_subscribers` | gauge | - | Clients connected to the live event stream: open browser tabs, MCP clients, anything following changes. |
+| `zoomies_derived_skipped_total` | counter | - | Times the statistics, problems and host views for the live stream were not worked out because nothing was connected. While it stays flat and `zoomies_event_subscribers` is above zero, those views are being worked out on every pass and every housekeeping tick. |
+| `zoomies_api_requests_total` | counter | `group`, `status` | Requests served, by route group and status class (`1xx` to `5xx`). The group is the first part of the API path (`hosts`, `jobs`, `agent`), or `ui`, `health`, `metrics` or `mcp`; an API path no route matched is `unmatched`. It is the route that matched that names the group and never the path that was asked for, so the labels do not grow with traffic. A stream (the event stream, a log tail, an agent's task poll) is counted when it ends. |
+| `zoomies_api_request_seconds` | histogram | `group` | How long a request took to answer, by route group. A route that holds its connection open for its purpose is left out, because how long one lasted is how long its client stayed. |
+
+The access log records the same requests one by one, and is off unless the log
+level is `debug`; these are the version of it that is always on.
+
+### The loops and their steps
+
+Every value `loop` and `step` take is listed here, and a step is only timed
+where it is named.
+
+| `loop` | `step` | What it covers |
+| --- | --- | --- |
+| `reconcile` | `host_cleanup`, `snapshot`, `decide`, `apply`, `fallbacks`, `drain` | The scheduling pass in the order it runs: finishing the cleanup of a host that was removed, reading the fleet, deciding (the part that reads no clock and no database), carrying the decision out, routing work no pool claimed, and finishing a transfer's drain. |
+| `housekeeping` | `sweep_tasks`, `host_health`, `throttles`, `auto_adjust`, `expire_queued`, `expire_running`, `machine` | The jobs on the thirty-second tick that run every time. `machine` samples the machine the controller itself runs on (see `GET /api/v1/controller/machine`): three small reads of procfs, never a request to Docker or the database. |
+| `housekeeping` | `sample`, `prune`, `image_refresh`, `update_check`, `toolchain_scan` | The jobs on that tick that fall due less often: the minute's fleet sample, the hourly retention pass (the one that holds the single writer longest, so read it beside `zoomies_store_write_held_seconds`), and the ones the settings put on an interval. |
+| `derived` | `all`, `stats`, `problems`, `kennel`, `updates`, `transfer`, `hosts`, `machines` | The views worked out for the live event stream, which every scheduling pass and the housekeeping tick ask for. `all` is one whole run and the rest are its parts. Only timed while something is connected. |
+| `job_attention` | `refresh` | The thirty-second check of failed runs against GitHub. |
+| `enrichment` | `claim`, `work` | The once-a-second look for GitHub lookups to make. `claim` is what the loop costs idle and `work` what it costs when it finds something. |
 
 ## Where a slow start actually goes
 

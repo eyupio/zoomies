@@ -137,10 +137,7 @@ test('a refusal that carries no reason still says that it was not cleared', () =
 // select-all the count is the one thing they cannot see from where they stand:
 // most of the repairs are on other pages.
 test('the clear confirmation says how many go, that it cannot be undone here, and what stays', () => {
-  const kept = [
-    "They still count towards each repository's daily limit.",
-    'Eli will not repair its own commits from them again.',
-  ];
+  const kept = ['Eli will not repair its own commits from them again.'];
   assert.deepEqual(clearConsequences(35), [
     '35 repairs will stop showing in this list, and this cannot be undone from this page.',
     ...kept,

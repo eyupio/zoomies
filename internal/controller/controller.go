@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"runtime/debug"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"sync"
@@ -270,6 +271,14 @@ type Controller struct {
 	// says out loud because a fleet scaling on the poller looks healthy until
 	// somebody wonders why it is slow.
 	pollingOnly atomic.Bool
+
+	// profiling is set while a CPU profile is being taken. The runtime has one
+	// profiler, so this is what lets a second request be refused rather than
+	// fail inside it; see cpu_profile.go.
+	profiling atomic.Bool
+	// machine is the controller's own machine, sampled on the housekeeping tick:
+	// see machine_self.go.
+	machine machineProbe
 
 	// backups is the scheduled-backup loop's own state; see backups.go.
 	backups backupState
@@ -711,7 +720,14 @@ func (c *Controller) spawn(name string, ctx context.Context, fn func(context.Con
 		defer c.wg.Done()
 		delay := c.loopRestartDelay
 		for {
-			value, stack := runGuarded(ctx, fn)
+			// Labelled so that a CPU profile can be read by loop: the loops
+			// share the store and the views, and a profile that only names the
+			// shared function cannot say which of them was calling it. The
+			// label is inherited by every goroutine the loop starts, and it
+			// costs nothing while no profile is being taken.
+			value, stack := runGuarded(ctx, func(ctx context.Context) {
+				pprof.Do(ctx, pprof.Labels("loop", name), fn)
+			})
 			if value == nil || ctx.Err() != nil {
 				return
 			}
@@ -1043,6 +1059,10 @@ func (c *Controller) Now() time.Time { return c.clock().UTC() }
 // It never blocks and never queues: the channel holds a single token, so a
 // burst of webhooks costs one reconcile pass rather than one per delivery.
 func (c *Controller) Nudge() {
+	// Counted before the select, so that the ones the full channel turns away
+	// are counted too: the gap between this and the passes a nudge started is
+	// how much one wake-up absorbed.
+	c.metrics.nudges.Inc()
 	select {
 	case c.nudges <- struct{}{}:
 	default:

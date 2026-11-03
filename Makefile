@@ -23,7 +23,7 @@ BIN      := zoomies
 DIST     := dist
 UI_DIR   := web
 UI_OUT   := internal/api/webdist
-RUNNER_VERSION ?= 2.338.1
+RUNNER_VERSION ?= 2.338.2
 
 GO       ?= go
 NPM      ?= npm

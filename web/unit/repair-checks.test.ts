@@ -1,12 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Schemas } from '../src/lib/api/types.ts';
-import {
-  allowanceWait,
-  blockedHeadline,
-  blockingRow,
-  checkRows,
-} from '../src/lib/repairs/checks.ts';
+import { blockedHeadline, blockingRow, checkRows } from '../src/lib/repairs/checks.ts';
 import { CHECK_ORDER, allOk, readiness, stoppedAt, withoutChecks } from './repair-fixtures.ts';
 
 // A pause written as two hyphens between spaces is not a dash either; the check is built
@@ -41,7 +36,7 @@ test('a check that was never reached stays unchecked and carries no action', () 
   );
   assert.deepEqual(
     rows.map((row) => row.status),
-    ['ok', 'ok', 'ok', 'blocked', 'unchecked', 'unchecked', 'unchecked', 'unchecked', 'unchecked'],
+    ['ok', 'ok', 'ok', 'blocked', 'unchecked', 'unchecked', 'unchecked', 'unchecked'],
   );
   for (const row of rows.slice(4)) {
     assert.equal(row.message, 'Not checked yet.');
@@ -115,7 +110,6 @@ test('each blocked check has its own way forward', () => {
     provider: { kind: 'link', href: '/settings/assistant', label: 'Add a model provider' },
     installation: { kind: 'link', href: '/installations', label: 'Open installations' },
     policy: { kind: 'setup' },
-    budget: { kind: 'recheck' },
     pull: { kind: 'choose' },
     checks: { kind: 'recheck' },
     permissions: { kind: 'link', href: '/installations', label: 'Review installation permissions' },
@@ -157,63 +151,6 @@ test('a check blocked because GitHub did not answer is looked at again, whicheve
     assert.deepEqual(blocking?.action, { kind: 'recheck' }, code);
     assert.equal(blockedHeadline(blocking?.code ?? '', blocking?.blocker), 'GitHub did not answer');
   }
-});
-
-test('an allowance that could not be read is looked at again, and is not one that ran out', () => {
-  const unreadable = blockingRow(
-    checkRows(
-      readiness({
-        ready: false,
-        blockers: [
-          { code: 'budget_unavailable', message: 'Repair allowance could not be checked.' },
-        ],
-        checks: stoppedAt('budget', 'Repair allowance could not be checked.', 'budget_unavailable'),
-      }),
-      REPO_URL,
-    ),
-  );
-  assert.deepEqual(unreadable?.action, { kind: 'recheck' });
-  assert.equal(
-    blockedHeadline(unreadable?.code ?? '', unreadable?.blocker),
-    'Could not check the allowance',
-  );
-  const spent = blockingRow(
-    checkRows(
-      readiness({
-        ready: false,
-        blockers: [{ code: 'budget', message: 'The repair allowance is exhausted.' }],
-        checks: stoppedAt('budget', 'The repair allowance is exhausted.', 'budget'),
-      }),
-      REPO_URL,
-    ),
-  );
-  assert.equal(blockedHeadline(spent?.code ?? '', spent?.blocker), 'No attempts left right now');
-});
-
-// A spent allowance is not a wall: the page says when a place frees, as a time
-// of day and as how long, so a person can plan instead of pressing Check again
-// at random. The limit is rolling, so "today" is not promised.
-test('a spent allowance says when the next attempt can start', () => {
-  const now = new Date(2026, 9, 31, 10, 0, 0).getTime();
-  const later = new Date(2026, 9, 31, 12, 30, 0).toISOString();
-  const words = allowanceWait(later, now);
-  assert.match(words, /12:30/);
-  assert.match(words, /in 3h/);
-  assert.doesNotMatch(words, /tomorrow/);
-
-  const tomorrow = new Date(2026, 10, 1, 8, 5, 0).toISOString();
-  assert.match(allowanceWait(tomorrow, now), /tomorrow 8:05/);
-});
-
-test('an allowance with no free instant still says the one true thing', () => {
-  assert.equal(
-    allowanceWait(undefined),
-    'The next attempt can start once the oldest attempt leaves the 24-hour window.',
-  );
-  assert.equal(
-    allowanceWait('not a time'),
-    'The next attempt can start once the oldest attempt leaves the 24-hour window.',
-  );
 });
 
 // A controller older than this build sends no blocker with a check, and its rows read as

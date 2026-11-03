@@ -2,8 +2,8 @@
   The one card that says what to do next about this failure.
 
   Blocked, it names the thing in the way and puts the button that helps beside
-  it. Ready, it says who pays, how many attempts are left and what Eli will and
-  will not do, and offers the one button that spends an attempt. If the target
+  it. Ready, it says who pays and what Eli will and will not do, and offers
+  the one button that starts a repair. If the target
   changed under the person (the checks passed, the pull request closed, a newer
   commit replaced the one that failed) it says so in place of the offer, because
   starting a repair there would be the wrong thing to make easy. Checking and
@@ -15,17 +15,10 @@
   import { ExternalLink } from '@lucide/svelte';
   import Button from '$lib/components/Button.svelte';
   import Field from '$lib/components/Field.svelte';
-  import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Textarea from '$lib/components/Textarea.svelte';
   import type { Schemas } from '$lib/api/types';
-  import {
-    allowanceWait,
-    blockedHeadline,
-    blockingRow,
-    couldNotCheck,
-    type CheckRow,
-  } from './checks';
+  import { blockedHeadline, blockingRow, couldNotCheck, type CheckRow } from './checks';
   import { safeHttpUrl } from './links';
   import { changedBlocker, type WorkspaceStage } from './workspace';
 
@@ -122,7 +115,7 @@
     {#if stage === 'checking'}
       <div role="status" aria-busy="true" class="stack">
         <p class="muted">
-          Reading the pull request, your access and your allowance from GitHub. Nothing is spent.
+          Reading the pull request, and your access from GitHub. Nothing is spent.
         </p>
         <Skeleton lines={2} height="0.9rem" />
       </div>
@@ -150,7 +143,7 @@
           >
         {/if}
       </div>
-      <p class="fine">No repair was started and no attempt was used.</p>
+      <p class="fine">No repair was started.</p>
     {:else if stage === 'ready' && readiness}
       <dl class="facts">
         <dt>Paid by</dt>
@@ -159,15 +152,6 @@
             {readiness.provider} <span class="muted">({readiness.model})</span>
           {:else}
             {readiness.provider}
-          {/if}
-        </dd>
-        <dt>Tries left</dt>
-        <dd>
-          {#if readiness.reset_at}
-            {readiness.remaining} today,
-            <span class="muted">resets <RelativeTime value={readiness.reset_at} plain /></span>
-          {:else}
-            {readiness.remaining} today
           {/if}
         </dd>
         <dt>Workflow files</dt>
@@ -199,13 +183,6 @@
           run has no eligible PR.
         </p>
       {/if}
-      {#if blocking?.code === 'budget' && readiness}
-        <p class="muted">{allowanceWait(readiness.reset_at)}</p>
-        <p class="muted">
-          You can still fix this by hand and push, or rerun the failed job on GitHub if it looks
-          flaky. Checking again never uses an attempt.
-        </p>
-      {/if}
       <div class="buttons">
         {#if action?.kind === 'setup'}
           <Button variant="primary" full onclick={onsetup}>Set up repairs</Button>
@@ -221,9 +198,6 @@
           >
         {:else}
           <Button variant="primary" full loading={busy} onclick={onrecheck}>{recheckLabel}</Button>
-          {#if blocking?.code === 'budget'}
-            <Button variant="secondary" full href="/repairs">See repair history</Button>
-          {/if}
           {#if action?.kind === 'link' && actionLink}
             <Button variant="secondary" full href={actionLink} newTab iconAfter={ExternalLink}
               >{action.label}</Button
@@ -231,23 +205,13 @@
           {/if}
         {/if}
         {#if action?.kind !== 'setup'}
-          {#if blocking?.code === 'budget'}
-            <Button variant="ghost" full href="/repairs/setup">Repair settings</Button>
-          {:else}
-            <Button variant="ghost" full onclick={onsetup}>Set up repairs</Button>
-          {/if}
+          <Button variant="ghost" full onclick={onsetup}>Set up repairs</Button>
         {/if}
       </div>
-      {#if blocking?.code === 'budget'}
-        <p class="fine">
-          This page will offer Fix with Eli again as soon as the allowance has a place.
-        </p>
-      {:else}
-        <p class="fine">
-          Nothing has been spent. Checking again never uses an attempt, and once this is fixed the
-          page shows what Eli will do and a Fix with Eli button.
-        </p>
-      {/if}
+      <p class="fine">
+        Nothing has been started. Once this is fixed the page shows what Eli will do and a Fix with
+        Eli button.
+      </p>
     {/if}
   </div>
 </section>

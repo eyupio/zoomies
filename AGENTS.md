@@ -216,6 +216,7 @@ internal/qr         the smallest QR encoder that serves the two-step verificatio
 internal/redact     strips credentials and commit emails from text bound for a model
 internal/releasekey the release signing key: Ed25519 verification of a release's checksums
 internal/toolscan   reads workflows for the toolchains their jobs install
+internal/terminalui terminal presentation: the CLI home, paw indicator and command progress
 internal/version    build metadata stamped in at link time
 internal/wsl        keeps an agent alive inside a WSL2 distro
 web/                the Svelte 5 UI

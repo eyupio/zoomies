@@ -22,11 +22,14 @@ var bandPages = []string{
 var bandCuts = []string{"slim", "compact", "standard", "expanded"}
 
 // bandPreferences is the `bands` object of an account's private preferences:
-// where each band stands and which are switched off. Every field is optional, because an absent one is a choice
-// never made and the page keeps its default.
+// where each band stands, which are switched off, and whether a band's picture (the punch card, the slot map) is
+// drawn. Every field is optional, because an absent one is a choice never made
+// and the page keeps its default.
 type bandPreferences struct {
-	Hidden []string          `json:"hidden,omitempty"`
-	Sizes  map[string]string `json:"sizes,omitempty"`
+	Hidden       []string          `json:"hidden,omitempty"`
+	Sizes        map[string]string `json:"sizes,omitempty"`
+	Picture      *bool             `json:"picture,omitempty"`
+	PicturePages map[string]bool   `json:"picture_pages,omitempty"`
 }
 
 // validate says which part of a band document this build does not have, or
@@ -54,6 +57,11 @@ func (in *bandPreferences) validate(field string) []fieldError {
 		}
 		if cut := in.Sizes[page]; !slices.Contains(bandCuts, cut) {
 			errs = append(errs, fieldError{field + ".sizes." + page, "one of " + strings.Join(bandCuts, ", ")})
+		}
+	}
+	for _, page := range slices.Sorted(maps.Keys(in.PicturePages)) {
+		if !slices.Contains(bandPages, page) {
+			errs = append(errs, fieldError{field + ".picture_pages." + page, "not a page with a band"})
 		}
 	}
 	return errs

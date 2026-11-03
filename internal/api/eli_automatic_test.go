@@ -33,8 +33,8 @@ func newAutomaticFixture(t *testing.T) automaticFixture {
 	}
 	f := automaticFixture{h: h, inst: inst, provider: provider, admin: admin, adminID: user.ID, auto: inst.Target + "/auto", asks: inst.Target + "/asks"}
 	for _, p := range []store.EliRepairPolicy{
-		{Repo: f.auto, InstallationID: inst.ID, ProviderID: provider.ID, Enabled: true, Automatic: true, DailyLimit: 5},
-		{Repo: f.asks, InstallationID: inst.ID, Enabled: true, AskFirst: true, DailyLimit: 5},
+		{Repo: f.auto, InstallationID: inst.ID, ProviderID: provider.ID, Enabled: true, Automatic: true},
+		{Repo: f.asks, InstallationID: inst.ID, Enabled: true, AskFirst: true},
 	} {
 		if err := h.st.SetEliRepairPolicy(h.ctx, p); err != nil {
 			t.Fatal(err)
@@ -68,7 +68,7 @@ func (f automaticFixture) policy(t *testing.T, repo string) store.EliRepairPolic
 func TestTheAutomaticOverviewIsAnAdministratorRouteAndTakesTheSpecsShape(t *testing.T) {
 	f := newAutomaticFixture(t)
 	// An attempt, so the latest repair is there to be checked against the shape.
-	if _, err := f.h.st.EnqueueEliRepair(f.h.ctx, &store.EliRepair{DedupKey: "automatic:" + f.auto + ":abc", Repo: f.auto, InstallationID: f.inst.ID, Trigger: "automatic", PullNumber: 3, HeadSHA: "abc"}, 5); err != nil {
+	if _, err := f.h.st.EnqueueEliRepair(f.h.ctx, &store.EliRepair{DedupKey: "automatic:" + f.auto + ":abc", Repo: f.auto, InstallationID: f.inst.ID, Trigger: "automatic", PullNumber: 3, HeadSHA: "abc"}); err != nil {
 		t.Fatal(err)
 	}
 	_, viewer := f.h.user("automatic-viewer", store.RoleViewer)
@@ -93,14 +93,13 @@ func TestTheAutomaticOverviewIsAnAdministratorRouteAndTakesTheSpecsShape(t *test
 	var repo struct {
 		Repo         string `json:"repo"`
 		ProviderName string `json:"provider_name"`
-		Used         int    `json:"used"`
 		Running      int    `json:"running"`
 		Problem      string `json:"problem"`
 	}
 	if err := json.Unmarshal(answer.Repositories[0], &repo); err != nil {
 		t.Fatal(err)
 	}
-	if repo.Repo != f.auto || repo.ProviderName != "Team provider" || repo.Used != 1 || repo.Running != 1 || repo.Problem != "" {
+	if repo.Repo != f.auto || repo.ProviderName != "Team provider" || repo.Running != 1 || repo.Problem != "" {
 		t.Errorf("the overview says %+v", repo)
 	}
 }

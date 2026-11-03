@@ -22,7 +22,7 @@ func TestAskFirstOffersAreDeduplicatedAndCannotWriteAStaleHead(t *testing.T) {
 	fake := &repairFake{Client: h.gh.Client(inst.Target, inst.TargetType)}
 	h.c.clients.entries[inst.ID] = &clientEntry{client: fake, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
 	repo := inst.Target + "/repo"
-	if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, Enabled: true, AskFirst: true, DailyLimit: 5}); err != nil {
+	if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, Enabled: true, AskFirst: true}); err != nil {
 		t.Fatal(err)
 	}
 	user := &store.User{Username: "owner", Role: store.RoleViewer}
@@ -564,12 +564,12 @@ func TestReadinessTellsTheAttentionListWhatItLearnedAboutTheFailure(t *testing.T
 // then breaks the one thing it is about.
 func readinessSetup(t *testing.T) *commandSetup {
 	t.Helper()
-	return readinessSetupAt(t, nil, 5)
+	return readinessSetupAt(t, nil)
 }
 
-func readinessSetupAt(t *testing.T, clock func() time.Time, dailyLimit int) *commandSetup {
+func readinessSetupAt(t *testing.T, clock func() time.Time) *commandSetup {
 	t.Helper()
-	s := newCommandSetupAt(t, clock, dailyLimit)
+	s := newCommandSetupAt(t, clock)
 	s.link(t, true)
 	personal := &store.AssistantProvider{Name: "Personal", OwnerID: s.user.ID, Kind: "openai", Enabled: true}
 	if err := s.h.st.CreateAssistantProvider(s.h.ctx, personal); err != nil {
@@ -577,71 +577,6 @@ func readinessSetupAt(t *testing.T, clock func() time.Time, dailyLimit int) *com
 	}
 	s.fake.check = "failed"
 	return s
-}
-
-// A spent allowance is two limits, and the page has to say which one is in the
-// way and when that one frees. The repository's window and the person's window
-// hold different rows, so the oldest attempt in either could promise a place
-// before the binding limit has one.
-func TestReadinessSaysWhichAllowanceIsSpentAndWhenItFrees(t *testing.T) {
-	at := time.Date(2026, 10, 31, 10, 0, 0, 0, time.UTC)
-	clock := func() time.Time { return at }
-
-	s := readinessSetupAt(t, clock, 5)
-	// Someone asked for a repair elsewhere before this repository's attempts,
-	// and it is not what holds the repository back.
-	at = at.Add(-2 * time.Hour)
-	enqueueBudgetRepair(t, s, "acme/elsewhere", s.user.ID, "elsewhere")
-	at = time.Date(2026, 10, 31, 10, 0, 0, 0, time.UTC)
-	for i := range 5 {
-		enqueueBudgetRepair(t, s, s.repo, "someone-else", fmt.Sprintf("repo-%d", i))
-	}
-	ready := s.h.c.EliReadiness(s.h.ctx, s.user.ID, s.repo, 1, 0)
-	if ready.Remaining != 0 {
-		t.Fatalf("remaining = %d, want the repository allowance spent", ready.Remaining)
-	}
-	want := at.Add(24 * time.Hour)
-	if ready.ResetAt == nil || !ready.ResetAt.Equal(want) {
-		t.Fatalf("reset = %v, want the repository's oldest attempt to free at %v", ready.ResetAt, want)
-	}
-	if got := budgetBlocker(ready); !strings.Contains(got, "repository has used all 5 repairs") {
-		t.Fatalf("blocker = %q, want the repository's limit named", got)
-	}
-
-	// A person's own allowance is the narrower one: their repairs in other
-	// repositories spend it, and the page says so.
-	at = time.Date(2026, 10, 31, 10, 0, 0, 0, time.UTC)
-	person := readinessSetupAt(t, clock, 20)
-	for i := range store.EliPersonDailyLimit {
-		enqueueBudgetRepair(t, person, fmt.Sprintf("acme/other-%d", i), person.user.ID, fmt.Sprintf("person-%d", i))
-	}
-	ready = person.h.c.EliReadiness(person.h.ctx, person.user.ID, person.repo, 1, 0)
-	if ready.Remaining != 0 {
-		t.Fatalf("remaining = %d, want the person's allowance spent", ready.Remaining)
-	}
-	want = at.Add(24 * time.Hour)
-	if ready.ResetAt == nil || !ready.ResetAt.Equal(want) {
-		t.Fatalf("reset = %v, want the person's oldest attempt to free at %v", ready.ResetAt, want)
-	}
-	if got := budgetBlocker(ready); !strings.Contains(got, "one person may request") {
-		t.Fatalf("blocker = %q, want the person's limit named", got)
-	}
-}
-
-func enqueueBudgetRepair(t *testing.T, s *commandSetup, repo, user, key string) {
-	t.Helper()
-	if _, err := s.h.st.EnqueueEliRepair(s.h.ctx, &store.EliRepair{Repo: repo, UserID: user, DedupKey: key}, 1000); err != nil {
-		t.Fatalf("enqueue a repair for %s: %v", repo, err)
-	}
-}
-
-func budgetBlocker(r EliReadiness) string {
-	for _, b := range r.Blockers {
-		if b.Code == "budget" {
-			return b.Message
-		}
-	}
-	return ""
 }
 
 // checkSummary is "code:status" for each check, in the order readiness makes them.
@@ -679,7 +614,7 @@ func blockerCodes(r EliReadiness) []string {
 	return out
 }
 
-const nineOK = "identity:ok provider:ok installation:ok access:ok policy:ok budget:ok pull:ok checks:ok permissions:ok"
+const eightOK = "identity:ok provider:ok installation:ok access:ok policy:ok pull:ok checks:ok permissions:ok"
 
 // A page that says what Eli can do needs the pull request's own words and a
 // finding for every check, so a person sees what passed and not only what failed.
@@ -690,7 +625,7 @@ func TestReadinessReturnsThePullRequestAndEveryCheckWhenReady(t *testing.T) {
 	if !ready.Ready || len(ready.Blockers) != 0 {
 		t.Fatalf("not ready: %+v", ready)
 	}
-	if got := strings.Join(checkSummary(ready), " "); got != nineOK {
+	if got := strings.Join(checkSummary(ready), " "); got != eightOK {
 		t.Fatalf("checks: %s", got)
 	}
 	for _, c := range ready.Checks {
@@ -713,7 +648,7 @@ func TestReadinessStopsAtWriteAccessAndLeavesTheRestUnchecked(t *testing.T) {
 	s.fake.title = "A private title"
 	ready := s.h.c.EliReadiness(s.h.ctx, s.user.ID, s.repo, 1, 0)
 	assertEveryBlockedCheckSaysWhy(t, ready)
-	want := "identity:ok provider:ok installation:ok access:blocked policy:unchecked budget:unchecked pull:unchecked checks:unchecked permissions:unchecked"
+	want := "identity:ok provider:ok installation:ok access:blocked policy:unchecked pull:unchecked checks:unchecked permissions:unchecked"
 	if got := strings.Join(checkSummary(ready), " "); got != want {
 		t.Fatalf("checks: %s", got)
 	}
@@ -734,14 +669,14 @@ func TestReadinessStopsAtWriteAccessAndLeavesTheRestUnchecked(t *testing.T) {
 // With no linked account the provider and the installation are still looked at,
 // because they are separate things to fix and a person should fix them in one go.
 func TestReadinessWithNoLinkedAccountBlocksIdentityAndStillChecksProvider(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	personal := &store.AssistantProvider{Name: "Personal", OwnerID: s.user.ID, Kind: "openai", Enabled: true}
 	if err := s.h.st.CreateAssistantProvider(s.h.ctx, personal); err != nil {
 		t.Fatal(err)
 	}
 	ready := s.h.c.EliReadiness(s.h.ctx, s.user.ID, s.repo, 1, 0)
 	assertEveryBlockedCheckSaysWhy(t, ready)
-	want := "identity:blocked provider:ok installation:ok access:unchecked policy:unchecked budget:unchecked pull:unchecked checks:unchecked permissions:unchecked"
+	want := "identity:blocked provider:ok installation:ok access:unchecked policy:unchecked pull:unchecked checks:unchecked permissions:unchecked"
 	if got := strings.Join(checkSummary(ready), " "); got != want {
 		t.Fatalf("checks: %s", got)
 	}
@@ -768,7 +703,7 @@ func TestReadinessKeepsThePullRequestWhenItIsClosed(t *testing.T) {
 	if ready.Pull == nil || ready.Pull.Title != "Old work" || ready.Pull.Open {
 		t.Fatalf("the closed pull request was lost: %+v", ready.Pull)
 	}
-	want := "identity:ok provider:ok installation:ok access:ok policy:ok budget:ok pull:blocked checks:unchecked permissions:unchecked"
+	want := "identity:ok provider:ok installation:ok access:ok policy:ok pull:blocked checks:unchecked permissions:unchecked"
 	if got := strings.Join(checkSummary(ready), " "); got != want {
 		t.Fatalf("checks: %s", got)
 	}
@@ -909,7 +844,7 @@ func TestReadinessSaysGitHubDidNotAnswerWhenItCannotReadTheChecks(t *testing.T) 
 	s := readinessSetup(t)
 	s.fake.checkErr = errors.New("transport failed")
 	ready := s.h.c.EliReadiness(s.h.ctx, s.user.ID, s.repo, 1, 0)
-	want := "identity:ok provider:ok installation:ok access:ok policy:ok budget:ok pull:ok checks:blocked permissions:unchecked"
+	want := "identity:ok provider:ok installation:ok access:ok policy:ok pull:ok checks:blocked permissions:unchecked"
 	if got := strings.Join(checkSummary(ready), " "); got != want {
 		t.Fatalf("checks: %s", got)
 	}
@@ -917,8 +852,8 @@ func TestReadinessSaysGitHubDidNotAnswerWhenItCannotReadTheChecks(t *testing.T) 
 		t.Fatalf("blockers: %v", got)
 	}
 	assertEveryBlockedCheckSaysWhy(t, ready)
-	if ready.Checks[7].Blocker != "github" {
-		t.Fatalf("the checks check says it was stopped by %q, want github", ready.Checks[7].Blocker)
+	if ready.Checks[6].Blocker != "github" {
+		t.Fatalf("the checks check says it was stopped by %q, want github", ready.Checks[6].Blocker)
 	}
 }
 
@@ -987,9 +922,40 @@ func TestReadinessNamesTheRepositorysMode(t *testing.T) {
 		})
 	}
 	t.Run("before the policy is reached", func(t *testing.T) {
-		s := newCommandSetup(t, 5)
+		s := newCommandSetup(t)
 		if got := s.h.c.EliReadiness(s.h.ctx, s.user.ID, s.repo, 1, 0).PolicyMode; got != "" {
 			t.Errorf("mode %q for someone who is not linked, want none", got)
 		}
 	})
+}
+
+// An offer is only worth showing while a repair could still help. Once the pull
+// request is closed or merged the page must stop asking for it, and that has to
+// happen even when finding new failures in the same pass is slow, because the
+// two used to share one time budget and a pass that spent it never got round to
+// retiring anything.
+func TestAnOfferForAClosedPullRequestIsRetired(t *testing.T) {
+	s := readinessSetup(t)
+	policies, err := s.h.st.EliRepairPolicies(s.h.ctx)
+	if err != nil || len(policies) != 1 {
+		t.Fatalf("policies %v, %v", policies, err)
+	}
+	p := policies[0]
+	p.AskFirst = true
+	if err := s.h.st.SetEliRepairPolicy(s.h.ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.h.st.OfferEliRepair(s.h.ctx, store.EliRepairOpportunity{Repo: s.repo, InstallationID: s.inst.ID, PullNumber: 7, HeadSHA: "old", RunID: 1, Title: "Old work"}); err != nil {
+		t.Fatal(err)
+	}
+	if offers, _ := s.h.st.EliRepairOpportunities(s.h.ctx, ""); len(offers) != 1 {
+		t.Fatalf("setup: %d offers, want 1", len(offers))
+	}
+
+	s.h.c.clients.entries[s.inst.ID] = &clientEntry{client: closedRepairPull{s.fake}, updatedAt: s.inst.UpdatedAt.Truncate(time.Millisecond)}
+	s.h.c.retireStaleEliOffers(s.h.ctx)
+
+	if offers, err := s.h.st.EliRepairOpportunities(s.h.ctx, ""); err != nil || len(offers) != 0 {
+		t.Fatalf("an offer for a closed pull request is still listed: %+v, %v", offers, err)
+	}
 }

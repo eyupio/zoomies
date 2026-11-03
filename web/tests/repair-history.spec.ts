@@ -603,9 +603,6 @@ test('clearing says what it does, then clears and reports', async ({ page }) => 
     ),
   ).toBeVisible();
   await expect(
-    dialog.getByText("They still count towards each repository's daily limit."),
-  ).toBeVisible();
-  await expect(
     dialog.getByText('Eli will not repair its own commits from them again.'),
   ).toBeVisible();
   await dialog.getByRole('button', { name: 'Cancel' }).click();

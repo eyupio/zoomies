@@ -46,7 +46,7 @@ func pullFor(head string) github.RepairPull {
 // A person deciding whether to let Eli try needs to see what failed, in the
 // words GitHub shows: the jobs, the step each stopped at, and where to look.
 func TestARepairCaseNamesTheFailedJobsAndTheirSteps(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	base := s.h.st.Now().Add(-time.Hour)
 	started, finished := base.Add(5*time.Second), base.Add(100*time.Second)
 	run := "https://github.com/acme/repo/actions/runs/900"
@@ -74,7 +74,7 @@ func TestARepairCaseNamesTheFailedJobsAndTheirSteps(t *testing.T) {
 // checks failed on is what ties the jobs to it, and a job of an earlier commit,
 // a passing one or another repository's must not be read as its failure.
 func TestARepairCaseFindsJobsByHeadWhenThereIsNoRun(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	base := s.h.st.Now().Add(-time.Hour)
 	s.seedJob(t, store.Job{GitHubJobID: 21, GitHubRunID: 910, HeadSHA: "old", Workflow: "CI", RunNumber: 12, JobName: "unit", Conclusion: "failure", Steps: failingAt("Run tests"), QueuedAt: base})
 	s.seedJob(t, store.Job{GitHubJobID: 22, GitHubRunID: 909, HeadSHA: "older", Workflow: "CI", RunNumber: 11, JobName: "unit", Conclusion: "failure", QueuedAt: base.Add(time.Second)})
@@ -94,7 +94,7 @@ func TestARepairCaseFindsJobsByHeadWhenThereIsNoRun(t *testing.T) {
 // still be started, and what is known about the pull request is still worth
 // showing; an empty list of jobs is a case with less in it, not an error.
 func TestARepairCaseSurvivesAPrunedRun(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	got := s.h.c.repairCase(s.h.ctx, s.fake, s.repo, pullFor("old"), 900)
 	want := &store.EliRepairCase{PullTitle: "Retry transient 502s", PullURL: "https://github.com/acme/repo/pull/1", Author: "dana", Branch: "feature"}
 	if !reflect.DeepEqual(got, want) {
@@ -108,7 +108,7 @@ func TestARepairCaseSurvivesAPrunedRun(t *testing.T) {
 // goes somewhere else, and a title the size of a document is clipped on a
 // character, not in the middle of one.
 func TestARepairCaseClipsAndRefusesUnsafeAddresses(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	base := s.h.st.Now().Add(-time.Hour)
 	long := strings.Repeat("é", 5000)
 	tooLong := "https://github.com/acme/repo/actions/runs/900/job/32?" + strings.Repeat("a", 600)
@@ -137,7 +137,7 @@ func TestARepairCaseClipsAndRefusesUnsafeAddresses(t *testing.T) {
 // agent's run, a pruned one, or a job GitHub's own runners ran. The case still
 // names what failed, read from GitHub's report of the run.
 func TestARepairCaseReadsTheFailedJobsFromGitHubWhenTheFleetHasNoRecord(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	base := s.h.st.Now().Add(-time.Hour)
 	started, finished := base, base.Add(95*time.Second)
 	s.fake.failedJobs = &github.RepairFailureRun{
@@ -165,7 +165,7 @@ func TestARepairCaseReadsTheFailedJobsFromGitHubWhenTheFleetHasNoRecord(t *testi
 // The fleet's own record is preferred where it exists: it is what the person
 // was looking at, and it costs no GitHub call.
 func TestARepairCasePrefersTheFleetsRecordOverGitHubs(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	base := s.h.st.Now().Add(-time.Hour)
 	s.seedJob(t, store.Job{GitHubJobID: 11, GitHubRunID: 900, Workflow: "CI", RunNumber: 1042, JobName: "unit", Conclusion: "failure", HTMLURL: "https://github.com/acme/repo/actions/runs/900/job/11", Steps: failingAt("Run go test ./..."), QueuedAt: base})
 	s.fake.failedJobs = &github.RepairFailureRun{
@@ -185,7 +185,7 @@ func TestARepairCasePrefersTheFleetsRecordOverGitHubs(t *testing.T) {
 // A GitHub that cannot answer leaves the case as the pull request alone: a
 // case with less in it, not an error.
 func TestARepairCaseSurvivesGitHubNotAnswering(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	s.fake.failedJobsErr = errors.New("github: read failed jobs: not found")
 	got := s.h.c.repairCase(s.h.ctx, s.fake, s.repo, pullFor("old"), 900)
 	want := &store.EliRepairCase{PullTitle: "Retry transient 502s", PullURL: "https://github.com/acme/repo/pull/1", Author: "dana", Branch: "feature"}
@@ -248,7 +248,7 @@ func TestAUIRepairRecordsItsRunAndCase(t *testing.T) {
 // request as any other, and the repair carries that run.
 func TestAcceptingAnOfferRecordsTheOffersRun(t *testing.T) {
 	s := readinessSetup(t)
-	if err := s.h.st.SetEliRepairPolicy(s.h.ctx, store.EliRepairPolicy{Repo: s.repo, InstallationID: s.inst.ID, Enabled: true, AskFirst: true, DailyLimit: 5}); err != nil {
+	if err := s.h.st.SetEliRepairPolicy(s.h.ctx, store.EliRepairPolicy{Repo: s.repo, InstallationID: s.inst.ID, Enabled: true, AskFirst: true}); err != nil {
 		t.Fatal(err)
 	}
 	s.seedJob(t, store.Job{GitHubJobID: 1, GitHubRunID: 9, HeadSHA: "old", Workflow: "CI", RunNumber: 31, JobName: "unit", Conclusion: "failure", Steps: failingAt("Run tests"), QueuedAt: s.h.st.Now().Add(-time.Hour)})
@@ -278,7 +278,7 @@ func TestAcceptingAnOfferRecordsTheOffersRun(t *testing.T) {
 // it records the case then, and the attempt page has the same facts as one
 // started from the UI.
 func TestTheWorkerFillsAMissingCase(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	s.link(t, true)
 	// Settled checks make the worker stop once it has read the pull request,
 	// which is all this test needs of it.
@@ -286,7 +286,7 @@ func TestTheWorkerFillsAMissingCase(t *testing.T) {
 	s.fake.title, s.fake.author, s.fake.url = "Retry transient 502s", "dana", "https://github.com/acme/repo/pull/1"
 	s.seedJob(t, store.Job{GitHubJobID: 21, GitHubRunID: 910, HeadSHA: "old", Workflow: "CI", RunNumber: 12, JobName: "unit", Conclusion: "failure", Steps: failingAt("Run tests"), QueuedAt: s.h.st.Now().Add(-time.Hour)})
 	row := &store.EliRepair{DedupKey: "comment:100", Repo: s.repo, InstallationID: s.inst.ID, PullNumber: 1, HeadSHA: "old", Trigger: "mention", UserID: s.user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
-	if _, err := s.h.st.EnqueueEliRepair(s.h.ctx, row, 5); err != nil {
+	if _, err := s.h.st.EnqueueEliRepair(s.h.ctx, row); err != nil {
 		t.Fatal(err)
 	}
 	s.h.c.runEliRepair(s.h.ctx, row)
@@ -303,13 +303,13 @@ func TestTheWorkerFillsAMissingCase(t *testing.T) {
 // The case a request recorded is the failure the person saw. The worker runs
 // later, when the pull request may read differently, and must not rewrite it.
 func TestTheWorkerKeepsTheCaseARequestRecorded(t *testing.T) {
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	s.link(t, true)
 	s.fake.check = "passed"
 	s.fake.title = "Retitled since"
 	row := &store.EliRepair{DedupKey: "ui:recorded", Repo: s.repo, InstallationID: s.inst.ID, PullNumber: 1, HeadSHA: "old", Trigger: "mention", UserID: s.user.ID, GitHubUserID: 42, GitHubLogin: "octo",
 		Details: store.EliRepairDetails{Case: &store.EliRepairCase{PullTitle: "As requested"}}}
-	if _, err := s.h.st.EnqueueEliRepair(s.h.ctx, row, 5); err != nil {
+	if _, err := s.h.st.EnqueueEliRepair(s.h.ctx, row); err != nil {
 		t.Fatal(err)
 	}
 	s.h.c.runEliRepair(s.h.ctx, row)

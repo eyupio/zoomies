@@ -2597,6 +2597,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/controller/machine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The machine the controller itself runs on
+         * @description What the controller measured of its own machine: its CPU count and memory as its procfs describes them, and the whole-machine CPU, steal, I/O wait, one-minute load average and available memory it last sampled. It is for a controller whose agents are all elsewhere, which has no host of its own to read the machine from; one with an embedded agent reports the same machine as a host. Sampled on the controller's housekeeping tick and read here without sampling, so asking never sets the interval the shares are taken over. `usage` is absent until two samples have been taken, and on a platform with no procfs; `usage_fresh` says whether a recent measurement stands behind it.
+         */
+        get: operations["getControllerMachine"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hosts/{id}": {
         parameters: {
             query?: never;
@@ -4081,8 +4101,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * See the repositories that repair themselves, what they have used and whether they can run
-         * @description One entry for each enabled repository policy set to Automatic, the ones that cannot run first and then by name. `used` is every attempt on the repository in the last 24 hours, by anyone and by any trigger, a repair cleared from the history included: the number the daily limit is held against. Automatic repairs have no owner, so this is an administrator's view and nobody else can read it.
+         * See the repositories that repair themselves and whether they can run
+         * @description One entry for each enabled repository policy set to Automatic, the ones that cannot run first and then by name. Automatic repairs have no owner, so this is an administrator's view and nobody else can read it.
          */
         get: operations["getEliAutomaticRepairs"];
         put?: never;
@@ -4219,7 +4239,7 @@ export interface paths {
         put?: never;
         /**
          * Clear several repairs from the history
-         * @description Hides repairs from the history and does nothing else to them. The repair stays on record, so it still counts towards the repository's and the person's daily limit, still stops Eli answering the same webhook delivery twice, and still stops Eli repairing its own commit. Answers 200 with a result for each distinct id, in the order asked, so a partial failure is visible rather than hidden behind one status code. A repair that is still queued, running or waiting on checks comes back as `still running`. An id that does not exist and an id the caller may not clear both come back as `not found`, so the answer cannot be used to discover which ids are real. The caller may clear their own repairs, and an administrator may clear anyone's, but a token narrowed to `assistant:own` can read an id it cannot clear and is answered `not found` for it. An id that is already cleared is `ok`. One audit row, `assistant.repair_clear`, is written when the request cleared any repair and lists the ids it cleared; an `ok` for an id that was already cleared is not among them, and a request that cleared nothing writes no row.
+         * @description Hides repairs from the history and does nothing else to them. The repair stays on record, so it still stops Eli answering the same webhook delivery twice, and still stops Eli repairing its own commit. Answers 200 with a result for each distinct id, in the order asked, so a partial failure is visible rather than hidden behind one status code. A repair that is still queued, running or waiting on checks comes back as `still running`. An id that does not exist and an id the caller may not clear both come back as `not found`, so the answer cannot be used to discover which ids are real. The caller may clear their own repairs, and an administrator may clear anyone's, but a token narrowed to `assistant:own` can read an id it cannot clear and is answered `not found` for it. An id that is already cleared is `ok`. One audit row, `assistant.repair_clear`, is written when the request cleared any repair and lists the ids it cleared; an `ok` for an id that was already cleared is not among them, and a request that cleared nothing writes no row.
          */
         post: operations["bulkEliRepairAction"];
         delete?: never;
@@ -4270,7 +4290,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Configure a repository’s installation provider and repair budget */
+        /** Configure a repository’s installation provider and repair policy */
         put: operations["setEliRepairPolicy"];
         post?: never;
         delete?: never;
@@ -5442,6 +5462,28 @@ export interface paths {
          *     Assembly is section by section: a section that fails costs its own contents and lands in `errors` rather than failing the whole document, because the moment a bundle is taken is the moment a query is most likely to fail. Sections are capped by row count and the whole document by bytes; anything shortened says so in `truncated`.
          */
         get: operations["getSupportBundle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/diagnostics/cpu-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where this controller's CPU is going
+         * @description Samples the controller's own CPU for a few seconds and returns the profile in the format `go tool pprof` reads. It is for the question the metrics cannot answer: `zoomies_loop_step_seconds` says which loop and step took the time, and a profile says what inside it did, down to the function. Every loop's goroutines carry a `loop` label, so a profile can be read by loop, for example with `go tool pprof -tagfocus=loop=housekeeping cpu.pprof`.
+         *
+         *     It is taken on request and never left running. Sampling costs the controller a little CPU of its own, and the runtime has one profiler, so a second request while one is being taken is refused with 409 rather than allowed to cut the first short. The request holds the connection for as long as the sample lasts, and a client that hangs up ends it.
+         */
+        get: operations["getCpuProfile"];
         put?: never;
         post?: never;
         delete?: never;
@@ -10432,6 +10474,8 @@ export interface components {
             lent_cpu_percent?: number;
             /** @description The share of CPU time the machine spent idle with something waiting on disk between samples. cpu_percent counts that time as busy; this is what tells a host stalled on its disk from one hard at work. Absent when unmeasured. */
             io_wait_percent?: number;
+            /** @description The share of CPU time the hypervisor kept from this virtual machine between samples. `cpu_percent` counts that time as busy, so a machine that is being starved reads as one hard at work; this is what says which it is. Absent when unmeasured, or on a kernel that does not report it. */
+            steal_percent?: number;
             /**
              * Format: date-time
              * @description When I/O wait rose to 20% and has not fallen below 10% since. A host that has been there for ten minutes is called disk-bound
@@ -10439,6 +10483,34 @@ export interface components {
             io_wait_high_since?: string;
             /** @description The kernel's one-minute load average for the whole machine, as the agent read it from /proc/loadavg. Absent when unmeasured. Judged against the host's CPU count: a load of at least twice the CPUs is what steps the throttle up, because a runnable queue that deep is a machine that has stopped keeping up even when the CPU figure saturates at 100. */
             load_average_1m?: number;
+        };
+        ControllerMachine: {
+            /** @description The CPUs its procfs counts. Absent where there is no procfs. */
+            cpus?: number;
+            /**
+             * Format: int64
+             * @description Its procfs's total memory in MB. Absent where there is no procfs.
+             */
+            memory_mb?: number;
+            usage?: {
+                /** @description Whole-machine CPU occupied between two samples. Counts I/O wait and steal as busy. */
+                cpu_percent?: number;
+                /** @description The share of that interval the machine spent idle with something waiting on disk. */
+                io_wait_percent?: number;
+                /** @description The share of that interval the hypervisor kept the CPU from this virtual machine. Absent on a kernel that does not report it. */
+                steal_percent?: number;
+                /** @description The kernel's one-minute load average. */
+                load_average_1m?: number;
+                /**
+                 * Format: int64
+                 * @description Available memory including reclaimable cache.
+                 */
+                memory_available_mb?: number;
+                /** Format: date-time */
+                sampled_at: string;
+            };
+            /** @description Whether a measurement from the last 90 seconds stands behind usage. */
+            usage_fresh: boolean;
         };
         /** @description One host at one minute. Absent measurements are gaps, never zero. */
         HostSample: {
@@ -10452,6 +10524,8 @@ export interface components {
             cpu_percent?: number;
             /** @description Share of CPU time the host spent idle with work waiting on disk. `cpu_percent` counts that time as busy, so this is what tells a host stalled on its disk from one doing arithmetic. Absent when unmeasured or stale. */
             io_wait_percent?: number;
+            /** @description Share of CPU time the hypervisor kept from the host. `cpu_percent` counts that time as busy, so this is what tells a virtual machine that is being starved from one doing arithmetic. Absent when unmeasured or stale, and on a kernel that does not report it. */
+            steal_percent?: number;
             /** @description The kernel's one-minute load average. Absent when unmeasured or stale. */
             load_average_1m?: number;
             /** @description The machine's CPUs */
@@ -11555,11 +11629,11 @@ export interface components {
         /** @description One thing readiness looks at and what it found. A check readiness never reached because an earlier one stopped it is unchecked, which is not the same as passed. */
         EliReadinessCheck: {
             /** @enum {string} */
-            code: "identity" | "provider" | "installation" | "access" | "policy" | "budget" | "pull" | "checks" | "permissions";
+            code: "identity" | "provider" | "installation" | "access" | "policy" | "pull" | "checks" | "permissions";
             /** @enum {string} */
             status: "ok" | "blocked" | "unchecked";
             message: string;
-            /** @description On a blocked check, the code of the blocker that stopped it, as it appears in `blockers`. The check says where readiness stopped and the blocker says why, and they are not the same: GitHub not answering (`github`) or the allowance not being readable (`budget_unavailable`) is reported on whichever check it was making. When the target has changed, `blockers` holds that change alone, and a check blocked before it was found still names what stopped it. Absent on a check that passed or was not reached, and from a controller older than this field. */
+            /** @description On a blocked check, the code of the blocker that stopped it, as it appears in `blockers`. The check says where readiness stopped and the blocker says why, and they are not the same: GitHub not answering (`github`) is reported on whichever check it was making. When the target has changed, `blockers` holds that change alone, and a check blocked before it was found still names what stopped it. Absent on a check that passed or was not reached, and from a controller older than this field. */
             blocker?: string;
         };
         /** @description One step of a failed job, as GitHub reported it ended. */
@@ -11603,12 +11677,6 @@ export interface components {
             provider: string;
             model: string;
             allow_workflows: boolean;
-            remaining: number;
-            /**
-             * Format: date-time
-             * @description When the allowance next changes in the person's favour: the instant the oldest attempt in whichever of the repository's and the person's windows has least room leaves it. When both are full it is the later of the two, because a place needs both. Absent when nothing has been spent or the allowance could not be read.
-             */
-            reset_at?: string;
             /**
              * @description How the repository's policy lets Eli help, so a page can say whether the repository would have started a repair itself. Present once readiness has reached the policy check, and not before.
              * @enum {string}
@@ -11621,7 +11689,7 @@ export interface components {
                 code: string;
                 message: string;
             }[];
-            /** @description Every check readiness makes, always the same nine in the order they are made, so a page can show what passed as well as what did not. */
+            /** @description Every check readiness makes, always the same eight in the order they are made, so a page can show what passed as well as what did not. */
             checks: components["schemas"]["EliReadinessCheck"][];
         };
         EliOpportunity: {
@@ -11671,7 +11739,6 @@ export interface components {
             /** @default false */
             ask_first: boolean;
             allow_workflows: boolean;
-            daily_limit: number;
         };
         EliRepairRequest: {
             repo: string;
@@ -11740,14 +11807,6 @@ export interface components {
             /** @description Present only when automatic repairs here cannot run: the provider is missing, disabled or a person's. One sentence that says what to do in setup. */
             problem?: string;
             allow_workflows: boolean;
-            daily_limit: number;
-            /** @description Attempts on this repository in the last 24 hours, by anyone and by any trigger, cleared ones included. The same figure the daily limit is held against. */
-            used: number;
-            /**
-             * Format: date-time
-             * @description When a full allowance has a place again: the oldest of those attempts leaves the 24-hour window, or, when the limit was lowered below what is spent, the one whose leaving brings the count under it. Present when `used` is above zero.
-             */
-            next_free_at?: string;
             /** @description Automatic repairs queued, working or waiting on checks now. */
             running: number;
             last?: components["schemas"]["EliAutomaticLast"];
@@ -12120,14 +12179,35 @@ export interface components {
             };
             assistant?: components["schemas"]["AssistantStyle"];
             bands?: components["schemas"]["BandPreferences"];
+            panels?: components["schemas"]["PanelPreferences"];
         };
-        /** @description How this person's page bands stand: the cut a page takes where it is not the page's default, and the bands that are switched off. Every field is optional, because absent is a choice never made. The UI ignores a page or cut it does not know, so a document written by a newer build still opens every band it can. */
+        /** @description How this person arranged each page's panels, by page. Only the Overview has panels to arrange in this build; a page this build cannot arrange, or a panel the page does not have, is refused with the field. */
+        PanelPreferences: {
+            [key: string]: components["schemas"]["PanelLayout"];
+        };
+        /** @description One page's arrangement: the panels in the order drawn, and the ones not drawn. Both are optional, because absent is a choice never made; a panel the order leaves out is drawn after the rest in its default place. */
+        PanelLayout: {
+            order?: components["schemas"]["OverviewPanelId"][];
+            hidden?: components["schemas"]["OverviewPanelId"][];
+        };
+        /**
+         * @description A panel of the Overview's body, by the id its registry gives it.
+         * @enum {string}
+         */
+        OverviewPanelId: "attention" | "pools" | "failures" | "jobs" | "events" | "history" | "diagnostics";
+        /** @description How this person's page bands stand: the cut a page takes where it is not the page's default, the bands that are switched off, and whether a band's picture (the Overview's punch card, the slot map on Hosts and Runners) is drawn. Every field is optional, because absent is a choice never made. The UI ignores a page or cut it does not know, so a document written by a newer build still opens every band it can. */
         BandPreferences: {
             /** @description Pages whose band is switched off. */
             hidden?: components["schemas"]["BandPage"][];
             /** @description Cuts that differ from the page's own default. */
             sizes?: {
                 [key: string]: components["schemas"]["BandCut"];
+            };
+            /** @description Whether a band's picture is drawn beside its sentence on a page that has not chosen otherwise. On when absent. */
+            picture?: boolean;
+            /** @description Pages whose picture is shown or hidden against `picture`. */
+            picture_pages?: {
+                [key: string]: boolean;
             };
         };
         /**
@@ -17685,6 +17765,10 @@ export interface operations {
                 since?: string;
                 /** @description Only jobs queued before this instant. The end is not included, so a window cut at one instant -- the last 30 days and the 30 before them -- counts every job once. */
                 until?: string;
+                /** @description Only jobs that finished at or after this instant. The start is included. A job still waiting or running has not finished and is left out. Reads when a job finished where `since` reads when it was queued, and the two windows compose. */
+                completed_since?: string;
+                /** @description Only jobs that finished before this instant. The end is not included, so two windows cut at one instant count every job once. */
+                completed_until?: string;
                 /** @description Only jobs stamped with one of these controller versions, as `controller_version` shows it. `unknown` matches the jobs that were never stamped: recorded before the field existed, or never claimed by a pool here. */
                 controller_version?: string[];
                 /** @description Only jobs that ran on one of these hosts, as stamped when a runner took the job. */
@@ -17751,6 +17835,10 @@ export interface operations {
                 since?: string;
                 /** @description End of the window */
                 until?: string;
+                /** @description Narrow the jobs counted to those that finished at or after this instant, inside the window `since` and `until` already cut by queue time. The start is included. */
+                completed_since?: string;
+                /** @description Narrow the jobs counted to those that finished before this instant. The end is not included. */
+                completed_until?: string;
                 /** @description What to group by, at most two, each named once. `controller_version` groups releases in the order they were first seen, `day` is the UTC day the job was queued, `host` and `pool` are IDs, `size` is the size of the runner the job ran on as an operator would say it (`3 CPU / 8 GB`, or `unknown` for a job nothing recorded one for), and the values are what the listing's `controller_version`, `host_id`, `pool_id`, `job_name` and `size` filters take back. Leave out for one group covering the window. */
                 group_by?: ("controller_version" | "day" | "host" | "pool" | "job_name" | "size")[];
                 repo?: string[];
@@ -18094,6 +18182,10 @@ export interface operations {
                 q?: string;
                 since?: string;
                 until?: string;
+                /** @description Only jobs that finished at or after this instant. The start is included. A job still waiting or running has not finished and is left out. Reads when a job finished where `since` reads when it was queued, and the two windows compose. */
+                completed_since?: string;
+                /** @description Only jobs that finished before this instant. The end is not included, so two windows cut at one instant count every job once. */
+                completed_until?: string;
                 /** @description Runs with a job that is still queued and that no enabled pool claims. */
                 unmatched?: boolean;
                 /** @description Runs Zoomies has a hand in */
@@ -18274,6 +18366,26 @@ export interface operations {
                     "application/json": {
                         items?: components["schemas"]["HostSample"][];
                     };
+                };
+            };
+        };
+    };
+    getControllerMachine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllerMachine"];
                 };
             };
         };
@@ -22807,6 +22919,42 @@ export interface operations {
                     "application/json": components["schemas"]["SupportBundle"];
                 };
             };
+        };
+    };
+    getCpuProfile: {
+        parameters: {
+            query?: {
+                /** @description How long to sample, in seconds. */
+                seconds?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The profile */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description `seconds` is not a whole number from 1 to 30. The message says what to change. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
         };
     };
     getSettings: {

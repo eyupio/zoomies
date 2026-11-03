@@ -274,7 +274,6 @@ test('a person who is ready is not shown a setup status line', async ({ page }) 
           automatic: false,
           ask_first: true,
           allow_workflows: false,
-          daily_limit: 5,
         },
       ],
     },

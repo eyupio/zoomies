@@ -161,7 +161,7 @@
     color: var(--z-text);
     background: var(--z-surface);
     border: var(--z-border-width) solid var(--z-border-strong);
-    border-radius: var(--z-radius-sm);
+    border-radius: var(--z-radius-lg);
     transition:
       border-color var(--z-motion-fast) var(--z-ease),
       background-color var(--z-motion-fast) var(--z-ease);

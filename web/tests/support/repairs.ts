@@ -100,7 +100,6 @@ const CHECK_ORDER: Check['code'][] = [
   'installation',
   'access',
   'policy',
-  'budget',
   'pull',
   'checks',
   'permissions',
@@ -142,7 +141,6 @@ export function readiness(over: Partial<Readiness> = {}): Readiness {
     provider: 'My provider',
     model: 'my-model',
     allow_workflows: false,
-    remaining: 5,
     blockers: [],
     checks: allOk(),
     ...over,
@@ -485,8 +483,6 @@ export function automaticRow(
     provider_name: 'Team provider',
     model: 'team-model',
     allow_workflows: false,
-    daily_limit: 5,
-    used: 2,
     running: 0,
     ...over,
   };
@@ -505,7 +501,6 @@ export function automaticPolicy(
     automatic: true,
     ask_first: false,
     allow_workflows: false,
-    daily_limit: 5,
     ...over,
   };
 }
@@ -588,22 +583,19 @@ export async function mockRepairWorld(page: Page, over: Partial<RepairApiState> 
     repairs: [running, done, automatic],
     attempts: { 'rep-run': running, 'rep-done': done, 'rep-auto': automatic },
     readiness: readiness({ policy_mode: 'automatic' }),
-    // One of each thing the panel can say: a repository that cannot run, one whose
-    // allowance is spent, and one that is working and has a repair going.
+    // One of each thing the panel can say: a repository that cannot run, one with
+    // a repair behind it, and one that is working and has a repair going.
     automatic: [
       automaticRow({
         repo: 'acme/site',
         provider_id: '',
         provider_name: '',
         model: '',
-        used: 0,
         problem:
           'No installation provider is set for this repository, so automatic repairs cannot start. Choose one in setup.',
       }),
       automaticRow({
         repo: 'acme/docs',
-        used: 5,
-        next_free_at: new Date(Date.now() + 40 * 60_000).toISOString(),
         last: {
           id: 'rep-auto',
           state: 'checks_failed',
@@ -613,7 +605,6 @@ export async function mockRepairWorld(page: Page, over: Partial<RepairApiState> 
       }),
       automaticRow({
         repo: 'acme/widgets',
-        used: 3,
         running: 1,
         last: {
           id: 'rep-auto',

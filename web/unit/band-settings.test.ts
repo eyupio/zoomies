@@ -19,10 +19,14 @@ test('a document this build cannot draw falls back field by field', () => {
     logo_size: 'large',
     logo_pages: { hosts: false },
     logo_sizes: { usage: 'large' },
+    picture: 'no',
+    picture_pages: { overview: false, audit: false },
   });
   assert.deepEqual(bands.hidden, ['jobs']);
+  assert.equal(bands.picture, true);
+  assert.deepEqual(bands.picturePages, { overview: false });
   assert.deepEqual(bands.sizes, { runners: 'slim' });
-  assert.deepEqual(Object.keys(bands).sort(), ['hidden', 'sizes']);
+  assert.deepEqual(Object.keys(bands).sort(), ['hidden', 'picture', 'picturePages', 'sizes']);
 });
 
 test('an empty or foreign document is the defaults, not a failure', () => {
@@ -30,6 +34,8 @@ test('an empty or foreign document is the defaults, not a failure', () => {
     assert.deepEqual(readBandSettings(raw), {
       hidden: [],
       sizes: {},
+      picture: true,
+      picturePages: {},
     });
   }
 });
@@ -40,11 +46,15 @@ test('what is written back carries every field and survives a read', () => {
   const settings: BandSettings = {
     hidden: ['kennel'],
     sizes: { overview: 'expanded' },
+    picture: false,
+    picturePages: { overview: true },
   };
   const document = bandSettingsDocument(settings);
   assert.deepEqual(document, {
     hidden: ['kennel'],
     sizes: { overview: 'expanded' },
+    picture: false,
+    picture_pages: { overview: true },
   });
   assert.deepEqual(readBandSettings(document), settings);
 });

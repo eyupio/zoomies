@@ -25,7 +25,9 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Segmented from '$lib/components/Segmented.svelte';
   import Switch from '$lib/components/Switch.svelte';
-  import { BAND_PAGES, BAND_SIZES, type BandSize } from '$lib/bands/pages';
+  import { BAND_PAGES, BAND_PICTURE_PAGES, BAND_SIZES, type BandSize } from '$lib/bands/pages';
+  import Button from '$lib/components/Button.svelte';
+  import { OVERVIEW_PANELS, isDefaultLayout, setHidden } from '$lib/overview/panels';
   import { ALL_BAND_PAGES } from '$lib/bands/scope';
   import { visualStyle } from '$lib/state/ui-style.svelte';
   import VisualStylePicker from './VisualStylePicker.svelte';
@@ -54,6 +56,12 @@
     const first = prefs.bandSize(BAND_PAGES[0].key);
     return BAND_PAGES.every((page) => prefs.bandSize(page.key) === first) ? first : null;
   });
+
+  const panelLayout = $derived(prefs.panelLayout('overview'));
+
+  const customPicturePages = $derived(
+    BAND_PICTURE_PAGES.filter((page) => prefs.bandPictureCustom(page.key)).length,
+  );
 
   const seconds = Math.round(CLOCK_INTERVAL_MS / 1000);
 </script>
@@ -165,10 +173,99 @@
                 onchange={(value) => prefs.setBandSize(page.key, value as BandSize)}
               />
             </div>
+            {#if 'picture' in page}
+              <div class="band-line logo-line">
+                <span class="line-label"
+                  >Picture <span class="line-hint">({page.picture})</span></span
+                >
+                <div class="logo-page-controls">
+                  <Switch
+                    label={`${page.label} band picture`}
+                    hideLabel
+                    size="sm"
+                    checked={prefs.bandPictureShown(page.key)}
+                    disabled={!prefs.bandShown(page.key)}
+                    onchange={(on) => prefs.setBandPictureShown(page.key, on)}
+                  />
+                  {#if prefs.bandPictureCustom(page.key)}
+                    <button
+                      type="button"
+                      class="reset"
+                      onclick={() => prefs.clearBandPictureOverride(page.key)}
+                    >
+                      Use the default
+                    </button>
+                  {/if}
+                </div>
+              </div>
+            {/if}
           </div>
         {/each}
       </div>
     </div>
+  </div>
+
+  <!--
+    The same choice the Overview's Arrange mode offers, from here: which panels
+    the page draws. The order is the page's own to change, where the cards can
+    be seen moving, so it is only read here.
+  -->
+  <div class="setting bands-setting">
+    <div class="text">
+      <p class="label" id="panels-label">Overview panels</p>
+      <p class="description">
+        Which panels the Overview draws, in the order you gave them. Change the order on the
+        Overview itself with Arrange. These choices follow your signed-in account, as the bands do.
+      </p>
+      <div class="panels" role="group" aria-labelledby="panels-label">
+        {#each panelLayout.order as id (id)}
+          {@const panel = OVERVIEW_PANELS.find((p) => p.id === id)}
+          {#if panel}
+            <Switch
+              label="{panel.title} on the Overview"
+              size="sm"
+              checked={!panelLayout.hidden.includes(id)}
+              onchange={(on) => prefs.setPanelLayout('overview', setHidden(panelLayout, id, !on))}
+            />
+          {/if}
+        {/each}
+        <div>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={isDefaultLayout(panelLayout)}
+            reason={isDefaultLayout(panelLayout) ? 'The layout is the default.' : undefined}
+            onclick={() => prefs.resetPanelLayout('overview')}>Reset layout</Button
+          >
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="setting">
+    <div class="text">
+      <p class="label">Picture in the band</p>
+      <p class="description">
+        The default for every page whose band draws a picture beside its sentence, from the week by
+        the hour on the Overview to the API quota on Installations; each page's line above says what
+        its picture is. Switching it off gives the sentence the whole band. It applies to every
+        page; a page can be given its own answer in Page bands above.
+      </p>
+      {#if customPicturePages > 0}
+        <p class="description custom">
+          {customPicturePages === 1
+            ? 'One page has its own picture setting'
+            : `${customPicturePages} pages have their own picture setting`}, so the switch you
+          choose here applies to every page.
+        </p>
+      {/if}
+    </div>
+    <Switch
+      label="Show the picture in the band"
+      hideLabel
+      checked={prefs.bandPicture}
+      onchange={(on) => (prefs.bandPicture = on)}
+    />
   </div>
 
   <div class="setting">
@@ -252,6 +349,9 @@
     line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
   }
+  .description.custom {
+    color: var(--z-text-subtle);
+  }
   /* The control sits on the label's line, not the description's. */
   .setting > :global(:last-child) {
     flex: none;
@@ -262,6 +362,12 @@
   .setting.bands-setting > .text {
     flex: 1 1 20rem;
     margin-top: 0;
+  }
+  .panels {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
+    margin-top: var(--z-space-3);
   }
   .bands {
     display: grid;
@@ -314,6 +420,45 @@
     justify-content: space-between;
     gap: var(--z-space-2) var(--z-space-4);
     min-width: 0;
+  }
+  /* The dog is a second question about the same page, so it gets a line of its
+     own under the band's, quiet enough that the band remains the subject. */
+  .logo-line {
+    padding-top: var(--z-space-2);
+    border-top: var(--z-border-width) solid var(--z-border);
+  }
+  .line-label {
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+  .line-hint {
+    color: var(--z-text-subtle);
+  }
+  .logo-page-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-2);
+    min-width: 0;
+  }
+  .reset {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--z-accent);
+    font: inherit;
+    font-size: var(--z-text-xs);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .reset:hover {
+    color: var(--z-accent-hover);
+  }
+  .reset:focus-visible {
+    outline: var(--z-focus-width) solid var(--z-brand-runner-blue);
+    outline-offset: var(--z-focus-offset);
+    border-radius: var(--z-radius-sm);
   }
   .logo-setting {
     align-items: center;

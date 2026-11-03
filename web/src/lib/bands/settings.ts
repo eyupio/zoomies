@@ -17,11 +17,17 @@ export interface BandSettings {
   hidden: BandPage[];
   /** Page cuts that are not the page's default. */
   sizes: Partial<Record<BandPage, BandSize>>;
+  /** Whether a band's picture (the punch card, the slot map) is drawn by default. On. */
+  picture: boolean;
+  /** Pages that differ from `picture`. */
+  picturePages: Partial<Record<BandPage, boolean>>;
 }
 
 export const DEFAULT_BAND_SETTINGS: BandSettings = {
   hidden: [],
   sizes: {},
+  picture: true,
+  picturePages: {},
 };
 
 function pageList(value: unknown): BandPage[] {
@@ -42,12 +48,18 @@ function pageMap<T>(
   return out;
 }
 
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === 'boolean';
+}
+
 /** The settings a stored or received document describes, defaults for the rest. */
 export function readBandSettings(raw: unknown): BandSettings {
   const doc = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   return {
     hidden: pageList(doc.hidden),
     sizes: pageMap(doc.sizes, isBandSize),
+    picture: isBoolean(doc.picture) ? doc.picture : DEFAULT_BAND_SETTINGS.picture,
+    picturePages: pageMap(doc.picture_pages, isBoolean),
   };
 }
 
@@ -62,5 +74,7 @@ export function bandSettingsDocument(settings: BandSettings): BandPreferences {
   return {
     hidden: [...settings.hidden],
     sizes: { ...settings.sizes },
+    picture: settings.picture,
+    picture_pages: { ...settings.picturePages },
   };
 }

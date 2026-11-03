@@ -71,15 +71,19 @@
   }
 
   // Read when first shown and whenever the job or the person's access changes.
-  // The read itself writes state, so it runs outside the effect's tracking.
+  // Polling rebuilds the case's job objects even when their identity is unchanged.
+  // Keep that invalidation from replacing a log the person is reading.
+  let reading = '';
   $effect(() => {
-    void jobId;
-    void repo;
+    const key = JSON.stringify([repo, jobId]);
     if (!enabled) {
+      reading = '';
       inFlight?.abort();
       phase = 'idle';
       return;
     }
+    if (reading === key) return;
+    reading = key;
     untrack(() => void load());
   });
 

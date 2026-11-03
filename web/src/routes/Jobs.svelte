@@ -24,7 +24,7 @@
   something here could have -- and the "Include other runners" switch widens it
   to everything GitHub has reported.
 
-  Status is the filter this page is opened for, so it is a row of buttons above
+  Status is the filter this page is opened for, so it is a row of chips over
   the grid rather than a menu to open, and a page nobody has asked anything of
   answers "what is running?" before being asked. That default holds for a bare
   visit only: a link that already carries a filter -- the problems panel's, the
@@ -45,7 +45,7 @@
   import { revealHash } from '$lib/bands/jump';
   import { jobsLine, windowPhrase } from '$lib/bands/lines';
   import Tooltip from '$lib/components/Tooltip.svelte';
-  import { Check } from '@lucide/svelte';
+  import { Check, Workflow } from '@lucide/svelte';
   import { readableJobText } from '$lib/jobs/name';
   import { visualStyle } from '$lib/state/ui-style.svelte';
   import { viewport } from '$lib/state/viewport.svelte';
@@ -111,12 +111,15 @@
   import RowActions from '$lib/components/RowActions.svelte';
   import type { RowAction } from '$lib/components/RowActions.svelte';
   import StateCell from '$lib/components/StateCell.svelte';
-  import { endOfMoment, startOfMoment } from '$lib/jobs/DateRange.svelte';
+  import { endOfMoment, localMoment, startOfMoment } from '$lib/jobs/DateRange.svelte';
+  import FleetPunchCard from '$lib/overview/FleetPunchCard.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
   import JobFilters from '$lib/jobs/JobFilters.svelte';
   import JobLabels from '$lib/jobs/JobLabels.svelte';
-  import JobViewFilter from '$lib/jobs/JobViewFilter.svelte';
+  import FilterChips from '$lib/components/FilterChips.svelte';
+  import Panel from '$lib/components/Panel.svelte';
+  import { jobViewChips, pickView, viewSelection } from '$lib/jobs/view-chips';
   import SizeAdvice from '$lib/jobs/SizeAdvice.svelte';
   import { classCell } from '$lib/jobs/size';
   import { failureSummary } from '$lib/jobs/why';
@@ -404,6 +407,8 @@
         cancelling: inHand ? false : undefined,
         since: startOfMoment(filters.since),
         until: endOfMoment(filters.until),
+        completed_since: startOfMoment(filters.completed_since),
+        completed_until: endOfMoment(filters.completed_until),
         unmatched: filters.unmatched ? true : undefined,
         hosted: filters.hosted === 'false' ? false : undefined,
         failed: filters.failed ? true : undefined,
@@ -417,7 +422,38 @@
       },
       signal,
     );
+    if (!signal.aborted) total = page.total;
     return { items: page.items ?? [], total: page.total };
+  }
+  // How many jobs the view and the filters leave, from the page the grid last
+  // fetched, for the card's eyebrow; absent until the first page has said.
+  let total = $state<number | undefined>();
+  /**
+   * Whether the chips may carry the band's figures. They are the fleet's, so a
+   * search, a facet, a window or a switch that narrows the rows would make
+   * them wrong for the list under them, and the chips say nothing instead.
+   */
+  const counted = $derived(
+    !narrowed &&
+      !filters.since &&
+      !filters.until &&
+      !filters.completed_since &&
+      !filters.completed_until &&
+      !filters.unmatched &&
+      filters.hosted === '' &&
+      !filters.all &&
+      // The Queued view's own default is the whole queue; a provisioning
+      // status chosen in the address narrows the rows to part of it.
+      router.paramList('provisioning').length === 0,
+  );
+  // A figure over an error would be the last filter's, read as this one's.
+  async function fetchCounted(query: GridQuery, signal: AbortSignal): Promise<GridPage<Job>> {
+    try {
+      return await fetchJobs(query, signal);
+    } catch (error) {
+      if (!signal.aborted) total = undefined;
+      throw error;
+    }
   }
 
   let selected = $state<Job | null>(null);
@@ -537,6 +573,9 @@
       cell: jobNameCell,
     },
     {
+      // Shown by default although the mock's table has no labels column: for a
+      // job no pool claims, the labels in the row are why, and the list is the
+      // one place that says so beside the word Unmatched.
       id: 'labels',
       header: 'Labels',
       priority: 'wide',
@@ -762,7 +801,27 @@
   onrefresh={refreshPage}
   ><Button href="/comparisons" variant="secondary">Compare runs</Button></PageHeader
 >
-<PageBand page="jobs" line={bandLine} />
+<PageBand page="jobs" line={bandLine}>
+  <!-- Today, by the hour: the punch card's bottom row alone. An hour pressed
+       narrows the list to the jobs that finished in it, across every status,
+       because that is the question its square answers: it counts a job in the
+       hour it finished, not the hour it was queued. -->
+  {#snippet aside()}
+    {#if fleet.loaded}<FleetPunchCard
+        days={1}
+        pickHint="Pick an hour to narrow the list to it."
+        onpick={(at) => {
+          setView('all');
+          patch({
+            since: '',
+            until: '',
+            completed_since: localMoment(at),
+            completed_until: localMoment(new Date(at.getTime() + 59 * 60_000)),
+          });
+        }}
+      />{/if}
+  {/snippet}
+</PageBand>
 
 {#each layoutSections as section (section)}
   {#if section === 'context'}
@@ -776,11 +835,6 @@
     </details>
   {:else}
     <div class="content">
-      <div class="toolbar">
-        <JobViewFilter value={view} onchange={setView} />
-        <LevelSwitch level="jobs" />
-      </div>
-
       <JobFilters
         {compact}
         statusChips={view === ''}
@@ -802,44 +856,75 @@
         <UnmatchedNote count={unmatchedOnPage} />
       {/if}
 
+      <!--
+        The list card: the workflows' tile (the sidebar's for the section Jobs
+        lives in), how many jobs the view leaves over the title, the level
+        switch opposite, and the status views as chips where the row of buttons
+        was, pressed one at a time. The grid is bare inside, so the page shows
+        one frame.
+      -->
       <div id="jobs-list" class="jump-target" tabindex="-1" use:revealHash>
-        <DataGrid
-          gridId="jobs"
-          label="Jobs"
-          {columns}
-          fetcher={fetchJobs}
-          {rowId}
-          {filters}
-          defaultSort="queued_at"
-          defaultOrder="desc"
-          noun="jobs"
-          {liveKey}
-          onopen={open}
-          onrows={takePage}
-          {emptyTitle}
-          {emptyDescription}
+        <Panel
+          title="All jobs"
+          icon={Workflow}
+          eyebrow={total ? pluralise(total, 'job') : undefined}
+          flush
+          class="list-card"
         >
-          {#snippet emptyAction()}
-            {#if narrowed}
-              <Button variant="secondary" onclick={clearFilters}>Clear filters</Button>
-            {:else if view !== '' && view !== 'all'}
-              <!--
+          {#snippet actions()}
+            <LevelSwitch level="jobs" />
+          {/snippet}
+          {#snippet toolbar()}
+            {@const pressed = viewSelection(view)}
+            <FilterChips
+              label="Filter jobs by status"
+              options={jobViewChips(bandStats ?? undefined, counted)}
+              selected={pressed.selected}
+              none={pressed.none}
+              scroll
+              onchange={(next) => setView(pickView(view, next))}
+            />
+          {/snippet}
+          <DataGrid
+            gridId="jobs"
+            label="Jobs"
+            {columns}
+            fetcher={fetchCounted}
+            {rowId}
+            {filters}
+            defaultSort="queued_at"
+            defaultOrder="desc"
+            noun="jobs"
+            bare
+            {liveKey}
+            onopen={open}
+            onrows={takePage}
+            {emptyTitle}
+            {emptyDescription}
+          >
+            {#snippet emptyAction()}
+              {#if narrowed}
+                <Button variant="secondary" onclick={clearFilters}>Clear filters</Button>
+              {:else if view !== '' && view !== 'all'}
+                <!--
           A narrowed status view that came back empty is the one case where the
           way out is not another filter but the same page without this one, so
           it is offered as a button rather than left to be found in the row.
         -->
-              <Button variant="secondary" onclick={() => setView('all')}>Show every status</Button>
-            {:else if !filters.unmatched}
-              {#if filters.all}
-                <Button variant="secondary" href="/installations">Check webhook delivery</Button>
-              {:else}
-                <Button variant="secondary" onclick={() => patch({ all: true })}>
-                  Include other runners
-                </Button>
+                <Button variant="secondary" onclick={() => setView('all')}>Show every status</Button
+                >
+              {:else if !filters.unmatched}
+                {#if filters.all}
+                  <Button variant="secondary" href="/installations">Check webhook delivery</Button>
+                {:else}
+                  <Button variant="secondary" onclick={() => patch({ all: true })}>
+                    Include other runners
+                  </Button>
+                {/if}
               {/if}
-            {/if}
-          {/snippet}
-        </DataGrid>
+            {/snippet}
+          </DataGrid>
+        </Panel>
       </div>
 
       {#if compact}{@render queuedCard()}{@render failingCard()}{/if}
@@ -1084,13 +1169,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--z-space-4);
-  }
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--z-space-3);
   }
   .state {
     display: inline-flex;

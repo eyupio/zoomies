@@ -21,6 +21,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/terminalui"
 )
 
 // UpgradeOptions selects an existing deployment. Upgrade never enrols a host,
@@ -50,6 +51,7 @@ type UpgradeOptions struct {
 	In             io.Reader
 	Interactive    bool
 	NonInteractive bool
+	NoAnimation    bool
 	AssumeYes      bool
 	UpdateHelper   bool
 	proxmoxRoot    string // injected gateway root for tests
@@ -210,17 +212,19 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	// open the database, and then a rollback is a restore rather than a swap.
 	snapshot := p.settings(ctx)
 	p.dbPath, p.beforeMigrate = snapshot.dbPath, store.NewestPreMigrationName(snapshot.dbPath)
-	if err := p.pullRunnerImages(ctx); err != nil {
+	if err := p.task(ctx, "Refreshing runner images for future jobs", p.pullRunnerImages); err != nil {
 		return err
 	}
-	switch p.record.Deployment {
-	case DeploymentCompose:
-		err = p.upgradeCompose(ctx)
-	case DeploymentDocker:
-		err = p.upgradeDocker(ctx)
-	default:
-		err = p.restartNative(ctx)
-	}
+	err = p.task(ctx, "Updating the installed services", func(ctx context.Context) error {
+		switch p.record.Deployment {
+		case DeploymentCompose:
+			return p.upgradeCompose(ctx)
+		case DeploymentDocker:
+			return p.upgradeDocker(ctx)
+		default:
+			return p.restartNative(ctx)
+		}
+	})
 	if err != nil {
 		return fmt.Errorf("installer: the upgrade did not finish: %w", err)
 	}
@@ -231,7 +235,7 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 		return err
 	}
 	ui.Rule(opts.Out, "3/4 Verify")
-	if err := p.waitServing(ctx, serving); err != nil {
+	if err := p.task(ctx, "Waiting for the service to become healthy", func(ctx context.Context) error { return p.waitServing(ctx, serving) }); err != nil {
 		return fmt.Errorf("installer: %w", err)
 	}
 	if !p.record.Deployment.Containerised() {
@@ -1032,4 +1036,15 @@ func launchdBinary(data []byte) (string, error) {
 			return binary, err
 		}
 	}
+}
+
+// Only stages without questions may use this. Buffered output is restored
+// before the next stage, including an error's rollback or recovery advice.
+func (p *upgradePlan) task(ctx context.Context, label string, work func(context.Context) error) error {
+	out := p.opts.Out
+	return terminalui.Task(ctx, out, label, p.opts.NoAnimation || p.opts.NonInteractive, func(ctx context.Context, log io.Writer) error {
+		p.opts.Out = log
+		defer func() { p.opts.Out = out }()
+		return work(ctx)
+	})
 }

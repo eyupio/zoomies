@@ -52,3 +52,4 @@ what was decided.
 | [0011](0011-an-operator-may-let-zoomies-update-itself.md) | An operator may opt in to updating Zoomies from the web UI, through a consented root-owned helper on each host; narrows decision 25 | accepted, at the owner's instruction; the narrowing of decision 25 not yet put to the owner separately |
 | [0012](0012-a-shared-eli-app-is-a-relay-for-mentions-and-nothing-else.md) | A shared Eli GitHub App is a relay for mentions, and nothing else | proposed, for the owner to ratify |
 | [0014](0014-test-sharding-is-offered-for-one-native-shard-flag-and-preserves-the-whole-suite.md) | Test sharding is offered for a native shard flag and preserves the whole suite | accepted, at the owner's instruction; Playwright only in the first slice |
+| [0015](0015-a-band-draws-its-sentence-in-one-blue.md) | A band draws its sentence beside it as one picture in the brand blue, with a Picture switch in Appearance | accepted, at the owner's instruction |

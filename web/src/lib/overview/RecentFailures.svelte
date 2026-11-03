@@ -24,7 +24,7 @@
 -->
 <script lang="ts">
   import { tick } from 'svelte';
-  import { Check, CircleCheck } from '@lucide/svelte';
+  import { Check, CircleCheck, Zap } from '@lucide/svelte';
   import { acknowledgeJob, listJobs, reopenJobAttention } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { Job } from '$lib/api/types';
@@ -240,6 +240,7 @@
       {#snippet actions()}<a class="review-failures" href={restHref}>Review failures</a>{/snippet}
       <Panel
         title="Recent failures"
+        icon={Zap}
         description={others
           ? 'Unresolved failures from the last week, wherever they ran. Fixed, superseded and closed PR failures leave this list.'
           : 'Unresolved failures from the last week. Fixed, superseded and closed PR failures leave this list.'}
@@ -358,11 +359,15 @@
   .pad {
     padding: var(--z-space-4) var(--z-space-5);
   }
+  /* Nothing owed is one row of a card, in the grammar the panels around it share. */
   .clear {
     display: flex;
     align-items: center;
     gap: var(--z-space-2);
-    padding: var(--z-space-1) var(--z-space-1);
+    padding: var(--z-space-3) var(--z-space-5);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-xl);
+    background: var(--z-surface);
     font-size: var(--z-text-sm);
     color: var(--z-text-muted);
   }

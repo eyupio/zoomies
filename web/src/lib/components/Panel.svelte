@@ -8,16 +8,27 @@
   height, and neither knew what the other had learnt. Keeping the shape of a
   section in one place is what stops a dashboard of five different card
   designs.
+
+  A panel can carry an icon in a tile beside its title. The Overview's cards
+  all do, so the page has one head and not a tile drawn by each panel in its
+  own way; a panel without one is unchanged.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import type { LucideIcon } from '@lucide/svelte';
 
   interface Props {
     title: string;
+    /** Small capitals above the title: a count or a scope. "11 known, 9 live". */
+    eyebrow?: string;
+    /** Drawn in a tinted tile before the title, as the Overview's cards are. */
+    icon?: LucideIcon;
     /** One line under the heading, when the heading cannot say it all. */
     description?: string;
     /** A count, a badge, or a link out. Sits opposite the heading. */
     actions?: Snippet;
+    /** A row between the head and the body: a list card's filter chips. */
+    toolbar?: Snippet;
     /** Drop the body padding, for lists that draw their own full-width rows. */
     flush?: boolean;
     /**
@@ -37,8 +48,11 @@
 
   let {
     title,
+    eyebrow,
+    icon: Icon,
     description,
     actions,
+    toolbar,
     flush = false,
     scroll = false,
     fill = false,
@@ -49,14 +63,22 @@
   const headingId = $props.id();
 </script>
 
-<section class="panel {className}" class:fill aria-labelledby={headingId}>
+<section
+  class="panel {className}"
+  class:fill
+  class:list={Boolean(toolbar)}
+  aria-labelledby={headingId}
+>
   <header>
+    {#if Icon}<span class="tile" aria-hidden="true"><Icon size={18} /></span>{/if}
     <div class="titles">
+      {#if eyebrow}<p class="eyebrow">{eyebrow}</p>{/if}
       <h2 id={headingId}>{title}</h2>
-      {#if description}<p>{description}</p>{/if}
+      {#if description}<p class="description">{description}</p>{/if}
     </div>
     {#if actions}<div class="actions">{@render actions()}</div>{/if}
   </header>
+  {#if toolbar}<div class="toolbar">{@render toolbar()}</div>{/if}
   <div class="body" class:flush class:scroll>{@render children()}</div>
 </section>
 
@@ -85,7 +107,28 @@
     border-bottom: var(--z-border-width) solid var(--z-border);
   }
   .titles {
+    flex: 1;
     min-width: 0;
+  }
+  /* A list card's actions are a row of controls, so its titles keep a
+     readable width and the controls wrap under them; an ordinary panel's
+     titles still shrink first, so a narrow card keeps its badge beside its
+     title. */
+  .panel.list .titles {
+    flex: 1 1 14rem;
+  }
+  .tile {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    align-self: flex-start;
+    width: var(--z-space-10);
+    height: var(--z-space-10);
+    border: var(--z-border-width) solid var(--z-border-strong);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
+    color: var(--z-text);
   }
   h2 {
     margin: 0;
@@ -94,7 +137,22 @@
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
   }
-  .titles p {
+  .eyebrow {
+    margin: 0 0 var(--z-space-1);
+    font-size: var(--z-text-2xs);
+    font-weight: var(--z-weight-semibold);
+    letter-spacing: var(--z-tracking-wider);
+    text-transform: uppercase;
+    color: var(--z-text-muted);
+  }
+  .toolbar {
+    /* Named for a chips row that scrolls on a phone, so it can run to the
+       card's edge and start where the text does. */
+    --chips-inset: var(--z-space-5);
+    padding: var(--z-space-3) var(--z-space-5);
+    border-bottom: var(--z-border-width) solid var(--z-border);
+  }
+  .titles .description {
     margin: var(--z-space-1) 0 0;
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);

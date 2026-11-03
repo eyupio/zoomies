@@ -32,6 +32,8 @@ const FILTER_KEYS = [
   'provisioning',
   'since',
   'until',
+  'completed_since',
+  'completed_until',
   'unmatched',
   'hosted',
   'failed',
@@ -55,7 +57,7 @@ export interface JobFilterHandle {
   /** Nobody has asked the page anything: it answers "what is running?". */
   readonly defaulted: boolean;
   readonly filters: JobFilterState;
-  /** The status view in force, or `''` when the filters are something no button says. */
+  /** The status view in force, or `''` when the filters are something no chip says. */
   readonly view: JobView | '';
   /** Whether the view is one of the two that describe work still in hand. */
   readonly inHand: boolean;
@@ -136,6 +138,8 @@ export function jobFilterState(): JobFilterHandle {
     provisioning,
     since: router.param('since'),
     until: router.param('until'),
+    completed_since: router.param('completed_since'),
+    completed_until: router.param('completed_until'),
     unmatched: router.param('unmatched') === 'true',
     // Anything but `false` is no filter: the API refuses it with a 400, and a typo in an
     // address is not worth an error page.
@@ -216,7 +220,7 @@ export function jobFilterState(): JobFilterHandle {
     if (choosingStatus && next.provisioning === undefined) out.provisioning = null;
 
     /*
-     * The two switches own the status they contradict, the way a view button
+     * The two switches own the status they contradict, the way a view chip
      * does. `unmatched` is queued-and-unclaimed on the server, so a state
      * beside it can only subtract -- and from the default view, where the
      * status has just been written down, `state=in_progress&unmatched=true`
@@ -235,7 +239,7 @@ export function jobFilterState(): JobFilterHandle {
      * switches and the facet menus write a status key without writing the
      * attention key, and leaving it behind would ask the server for the
      * intersection of two questions at once: `attention=true&failed=true` is
-     * something no button says, and clearing the state beside it is not
+     * something no chip says, and clearing the state beside it is not
      * enough, because the attention half would still be narrowing.
      */
     if (
@@ -256,7 +260,7 @@ export function jobFilterState(): JobFilterHandle {
   /**
    * Clearing every filter is a return to the default view, not to everything:
    * a page with nothing asked of it is the page an operator arrives at, and
-   * "All" is one button away and says so.
+   * "All" is one chip away and says so.
    */
   function clearFilters(): void {
     router.setQuery({ ...Object.fromEntries(FILTER_KEYS.map((k) => [k, null])), offset: null });

@@ -175,14 +175,16 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(page.getByText('Run this in PowerShell as administrator.')).toBeVisible();
     // The page's own footer can be wider than a phone in some environments, so
     // the claim is about this panel: nothing in it reaches past the viewport.
+    // Each part is looked up on its own, so a renamed class fails here
+    // rather than silently dropping the part most likely to overflow.
     const widest = await page.evaluate(() =>
-      Math.max(
-        ...[...document.querySelectorAll('.windows-notes, .command, .os-options')].map(
-          (el) => el.getBoundingClientRect().right,
-        ),
-      ),
+      ['.windows-notes', '.terminal', '.os-options'].map((selector) => {
+        const el = document.querySelector(selector);
+        if (!el) throw new Error(`${selector} is not on the page`);
+        return el.getBoundingClientRect().right;
+      }),
     );
-    expect(widest, 'the Windows panel fits the viewport').toBeLessThanOrEqual(360);
+    expect(Math.max(...widest), 'the Windows panel fits the viewport').toBeLessThanOrEqual(360);
     // The OS choice is a keyboard control: arrow keys move between its two radios.
     await page.getByRole('radio', { name: 'Windows' }).focus();
     await page.keyboard.press('ArrowUp');

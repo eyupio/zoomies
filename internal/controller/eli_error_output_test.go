@@ -17,7 +17,7 @@ import (
 // away, and counts how often GitHub was asked and for which job.
 func errorOutputSetup(t *testing.T) (*commandSetup, *[]int64) {
 	t.Helper()
-	s := newCommandSetup(t, 5)
+	s := newCommandSetup(t)
 	s.link(t, true)
 	var reads []int64
 	s.fake.onFailures = func(jobID int64) ([]string, error) {

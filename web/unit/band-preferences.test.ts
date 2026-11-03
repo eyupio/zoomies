@@ -38,3 +38,26 @@ test('a cut applies to the pages a change was scoped to, and only those', () => 
   prefs.applyBandSize(['runners'], 'slim');
   assert.equal(prefs.bandSize('runners'), 'slim');
 });
+
+// A band's picture has a default for every page, a page's own answer against
+// it, and a default pressed in Appearance that puts every page back in step.
+test('a band picture can be switched off per page or for every page, and put back', () => {
+  assert.equal(prefs.bandPictureShown('overview'), true);
+  assert.equal(prefs.bandPictureCustom('overview'), false);
+
+  prefs.setBandPictureShown('overview', false);
+  assert.equal(prefs.bandPictureShown('overview'), false);
+  assert.equal(prefs.bandPictureCustom('overview'), true);
+  assert.equal(prefs.bandPictureShown('hosts'), true);
+
+  prefs.clearBandPictureOverride('overview');
+  assert.equal(prefs.bandPictureShown('overview'), true);
+  assert.equal(prefs.bandPictureCustom('overview'), false);
+
+  prefs.setBandPictureShown('hosts', false);
+  prefs.bandPicture = false;
+  assert.equal(prefs.bandPictureCustom('hosts'), false);
+  assert.equal(prefs.bandPictureShown('hosts'), false);
+  assert.equal(prefs.bandPictureShown('runners'), false);
+  prefs.bandPicture = true;
+});

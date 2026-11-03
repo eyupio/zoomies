@@ -21,7 +21,7 @@ import {
 
 const runs = (page: Page) => grid(page, 'Workflow runs');
 
-/** The row of status buttons above the grid, by the view it names. */
+/** The row of status chips over the grid, by the view it names. */
 function view(page: Page, name: string) {
   return page.getByRole('group', { name: 'Filter jobs by status' }).getByRole('button', { name });
 }
@@ -58,13 +58,35 @@ test('the filters are one row of same-height controls, with the switches on a li
   // start beneath it.
   await page.setViewportSize({ width: 1280, height: 900 });
   await goto(page, '/workflows', 'Workflows');
-  const search = await page.getByRole('searchbox', { name: 'Search jobs' }).boundingBox();
-  const menus = await Promise.all(
-    ['Repository', 'Workflow', 'Pool', 'Label', 'Outcome'].map((label) =>
-      facetTrigger(page, label).boundingBox(),
-    ),
+  // The row is measured once it has settled, and in one reading. The page
+  // paints in the fallback font and swaps to Inter when it arrives, and the
+  // band above the bar draws its picture once its runs arrive; on a slow
+  // runner both land after the heading is up, and a search measured before
+  // them and a menu measured after sat a row apart without either being out
+  // of place.
+  await page.evaluate(() => document.fonts.ready);
+  await expect(page.getByTestId('band-workflows').getByTestId('band-in-flight')).toBeVisible();
+  const handles = await Promise.all(
+    [
+      page.getByRole('searchbox', { name: 'Search jobs' }),
+      ...['Repository', 'Workflow', 'Pool', 'Label', 'Outcome'].map((label) =>
+        facetTrigger(page, label),
+      ),
+      page.getByRole('switch', { name: 'Unmatched only' }),
+    ].map((locator) => locator.elementHandle()),
   );
-  const unmatched = await page.getByRole('switch', { name: 'Unmatched only' }).boundingBox();
+  const boxes = await page.evaluate(
+    (elements) =>
+      elements.map((element) => {
+        if (!element) return null;
+        const { x, y, width, height } = element.getBoundingClientRect();
+        return { x, y, width, height };
+      }),
+    handles,
+  );
+  const [search, ...rest] = boxes;
+  const unmatched = rest.pop();
+  const menus = rest;
   if (!search || !unmatched) throw new Error('the search and the switches are on the page');
 
   for (const menu of menus) {
@@ -268,4 +290,41 @@ test('a run and the jobs inside it take the Queue page’s controls', async ({ p
   } finally {
     await request.post('/api/v1/provisioning/bulk', { data: { ids, action: 'resume' } });
   }
+});
+
+/*
+ * The list card. The Workflows page is band, the shared job filters and the
+ * card: the workflows' tile, how many runs the view leaves over the title, the
+ * level switch opposite, the status views as chips pressed one at a time, and
+ * the grid bare inside. The chips carry no counts here: the band's figures
+ * count jobs and the rows are runs, so a count would never be true of them.
+ */
+test('the card counts the runs the view leaves, the chips press one at a time and carry no count', async ({
+  page,
+}) => {
+  await goto(page, '/workflows', 'Workflows');
+  const card = page.locator('section.list-card');
+  await expect(card.getByRole('heading', { name: 'All runs' })).toBeVisible();
+  await expect(card.locator('.eyebrow')).toHaveText(`${FIXTURE.runningRuns} runs`);
+  await expect(card.locator('.grid.bare')).toHaveCount(1);
+  const chips = page.getByRole('group', { name: 'Filter jobs by status' });
+  await expect(view(page, 'Running')).toHaveAttribute('aria-pressed', 'true');
+  await expect(chips.locator('.count')).toHaveCount(0);
+
+  await view(page, 'Finished').click();
+  await expect(page).toHaveURL(/[?&]state=completed/);
+  await expect(view(page, 'Running')).toHaveAttribute('aria-pressed', 'false');
+  await view(page, 'Finished').click();
+  await expect(view(page, 'All')).toHaveAttribute('aria-pressed', 'true');
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedRuns} runs`);
+});
+
+test('the eyebrow is not left standing over an error', async ({ page }) => {
+  await goto(page, '/workflows', 'Workflows');
+  const eyebrow = page.locator('section.list-card .eyebrow');
+  await expect(eyebrow).toContainText(/\d+ runs?/);
+  await page.route('**/api/v1/workflow-runs?*', (route) => route.abort('connectionfailed'));
+  await view(page, 'Finished').click();
+  await expect(page.locator('section.list-card').getByRole('alert')).toBeVisible();
+  await expect(eyebrow).toHaveCount(0);
 });

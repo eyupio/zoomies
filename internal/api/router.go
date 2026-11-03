@@ -369,6 +369,10 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionJobsAcknowledge)).Delete("/{id}/acknowledge", s.handleReopenJobAttention)
 		})
 
+		// The machine the controller itself runs on, for a controller whose agents are
+		// all elsewhere and which has no host of its own to read it from.
+		r.With(s.require(auth.ActionHostsRead)).Get("/controller/machine", s.handleControllerMachine)
+
 		// Hosts and enrolment.
 		r.Route("/hosts", func(r chi.Router) {
 			r.With(s.require(auth.ActionHostsRead)).Get("/", s.handleListHosts)
@@ -672,6 +676,9 @@ func (s *Server) apiRoutes() chi.Router {
 		// Diagnostics: the whole instance in one document, for a bug report.
 		// It is admin because it contains the settings section, which is.
 		r.With(s.require(auth.ActionDiagnosticsRead)).Get("/diagnostics/bundle", s.handleDiagnosticsBundle)
+		// And where its CPU is going, as a profile, for the question the
+		// metrics cannot answer. Taken on request and never left running.
+		r.With(s.require(auth.ActionDiagnosticsRead)).Get("/diagnostics/cpu-profile", s.handleDiagnosticsCPUProfile)
 
 		r.With(s.require(auth.ActionSettingsRead)).Get("/settings", s.handleGetSettings)
 		r.With(s.require(auth.ActionSettingsWrite)).Patch("/settings", s.handleUpdateSettings)
@@ -762,16 +769,25 @@ func (s *Server) recoverPanics(next http.Handler) http.Handler {
 	})
 }
 
-// accessLog records one line per request at debug.
+// accessLog records one line per request at debug, and counts and times the
+// request for /metrics.
 //
 // Debug rather than info because a live UI makes a request per interaction and
 // an SSE reconnect per network blip; at info this would drown everything else
-// an operator is trying to read.
+// an operator is trying to read. That is also why the metrics are here: the log
+// is off by default, so a controller that is busy with requests could not
+// otherwise say which ones.
 func (s *Server) accessLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
+
+		// After the handler, because the route that served a request is only
+		// known once it has been through the router. A stream is counted when
+		// it ends, which is the first moment there is a status to count.
+		pattern := routePattern(r)
+		s.ctrl.ObserveRequest(routeGroup(pattern, r.URL.Path), rec.status, time.Since(started), longLivedRoutes[pattern])
 
 		info := infoFrom(r.Context())
 		who := "anonymous"

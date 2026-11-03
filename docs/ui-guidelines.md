@@ -512,9 +512,11 @@ Page gutters are `--z-space-6`, card padding `--z-space-5`, table cell padding
 
 ### 1.4 Radii, borders and geometry
 
-`--z-radius-sm` 4 (badges, inputs) · `--z-radius-md` 8 (buttons, cards) ·
-`--z-radius-lg` 12 (dialogs, panels) · `--z-radius-xl` 28 (the stage on the pages
-before sign in) · `--z-radius-full` 9999 (dots, pills).
+`--z-radius-sm` 4 (the checkbox and the radio box) · `--z-radius-md` 8 (the
+boxes inside a card) · `--z-radius-lg` 12 (dialogs, panels, text fields, the
+terminal and the facts panel) · `--z-radius-xl` 28 (the stage on the pages
+before sign in, and the card beside it) · `--z-radius-full` 9999 (dots, status
+pills, and every button).
 
 Borders come in three weights and the choice between them is meaning, not
 taste. `--z-border-width` (1px) is the hairline that separates things belonging
@@ -675,16 +677,51 @@ figures. A band takes one of four cuts, Slim, Compact, Standard or Expanded,
 chosen per page from the band itself or in Appearance; a size pressed on a band
 asks where it lands (this page, pages picked one at a time, or every page), so
 one deliberate answer serves every page that needs it. Each is switched off per
-page in Appearance (a list of hidden pages, so a band added later is on), and a
-phone never shows one. A band's dog is off by default, giving the sentence the
+page in Appearance (a list of hidden pages, so a band added later is on). A
+phone draws a band only to carry its picture, slim: the sentence, then the
+picture at the full width, with the figures in their own panel under it and the
+cut and the dismiss left to Appearance; a band with no picture, or with its
+picture switched off, is hidden on a phone as it always was, so the rows stay on
+the first screen. Below 1000px, a tablet included, a picture takes a row of its
+own under the sentence instead of standing beside it. A band's dog is off by default, giving the sentence the
 whole band, and can be switched on or drawn at a chosen size in Appearance (Auto
 follows the band's own size; Small, Medium and Large pin it); pressing the dog
 opens the same panel, with the same question about where. The choices follow
 the signed-in account, with the browser as the fallback. A figure a band carries
 is a way into the evidence it counts: pressing it narrows the list on this page
 and takes the reader to it, or opens the page that holds the list at that list,
-with the filter in the address. The wrong-address page uses the same stage with
-the dog.
+with the filter in the address. The Overview's band also carries the week as a
+punch card beside its sentence, where the dog stands when it is shown: seven
+rows of twenty-four squares, blue by how many jobs finished in the hour, an
+hour with failures punched through as the matrix draws one, the hours still to
+come faint, and the current hour outlined. It is the activity matrix's 7d range
+at a glance, in the stage's white and blue and nothing else; an hour of it
+hovered says the hour and its figures in the shared tooltip, as the matrix's
+squares do, and an hour of it pressed opens History with that hour selected. Every cut carries it, since the figures
+give even Slim the height for seven rows. The Hosts and Runners bands carry the
+same fourteen slots from two sides as a slot map: a row per host, a square per
+slot, solid while held, half-shade while starting, empty when free, dashed on a
+host no heartbeat has come from, and on Runners coloured by what the runner is
+doing (idle faint, draining hollow). Each row is a link to its host, and past
+seven hosts the rest are a count. Pools draws each enabled pool as a bar, busy
+over live against its ceiling with the floor as a tick, the one at its ceiling
+first and edged in white; Queue draws the last hour as two sparklines, waiting
+and running, from the minute samples the fleet trend reads, with the newest
+point the band's own figures; Usage draws the chosen range's execution hours as
+one column per interval of the report the page already holds. Jobs draws today
+alone as the punch card's one row, larger, and an hour pressed narrows the list
+to the jobs that finished in it, which is how the square counts them; Providers draws a square per machine a provider may own against its
+ceiling, owned solid, on the way half-shade, leaving faint, headroom hollow and
+one that needs review punched through; Installations draws each App's remaining
+API quota as a bar, lowest first, edged in white below the tenth the band's own
+figure counts as low; Kennel Club draws one square per repository, worst first,
+the named ones with their findings and the rest by state; Workflows draws the
+work in flight by repository, a square per job. Every picture on a stage keeps
+the same grammar, white and the brand's blue with a hole or an outline where a colour
+would otherwise carry it, so an operator who has read one can read them all.
+Like the dog, a picture can be switched off in Appearance, per page under Page
+bands or for every page at once, and the choice follows the account. The
+wrong-address page uses the same stage with the dog.
 
 Persistent left navigation, collapsible to icons only (persisted). Order is
 fixed, because muscle memory is the point:
@@ -799,14 +836,43 @@ The one page that has to earn the second monitor.
   The key runs under both, where it explains the squares rather than floating
   at the right with the white space in front of it. The component lives in
   `lib/insights/` because the Usage page draws its range with the same one.
+  The band's punch card is this grid's 7d range drawn small beside the hero's
+  sentence; an hour pressed there lands here, on that hour, so the two are one
+  view at two sizes rather than two views.
 * **Four live figures in the band**: queued jobs, running jobs, live runners and
   median queue wait. Running jobs is this fleet's busy runners, the rows the
   Runners page counts and the link opens; with other runners in scope it counts
   every job GitHub reports, and opens the Jobs page instead. Each figure is a
   way into the records it counts, as every band's figures are; the wait carries
   its p95 and the live figure the slots it fills.
-* **Per-pool utilisation bars**: busy / live, with the pool's min and max marked
-  so an operator can see a pool pinned at its ceiling.
+* **The body is a list of panels.** Under the band, the page is one grid drawn
+  from `web/src/lib/overview/panels.ts` in its order: the problems, the pools,
+  the failures, the running jobs beside the events, then History and the
+  diagnostics. A full panel spans both columns; a main panel and the side panel
+  after it share a row, two thirds and one third, each filling it; a phone is
+  one column in the same order. Every panel carries its icon in a tinted tile
+  beside its title (`Panel`'s `icon`), so the page has one card head and no
+  panel draws its own. The route lays nothing by hand, which is what lets the
+  arrangement be the operator's: **Arrange**, in the page header, puts a
+  toolbar over every card with a grip to drag it by, Move up, Move down and
+  Hide, a Show row in the place of each hidden panel, and a bar at the top with
+  how many are hidden, Reset layout and Done. A move changes the order only;
+  each panel keeps its column, so the jobs and the events share a row wherever
+  they stand together. The layout is kept with the account under `panels` in
+  the preference document (the browser's copy when nobody is signed in), read
+  as forgivingly as the bands: a panel a build no longer has is dropped, one it
+  gained is drawn in its default place, and the registry's own rules (the first
+  run hides the problems and the failures) still win over a layout. Appearance
+  lists the same panels as switches under **Overview panels**, with Reset
+  layout; the order is changed on the page itself, where the cards can be seen
+  moving.
+* **A card per pool**, as the mock draws it: the name, the floor and ceiling,
+  the state as a pill, Runners and Waiting as a pair of facts, and the busy
+  bar with the pool's min and max marked. A pool at its ceiling with work
+  waiting is marked three ways still: the card's pending edge, the badge, and
+  the waiting figure saying "and nowhere to run". Six cards at most; the rest
+  are "and N more pools", a link to the Pools page, so a large fleet's Overview
+  stays one screen.
 * **Recent events**, a reverse-chronological list of what has happened to the
   fleet, whatever kind of thing it was: the scheduler's decisions in its own
   words (*"scaled `linux-x64` 2 → 4: 3 jobs queued > 30s"*), how each job
@@ -847,13 +913,24 @@ The one page that has to earn the second monitor.
   first. How the last jobs ended was a second panel across the bottom of the
   page and is now part of the feed: two reverse-chronological lists on one
   page, each with its own idea of what belonged on it, was one list too many.
-* **Problems summary**: one line saying how many things need a person, worst
-  severity first, with a *Review* button that opens the problems drawer.
-  **When everything is fine it is a single quiet line, not an empty box and not
-  a green celebration.** It is a line rather than a list on purpose: the panels
-  above are what the page is for, and a configuration warning somebody chose
-  deliberately must not push the pools and the running jobs below the fold
-  every day.
+* **Needs attention**: a section shut by default whose header says what it
+  holds (how many of each severity, worst first, and the worst problem by
+  name, cut short at the line with the whole sentence in a tooltip), so the
+  page says what is wrong before anything is opened. Open, it is the worst
+  three problems as rows, each with its severity pill, the controller's fix,
+  an *Open* button to the thing it is about and the drawer's own dismiss menu
+  (snooze for a while, snooze every problem of this kind, dismiss until
+  resolved), so a decision made here means what it means in the drawer and is
+  listed there as dismissed. The header also carries *Dismiss all*, the same
+  menu as the drawer's header (snooze everything listed for 15 minutes, 1, 4
+  or 24 hours, or dismiss it all until resolved), whether the card is shut or
+  open; pressing it does not toggle the card. The card's own line ("and N more", or "Open the
+  drawer") opens the problems drawer for the rest; everything past three stays
+  the drawer's. Whether the section is open is remembered like the other
+  sections' choices. **When everything is fine it is a single quiet line, not an
+  empty box and not a green celebration.** A phone keeps the one-line summary
+  with its *Review* button, as before, under the slim band that carries the
+  week.
 * **Recent failures**: unresolved failures nobody has acknowledged, newest first, with the
   count in the panel's header and each row naming the repository, the workflow,
   the job and the step or fault it stopped at. A row opens the job's own drawer,
@@ -901,6 +978,51 @@ from hiding a real fault:
 Dismissed entries stay listed at the bottom of the drawer, dated, and can be
 restored one at a time or all at once.
 
+### The list pages
+
+A page whose body is a list (Runners, Queue, Pools, Audit, Jobs and
+Workflows) is, under its band, one card: the page's own
+icon in a tile, a count in small capitals over the title ("11 known, 9 live",
+absent until the stats have arrived), the search field and the menus opposite,
+the primary filter as `FilterChips` in a row of their own, and the grid bare
+inside, so the page shows one frame. The chips read and write the same query
+parameter the filter always had, so a pasted address and a band figure's link
+land where they did; their counts are the fleet's, so a pool or host filter
+takes them away rather than let them disagree with the rows. Everything that
+is context rather than the list (the Runners page's scope line, lifecycle and
+last day's activity) is folded under the card in one *Fleet context*
+disclosure, as the Overview folds its History, and a wide column the mock
+leaves out (Age and CPU on Runners, Labels on Queue, the Backend, Platform,
+Idle timeout, Lifetime and Docker settings on Pools) is hidden by default and
+a click away in Columns, with a saved layout winning as it always has. The
+Pools chips are Enabled and Disabled, counted from the fleet's pools, one in
+force at a time as the `status` parameter always was; the size-class panel
+stays above the card, because it opens by itself when a change waits on an
+operator and a fold under the list would hide that. The Audit chips are the
+kinds of thing acted on, gathered from the rows the page has shown plus the
+one a pasted address names, uncounted because kinds are no endpoint of their
+own, and its eyebrow is how many events the filters leave, from the page the
+grid last fetched, absent over an error or an empty result. The Audit chips
+read a press through `pickOne` beside `FilterChips`: the chip that changed, or
+none. The Jobs chips are the page's status views (Needs attention, Running,
+Queued, Failed, Our failures, Finished), pressed one at a time with the All
+view as the All chip, each with its hint in the shared tooltip; Running and
+Queued carry the band's figures while nothing else narrows the rows, and a
+filter no view describes (two states at once, an outcome facet) leaves every
+chip unpressed, All included, as the row of buttons did. On a phone the row
+is one line that scrolls, because the page's rule is records first. Jobs
+keeps its Labels column: for a job no pool claims, the labels in the row are
+why. Workflows draws the same chips over its runs with no counts at all,
+because the band's figures count jobs and its rows are runs, so no figure the
+page has would be true of them. The
+Queue's chips are the four provisioning statuses, counted from the list's own
+counts, with Ready, Run now and Paused pressed by default and Removed a press
+away; the job filters it shares with the Jobs page (`JobFilters`: the search,
+the menus, the date range and the fold a phone gives them) stay in their bar
+above the card, and only the controls that are the page's alone, the branch
+field, the saved views, Reset and the hint on how filters combine, sit opposite
+its title.
+
 ---
 
 ## 3. Component inventory
@@ -916,11 +1038,11 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 
 | Component | Notes |
 | --- | --- |
-| `Button` | variants: `primary`, `secondary`, `ghost`, `danger`; sizes `sm`, `md`, and `lg` for the sign-in form alone; `loading` swaps the label for a spinner without changing width. `help` is a sentence in the shared tooltip; `reason`, with `disabled`, says why it cannot be used and keeps it reachable (see *Help*) |
-| `IconButton` | square, always has an `aria-label`, which is also the heading of its tooltip. `help`, `keys` and `reason` add a sentence, the keys that do the same and why it is unavailable |
-| `Input`, `Textarea`, `Select`, `Switch`, `Checkbox`, `RadioGroup` | all support `error` and `hint`; the error is announced with `aria-describedby`. `Input` has the same three sizes as `Button` |
+| `Button` | every variant is a pill; `primary` is Runner Blue under Zoomies Black (7.3:1), so the darkened accent is kept for links, the active entry and focus; variants: `primary`, `secondary`, `ghost`, `danger`; sizes `sm`, `md`, and `lg` for the sign-in form alone; `loading` swaps the label for a spinner without changing width. `help` is a sentence in the shared tooltip; `reason`, with `disabled`, says why it cannot be used and keeps it reachable (see *Help*) |
+| `IconButton` | a pill, always has an `aria-label`, which is also the heading of its tooltip. `help`, `keys` and `reason` add a sentence, the keys that do the same and why it is unavailable |
+| `Input`, `Textarea`, `Select`, `Switch`, `Checkbox`, `RadioGroup` | all support `error` and `hint`; the error is announced with `aria-describedby`. `Input` has the same three sizes as `Button`; a text field, a select and a textarea take the large radius, so each reads as the card's child rather than a box inside it |
 | `Field` | label + control + hint + error; the only way form controls are laid out |
-| `Badge` | status pill: colour **and** shape from the state map |
+| `Badge` | status pill, a pill in shape as well: colour **and** shape from the state map |
 | `StatusDot` | the shape half of the state encoding, reusable inline |
 | `Tooltip` | the one hover and focus help, on one bubble (`TooltipBubble`) and one set of timing rules (`lib/tooltip.ts`); never the only place information lives. Plain help is a `title` heading, a `text` sentence, a `reason` and the `keys` that do the same thing; `text` is also what assistive technology gets, linked to the control with `aria-describedby`. An optional `content` snippet draws a richer card for sighted readers, with `text` as its one-sentence copy. What it wraps has to be something a keyboard reaches, or focus opens nothing; a card that carries figures also opens on a tap, which has no hover. See *Help* |
 | `Segmented` | one choice among a few as one control, `aria-pressed` on the one in force: the activity matrix's ranges, the fleet trend's windows, the usage chart's two measures |
@@ -932,7 +1054,9 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `Toast` | bottom-right, `aria-live="polite"` (`assertive` for errors), auto-dismiss except on error |
 | `Skeleton` | **the only loading affordance for content.** Spinners are for in-flight *actions* only |
 | `EmptyState` | icon + one sentence of what this is + the action that fills it; a `visual` snippet replaces the icon disc where artwork is wanted, as the not-found page does with the mark |
-| `CopyButton` | wraps any ID; announces "copied" to screen readers |
+| `CopyButton` | wraps any ID; announces "copied" to screen readers; a pill, round when it is the icon alone |
+| `Terminal` | a command the operator runs somewhere else, in the window they will run it in: a bar with a title, the command in the mono face on the dark stage, a `facts` slot the full width of the command beneath it, then the copy control and a line of fine print; a long command wraps inside it. `AddHostFlow`, `HostDoctorCommand` and `RunsOnPreview` draw it |
+| `Facts` | a block of facts about one thing on the dark stage: a definition list in two columns, one on a phone, with a value in the mono face or with its status pill after it. The version selected for a new host is the first to use it |
 | `RelativeTime` | "4m ago", the exact local time and the ISO timestamp in the tooltip, updates itself |
 | `Duration` | humanised, tabular numerals |
 | `Sparkline` | inline SVG, no chart library, `role="img"` with a text summary |
@@ -945,9 +1069,11 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 
 | Component | Notes |
 | --- | --- |
-| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need* |
+| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need*. `bare` drops its own border, radius and background for a grid drawn inside a `Panel`, so a list card is one frame |
 | `RowActions` | a row's actions as buttons rather than a menu, as an ARIA toolbar: one tab stop per row, `← →` along it, and every button's name carries what it acts on |
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
+| `FilterChips` | a list's primary filter as a row of pills: All, then one per value with its count when the count is true of the rows under it; more than one in force at once, each saying so with `aria-pressed`, a tick and the weight of its words, never by colour alone; a chip may carry a `hint` in the shared tooltip, a row may be drawn with nothing pressed (`none`) when the filter in force is one no chip can say, and on a phone may be one line that scrolls (`scroll`) where a page's rule is records first. The Runners page's states are the first |
+| `Panel` | a titled card: a heading, an optional `icon` in a tinted tile, an optional `eyebrow` in small capitals above the heading (a count or a scope), a `description` under it, `actions` opposite, an optional `toolbar` row between the head and the body for a list's filter chips, and `flush` for a body that draws its own rows. The Overview's cards and the list card are all this |
 | `PageHeader` | title, subtitle, breadcrumb, primary action, and the refresh button where the page passes `onrefresh` |
 | `RefreshButton` | the one refresh: registers the page's handler so the button, `R` and the palette all run it; turning icon while it works |
 | `MetricTile` | number, label, delta, sparkline |

@@ -9,9 +9,8 @@
   Four sizes, from Slim (the shortest) through Compact and Standard to Expanded. Each page
   has a default, and the operator's choice is per page: the same four sizes sit on the band,
   as Eli's panel sizes do, and in Appearance. Pressing one asks where it lands (this page,
-  pages picked one at a time, or every page). The dog can be resized or removed, and asks
-  the same question about where. Both choices follow the signed-in account, with this
-  browser as the fallback.
+  pages picked one at a time, or every page). The choice follows the signed-in account,
+  with this browser as the fallback.
 
   A band can carry figures (`stats`) in a strip along its lower edge, which is how a
   page gives up the panel it used to spend a row of its height on. They are never lost
@@ -59,8 +58,23 @@
     testid?: string;
     /** Anything the band offers beside its sentence, like the Overview's Review. */
     actions?: Snippet;
+    /**
+     * A picture drawn beside the words: the Overview's punch card, the slot map.
+     * Every cut carries it, since the figures give even Slim the height for seven
+     * rows of squares, and Appearance can switch it off per page or for every page.
+     */
+    aside?: Snippet;
   }
-  let { page, line, stats = [], more, eyebrow = 'Right now', testid, actions }: Props = $props();
+  let {
+    page,
+    line,
+    stats = [],
+    more,
+    eyebrow = 'Right now',
+    testid,
+    actions,
+    aside,
+  }: Props = $props();
 
   /*
     One glyph for each cut, read as a scale: a line, a short bar, a square
@@ -76,6 +90,9 @@
 
   const shown = $derived(prefs.bandShown(page));
   const size = $derived(prefs.bandSize(page));
+  // Whether the band carries a picture: the page gave one and the operator has not
+  // switched it off. A phone draws the band only for that.
+  const pictureShown = $derived(aside !== undefined && prefs.bandPictureShown(page));
   const name = $derived(BAND_PAGES.find((p) => p.key === page)?.label ?? page);
   const placement = $derived(
     figuresPlacement({ shown, hasLine: line !== null, hasStats: stats.length > 0 }),
@@ -134,7 +151,12 @@
 </script>
 
 {#if line && shown}
-  <div class="band" data-size={size} data-testid={testid ?? `band-${page}`}>
+  <div
+    class="band"
+    class:with-picture={pictureShown}
+    data-size={size}
+    data-testid={testid ?? `band-${page}`}
+  >
     <BrandStage
       wide
       {eyebrow}
@@ -143,6 +165,7 @@
       lede={line.lede}
       treatment={prefs.logoTreatment}
       art={false}
+      aside={pictureShown ? aside : undefined}
     >
       {#if actions}<div class="actions">{@render actions()}</div>{/if}
       {#if stats.length > 0}
@@ -265,7 +288,7 @@
     line-height: var(--z-leading-base);
   }
 
-  /* Compact: less air above and below, a smaller dog and a smaller headline. */
+  /* Compact: less air above and below, a smaller headline. */
   .band[data-size='compact'] :global(.stage) {
     padding-block: var(--z-space-6);
     padding-inline: var(--z-space-10);
@@ -293,7 +316,7 @@
     line-height: var(--z-leading-2xl);
   }
 
-  /* Expanded: more air, a larger dog and a headline that can carry a quiet page. */
+  /* Expanded: more air, a headline that can carry a quiet page. */
   .band[data-size='expanded'] :global(.stage) {
     padding-block: var(--z-space-12);
   }
@@ -412,9 +435,45 @@
     }
   }
 
+  /*
+    A phone draws the band when it has a picture to carry, slim: the sentence,
+    then the picture at the full width, with the figures in their own panel
+    under it (the cut and the dismiss are for a screen with the room, and
+    Appearance has the switches). A band with no picture, or with its picture
+    switched off, is hidden as it always was, so the rows stay on the first screen.
+  */
   @media (max-width: 768px) {
-    .band {
+    .band:not(.with-picture) {
       display: none;
+    }
+    .band .figures,
+    .band .tools {
+      display: none;
+    }
+    /* The operator's cut is a desktop preference (it syncs from there), so a
+       phone takes the slim one whatever it says: the selector is more specific
+       than the four cuts' own, which would otherwise win and draw an Expanded
+       band's headline and air on a screen with no room for either. */
+    .band.with-picture[data-size] :global(.stage) {
+      padding-block: var(--z-space-5);
+      padding-inline: var(--z-space-5);
+    }
+    .band.with-picture[data-size] :global(.art) {
+      width: clamp(3rem, 7%, 5rem);
+    }
+    .band.with-picture[data-size] :global(.headline) {
+      font-size: var(--z-text-xl);
+      line-height: var(--z-leading-xl);
+    }
+    .band.with-picture[data-size] :global(.eyebrow) {
+      margin-bottom: var(--z-space-2);
+    }
+    .band.with-picture[data-size] :global(.rule) {
+      margin-block: var(--z-space-2);
+    }
+    .band.with-picture[data-size] :global(.lede) {
+      font-size: var(--z-text-sm);
+      line-height: var(--z-leading-sm);
     }
   }
   @media (min-width: 769px) {

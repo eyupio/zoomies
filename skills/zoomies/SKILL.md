@@ -154,8 +154,8 @@ the MCP tools read.
 ### Leave to the user
 
 These run on, or reshape, the machine Zoomies is installed on, start and stop
-the fleet itself, or (`zoomies audit tail`, `zoomies tui`) follow a stream or
-take over the terminal and never return.
+the fleet itself, follow a stream (`zoomies audit tail`), or take over the
+terminal (the interactive home, opened by running `zoomies` without a command).
 Do not run them. If the user needs one, say what it is, what it will do, and
 the command, and let them run it. That includes a command's read-only form,
 such as `zoomies upgrade --check`: say what it is for and let them run it. To
@@ -163,7 +163,7 @@ find out whether a release is on offer, read `zoomies updates status`. For
 output that keeps coming, ask for a bounded read instead: `zoomies audit list`,
 or `zoomies runners logs` without `--follow`.
 
-* `zoomies controller`, `zoomies agent`, `zoomies gateway`, `zoomies mcp`, `zoomies demo`, `zoomies audit tail`, `zoomies tui`
+* `zoomies controller`, `zoomies agent`, `zoomies gateway`, `zoomies mcp`, `zoomies demo`, `zoomies audit tail`
 * `zoomies transfer import`
 * `zoomies init`, `zoomies upgrade`, `zoomies update`, `zoomies uninstall`, `zoomies restore`
 * `zoomies updates helper`

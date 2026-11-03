@@ -15,7 +15,7 @@
 <script lang="ts">
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { readableJobText } from '$lib/jobs/name';
-  import { CircleSlash, ExternalLink } from '@lucide/svelte';
+  import { CircleSlash, ExternalLink, Workflow } from '@lucide/svelte';
   import { listJobs } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { Job } from '$lib/api/types';
@@ -128,6 +128,7 @@
 
 <Panel
   title="Active jobs"
+  icon={Workflow}
   description={others ? 'Wherever it is running.' : undefined}
   class={className}
   flush

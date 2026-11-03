@@ -18,6 +18,9 @@ func PaletteFor(w io.Writer) Palette {
 	if _, set := os.LookupEnv("NO_COLOR"); set {
 		return Palette{}
 	}
+	if styled, ok := w.(interface{ TerminalColour() bool }); ok {
+		return Palette{On: styled.TerminalColour()}
+	}
 	f, ok := w.(*os.File)
 	return Palette{On: ok && term.IsTerminal(int(f.Fd()))}
 }

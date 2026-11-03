@@ -124,6 +124,15 @@ test('a pool edited from elsewhere changes in the Pools grid', async ({ page }) 
   const pool = await findByName(page.request, '/api/v1/pools', FIXTURE.linuxPool);
   await goto(page, '/pools', 'Pools');
   const row = dataRows(grid(page, 'Pools')).filter({ hasText: FIXTURE.linuxPool });
+  // Idle timeout is a click away rather than on by default, so the column
+  // the edit lands in is brought back first; what is held is the live update.
+  await expect(row).toBeVisible();
+  await page.getByRole('button', { name: 'Columns' }).click();
+  await page
+    .getByRole('group', { name: 'Column layout' })
+    .getByRole('checkbox', { name: 'Idle timeout' })
+    .check();
+  await page.keyboard.press('Escape');
   await expect(row).toContainText('5m 00s');
   await plantMarker(page);
 

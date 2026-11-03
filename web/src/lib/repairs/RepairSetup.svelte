@@ -95,7 +95,6 @@
           automatic: false,
           ask_first: false,
           allow_workflows: policy?.allow_workflows ?? false,
-          daily_limit: policy?.daily_limit ?? 5,
         });
       }
       if (enablePreviews && admin && previewsOff) {
@@ -149,8 +148,7 @@
     {/if}
     {#if needsPolicy}
       {#if admin}<p>
-          Enable manual repairs for {repo}, up to {policy?.daily_limit ?? 5} attempts per 24 hours. Automatic
-          repairs stay off. Workflow edits are {policy?.allow_workflows
+          Enable manual repairs for {repo}. Automatic repairs stay off. Workflow edits are {policy?.allow_workflows
             ? 'allowed by the existing policy'
             : 'disabled'}.
         </p>

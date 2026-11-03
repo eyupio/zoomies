@@ -13,6 +13,9 @@
   import Panel from '$lib/components/Panel.svelte';
   import Segmented from '$lib/components/Segmented.svelte';
   import StateCell from '$lib/components/StateCell.svelte';
+  import { Server } from '@lucide/svelte';
+  import FilterChips from '$lib/components/FilterChips.svelte';
+  import { runnerStateChips } from '$lib/runners/state-chips';
   import type { RunnerState } from '$lib/api/types';
   import { runnerStatus } from '$lib/status';
 
@@ -68,18 +71,34 @@
   <StateCell status={runnerStatus(row.state, false)} />
 {/snippet}
 
+<!--
+  The list card every list page draws: the grid, bare, inside a Panel that
+  carries the count over its title and the primary filter as chips.
+-->
 <Panel
   title="Data grid"
+  icon={Server}
+  eyebrow="11 known, 9 live"
   description="Ready, empty, loading and failed, with the phone layout the saved choice or the style decides."
+  flush
 >
-  <div class="toolbar">
+  {#snippet actions()}
     <Segmented
       label="Grid state"
       options={modes}
       value={mode}
       onchange={(v) => (mode = v as FetchMode)}
     />
-  </div>
+  {/snippet}
+  {#snippet toolbar()}
+    <FilterChips
+      label="Filter by runner state"
+      options={runnerStateChips({ idle: 1, busy: 1, draining: 1, provisioning: 1 }, false, true)}
+      selected={[]}
+      total={4}
+      onchange={() => {}}
+    />
+  {/snippet}
   <!--
     Keyed by mode on purpose. The grid deliberately keeps last-known rows on
     screen while a later fetch is out -- a live refresh that flashed back to
@@ -92,6 +111,7 @@
       gridId="gallery-demo"
       label="Gallery runners"
       noun="runners"
+      bare
       {columns}
       fetcher={fetchRows}
       rowId={(row) => row.id}
@@ -105,11 +125,3 @@
     </DataGrid>
   {/key}
 </Panel>
-
-<style>
-  .toolbar {
-    display: flex;
-    justify-content: flex-end;
-    margin-bottom: var(--z-space-3);
-  }
-</style>

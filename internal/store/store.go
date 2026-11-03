@@ -39,15 +39,8 @@ var ErrNotFound = errors.New("not found")
 // ErrConflict is returned when a uniqueness constraint would be violated.
 var ErrConflict = errors.New("already exists")
 
-// ErrEliRepoBudget and ErrEliPersonBudget say which daily limit refused a repair
-// request: the repository's, which explicit and automatic attempts share, or the
-// one person's. Both are an ErrConflict too, so a caller that only needs to know
-// it was refused still matches on that; the two exist so a person who asked for
-// a repair can be told which limit they met, instead of being left with silence.
+// Errors the Eli repair store raises beyond the generic ones.
 var (
-	ErrEliRepoBudget   = fmt.Errorf("this repository has used its repair attempts for the last 24 hours: %w", ErrConflict)
-	ErrEliPersonBudget = fmt.Errorf("this person has used their repair attempts for the last 24 hours: %w", ErrConflict)
-
 	// ErrEliIdentityHeld says the GitHub account being linked is already linked
 	// to another Zoomies user, a row the old link's owner still holds after an
 	// instance move or a re-created account. It is an ErrConflict, so a caller
@@ -56,10 +49,6 @@ var (
 	// the driver's constraint sentence reach the page.
 	ErrEliIdentityHeld = fmt.Errorf("this GitHub account is already linked to another Zoomies user: %w", ErrConflict)
 )
-
-// EliPersonDailyLimit is how many repairs one person may ask for in a rolling 24
-// hours, whatever the repository's own limit allows.
-const EliPersonDailyLimit = 10
 
 // ErrInvalidTransition is returned when a runner state change is not legal.
 var ErrInvalidTransition = errors.New("invalid state transition")

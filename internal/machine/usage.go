@@ -31,6 +31,14 @@ type Usage struct {
 	// apart, and the reason a pool is told its scratch folders could live in
 	// memory.
 	IOWaitPercent *float64
+	// StealPercent is the share of CPU time the hypervisor kept from this
+	// machine between two samples: the virtual CPU wanted to run and the host it
+	// is a guest of ran something else. CPUPercent counts that time as busy, which
+	// is right for deciding whether a host has room and wrong for asking why it is
+	// slow, because a machine that is being starved reads as one hard at work.
+	// Nil where the kernel does not report it, which is not zero: a physical
+	// machine reports a measured zero, and an old kernel reports nothing.
+	StealPercent *float64
 }
 
 // UsageSampler takes CPU deltas between heartbeats without sleeping or asking
@@ -40,6 +48,7 @@ type UsageSampler struct {
 	root        string
 	total, idle uint64
 	iowait      uint64
+	steal       uint64
 	cpus        int
 }
 
@@ -51,6 +60,7 @@ func (s *UsageSampler) Sample(cpus int, memoryMB int64) Usage {
 	if err == nil {
 		total, idle, count, ok := cpuTicks(string(stat))
 		iowait, ioOK := ioWaitTicks(string(stat))
+		steal, stealOK := stealTicks(string(stat))
 		if ok && count == cpus && count == s.cpus && total > s.total && idle >= s.idle && idle-s.idle <= total-s.total {
 			percent := 100 * (1 - float64(idle-s.idle)/float64(total-s.total))
 			out.CPUPercent = &percent
@@ -61,14 +71,20 @@ func (s *UsageSampler) Sample(cpus int, memoryMB int64) Usage {
 				wait := 100 * float64(iowait-s.iowait) / float64(total-s.total)
 				out.IOWaitPercent = &wait
 			}
+			// Taken from the same deltas as the CPU figure, so a counter that went
+			// backwards is dropped here exactly as iowait's is.
+			if stealOK && steal >= s.steal && steal-s.steal <= total-s.total {
+				taken := 100 * float64(steal-s.steal) / float64(total-s.total)
+				out.StealPercent = &taken
+			}
 		}
 		if ok && count == cpus {
-			s.total, s.idle, s.iowait, s.cpus = total, idle, iowait, count
+			s.total, s.idle, s.iowait, s.steal, s.cpus = total, idle, iowait, steal, count
 		} else {
-			s.total, s.idle, s.iowait, s.cpus = 0, 0, 0, 0
+			s.total, s.idle, s.iowait, s.steal, s.cpus = 0, 0, 0, 0, 0
 		}
 	} else {
-		s.total, s.idle, s.iowait, s.cpus = 0, 0, 0, 0
+		s.total, s.idle, s.iowait, s.steal, s.cpus = 0, 0, 0, 0, 0
 	}
 	mem, err := os.ReadFile(filepath.Join(s.root, "/proc/meminfo"))
 	if err == nil {
@@ -88,6 +104,36 @@ func (s *UsageSampler) Sample(cpus int, memoryMB int64) Usage {
 		}
 	}
 	return out
+}
+
+// Machine reads the size of the machine procfs describes: how many CPUs it
+// counts and how much memory it has. An agent is told its machine's size by the
+// container runtime it works through, which reports the host and not whatever
+// cgroup the agent happens to be in. A controller that has no runtime to ask has
+// only procfs, which in a container is the host's too, so it takes both from the
+// same files its figures come from: they cannot then disagree about which machine
+// they describe, and it is the machine as procfs describes it, whatever that is.
+func (s *UsageSampler) Machine() (cpus int, memoryMB int64, ok bool) {
+	s.mu.Lock()
+	root := s.root
+	s.mu.Unlock()
+	stat, err := os.ReadFile(filepath.Join(root, "/proc/stat"))
+	if err != nil {
+		return 0, 0, false
+	}
+	_, _, cpus, ok = cpuTicks(string(stat))
+	if !ok {
+		return 0, 0, false
+	}
+	mem, err := os.ReadFile(filepath.Join(root, "/proc/meminfo"))
+	if err != nil {
+		return 0, 0, false
+	}
+	total, _, ok := availableMemory(string(mem))
+	if !ok {
+		return 0, 0, false
+	}
+	return cpus, total, true
 }
 
 // MemoryReadable reports whether this platform has a way to read the host's
@@ -171,6 +217,22 @@ func ioWaitTicks(raw string) (uint64, bool) {
 			continue
 		}
 		v, err := strconv.ParseUint(fields[5], 10, 64)
+		return v, err == nil
+	}
+	return 0, false
+}
+
+// stealTicks reads the steal counter from the aggregate cpu line of /proc/stat:
+// the eighth number after the name, after user, nice, system, idle, iowait, irq
+// and softirq. A kernel too old to report it has a shorter line, which is not
+// measured rather than zero.
+func stealTicks(raw string) (uint64, bool) {
+	for _, line := range strings.Split(raw, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 9 || fields[0] != "cpu" {
+			continue
+		}
+		v, err := strconv.ParseUint(fields[8], 10, 64)
 		return v, err == nil
 	}
 	return 0, false

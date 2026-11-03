@@ -597,6 +597,14 @@ func parseJobFilter(w http.ResponseWriter, r *http.Request) (store.JobFilter, bo
 		badRequestField(w, "until", err.Error())
 		return filter, false
 	}
+	if filter.CompletedSince, err = queryTime(r, "completed_since"); err != nil {
+		badRequestField(w, "completed_since", err.Error())
+		return filter, false
+	}
+	if filter.CompletedUntil, err = queryTime(r, "completed_until"); err != nil {
+		badRequestField(w, "completed_until", err.Error())
+		return filter, false
+	}
 	if unmatched := queryBoolPtr(r, "unmatched"); unmatched != nil {
 		filter.UnmatchedOnly = *unmatched
 	}
@@ -653,6 +661,10 @@ func parseJobFilter(w http.ResponseWriter, r *http.Request) (store.JobFilter, bo
 	}
 	if filter.Since != nil && filter.Until != nil && filter.Since.After(*filter.Until) {
 		badRequestField(w, "since", "start must be before end")
+		return filter, false
+	}
+	if filter.CompletedSince != nil && filter.CompletedUntil != nil && filter.CompletedSince.After(*filter.CompletedUntil) {
+		badRequestField(w, "completed_since", "start must be before end")
 		return filter, false
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/v1/provisioning") {

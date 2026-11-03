@@ -68,7 +68,7 @@ test('blocked on access shows the failure, names the jobs and keeps the rest unc
     ACCESS,
   );
   // Only the blocked rows are on show; the rest are one press away.
-  await checks.getByText('Show all 9 checks').click();
+  await checks.getByText('Show all 8 checks').click();
   await expect(checks.getByRole('listitem').filter({ hasText: 'Repository policy' })).toContainText(
     'Not checked yet.',
   );

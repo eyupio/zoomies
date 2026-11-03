@@ -1,9 +1,8 @@
 import type { Schemas } from '../api/types';
-import { relativeTime } from '../format';
 import { safeHttpUrl } from './links';
 
 /*
-  The nine things readiness looks at, as rows a person can read. The controller
+  The eight things readiness looks at, as rows a person can read. The controller
   says what each one found, in its own words; this file gives each a name and,
   when it is blocked, the one way forward that helps. The names are the UI's and
   are keyed by the check's code, so a code this build has not heard of is shown
@@ -43,7 +42,7 @@ export interface CheckRow {
  * person to choose another pull request or to open the installations because GitHub
  * did not answer. Whichever check it was, the way forward is to look again.
  */
-const COULD_NOT_CHECK = ['github', 'budget_unavailable'];
+const COULD_NOT_CHECK = ['github'];
 export const couldNotCheck = (blocker: string | undefined): blocker is string =>
   blocker !== undefined && COULD_NOT_CHECK.includes(blocker);
 
@@ -59,7 +58,6 @@ const ORDER = [
   'installation',
   'access',
   'policy',
-  'budget',
   'pull',
   'checks',
   'permissions',
@@ -71,7 +69,6 @@ const LABELS: Record<string, string> = {
   installation: 'GitHub App installation',
   access: 'Write access',
   policy: 'Repository policy',
-  budget: 'Attempts left',
   pull: 'Pull request',
   checks: 'Failing checks',
   permissions: 'App permissions',
@@ -92,8 +89,6 @@ const CHECK_OF_BLOCKER: Record<string, string> = {
   github: 'github',
   access: 'access',
   policy: 'policy',
-  budget: 'budget',
-  budget_unavailable: 'budget',
   pull: 'pull',
   closed: 'pull',
   superseded: 'pull',
@@ -188,12 +183,10 @@ const HEADLINES: Record<string, string> = {
   installation: 'Connect the GitHub installation',
   access: 'Fix write access first',
   policy: 'Turn repairs on for this repository',
-  budget: 'No attempts left right now',
   pull: 'Choose a pull request',
   checks: 'Wait for the checks',
   permissions: 'Grant the GitHub App its permissions',
   github: 'GitHub did not answer',
-  budget_unavailable: 'Could not check the allowance',
 };
 
 /**
@@ -207,23 +200,4 @@ export function blockedHeadline(code: string, blocker?: string): string {
 /** The first thing in the way, which is the one the card is about. */
 export function blockingRow(rows: readonly CheckRow[]): CheckRow | undefined {
   return rows.find((r) => r.status === 'blocked');
-}
-
-const WAIT_CLOCK = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
-
-/**
- * When a spent allowance has a place again, in the words a person can act on.
- * The controller says when the binding limit's oldest attempt leaves the
- * 24-hour window; this is that instant as a time of day, with "tomorrow" when
- * midnight comes first, and how long it is, because "in 3h" is the part
- * somebody plans around. With no instant it says only what is true.
- */
-export function allowanceWait(resetAt: string | undefined, now: number = Date.now()): string {
-  const free = resetAt ? new Date(resetAt) : null;
-  if (!free || Number.isNaN(free.getTime())) {
-    return 'The next attempt can start once the oldest attempt leaves the 24-hour window.';
-  }
-  const time = WAIT_CLOCK.format(free);
-  const today = new Date(now).toDateString() === free.toDateString();
-  return `The next attempt can start ${today ? time : `tomorrow ${time}`} (${relativeTime(free.getTime(), now)}).`;
 }

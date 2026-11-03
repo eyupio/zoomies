@@ -51,6 +51,17 @@ test('the first screen says what it is, where it sits, and what follows', async 
   await expect(page.getByText(/docker compose logs/i).first()).toBeVisible();
   // The cursor starts at the one field they have to go and fetch.
   await expect(page.locator('input[name="setup-token"]')).toBeFocused();
+  // The form is on a card beside the stage, with the stage's radius and a
+  // hairline edge, as every page that pairs words with a dark panel does; on a
+  // phone the card keeps its edge and the first field is still on the screen.
+  const card = page.locator('.side');
+  expect(await card.evaluate((el) => getComputedStyle(el).borderStyle)).toBe('solid');
+  expect(
+    parseFloat(await card.evaluate((el) => getComputedStyle(el).borderRadius)),
+  ).toBeGreaterThan(0);
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await card.evaluate((el) => getComputedStyle(el).borderStyle)).toBe('solid');
+  expect((await page.getByLabel('Setup token').boundingBox())!.y).toBeLessThan(812);
 });
 
 /**

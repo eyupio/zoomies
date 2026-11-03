@@ -179,8 +179,8 @@ the answer reaches.
 Where a page used to spend a row of its height on a panel of figures, the band
 carries them in a strip along its lower edge. The Runners band holds the
 provisioning demand (jobs queued, ready, run now, paused, removed and the age of the
-oldest) and the Queue band holds the provisioning status filters, which still filter
-the list. Providers holds its provider, machine and needing-review counts. A band
+oldest) and the Queue band holds the provisioning status figures, which still filter
+the list: pressing one presses the matching chip on the queue's card alone. Providers holds its provider, machine and needing-review counts. A band
 that is switched off, and any band on a phone, shows those same figures in a plain
 panel in its place, so nothing disappears with the dog.
 
@@ -202,8 +202,8 @@ how queue pressure compares with configured headroom is behind a disclosure,
 **How pool demand compares with headroom**, as the Runners page keeps its
 lifecycle.
 
-![The Pools page: a band saying how many pools are enabled, then the pool list with a folded explanation of queue pressure and headroom under it](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
-![The Pools page: a band saying how many pools are enabled, then the pool list with a folded explanation of queue pressure and headroom under it](screenshots/pools-light.webp#only-light){ .zoomies-shot }
+![The Pools page: a band saying how many pools are enabled, then one card with the pool count over its title, Enabled and Disabled as chips and the pool list inside, with a folded explanation of queue pressure and headroom under it](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
+![The Pools page: a band saying how many pools are enabled, then one card with the pool count over its title, Enabled and Disabled as chips and the pool list inside, with a folded explanation of queue pressure and headroom under it](screenshots/pools-light.webp#only-light){ .zoomies-shot }
 
 The page that creates one is the pool editor. It is six sections (**Name and
 labels**, **Hosts**, **Runner**, **Size**, **Scaling** and **Speed-ups**) and
@@ -261,15 +261,18 @@ Every runner that exists right now and what each one is doing. Removed runners
 are hidden by default, because a busy fleet makes and destroys thousands of
 them and they are all history. Rows select for bulk drain or delete, and the
 state filter is a real filter: it narrows the set rather than repainting it.
-Above the grid are a band that says how many runners are live and how they split,
-and the provisioning demand row, whose first figure is the number of jobs queued
-(a link to them, in the warning colour once it reaches the queue threshold),
-followed by the ready, run now, paused and removed counts and a way to the queue;
-the other tiles the page used to carry live on the Overview and the Queue. Behind a disclosure, **How runners move through their states**,
-the runner lifecycle is the controller's own state machine drawn out
-(provisioning, registering, idle, busy, draining) with how many runners are at
-each step this moment and a link into each; under it, a bar of the same states
-whose segments are links too, and say their share when you hover them.
+Above the grid is a band that says how many runners are live and how they
+split, with the jobs queued, running, ready, run now, paused and removed figures
+along its lower edge and a way to the queue. The list is one card: a count of
+the runners the controller knows and the ones that are live over its title, the
+search and the pool and host menus opposite, and the runner states as chips
+with their counts, more than one at a time; a pool or host filter takes the
+counts away, since they are the fleet's. Under the card, **Fleet context** folds
+the scope line, the runner lifecycle (the controller's own state machine drawn
+out, provisioning, registering, idle, busy, draining, with how many runners are
+at each step this moment and a link into each, and under it a bar of the same
+states whose segments are links too) and the last day's activity. Age and CPU
+are a click away in Columns rather than on by default.
 
 When the state filter includes failed runners, a **What keeps failing to start**
 card above the grid names the host or pool that keeps failing to start runners
@@ -279,8 +282,8 @@ list is narrowed to, and that the list's search is not applied to it. It is the
 answer [`zoomies analyse startup-failures`](cli.md#zoomies-analyse) prints, with
 its evidence folded under the next steps.
 
-![The Runners page: a band saying how many runners are live, the provisioning row with the jobs queued figure first, and a folded explanation of how runners move through their states above the runner grid](screenshots/runners-dark.webp#only-dark){ .zoomies-shot }
-![The Runners page: a band saying how many runners are live, the provisioning row with the jobs queued figure first, and a folded explanation of how runners move through their states above the runner grid](screenshots/runners-light.webp#only-light){ .zoomies-shot }
+![The Runners page: a band saying how many runners are live, then one card with the count over its title, the runner states as chips and the runner grid inside, and Fleet context folded under it](screenshots/runners-dark.webp#only-dark){ .zoomies-shot }
+![The Runners page: a band saying how many runners are live, then one card with the count over its title, the runner states as chips and the runner grid inside, and Fleet context folded under it](screenshots/runners-light.webp#only-light){ .zoomies-shot }
 
 A runner's page carries the job it is on, a timeline of how long it spent in
 each state (provisioning, registering, idle, busy) its resource usage as the
@@ -337,18 +340,19 @@ of grid filters, while selecting a pool scopes the headline runner metrics.
 
 ## Queue
 
-Provisioning demand has its own view: ready, expedited, paused and removed
-counts as status buttons, then the table with its filtering and bulk controls.
-How demand splits and how provisioning is ordered sit in a disclosure under the
-table. Job queue depth can remain high
+Provisioning demand has its own view: the job filters, then one card with the
+active demand over its title, the four provisioning statuses as chips with
+their counts, and the table with its filtering and bulk controls inside. How
+demand splits and how provisioning is ordered sit in a disclosure under the
+card. Job queue depth can remain high
 when provisioning demand is paused; these are separate measures. Removing an
 item is the exception: an operator who takes work out of the queue has said it
 is not for this fleet, so it stops counting as queued everywhere; the
 Overview's queue depth and pool bars, `zoomies_jobs_queued` and the queue age
 with it. Restoring it from the Removed view puts it back.
 
-![The Queue page: a band saying how many jobs are waiting, then status filters above the provisioning table, with demand and ordering folded under it](screenshots/queue-dark.webp#only-dark){ .zoomies-shot }
-![The Queue page: a band saying how many jobs are waiting, then status filters above the provisioning table, with demand and ordering folded under it](screenshots/queue-light.webp#only-light){ .zoomies-shot }
+![The Queue page: a band saying how many jobs are waiting, the job filters, then one card with the active demand over its title, the four provisioning statuses as chips and the table inside, with demand and ordering folded under it](screenshots/queue-dark.webp#only-dark){ .zoomies-shot }
+![The Queue page: a band saying how many jobs are waiting, the job filters, then one card with the active demand over its title, the four provisioning statuses as chips and the table inside, with demand and ordering folded under it](screenshots/queue-light.webp#only-light){ .zoomies-shot }
 
 ## Workflows
 
@@ -361,6 +365,9 @@ job has finished, the worst outcome among them, so a run whose failed job was
 re-run to success reads as a success. The row says how many jobs the run has
 and how they are getting on, when it was queued, how long it waited and how
 long it took, and links to the same run on GitHub.
+
+![The Workflows page: a band saying what is in flight, the job filters, then one card with the run count over its title, the status views as chips and the runs inside, each opening in place to its jobs](screenshots/workflows-dark.webp#only-dark){ .zoomies-shot }
+![The Workflows page: a band saying what is in flight, the job filters, then one card with the run count over its title, the status views as chips and the runs inside, each opening in place to its jobs](screenshots/workflows-light.webp#only-light){ .zoomies-shot }
 
 Each row opens in place (press it, or the chevron, or the right arrow) to
 the jobs inside the run: every job with its state, the pool that claimed it,
@@ -402,10 +409,11 @@ top goes back up with the same filters in force. Everything this fleet claims,
 runs or is waiting to run is listed, with each job's queue wait and duration.
 The fleet's own figures, the outcome mix, the activity history and the size
 advice are one fold, **Fleet context and activity**, under the grid.
-Status is the filter this page is opened for, so it is a row of buttons above
-the grid (**Needs attention**, **Running**, **Queued**, **Failed**, **Our
-failures**, **Finished**, **All**) and the page opens on *Running*, which is the
-question an operator arrives with. That default is for a bare visit only: every
+Status is the filter this page is opened for, so it is a row of chips over
+the grid, inside the card (**All**, **Needs attention**, **Running**,
+**Queued**, **Failed**, **Our failures**, **Finished**), one pressed at a
+time, and the page opens on *Running*, which is the question an operator
+arrives with. That default is for a bare visit only: every
 link into this page that already carries a filter keeps it, so the problems
 drawer's unmatched link and the Overview's outcome links still show what they
 promised.
@@ -469,8 +477,8 @@ immediately (queued demand paused, runners taken back) and records that it
 did, so the tiles and the lists agree from that moment rather than from
 whenever GitHub gets round to it.
 
-![The Jobs page: a band saying what is running and waiting, then status buttons and filters above the job grid, with the fleet context folded under it](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
-![The Jobs page: a band saying what is running and waiting, then status buttons and filters above the job grid, with the fleet context folded under it](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
+![The Jobs page: a band saying what is running and waiting, the job filters, then one card with the job count over its title, the status views as chips and the job grid inside, with the fleet context folded under it](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
+![The Jobs page: a band saying what is running and waiting, the job filters, then one card with the job count over its title, the status views as chips and the job grid inside, with the fleet context folded under it](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
 
 Opening a job says where it went wrong first: the step that failed and how
 long it ran, with a link to that step's log on GitHub, or, when the runner
@@ -934,16 +942,12 @@ behind **More**.
   who or what began it, and when. A row opens the repair. Choosing repairs to
   clear them from the list is behind **Select**, so the list reads as a record
   until you mean to edit it. Clearing hides a repair and does nothing else: a
-  cleared repair leaves the list and its total, but still counts towards the
-  daily limit.
+  cleared repair leaves the list and its total, but stays on record.
 * **Automatic repairs** is an administrator's section after History, closed
   until opened, and appears only when at least one repository is set to
   *Automatic*. Each repository has a row. It says who pays (the installation
   provider and its model) and whether that can work, with a sentence and a
-  **Fix in setup** link when the provider is missing, disabled or a person's; how
-  much of the allowance the last 24 hours have used, which is the repository's
-  and is shared with repairs people ask for, and, when it is all used, when a
-  place frees; the latest automatic repair, which opens, and how many are
+  **Fix in setup** link when the provider is missing, disabled or a person's; the latest automatic repair, which opens, and how many are
   running now. **Stop automatic repairs** opens a dialog that asks what should
   happen instead, **Ask me first** or **Turn repairs off**, and says what
   becomes of a repair already under way: one that has not pushed yet stops
@@ -975,15 +979,15 @@ read the end of its log. Zoomies fetches the error lines from GitHub when you
 ask, takes out anything that looks like a credential and keeps nothing, and does
 so only for a person whose linked GitHub account can write to the repository.
 The decision card sits beside the failure and says who pays (the provider and
-its model), how many tries are left today, whether Eli may edit workflow files
+its model), whether Eli may edit workflow files
 and which branch it pushes to, with room to add a note and **Fix with Eli** to
 start the repair. **Can Eli act on this?** appears only when something is
-blocked, listing the blocked checks first and **Show all 9 checks** for the
+blocked, listing the blocked checks first and **Show all 8 checks** for the
 rest: your GitHub account, the model provider, the GitHub App installation,
-write access, the repository policy, tries left, the pull request, its failing
+write access, the repository policy, the pull request, its failing
 checks and the app's permissions. Each says what passed, what is in the way and
 what to do about it, and a check an earlier one stopped is shown as never
-reached. Checking never calls a model or spends a try. A failure that Eli is
+reached. Checking never calls a model. A failure that Eli is
 already repairing opens that repair instead of offering another, and one that has
 since been fixed, closed or replaced by a newer commit says so instead of
 offering a repair; for a newer commit, **Check the current PR** asks again about
@@ -994,14 +998,14 @@ On a repository set to Automatic, a note sits below that card. For an
 administrator it says whether Eli already tried this failure on its own, with a
 link to the attempt (Eli does not try the same commit twice by itself, so
 starting another attempt here is the retry), or that nothing has started and the
-most likely reason: the provider cannot pay, the allowance is used up, or Eli
+most likely reason: the provider cannot pay, or Eli
 starts from GitHub's report of a failed job and this failure was reported before
 Automatic was switched on or never arrived. For anyone else it is one sentence
 saying the repository repairs itself, because an ordinary person cannot read what
 Eli did on its own.
 
-![The repair page for a pull request Eli cannot yet act on: the failure it is about, the next step naming the GitHub account and model provider in the way, What failed, and the checks with Show all 9 checks](screenshots/eli-repair-readiness-dark.webp#only-dark){ .zoomies-shot }
-![The repair page for a pull request Eli cannot yet act on: the failure it is about, the next step naming the GitHub account and model provider in the way, What failed, and the checks with Show all 9 checks](screenshots/eli-repair-readiness-light.webp#only-light){ .zoomies-shot }
+![The repair page for a pull request Eli cannot yet act on: the failure it is about, the next step naming the GitHub account and model provider in the way, What failed, and the checks with Show all 8 checks](screenshots/eli-repair-readiness-dark.webp#only-dark){ .zoomies-shot }
+![The repair page for a pull request Eli cannot yet act on: the failure it is about, the next step naming the GitHub account and model provider in the way, What failed, and the checks with Show all 8 checks](screenshots/eli-repair-readiness-light.webp#only-light){ .zoomies-shot }
 
 A repair has a page of its own, at `/repairs/<id>`, that follows it from the
 moment it is queued. While Eli works it says one line: the current step, how
@@ -1026,21 +1030,20 @@ the outcome, and the timeline is one press away under **Timeline**.
 A repair the repository's policy started says so under **This attempt**
 (**Started by** Automatic repairs, by the repository's policy), and an
 administrator also gets a card, **Automatic repairs on** the repository, beside
-it. The card says where that policy stands now: still automatic (who pays, how
-much of the allowance is used), with **Stop automatic repairs** and a link to the
-policy in settings, or no longer automatic. While the repair has not pushed yet
+it. The card says where that policy stands now: still automatic (who pays), with
+**Stop automatic repairs** and a link to the policy in settings, or no longer
+automatic. While the repair has not pushed yet
 it says that stopping now also stops this repair.
 
-![An automatic repair that did not fix its failure: Started automatically, the outcome and next steps, and the Automatic repairs card with who pays, the allowance used, Stop automatic repairs and a link to its policy](screenshots/eli-repair-automatic-dark.webp#only-dark){ .zoomies-shot }
-![An automatic repair that did not fix its failure: Started automatically, the outcome and next steps, and the Automatic repairs card with who pays, the allowance used, Stop automatic repairs and a link to its policy](screenshots/eli-repair-automatic-light.webp#only-light){ .zoomies-shot }
+![An automatic repair that did not fix its failure: Started automatically, the outcome and next steps, and the Automatic repairs card with who pays, Stop automatic repairs and a link to its policy](screenshots/eli-repair-automatic-dark.webp#only-dark){ .zoomies-shot }
+![An automatic repair that did not fix its failure: Started automatically, the outcome and next steps, and the Automatic repairs card with who pays, Stop automatic repairs and a link to its policy](screenshots/eli-repair-automatic-light.webp#only-light){ .zoomies-shot }
 
 **Repair settings** has its own **On this page** navigation for the account, the
 repositories and the people. It is where administrators choose the repositories
 and **When should Eli help?**, and link each requester's GitHub account to their
 Zoomies user; the requester then confirms that their own provider pays for the
 repairs they ask for. Start with **Ask me first** to review fixes before spending
-tokens. Workflow edits and the daily try budget sit behind **Advanced** and stay
-off or at five tries until somebody changes them. When a repair page is blocked
+tokens. Workflow edits sit behind **Advanced** and stay off until somebody changes them. When a repair page is blocked
 on setup, a short wizard for that failure fixes what is missing and leaves you on
 it.
 
@@ -1104,8 +1107,8 @@ and the system itself) with the target and the source address. Open an event
 to see exactly what changed. Secrets were redacted when the row was written,
 so nothing here can leak one.
 
-![The Audit grid: when, actor, action, target and source address for each change](screenshots/audit-dark.webp#only-dark){ .zoomies-shot }
-![The Audit grid: when, actor, action, target and source address for each change](screenshots/audit-light.webp#only-light){ .zoomies-shot }
+![The Audit page: one card with the event count over its title, the kinds of thing acted on as chips, and the grid of when, actor, action, target and source address for each change](screenshots/audit-dark.webp#only-dark){ .zoomies-shot }
+![The Audit page: one card with the event count over its title, the kinds of thing acted on as chips, and the grid of when, actor, action, target and source address for each change](screenshots/audit-light.webp#only-light){ .zoomies-shot }
 
 ## Settings
 

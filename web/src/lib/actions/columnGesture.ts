@@ -26,18 +26,23 @@
 const DRAG_THRESHOLD_PX = 4;
 
 /**
- * The column under a point, or the empty string if the point is not over one.
+ * The slot under a point, or the empty string if the point is not over one.
+ *
+ * A slot is whatever carries the named `data-*` attribute: a column heading
+ * for the grid, a panel for the Overview. The gesture is the same whichever it
+ * is, so the attribute is the one thing a caller names.
  *
  * `elementsFromPoint` rather than `elementFromPoint`: the heading carries the
  * grip and the resize handle on top of it, and the one nearest the pointer is
  * whichever control it happens to be over. Searching down the stack finds the
  * heading under them either way.
  */
-function columnAt(root: HTMLElement, x: number, y: number): string {
+export function slotAt(root: HTMLElement, attribute: string, x: number, y: number): string {
+  const key = attribute.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
   for (const element of document.elementsFromPoint(x, y)) {
     if (!root.contains(element)) continue;
-    const cell = element.closest<HTMLElement>('[data-table-column]');
-    const id = cell?.dataset.tableColumn;
+    const slot = element.closest<HTMLElement>(`[data-${attribute}]`);
+    const id = slot?.dataset[key];
     if (id) return id;
   }
   return '';
@@ -59,7 +64,7 @@ function capture(node: HTMLElement, pointerId: number): void {
   }
 }
 
-export interface ColumnDragHandlers {
+export interface SlotDragHandlers {
   /** The column the pointer is over now, or '' for none. Called as it moves. */
   over(id: string): void;
   /** Where the pointer was lifted, after a drag that really began. */
@@ -73,6 +78,9 @@ export interface ColumnDragHandlers {
   cancel(): void;
 }
 
+/** The grid's name for the same handlers. */
+export type ColumnDragHandlers = SlotDragHandlers;
+
 /**
  * Drag a column by its grip, reporting what the pointer is over as it moves.
  *
@@ -83,6 +91,20 @@ export function startColumnDrag(
   event: PointerEvent,
   root: HTMLElement,
   handlers: ColumnDragHandlers,
+): void {
+  startSlotDrag(event, root, 'table-column', handlers);
+}
+
+/**
+ * Drag any slot by its grip: the column gesture with the attribute that names
+ * a slot handed in, so the Overview's panels move the way a grid's columns do
+ * and a finger can do it.
+ */
+export function startSlotDrag(
+  event: PointerEvent,
+  root: HTMLElement,
+  attribute: string,
+  handlers: SlotDragHandlers,
 ): void {
   // A secondary touch is a second finger on the screen, not a second drag.
   if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
@@ -121,7 +143,7 @@ export function startColumnDrag(
         return;
       dragging = true;
       move.preventDefault();
-      handlers.over(columnAt(root, move.clientX, move.clientY));
+      handlers.over(slotAt(root, attribute, move.clientX, move.clientY));
     },
     { signal },
   );
@@ -131,7 +153,7 @@ export function startColumnDrag(
       if (up.pointerId !== event.pointerId) return;
       // A press that never became a drag is a press: reporting a target the
       // operator never aimed at is how a stray tap rearranges a table.
-      finish(dragging ? columnAt(root, up.clientX, up.clientY) : null);
+      finish(dragging ? slotAt(root, attribute, up.clientX, up.clientY) : null);
     },
     { signal },
   );

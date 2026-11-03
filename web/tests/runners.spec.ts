@@ -19,6 +19,7 @@ import {
   reload,
   rowCount,
   waitForRows,
+  withoutTheStream,
 } from './support/fixtures';
 
 /**
@@ -28,6 +29,7 @@ import {
 const STATES = ['Provisioning', 'Registering', 'Idle', 'Busy', 'Draining', 'Failed', 'Removed'];
 
 const runners = (page: Page) => grid(page, 'Runners');
+const stateChips = (page: Page) => page.getByRole('group', { name: 'Filter by runner state' });
 
 /** Wait for the first page of rows rather than for the network to go quiet. */
 async function runnerRows(page: Page): Promise<Locator> {
@@ -73,12 +75,7 @@ test('filtering by state narrows the rows and puts the filter in the URL', async
   await runnerRows(page);
   const before = await dataRows(runners(page)).count();
 
-  await page.getByRole('button', { name: 'Any state' }).click();
-  await page
-    .getByRole('group', { name: 'Filter by runner state' })
-    .getByRole('checkbox', { name: 'Busy' })
-    .check();
-  await page.keyboard.press('Escape');
+  await stateChips(page).getByRole('button', { name: /^Busy/ }).click();
 
   await expect(page).toHaveURL(/[?&]state=busy/);
   await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText('Busy');
@@ -97,7 +94,159 @@ test('filtering by state narrows the rows and puts the filter in the URL', async
   await reload(page, 'Runners');
   await expect(page).toHaveURL(/[?&]state=busy/);
   await expect(dataRows(runners(page))).toHaveCount(narrowed);
-  await expect(page.getByRole('button', { name: 'Busy', exact: true })).toBeVisible();
+  await expect(stateChips(page).getByRole('button', { name: /^Busy/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+});
+
+test("the card's eyebrow counts the runners the stats know and the ones that are live", async ({
+  page,
+}) => {
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  const stats = (await (await page.request.get('/api/v1/stats')).json()) as {
+    runners: Record<string, number>;
+  };
+  const r = stats.runners;
+  const live =
+    (r.provisioning ?? 0) +
+    (r.registering ?? 0) +
+    (r.idle ?? 0) +
+    (r.busy ?? 0) +
+    (r.draining ?? 0);
+  await expect(page.locator('.list-card header .eyebrow')).toHaveText(
+    `${r.total} known, ${live} live`,
+  );
+});
+
+test('the Include removed switch keeps its sentence in the card head', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await expect(page.locator('.list-card').getByText('Kept for a while as history.')).toBeVisible();
+});
+
+test('a layout saved before Age was hidden by default keeps Age on the screen', async ({
+  page,
+}) => {
+  test.skip(
+    (page.viewportSize()?.width ?? 1000) < 1181,
+    'a narrow window folds wide columns anyway',
+  );
+  // An operator who arranged this grid before the default changed sees no
+  // change: a record with a layout and no `shown` list is one from before.
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'zoomies.prefs',
+      JSON.stringify({ grids: { runners: { hidden: ['host'] } } }),
+    );
+  });
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await expect(runners(page).getByRole('columnheader', { name: /\bAge\b/ })).toBeVisible();
+  await expect(runners(page).getByRole('columnheader', { name: /\bHost\b/ })).toHaveCount(0);
+});
+
+test('two chips are two states in the address, and All clears them', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await stateChips(page).getByRole('button', { name: /^Busy/ }).click();
+  await stateChips(page)
+    .getByRole('button', { name: /^Draining/ })
+    .click();
+  await expect(page).toHaveURL(/state=busy/);
+  await expect(page).toHaveURL(/state=draining/);
+  await stateChips(page).getByRole('button', { name: /^All/ }).click();
+  await expect(page).not.toHaveURL(/state=/);
+  await expect(stateChips(page).getByRole('button', { name: /^All/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+});
+
+test('a state the product does not have is ignored, with All pressed', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  const all = await (await runnerRows(page)).count();
+  await goto(page, '/runners?state=bogus', 'Runners');
+  await runnerRows(page);
+  await expect(stateChips(page).getByRole('button', { name: /^All/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(dataRows(runners(page))).toHaveCount(all);
+});
+
+test('the chips drop their counts while a pool filter is in force', async ({ page }) => {
+  // The counts are the fleet's; beside one pool's rows they would be wrong.
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await expect(stateChips(page).locator('.count').first()).toBeVisible();
+  await page.getByRole('combobox', { name: 'Filter by pool' }).selectOption({ index: 1 });
+  await expect(page).toHaveURL(/pool_id=/);
+  await expect(stateChips(page).locator('.count')).toHaveCount(0);
+});
+
+test('with the stats failed the card still draws, without an eyebrow or counts', async ({
+  page,
+}) => {
+  // The stream carries a stats frame every half minute, which would put the
+  // figures back mid-test, so it is taken away first (web/AGENTS.md).
+  await withoutTheStream(page);
+  await page.route('**/api/v1/stats*', (route) => route.fulfill({ status: 500, body: 'no' }));
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await expect(page.locator('.list-card header .eyebrow')).toHaveCount(0);
+  await expect(stateChips(page)).toBeVisible();
+  await expect(stateChips(page).locator('.count')).toHaveCount(0);
+  expect(await page.locator('.list-card').innerText()).not.toMatch(/undefined|NaN/);
+});
+
+test('the lifecycle is behind Fleet context, under the list', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await expect(page.getByRole('list', { name: 'Runner lifecycle, in order' })).toHaveCount(0);
+  const context = page.locator('details.fleet-context');
+  const card = page.locator('.list-card');
+  expect((await context.boundingBox())!.y).toBeGreaterThan((await card.boundingBox())!.y);
+  await context.getByText('Fleet context', { exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Runner lifecycle, in order' })).toBeVisible();
+  await expect(context.getByText('Explore fleet activity over the last 24 hours')).toBeVisible();
+});
+
+test('Age and CPU are a click away rather than on by default, and a choice to show Age survives a reload', async ({
+  page,
+}) => {
+  test.skip(
+    (page.viewportSize()?.width ?? 1000) < 1181,
+    'a narrow window folds wide columns anyway',
+  );
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  // A header's name starts with its reposition button, so the column's own
+  // word is matched as a word, not at the start; "page" in the select-all
+  // label is why the match is case-sensitive.
+  await expect(runners(page).getByRole('columnheader', { name: /\bAge\b|\bCPU\b/ })).toHaveCount(0);
+  await expect(runners(page).getByRole('columnheader', { name: /\bMemory\b/ })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Columns' }).click();
+  await page
+    .getByRole('group', { name: 'Column layout' })
+    .getByRole('checkbox', { name: 'Age' })
+    .check();
+  await page.keyboard.press('Escape');
+  await expect(runners(page).getByRole('columnheader', { name: /\bAge\b/ })).toBeVisible();
+  await reload(page, 'Runners');
+  await runnerRows(page);
+  await expect(runners(page).getByRole('columnheader', { name: /\bAge\b/ })).toBeVisible();
+});
+
+test('every chip fits on a phone with no horizontal overflow', async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 1000) >= 500, 'a phone test');
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+  await expect(stateChips(page).getByRole('button')).toHaveCount(7);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+  ).toBeLessThanOrEqual(0);
 });
 
 test('a hidden column stays hidden after a reload', async ({ page }) => {

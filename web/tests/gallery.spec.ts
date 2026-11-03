@@ -37,6 +37,8 @@ const SECTIONS = [
   'Data grid',
   'Eli repairs',
   'Public pages',
+  'Terminal and facts',
+  'Band pictures',
 ];
 
 function open(page: Page, style: string, mode: string): Promise<unknown> {
@@ -50,6 +52,12 @@ function parseColour(value: string): [number, number, number] {
       ?.split(/[,\s/]+/)
       .map(Number) ?? [];
   return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+}
+
+/** A token's hex value as the channels getComputedStyle reports. */
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
 }
 
 function luminance(value: string): number {
@@ -375,13 +383,13 @@ test('the Eli repair components show every state they can be in', async ({ page 
   await expect(blocked.getByRole('listitem').filter({ hasText: 'Write access' })).toContainText(
     'Your linked GitHub account needs write access',
   );
-  await expect(blocked.getByText('Not checked yet.')).toHaveCount(5);
+  await expect(blocked.getByText('Not checked yet.')).toHaveCount(4);
   await expect(blocked.getByRole('link', { name: /Manage access on GitHub/ })).toHaveAttribute(
     'href',
     'https://github.com/eyupio/zoomies/settings/access',
   );
   await expect(region.locator('[data-gallery="checks-passed"]')).toContainText(
-    'All 9 checks passed',
+    'All 8 checks passed',
   );
 
   // The decision card at each stage.
@@ -484,10 +492,18 @@ test('the Eli repair components show every state they can be in', async ({ page 
       .getByRole('link', { name: /Open pull request/ }),
   ).toHaveCount(0);
 
-  // The facts leave out what the row does not have, and the timeline holds the moments it recorded.
+  // The facts surface the attempt's own details, omit what the row has not got,
+  // and say "None" for a commit that was not pushed. The timeline holds the
+  // moments it recorded.
   const running = region.locator('[data-gallery="facts-running"]');
   await expect(running).toContainText('Personal provider');
-  await expect(running).not.toContainText('Commit pushed');
+  await expect(running).toContainText('Repository');
+  await expect(running).toContainText('Pull request');
+  await expect(running).toContainText('Age');
+  await expect(running).toContainText('Last updated');
+  await expect(running).toContainText('Failing head');
+  await expect(running).toContainText('Commit pushed');
+  await expect(running).toContainText('None');
   const done = region.locator('[data-gallery="facts-finished"]');
   await expect(done.getByRole('link', { name: /b7d3e91/ })).toHaveAttribute(
     'href',
@@ -572,4 +588,233 @@ test('the Eli repair components show every state they can be in', async ({ page 
   ]) {
     await expect(badges.getByText(label, { exact: true })).toBeVisible();
   }
+});
+
+// A panel with an icon draws it in a tile beside the title: the Overview's
+// cards share one head, so no page draws its own.
+test('a panel with an icon draws it in a tile beside the title', async ({ page }) => {
+  await open(page, 'mission-control', 'light');
+  const panel = page.locator('.panel', { hasText: 'Panel with a tile' }).first();
+  const tile = panel.locator('header .tile');
+  await expect(tile).toBeVisible();
+  const [w, h, radius] = await tile.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return [r.width, r.height, parseFloat(getComputedStyle(el).borderRadius)];
+  });
+  expect(w).toBe(h);
+  expect(radius).toBeGreaterThan(0);
+  await expect(tile).toHaveAttribute('aria-hidden', 'true');
+});
+
+// The list card the signed-in pages draw: a Panel with a count over its title
+// and the filter chips in a row of their own, holding a grid that has given up
+// its own frame, so the page shows one border and not a box inside a box.
+test('the list card is one frame: an eyebrow over the title, chips in a toolbar, and a bare grid inside', async ({
+  page,
+}) => {
+  await open(page, 'mission-control', 'light');
+  const card = page.getByRole('region', { name: 'Data grid' });
+  const eyebrow = card.locator('header .eyebrow');
+  await expect(eyebrow).toHaveText('11 known, 9 live');
+  await expect(eyebrow.evaluate((el) => getComputedStyle(el).textTransform)).resolves.toBe(
+    'uppercase',
+  );
+  await expect(
+    card.locator('.toolbar').getByRole('group', { name: 'Filter by runner state' }),
+  ).toBeVisible();
+  const grid = card.locator('.grid');
+  await expect(grid).toHaveClass(/bare/);
+  const [gridBorder, cardBorder] = await Promise.all([
+    grid.evaluate((el) => getComputedStyle(el).borderTopWidth),
+    card.evaluate((el) => getComputedStyle(el).borderTopWidth),
+  ]);
+  expect(gridBorder).toBe('0px');
+  expect(parseFloat(cardBorder)).toBeGreaterThan(0);
+  // The titles keep a readable width only on a list card, whose actions are a
+  // row of controls; an ordinary panel's titles still shrink before its
+  // actions wrap, so a narrow Overview card keeps its badge beside its title.
+  // The computed basis comes back in pixels: 14rem at the root's font size.
+  const basis = (locator: import('@playwright/test').Locator) =>
+    locator.evaluate((el) => {
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      return parseFloat(getComputedStyle(el).flexBasis) / rem;
+    });
+  expect(await basis(card.locator('header .titles'))).toBeCloseTo(14, 1);
+  expect(
+    await basis(
+      page.locator('.panel', { hasText: 'Panel with a tile' }).first().locator('header .titles'),
+    ),
+  ).toBe(0);
+});
+
+// A filter chip says it is in force three ways, so the state survives greyscale
+// and forced colours: aria-pressed, a tick, and the weight of its words.
+test('filter chips say which are in force with a tick and aria-pressed, in every combination', async ({
+  page,
+}) => {
+  for (const { style, mode } of COMBINATIONS) {
+    await open(page, style, mode);
+    const group = page.getByRole('group', { name: 'Filter by runner state' }).first();
+    const busy = group.getByRole('button', { name: /^Busy/ });
+    await expect(busy).toHaveAttribute('aria-pressed', 'true');
+    await expect(busy.locator('svg')).toHaveCount(1);
+    const idle = group.getByRole('button', { name: /^Idle/ });
+    await expect(idle).toHaveAttribute('aria-pressed', 'false');
+    await expect(idle.locator('svg')).toHaveCount(0);
+    await expect(group.getByRole('button', { name: /^All/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(
+      parseFloat(await busy.evaluate((el) => getComputedStyle(el).borderRadius)),
+    ).toBeGreaterThan(20);
+  }
+});
+
+// A filter the chips cannot say leaves every chip unpressed, All included, and a
+// chip's hint is the shared tooltip, so a word like "Our failures" can explain
+// itself without a word more in the row.
+test('a filter no chip says presses nothing, and a chip with a hint explains itself on hover', async ({
+  page,
+}) => {
+  await open(page, 'mission-control', 'dark');
+  const group = page.getByRole('group', { name: 'Filter jobs by status' }).first();
+  for (const button of await group.getByRole('button').all())
+    await expect(button).toHaveAttribute('aria-pressed', 'false');
+  await group.getByRole('button', { name: /^Our failures/ }).hover();
+  await expect(page.locator('.bubble:popover-open')).toContainText('Failures this fleet caused');
+});
+
+// The shared look's one button: a pill in the brand's Runner Blue under Zoomies
+// Black, which is 7.3:1 in every combination, where the darkened accent was
+// needed only to carry white text. Held here so a later component cannot drift
+// back to a rectangle or to the accent.
+test('the primary button is a pill in Runner Blue with Zoomies Black text, in every combination', async ({
+  page,
+}) => {
+  for (const { style, mode } of COMBINATIONS) {
+    await open(page, style, mode);
+    const button = page.getByRole('button', { name: 'Create a pool' }).first();
+    const root = page.locator(':root');
+    const [radius, background, colour, runnerBlue, black] = await Promise.all([
+      button.evaluate((el) => getComputedStyle(el).borderRadius),
+      button.evaluate((el) => getComputedStyle(el).backgroundColor),
+      button.evaluate((el) => getComputedStyle(el).color),
+      root.evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-runner-blue').trim()),
+      root.evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-black').trim()),
+    ]);
+    expect(parseFloat(radius), `${style} ${mode}`).toBeGreaterThanOrEqual(999);
+    expect(parseColour(background), `${style} ${mode}`).toEqual(hexToRgb(runnerBlue));
+    expect(parseColour(colour), `${style} ${mode}`).toEqual(hexToRgb(black));
+  }
+});
+
+// The icon buttons share the pill, and a text field takes the large radius so
+// it reads as the card's child rather than a box inside it; the checkbox and
+// the radio box keep the small one.
+test('icon buttons are pills and text fields take the large radius', async ({ page }) => {
+  await open(page, 'mission-control', 'dark');
+  const large = await page
+    .locator(':root')
+    .evaluate((el) => getComputedStyle(el).getPropertyValue('--z-radius-lg').trim());
+  const icon = page.locator('.icon-btn').first();
+  expect(
+    parseFloat(await icon.evaluate((el) => getComputedStyle(el).borderRadius)),
+  ).toBeGreaterThanOrEqual(999);
+  for (const selector of ['.field input', '.field select', '.field textarea']) {
+    const control = page.locator(selector).first();
+    expect(await control.evaluate((el) => getComputedStyle(el).borderRadius), selector).toBe(large);
+  }
+});
+
+// A status badge is a pill in shape as well as in name. Its two heights do not
+// move, so no grid row grows where a small badge sits beside a medium one.
+test('a status badge is a pill and keeps its height in both sizes', async ({ page }) => {
+  await open(page, 'classic', 'light');
+  const badges = page.locator('.badge');
+  expect(await badges.count()).toBeGreaterThan(1);
+  const first = badges.first();
+  expect(
+    parseFloat(await first.evaluate((el) => getComputedStyle(el).borderRadius)),
+  ).toBeGreaterThanOrEqual(999);
+  const heights = await badges.evaluateAll((els) =>
+    els.map((el) => el.getBoundingClientRect().height),
+  );
+  const [md, sm] = await page.locator(':root').evaluate((el) => {
+    const s = getComputedStyle(el);
+    const rem = parseFloat(s.fontSize);
+    return [
+      parseFloat(s.getPropertyValue('--z-space-5')) * rem,
+      parseFloat(s.getPropertyValue('--z-space-4')) * rem,
+    ];
+  });
+  for (const h of heights) expect([Math.round(md), Math.round(sm)]).toContain(Math.round(h));
+});
+
+// A command the operator runs is shown in a window on the dark stage, the
+// same black in every combination, and a long one wraps inside it on a phone
+// rather than widening the page.
+test('the terminal is a window on the dark stage that wraps a long command', async ({ page }) => {
+  for (const { style, mode } of COMBINATIONS) {
+    await open(page, style, mode);
+    const terminal = page.locator('.terminal').first();
+    const [background, black, radius] = await Promise.all([
+      terminal.evaluate((el) => getComputedStyle(el).backgroundColor),
+      page
+        .locator(':root')
+        .evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-black').trim()),
+      terminal.evaluate((el) => getComputedStyle(el).borderRadius),
+    ]);
+    expect(parseColour(background), `${style} ${mode}`).toEqual(hexToRgb(black));
+    expect(radius).not.toBe('0px');
+    await expect(terminal.locator('.terminal-bar')).toContainText('sam@lab-vm-2');
+    await expect(terminal.getByRole('button', { name: 'Copy the command' })).toBeVisible();
+  }
+  await page.setViewportSize({ width: 375, height: 800 });
+  await open(page, 'mission-control', 'dark');
+  const overflow = await page
+    .locator('.terminal')
+    .first()
+    .evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(overflow).toBe(0);
+});
+
+// The copy control inside the window is the one control on the stage, so its
+// edge has to read against the black (the 3:1 bar for a control's edge), and
+// it is a pill like every other button, not the one rectangle left.
+test('the copy control inside the terminal is a pill whose edge reads on the stage', async ({
+  page,
+}) => {
+  for (const { style, mode } of COMBINATIONS) {
+    await open(page, style, mode);
+    const terminal = page.locator('.terminal').first();
+    const control = terminal.getByRole('button', { name: 'Copy the command' });
+    const [background, edge, radius, height] = await Promise.all([
+      terminal.evaluate((el) => getComputedStyle(el).backgroundColor),
+      control.evaluate((el) => getComputedStyle(el).borderTopColor),
+      control.evaluate((el) => parseFloat(getComputedStyle(el).borderTopLeftRadius)),
+      control.evaluate((el) => el.getBoundingClientRect().height),
+    ]);
+    expect(contrast(edge, background), `${style} ${mode} edge`).toBeGreaterThanOrEqual(3);
+    expect(radius, `${style} ${mode} radius`).toBeGreaterThanOrEqual(height / 2);
+  }
+});
+
+// A block of facts about one thing stands on the dark stage as the terminal
+// does, and on a phone it is one column in which an unbroken value wraps.
+test('the facts panel is on the dark stage and holds an unbroken value', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  await open(page, 'mission-control', 'light');
+  const facts = page.locator('.facts-panel').first();
+  const [background, black] = await Promise.all([
+    facts.evaluate((el) => getComputedStyle(el).backgroundColor),
+    page
+      .locator(':root')
+      .evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-black').trim()),
+  ]);
+  expect(parseColour(background)).toEqual(hexToRgb(black));
+  expect(await facts.evaluate((el) => el.scrollWidth - el.clientWidth)).toBe(0);
+  expect(
+    await facts.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length),
+  ).toBe(1);
 });

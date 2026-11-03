@@ -11,14 +11,13 @@ export type Readiness = Schemas['EliReadiness'];
 export type Repair = Schemas['EliRepair'];
 export type AutomaticRepository = Schemas['EliAutomaticRepository'];
 
-/** The nine checks, in the order the controller makes them. */
+/** The eight checks, in the order the controller makes them. */
 export const CHECK_ORDER: Check['code'][] = [
   'identity',
   'provider',
   'installation',
   'access',
   'policy',
-  'budget',
   'pull',
   'checks',
   'permissions',
@@ -63,7 +62,6 @@ export function readiness(over: Partial<Readiness> = {}): Readiness {
     provider: 'My provider',
     model: 'my-model',
     allow_workflows: false,
-    remaining: 4,
     blockers: [],
     checks: allOk(),
     ...over,
@@ -188,8 +186,6 @@ export function automaticRepository(over: Partial<AutomaticRepository> = {}): Au
     provider_name: 'Team provider',
     model: 'team-model',
     allow_workflows: false,
-    daily_limit: 5,
-    used: 0,
     running: 0,
     ...over,
   };

@@ -10,10 +10,20 @@
   import IconButton from '$lib/components/IconButton.svelte';
   import Panel from '$lib/components/Panel.svelte';
   import Segmented from '$lib/components/Segmented.svelte';
+  import FilterChips from '$lib/components/FilterChips.svelte';
+  import { runnerStateChips } from '$lib/runners/state-chips';
+  import { jobViewChips } from '$lib/jobs/view-chips';
+  import type { RunnerState } from '$lib/api/types';
   import { THEME_OPTIONS } from '$lib/state/theme.svelte';
 
   let pressed = $state(false);
   let range = $state('15m');
+  let chipStates = $state<RunnerState[]>(['busy', 'draining']);
+  const chipOptions = runnerStateChips(
+    { provisioning: 1, registering: 1, idle: 3, busy: 3, draining: 1, failed: 1 },
+    false,
+    true,
+  );
 
   const ranges = [
     { value: '5m', label: '5m', name: 'Last five minutes' },
@@ -101,6 +111,33 @@
         reason="Only administrators can delete a pool. Ask an administrator for the administrator role."
       />
     </div>
+  </div>
+
+  <div class="block">
+    <h3>Filter chips</h3>
+    <p class="note">
+      A list's primary filter: All and one chip per value with its count, more than one in force at
+      once, each saying so with a tick as well as aria-pressed.
+    </p>
+    <FilterChips
+      label="Filter by runner state"
+      options={chipOptions}
+      selected={chipStates}
+      total={11}
+      onchange={(next) => (chipStates = next)}
+    />
+    <p class="note">
+      One view at a time, each with a hint on hover; and the filter no chip can say, which leaves
+      nothing pressed, All included.
+    </p>
+    <FilterChips
+      label="Filter jobs by status"
+      options={jobViewChips({ running_jobs: 3, queued_jobs: 6 }, true)}
+      selected={[]}
+      none
+      scroll
+      onchange={() => {}}
+    />
   </div>
 
   <div class="block">

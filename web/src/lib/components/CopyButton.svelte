@@ -113,7 +113,9 @@
     align-items: center;
     justify-content: center;
     border: 0;
-    border-radius: var(--z-radius-sm);
+    /* A pill, as every other button is; the icon-only sizes are squares, so
+       the full radius makes them round like the icon button. */
+    border-radius: var(--z-radius-full);
     background: transparent;
     color: var(--z-text-subtle);
     cursor: pointer;

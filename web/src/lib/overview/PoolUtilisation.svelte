@@ -4,8 +4,12 @@
   The one thing this section exists to make obvious: a pool sitting on its
   ceiling while jobs are still queued for it. That pool cannot grow, so the
   queue will not move until somebody raises its maximum or adds capacity. It is
-  called out three ways -- a marked row, a badge that says so, and the bar's own
+  called out three ways -- a marked card, a badge that says so, and the bar's own
   ceiling tick -- because colour on its own is not an answer.
+
+  A pool is a card, as the mock draws it: its name, its state, its runners and
+  its waiting work as a pair of facts, and the bar. Six at most; a fleet with
+  more is a count and the Pools page, so the Overview stays one screen.
 -->
 <script lang="ts">
   import { Boxes, TriangleAlert } from '@lucide/svelte';
@@ -13,13 +17,14 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import { session } from '$lib/state/session.svelte';
   import { formatNumber, pluralise } from '$lib/format';
-  import { poolStatus, runnerStatus } from '$lib/status';
+  import { runnerStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import Panel from '$lib/components/Panel.svelte';
+  import { POOLS_SHOWN, cap } from './panels';
 
   interface Props {
     loading?: boolean;
@@ -104,10 +109,18 @@
   });
 
   const pinnedCount = $derived(rows.filter((r) => r.pinned).length);
+  // A disabled pool runs nothing and takes none of the six cards; the Pools
+  // page lists it with the rest.
+  const { shown, more } = $derived(
+    cap(
+      rows.filter((r) => r.enabled),
+      POOLS_SHOWN,
+    ),
+  );
   const canCreate = $derived(session.can('operator'));
 </script>
 
-<Panel title="Pools" class={className} flush>
+<Panel title="Pools" icon={Boxes} class={className} flush>
   {#snippet actions()}
     {#if pinnedCount > 0}
       <Badge tone="pending" label="{formatNumber(pinnedCount)} at the ceiling" dot={false} />
@@ -117,12 +130,12 @@
 
   {#if loading}
     <p class="sr-only">Loading pools.</p>
-    <ul class="rows" aria-hidden="true">
+    <ul class="cards" aria-hidden="true">
       {#each [0, 1, 2] as row (row)}
-        <li class="row">
+        <li class="card">
           <div class="head"><Skeleton width="7rem" height="var(--z-text-base)" /></div>
+          <div class="facts"><Skeleton width="4rem" height="var(--z-text-xs)" /></div>
           <div class="bar"><Skeleton height="var(--z-space-4)" /></div>
-          <div class="queued"><Skeleton width="4rem" height="var(--z-text-xs)" /></div>
         </li>
       {/each}
     </ul>
@@ -142,21 +155,18 @@
       {/if}
     </EmptyState>
   {:else}
-    <ul class="rows">
-      {#each rows as row (row.id)}
-        <li class="row" class:pinned={row.pinned}>
+    <ul class="cards">
+      {#each shown as row (row.id)}
+        <li class="card" class:pinned={row.pinned}>
           <div class="head">
             <a class="name" href="/pools/{row.id}">{row.name}</a>
             <span class="range tabular"
               >{formatNumber(row.min)}–{formatNumber(row.max)} runners</span
             >
             <div class="badges">
-              {#if !row.enabled}
-                <Badge status={poolStatus({ enabled: row.enabled })} size="sm" />
-              {/if}
               {#if row.pinned}
                 <Badge tone="pending" size="sm" label="At its ceiling" dot={false} />
-              {:else if row.enabled}
+              {:else}
                 <!-- What the pool is doing, as a word and the fixed shape of that state:
                      working, waiting for a runner, or ready. -->
                 {#if row.busy > 0}
@@ -173,6 +183,21 @@
               {/if}
             </div>
           </div>
+          <dl class="facts">
+            <div>
+              <dt>Runners</dt>
+              <dd class="tabular">{formatNumber(row.live)} of {formatNumber(row.max)}</dd>
+            </div>
+            <div>
+              <dt>Waiting</dt>
+              <dd class="tabular" class:waiting={row.queued > 0}>
+                {#if row.pinned}
+                  <TriangleAlert size={12} aria-hidden="true" />
+                {/if}
+                {formatNumber(row.queued)}{row.pinned ? ' and nowhere to run' : ''}
+              </dd>
+            </div>
+          </dl>
           <div class="bar">
             <UtilisationBar
               busy={row.busy}
@@ -188,15 +213,12 @@
               )} / {formatNumber(row.max)} live / max
             </p>
           </div>
-          <p class="queued tabular" class:waiting={row.queued > 0}>
-            {#if row.pinned}
-              <TriangleAlert size={12} aria-hidden="true" />
-            {/if}
-            {pluralise(row.queued, 'job')} queued
-          </p>
         </li>
       {/each}
     </ul>
+    {#if more > 0}
+      <p class="more"><a href="/pools">and {pluralise(more, 'more pool')}</a></p>
+    {/if}
   {/if}
 </Panel>
 
@@ -211,25 +233,25 @@
     font-size: var(--z-text-xs);
     overflow-wrap: anywhere;
   }
-  .rows {
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(18rem, 100%), 1fr));
+    gap: var(--z-space-3);
     margin: 0;
-    padding: 0;
+    padding: var(--z-space-4) var(--z-space-5);
     list-style: none;
   }
-  .row {
+  .card {
     display: grid;
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
-    align-items: center;
-    gap: var(--z-space-4);
-    padding: var(--z-space-3) var(--z-space-5);
-    border-bottom: var(--z-border-width) solid var(--z-border);
-    border-left: var(--z-border-width-rail) solid transparent;
+    gap: var(--z-space-3);
+    min-width: 0;
+    padding: var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-lg);
+    background: var(--z-surface);
   }
-  .row:last-child {
-    border-bottom: 0;
-  }
-  .row.pinned {
-    border-left-color: var(--z-pending);
+  .card.pinned {
+    border-color: var(--z-pending-border);
     background: var(--z-pending-subtle);
   }
   .head {
@@ -258,50 +280,42 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--z-space-1);
-    width: 100%;
+    margin-left: auto;
   }
   .badges:empty {
     display: none;
   }
-  .bar {
-    min-width: 0;
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--z-space-1) var(--z-space-4);
+    margin: 0;
   }
-  .queued {
-    display: inline-flex;
+  .facts dt {
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+  .facts dd {
+    display: flex;
     align-items: center;
     gap: var(--z-space-1);
     margin: 0;
-    justify-self: end;
-    white-space: nowrap;
-    font-size: var(--z-text-xs);
-    color: var(--z-text-subtle);
+    font-size: var(--z-text-sm);
+    color: var(--z-text);
   }
-  .queued.waiting {
+  .facts dd.waiting {
     color: var(--z-pending);
     font-weight: var(--z-weight-medium);
   }
-  @media (max-width: 768px) {
-    .row {
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: var(--z-space-2);
-    }
-    .head {
-      grid-column: 1 / -1;
-    }
-    .bar {
-      grid-column: 1;
-    }
-    .queued {
-      grid-column: 2;
-    }
-    .row .badges {
-      width: auto;
-    }
-    .row .head {
-      gap: var(--z-space-1);
-    }
-    .queued {
-      justify-self: start;
-    }
+  .bar {
+    min-width: 0;
+  }
+  .more {
+    margin: 0;
+    padding: 0 var(--z-space-5) var(--z-space-4);
+    font-size: var(--z-text-sm);
+  }
+  .more a {
+    color: var(--z-accent);
   }
 </style>

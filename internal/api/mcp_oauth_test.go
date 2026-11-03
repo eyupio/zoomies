@@ -83,7 +83,7 @@ func (h *harness) authorize(clientID, redirect string, extra url.Values) *respon
 
 // requestFrom reads the consent page's request ID out of the authorisation
 // endpoint's redirect.
-func requestFrom(t *testing.T, resp *response) string {
+func requestFrom(t testing.TB, resp *response) string {
 	t.Helper()
 	resp.mustStatus(t, http.StatusFound, "the authorisation endpoint")
 	loc, err := url.Parse(resp.header.Get("Location"))
@@ -133,7 +133,7 @@ func (h *harness) exchange(clientID, code string, extra url.Values, headers map[
 	return h.form("/oauth/token", v, headers)
 }
 
-func pairFrom(t *testing.T, resp *response) tokenPair {
+func pairFrom(t testing.TB, resp *response) tokenPair {
 	t.Helper()
 	resp.mustStatus(t, http.StatusOK, "the token endpoint")
 	var p tokenPair

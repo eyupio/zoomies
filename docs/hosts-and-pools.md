@@ -356,8 +356,8 @@ pass; the runners already on it stay where they are.
 
 ## Adding a pool
 
-![The Pools page: a band saying how many pools are enabled, then the pool list with a folded explanation of queue pressure and headroom under it](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
-![The Pools page: a band saying how many pools are enabled, then the pool list with a folded explanation of queue pressure and headroom under it](screenshots/pools-light.webp#only-light){ .zoomies-shot }
+![The Pools page: a band saying how many pools are enabled, then one card with the pool count over its title, Enabled and Disabled as chips and the pool list inside, with a folded explanation of queue pressure and headroom under it](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
+![The Pools page: a band saying how many pools are enabled, then one card with the pool count over its title, Enabled and Disabled as chips and the pool list inside, with a folded explanation of queue pressure and headroom under it](screenshots/pools-light.webp#only-light){ .zoomies-shot }
 
 One pool is enough until the fleet has to answer two different questions. Add a
 second when a job needs something the first cannot give it:
@@ -1206,7 +1206,22 @@ figure that tells the two apart. It is judged the way CPU is: it starts a clock
 at 20% and holds it until it falls below 10%, and a host that has been there for
 ten minutes is called *disk-bound*, which is what
 [keeping the work folder in memory](#keeping-the-work-folder-in-memory) is
-suggested on. Available memory includes reclaimable cache. The load
+suggested on. Steal is the same kind of figure for a virtual machine: the share of
+time its hypervisor kept the CPU from it, which CPU occupancy also counts as
+busy, so a machine that is being starved by the host it runs on reads as one
+hard at work. A host at 70% busy with 40% of it steal is doing about 30% of its
+own work, and no change to the pools on it will give the rest back. It is a
+measurement only, shown beside the CPU figure and kept in the history; nothing
+the scheduler decides is judged on it. A physical machine measures zero, and a
+kernel that does not report it measures nothing, which is not the same.
+Available memory includes reclaimable cache. The machine the controller itself runs on is
+sampled the same way on the controller's thirty-second tick and read from
+`GET /api/v1/controller/machine`: it is for a controller whose agents are all
+elsewhere, which has no host of its own to read that machine from and would
+otherwise be a machine nobody can see. It is the machine as the controller's
+procfs describes it, which in a container is the host's, so its CPU count and
+memory come from the same files its figures do. A controller with an embedded
+agent reports the same machine as a host. The load
 average is there because CPU occupancy pins at 100% and then stops saying
 anything: load keeps counting what is queued behind the cores, so it is what
 says a host has been pushed *past* them rather than merely to them. Sampling

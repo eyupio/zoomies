@@ -45,12 +45,20 @@
     align-items: stretch;
     min-height: 40rem;
   }
+  /* The column is a card with the stage's radius and a hairline edge, on the
+     page's own ground: the same pairing of words with a dark panel that the
+     band's pages make, so the two halves read as one composition and not as a
+     panel beside an unframed form. */
   .side {
     min-width: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: var(--z-space-4) var(--z-space-8);
+    box-sizing: border-box;
+    padding: var(--z-space-12);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-xl);
+    background: var(--z-surface);
   }
   /* The touch size for what the person fills in, whichever page this is: a
      public page is most often met on a phone, by somebody in a hurry. */
@@ -77,7 +85,7 @@
       min-height: 0;
     }
     .side {
-      padding: var(--z-space-4) var(--z-space-2) var(--z-space-6);
+      padding: var(--z-space-6) var(--z-space-5);
     }
   }
 </style>

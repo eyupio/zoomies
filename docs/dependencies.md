@@ -30,8 +30,9 @@ Two things are deliberately **not** here, and both were close calls, see
 | `github.com/prometheus/client_model` | The metric type a test reads a value back out of (`dto.Metric`), so a timing can be asserted on without parsing the text format. Only a test imports it, and `client_golang` already requires it, so it adds nothing to the build. |
 | `gopkg.in/yaml.v3` | `zoomies.yaml`. Strict decoding turns a misspelled key into an error naming the line. |
 | `github.com/charmbracelet/huh` | The installer's prompts, select, input, confirm, with validation. It is what makes `zoomies init` feel like a product rather than a script. It brings Bubble Tea v1 with it as its runtime, which is why that module still appears in `go.mod`. |
-| `charm.land/bubbletea/v2` | The dashboard's runtime: the model/update/view loop behind `zoomies tui`, which repaints from the controller's event stream without a browser. It is the maintained v2 module path, so it coexists with the v1 that `huh` still carries until `huh` moves. |
-| `github.com/charmbracelet/lipgloss` | Styling for the installer and the CLI's table output. |
+| `charm.land/bubbletea/v2` | The CLI's interactive home and task progress use its model/update/view loop, keeping input, work and rendering separate. It is the maintained v2 module path, so it coexists with the v1 that `huh` still carries until `huh` moves. |
+| `github.com/charmbracelet/x/ansi` | Clip and measure terminal text by display cells, preserving colour escapes and wide characters when a window is resized. Already required by Bubble Tea; using it directly adds no module to the dependency graph. |
+| `github.com/charmbracelet/lipgloss` | Styling and responsive card layouts for the CLI home, plus the installer and table output. |
 | `golang.org/x/term` | Terminal detection, so the CLI and installer degrade to plain output when piped. |
 | `golang.org/x/sys` | The Windows half of the agent: the service control dispatcher a process started by the service manager must answer, the job object that lets killing a runner kill what it started, and the process and disk queries POSIX answers with a signal and a `statfs`. It was already in the tree as a transitive dependency; making it direct added no module. |
 

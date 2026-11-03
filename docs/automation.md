@@ -39,6 +39,7 @@ promise. Every route is described in full in the [API reference](api-surface.md)
 | Read and change settings | `GET`, `PATCH /api/v1/settings`; `GET /api/v1/settings/export` and `POST /api/v1/settings/import` with `dry_run`. |
 | Know what is wrong | `GET /api/v1/problems`; every code is in [problem codes](problem-codes.md). |
 | Collect a support bundle | `GET /api/v1/diagnostics/bundle`. |
+| Profile where the controller's CPU is going | `GET /api/v1/diagnostics/cpu-profile?seconds=30`, with an administrator token. |
 | Read usage for a window | `GET /api/v1/usage` and `/usage.csv`; `history_from` says where the figures begin. |
 | Back up, and check a remote holds the copy | `GET /api/v1/backups` (the list, the schedule and the remotes), `GET /api/v1/backups/remotes/{name}/copies`; see [backup and restore](backup-and-restore.md). |
 | Move or retire an installation | `POST /api/v1/installations/{id}/export`, `POST /api/v1/installations/import`, `DELETE /api/v1/installations/{id}?purge=true`. |

@@ -565,7 +565,7 @@ func TestEliCanLookAtRepairsAndNotStartOne(t *testing.T) {
 	allowFleetAccess(t, h, cookie, true)
 	inst := h.installation()
 	r := &store.EliRepair{InstallationID: inst.ID, Repo: inst.Target + "/widgets", PullNumber: 101, Trigger: "automatic", State: "failed"}
-	if added, err := h.st.EnqueueEliRepair(h.ctx, r, 5); err != nil || !added {
+	if added, err := h.st.EnqueueEliRepair(h.ctx, r); err != nil || !added {
 		t.Fatalf("seeding: %v %v", added, err)
 	}
 	r.State = "failed"

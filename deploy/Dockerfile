@@ -28,7 +28,7 @@ RUN npm run build
 # it should be the one CI and the release binaries are built with (the version in
 # .github/actions/setup-go): it was left on 1.27.1 while they moved to 1.27.2, so
 # the images were built with a different compiler from the binaries.
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS build
 WORKDIR /src
 RUN apk add --no-cache git ca-certificates
 COPY go.mod go.sum ./

@@ -18,6 +18,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/installer"
+	"github.com/eyupio/zoomies/internal/terminalui"
 	"golang.org/x/term"
 )
 
@@ -53,6 +54,7 @@ func localDoctor(path string) (*hosttune.Engine, error) {
 func runDoctor(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies doctor [--verbose] [--json] [--tier safe|aggressive|dedicated] [--host <id>]", "Check host OS settings and explain recommended changes. No host settings are changed.")
 	verbose := fs.Bool("verbose", false, "show all checks, values and explanations")
+	noAnimation := fs.Bool("no-animation", false, "disable terminal animations")
 	interactive := fs.Bool("interactive", false, "offer individual local fixes after showing the report")
 	force := fs.Bool("force", false, "with --interactive: where an approved fix needs Docker restarted, take this host out of service, wait for running jobs to finish, restart Docker and bring the host back (see zoomies tune --force)")
 	wait := fs.Duration("wait", hosttune.DefaultMaintenanceWait, "with --force, how long running jobs are given to finish")
@@ -125,7 +127,10 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 		var h struct {
 			Doctor *hosttune.Report `json:"doctor"`
 		}
-		if _, err = client.get(ctx, "/hosts/"+url.PathEscape(*host), nil, &h); err != nil {
+		if err = terminalui.Task(ctx, e.out, "Reading the latest host health report", *js || *noAnimation, func(ctx context.Context, _ io.Writer) error {
+			_, err := client.get(ctx, "/hosts/"+url.PathEscape(*host), nil, &h)
+			return err
+		}); err != nil {
 			var refused *apiError
 			if errors.As(err, &refused) && refused.status == http.StatusUnauthorized {
 				// The one thing this command needs that a person cannot be expected to
@@ -151,7 +156,12 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 		if *dockerHost != "" {
 			engine.DockerHost = *dockerHost
 		}
-		r = engine.Run(ctx, t)
+		if err := terminalui.Task(ctx, e.out, "Checking kernel, runtime and host settings", *js || *noAnimation, func(ctx context.Context, _ io.Writer) error {
+			r = engine.Run(ctx, t)
+			return ctx.Err()
+		}); err != nil {
+			return err
+		}
 	}
 	if *js {
 		err = json.NewEncoder(e.out).Encode(r)
@@ -448,7 +458,7 @@ func afterHostSetup(ctx context.Context, e *env, fresh, tune, noTune, interactiv
 
 // Upgrade ends with observations, never a tuning menu. Software approval and
 // permission to change the OS remain separate even at an interactive terminal.
-func upgradeDoctor(ctx context.Context, e *env, cfg *config.Config) {
+func upgradeDoctor(ctx context.Context, e *env, cfg *config.Config, noAnimation bool) {
 	options := hosttune.LocalOptions(cfg.Agent.WorkDir)
 	options.DockerHost = cfg.Agent.DockerHost
 	if b, err := options.System.ReadFile(filepath.Join(config.SharedDir(), "host-health", "report.json")); err == nil {
@@ -458,7 +468,14 @@ func upgradeDoctor(ctx context.Context, e *env, cfg *config.Config) {
 		}
 	}
 	engine := hosttune.New(options)
-	r := engine.Run(ctx, hosttune.Safe)
+	var r hosttune.Report
+	err := terminalui.Task(ctx, e.out, "Checking host health", noAnimation, func(ctx context.Context, _ io.Writer) error {
+		r = engine.Run(ctx, hosttune.Safe)
+		return ctx.Err()
+	})
+	if err != nil {
+		return
+	}
 	printUpgradeHealth(e.out, r)
 }
 
@@ -502,6 +519,15 @@ func actionableCount(r hosttune.Report) (n int) {
 func printDoctorBrief(w io.Writer, r hosttune.Report, fresh int) {
 	ui := installer.PaletteFor(w)
 	warnings, errs, skipped := r.Counts()
+	if terminalWriter(w) {
+		passed := 0
+		for _, result := range r.Results {
+			if result.Status == hosttune.OK {
+				passed++
+			}
+		}
+		fmt.Fprintf(w, "\n %s   %s   %s   %s\n\n", ui.Green(fmt.Sprintf("%d passed", passed)), ui.Yellow(fmt.Sprintf("%d warnings", warnings)), ui.Red(fmt.Sprintf("%d errors", errs)), ui.Dim(fmt.Sprintf("%d unavailable", skipped)))
+	}
 	skippedNote := func() {
 		if skipped > 0 {
 			ui.Hint(w, "%d checks unavailable; see --verbose for details.", skipped)

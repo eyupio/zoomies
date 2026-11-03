@@ -30,6 +30,7 @@ import {
   SECTIONS,
   useClassic,
   withoutTheStream,
+  openFleetContext,
 } from './support/fixtures';
 import {
   automaticPolicy,
@@ -914,8 +915,8 @@ test('the capacity reading keeps its figures on the card whatever the hosts are 
 test('the runner lifecycle keeps its steps in columns when it wraps', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 780 });
   await goto(page, '/runners', 'Runners');
-  // The lifecycle sits behind a disclosure on the Runners page.
-  await page.getByText('How runners move through their states', { exact: true }).click();
+  // The lifecycle sits inside the Fleet context disclosure under the list.
+  await page.getByText('Fleet context', { exact: true }).click();
 
   const steps = page.getByRole('list', { name: 'Runner lifecycle, in order' });
   const cards = steps.getByRole('link');
@@ -1161,6 +1162,8 @@ test('the host capacity map is read by touch', async ({ page }) => {
  */
 test('fleet activity is read by touch', async ({ page }) => {
   await goto(page, '/runners', 'Runners');
+  // The activity disclosure sits inside Fleet context, under the list.
+  await openFleetContext(page);
   await page.getByText('Explore fleet activity over the last 24 hours', { exact: true }).tap();
   const trend = page.getByRole('region', { name: 'Fleet activity', exact: true });
   const chart = trend.getByRole('img').first();
@@ -1414,10 +1417,8 @@ test('the automatic repair panel, card, note and dialog stay inside the screen w
         repo,
         provider_name: long,
         model: long,
-        used: 5,
         running: 1,
         problem: `The installation provider ${long} is disabled, so automatic repairs cannot start.`,
-        next_free_at: new Date(Date.now() + 40 * 60_000).toISOString(),
         last: { id: 'rep-auto', state: 'failed', pull_number: 17, updated_at: attempt.updated_at },
       }),
       automaticRow({ repo: 'acme/short' }),

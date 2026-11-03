@@ -3498,6 +3498,19 @@ paths:
             at one instant -- the last 30 days and the 30 before them -- counts every job
             once.
           schema: { type: string, format: date-time }
+        - name: completed_since
+          in: query
+          description: >-
+            Only jobs that finished at or after this instant. The start is included. A job
+            still waiting or running has not finished and is left out. Reads when a job
+            finished where `since` reads when it was queued, and the two windows compose.
+          schema: { type: string, format: date-time }
+        - name: completed_until
+          in: query
+          description: >-
+            Only jobs that finished before this instant. The end is not included, so two
+            windows cut at one instant count every job once.
+          schema: { type: string, format: date-time }
         - name: controller_version
           in: query
           description: >-
@@ -3682,6 +3695,18 @@ paths:
       parameters:
         - { name: since, in: query, description: Start of the window, included. Defaults to a week before `until`., schema: { type: string, format: date-time } }
         - { name: until, in: query, description: End of the window, not included. Defaults to now., schema: { type: string, format: date-time } }
+        - name: completed_since
+          in: query
+          description: >-
+            Narrow the jobs counted to those that finished at or after this instant, inside
+            the window `since` and `until` already cut by queue time. The start is included.
+          schema: { type: string, format: date-time }
+        - name: completed_until
+          in: query
+          description: >-
+            Narrow the jobs counted to those that finished before this instant. The end is
+            not included.
+          schema: { type: string, format: date-time }
         - name: group_by
           in: query
           description: >-
@@ -4030,6 +4055,19 @@ paths:
         - { name: q, in: query, schema: { type: string } }
         - { name: since, in: query, schema: { type: string, format: date-time } }
         - { name: until, in: query, schema: { type: string, format: date-time } }
+        - name: completed_since
+          in: query
+          description: >-
+            Only jobs that finished at or after this instant. The start is included. A job
+            still waiting or running has not finished and is left out. Reads when a job
+            finished where `since` reads when it was queued, and the two windows compose.
+          schema: { type: string, format: date-time }
+        - name: completed_until
+          in: query
+          description: >-
+            Only jobs that finished before this instant. The end is not included, so two
+            windows cut at one instant count every job once.
+          schema: { type: string, format: date-time }
         - { name: unmatched, in: query, description: Runs with a job that is still queued and that no enabled pool claims., schema: { type: boolean } }
         - { name: managed, in: query, description: Runs Zoomies has a hand in, through any job of theirs., schema: { type: boolean } }
         - { name: failed, in: query, description: Runs with a job that went wrong on either side, counting only the latest attempt of each job., schema: { type: boolean } }
@@ -4215,6 +4253,30 @@ paths:
                   items:
                     type: array
                     items: { $ref: "#/components/schemas/HostSample" }
+
+  /controller/machine:
+    get:
+      operationId: getControllerMachine
+      tags: [hosts]
+      summary: The machine the controller itself runs on
+      description: >-
+        What the controller measured of its own machine: its CPU count and memory
+        as its procfs describes them, and the whole-machine CPU, steal, I/O wait,
+        one-minute load average and available memory it last sampled. It is for a
+        controller whose agents are all elsewhere, which has no host of its own to
+        read the machine from; one with an embedded agent reports the same machine
+        as a host. Sampled on the controller's housekeeping tick and read here
+        without sampling, so asking never sets the interval the shares are taken
+        over. `usage` is absent until two samples have been taken, and on a platform
+        with no procfs; `usage_fresh` says whether a recent measurement stands
+        behind it.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ControllerMachine" }
 
   /hosts/{id}:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
@@ -6448,12 +6510,10 @@ paths:
     get:
       operationId: getEliAutomaticRepairs
       tags: [assistant]
-      summary: See the repositories that repair themselves, what they have used and whether they can run
+      summary: See the repositories that repair themselves and whether they can run
       description: >-
         One entry for each enabled repository policy set to Automatic, the ones that cannot run
-        first and then by name. `used` is every attempt on the repository in the last 24 hours, by
-        anyone and by any trigger, a repair cleared from the history included: the number the
-        daily limit is held against. Automatic repairs have no owner, so this is an
+        first and then by name. Automatic repairs have no owner, so this is an
         administrator's view and nobody else can read it.
       x-zoomies-role: admin
       responses:
@@ -6637,8 +6697,7 @@ paths:
       summary: Clear several repairs from the history
       description: >-
         Hides repairs from the history and does nothing else to them. The repair stays on
-        record, so it still counts towards the repository's and the person's daily limit,
-        still stops Eli answering the same webhook delivery twice, and still stops Eli
+        record, so it still stops Eli answering the same webhook delivery twice, and still stops Eli
         repairing its own commit. Answers 200 with a result for each distinct id, in the
         order asked, so a partial failure is visible rather than hidden behind one status
         code. A repair that is still queued, running or waiting on checks comes back as
@@ -6721,7 +6780,7 @@ paths:
     put:
       operationId: setEliRepairPolicy
       tags: [assistant]
-      summary: Configure a repository’s installation provider and repair budget
+      summary: Configure a repository’s installation provider and repair policy
       x-zoomies-role: admin
       requestBody:
         required: true
@@ -8371,6 +8430,45 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SupportBundle" }
+
+  /diagnostics/cpu-profile:
+    get:
+      operationId: getCpuProfile
+      tags: [diagnostics]
+      summary: Where this controller's CPU is going
+      description: >-
+        Samples the controller's own CPU for a few seconds and returns the profile in the
+        format `go tool pprof` reads. It is for the question the metrics cannot answer:
+        `zoomies_loop_step_seconds` says which loop and step took the time, and a profile
+        says what inside it did, down to the function. Every loop's goroutines carry a `loop`
+        label, so a profile can be read by loop, for example with
+        `go tool pprof -tagfocus=loop=housekeeping cpu.pprof`.
+
+
+        It is taken on request and never left running. Sampling costs the controller a
+        little CPU of its own, and the runtime has one profiler, so a second request while
+        one is being taken is refused with 409 rather than allowed to cut the first short.
+        The request holds the connection for as long as the sample lasts, and a client that
+        hangs up ends it.
+      x-zoomies-role: admin
+      parameters:
+        - { name: seconds, in: query, description: "How long to sample, in seconds.", schema: { type: integer, minimum: 1, maximum: 30, default: 10 } }
+      responses:
+        "200":
+          description: The profile
+          headers:
+            Content-Disposition:
+              schema: { type: string, examples: ['attachment; filename="zoomies-cpu-20261103-103000.pprof"'] }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "400":
+          description: >-
+            `seconds` is not a whole number from 1 to 30. The message says what to change.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /settings:
     get:
@@ -14743,6 +14841,7 @@ components:
         cpu_held: { type: boolean, description: Admission held after sustained CPU pressure. Running jobs continue. Owned by the controller. }
         lent_cpu_percent: { type: number, minimum: 0, maximum: 100, description: The part of cpu_percent runners were using out of CPU elastic CPU lent them. The admission hold and the throttle judge CPU without it. Owned by the controller. }
         io_wait_percent: { type: number, minimum: 0, maximum: 100, description: The share of CPU time the machine spent idle with something waiting on disk between samples. cpu_percent counts that time as busy; this is what tells a host stalled on its disk from one hard at work. Absent when unmeasured. }
+        steal_percent: { type: number, minimum: 0, maximum: 100, description: "The share of CPU time the hypervisor kept from this virtual machine between samples. `cpu_percent` counts that time as busy, so a machine that is being starved reads as one hard at work; this is what says which it is. Absent when unmeasured, or on a kernel that does not report it." }
         io_wait_high_since: { type: string, format: date-time, description: When I/O wait rose to 20% and has not fallen below 10% since. A host that has been there for ten minutes is called disk-bound, which is what a pool's advice to keep its scratch folders in memory rests on. Owned by the controller. }
         load_average_1m:
           type: number
@@ -14753,6 +14852,23 @@ components:
             a load of at least twice the CPUs is what steps the throttle up, because a
             runnable queue that deep is a machine that has stopped keeping up even when the
             CPU figure saturates at 100.
+    ControllerMachine:
+      type: object
+      required: [usage_fresh]
+      properties:
+        cpus: { type: integer, description: "The CPUs its procfs counts. Absent where there is no procfs." }
+        memory_mb: { type: integer, format: int64, description: "Its procfs's total memory in MB. Absent where there is no procfs." }
+        usage:
+          type: object
+          required: [sampled_at]
+          properties:
+            cpu_percent: { type: number, minimum: 0, maximum: 100, description: "Whole-machine CPU occupied between two samples. Counts I/O wait and steal as busy." }
+            io_wait_percent: { type: number, minimum: 0, maximum: 100, description: "The share of that interval the machine spent idle with something waiting on disk." }
+            steal_percent: { type: number, minimum: 0, maximum: 100, description: "The share of that interval the hypervisor kept the CPU from this virtual machine. Absent on a kernel that does not report it." }
+            load_average_1m: { type: number, minimum: 0, description: "The kernel's one-minute load average." }
+            memory_available_mb: { type: integer, format: int64, minimum: 0, description: "Available memory including reclaimable cache." }
+            sampled_at: { type: string, format: date-time }
+        usage_fresh: { type: boolean, description: "Whether a measurement from the last 90 seconds stands behind usage." }
     HostSample:
       type: object
       description: One host at one minute. Absent measurements are gaps, never zero.
@@ -14764,6 +14880,7 @@ components:
         active_runners: { type: integer }
         cpu_percent: { type: number, minimum: 0, maximum: 100, description: Whole-host CPU occupied, as the agent measured it. Absent when unmeasured or stale. }
         io_wait_percent: { type: number, minimum: 0, maximum: 100, description: "Share of CPU time the host spent idle with work waiting on disk. `cpu_percent` counts that time as busy, so this is what tells a host stalled on its disk from one doing arithmetic. Absent when unmeasured or stale." }
+        steal_percent: { type: number, minimum: 0, maximum: 100, description: "Share of CPU time the hypervisor kept from the host. `cpu_percent` counts that time as busy, so this is what tells a virtual machine that is being starved from one doing arithmetic. Absent when unmeasured or stale, and on a kernel that does not report it." }
         load_average_1m: { type: number, minimum: 0, description: The kernel's one-minute load average. Absent when unmeasured or stale. }
         cpus: { type: integer, description: The machine's CPUs, carried on every row so the chart can draw load against size. }
         memory_mb: { type: integer, format: int64 }
@@ -16065,7 +16182,7 @@ components:
       properties:
         code:
           type: string
-          enum: [identity, provider, installation, access, policy, budget, pull, checks, permissions]
+          enum: [identity, provider, installation, access, policy, pull, checks, permissions]
         status: { type: string, enum: [ok, blocked, unchecked] }
         message: { type: string }
         blocker:
@@ -16074,8 +16191,7 @@ components:
             On a blocked check, the code of the blocker that stopped it, as it
             appears in `blockers`. The check says where readiness stopped and the
             blocker says why, and they are not the same: GitHub not answering
-            (`github`) or the allowance not being readable (`budget_unavailable`)
-            is reported on whichever check it was making. When the target has
+            (`github`) is reported on whichever check it was making. When the target has
             changed, `blockers` holds that change alone, and a check blocked
             before it was found still names what stopped it. Absent on a check
             that passed or was not reached, and from a controller older than
@@ -16114,7 +16230,7 @@ components:
           items: { $ref: "#/components/schemas/EliReadinessStep" }
     EliReadiness:
       type: object
-      required: [ready, repo, pull_number, head_sha, provider, model, allow_workflows, remaining, blockers, checks]
+      required: [ready, repo, pull_number, head_sha, provider, model, allow_workflows, blockers, checks]
       properties:
         ready: { type: boolean }
         repo: { type: string }
@@ -16124,16 +16240,6 @@ components:
         provider: { type: string }
         model: { type: string }
         allow_workflows: { type: boolean }
-        remaining: { type: integer }
-        reset_at:
-          type: string
-          format: date-time
-          description: >-
-            When the allowance next changes in the person's favour: the instant
-            the oldest attempt in whichever of the repository's and the person's
-            windows has least room leaves it. When both are full it is the later
-            of the two, because a place needs both. Absent when nothing has been
-            spent or the allowance could not be read.
         policy_mode:
           type: string
           enum: [automatic, ask_first, manual]
@@ -16164,7 +16270,7 @@ components:
               message: { type: string }
         checks:
           description: >-
-            Every check readiness makes, always the same nine in the order they
+            Every check readiness makes, always the same eight in the order they
             are made, so a page can show what passed as well as what did not.
           type: array
           items: { $ref: "#/components/schemas/EliReadinessCheck" }
@@ -16227,7 +16333,7 @@ components:
 
     EliRepairPolicy:
       type: object
-      required: [repo, installation_id, provider_id, enabled, automatic, allow_workflows, daily_limit]
+      required: [repo, installation_id, provider_id, enabled, automatic, allow_workflows]
       properties:
         repo: { type: string }
         installation_id: { type: string }
@@ -16236,7 +16342,6 @@ components:
         automatic: { type: boolean }
         ask_first: { type: boolean, default: false }
         allow_workflows: { type: boolean }
-        daily_limit: { type: integer }
 
     EliRepairRequest:
       type: object
@@ -16325,7 +16430,7 @@ components:
 
     EliAutomaticRepository:
       type: object
-      required: [repo, installation_id, provider_id, provider_name, model, allow_workflows, daily_limit, used, running]
+      required: [repo, installation_id, provider_id, provider_name, model, allow_workflows, running]
       properties:
         repo: { type: string }
         installation_id: { type: string }
@@ -16340,19 +16445,6 @@ components:
             Present only when automatic repairs here cannot run: the provider is missing,
             disabled or a person's. One sentence that says what to do in setup.
         allow_workflows: { type: boolean }
-        daily_limit: { type: integer }
-        used:
-          type: integer
-          description: >-
-            Attempts on this repository in the last 24 hours, by anyone and by any trigger,
-            cleared ones included. The same figure the daily limit is held against.
-        next_free_at:
-          type: string
-          format: date-time
-          description: >-
-            When a full allowance has a place again: the oldest of those attempts leaves the
-            24-hour window, or, when the limit was lowered below what is spent, the one whose
-            leaving brings the count under it. Present when `used` is above zero.
         running:
           type: integer
           description: Automatic repairs queued, working or waiting on checks now.
@@ -16802,14 +16894,50 @@ components:
           $ref: "#/components/schemas/AssistantStyle"
         bands:
           $ref: "#/components/schemas/BandPreferences"
+        panels:
+          $ref: "#/components/schemas/PanelPreferences"
+
+    PanelPreferences:
+      type: object
+      description: >-
+        How this person arranged each page's panels, by page. Only the Overview
+        has panels to arrange in this build; a page this build cannot arrange,
+        or a panel the page does not have, is refused with the field.
+      additionalProperties:
+        $ref: "#/components/schemas/PanelLayout"
+
+    PanelLayout:
+      type: object
+      description: >-
+        One page's arrangement: the panels in the order drawn, and the ones not
+        drawn. Both are optional, because absent is a choice never made; a panel
+        the order leaves out is drawn after the rest in its default place.
+      properties:
+        order:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/OverviewPanelId"
+        hidden:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/OverviewPanelId"
+
+    OverviewPanelId:
+      type: string
+      description: A panel of the Overview's body, by the id its registry gives it.
+      enum: [attention, pools, failures, jobs, events, history, diagnostics]
 
     BandPreferences:
       type: object
       description: >-
         How this person's page bands stand: the cut a page takes where it is not
-        the page's default, and the bands that are switched off. Every field is
-        optional, because absent is a choice never made. The UI ignores a page or cut it does not know, so a
-        document written by a newer build still opens every band it can.
+        the page's default, the bands that are switched off, and whether a band's picture (the Overview's
+        punch card, the slot map on Hosts and Runners) is drawn. Every field is
+        optional, because absent is a choice never made. The UI ignores a page
+        or cut it does not know, so a document written by a newer build still
+        opens every band it can.
       properties:
         hidden:
           type: array
@@ -16822,6 +16950,16 @@ components:
           description: Cuts that differ from the page's own default.
           additionalProperties:
             $ref: "#/components/schemas/BandCut"
+        picture:
+          type: boolean
+          description: >-
+            Whether a band's picture is drawn beside its sentence on a page that
+            has not chosen otherwise. On when absent.
+        picture_pages:
+          type: object
+          description: Pages whose picture is shown or hidden against `picture`.
+          additionalProperties:
+            type: boolean
 
     BandPage:
       type: string

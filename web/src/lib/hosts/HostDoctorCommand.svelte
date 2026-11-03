@@ -13,11 +13,11 @@
   command goes with it, so a dead token is never what gets copied.
 -->
 <script lang="ts">
-  import { KeyRound, Terminal } from '@lucide/svelte';
+  import { KeyRound, Terminal as TerminalIcon } from '@lucide/svelte';
   import { createToken } from '$lib/api/client';
   import { suggestedControllerURL } from '$lib/addresses';
   import Button from '$lib/components/Button.svelte';
-  import CopyButton from '$lib/components/CopyButton.svelte';
+  import Terminal from '$lib/components/Terminal.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import { onClockTick } from '$lib/format';
   import { doctorCommand } from '$lib/hosts/terminal';
@@ -84,7 +84,7 @@
   }
 </script>
 
-<div class="terminal">
+<div class="doctor">
   {#if !needsToken}
     <p class="note">This controller has authentication off, so the command needs no token.</p>
   {:else if !live}
@@ -104,29 +104,30 @@
   {/if}
 
   {#if command}
-    <pre class="mono"><code>{command}</code></pre>
-    <div class="actions">
-      <CopyButton value={command} label="Copy the command" size="md" showLabel />
+    <Terminal title="On the host" {command} copyLabel="Copy the command">
       {#if needsToken && expiresAt}
-        <span class="fine">
+        <p>
           The token in it ends <RelativeTime value={expiresAt} />, can only read hosts, and is not
           shown again.
-        </span>
+        </p>
       {/if}
-    </div>
+    </Terminal>
   {/if}
   <p class="fine">
-    <Terminal size={14} aria-hidden="true" /> On this host itself,
+    <TerminalIcon size={14} aria-hidden="true" /> On this host itself,
     <code>zoomies doctor --verbose</code> reads it directly and needs none of this.
   </p>
 </div>
 
 <style>
-  .terminal {
+  .doctor {
     display: flex;
     flex-direction: column;
     gap: var(--z-space-3);
     align-items: flex-start;
+  }
+  .doctor :global(.terminal) {
+    align-self: stretch;
   }
   .note,
   .fine {
@@ -136,23 +137,5 @@
   }
   .fine {
     font-size: var(--z-text-xs);
-  }
-  pre {
-    align-self: stretch;
-    margin: 0;
-    padding: var(--z-space-3);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-sm);
-    background: var(--z-surface-sunken);
-    color: var(--z-text);
-    font-size: var(--z-text-xs);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  .actions {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--z-space-3);
   }
 </style>

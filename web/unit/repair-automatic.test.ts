@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  allowanceOf,
   automaticNote,
   findAutomaticAttempt,
   lastWords,
@@ -9,63 +8,10 @@ import {
   runningWords,
   stopCopy,
   stoppedWords,
-  waitsUntil,
 } from '../src/lib/repairs/automatic.ts';
 import { automaticRepository, repair, SHA } from './repair-fixtures.ts';
 
 const NOW = Date.parse('2026-10-18T12:00:00Z');
-
-// The allowance is the figure the controller holds the daily limit against, so
-// the words say used of limit, and a full one says when a place frees: the
-// question an administrator has is "why has it stopped?", and "when will it
-// start again?" comes straight after.
-test('an allowance reads as used of limit, and a full one says when a place frees', () => {
-  const open = allowanceOf(automaticRepository({ used: 3, daily_limit: 5 }));
-  assert.deepEqual(open, {
-    used: 3,
-    limit: 5,
-    full: false,
-    ratio: 0.6,
-    words: '3 of 5 attempts used in the last 24 hours',
-  });
-  assert.equal(waitsUntil(automaticRepository({ used: 3, daily_limit: 5 }), NOW), '');
-
-  const spent = automaticRepository({
-    used: 5,
-    daily_limit: 5,
-    next_free_at: '2026-10-18T12:40:00Z',
-  });
-  assert.equal(allowanceOf(spent).full, true);
-  assert.equal(allowanceOf(spent).words, 'All 5 attempts used in the last 24 hours');
-  assert.match(waitsUntil(spent, NOW), /^Automatic repairs here wait until .+ \(in 40m\)\.$/);
-  // A place frees within a day, so it is said as a time of day: no year, no seconds.
-  assert.doesNotMatch(waitsUntil(spent, NOW), /2026|:\d\d:\d\d/);
-  // One that frees after midnight says so.
-  const evening = new Date(2026, 9, 18, 20, 0).getTime();
-  const overnight = automaticRepository({
-    used: 5,
-    daily_limit: 5,
-    next_free_at: new Date(2026, 9, 19, 1, 5).toISOString(),
-  });
-  assert.match(waitsUntil(overnight, evening), /wait until tomorrow .+ \(in 5h\)\.$/);
-  assert.doesNotMatch(waitsUntil(spent, NOW), /tomorrow/);
-  // A place that is not named is not invented.
-  assert.equal(
-    waitsUntil(automaticRepository({ used: 5, daily_limit: 5 }), NOW),
-    'Automatic repairs here wait until a place frees.',
-  );
-});
-
-test('a limit lowered below what is used never reads past full', () => {
-  const over = allowanceOf(automaticRepository({ used: 7, daily_limit: 5 }));
-  assert.equal(over.full, true);
-  assert.equal(over.ratio, 1);
-  assert.equal(over.words, 'All 5 attempts used in the last 24 hours');
-  assert.equal(
-    allowanceOf(automaticRepository({ used: 0, daily_limit: 1 })).words,
-    '0 of 1 attempt used in the last 24 hours',
-  );
-});
 
 test('the latest repair reads as none yet, or its outcome, pull request and age', () => {
   assert.equal(lastWords(automaticRepository(), NOW), 'None yet');
@@ -202,7 +148,7 @@ test('an ordinary person gets one neutral sentence and no claim about what Eli h
     mode: 'automatic',
     admin: false,
     attempt: repair({ trigger: 'automatic' }),
-    repository: automaticRepository({ used: 5, daily_limit: 5 }),
+    repository: automaticRepository({}),
   });
   assert.equal(note?.kind, 'neutral');
   assert.match(note?.body ?? '', /repairs failed checks here automatically/);
@@ -222,30 +168,14 @@ test('an administrator is told nothing started, and the reason when the overview
   assert.match(plain?.body ?? '', /GitHub’s report of a failed job/);
   assert.doesNotMatch(plain?.body ?? '', /allowance/);
 
-  // A repository with room and a working provider has no better reason than the general one.
+  // A repository with a working provider has no better reason than the general one.
   const healthy = automaticNote({
     mode: 'automatic',
     admin: true,
     attempt: undefined,
-    repository: automaticRepository({ used: 1 }),
+    repository: automaticRepository({}),
   });
   assert.match(healthy?.body ?? '', /GitHub’s report of a failed job/);
-
-  const spent = automaticNote({
-    mode: 'automatic',
-    admin: true,
-    attempt: undefined,
-    repository: automaticRepository({
-      used: 5,
-      daily_limit: 5,
-      next_free_at: '2026-10-18T12:40:00Z',
-    }),
-    now: NOW,
-  });
-  assert.equal(spent?.kind, 'none');
-  assert.match(spent?.body ?? '', /allowance is used up/);
-  assert.match(spent?.body ?? '', /wait until .+ \(in 40m\)/);
-  assert.doesNotMatch(spent?.body ?? '', /GitHub’s report/);
 
   const broken = automaticNote({
     mode: 'automatic',

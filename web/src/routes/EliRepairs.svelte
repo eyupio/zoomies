@@ -99,10 +99,6 @@
       (automaticFailed && Boolean(settings?.policies.some((p) => p.enabled && p.automatic))),
   );
   const automaticProblem = $derived(automatic.some((repo) => Boolean(repo.problem)));
-  const automaticUsed = $derived(automatic.reduce((sum, repo) => sum + Math.max(0, repo.used), 0));
-  const automaticLimit = $derived(
-    automatic.reduce((sum, repo) => sum + Math.max(0, repo.daily_limit), 0),
-  );
   const automaticWords = $derived.by(() => {
     if (automaticFailed) return 'Could not read automatic repairs';
     if (automaticProblem) {
@@ -111,7 +107,7 @@
         automatic.length === 1 ? 'repository' : 'repositories'
       } cannot repair`;
     }
-    return `${pluralise(automatic.length, 'repository', 'repositories')} · ${automaticUsed} of ${automaticLimit} attempts used`;
+    return pluralise(automatic.length, 'repository', 'repositories');
   });
   const historyWords = $derived.by(() => {
     if (!historySummary.loaded) return historySummary.error ? 'Could not read' : 'Loading history';

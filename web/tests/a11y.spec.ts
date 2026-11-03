@@ -683,7 +683,6 @@ test('the Automatic repairs panel and its stop dialog can be used by a keyboard 
   await goto(page, '/repairs', 'Eli repairs');
   const panel = page.getByRole('region', { name: 'Automatic repairs' });
   await expect(panel.getByRole('article')).toHaveCount(3);
-  await expect(panel.getByRole('meter', { name: /^Allowance used on / })).toHaveCount(3);
   await expect(panel.getByRole('button', { name: /^$/ })).toHaveCount(0);
   await expect(panel.getByRole('link', { name: /^$/ })).toHaveCount(0);
   // The headings of a row are below the panel's own.

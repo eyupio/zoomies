@@ -495,8 +495,15 @@ test.describe('the shared tooltip', () => {
 
   test('a heading cut short by its column says its whole name on hover', async ({ page }) => {
     await goto(page, '/pools', 'Pools');
-    // Twelve columns divide a frame of about 1150px, so this heading arrives as
-    // "I…" with an ellipsis. Reading a table should not need the column chooser.
+    // The configuration columns are a click away by default; with them shown,
+    // twelve columns divide a frame of about 1150px and this heading arrives
+    // as "I…" with an ellipsis. Reading a table should not need a hover to
+    // find out which column it is reading.
+    await page.getByRole('button', { name: 'Columns' }).click();
+    const layout = page.getByRole('group', { name: 'Column layout' });
+    for (const name of ['Backend', 'Platform', 'Idle timeout', 'Lifetime', 'Docker'])
+      await layout.getByRole('checkbox', { name }).check();
+    await page.keyboard.press('Escape');
     const heading = page.locator('thead th[data-table-column="idle_timeout"]');
     await expect(heading).toContainText('Idle timeout');
     await heading.hover();
@@ -517,9 +524,14 @@ test.describe('the shared tooltip', () => {
     const refused = page.locator('[role="toolbar"] button[aria-disabled="true"]').first();
     await expect(refused).toBeVisible();
     await expect(refused).not.toHaveAttribute('disabled', /.*/);
-    await refused.hover();
     const bubble = page.locator('.bubble:popover-open');
-    await expect(bubble.locator('.reason')).toBeVisible();
+    // The page is still settling as its band's picture and the grid's live
+    // figures arrive, and a row that moves under the pointer takes the hover
+    // with it; so the hover is made again until the bubble is up.
+    await expect(async () => {
+      await refused.hover();
+      await expect(bubble.locator('.reason')).toBeVisible({ timeout: 1_500 });
+    }).toPass({ timeout: 10_000 });
     await expect(bubble.locator('.title')).toBeVisible();
     // The actions column is right-aligned, and the bubble sits inside its cell.
     await expect(bubble).toHaveCSS('text-align', 'start');

@@ -25,7 +25,7 @@
 -->
 <script lang="ts">
   import Tooltip from '$lib/components/Tooltip.svelte';
-  import { History, SlidersHorizontal } from '@lucide/svelte';
+  import { Activity, History, SlidersHorizontal } from '@lucide/svelte';
   import { faultLabel } from '$lib/faults';
   import { formatNumber, pluralise } from '$lib/format';
   import { feed } from '$lib/state/feed.svelte';
@@ -101,6 +101,7 @@
 <!-- Expansion uses normal page scrolling, including on touch devices. -->
 <Panel
   title="Recent events"
+  icon={Activity}
   description={everything
     ? 'Newest first.'
     : `Newest first. ${categories.length - hidden} of ${categories.length} kinds.`}
@@ -169,7 +170,10 @@
       {#each entries as entry (entry.id)}
         {@const tone = toneTokens(entry.tone)}
         <li class="item">
-          <span class="mark" style="color: {tone.colour}; background: {tone.subtle}">
+          <span
+            class="mark"
+            style="color: {tone.colour}; background: {tone.subtle}; border-color: {tone.border}"
+          >
             <entry.icon size={14} aria-hidden="true" />
           </span>
           <div class="lines">
@@ -264,8 +268,12 @@
     align-items: center;
     justify-content: center;
     flex: none;
-    width: var(--z-space-6);
-    height: var(--z-space-6);
+    min-width: var(--z-space-6);
+    height: var(--z-space-5);
+    padding-inline: var(--z-space-2);
+    /* A pill in the tone's own colours, its edge included, so the kind of
+       news is a shape and an icon before it is a colour. */
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-full);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);
