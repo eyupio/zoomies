@@ -12,10 +12,11 @@ PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 | Item | State |
 | --- | --- |
 | Investigated baseline | `871eff7d0073622f0b5f1c7d672583bd9288d633` on `main` |
-| Working branch | `codex/eli-repair-setup` |
-| Implementation | Initial commit `21c5e001b080f6162b702397d5404bc57181c36f`, plus the S1 UX follow-up in the same PR described below |
+| Working branch | `codex/eli-repair-monitoring` |
+| Implementation | S1 in PR #1368; S2a separates published-commit observation from the serial model worker |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; latest CI pending |
-| Current slice | S1 complete and locally verified; awaiting PR/CI review |
+| Follow-up PR | Being prepared on `codex/eli-repair-monitoring`, stacked on PR #1368 at `a640c3dadbe2a6bd37bf99e932d26f0160d75d8f` |
+| Current slice | S2a implemented and locally verified; awaiting PR/CI review |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Planned, not implemented |
 | Merge-conflict repair | Planned, not implemented |
@@ -97,7 +98,7 @@ current check outcomes, what it will do next and how to pause that PR.
 | F7 | The published plan summary is overwritten by a generic outcome; the UI retains original failed jobs but no new per-check outcome record | Retain the published fix summary and paths separately; add per-check results with the watcher |
 | F8 | `setupSummary` treats a confirmed personal link as full readiness | Describe what is actually known; distinguish repository policy setup from per-PR readiness |
 | F9 | Automatic repairs and their raw detail are administrator-only | Add repository-authorised activity metadata in a later slice, without widening raw response/log access |
-| F10 | Model generation runs synchronously ahead of other repairs' check polling in `repairLoop` | Independent bounded worker and observation loops |
+| F10 | Model generation runs synchronously ahead of other repairs' check polling in `repairLoop` | Separate serial model worker and guarded check observer implemented in S2a |
 | F11 | No durable subscription, backfill or authorised follow-up repair chain exists | Persistent watcher with lifecycle, quotas, leases, stop controls and recovery |
 | F12 | Repair targets carry a base branch name but no pinned base SHA, mergeability state or three-way conflict data | A separate conflict detection, resolution and publication path |
 
@@ -145,8 +146,21 @@ or remove the own-commit recursion guard.
 
 ### S2: persistent PR watcher and check repair chains
 
-Status: not started. Split foundation, execution and UI into reviewable PRs if
-needed; update this file in every one.
+Status: first foundation slice S2a implemented and locally verified below.
+Durable watches and repair chains are not implemented. Split the remaining
+foundation, execution and UI into reviewable PRs; update this file in every one.
+
+S2a scope:
+
+- [x] Keep model generation serial and observe published repair commits in an
+  independent guarded loop. Do not claim or generate repairs in the observer.
+- [x] Preserve recovery of uncertain working attempts, panic restart/reporting,
+  cancellation, controller shutdown, fence, lease and transfer-drain gates.
+- [x] Separate comment-ID persistence from lifecycle writes so a late comment
+  cannot reopen a settled attempt or change its polling clock. Bound comments
+  to ten seconds and skip notices whose attempt state has already changed.
+- [x] Include GitHub client resolution in each check's thirty-second read budget.
+- [ ] Add durable watches, work leases, existing-PR discovery and repair chains.
 
 Data and policy:
 
@@ -173,8 +187,8 @@ Observation and reconciliation:
 - Use bounded periodic reconciliation for missed deliveries and restarts. Honour
   installation API limits, Retry-After and backoff. Deduplicate out-of-order
   deliveries and coalesce simultaneous failures on one PR.
-- Separate observation from model generation. Limit concurrent model work,
-  lease work durably, and permit only one publishing attempt per PR.
+- Observation is separate from the serial model worker in S2a. Add durable watch
+  work leases and enforce one publishing attempt per PR for the later watcher.
 - Identify check producers, workflow/run attempts and matrix members. Read check
   runs and legacy statuses. Keep original failures separate from checks on the
   published repair commit. Show pending, failed, passed and unknown explicitly.
@@ -298,6 +312,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | PR | Scope | Validation | Remaining work |
 | --- | --- | --- | --- |
 | [#1368](https://github.com/eyupio/zoomies/pull/1368), open | S1, UX follow-up and this handoff | Local checks below pass; latest CI pending | S2, S3, S4; start with independent observation and durable watches |
+| Follow-up PR pending | S2a: independent check observation and comment-write isolation | Repair and lifecycle race tests, vet, docs and formatting pass | Durable watches and admission/recovery, then check evidence and repair chains |
 
 S1 validation on 3 November 2026:
 
@@ -330,8 +345,8 @@ validating Eli against a real repair target. Initial sandbox-only unit failures 
 the complete unit suite passed with normal local process execution. One early
 browser run used the previous binary during a rebuild and was discarded.
 
-The next PR should address F10 (observation independent from model generation)
-as part of the S2 foundation, then durable watch admission and recovery. F9's
+The S2a follow-up below addresses F10 (observation independent from model generation).
+The next slice is durable watch admission and recovery. F9's
 repository-authorised visibility and F7's post-repair per-check outcomes remain
 explicit follow-ups; S1 does not widen raw response or log permissions.
 
@@ -369,6 +384,66 @@ Follow-up validation:
 - `git diff --check` passes. Backend regression and complete UI unit coverage
   remain the initial S1 results above; no backend or shared helper logic changes
   in this follow-up. Live-model and real repair-target testing remain unrun.
+
+### S2a: independent published-commit observation, 3 November 2026
+
+This follow-up is stacked on PR #1368 while that PR is open. Retarget it to
+`main` after S1 merges and verify the resulting diff contains only S2a work.
+Do not merge S1 as part of this slice without the normal review.
+
+`startRepairLoops` starts the existing `eli-repairs` worker and the separate
+`eli-repair-checks` observer through the controller's guarded, joined `spawn`.
+The worker still processes one queued repair at a time and recovers `working`
+attempts as `interrupted` on start or panic restart. The observer reads only
+published attempts in `checking`. It wakes every three seconds; the existing
+thirty-second per-attempt eligibility and one-hour verification window remain.
+Pausing repository automation still allows a pushed commit to finish checking.
+
+Check reads include client resolution in a thirty-second context. The observer
+checks controller authority and cancellation before each attempt and after its
+network reads. The model retains its existing ten-minute deadline. Each loop
+has independent panic recovery/reporting and is joined at controller shutdown.
+
+Lifecycle saves no longer write `comment_id`. Only `SetEliRepairComment` writes
+that field, without touching state, details or `updated_at`. `repairNotice`
+reads the latest state/comment ID before posting, skips a notice whose state is
+stale, and bounds the request to ten seconds. This prevents a delayed worker
+comment from overwriting a newer terminal outcome, and prevents a check save
+from erasing a comment ID written while the check read was in flight.
+
+Limits of this slice:
+
+- It monitors existing repair attempts, not arbitrary PRs. It adds no durable
+  watch, backfill, repeated model work, conflict repair, new setting or API.
+- Check observations remain serial within the observer; a slow GitHub read can
+  still delay later observations within its thirty-second budget. Per-watch
+  scheduling, fair admission, rate backoff and durable leases belong to the
+  persistent watcher.
+- Opportunity discovery and retirement retain their existing schedule on the
+  worker loop, so model work can still delay offer maintenance. They cannot
+  delay the independent check observer.
+- GitHub comments remain best effort. Remote comment edits are not atomic with
+  database updates; retained repair outcomes remain the authoritative record.
+
+Validation on 3 November 2026:
+
+- `go test -race -count=1 -run 'Eli|Repair|EveryGoroutine|GoroutineCheck|PanickingLoop|PanicInDetached'`
+  on `./internal/controller ./internal/store ./internal/api ./internal/github`:
+  all four packages pass. This includes the new blocked-model, independent panic
+  recovery, restart interruption, paused-policy checking, cancellation, authority
+  gates before/during reads, delayed-comment and store metadata regressions.
+- `go test -race -count=1 -run 'TestStartAndStopLeaveRunnersAlone|TestRestartLoadsTransferPreparationBeforeSchedulingWork' ./internal/controller`:
+  passes, exercising production startup/shutdown and transfer-drain startup.
+- `go vet ./internal/controller ./internal/store ./internal/api ./internal/github`:
+  passes.
+- `go test ./internal/docs -count=1`: passes with the new files staged.
+- Changed Go files pass `gofmt`; `git diff --check` passes.
+
+A sandbox-only first test attempt could not bind the fixture server's socket;
+the tests pass with local loopback access. Full repository tests, UI/browser
+suites, a live model and end-to-end repairs against real PR targets were not run
+for S2a. No UI or public API changed; S1's UI evidence above remains its own.
+The new PR's CI result must be checked separately after publication.
 
 Useful commands (see `AGENTS.md` for prerequisites):
 

@@ -828,7 +828,12 @@ The panel reads `GET /api/v1/assistant/repairs/automatic` and the stop is
 ## What a repair does
 
 The durable queue deduplicates webhook retries and records each attempt at
-admission. The worker reads the PR's pinned commit, changed text files, repository
+admission. Repair generation runs one attempt at a time. Published repair commits
+have their checks observed separately, so a slow model does not delay their
+outcomes. Pausing repository automation still allows published commits to finish
+being checked. This does not enable continuous PR watching or additional fixes.
+
+The worker reads the PR's pinned commit, changed text files, repository
 inventory and bounded failed-job evidence. It asks the selected model for a
 strict JSON plan, with at most twelve model turns and eight changed files. Each
 turn tells the model how many replies remain and asks it to batch related reads,

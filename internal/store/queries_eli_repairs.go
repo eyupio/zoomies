@@ -296,9 +296,18 @@ func (s *Store) NextEliRepair(ctx context.Context) (*EliRepair, error) {
 	}
 	return r, err
 }
+
+// Lifecycle writes leave comment delivery metadata to SetEliRepairComment.
 func (s *Store) SaveEliRepair(ctx context.Context, r *EliRepair) error {
 	r.UpdatedAt = s.Now()
-	_, err := s.exec(ctx, `UPDATE eli_repairs SET pull_number=?,head_sha=?,commit_sha=?,user_id=?,provider_id=?,state=?,message=?,comment_id=?,published_at=?,updated_at=?,details=? WHERE id=?`, r.PullNumber, r.HeadSHA, r.CommitSHA, r.UserID, r.ProviderID, r.State, r.Message, r.CommentID, msp(r.PublishedAt), ms(r.UpdatedAt), repairDetailsJSON(r.Details), r.ID)
+	_, err := s.exec(ctx, `UPDATE eli_repairs SET pull_number=?,head_sha=?,commit_sha=?,user_id=?,provider_id=?,state=?,message=?,published_at=?,updated_at=?,details=? WHERE id=?`, r.PullNumber, r.HeadSHA, r.CommitSHA, r.UserID, r.ProviderID, r.State, r.Message, msp(r.PublishedAt), ms(r.UpdatedAt), repairDetailsJSON(r.Details), r.ID)
+	return err
+}
+
+// Comment delivery can finish after the check observer has settled the repair.
+// Neither side may replace the other's fields or restart the polling interval.
+func (s *Store) SetEliRepairComment(ctx context.Context, id string, commentID int64) error {
+	_, err := s.exec(ctx, `UPDATE eli_repairs SET comment_id=? WHERE id=?`, commentID, id)
 	return err
 }
 

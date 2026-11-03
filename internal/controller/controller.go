@@ -661,7 +661,7 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.spawn("background", loopCtx, c.backgroundLoop)
 	c.spawn("enrichment", loopCtx, c.enrichmentLoop)
 	c.spawn("ai-context", loopCtx, c.aiContextLoop)
-	c.spawn("eli-repairs", loopCtx, c.repairLoop)
+	c.startRepairLoops(loopCtx)
 	c.spawn("job-attention", loopCtx, c.jobAttentionLoop)
 	// Its own loop, for the reason the AI Context loop has one: a pass of reads
 	// from GitHub is slow, and reconcileMu is held for a whole scheduling pass.

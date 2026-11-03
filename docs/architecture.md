@@ -765,9 +765,13 @@ staged connection. Setup never invokes agent join or changes runner host state.
 The assistant, the pull request repair, the AI Context verification and the
 optimisation previews follow the rule the kennel loop set: they run outside the
 reconcile lock, and the two that watch for work of their own, AI Context
-verification and Eli's repair loop, each in a bounded loop of its own, because a
+verification and Eli's repair worker, each in a bounded loop of its own, because a
 model answer and a GitHub read are slow and nothing about scaling should wait
-with them. Each is bounded at its edges before anything is written:
+with them. Eli observes published repair commits in a separate guarded loop, so
+a model request cannot hold up their check outcomes. Generation stays serial;
+both loops stop with the controller and respect its fence, lease and transfer
+drain. Comment delivery records only the comment ID, leaving the check outcome
+and polling clock intact. Each subsystem is bounded at its edges before anything is written:
 `internal/redact` strips credentials and commit authors' email addresses from
 text bound for a model, and `internal/prrepair` holds the path allow-list, the
 blob caps and the refusal of anything credential-shaped on the server, where
