@@ -81,7 +81,7 @@ func (c *Controller) AdmitEliRepairWatch(ctx context.Context, in EliWatchAdmissi
 	}
 	policy, err := c.repairPolicy(ctx, repo, in.InstallationID)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil, errors.New("Eli repairs are not enabled for this repository and installation; enable them and choose an installation provider first")
+		return nil, errors.New("repairs are not enabled for this repository and installation; enable Eli repairs and choose an installation provider first")
 	}
 	if err != nil {
 		return nil, err
