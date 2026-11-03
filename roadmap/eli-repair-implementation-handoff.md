@@ -20,7 +20,7 @@ implementation from the newest branch after checking the live PR states.
 | This PR | [#1372](https://github.com/eyupio/zoomies/pull/1372): S2b durable watch state, explicit admission and restart recovery |
 | Investigated baseline | `ab47587500d01301b75729422bc086e5170841ce` on `codex/eli-repair-monitoring`, itself based on `ce17858c4` on `main` |
 | Working branches | `codex/eli-repair-setup` for S1 (#1368); `codex/eli-repair-monitoring` for S1 plus S2a (#1369); `codex/eli-repair-watches` for S2b stacked on #1369 |
-| Verified code checkpoints | #1368: `432177647e8d987839b49afa9ec09f6a6c203b2c`; #1369: `3e216980897da27ac5dca07853fe2ef531fef97c`; S2b: `7836cbe05bbaeb7dbbbb20fe993a063755c04bc5`; later handoff-only commits do not change runtime code |
+| Verified code checkpoints | #1368: `432177647e8d987839b49afa9ec09f6a6c203b2c`; #1369: `3e216980897da27ac5dca07853fe2ef531fef97c`; S2b: `7836cbe05bbaeb7dbbbb20fe993a063755c04bc5`; later test-only and handoff commits do not change runtime code |
 | Implementation | S1 in PR #1368; S2a implementation commit `db70f80d801e620baabdaba7263db5ba499f7cd9` separates observation from the serial model worker; S2b adds migration 0137, store watch rows and leases, explicit controller admission and startup recovery |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; migration correction and full store race suite verified; no completed check failure at this checkpoint |
 | Follow-up PR | [#1369](https://github.com/eyupio/zoomies/pull/1369), open for review; no completed check failure at this checkpoint; incorporates PR #1368 through main-integration commit `432177647e8d987839b49afa9ec09f6a6c203b2c` |
