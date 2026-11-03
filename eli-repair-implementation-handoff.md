@@ -13,7 +13,8 @@ PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 | --- | --- |
 | Investigated baseline | `871eff7d0073622f0b5f1c7d672583bd9288d633` on `main` |
 | Working branch | `codex/eli-repair-setup` |
-| Initial PR | Pending creation after validation; replace this cell with its real link |
+| Implementation commit | `21c5e001b080f6162b702397d5404bc57181c36f`; later handoff-only updates do not change the tested implementation |
+| Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open as a draft; CI pending |
 | Current slice | S1 complete and locally verified; awaiting PR/CI review |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Planned, not implemented |
@@ -293,7 +294,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 
 | PR | Scope | Validation | Remaining work |
 | --- | --- | --- | --- |
-| Initial PR, link pending | S1 and this handoff | Local checks below pass; CI pending | S2, S3, S4; start with independent observation and durable watches |
+| [#1368](https://github.com/eyupio/zoomies/pull/1368), draft | S1 and this handoff | Local checks below pass; CI pending | S2, S3, S4; start with independent observation and durable watches |
 
 S1 validation on 3 November 2026:
 
@@ -318,8 +319,9 @@ S1 validation on 3 November 2026:
 - `git diff --check`: pass.
 
 The full repository `make test-short`, all browser suites outside the affected
-repair pages, a live-model evaluation and real GitHub branch mutations were not
-run. Initial sandbox-only unit failures were process-execution restrictions;
+repair pages, a live-model evaluation and end-to-end Eli repairs against real GitHub PR
+branches were not run. Publishing this implementation PR is separate from
+validating Eli against a real repair target. Initial sandbox-only unit failures were process-execution restrictions;
 the complete unit suite passed with normal local process execution. One early
 browser run used the previous binary during a rebuild and was discarded.
 
