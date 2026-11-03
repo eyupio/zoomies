@@ -19,15 +19,35 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
+// repairPolicy finds one repository's policy without letting a differently
+// cased row decide for another. An exact name wins, including when it is the
+// disabled row: otherwise an enabled "ACME/REPO" would keep repairing after
+// somebody paused "acme/repo". A case-insensitive fallback is only safe when it
+// names exactly one policy, and an ambiguous list is refused rather than guessed.
 func (c *Controller) repairPolicy(ctx context.Context, repo, installation string) (*store.EliRepairPolicy, error) {
 	policies, err := c.st.EliRepairPolicies(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for _, p := range policies {
-		if p.Repo == repo && p.InstallationID == installation && p.Enabled {
-			return &p, nil
+	var folded *store.EliRepairPolicy
+	foldedCount := 0
+	for i := range policies {
+		p := &policies[i]
+		if p.InstallationID != installation {
+			continue
 		}
+		if p.Repo == repo {
+			if p.Enabled {
+				return p, nil
+			}
+			return nil, store.ErrNotFound
+		}
+		if strings.EqualFold(p.Repo, repo) {
+			folded, foldedCount = p, foldedCount+1
+		}
+	}
+	if foldedCount == 1 && folded.Enabled {
+		return folded, nil
 	}
 	return nil, store.ErrNotFound
 }
@@ -596,6 +616,13 @@ func repairToolNames(calls []assistant.ToolCall) string {
 }
 
 func (c *Controller) startRepairLoops(ctx context.Context) {
+	// A watch is a person's durable decision, so a restart must not lose it or
+	// leave it leased to a process that no longer exists. Observation is
+	// read-only, so replaying an interrupted observation is safe; an uncertain
+	// publication is recovered separately by InterruptEliRepairs.
+	if err := c.st.RecoverEliRepairWatches(ctx, c.Now()); err != nil {
+		c.log.Error("could not recover Eli repair watches", "error", err)
+	}
 	c.spawn("eli-repairs", ctx, c.repairLoop)
 	c.spawn("eli-repair-checks", ctx, c.repairCheckLoop)
 }
