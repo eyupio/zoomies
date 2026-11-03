@@ -565,11 +565,22 @@ This PR is stacked on `codex/eli-repair-monitoring` (#1369) because #1368 and
 and verify the resulting diff contains only S2b work. Do not merge S1 or S2a as
 part of this slice without their normal review.
 
-The existing PRs were checked before extending them: both were open, #1368 had no
-completed failed check and #1369 had only Playwright checks still in progress.
+The existing PRs were checked before extending them. Both were open; #1368 had
+no completed failed check and #1369 had Playwright checks still in progress.
 The Codex review of #1369 reported a failed run because its usage limit was
-reached, not a finding, and there were no human review comments. No confirmed
-regression was outstanding to fix in either PR.
+reached, not a finding, and there were no human review comments.
+
+The later Playwright results confirmed two regressions in the stacked S1 code.
+The setup page now leads with repositories and folds the optional personal
+account card, but the a11y and mobile setup tests still waited for the folded
+heading. The query-string test also expected a repository picker for a
+repository an earlier test had already configured, which correctly opens in
+edit mode now. A mobile failure setup test navigated to the new repair with the
+suite's broad stub still answering an empty list, so the attempt page read
+`head_sha` from an object that had none. The fixes change only browser tests:
+wait for `Choose repositories`, use an unconfigured repository for the
+query-string case, and answer the new repair endpoint with a complete row. They
+are committed on #1368 and merged through #1369 into this PR.
 
 S2b adds no user-visible control. The repository policy modes and
 `/api/v1/assistant/repairs/*` contract are unchanged, so no OpenAPI client was
@@ -593,6 +604,13 @@ Validation on 3 November 2026:
 - `go test ./internal/docs -count=1`: pass (9.395s), with the architecture text
   and this handoff tracked.
 - `git diff --check` and changed-file `gofmt`: pass.
+- `npx prettier --check` on the four changed browser specs: pass.
+- Targeted Playwright on `chromium` and `mobile` for the five previously failing
+  cases: 9 passed, 3 skipped, 0 failed. The cases were `/repairs/setup` a11y,
+  the mobile 16px audit, the mobile setup width check, the failure setup flow and
+  the query-string selection. A temporary config on port 8199 was used because
+  another service already held the suite's port 8093; the application and specs
+  were the repository's own. The full browser suite was not rerun.
 - No OpenAPI regeneration was needed because no public contract changed.
 
 Full repository `make test-short`, browser suites, the complete store suite with
