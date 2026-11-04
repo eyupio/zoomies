@@ -136,11 +136,17 @@ func TestARateLimitedCheckReadUsesTheRetryItWasGiven(t *testing.T) {
 	if !h.c.observeDueEliRepairWatch(h.ctx) {
 		t.Fatal("the watch was not considered")
 	}
+	finished := h.c.Now()
 	got, err := h.st.EliRepairWatch(h.ctx, watch.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.CheckState != "unknown" || got.NextCheckAt.UnixMilli() != started.Add(45*time.Second).UnixMilli() {
+	// The loop reads the clock for itself, after the test did, so the retry is 45s
+	// after some instant between the two reads and not exactly 45s after the first.
+	// Both ends are compared in milliseconds, which is what the store keeps.
+	next := got.NextCheckAt.UnixMilli()
+	if got.CheckState != "unknown" ||
+		next < started.Add(45*time.Second).UnixMilli() || next > finished.Add(45*time.Second).UnixMilli() {
 		t.Fatalf("a rate limit was not honoured: %+v", got)
 	}
 	if got.HeadSHA != "head-new" || got.BaseSHA != "base-new" {
