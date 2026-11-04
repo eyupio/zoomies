@@ -21,7 +21,7 @@ implementation from the newest branch after checking the live PR states.
 | Investigated baseline | `51206b990` on `codex/eli-check-evidence` |
 | Working branches | `codex/eli-watch-discovery` for S2g, stacked on S2f |
 | Verified code checkpoints | S1 through S2e merged through `8a827168d`; S2f in [#1384](https://github.com/eyupio/zoomies/pull/1384); S2g: `ce9151e6259f6cb4186d931f69a068a52a2b5717` |
-| Implementation | S2f adds migration 0141 and stored check evidence. S2g periodically scans repositories with an enabled watch and admits newly opened pull requests through create-only admission |
+| Implementation | S2f adds migration 0141 and stored check evidence. S2g adds migration 0142 for explicit repository-wide decisions and scans the least recently discovered ones in bounded passes |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379) and [#1381](https://github.com/eyupio/zoomies/pull/1381) merged green; the handoff refresh merged as `07a49f664` |
 | Current slice | S2g implemented on top of S2f and locally verified; awaits PR/CI review |
@@ -218,11 +218,14 @@ S2c scope, this PR only:
 
 S2g scope, this PR only:
 
-- [x] Scan the repositories that still have at least one enabled watch every
-  five minutes, with at most twenty repositories per pass.
-- [x] Reuse the newest enabled watch as the owner, capability and policy source,
+- [x] Add migration 0142 for an explicit repository-wide watching decision,
+  separate from any one PR's watch. A per-PR admission never creates one.
+- [x] Scan the least recently discovered subscriptions every five minutes, with
+  at most twenty per pass, and record each attempt so the next pass rotates
+  through the remaining repositories.
+- [x] Reuse the repository decision's owner, capabilities and current policy,
   and admit only newly opened pull requests through create-only admission.
-- [x] Leave paused and stopped pull requests alone, and skip a repository whose
+- [x] Leave paused and stopped pull requests alone and skip a repository whose
   policy is no longer automatic.
 - [ ] React to a pull_request webhook immediately. This PR is bounded periodic
   catch-up only; the App subscription change and webhook path remain.
@@ -643,21 +646,25 @@ Validation on 4 November 2026:
 
 - `go test -race -count=1 -run 'Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique'`
   on `./internal/controller ./internal/store ./internal/api ./internal/github`:
-  all four pass (controller 22.914s, store 38.370s, api 46.934s, github 1.305s).
+  all four pass (controller 21.508s, store 36.581s, api 45.503s, github 1.313s).
 - `go vet` on those four packages and `staticcheck ./internal/controller ./internal/store ./internal/github`:
   pass.
-- `go test ./internal/docs -count=1`: pass (30.753s), changed-file `gofmt` and
+- `go test -count=1 -timeout 10m ./internal/store`: pass (47.447s), the complete
+  store suite without the race detector, including migration 0142.
+- `go test ./internal/docs -count=1`: pass (30.172s), changed-file `gofmt` and
   `git diff --check`: pass.
 - New regressions cover admitting a new open PR, leaving the existing watch and
-  a draft alone, and not scanning a repository whose every watch is paused.
+  a draft alone, not scanning a repository from a single-PR watch, recording an
+  explicit repository decision and rotating past the twenty-entry bound.
 
 Limits of this slice:
 
 - Discovery is periodic, not webhook-driven. A newly opened PR can wait up to
   five minutes, and the App subscription still has to be updated in a later
   slice for an immediate wakeup.
-- A repository with no enabled watch is not scanned. New-PR discovery inherits
-  an existing explicit decision rather than creating a repository subscription.
+- A repository with no explicit repository-wide decision is not scanned. A
+  single-PR admission does not imply one. Repository-wide admission creates the
+  decision after its first successful list; a failed list creates none.
 - At most twenty repositories are scanned per pass; each can return up to the
   GitHub pull discovery cap.
 - Full repository `make test-short`, browser suites, the complete store suite

@@ -31,6 +31,7 @@ const (
 	PrefixAssistantConversation    = "asc"
 	PrefixEliRepair                = "erf"
 	PrefixEliRepairWatch           = "erw"
+	PrefixEliRepairWatchRepository = "erwr"
 	PrefixEliOpportunity           = "eop"
 	PrefixOptimisationPreview      = "opv"
 	PrefixOptimisationCachePreview = "opc"

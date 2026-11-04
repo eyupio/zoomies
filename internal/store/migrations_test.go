@@ -153,6 +153,7 @@ var shippedMigrations = []string{
 	"0139_eli_repair_watch_check_state.sql",
 	"0140_eli_repair_watch_chain.sql",
 	"0141_eli_repair_watch_check_evidence.sql",
+	"0142_eli_repair_watch_repositories.sql",
 }
 
 // The prefixes shared by pairs of files that already shipped. They sort by what

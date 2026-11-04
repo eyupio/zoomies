@@ -235,6 +235,10 @@ func TestRepositoryAdmissionBackfillsEligiblePullsAndShowsExclusions(t *testing.
 	if err != nil || len(watches) != 1 || watches[0].PullNumber != 1 || !watches[0].Checks {
 		t.Fatalf("watches %+v, %v", watches, err)
 	}
+	subscriptions, err := h.st.EliRepairWatchRepositories(h.ctx)
+	if err != nil || len(subscriptions) != 1 || subscriptions[0].Repo != repo || !subscriptions[0].Enabled {
+		t.Fatalf("repository decision not recorded: %+v, %v", subscriptions, err)
+	}
 }
 
 func TestRepositoryAdmissionLeavesAnExistingPauseAlone(t *testing.T) {
@@ -362,7 +366,12 @@ func TestAQueuedWatchRepairStopsWhenTheWatchWasPaused(t *testing.T) {
 
 func TestPeriodicDiscoveryAdmitsOnlyNewEligiblePulls(t *testing.T) {
 	h := newHarness(t)
-	fake, watch, _ := watchLoopFixture(t, h)
+	fake, watch, inst := watchLoopFixture(t, h)
+	if _, err := h.st.SetEliRepairWatchRepository(h.ctx, store.EliRepairWatchRepository{
+		InstallationID: inst.ID, Repo: watch.Repo, OwnerID: watch.OwnerID, Checks: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	fake.openPulls = []github.RepairPull{
 		{Number: 1, Title: "already watched", Open: true, HeadSHA: "head-1", Branch: "fix-1", Base: "main", BaseSHA: "base-1"},
 		{Number: 2, Title: "new", Open: true, HeadSHA: "head-2", Branch: "fix-2", Base: "main", BaseSHA: "base-2"},
@@ -388,19 +397,16 @@ func TestPeriodicDiscoveryAdmitsOnlyNewEligiblePulls(t *testing.T) {
 	}
 }
 
-func TestPeriodicDiscoveryDoesNotScanWhenEveryWatchIsPaused(t *testing.T) {
+func TestPeriodicDiscoveryDoesNotInferARepositoryFromOnePRWatch(t *testing.T) {
 	h := newHarness(t)
-	fake, watch, _ := watchLoopFixture(t, h)
-	if err := h.st.PauseEliRepairWatch(h.ctx, watch.ID, "Paused."); err != nil {
-		t.Fatal(err)
-	}
+	fake, _, _ := watchLoopFixture(t, h)
 	fake.openPulls = []github.RepairPull{{Number: 2, Title: "new", Open: true, HeadSHA: "head-2", Branch: "fix-2", Base: "main"}}
 	h.c.discoverEliRepairWatches(h.ctx)
 	if fake.openCalls != 0 {
-		t.Fatalf("a paused repository was scanned %d times", fake.openCalls)
+		t.Fatalf("a per-PR watch admitted a repository-wide scan %d times", fake.openCalls)
 	}
 	watches, err := h.st.EliRepairWatches(h.ctx)
 	if err != nil || len(watches) != 1 {
-		t.Fatalf("a paused repository admitted a watch: %+v, %v", watches, err)
+		t.Fatalf("a per-PR watch admitted another watch: %+v, %v", watches, err)
 	}
 }

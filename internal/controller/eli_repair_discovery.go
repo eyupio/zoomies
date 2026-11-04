@@ -73,6 +73,12 @@ func (c *Controller) AdmitEliRepositoryWatches(ctx context.Context, in EliReposi
 	if err != nil {
 		return nil, fmt.Errorf("the repository's open pull requests cannot be listed: %w", err)
 	}
+	if _, err := c.st.SetEliRepairWatchRepository(ctx, store.EliRepairWatchRepository{
+		InstallationID: in.InstallationID, Repo: repo, OwnerID: strings.TrimSpace(in.OwnerID),
+		Checks: checks, Conflicts: conflicts,
+	}); err != nil {
+		return nil, err
+	}
 
 	return c.admitOpenPulls(ctx, repo, in.InstallationID, strings.TrimSpace(in.OwnerID), policy, checks, conflicts, pulls, capped)
 }

@@ -2,12 +2,9 @@ package controller
 
 import (
 	"context"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/github"
-	"github.com/eyupio/zoomies/internal/store"
 )
 
 const (
@@ -44,52 +41,41 @@ func (c *Controller) discoverEliRepairWatches(ctx context.Context) {
 	if ctx.Err() != nil || !c.mayAct() || c.transferDraining.Load() {
 		return
 	}
-	watches, err := c.st.EliRepairWatches(ctx)
+	subscriptions, err := c.st.DueEliRepairWatchRepositories(ctx, maxEliWatchDiscoveryRepositories)
 	if err != nil {
 		return
 	}
-	templates := map[string]*store.EliRepairWatch{}
-	for _, watch := range watches {
-		if !watch.Enabled || !watch.Checks {
-			continue
-		}
-		key := watch.InstallationID + "\x00" + strings.ToLower(watch.Repo)
-		if current := templates[key]; current == nil || watch.CreatedAt.After(current.CreatedAt) {
-			templates[key] = watch
-		}
-	}
-	keys := make([]string, 0, len(templates))
-	for key := range templates {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for i, key := range keys {
-		if i >= maxEliWatchDiscoveryRepositories || ctx.Err() != nil || !c.mayAct() || c.transferDraining.Load() {
+	for _, subscription := range subscriptions {
+		if ctx.Err() != nil || !c.mayAct() || c.transferDraining.Load() {
 			return
 		}
-		template := templates[key]
-		policy, err := c.eliWatchPolicy(ctx, template.Repo, template.InstallationID)
-		if err != nil {
-			continue
-		}
-		discoveryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		raw, err := c.ClientFor(discoveryCtx, template.InstallationID)
-		if err != nil {
+		func() {
+			defer func() {
+				_ = c.st.MarkEliRepairWatchRepositoryDiscovered(ctx, subscription.ID, c.Now())
+			}()
+			policy, err := c.eliWatchPolicy(ctx, subscription.Repo, subscription.InstallationID)
+			if err != nil {
+				return
+			}
+			discoveryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			raw, err := c.ClientFor(discoveryCtx, subscription.InstallationID)
+			if err != nil {
+				cancel()
+				return
+			}
+			discovery, ok := raw.(github.RepairDiscoveryClient)
+			if !ok {
+				cancel()
+				return
+			}
+			pulls, capped, err := discovery.RepairOpenPulls(discoveryCtx, subscription.Repo, github.RepairPullDiscoveryLimit)
 			cancel()
-			continue
-		}
-		discovery, ok := raw.(github.RepairDiscoveryClient)
-		if !ok {
-			cancel()
-			continue
-		}
-		pulls, capped, err := discovery.RepairOpenPulls(discoveryCtx, template.Repo, github.RepairPullDiscoveryLimit)
-		cancel()
-		if err != nil {
-			continue
-		}
-		if _, err := c.admitOpenPulls(ctx, template.Repo, template.InstallationID, template.OwnerID, policy, template.Checks, template.Conflicts, pulls, capped); err != nil {
-			c.log.Warn("could not admit new watches for an Eli repair repository", "repo", template.Repo, "error", err)
-		}
+			if err != nil {
+				return
+			}
+			if _, err := c.admitOpenPulls(ctx, subscription.Repo, subscription.InstallationID, subscription.OwnerID, policy, subscription.Checks, subscription.Conflicts, pulls, capped); err != nil {
+				c.log.Warn("could not admit new watches for an Eli repair repository", "repo", subscription.Repo, "error", err)
+			}
+		}()
 	}
 }

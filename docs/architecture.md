@@ -787,8 +787,11 @@ closes, and records the current head, overall check state and bounded check-run
 and legacy-status evidence. Repository-wide admission lists open pull requests
 once, within a page cap, and admits eligible ones without resuming a pause
 recorded on one pull request; forks, drafts and other exclusions are returned as
-reasons. A five-minute pass revisits each repository that still has an enabled
-watch and admits newly opened pull requests through the same create-only path.
+reasons. Repository-wide admission records a separate explicit decision for the
+repository, in its own table; a per-PR watch never implies one. A five-minute
+pass revisits the least recently discovered decisions, rotates through them in
+bounded batches and admits newly opened pull requests through the same
+create-only path.
 
 A failed check starts at most one repair for the watched head. The watch keeps
 the chain count, last failure signature and stop reason in SQLite, so a restart
