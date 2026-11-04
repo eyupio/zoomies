@@ -651,6 +651,10 @@ Validation on 4 November 2026:
   pass.
 - `go test -count=1 -timeout 10m ./internal/store`: pass (47.447s), the complete
   store suite without the race detector, including migration 0142.
+- The first Linux arm64 run exposed a pre-existing flaky assertion in the AI
+  Context upload test: it looked for `aaaa`, which can occur by chance in a
+  commit hash. It now looks for a run of 32 a's from the file's actual content.
+  `go test -count=1 -run TestAnUploadThatOmitsAFileTellsEveryReaderWhatIsMissing ./internal/api` passes.
 - `go test ./internal/docs -count=1`: pass (30.172s), changed-file `gofmt` and
   `git diff --check`: pass.
 - New regressions cover admitting a new open PR, leaving the existing watch and

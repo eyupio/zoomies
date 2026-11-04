@@ -283,7 +283,9 @@ func TestAnUploadThatOmitsAFileTellsEveryReaderWhatIsMissing(t *testing.T) {
 
 	r = f.h.do(request{method: http.MethodGet, path: source + "/read?path=" + uploadBigFile, cookie: f.cookie})
 	r.mustStatus(t, http.StatusOK, "reading an omitted file")
-	if !strings.Contains(string(r.body), `"omitted":"too_large"`) || !strings.Contains(string(r.body), `"text":""`) || strings.Contains(string(r.body), "aaaa") {
+	// Four a's can occur by chance in a commit hash. A run of the file's actual
+	// content cannot, and the omitted file is a megabyte of a's.
+	if !strings.Contains(string(r.body), `"omitted":"too_large"`) || !strings.Contains(string(r.body), `"text":""`) || strings.Contains(string(r.body), strings.Repeat("a", 32)) {
 		t.Fatalf("a read of an omitted file should say why there is no text: %s", r.body)
 	}
 
