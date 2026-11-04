@@ -17,18 +17,18 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1384](https://github.com/eyupio/zoomies/pull/1384): S2f per-check evidence on watched heads |
-| Investigated baseline | `8a827168d2f4c0386890ab75e08bf1ea936185f3` on `main` |
-| Working branches | `codex/eli-check-evidence` for S2f |
-| Verified code checkpoints | S1 through S2e merged through `8a827168d`; S2f: `bc8a3baa390b275de00873370f680cab82bf43a4` |
-| Implementation | S1 through S2e are on `main`; S2f adds migration 0141 and stores bounded check-run and legacy-status evidence with each observation |
+| Latest slice | [#NEW](https://github.com/eyupio/zoomies/pull/NEW): S2g periodic new-PR discovery |
+| Investigated baseline | `51206b990` on `codex/eli-check-evidence` |
+| Working branches | `codex/eli-watch-discovery` for S2g, stacked on S2f |
+| Verified code checkpoints | S1 through S2e merged through `8a827168d`; S2f in [#1384](https://github.com/eyupio/zoomies/pull/1384); S2g implementation commit recorded after publication |
+| Implementation | S2f adds migration 0141 and stored check evidence. S2g periodically scans repositories with an enabled watch and admits newly opened pull requests through create-only admission |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379) and [#1381](https://github.com/eyupio/zoomies/pull/1381) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | S2f implemented on `main` and locally verified; awaits PR/CI review |
-| Next implementation | S3 merge-conflict detection and repair, then S4 UX |
-| CI snapshot | `main` was green at `8a827168d`; this PR's checks are separate |
+| Current slice | S2g implemented on top of S2f and locally verified; awaits PR/CI review |
+| Next implementation | Webhook wakeups, then S3 merge-conflict detection and repair and S4 UX |
+| CI snapshot | #1384 was running when this record was refreshed; this PR is stacked on it |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
-| Persistent PR watcher | Due watches are observed, backfilled, retain per-check evidence and can start a chain of at most three repairs |
+| Persistent PR watcher | Due watches are observed, backfilled, retain per-check evidence, can start a bounded chain and discover new PRs every five minutes |
 | Merge-conflict repair | Planned, not implemented. Admission refuses the conflicts capability until S3 exists |
 | Production configuration | No repository automation or model credentials changed by this work |
 
@@ -158,9 +158,10 @@ or remove the own-commit recursion guard.
 
 ### S2: persistent PR watcher and check repair chains
 
-Status: S2a through S2e are on `main`; S2f adds per-check evidence. Conflict
-repair and the final UI are not implemented. Split the remaining execution and
-UI into reviewable PRs; update this file in every one.
+Status: S2a through S2e are on `main`; S2f adds per-check evidence and S2g adds
+periodic new-PR discovery. Webhook wakeups, conflict repair and the final UI are
+not implemented. Split the remaining execution and UI into reviewable PRs;
+update this file in every one.
 
 S2a scope:
 
@@ -176,7 +177,8 @@ S2a scope:
 - [x] Add existing-PR discovery and backfill in S2d.
 - [x] Add bounded repair chains in S2e.
 - [x] Add per-check evidence in S2f.
-- [ ] Add conflict repair and the final repository and PR controls.
+- [x] Add periodic new-PR discovery in S2g.
+- [ ] Add webhook wakeups, conflict repair and the final repository and PR controls.
 
 S2b scope, merged in #1372:
 
@@ -214,7 +216,18 @@ S2c scope, this PR only:
   and an error at the GitHub Retry-After time when GitHub gave one.
 - [x] Start a repair from a failed watch and bound a chain, added by S2e.
 
-S2f scope, this PR only:
+S2g scope, this PR only:
+
+- [x] Scan the repositories that still have at least one enabled watch every
+  five minutes, with at most twenty repositories per pass.
+- [x] Reuse the newest enabled watch as the owner, capability and policy source,
+  and admit only newly opened pull requests through create-only admission.
+- [x] Leave paused and stopped pull requests alone, and skip a repository whose
+  policy is no longer automatic.
+- [ ] React to a pull_request webhook immediately. This PR is bounded periodic
+  catch-up only; the App subscription change and webhook path remain.
+
+S2f scope, merged in #1384:
 
 - [x] Read bounded check-run and legacy commit-status evidence for a watched
   head, preserving the producer and each outcome alongside the overall state.
@@ -412,6 +425,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1379](https://github.com/eyupio/zoomies/pull/1379), merged as `80ed57e94` | S2d correction: create-only backfill admission in one transaction | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; merged green | Bounded repair chains and per-check evidence |
 | [#1381](https://github.com/eyupio/zoomies/pull/1381), merged as `8a827168d` | S2e: bounded repair chains for watched failures | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; merged green | Per-check evidence, then conflict repair and UI |
 | [#1384](https://github.com/eyupio/zoomies/pull/1384), open | S2f: per-check evidence on watched heads | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | Conflict repair and the final controls |
+| [#NEW](https://github.com/eyupio/zoomies/pull/NEW), open, stacked on #1384 | S2g: periodic new-PR discovery | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Webhook wakeups, conflict repair and the final controls |
 
 S1 validation on 3 November 2026:
 
@@ -619,6 +633,36 @@ Limits of this slice:
   are not retained yet. The watch records one overall state.
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S2g: periodic new-PR discovery, 4 November 2026
+
+This PR is stacked on S2f (#1384). It adds no migration: it reuses the watch
+rows and create-only admission.
+
+Validation on 4 November 2026:
+
+- `go test -race -count=1 -run 'Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique'`
+  on `./internal/controller ./internal/store ./internal/api ./internal/github`:
+  all four pass (controller 22.914s, store 38.370s, api 46.934s, github 1.305s).
+- `go vet` on those four packages and `staticcheck ./internal/controller ./internal/store ./internal/github`:
+  pass.
+- `go test ./internal/docs -count=1`: pass (30.753s), changed-file `gofmt` and
+  `git diff --check`: pass.
+- New regressions cover admitting a new open PR, leaving the existing watch and
+  a draft alone, and not scanning a repository whose every watch is paused.
+
+Limits of this slice:
+
+- Discovery is periodic, not webhook-driven. A newly opened PR can wait up to
+  five minutes, and the App subscription still has to be updated in a later
+  slice for an immediate wakeup.
+- A repository with no enabled watch is not scanned. New-PR discovery inherits
+  an existing explicit decision rather than creating a repository subscription.
+- At most twenty repositories are scanned per pass; each can return up to the
+  GitHub pull discovery cap.
+- Full repository `make test-short`, browser suites, the complete store suite
+  with the race detector, a live model and end-to-end GitHub mutations were not
+  run.
 
 ### S2f: per-check evidence, 4 November 2026
 
@@ -913,8 +957,9 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
    Confirm which slices merged; a branch or checked box alone is not proof.
 2. Check the working tree and live base branch. Preserve unrelated user changes.
    Review this PR before starting a new slice. For further implementation, start
-   from `codex/eli-check-evidence` or its merged successor. Do not redo S1 through
-   S2f. The next unfinished work is conflict repair and the final UI.
+   from `codex/eli-watch-discovery` or its merged successor. Do not redo S1
+   through S2g. The next unfinished work is webhook wakeups, conflict repair and
+   the final UI.
 3. Continue the first unfinished acceptance criterion. Read the existing store,
    API and model boundaries before adding another path around them.
 4. Add regression tests for the observable behaviour and regenerate contracts

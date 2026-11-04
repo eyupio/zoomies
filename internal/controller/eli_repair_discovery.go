@@ -74,6 +74,13 @@ func (c *Controller) AdmitEliRepositoryWatches(ctx context.Context, in EliReposi
 		return nil, fmt.Errorf("the repository's open pull requests cannot be listed: %w", err)
 	}
 
+	return c.admitOpenPulls(ctx, repo, in.InstallationID, strings.TrimSpace(in.OwnerID), policy, checks, conflicts, pulls, capped)
+}
+
+// admitOpenPulls is the write half shared by explicit repository admission and
+// periodic new-PR discovery. The list is read before this point, so a failed
+// read has already admitted nothing.
+func (c *Controller) admitOpenPulls(ctx context.Context, repo, installationID, owner string, policy *store.EliRepairPolicy, checks, conflicts bool, pulls []github.RepairPull, capped bool) (*EliRepositoryWatchReport, error) {
 	report := &EliRepositoryWatchReport{Excluded: []EliWatchExclusion{}, Capped: capped}
 	for _, pull := range pulls {
 		reason := watchExclusionReason(pull)
@@ -82,10 +89,10 @@ func (c *Controller) AdmitEliRepositoryWatches(ctx context.Context, in EliReposi
 			continue
 		}
 		watch, created, err := c.st.CreateEliRepairWatchIfAbsent(ctx, store.EliRepairWatch{
-			InstallationID:   in.InstallationID,
+			InstallationID:   installationID,
 			Repo:             repo,
 			PullNumber:       pull.Number,
-			OwnerID:          strings.TrimSpace(in.OwnerID),
+			OwnerID:          owner,
 			PolicyProviderID: policy.ProviderID,
 			PolicyUpdatedAt:  policy.UpdatedAt,
 			Checks:           checks,
