@@ -633,6 +633,16 @@
     .slot.side {
       grid-column: 2;
     }
+    /*
+      The events card takes the jobs card's height, never the other way round.
+      Size containment keeps the feed's own length out of the row's height, so
+      expanding it scrolls inside the card instead of stretching the Active
+      jobs card beside it and leaving that one full of blank space.
+    */
+    .slot.main + .slot.side {
+      contain: size;
+      min-height: 0;
+    }
     .slot.main,
     .slot.side,
     .slot.main > :global(*),
@@ -641,7 +651,12 @@
       flex-direction: column;
     }
     .slot.main > :global(*),
-    .slot.side > :global(*),
+    .slot.side > :global(*) {
+      flex: 1;
+      /* A flex child whose content is taller than the row would otherwise
+         refuse to shrink, and the card would grow out of its bounded slot. */
+      min-height: 0;
+    }
     .slot.main :global(.panel),
     .slot.side :global(.panel) {
       flex: 1;

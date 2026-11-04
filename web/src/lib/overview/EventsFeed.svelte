@@ -98,7 +98,9 @@
   });
 </script>
 
-<!-- Expansion uses normal page scrolling, including on touch devices. -->
+<!-- On a desktop the card is cut to the height of the jobs beside it and its
+     body scrolls; on a narrow screen the panels stack, so expansion uses the
+     page's normal scrolling. -->
 <Panel
   title="Recent events"
   icon={Activity}
@@ -107,6 +109,7 @@
     : `Newest first. ${categories.length - hidden} of ${categories.length} kinds.`}
   class={className}
   flush
+  fill
 >
   {#snippet actions()}
     {#if showBadge}
@@ -166,49 +169,52 @@
         : `${pluralise(silenced, 'event')} ${silenced === 1 ? 'is' : 'are'} not shown, because ${pluralise(hidden, 'kind')} of event ${hidden === 1 ? 'is' : 'are'} switched off for this browser. Use \u201cChoose\u201d above to turn ${hidden === 1 ? 'it' : 'them'} back on.`}
     />
   {:else}
-    <ul class="feed" class:preview={!expanded} id="overview-events">
-      {#each entries as entry (entry.id)}
-        {@const tone = toneTokens(entry.tone)}
-        <li class="item">
-          <span
-            class="mark"
-            style="color: {tone.colour}; background: {tone.subtle}; border-color: {tone.border}"
-          >
-            <entry.icon size={14} aria-hidden="true" />
-          </span>
-          <div class="lines">
-            <p class="meta">
-              <span class="what">{entry.title}</span>
-              {#if entry.target}
-                <span aria-hidden="true" class="dot">·</span>
-                {#if entry.target.href}
-                  <a href={entry.target.href}>{entry.target.label}</a>
-                {:else}
-                  <span>{entry.target.label}</span>
+    <div class="feed-frame">
+      <ul class="feed" class:preview={!expanded} id="overview-events">
+        {#each entries as entry (entry.id)}
+          {@const tone = toneTokens(entry.tone)}
+          <li class="item">
+            <span
+              class="mark"
+              style="color: {tone.colour}; background: {tone.subtle}; border-color: {tone.border}"
+            >
+              <entry.icon size={14} aria-hidden="true" />
+            </span>
+            <div class="lines">
+              <p class="meta">
+                <span class="what">{entry.title}</span>
+                {#if entry.target}
+                  <span aria-hidden="true" class="dot">·</span>
+                  {#if entry.target.href}
+                    <a href={entry.target.href}>{entry.target.label}</a>
+                  {:else}
+                    <span>{entry.target.label}</span>
+                  {/if}
                 {/if}
-              {/if}
-              <span aria-hidden="true" class="dot">·</span>
-              <RelativeTime value={entry.at} />
-            </p>
-            {#if expanded && entry.detail}<p class="detail">{entry.detail}</p>{/if}
-          </div>
-        </li>
-      {/each}
-    </ul>
-  {/if}
-  {#if !loading && feed.entries.length > 0}
-    <button
-      class="expand"
-      type="button"
-      aria-expanded={expanded}
-      aria-controls="overview-events"
-      onclick={expand}>{expanded ? 'Show fewer events' : 'Expand events'}</button
-    >
+                <span aria-hidden="true" class="dot">·</span>
+                <RelativeTime value={entry.at} />
+              </p>
+              {#if expanded && entry.detail}<p class="detail">{entry.detail}</p>{/if}
+            </div>
+          </li>
+        {/each}
+      </ul>
+      {#if !loading && feed.entries.length > 0}
+        <button
+          class="expand"
+          type="button"
+          aria-expanded={expanded}
+          aria-controls="overview-events"
+          onclick={expand}>{expanded ? 'Show fewer events' : 'Expand events'}</button
+        >
+      {/if}
+    </div>
   {/if}
 </Panel>
 
 <style>
   .expand {
+    flex: none;
     min-height: var(--z-control-touch);
     width: 100%;
     padding: var(--z-space-2) var(--z-space-3);
@@ -248,10 +254,19 @@
     color: var(--z-accent);
     text-decoration: underline;
   }
+  .feed-frame {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
   .feed {
+    flex: 1;
+    min-height: 0;
     margin: 0;
     padding: 0;
     list-style: none;
+    overflow-y: auto;
   }
   .item {
     display: flex;

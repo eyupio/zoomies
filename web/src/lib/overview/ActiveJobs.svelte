@@ -36,8 +36,12 @@
 
   let { class: className = '' }: Props = $props();
 
-  /** Enough to see the shape of the fleet; the Jobs page is for the rest. */
-  const SHOWN = 12;
+  /**
+   * A glimpse, not the whole fleet: the Overview should say what is running
+   * without becoming a second Jobs page, and every row here sets the height
+   * of the events card beside it. The Jobs page is for the rest.
+   */
+  const SHOWN = 6;
   const FETCH = 50;
 
   let jobs = $state.raw<Job[]>([]);
