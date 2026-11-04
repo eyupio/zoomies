@@ -206,6 +206,12 @@ page walks through them in
 The access log records the same requests one by one, and is off unless the log
 level is `debug`; these are the version of it that is always on.
 
+The loop and route timings can also be read back without a scraper:
+`GET /api/v1/controller/load`, and the `controller_load` MCP tool, give them
+since the controller started, longest first, with the machine's busy figure and
+the share of it the controller process itself used. That answers "is the busy
+machine Zoomies, and which loop", where a scraper's history answers "when".
+
 ### The loops and their steps
 
 Every value `loop` and `step` take is listed here, and a step is only timed

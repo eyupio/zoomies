@@ -81,3 +81,81 @@ func TestAControllerWithNoProcfsReportsNoMachine(t *testing.T) {
 		t.Fatalf("a machine that could not be read reported %+v, want nothing", v)
 	}
 }
+
+// The machine's busy figure counts the container runtime, the tunnel and the
+// hypervisor's share as well as Zoomies', so the controller reports its own share
+// of the same interval beside it, and the two can be subtracted.
+func TestTheControllersOwnShareIsReportedBesideTheMachinesBusyTime(t *testing.T) {
+	h := newHarness(t)
+	h.c.machine.read = reading(68, 36)
+	h.c.machine.readProcess = func(cpus int) (float64, bool) {
+		if cpus != 4 {
+			t.Errorf("share asked for %d CPUs, want the 4 the machine has", cpus)
+		}
+		return 12.5, true
+	}
+	h.c.sampleMachine()
+	u := h.c.ControllerMachine().Usage
+	if u == nil || u.ProcessCPUPercent == nil || *u.ProcessCPUPercent != 12.5 {
+		t.Fatalf("usage = %+v, want the controller's 12.5%% beside the machine's 68%%", u)
+	}
+}
+
+// A process is part of the machine's busy time, so one that reads as more than the
+// machine did is a measurement of something else, and is dropped as an agent's
+// impossible figure is.
+func TestAControllerShareAboveTheMachinesBusyTimeIsDroppedAndTheMachineKept(t *testing.T) {
+	h := newHarness(t)
+	h.c.machine.read = reading(40, 0)
+	h.c.machine.readProcess = func(int) (float64, bool) { return 60, true }
+	h.c.sampleMachine()
+	u := h.c.ControllerMachine().Usage
+	if u == nil || u.ProcessCPUPercent != nil {
+		t.Fatalf("usage = %+v, want the impossible share dropped", u)
+	}
+	if u.CPUPercent == nil || *u.CPUPercent != 40 {
+		t.Errorf("the machine's figure beside the dropped share was lost: %+v", u)
+	}
+}
+
+// The two are read a moment apart and counted in hundredths of a second, so a
+// share a hair over the machine's is rounding and not a contradiction.
+func TestAControllerShareJustOverTheMachinesBusyTimeIsKeptAsRounding(t *testing.T) {
+	h := newHarness(t)
+	h.c.machine.read = reading(40, 0)
+	h.c.machine.readProcess = func(int) (float64, bool) { return 41.5, true }
+	h.c.sampleMachine()
+	if u := h.c.ControllerMachine().Usage; u == nil || u.ProcessCPUPercent == nil {
+		t.Fatalf("usage = %+v, want a share within the slack kept", u)
+	}
+}
+
+func TestNoControllerShareIsReportedWhereTheSamplerHasNone(t *testing.T) {
+	h := newHarness(t)
+	h.c.machine.read = reading(40, 0)
+	h.c.machine.readProcess = func(int) (float64, bool) { return 0, false }
+	h.c.sampleMachine()
+	if u := h.c.ControllerMachine().Usage; u == nil || u.ProcessCPUPercent != nil {
+		t.Fatalf("usage = %+v, want the machine reported and no share invented", u)
+	}
+}
+
+// The share is of the interval since the last call, so a tick that skipped the
+// call because the machine figure was missing would make the next interval twice
+// as long and the next share half as big.
+func TestTheControllersShareIsTakenOnEveryTickEvenWhenTheMachineHasNoCPUFigureYet(t *testing.T) {
+	h := newHarness(t)
+	calls := 0
+	h.c.machine.readProcess = func(int) (float64, bool) { calls++; return 5, true }
+	h.c.machine.read = func() (int, int64, machine.Usage, bool) {
+		mem := int64(5000)
+		return 4, 8192, machine.Usage{MemoryAvailableMB: &mem}, true
+	}
+	h.c.sampleMachine()
+	if calls != 1 {
+		t.Fatalf("the share was taken %d times on a tick with no CPU figure, want once", calls)
+	}
+	if u := h.c.ControllerMachine().Usage; u == nil || u.ProcessCPUPercent != nil {
+		t.Fatalf("usage = %+v, want no share beside a machine with no CPU figure to compare it with", u)
+	}
+}

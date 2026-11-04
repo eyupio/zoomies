@@ -566,6 +566,20 @@ Validation on 3 to 4 November 2026:
 #1375 merged as `77a821023` with all checks green. The review corrections are in
 `a3912e4e7`; the final focused tests above were run after them.
 
+Test correction after the merge, 4 November 2026, in PR #1380 (the controller
+load work, which carries it because its `Linux arm64` check failed on this test).
+It is test-only: no runtime behaviour, migration or contract changed.
+`TestARateLimitedCheckReadUsesTheRetryItWasGiven` compared the stored retry with
+its own clock reading plus 45 seconds to the millisecond, but the loop takes its
+own reading a moment later, so the test failed whenever a millisecond boundary
+fell between the two. It failed once on a hosted arm64 runner and once in 600 runs
+under CPU load. It now bounds the stored time between a reading taken before the
+call and one taken after it. With a 3 ms pause forced between the readings the old
+assertion failed 5 of 5 and the new one passed 20 of 20, and the new one still
+fails when the loop ignores GitHub's Retry-After. The test that checks the pending
+schedule reads the clock first too, but only asserts a lower bound, so a later
+reading cannot fail it. The next unfinished step is unchanged.
+
 Limits of this slice:
 
 - The loop observes one watch per pass and does not start a repair. A failed

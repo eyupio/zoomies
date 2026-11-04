@@ -15,12 +15,26 @@ type ControllerMachineUsage struct {
 	// IOWaitPercent and StealPercent are shares of the same interval as the CPU
 	// figure, which counts both as busy: time idle with something waiting on a
 	// disk, and time the hypervisor kept the CPU from a virtual machine.
-	IOWaitPercent     *float64  `json:"io_wait_percent,omitempty"`
-	StealPercent      *float64  `json:"steal_percent,omitempty"`
+	IOWaitPercent *float64 `json:"io_wait_percent,omitempty"`
+	StealPercent  *float64 `json:"steal_percent,omitempty"`
+	// ProcessCPUPercent is the share of the machine's CPU capacity (every CPU it
+	// has, so one core of four is 25) that this controller process itself used
+	// over the same interval. Read beside CPUPercent it says how much of a busy
+	// machine is Zoomies and how much is everything else on it, which the machine's
+	// own figure cannot: it counts the container runtime, the tunnel and the
+	// hypervisor's share as busy too. Absent where procfs has no process figure,
+	// and whenever it failed the check that it cannot exceed the machine's.
+	ProcessCPUPercent *float64  `json:"process_cpu_percent,omitempty"`
 	LoadAverage1      *float64  `json:"load_average_1m,omitempty"`
 	MemoryAvailableMB *int64    `json:"memory_available_mb,omitempty"`
 	SampledAt         time.Time `json:"sampled_at"`
 }
+
+// processShareSlack is how far above the machine's busy share the process's may
+// read before it is dropped. A process is part of the machine's busy time, so it
+// cannot be more; the slack is for the two being read a moment apart and counted
+// in ticks of a hundredth of a second.
+const processShareSlack = 2.0
 
 // ControllerMachineView is the machine the controller itself runs on, as its procfs
 // describes it. A controller with an embedded agent is also a host, and that host
@@ -43,10 +57,20 @@ type ControllerMachineView struct {
 // tick and remembers the last answer for the route that serves it.
 type machineProbe struct {
 	sampler machine.UsageSampler
+	process machine.ProcessSampler
 	// read is a seam for a test, which has no procfs of its own to describe; the
 	// real one reads this machine's.
 	read func() (cpus int, memoryMB int64, usage machine.Usage, ok bool)
-	last atomic.Pointer[ControllerMachineView]
+	// readProcess is the same seam for the controller's own CPU share.
+	readProcess func(cpus int) (float64, bool)
+	last        atomic.Pointer[ControllerMachineView]
+}
+
+func (p *machineProbe) processShare(cpus int) (float64, bool) {
+	if p.readProcess != nil {
+		return p.readProcess(cpus)
+	}
+	return p.process.Share(cpus)
 }
 
 func (p *machineProbe) sample() (int, int64, machine.Usage, bool) {
@@ -72,6 +96,10 @@ func (c *Controller) sampleMachine() {
 		return
 	}
 	now := c.Now()
+	// Taken on every tick, whether or not it is used below: it is a share of the
+	// interval since the last call, so a tick that skipped it would double the
+	// next interval and halve the figure.
+	processShare, processOK := c.machine.processShare(cpus)
 	seen := store.ObserveHostUsage(store.HostUsage{}, store.HostUsage{
 		CPUPercent: u.CPUPercent, MemoryAvailableMB: u.MemoryAvailableMB, LoadAverage1: u.LoadAverage1,
 		IOWaitPercent: u.IOWaitPercent, StealPercent: u.StealPercent,
@@ -80,6 +108,13 @@ func (c *Controller) sampleMachine() {
 	if !seen.SampledAt.IsZero() && (seen.CPUPercent != nil || seen.MemoryAvailableMB != nil || seen.LoadAverage1 != nil) {
 		view.Usage = &ControllerMachineUsage{CPUPercent: seen.CPUPercent, IOWaitPercent: seen.IOWaitPercent, StealPercent: seen.StealPercent,
 			LoadAverage1: seen.LoadAverage1, MemoryAvailableMB: seen.MemoryAvailableMB, SampledAt: seen.SampledAt}
+		// Only beside a machine figure it can be compared with: a process is part
+		// of the machine's busy time, so one that reads as more than the machine
+		// did is a measurement of something else and is left out, as an agent's
+		// impossible figure is.
+		if processOK && seen.CPUPercent != nil && processShare <= *seen.CPUPercent+processShareSlack {
+			view.Usage.ProcessCPUPercent = &processShare
+		}
 	}
 	c.machine.last.Store(view)
 }

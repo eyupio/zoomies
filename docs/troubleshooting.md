@@ -459,6 +459,17 @@ slow on a machine reporting steal is being starved, and nothing in the
 controller changes that. Move it to a machine with dedicated CPUs, or ask the
 provider whether the machine's CPU is shared or capped.
 
+Without a metrics scraper, `GET /api/v1/controller/load` (or the
+`controller_load` tool over MCP, which any viewer may call) answers the same
+question from the controller itself. Its `machine.usage` sets
+`process_cpu_percent`, the share of the machine's CPU the controller used, beside
+`cpu_percent` and `steal_percent` from the same interval, so what is left of the
+busy figure once the controller's share and the steal are taken away is
+something else on the machine. Below that it lists the loops' steps and the
+route groups by the time they took since the controller started. Those are
+elapsed time and not CPU, so they name the loop and the CPU share says how much
+there is; the profile below says what it is doing.
+
 **What starts the work?** `zoomies_reconcile_passes_total` splits the
 scheduling passes by what started them. Passes that are nearly all `timer` are
 the controller keeping its own pace, which `scheduler.interval` sets. Passes that

@@ -27,7 +27,7 @@ Two things are deliberately **not** here, and both were close calls, see
 | `golang.org/x/oauth2` | OIDC's authorisation-code flow. |
 | `github.com/coreos/go-oidc/v3` | OIDC discovery and ID-token verification, including JWKS rotation: single sign-on, and the GitHub Actions tokens Zoomies-only AI Context uploads carry. Optional features, well-maintained library. |
 | `github.com/prometheus/client_golang` | The metrics endpoint. The exposition format has enough edge cases that hand-writing it is a false economy. |
-| `github.com/prometheus/client_model` | The metric type a test reads a value back out of (`dto.Metric`), so a timing can be asserted on without parsing the text format. Only a test imports it, and `client_golang` already requires it, so it adds nothing to the build. |
+| `github.com/prometheus/client_model` | The metric type a value is read back out of (`dto.Metric`), so a timing can be asserted on, and the controller's load view can report its own timings, without parsing the text format. `client_golang` already requires it and links it, so it adds nothing to the build. |
 | `gopkg.in/yaml.v3` | `zoomies.yaml`. Strict decoding turns a misspelled key into an error naming the line. |
 | `github.com/charmbracelet/huh` | The installer's prompts, select, input, confirm, with validation. It is what makes `zoomies init` feel like a product rather than a script. It brings Bubble Tea v1 with it as its runtime, which is why that module still appears in `go.mod`. |
 | `charm.land/bubbletea/v2` | The CLI's interactive home and task progress use its model/update/view loop, keeping input, work and rendering separate. It is the maintained v2 module path, so it coexists with the v1 that `huh` still carries until `huh` moves. |

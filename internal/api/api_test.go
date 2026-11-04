@@ -955,6 +955,7 @@ func routeTable(ids fixtureIDs) []route {
 
 		{method: "GET", path: "/api/v1/hosts/samples", role: store.RoleViewer, action: auth.ActionHostsRead},
 		{method: "GET", path: "/api/v1/controller/machine", role: store.RoleViewer, action: auth.ActionHostsRead},
+		{method: "GET", path: "/api/v1/controller/load", role: store.RoleViewer, action: auth.ActionHostsRead},
 		{method: "GET", path: "/api/v1/hosts/" + ids.host, role: store.RoleViewer, action: auth.ActionHostsRead},
 		{method: "GET", path: "/api/v1/hosts/" + ids.host + "/recommendation", role: store.RoleViewer, action: auth.ActionHostsRead},
 		{method: "PATCH", path: "/api/v1/hosts/" + ids.host, role: store.RoleOperator, body: map[string]any{}, action: auth.ActionHostsWrite},

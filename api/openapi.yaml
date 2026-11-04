@@ -4278,6 +4278,34 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ControllerMachine" }
 
+  /controller/load:
+    get:
+      operationId: getControllerLoad
+      tags: [hosts]
+      summary: Where the controller's own time goes
+      description: >-
+        The controller's loops and routes as its metrics endpoint counts them, read
+        back since it started, with the machine it runs on beside them. `steps` are
+        the stretches of its background loops that have run, longest total time
+        first, and `api` the busiest groups of routes it has served. The times are
+        elapsed time and not CPU time: a step waiting on the database or on GitHub
+        is counted for as long as it waits. `machine` is the reading `GET
+        /controller/machine` gives, whose `process_cpu_percent` is the share of the
+        machine's CPU the controller process itself used, so the two together say
+        whether a busy machine is Zoomies or something else on it. Everything is
+        counted since `started_at`, so a controller that has just restarted has
+        little in it. It says which loop or route is taking the time and never what
+        it does with the CPU; a profile (`GET /diagnostics/cpu-profile`) says that.
+        It reads what the controller already keeps and does no work of its own, so
+        asking is cheap when the controller is busy.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ControllerLoad" }
+
   /hosts/{id}:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
     get:
@@ -14868,10 +14896,65 @@ components:
             cpu_percent: { type: number, minimum: 0, maximum: 100, description: "Whole-machine CPU occupied between two samples. Counts I/O wait and steal as busy." }
             io_wait_percent: { type: number, minimum: 0, maximum: 100, description: "The share of that interval the machine spent idle with something waiting on disk." }
             steal_percent: { type: number, minimum: 0, maximum: 100, description: "The share of that interval the hypervisor kept the CPU from this virtual machine. Absent on a kernel that does not report it." }
+            process_cpu_percent: { type: number, minimum: 0, maximum: 100, description: "The share of the machine's CPU capacity (every CPU it has, so one core of four is 25) that this controller process itself used over the same interval. Read beside cpu_percent it says how much of a busy machine is Zoomies and how much is everything else on it. Absent where procfs has no process figure, and when it read as more than the machine's own busy share." }
             load_average_1m: { type: number, minimum: 0, description: "The kernel's one-minute load average." }
             memory_available_mb: { type: integer, format: int64, minimum: 0, description: "Available memory including reclaimable cache." }
             sampled_at: { type: string, format: date-time }
         usage_fresh: { type: boolean, description: "Whether a measurement from the last 90 seconds stands behind usage." }
+    ControllerLoad:
+      type: object
+      description: >-
+        Where the controller's own time goes, read from the timings it keeps for its
+        metrics endpoint, counted since it started.
+      required: [started_at, uptime_seconds, goroutines, reconcile_passes, nudges, steps, steps_not_shown, api, api_groups_not_shown, machine]
+      properties:
+        started_at: { type: string, format: date-time, description: "When this process began." }
+        uptime_seconds: { type: number, minimum: 0, description: "How long it has been running. Every total below is over this time, so a controller that has just restarted has little in it." }
+        goroutines: { type: integer, minimum: 1, description: "Goroutines alive now. A count that only climbs is a leak." }
+        reconcile_passes:
+          type: object
+          description: "Scheduling passes run, by what started them: startup, timer, nudge or request. A trigger that started none is left out."
+          additionalProperties: { type: integer, format: int64, minimum: 0 }
+        nudges: { type: integer, format: int64, minimum: 0, description: "Wake-ups asked of the scheduling loop. Against the passes it shows how many each pass absorbed." }
+        steps:
+          type: array
+          description: "The loop steps that have run, longest total time first."
+          items: { $ref: "#/components/schemas/StepLoad" }
+        steps_not_shown: { type: integer, minimum: 0, description: "How many quieter steps were left out of steps. The answer is held to the thirty longest so that it fits what an assistant may be shown of one result." }
+        api:
+          type: array
+          description: "The busiest groups of routes by time, then by requests."
+          items: { $ref: "#/components/schemas/RouteGroupLoad" }
+        api_groups_not_shown: { type: integer, minimum: 0, description: "How many quieter route groups were left out of api." }
+        machine: { $ref: "#/components/schemas/ControllerMachine" }
+    StepLoad:
+      type: object
+      description: One step of one controller loop.
+      required: [loop, step, count, seconds, mean_seconds, uptime_share_percent]
+      properties:
+        loop: { type: string, description: "The loop: reconcile, housekeeping, derived, job_attention or enrichment." }
+        step: { type: string, description: "The step of that loop." }
+        whole: { type: boolean, description: "Set on a step that times its loop's whole pass, whose time already contains the loop's other steps. Adding a loop's steps up counts that pass twice." }
+        count: { type: integer, format: int64, minimum: 1, description: "How many times it ran." }
+        seconds: { type: number, minimum: 0, description: "Elapsed time it took in all, not CPU time." }
+        mean_seconds: { type: number, minimum: 0 }
+        slowest_at_most_seconds: { type: number, description: "An upper bound on the slowest run: the upper edge of the timing bucket it fell in. Absent when a run was slower than the last bucket." }
+        slowest_over_seconds: { type: number, description: "Present only when a run was slower than the last bucket, and gives the last bucket's edge: the slowest run took more than this." }
+        uptime_share_percent: { type: number, minimum: 0, description: "Its seconds as a share of the controller's uptime." }
+    RouteGroupLoad:
+      type: object
+      description: One group of API routes, named by the first part of the path or one of ui, health, webhook, metrics and mcp.
+      required: [group, requests, server_errors, timed, seconds, mean_seconds, uptime_share_percent]
+      properties:
+        group: { type: string }
+        requests: { type: integer, format: int64, minimum: 0, description: "Every request, including the long-lived ones (the event stream, a log tail, an agent's task poll) that are counted and not timed." }
+        server_errors: { type: integer, format: int64, minimum: 0, description: "Requests that ended in a 5xx." }
+        timed: { type: integer, format: int64, minimum: 0, description: "Requests that were timed." }
+        seconds: { type: number, minimum: 0, description: "Elapsed time the timed requests took in all." }
+        mean_seconds: { type: number, minimum: 0 }
+        slowest_at_most_seconds: { type: number, description: "An upper bound on the slowest timed request. Absent when one was slower than the last bucket." }
+        slowest_over_seconds: { type: number, description: "Present only when a timed request was slower than the last bucket, and gives the last bucket's edge." }
+        uptime_share_percent: { type: number, minimum: 0, description: "Its seconds as a share of the controller's uptime." }
     HostSample:
       type: object
       description: One host at one minute. Absent measurements are gaps, never zero.

@@ -373,6 +373,12 @@ func (s *Server) apiRoutes() chi.Router {
 		// all elsewhere and which has no host of its own to read it from.
 		r.With(s.require(auth.ActionHostsRead)).Get("/controller/machine", s.handleControllerMachine)
 
+		// Where the controller's own time goes. It is the figures the metrics
+		// endpoint publishes, read back, with the machine reading above beside
+		// them, so it asks no more of a reader than that reading does. The CPU
+		// profile is a different matter and stays an administrator's.
+		r.With(s.require(auth.ActionHostsRead)).Get("/controller/load", s.handleControllerLoad)
+
 		// Hosts and enrolment.
 		r.Route("/hosts", func(r chi.Router) {
 			r.With(s.require(auth.ActionHostsRead)).Get("/", s.handleListHosts)
