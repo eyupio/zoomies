@@ -17,10 +17,10 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1378](https://github.com/eyupio/zoomies/pull/1378): S2d repository-wide watch discovery and backfill, merged as `85a7f6ca1` |
+| Latest slice | [#1379](https://github.com/eyupio/zoomies/pull/1379): S2d create-only backfill correction |
 | Investigated baseline | `85a7f6ca1` on `main` |
 | Working branches | `fix/eli-watch-backfill-race` for the S2d review correction |
-| Verified code checkpoints | S1 through S2d merged through `85a7f6ca1`; the create-only admission fix is recorded after publication |
+| Verified code checkpoints | S1 through S2d merged through `85a7f6ca1`; S2d correction: `3c9d2fd916c34d7e06f2127b04b3e9d97fef70d1` |
 | Implementation | S1 through S2d are on `main`; the follow-up makes backfill admission create-only in one store transaction |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375) and [#1378](https://github.com/eyupio/zoomies/pull/1378) merged green; the handoff refresh merged as `07a49f664` |
@@ -382,7 +382,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1372](https://github.com/eyupio/zoomies/pull/1372), merged | S2b: durable watch state, explicit admission, work leases and restart recovery | Focused repair and migration race suites, vet, docs and formatting pass; merged in the #1368 stack | Watcher loop, existing-PR discovery and bounded repair chains |
 | [#1375](https://github.com/eyupio/zoomies/pull/1375), merged as `77a821023` | S2c: due-watch observation loop and check state | Focused repair and migration race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Existing-PR discovery, bounded repair chains and per-check evidence |
 | [#1378](https://github.com/eyupio/zoomies/pull/1378), merged as `85a7f6ca1` | S2d: repository-wide watch discovery and backfill | Focused repair race suites, vet, staticcheck, docs and formatting pass; merged green | Bounded repair chains and per-check evidence |
-| [#NEW](https://github.com/eyupio/zoomies/pull/NEW), open | S2d correction: create-only backfill admission in one transaction | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Bounded repair chains and per-check evidence |
+| [#1379](https://github.com/eyupio/zoomies/pull/1379), open | S2d correction: create-only backfill admission in one transaction | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Bounded repair chains and per-check evidence |
 
 S1 validation on 3 November 2026:
 
