@@ -17,16 +17,16 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1378](https://github.com/eyupio/zoomies/pull/1378): S2d repository-wide watch discovery and backfill |
-| Investigated baseline | `07a49f6648be1f8862a862c6b48caa36f6196758` on `main` |
-| Working branches | `codex/eli-repair-discovery` for S2d |
-| Verified code checkpoints | S1 through S2c merged through `77a821023`; S2d: `1dbfa1284833bdd09c09f52a22fbe5612a80ac45` |
-| Implementation | S1 through S2c are on `main`; S2d adds bounded open-PR enumeration, repository-wide admission, visible exclusions and per-PR pause preservation |
+| Latest slice | [#1379](https://github.com/eyupio/zoomies/pull/1379): S2d create-only backfill correction |
+| Investigated baseline | `85a7f6ca1` on `main` |
+| Working branches | `fix/eli-watch-backfill-race` for the S2d review correction |
+| Verified code checkpoints | S1 through S2d merged through `85a7f6ca1`; S2d correction: `3c9d2fd916c34d7e06f2127b04b3e9d97fef70d1` |
+| Implementation | S1 through S2d are on `main`; the follow-up makes backfill admission create-only in one store transaction |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
-| Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372) and [#1375](https://github.com/eyupio/zoomies/pull/1375) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | S2d implemented on `main` and locally verified; awaits PR/CI review |
+| Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375) and [#1378](https://github.com/eyupio/zoomies/pull/1378) merged green; the handoff refresh merged as `07a49f664` |
+| Current slice | S2d review correction implemented on `main` and locally verified; awaits PR/CI review |
 | Next implementation | Bounded repair chains and per-check evidence |
-| CI snapshot | `main` was green at `07a49f664`; this PR's checks are separate |
+| CI snapshot | `main` was green at `85a7f6ca1`; this PR's checks are separate |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are claimed, read and rescheduled in S2c; S2d can backfill existing open PRs. They still do not start repairs |
 | Merge-conflict repair | Planned, not implemented. Admission refuses the conflicts capability until S3 exists |
@@ -381,7 +381,8 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1369](https://github.com/eyupio/zoomies/pull/1369), open | S2a: independent check observation and comment-write isolation | Repair and lifecycle race tests, vet, docs and formatting pass; no completed check failure at this checkpoint | Durable watches and admission/recovery, then check evidence and repair chains |
 | [#1372](https://github.com/eyupio/zoomies/pull/1372), merged | S2b: durable watch state, explicit admission, work leases and restart recovery | Focused repair and migration race suites, vet, docs and formatting pass; merged in the #1368 stack | Watcher loop, existing-PR discovery and bounded repair chains |
 | [#1375](https://github.com/eyupio/zoomies/pull/1375), merged as `77a821023` | S2c: due-watch observation loop and check state | Focused repair and migration race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Existing-PR discovery, bounded repair chains and per-check evidence |
-| [#1378](https://github.com/eyupio/zoomies/pull/1378), open | S2d: repository-wide watch discovery and backfill | Focused repair race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Bounded repair chains and per-check evidence |
+| [#1378](https://github.com/eyupio/zoomies/pull/1378), merged as `85a7f6ca1` | S2d: repository-wide watch discovery and backfill | Focused repair race suites, vet, staticcheck, docs and formatting pass; merged green | Bounded repair chains and per-check evidence |
+| [#1379](https://github.com/eyupio/zoomies/pull/1379), open | S2d correction: create-only backfill admission in one transaction | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Bounded repair chains and per-check evidence |
 
 S1 validation on 3 November 2026:
 
@@ -594,6 +595,23 @@ Validation on 4 November 2026:
 - `git diff --check` and changed-file `gofmt`: pass.
 - No OpenAPI regeneration was needed because no public contract changed.
 
+The Codex review of S2d found that the existence check and the create happened
+in separate transactions. A concurrent admission could create a watch between
+them, and the backfill write would then resume a watch somebody had paused.
+Backfill now calls `CreateEliRepairWatchIfAbsent`, which reads and inserts in one
+store transaction and returns the existing row untouched.
+
+Validation of the correction:
+
+- `go test -race -count=1 -run 'Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique'`
+  on `./internal/controller ./internal/store ./internal/api ./internal/github`:
+  all four pass (controller 19.837s, store 34.957s, api 56.454s, github 1.293s).
+  The new store regression keeps an existing paused watch exactly as it was.
+- `go vet` on those four packages and `staticcheck ./internal/controller ./internal/github`:
+  pass.
+- `go test ./internal/docs -count=1`: pass (28.596s), changed-file `gofmt` and
+  `git diff --check`: pass.
+
 Limits of this slice:
 
 - Repository-wide admission is a controller entry point, not a route or UI. No
@@ -787,7 +805,7 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
    Confirm which slices merged; a branch or checked box alone is not proof.
 2. Check the working tree and live base branch. Preserve unrelated user changes.
    Review this PR before starting a new slice. For further implementation, start
-   from `codex/eli-repair-discovery` or its merged successor. Do not redo S1
+   from `fix/eli-watch-backfill-race` or its merged successor. Do not redo S1
    through S2d. The next unfinished work is bounded repair chains and per-check
    evidence.
 3. Continue the first unfinished acceptance criterion. Read the existing store,
