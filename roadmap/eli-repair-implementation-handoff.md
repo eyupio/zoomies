@@ -17,27 +17,27 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| This PR | [#1372](https://github.com/eyupio/zoomies/pull/1372): S2b durable watch state, explicit admission and restart recovery |
-| Investigated baseline | `ab47587500d01301b75729422bc086e5170841ce` on `codex/eli-repair-monitoring`, itself based on `ce17858c4` on `main` |
-| Working branches | `codex/eli-repair-setup` for S1 (#1368); `codex/eli-repair-monitoring` for S1 plus S2a (#1369); `codex/eli-repair-watches` for S2b stacked on #1369 |
-| Verified code checkpoints | #1368: `432177647e8d987839b49afa9ec09f6a6c203b2c`; #1369: `3e216980897da27ac5dca07853fe2ef531fef97c`; S2b: `7836cbe05bbaeb7dbbbb20fe993a063755c04bc5`; later test-only and handoff commits do not change runtime code |
-| Implementation | S1 in PR #1368; S2a implementation commit `db70f80d801e620baabdaba7263db5ba499f7cd9` separates observation from the serial model worker; S2b adds migration 0138, store watch rows and leases, explicit controller admission and startup recovery |
-| Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), open for review; migration correction and full store race suite verified; no completed check failure at this checkpoint |
-| Follow-up PR | [#1369](https://github.com/eyupio/zoomies/pull/1369), open for review; no completed check failure at this checkpoint; incorporates PR #1368 through main-integration commit `432177647e8d987839b49afa9ec09f6a6c203b2c` |
-| Current slice | S2b implemented on top of #1369 and locally verified; awaits PR/CI review |
-| Next implementation | A watcher loop that claims due watches and observes checks, then existing-PR discovery/backfill and bounded repair chains |
-| CI snapshot | #1368 and #1369 were open with no completed failed check when this record was refreshed; #1369 still had Playwright checks in progress. Recheck the live PRs before merging |
+| This PR | [#1375](https://github.com/eyupio/zoomies/pull/1375): S2c due-watch observation loop and check state |
+| Investigated baseline | `2d621add5003caf13911bc636aaeca19e049b5a5` on `main` |
+| Working branches | `codex/eli-repair-watcher` for S2c |
+| Verified code checkpoints | S1 plus S2a and S2b merged through `2d621add5`; S2c: `081a567e4510e54b0ef2511e7c8185312d403d97` |
+| Implementation | S1, S2a and S2b are on `main`; S2c adds migration 0139, the guarded due-watch loop, check-state recording, policy pause and rate-limit scheduling |
+| Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
+| Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369) and [#1372](https://github.com/eyupio/zoomies/pull/1372) merged into the stack before #1368 landed |
+| Current slice | S2c implemented on `main` and locally verified; awaits PR/CI review |
+| Next implementation | Existing-PR discovery/backfill, then bounded repair chains and per-check evidence |
+| CI snapshot | The merged stack was green on `main` at `2d621add5`; this PR's checks are separate |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
-| Persistent PR watcher | Durable state, explicit admission and restart recovery implemented in S2b; no loop consumes due watches yet |
+| Persistent PR watcher | Due watches are claimed, read and rescheduled in S2c; they still do not start repairs |
 | Merge-conflict repair | Planned, not implemented. Admission refuses the conflicts capability until S3 exists |
 | Production configuration | No repository automation or model credentials changed by this work |
 
 Do not enable or advertise Baby sit or conflict-only behaviour on the strength
-of S1 or S2b. The existing automatic mode still starts from a failed
+of S1, S2b or S2c. The existing automatic mode still starts from a failed
 `workflow_job`, attempts one repair per failing head and refuses automatic
 repairs of its own published commit. It does not discover earlier failures when
-enabled, and S2b only records a watch that a person admitted explicitly; no
-watcher loop consumes those rows yet.
+enabled. S2c observes an explicitly admitted watch and records its check state,
+but a failed watch does not start a repair, and conflict repair does not exist.
 
 ## Agreed product behaviour
 
@@ -158,11 +158,9 @@ or remove the own-commit recursion guard.
 
 ### S2: persistent PR watcher and check repair chains
 
-Status: S2a is implemented and locally verified in
-[PR #1369](https://github.com/eyupio/zoomies/pull/1369) only, not in PR #1368.
-S2b is implemented in this PR only, stacked on #1369. A watcher loop, existing-PR
-discovery and repair chains are not implemented. Split the remaining foundation,
-execution and UI into reviewable PRs; update this file in every one.
+Status: S2a, S2b and S2c are on `main`. Existing-PR discovery, repair chains and
+per-check evidence are not implemented. Split the remaining foundation, execution
+and UI into reviewable PRs; update this file in every one.
 
 S2a scope:
 
@@ -174,10 +172,10 @@ S2a scope:
   cannot reopen a settled attempt or change its polling clock. Bound comments
   to ten seconds and skip notices whose attempt state has already changed.
 - [x] Include GitHub client resolution in each check's thirty-second read budget.
-- [ ] Add the watcher loop that consumes due watches, existing-PR discovery and
-  repair chains. Durable watch rows and work leases land separately in S2b.
+- [ ] Add existing-PR discovery and bounded repair chains. The watcher loop that
+  consumes due watches lands in S2c.
 
-S2b scope, this PR only:
+S2b scope, merged in #1372:
 
 - [x] Add additive migration 0138 for durable watches and an optional `watch_id`
   on repair attempts. Watches carry installation/repository/PR identity, owner
@@ -195,8 +193,24 @@ S2b scope, this PR only:
   becomes due again; an uncertain publication stays interrupted.
 - [x] Keep watch state separate from attempt state. Only an explicit admission
   resumes a paused watch, and no existing policy changes to continuous watching.
-- [ ] Consume due watches with a GitHub observation loop. This PR deliberately
-  starts no such loop, so a watch records the decision but has no runtime cost.
+- [x] Consume due watches with a GitHub observation loop, added by S2c.
+
+S2c scope, this PR only:
+
+- [x] Add migration 0139 for the last check state on a watch.
+- [x] Start a guarded `eli-repair-watches` loop beside the model worker and the
+  published-commit observer. It claims at most one due watch at a time through
+  the existing lease and honours the controller fence, lease and transfer drain.
+- [x] Pause a watch when its repository policy is no longer enabled or automatic,
+  and stop it when the pull request is closed, merged, from a fork or no longer
+  writable. No model work and no publication happen in this loop.
+- [x] Read the pull request and, when the watch has the checks capability, its
+  current check state. Record passed, failed, waiting or unknown, and never treat
+  an incomplete or failed read as passing.
+- [x] Reschedule pending and failing checks promptly, passed checks more slowly,
+  and an error at the GitHub Retry-After time when GitHub gave one.
+- [ ] Start a repair from a failed watch, normalise failure signatures and bound
+  a chain. That is the next execution slice.
 
 Data and policy:
 
@@ -349,7 +363,8 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | --- | --- | --- | --- |
 | [#1368](https://github.com/eyupio/zoomies/pull/1368), open | S1, UX follow-up and this handoff | Local checks below pass; latest CI pending | Review S2a in #1369, then durable watches; S3 and S4 remain |
 | [#1369](https://github.com/eyupio/zoomies/pull/1369), open | S2a: independent check observation and comment-write isolation | Repair and lifecycle race tests, vet, docs and formatting pass; no completed check failure at this checkpoint | Durable watches and admission/recovery, then check evidence and repair chains |
-| [#1372](https://github.com/eyupio/zoomies/pull/1372), open, stacked on #1369 | S2b: durable watch state, explicit admission, work leases and restart recovery | Focused repair and migration race suites, vet, docs and formatting pass; no UI or public API change | Watcher loop, existing-PR discovery and bounded repair chains |
+| [#1372](https://github.com/eyupio/zoomies/pull/1372), merged | S2b: durable watch state, explicit admission, work leases and restart recovery | Focused repair and migration race suites, vet, docs and formatting pass; merged in the #1368 stack | Watcher loop, existing-PR discovery and bounded repair chains |
+| [#1375](https://github.com/eyupio/zoomies/pull/1375), open | S2c: due-watch observation loop and check state | Focused repair and migration race suites, vet, docs and formatting pass; no UI or public API change | Existing-PR discovery, bounded repair chains and per-check evidence |
 
 S1 validation on 3 November 2026:
 
@@ -497,6 +512,49 @@ reads the latest state/comment ID before posting, skips a notice whose state is
 stale, and bounds the request to ten seconds. This prevents a delayed worker
 comment from overwriting a newer terminal outcome, and prevents a check save
 from erasing a comment ID written while the check read was in flight.
+
+### S2c: due-watch observation loop, 3 November 2026
+
+This PR starts from `main` after #1368 merged. It adds `0139` and the watcher
+loop; `0138` remains the S2b watch table.
+
+The Codex review found two edges, both fixed. A delayed closed or unsupported
+pull response could pause or stop a watch that had since been paused and
+explicitly re-admitted; observer decisions now update only the row if the
+claimed lease token is still present, while the person-facing pause and stop
+remain unconditional. Re-admitting an idle watch also reset the stored check
+state but returned the old state in memory; the returned row now says unknown
+with the new head.
+
+Validation on 3 November 2026:
+
+- `go test -race -count=1 -run 'Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique'`
+  on `./internal/controller ./internal/store ./internal/api ./internal/github`:
+  all four packages pass (controller 21.489s, store 37.215s, api 54.514s,
+  github 1.277s). This includes the new observation, disabled-policy pause,
+  closed-PR stop and rate-limit scheduling cases.
+- `go vet ./internal/controller ./internal/store ./internal/api ./internal/github`:
+  pass.
+- `go test -count=1 -timeout 10m ./internal/store`: pass (119.667s), the complete
+  store suite without the race detector, including migration 0139.
+- `go test ./internal/docs -count=1`: pass (27.450s).
+- `staticcheck ./internal/controller`: pass. The first CI run rejected an
+  initial `next` value that every branch overwrote; it is now declared without
+  that unused assignment. The review fixes add the stale-lease and returned
+  check-state regressions.
+- `git diff --check` and changed-file `gofmt`: pass.
+- No OpenAPI regeneration was needed because no public contract changed.
+
+Limits of this slice:
+
+- The loop observes one watch per pass and does not start a repair. A failed
+  check state is recorded for the next slice, not acted on.
+- Existing-PR enumeration, new-PR discovery, webhook wakeups and target-branch
+  movement are still absent; a watch only exists after an explicit admission.
+- Per-check producers, run attempts, matrix members and required-status coverage
+  are not retained yet. The watch records one overall state.
+- Full repository `make test-short`, browser suites, the complete store suite with
+  the race detector, a live model and end-to-end GitHub mutations were not run.
 
 ### Main integration and migration renumbering, 3 November 2026
 
@@ -679,10 +737,10 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
 1. Read this file, root/scoped `AGENTS.md`, and the actual latest PR diff/status.
    Confirm which slices merged; a branch or checked box alone is not proof.
 2. Check the working tree and live base branch. Preserve unrelated user changes.
-   Review #1368, #1369 and this PR before starting a new slice. For further
-   implementation, start from `codex/eli-repair-watches` or its merged successor.
-   Do not redo S1, S2a/F10 or S2b. The next unfinished work is the watcher loop,
-   existing-PR discovery and bounded repair chains.
+   Review this PR before starting a new slice. For further implementation, start
+   from `codex/eli-repair-watcher` or its merged successor. Do not redo S1, S2a,
+   S2b or S2c. The next unfinished work is existing-PR discovery and bounded
+   repair chains.
 3. Continue the first unfinished acceptance criterion. Read the existing store,
    API and model boundaries before adding another path around them.
 4. Add regression tests for the observable behaviour and regenerate contracts

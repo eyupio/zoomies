@@ -781,8 +781,12 @@ it started from, its capability selection and its next check, and an attempt
 may point back at the watch that authorised it. A short lease keeps one observer
 on a watch at a time; a restart releases a lease left by the previous process
 and makes that interrupted observation due again, because observing a pull
-request is read-only. An uncertain publication is still never replayed: the
-attempt is marked interrupted, as it always was.
+request is read-only. A separate guarded loop claims one due watch, pauses it if
+the repository policy stops being automatic, stops it when the pull request
+closes, and records the current head and overall check state. A failed state is
+not a repair yet; that work stays on the model worker's queue. An uncertain
+publication is still never replayed: the attempt is marked interrupted, as it
+always was.
 
 Each subsystem is bounded at its edges before anything is written:
 `internal/redact` strips credentials and commit authors' email addresses from
