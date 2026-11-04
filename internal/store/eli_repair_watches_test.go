@@ -95,10 +95,10 @@ func TestAWatchLeaseKeepsOneObserverAtATimeAndExpires(t *testing.T) {
 		t.Fatalf("a second observer claimed a leased watch: %v", err)
 	}
 	next := now.Add(30 * time.Second)
-	if err := s.ReleaseEliRepairWatch(ctx, w.ID, "wrong-token", "head", "main", "base", next); err != ErrConflict {
+	if err := s.ReleaseEliRepairWatch(ctx, w.ID, "wrong-token", "head", "main", "base", "unknown", next); err != ErrConflict {
 		t.Fatalf("a stale holder released the lease: %v", err)
 	}
-	if err := s.ReleaseEliRepairWatch(ctx, w.ID, claimed.LeaseToken, "head-b", "main", "base-b", next); err != nil {
+	if err := s.ReleaseEliRepairWatch(ctx, w.ID, claimed.LeaseToken, "head-b", "main", "base-b", "failed", next); err != nil {
 		t.Fatal(err)
 	}
 	released, err := s.EliRepairWatch(ctx, w.ID)
@@ -212,7 +212,7 @@ func TestRepeatedAdmissionLeavesAnActiveObservationAlone(t *testing.T) {
 	if _, err := s.ClaimDueEliRepairWatch(ctx, now.Add(time.Second), time.Hour); err != ErrNotFound {
 		t.Fatalf("a second observer claimed the leased watch: %v", err)
 	}
-	if err := s.ReleaseEliRepairWatch(ctx, repeated.ID, claimed.LeaseToken, "head", "main", "base", now.Add(time.Minute)); err != nil {
+	if err := s.ReleaseEliRepairWatch(ctx, repeated.ID, claimed.LeaseToken, "head", "main", "base", "waiting", now.Add(time.Minute)); err != nil {
 		t.Fatalf("the original observer could not record its result: %v", err)
 	}
 }

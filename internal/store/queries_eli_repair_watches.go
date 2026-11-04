@@ -33,11 +33,12 @@ type EliRepairWatch struct {
 	LeaseToken       string    `json:"-"`
 	LeaseUntil       time.Time `json:"-"`
 	StopReason       string    `json:"stop_reason,omitempty"`
+	CheckState       string    `json:"check_state,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-const eliRepairWatchCols = `id,installation_id,repo,pull_number,owner_id,policy_provider_id,policy_updated_at,checks,conflicts,enabled,paused_reason,head_sha,base_ref,base_sha,last_observed_at,next_check_at,lease_token,lease_until,stop_reason,created_at,updated_at`
+const eliRepairWatchCols = `id,installation_id,repo,pull_number,owner_id,policy_provider_id,policy_updated_at,checks,conflicts,enabled,paused_reason,head_sha,base_ref,base_sha,last_observed_at,next_check_at,lease_token,lease_until,stop_reason,check_state,created_at,updated_at`
 
 func scanEliRepairWatch(row interface{ Scan(...any) error }) (*EliRepairWatch, error) {
 	var w EliRepairWatch
@@ -45,7 +46,7 @@ func scanEliRepairWatch(row interface{ Scan(...any) error }) (*EliRepairWatch, e
 	err := row.Scan(&w.ID, &w.InstallationID, &w.Repo, &w.PullNumber, &w.OwnerID, &w.PolicyProviderID,
 		&policyUpdated, &w.Checks, &w.Conflicts, &w.Enabled, &w.PausedReason, &w.HeadSHA,
 		&w.BaseRef, &w.BaseSHA, &lastObserved, &nextCheck, &w.LeaseToken, &leaseUntil,
-		&w.StopReason, &created, &updated)
+		&w.StopReason, &w.CheckState, &created, &updated)
 	if policyUpdated > 0 {
 		w.PolicyUpdatedAt = at(policyUpdated)
 	}
@@ -80,11 +81,14 @@ func (s *Store) AdmitEliRepairWatch(ctx context.Context, w EliRepairWatch) (*Eli
 			w.LeaseToken, w.LeaseUntil = "", time.Time{}
 			w.CreatedAt, w.UpdatedAt = now, now
 			w.NextCheckAt = now
-			_, err = tx.ExecContext(ctx, `INSERT INTO eli_repair_watches(`+eliRepairWatchCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			if w.CheckState == "" {
+				w.CheckState = "unknown"
+			}
+			_, err = tx.ExecContext(ctx, `INSERT INTO eli_repair_watches(`+eliRepairWatchCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				w.ID, w.InstallationID, w.Repo, w.PullNumber, w.OwnerID, w.PolicyProviderID, ms(w.PolicyUpdatedAt),
 				boolInt(w.Checks), boolInt(w.Conflicts), boolInt(w.Enabled), w.PausedReason, w.HeadSHA,
 				w.BaseRef, w.BaseSHA, ms(w.LastObservedAt), ms(w.NextCheckAt), w.LeaseToken, ms(w.LeaseUntil),
-				w.StopReason, ms(w.CreatedAt), ms(w.UpdatedAt))
+				w.StopReason, w.CheckState, ms(w.CreatedAt), ms(w.UpdatedAt))
 			if err != nil {
 				return err
 			}
@@ -114,7 +118,7 @@ func (s *Store) AdmitEliRepairWatch(ctx context.Context, w EliRepairWatch) (*Eli
 			existing.HeadSHA, existing.BaseRef, existing.BaseSHA = w.HeadSHA, w.BaseRef, w.BaseSHA
 			existing.LeaseToken, existing.LeaseUntil = "", time.Time{}
 			existing.NextCheckAt = now
-			_, err = tx.ExecContext(ctx, `UPDATE eli_repair_watches SET installation_id=?,owner_id=?,policy_provider_id=?,policy_updated_at=?,checks=?,conflicts=?,enabled=1,paused_reason='',head_sha=?,base_ref=?,base_sha=?,next_check_at=?,lease_token='',lease_until=0,stop_reason='',updated_at=? WHERE id=?`,
+			_, err = tx.ExecContext(ctx, `UPDATE eli_repair_watches SET installation_id=?,owner_id=?,policy_provider_id=?,policy_updated_at=?,checks=?,conflicts=?,enabled=1,paused_reason='',head_sha=?,base_ref=?,base_sha=?,check_state='unknown',next_check_at=?,lease_token='',lease_until=0,stop_reason='',updated_at=? WHERE id=?`,
 				existing.InstallationID, existing.OwnerID, existing.PolicyProviderID, ms(existing.PolicyUpdatedAt),
 				boolInt(existing.Checks), boolInt(existing.Conflicts), existing.HeadSHA, existing.BaseRef, existing.BaseSHA,
 				ms(existing.NextCheckAt), ms(existing.UpdatedAt), existing.ID)
@@ -208,10 +212,10 @@ func (s *Store) ClaimDueEliRepairWatch(ctx context.Context, now time.Time, ttl t
 // ReleaseEliRepairWatch records one observation and returns the watch to the
 // queue. A stale holder is refused, so work that continued after its lease was
 // reclaimed cannot overwrite a newer observation.
-func (s *Store) ReleaseEliRepairWatch(ctx context.Context, id, token, headSHA, baseRef, baseSHA string, next time.Time) error {
+func (s *Store) ReleaseEliRepairWatch(ctx context.Context, id, token, headSHA, baseRef, baseSHA, checkState string, next time.Time) error {
 	now := s.Now()
-	result, err := s.exec(ctx, `UPDATE eli_repair_watches SET lease_token='',lease_until=0,last_observed_at=?,head_sha=?,base_ref=?,base_sha=?,next_check_at=?,updated_at=? WHERE id=? AND lease_token=?`,
-		ms(now), headSHA, baseRef, baseSHA, ms(next), ms(now), id, token)
+	result, err := s.exec(ctx, `UPDATE eli_repair_watches SET lease_token='',lease_until=0,last_observed_at=?,head_sha=?,base_ref=?,base_sha=?,check_state=?,next_check_at=?,updated_at=? WHERE id=? AND lease_token=?`,
+		ms(now), headSHA, baseRef, baseSHA, checkState, ms(next), ms(now), id, token)
 	if err != nil {
 		return err
 	}

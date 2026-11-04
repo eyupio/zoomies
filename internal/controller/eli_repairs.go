@@ -625,6 +625,7 @@ func (c *Controller) startRepairLoops(ctx context.Context) {
 	}
 	c.spawn("eli-repairs", ctx, c.repairLoop)
 	c.spawn("eli-repair-checks", ctx, c.repairCheckLoop)
+	c.spawn("eli-repair-watches", ctx, c.repairWatchLoop)
 }
 
 // A slow model must not hold up verification of commits already published.
