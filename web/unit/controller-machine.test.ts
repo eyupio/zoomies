@@ -71,3 +71,39 @@ test('steal below the noise and figures never measured are left out, not drawn a
   );
   assert.deepEqual(machineFigures({ usage_fresh: false }), []);
 });
+
+// A machine at 70% with the controller at 0.1% is busy with something else, and
+// that is the answer the figure exists to give, so a small share is said and not
+// left out for being low. A zero that was measured is a fact; an absent field,
+// from a controller too old to send one, is not, and is never drawn as zero.
+test("the controller's own share is said when it is small, and left out when it was never sent", () => {
+  const withShare = machineFigures(
+    machine({
+      usage: {
+        cpu_percent: 70,
+        process_cpu_percent: 0.1,
+        steal_percent: 36,
+        load_average_1m: 2.5,
+        memory_available_mb: 5120,
+        sampled_at: sampledAt,
+      },
+    }),
+  );
+  assert.deepEqual(
+    withShare.map((f) => f.key),
+    ['cpu', 'controller', 'steal', 'load', 'memory'],
+  );
+  assert.equal(withShare[1]?.value, '0.1%');
+  assert.match(withShare[1]?.detail ?? '', /controller process itself/);
+
+  const measuredZero = machineFigures(
+    machine({ usage: { cpu_percent: 5, process_cpu_percent: 0, sampled_at: sampledAt } }),
+  );
+  assert.equal(measuredZero.find((f) => f.key === 'controller')?.value, '0%');
+
+  const older = machineFigures(machine());
+  assert.equal(
+    older.some((f) => f.key === 'controller'),
+    false,
+  );
+});

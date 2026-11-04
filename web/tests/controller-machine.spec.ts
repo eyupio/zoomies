@@ -64,6 +64,37 @@ test('a controller with no agent of its own shows the machine it runs on, with w
   await expect(card).toContainText('4 CPUs');
 });
 
+// A machine at 70% with the controller at 0.1% is busy with something else, which
+// is the answer the figure exists to give, so a small share is said and not left
+// out for being low. It sits beside the busy figure it is a part of.
+test("the card says how much of the busy figure is the controller's own", async ({ page }) => {
+  await showMachine(page, false, {
+    ...MACHINE,
+    usage: { ...MACHINE.usage, cpu_percent: 70, process_cpu_percent: 0.1 },
+  });
+  await goto(page, '/hosts', 'Hosts');
+  const card = page.getByRole('region', { name: 'This machine' });
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('Controller');
+  await expect(card).toContainText('0.1%');
+  await expect(card).toContainText("Of the machine's CPU, used by the controller process itself");
+  // Still beside the busy figure and the steal it is read against.
+  await expect(card).toContainText('CPU busy');
+  await expect(card).toContainText('Steal');
+});
+
+// A controller too old to send the share leaves the figure out, and the rest of the
+// card stands: a missing measurement is not drawn as zero.
+test('a controller that does not send its own share draws the card without it', async ({
+  page,
+}) => {
+  await showMachine(page, false);
+  await goto(page, '/hosts', 'Hosts');
+  const card = page.getByRole('region', { name: 'This machine' });
+  await expect(card).toContainText('CPU busy');
+  await expect(card.getByText('Controller', { exact: true })).toHaveCount(0);
+});
+
 test('a controller with an agent of its own does not draw its machine twice', async ({ page }) => {
   await showMachine(page, true);
   await goto(page, '/hosts', 'Hosts');
@@ -108,4 +139,11 @@ test('the real controller reports its own machine once it has two samples', asyn
   expect(body.memory_mb).toBeGreaterThan(0);
   expect(body.usage.cpu_percent).toBeGreaterThanOrEqual(0);
   expect(body.usage.cpu_percent).toBeLessThanOrEqual(100);
+  // The controller's own share, taken over the same interval, is part of the
+  // machine's busy time and so cannot be more than it (the controller allows a
+  // couple of points for the two being read a moment apart).
+  const own = (body.usage as { process_cpu_percent?: number }).process_cpu_percent;
+  expect(typeof own).toBe('number');
+  expect(own).toBeGreaterThanOrEqual(0);
+  expect(own).toBeLessThanOrEqual(body.usage.cpu_percent + 2);
 });
