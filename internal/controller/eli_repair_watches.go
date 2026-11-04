@@ -79,25 +79,9 @@ func (c *Controller) AdmitEliRepairWatch(ctx context.Context, in EliWatchAdmissi
 	if err != nil {
 		return nil, err
 	}
-	policy, err := c.repairPolicy(ctx, repo, in.InstallationID)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, errors.New("repairs are not enabled for this repository and installation; enable Eli repairs and choose an installation provider first")
-	}
+	policy, err := c.eliWatchPolicy(ctx, repo, in.InstallationID)
 	if err != nil {
 		return nil, err
-	}
-	if !policy.Automatic {
-		return nil, errors.New("continuous watching needs automatic repairs for this repository; ask me first and manual only keep their one-attempt behaviour")
-	}
-	canPay, err := c.automaticProviderCanPay(ctx, *policy)
-	if err != nil {
-		return nil, err
-	}
-	if !canPay {
-		return nil, errors.New("the installation provider for this repository is missing, disabled or belongs to a person, so it cannot pay for unattended watching")
-	}
-	if _, err := c.st.GetInstallation(ctx, in.InstallationID); err != nil {
-		return nil, fmt.Errorf("the GitHub installation for this repository is unavailable: %w", err)
 	}
 	admissionCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -129,6 +113,33 @@ func (c *Controller) AdmitEliRepairWatch(ctx context.Context, in EliWatchAdmissi
 		BaseRef:          pull.Base,
 		BaseSHA:          pull.BaseSHA,
 	})
+}
+
+// eliWatchPolicy is the policy and provider gate shared by admitting one PR and
+// enumerating a repository. A watch may only exist where unattended repairs are
+// currently allowed to run.
+func (c *Controller) eliWatchPolicy(ctx context.Context, repo, installation string) (*store.EliRepairPolicy, error) {
+	policy, err := c.repairPolicy(ctx, repo, installation)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, errors.New("repairs are not enabled for this repository and installation; enable Eli repairs and choose an installation provider first")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !policy.Automatic {
+		return nil, errors.New("continuous watching needs automatic repairs for this repository; ask me first and manual only keep their one-attempt behaviour")
+	}
+	canPay, err := c.automaticProviderCanPay(ctx, *policy)
+	if err != nil {
+		return nil, err
+	}
+	if !canPay {
+		return nil, errors.New("the installation provider for this repository is missing, disabled or belongs to a person, so it cannot pay for unattended watching")
+	}
+	if _, err := c.st.GetInstallation(ctx, installation); err != nil {
+		return nil, fmt.Errorf("the GitHub installation for this repository is unavailable: %w", err)
+	}
+	return policy, nil
 }
 
 // Pausing one pull request wins over the repository's automation until an

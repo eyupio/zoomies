@@ -12,13 +12,16 @@ import (
 
 type watchLoopFake struct {
 	*repairFake
-	pull     github.RepairPull
-	pullErr  error
-	check    string
-	checkErr error
-	pulls    int
-	checks   int
-	onPull   func()
+	pull      github.RepairPull
+	pullErr   error
+	check     string
+	checkErr  error
+	pulls     int
+	checks    int
+	onPull    func()
+	openPulls []github.RepairPull
+	openCap   bool
+	openErr   error
 }
 
 func (f *watchLoopFake) RepairPull(context.Context, string, int) (github.RepairPull, error) {
@@ -35,6 +38,13 @@ func (f *watchLoopFake) RepairPull(context.Context, string, int) (github.RepairP
 func (f *watchLoopFake) RepairChecks(context.Context, string, string) (string, error) {
 	f.checks++
 	return f.check, f.checkErr
+}
+
+func (f *watchLoopFake) RepairOpenPulls(context.Context, string, int) ([]github.RepairPull, bool, error) {
+	if f.openErr != nil {
+		return nil, false, f.openErr
+	}
+	return f.openPulls, f.openCap, nil
 }
 
 func watchLoopFixture(t *testing.T, h *harness) (*watchLoopFake, *store.EliRepairWatch, *store.Installation) {
@@ -162,5 +172,114 @@ func TestAStaleClosedObservationDoesNotStopAReAdmittedWatch(t *testing.T) {
 	}
 	if !got.Enabled || got.StopReason != "" {
 		t.Fatalf("a stale closed response stopped a newer admission: %+v", got)
+	}
+}
+
+func repositoryWatchFixture(t *testing.T, h *harness) (*watchLoopFake, *store.Installation, string) {
+	t.Helper()
+	inst := h.installation()
+	provider := &store.AssistantProvider{Name: "Team", Kind: "openai", Enabled: true}
+	if err := h.st.CreateAssistantProvider(h.ctx, provider); err != nil {
+		t.Fatal(err)
+	}
+	repo := inst.Target + "/repo"
+	if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: provider.ID, Enabled: true, Automatic: true}); err != nil {
+		t.Fatal(err)
+	}
+	fake := &watchLoopFake{repairFake: &repairFake{Client: h.gh.Client(inst.Target, inst.TargetType)}}
+	h.c.clients.entries[inst.ID] = &clientEntry{client: fake, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
+	return fake, inst, repo
+}
+
+func TestRepositoryAdmissionBackfillsEligiblePullsAndShowsExclusions(t *testing.T) {
+	h := newHarness(t)
+	fake, inst, repo := repositoryWatchFixture(t, h)
+	fake.openCap = true
+	fake.openPulls = []github.RepairPull{
+		{Number: 1, Title: "ready", Open: true, HeadSHA: "head-1", Branch: "fix-1", Base: "main", BaseSHA: "base-1"},
+		{Number: 2, Title: "fork", Open: true, HeadSHA: "head-2", Branch: "fix-2", Fork: true},
+		{Number: 3, Title: "draft", Open: true, HeadSHA: "head-3", Branch: "fix-3", Draft: true},
+		{Number: 4, Title: "no head", Open: true},
+	}
+	report, err := h.c.AdmitEliRepositoryWatches(h.ctx, EliRepositoryWatchAdmission{
+		Repo: repo, InstallationID: inst.ID, OwnerID: "usr_owner", Capabilities: []string{EliWatchChecks},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Admitted) != 1 || report.Admitted[0].PullNumber != 1 || report.Admitted[0].HeadSHA != "head-1" ||
+		report.Admitted[0].BaseRef != "main" || report.Admitted[0].BaseSHA != "base-1" || !report.Capped {
+		t.Fatalf("report %+v", report)
+	}
+	if len(report.Excluded) != 3 || report.Excluded[0].Reason == "" || report.Excluded[1].Reason == "" || report.Excluded[2].Reason == "" {
+		t.Fatalf("exclusions were hidden: %+v", report.Excluded)
+	}
+	watches, err := h.st.EliRepairWatches(h.ctx)
+	if err != nil || len(watches) != 1 || watches[0].PullNumber != 1 || !watches[0].Checks {
+		t.Fatalf("watches %+v, %v", watches, err)
+	}
+}
+
+func TestRepositoryAdmissionLeavesAnExistingPauseAlone(t *testing.T) {
+	h := newHarness(t)
+	fake, inst, repo := repositoryWatchFixture(t, h)
+	fake.openPulls = []github.RepairPull{{Number: 1, Title: "paused", Open: true, HeadSHA: "head-1", Branch: "fix-1", Base: "main", BaseSHA: "base-1"}}
+	watch, err := h.st.AdmitEliRepairWatch(h.ctx, store.EliRepairWatch{InstallationID: inst.ID, Repo: repo, PullNumber: 1, OwnerID: "usr_owner", Checks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.PauseEliRepairWatch(h.ctx, watch.ID, "Paused for this pull request."); err != nil {
+		t.Fatal(err)
+	}
+	report, err := h.c.AdmitEliRepositoryWatches(h.ctx, EliRepositoryWatchAdmission{
+		Repo: repo, InstallationID: inst.ID, OwnerID: "usr_owner", Capabilities: []string{EliWatchChecks},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Admitted) != 0 || report.Existing != 0 || len(report.Excluded) != 1 || !strings.Contains(report.Excluded[0].Reason, "Paused") {
+		t.Fatalf("repository admission resumed a paused PR: %+v", report)
+	}
+	got, err := h.st.EliRepairWatch(h.ctx, watch.ID)
+	if err != nil || got.Enabled {
+		t.Fatalf("a paused watch was resumed: %+v, %v", got, err)
+	}
+}
+
+func TestRepositoryAdmissionCountsAnExistingWatchWithoutReplacingIt(t *testing.T) {
+	h := newHarness(t)
+	fake, inst, repo := repositoryWatchFixture(t, h)
+	fake.openPulls = []github.RepairPull{{Number: 1, Title: "watched", Open: true, HeadSHA: "head-1", Branch: "fix-1", Base: "main", BaseSHA: "base-1"}}
+	existing, err := h.st.AdmitEliRepairWatch(h.ctx, store.EliRepairWatch{InstallationID: inst.ID, Repo: repo, PullNumber: 1, OwnerID: "usr_owner", Checks: true, HeadSHA: "old-head"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := h.c.AdmitEliRepositoryWatches(h.ctx, EliRepositoryWatchAdmission{
+		Repo: repo, InstallationID: inst.ID, OwnerID: "usr_owner", Capabilities: []string{EliWatchChecks},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Admitted) != 0 || report.Existing != 1 {
+		t.Fatalf("an existing watch was replaced: %+v", report)
+	}
+	got, err := h.st.EliRepairWatch(h.ctx, existing.ID)
+	if err != nil || got.HeadSHA != "old-head" {
+		t.Fatalf("an existing watch was overwritten: %+v, %v", got, err)
+	}
+}
+
+func TestRepositoryAdmissionWritesNothingWhenTheListFails(t *testing.T) {
+	h := newHarness(t)
+	fake, inst, repo := repositoryWatchFixture(t, h)
+	fake.openErr = &github.RateLimitedError{RetryAfter: 30 * time.Second}
+	if _, err := h.c.AdmitEliRepositoryWatches(h.ctx, EliRepositoryWatchAdmission{
+		Repo: repo, InstallationID: inst.ID, OwnerID: "usr_owner", Capabilities: []string{EliWatchChecks},
+	}); err == nil {
+		t.Fatal("a failed list admitted a watch")
+	}
+	watches, err := h.st.EliRepairWatches(h.ctx)
+	if err != nil || len(watches) != 0 {
+		t.Fatalf("a failed list left watches: %+v, %v", watches, err)
 	}
 }

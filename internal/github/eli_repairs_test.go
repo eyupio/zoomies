@@ -494,3 +494,39 @@ func TestRepairFailuresSkipsFailedJobsWithNoLog(t *testing.T) {
 		t.Fatalf("evidence = %q, want only the job with a log", got)
 	}
 }
+
+func TestRepairOpenPullsReadsOpenPullIdentityAndDraftState(t *testing.T) {
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/repos/acme/repo/pulls" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`[{"number":7,"title":"Retry transient 502s","state":"open","draft":true,"html_url":"https://github.com/acme/repo/pull/7","head":{"ref":"fix/retry","sha":"abc","repo":{"full_name":"acme/repo","default_branch":"main"}},"base":{"ref":"release/1.2","sha":"def"}}]`))
+	})
+	pulls, capped, err := c.RepairOpenPulls(t.Context(), "acme/repo", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capped || len(pulls) != 1 {
+		t.Fatalf("pulls %+v capped %t", pulls, capped)
+	}
+	want := RepairPull{
+		Number: 7, Title: "Retry transient 502s", Branch: "fix/retry", Base: "release/1.2",
+		BaseSHA: "def", HeadSHA: "abc", URL: "https://github.com/acme/repo/pull/7",
+		DefaultBranch: "main", Draft: true, Open: true,
+	}
+	if pulls[0] != want {
+		t.Fatalf("got  %+v\nwant %+v", pulls[0], want)
+	}
+}
+
+func TestRepairPullRefusesADraft(t *testing.T) {
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"number":7,"state":"open","draft":true,"head":{"ref":"fix/retry","sha":"abc","repo":{"full_name":"acme/repo","default_branch":"main"}},"base":{"ref":"main"}}`))
+	})
+	if _, err := c.RepairPull(t.Context(), "acme/repo", 7); !errors.Is(err, ErrRepairUnsupported) {
+		t.Fatalf("a draft was admitted: %v", err)
+	}
+}

@@ -49,6 +49,7 @@ type RepairPull struct {
 	URL           string
 	DefaultBranch string
 	Fork          bool
+	Draft         bool
 	Open          bool
 }
 
@@ -178,15 +179,16 @@ func (c *appClient) RepairPull(ctx context.Context, repo string, number int) (Re
 			Ref string `json:"ref"`
 			SHA string `json:"sha"`
 		} `json:"base"`
+		Draft bool `json:"draft"`
 	}
 	if err := c.repairRequest(ctx, http.MethodGet, base+"/pulls/"+strconv.Itoa(number), nil, &p); err != nil {
 		return RepairPull{}, err
 	}
-	out := RepairPull{Number: p.Number, AuthorID: p.User.ID, Author: p.User.Login, Branch: p.Head.Ref, Base: p.Base.Ref, BaseSHA: p.Base.SHA, HeadSHA: p.Head.SHA, Title: p.Title, Body: p.Body, URL: p.HTMLURL, DefaultBranch: p.Head.Repo.DefaultBranch, Fork: p.Head.Repo.FullName != repo, Open: p.State == "open"}
+	out := RepairPull{Number: p.Number, AuthorID: p.User.ID, Author: p.User.Login, Branch: p.Head.Ref, Base: p.Base.Ref, BaseSHA: p.Base.SHA, HeadSHA: p.Head.SHA, Title: p.Title, Body: p.Body, URL: p.HTMLURL, DefaultBranch: p.Head.Repo.DefaultBranch, Fork: p.Head.Repo.FullName != repo, Draft: p.Draft, Open: p.State == "open"}
 	if out.Number > 0 && p.State == "closed" {
 		return out, &RepairTargetChanged{Code: "closed", Message: fmt.Sprintf("PR #%d is closed or merged. This failure no longer needs a PR repair. You can still inspect the original run on GitHub.", out.Number)}
 	}
-	if out.Number <= 0 || !out.Open || out.Fork || out.HeadSHA == "" || out.Branch == "" || out.Branch == out.DefaultBranch {
+	if out.Number <= 0 || !out.Open || out.Fork || out.Draft || out.HeadSHA == "" || out.Branch == "" || out.Branch == out.DefaultBranch {
 		return out, fmt.Errorf("%w: an Eli repair needs an open PR on a non-default branch in this repository; forks are not writable", ErrRepairUnsupported)
 	}
 	return out, nil
@@ -678,6 +680,68 @@ func (c *appClient) RepairChecks(ctx context.Context, repo, sha string) (string,
 		return "waiting", nil
 	}
 	return "passed", nil
+}
+
+// RepairDiscoveryClient is the extra read a repository-wide watch needs. It is
+// separate from RepairClient so an older client can still repair one named pull
+// request without pretending it can enumerate a repository.
+type RepairDiscoveryClient interface {
+	RepairOpenPulls(context.Context, string, int) ([]RepairPull, bool, error)
+}
+
+// RepairPullDiscoveryLimit bounds one repository-wide watch admission.
+const RepairPullDiscoveryLimit = 500
+
+func (c *appClient) RepairOpenPulls(ctx context.Context, repo string, limit int) ([]RepairPull, bool, error) {
+	base, err := repairRepo(repo)
+	if err != nil {
+		return nil, false, err
+	}
+	if limit <= 0 || limit > RepairPullDiscoveryLimit {
+		limit = RepairPullDiscoveryLimit
+	}
+	pages := (limit + 99) / 100
+	out := []RepairPull{}
+	for page := 1; page <= pages; page++ {
+		var part []struct {
+			Number  int    `json:"number"`
+			Title   string `json:"title"`
+			State   string `json:"state"`
+			Draft   bool   `json:"draft"`
+			HTMLURL string `json:"html_url"`
+			Head    struct {
+				Ref  string `json:"ref"`
+				SHA  string `json:"sha"`
+				Repo struct {
+					FullName      string `json:"full_name"`
+					DefaultBranch string `json:"default_branch"`
+				} `json:"repo"`
+			} `json:"head"`
+			Base struct {
+				Ref string `json:"ref"`
+				SHA string `json:"sha"`
+			} `json:"base"`
+		}
+		endpoint := fmt.Sprintf("%s/pulls?state=open&per_page=100&page=%d", base, page)
+		if err := c.repairRequest(ctx, http.MethodGet, endpoint, nil, &part); err != nil {
+			return nil, false, err
+		}
+		for _, p := range part {
+			out = append(out, RepairPull{
+				Number: p.Number, Title: p.Title, Branch: p.Head.Ref, Base: p.Base.Ref,
+				BaseSHA: p.Base.SHA, HeadSHA: p.Head.SHA, URL: p.HTMLURL,
+				DefaultBranch: p.Head.Repo.DefaultBranch, Fork: p.Head.Repo.FullName != repo,
+				Draft: p.Draft, Open: p.State == "open",
+			})
+			if len(out) >= limit {
+				return out, len(part) == 100, nil
+			}
+		}
+		if len(part) < 100 {
+			return out, false, nil
+		}
+	}
+	return out, true, nil
 }
 
 var _ RepairClient = (*appClient)(nil)
