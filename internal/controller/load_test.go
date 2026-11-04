@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -186,5 +187,59 @@ func TestAControllerThatHasDoneNothingAnswersWithEmptyListsAndNotNulls(t *testin
 	}
 	if v.Goroutines < 1 {
 		t.Errorf("goroutines = %d, want at least this one", v.Goroutines)
+	}
+}
+
+// Eli is offered this view, and what one tool may put in front of the model is
+// cut from the front when it is too long, which leaves JSON with no beginning. So
+// the view has to fit however busy the controller is. This is the largest one the
+// caps allow: every step and route group at the cap, every optional field set,
+// every number as many digits as the rounding leaves.
+func TestTheLargestLoadViewFitsWhatEliMayBeShownOfOneTool(t *testing.T) {
+	edge, over := 29.999, 30.0
+	view := ControllerLoadView{
+		StartedAt: time.Date(2026, 11, 4, 12, 30, 45, 123456789, time.UTC), UptimeSeconds: 12345678.9, Goroutines: 123456,
+		ReconcilePasses: map[string]uint64{triggerStartup: 99999999, triggerTimer: 99999999, triggerNudge: 99999999, triggerRequest: 99999999},
+		Nudges:          99999999, StepsNotShown: 99, APIGroupsNotShown: 99,
+	}
+	for i := 0; i < loadSteps; i++ {
+		view.Steps = append(view.Steps, StepLoadView{
+			Loop: loopHousekeeping, Step: stepControllerMachine, Whole: true, Count: 99999999,
+			Seconds: 12345678.1234, MeanSeconds: 12345.123456, SlowestAtMostSeconds: &edge, SlowestOverSeconds: &over, UptimeSharePercent: 100,
+		})
+	}
+	for i := 0; i < loadAPIGroups; i++ {
+		view.API = append(view.API, RouteGroupLoadView{
+			Group: "job_attention_group", Requests: 99999999, ServerErrors: 99999999, Timed: 99999999,
+			Seconds: 12345678.1234, MeanSeconds: 12345.123456, SlowestAtMostSeconds: &edge, SlowestOverSeconds: &over, UptimeSharePercent: 100,
+		})
+	}
+	f := 99.99
+	mem, cpus := int64(123456789), 128
+	view.Machine = ControllerMachineView{CPUs: cpus, MemoryMB: mem, UsageFresh: true, Usage: &ControllerMachineUsage{
+		CPUPercent: &f, IOWaitPercent: &f, StealPercent: &f, ProcessCPUPercent: &f, LoadAverage1: &f, MemoryAvailableMB: &mem,
+		SampledAt: time.Date(2026, 11, 4, 12, 30, 45, 123456789, time.UTC),
+	}}
+	raw, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("the largest view is %d bytes against a ceiling of %d", len(raw), assistantToolResultBytes)
+	if len(raw) >= assistantToolResultBytes {
+		t.Fatalf("the largest load view is %d bytes, which is over the %d an assistant's tool result may be: lower loadSteps or loadAPIGroups", len(raw), assistantToolResultBytes)
+	}
+}
+
+func TestOnlyTheLongestStepsAreListedAndTheRestAreCounted(t *testing.T) {
+	h := newHarness(t)
+	for i := 0; i < loadSteps+4; i++ {
+		h.c.metrics.loopStep.WithLabelValues(loopReconcile, fmt.Sprintf("step%02d", i)).Observe(float64(i+1) / 1000)
+	}
+	v := h.c.ControllerLoad()
+	if len(v.Steps) != loadSteps || v.StepsNotShown < 4 {
+		t.Fatalf("listed %d steps, %d not shown; want %d listed and at least the 4 extra left out", len(v.Steps), v.StepsNotShown, loadSteps)
+	}
+	if v.Steps[0].Step != fmt.Sprintf("step%02d", loadSteps+3) {
+		t.Errorf("longest step = %q, want the one that took longest", v.Steps[0].Step)
 	}
 }

@@ -14906,7 +14906,7 @@ components:
       description: >-
         Where the controller's own time goes, read from the timings it keeps for its
         metrics endpoint, counted since it started.
-      required: [started_at, uptime_seconds, goroutines, reconcile_passes, nudges, steps, api, api_groups_not_shown, machine]
+      required: [started_at, uptime_seconds, goroutines, reconcile_passes, nudges, steps, steps_not_shown, api, api_groups_not_shown, machine]
       properties:
         started_at: { type: string, format: date-time, description: "When this process began." }
         uptime_seconds: { type: number, minimum: 0, description: "How long it has been running. Every total below is over this time, so a controller that has just restarted has little in it." }
@@ -14920,6 +14920,7 @@ components:
           type: array
           description: "The loop steps that have run, longest total time first."
           items: { $ref: "#/components/schemas/StepLoad" }
+        steps_not_shown: { type: integer, minimum: 0, description: "How many quieter steps were left out of steps. The answer is held to the thirty longest so that it fits what an assistant may be shown of one result." }
         api:
           type: array
           description: "The busiest groups of routes by time, then by requests."

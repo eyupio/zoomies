@@ -505,11 +505,6 @@ func TestEveryReadToolIsOnElisListOrLeftOffOnPurpose(t *testing.T) {
 		"list_webhook_deliveries": "a delivery is GitHub's whole payload",
 		"list_audit":              "who did what, by name, is not for a hosted model",
 		"support_bundle":          "the whole instance in one document",
-		// Nothing in it is written by a person: fixed loop and route names, counts,
-		// timings and the machine's figures. What stops it being offered is that
-		// what a hosted model is offered is the owner's choice, and this tool was
-		// added without that choice being made.
-		"controller_load": "not offered to a hosted model until the owner decides; it carries no names or content",
 	}
 	defs := mcp.New(nil, mcp.Options{}).Definitions()
 	have := map[string]bool{}

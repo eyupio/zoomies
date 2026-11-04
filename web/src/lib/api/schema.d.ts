@@ -10556,6 +10556,8 @@ export interface components {
             nudges: number;
             /** @description The loop steps that have run, longest total time first. */
             steps: components["schemas"]["StepLoad"][];
+            /** @description How many quieter steps were left out of steps. The answer is held to the thirty longest so that it fits what an assistant may be shown of one result. */
+            steps_not_shown: number;
             /** @description The busiest groups of routes by time, then by requests. */
             api: components["schemas"]["RouteGroupLoad"][];
             /** @description How many quieter route groups were left out of api. */

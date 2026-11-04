@@ -10,10 +10,16 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-// loadAPIGroups is how many route groups the load view lists. The groups are a
-// fixed set, so this is not a guard against growth; it keeps the answer to the
-// busiest few, which is what a question about load wants.
-const loadAPIGroups = 15
+// loadAPIGroups and loadSteps are how many route groups and loop steps the load
+// view lists. Both come from fixed sets, so neither is a guard against growth;
+// they keep the answer to the busiest few, which is what a question about load
+// wants, and they put a ceiling on its size. That matters because Eli is offered
+// this view, and a result over the ceiling on what one tool may put in front of
+// the model is cut from the front, which would leave JSON with no beginning.
+const (
+	loadAPIGroups = 15
+	loadSteps     = 30
+)
 
 // wholePassSteps are the steps that time a loop's entire pass, so the time they
 // record already contains the other steps of that loop. Adding a loop's steps up
@@ -80,8 +86,10 @@ type ControllerLoadView struct {
 	// Nudges it shows how many wake-ups each pass absorbed.
 	ReconcilePasses map[string]uint64 `json:"reconcile_passes"`
 	Nudges          uint64            `json:"nudges"`
-	// Steps are the loop steps that have run, longest total time first.
-	Steps []StepLoadView `json:"steps"`
+	// Steps are the loop steps that have run, longest total time first, and
+	// StepsNotShown how many quieter ones were left out.
+	Steps         []StepLoadView `json:"steps"`
+	StepsNotShown int            `json:"steps_not_shown"`
 	// API is the busiest route groups by time, and APIGroupsNotShown how many
 	// quieter ones were left out.
 	API               []RouteGroupLoadView  `json:"api"`
@@ -146,6 +154,11 @@ func (c *Controller) ControllerLoad() ControllerLoadView {
 		}
 		return a.Loop+"/"+a.Step < b.Loop+"/"+b.Step
 	})
+
+	if len(view.Steps) > loadSteps {
+		view.StepsNotShown = len(view.Steps) - loadSteps
+		view.Steps = view.Steps[:loadSteps]
+	}
 
 	groups := map[string]*RouteGroupLoadView{}
 	group := func(name string) *RouteGroupLoadView {

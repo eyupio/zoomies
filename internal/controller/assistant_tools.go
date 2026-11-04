@@ -40,6 +40,11 @@ var AssistantFleetTools = []string{
 	"host_samples", "runner_timeline", "list_workflow_runs",
 	"queue_wait_breakdown", "compare_periods", "host_pressure", "startup_failures", "recurring_failures",
 	"list_elis_repairs", "get_eli_repair",
+	// controller_load: where the controller's own time goes and how much of its
+	// machine's CPU it used. Fixed loop and route names, counts, timings and the
+	// machine's figures; nothing in it is written by a person. Held to a size that
+	// fits assistantToolResultBytes by loadSteps and loadAPIGroups.
+	"controller_load",
 }
 
 // What one question may cost in tools. Eli answers from what it looked at, and a

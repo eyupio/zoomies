@@ -31,6 +31,7 @@ access enabled for your provider, start from **Ask Eli** on the relevant page:
 | Choose a runner size | “Does the measured CPU and memory use support a different size for this workflow?” |
 | Investigate a slow build | “Separate queue wait, startup and execution time before suggesting an optimisation.” |
 | Understand a fleet problem | “Explain this problem code, the affected resources and the proposed remedy.” |
+| Find out whether a busy controller machine is Zoomies | “The machine the controller runs on is busy: how much of that is the controller, and which of its loops takes the time?” |
 | Follow a PR repair, in the same account | “Why is my latest repair on this pull request stuck?” or “Did Eli start a repair on the PR I asked about?” |
 
 The answer shows which tools Eli used. It can advise from job history, failure
