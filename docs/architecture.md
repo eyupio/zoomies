@@ -784,13 +784,23 @@ and makes that interrupted observation due again, because observing a pull
 request is read-only. A separate guarded loop claims one due watch, pauses it if
 the repository policy stops being automatic, stops it when the pull request
 closes, and records the current head, overall check state and bounded check-run
-and legacy-status evidence. Repository-wide
-admission lists open pull requests once, within a page cap, and admits eligible
-ones without resuming a pause recorded on one pull request; forks, drafts and
-other exclusions are returned as reasons. A failed state is not a repair yet;
-that work stays on the model worker's queue. An uncertain
-publication is still never replayed: the attempt is marked interrupted, as it
-always was.
+and legacy-status evidence. Repository-wide admission lists open pull requests
+once, within a page cap, and admits eligible ones without resuming a pause
+recorded on one pull request; forks, drafts and other exclusions are returned as
+reasons. Repository-wide admission records a separate explicit decision for the
+repository, in its own table; a per-PR watch never implies one. A five-minute
+pass revisits the least recently discovered decisions, rotates through them in
+bounded batches and admits newly opened pull requests through the same
+create-only path. A verified `pull_request` opened or reopened delivery wakes
+that admission immediately when the App subscribes to it; the periodic pass
+remains the fallback.
+
+A failed check starts at most one repair for the watched head. The watch keeps
+the chain count, last failure signature and stop reason in SQLite, so a restart
+or redelivered check cannot reset the three-attempt limit; a healthy observation
+resets it. A paused or stopped watch refuses a queued repair and is checked again
+after model work before publication. An uncertain publication is still never
+replayed: the attempt is marked interrupted, as it always was.
 
 Each subsystem is bounded at its edges before anything is written:
 `internal/redact` strips credentials and commit authors' email addresses from

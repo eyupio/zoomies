@@ -17,18 +17,18 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1384](https://github.com/eyupio/zoomies/pull/1384): S2f per-check evidence on watched heads |
-| Investigated baseline | `8a827168d2f4c0386890ab75e08bf1ea936185f3` on `main` |
-| Working branches | `codex/eli-check-evidence` for S2f |
-| Verified code checkpoints | S1 through S2e merged through `8a827168d`; S2f: `bc8a3baa390b275de00873370f680cab82bf43a4` |
-| Implementation | S1 through S2e are on `main`; S2f adds migration 0141 and stores bounded check-run and legacy-status evidence with each observation |
+| Latest slice | [#1388](https://github.com/eyupio/zoomies/pull/1388): S2h pull_request webhook wakeup |
+| Investigated baseline | `c97f32a12` on `codex/eli-watch-discovery` |
+| Working branches | `codex/eli-watch-webhook` for S2h, stacked on S2g |
+| Verified code checkpoints | S1 through S2e merged through `8a827168d`; S2f in [#1384](https://github.com/eyupio/zoomies/pull/1384); S2g in [#1386](https://github.com/eyupio/zoomies/pull/1386); S2h: `2a60c7409` plus the handoff-only link commit |
+| Implementation | S2g adds explicit repository decisions and periodic discovery. S2h wakes the same create-only admission from a `pull_request` opened/reopened delivery when the App subscribes to it |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379) and [#1381](https://github.com/eyupio/zoomies/pull/1381) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | S2f implemented on `main` and locally verified; awaits PR/CI review |
+| Current slice | S2h implemented on top of S2g and locally verified; awaits PR/CI review |
 | Next implementation | S3 merge-conflict detection and repair, then S4 UX |
-| CI snapshot | `main` was green at `8a827168d`; this PR's checks are separate |
+| CI snapshot | #1386 was running when this record was refreshed; this PR is stacked on it |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
-| Persistent PR watcher | Due watches are observed, backfilled, retain per-check evidence and can start a chain of at most three repairs |
+| Persistent PR watcher | Due watches are observed, backfilled, retain per-check evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
 | Merge-conflict repair | Planned, not implemented. Admission refuses the conflicts capability until S3 exists |
 | Production configuration | No repository automation or model credentials changed by this work |
 
@@ -158,9 +158,10 @@ or remove the own-commit recursion guard.
 
 ### S2: persistent PR watcher and check repair chains
 
-Status: S2a through S2e are on `main`; S2f adds per-check evidence. Conflict
-repair and the final UI are not implemented. Split the remaining execution and
-UI into reviewable PRs; update this file in every one.
+Status: S2a through S2e are on `main`; S2f adds per-check evidence, S2g adds
+periodic new-PR discovery and S2h adds a pull_request wakeup. Conflict repair and
+the final UI are not implemented. Split the remaining execution and UI into
+reviewable PRs; update this file in every one.
 
 S2a scope:
 
@@ -176,6 +177,8 @@ S2a scope:
 - [x] Add existing-PR discovery and backfill in S2d.
 - [x] Add bounded repair chains in S2e.
 - [x] Add per-check evidence in S2f.
+- [x] Add periodic new-PR discovery in S2g.
+- [x] Add pull_request webhook wakeups in S2h.
 - [ ] Add conflict repair and the final repository and PR controls.
 
 S2b scope, merged in #1372:
@@ -214,7 +217,32 @@ S2c scope, this PR only:
   and an error at the GitHub Retry-After time when GitHub gave one.
 - [x] Start a repair from a failed watch and bound a chain, added by S2e.
 
-S2f scope, this PR only:
+S2h scope, this PR only:
+
+- [x] Accept a verified `pull_request` opened or reopened delivery and admit its
+  watch immediately, but only where an explicit repository decision exists.
+- [x] Re-read the pull request through the GitHub client rather than trusting
+  the delivery for head, base, fork or draft state.
+- [x] Leave an existing paused or stopped watch untouched and do nothing for a
+  repository with no repository-wide decision.
+- [x] Keep the periodic five-minute pass as the fallback when the App is not
+  subscribed to `pull_request`; that subscription remains optional.
+
+S2g scope, merged in #1386:
+
+- [x] Add migration 0142 for an explicit repository-wide watching decision,
+  separate from any one PR's watch. A per-PR admission never creates one.
+- [x] Scan the least recently discovered subscriptions every five minutes, with
+  at most twenty per pass, and record each attempt so the next pass rotates
+  through the remaining repositories.
+- [x] Reuse the repository decision's owner, capabilities and current policy,
+  and admit only newly opened pull requests through create-only admission.
+- [x] Leave paused and stopped pull requests alone and skip a repository whose
+  policy is no longer automatic.
+- [ ] React to a pull_request webhook immediately. This PR is bounded periodic
+  catch-up only; the App subscription change and webhook path remain.
+
+S2f scope, merged in #1384:
 
 - [x] Read bounded check-run and legacy commit-status evidence for a watched
   head, preserving the producer and each outcome alongside the overall state.
@@ -412,6 +440,8 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1379](https://github.com/eyupio/zoomies/pull/1379), merged as `80ed57e94` | S2d correction: create-only backfill admission in one transaction | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; merged green | Bounded repair chains and per-check evidence |
 | [#1381](https://github.com/eyupio/zoomies/pull/1381), merged as `8a827168d` | S2e: bounded repair chains for watched failures | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; merged green | Per-check evidence, then conflict repair and UI |
 | [#1384](https://github.com/eyupio/zoomies/pull/1384), open | S2f: per-check evidence on watched heads | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | Conflict repair and the final controls |
+| [#1386](https://github.com/eyupio/zoomies/pull/1386), open, stacked on #1384 | S2g: periodic new-PR discovery | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Webhook wakeups, conflict repair and the final controls |
+| [#1388](https://github.com/eyupio/zoomies/pull/1388), open, stacked on #1386 | S2h: pull_request webhook wakeup | Focused repair and webhook race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Conflict repair and the final controls |
 
 S1 validation on 3 November 2026:
 
@@ -619,6 +649,74 @@ Limits of this slice:
   are not retained yet. The watch records one overall state.
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S2h: pull_request webhook wakeup, 4 November 2026
+
+This PR is stacked on S2g (#1386). It adds no migration.
+
+Validation on 4 November 2026:
+
+- `go test -race -count=1 -run 'Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique|Webhook'`
+  on `./internal/controller ./internal/store ./internal/api ./internal/github`:
+  all four packages pass (controller 23.560s, store 36.222s, api 56.848s,
+  github 1.296s).
+- `go vet` on those four packages and `staticcheck ./internal/controller ./internal/store ./internal/github`:
+  pass.
+- `go test ./internal/docs -count=1`: pass (28.374s).
+- `git diff --check` and changed-file `gofmt`: pass.
+- New regressions cover a webhook admitting a new watch where the repository was
+  chosen, no watch without a repository decision, and a paused watch staying
+  paused.
+
+Limits of this slice:
+
+- A `pull_request` subscription is optional. Without it, the five-minute pass is
+  the only discovery path.
+- Only opened and reopened actions are acted on. Synchronise and target-branch
+  changes still rely on observation or a later S3 change.
+- The delivery is read again through the GitHub client, so a closed, draft, fork
+  or unwritable PR is skipped without trusting the payload.
+- Full repository `make test-short`, browser suites, the complete store suite
+  with the race detector, a live model and end-to-end GitHub mutations were not
+  run.
+
+### S2g: periodic new-PR discovery, 4 November 2026
+
+This PR is stacked on S2f (#1384). It adds no migration: it reuses the watch
+rows and create-only admission.
+
+Validation on 4 November 2026:
+
+- `go test -race -count=1 -run 'Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique'`
+  on `./internal/controller ./internal/store ./internal/api ./internal/github`:
+  all four pass (controller 21.508s, store 36.581s, api 45.503s, github 1.313s).
+- `go vet` on those four packages and `staticcheck ./internal/controller ./internal/store ./internal/github`:
+  pass.
+- `go test -count=1 -timeout 10m ./internal/store`: pass (47.447s), the complete
+  store suite without the race detector, including migration 0142.
+- The first Linux arm64 run exposed a pre-existing flaky assertion in the AI
+  Context upload test: it looked for `aaaa`, which can occur by chance in a
+  commit hash. It now looks for a run of 32 a's from the file's actual content.
+  `go test -count=1 -run TestAnUploadThatOmitsAFileTellsEveryReaderWhatIsMissing ./internal/api` passes.
+- `go test ./internal/docs -count=1`: pass (30.172s), changed-file `gofmt` and
+  `git diff --check`: pass.
+- New regressions cover admitting a new open PR, leaving the existing watch and
+  a draft alone, not scanning a repository from a single-PR watch, recording an
+  explicit repository decision and rotating past the twenty-entry bound.
+
+Limits of this slice:
+
+- Discovery is periodic, not webhook-driven. A newly opened PR can wait up to
+  five minutes, and the App subscription still has to be updated in a later
+  slice for an immediate wakeup.
+- A repository with no explicit repository-wide decision is not scanned. A
+  single-PR admission does not imply one. Repository-wide admission creates the
+  decision after its first successful list; a failed list creates none.
+- At most twenty repositories are scanned per pass; each can return up to the
+  GitHub pull discovery cap.
+- Full repository `make test-short`, browser suites, the complete store suite
+  with the race detector, a live model and end-to-end GitHub mutations were not
+  run.
 
 ### S2f: per-check evidence, 4 November 2026
 
@@ -913,8 +1011,8 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
    Confirm which slices merged; a branch or checked box alone is not proof.
 2. Check the working tree and live base branch. Preserve unrelated user changes.
    Review this PR before starting a new slice. For further implementation, start
-   from `codex/eli-check-evidence` or its merged successor. Do not redo S1 through
-   S2f. The next unfinished work is conflict repair and the final UI.
+   from `codex/eli-watch-webhook` or its merged successor. Do not redo S1 through
+   S2h. The next unfinished work is conflict repair and the final UI.
 3. Continue the first unfinished acceptance criterion. Read the existing store,
    API and model boundaries before adding another path around them.
 4. Add regression tests for the observable behaviour and regenerate contracts
