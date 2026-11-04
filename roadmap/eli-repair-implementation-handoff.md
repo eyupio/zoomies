@@ -17,10 +17,10 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#NEW](https://github.com/eyupio/zoomies/pull/NEW): S2h pull_request webhook wakeup |
+| Latest slice | [#1388](https://github.com/eyupio/zoomies/pull/1388): S2h pull_request webhook wakeup |
 | Investigated baseline | `c97f32a12` on `codex/eli-watch-discovery` |
 | Working branches | `codex/eli-watch-webhook` for S2h, stacked on S2g |
-| Verified code checkpoints | S1 through S2e merged through `8a827168d`; S2f in [#1384](https://github.com/eyupio/zoomies/pull/1384); S2g in [#1386](https://github.com/eyupio/zoomies/pull/1386); S2h implementation commit recorded after publication |
+| Verified code checkpoints | S1 through S2e merged through `8a827168d`; S2f in [#1384](https://github.com/eyupio/zoomies/pull/1384); S2g in [#1386](https://github.com/eyupio/zoomies/pull/1386); S2h: `2a60c7409` plus the handoff-only link commit |
 | Implementation | S2g adds explicit repository decisions and periodic discovery. S2h wakes the same create-only admission from a `pull_request` opened/reopened delivery when the App subscribes to it |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379) and [#1381](https://github.com/eyupio/zoomies/pull/1381) merged green; the handoff refresh merged as `07a49f664` |
@@ -441,7 +441,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1381](https://github.com/eyupio/zoomies/pull/1381), merged as `8a827168d` | S2e: bounded repair chains for watched failures | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; merged green | Per-check evidence, then conflict repair and UI |
 | [#1384](https://github.com/eyupio/zoomies/pull/1384), open | S2f: per-check evidence on watched heads | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | Conflict repair and the final controls |
 | [#1386](https://github.com/eyupio/zoomies/pull/1386), open, stacked on #1384 | S2g: periodic new-PR discovery | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Webhook wakeups, conflict repair and the final controls |
-| [#NEW](https://github.com/eyupio/zoomies/pull/NEW), open, stacked on #1386 | S2h: pull_request webhook wakeup | Focused repair and webhook race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Conflict repair and the final controls |
+| [#1388](https://github.com/eyupio/zoomies/pull/1388), open, stacked on #1386 | S2h: pull_request webhook wakeup | Focused repair and webhook race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Conflict repair and the final controls |
 
 S1 validation on 3 November 2026:
 
