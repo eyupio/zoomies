@@ -332,7 +332,8 @@ test('a toast lands in the region with the tone it was raised with', async ({ pa
   await expect(page.getByRole('button', { name: 'Open your account' })).toBeVisible();
 });
 
-test('the Eli repair components show every state they can be in', async ({ page }) => {
+// Keep each component contract within its own test budget on the fleet runner.
+test('Eli repair gallery: the case and its pull request', async ({ page }) => {
   await open(page, 'mission-control', 'dark');
   const region = page.getByRole('region', { name: 'Eli repairs', exact: true });
   await expect(region).toBeVisible();
@@ -353,6 +354,12 @@ test('the Eli repair components show every state they can be in', async ({ page 
   await expect(region.locator('[data-gallery="case-no-pull"]')).toContainText(
     'Pull request not looked up yet',
   );
+});
+
+test('Eli repair gallery: job logs and access refusals', async ({ page }) => {
+  await open(page, 'mission-control', 'dark');
+  const region = page.getByRole('region', { name: 'Eli repairs', exact: true });
+  await expect(region).toBeVisible();
 
   // The job the person opened is open and its error output has been read.
   const loaded = region.locator('[data-gallery="jobs-loaded"]');
@@ -377,6 +384,12 @@ test('the Eli repair components show every state they can be in', async ({ page 
   const long = region.locator('[data-gallery="jobs-long"] pre');
   await expect(long).toContainText('<script>alert("an error line is text")</script>');
   expect(await long.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+});
+
+test('Eli repair gallery: readiness checks and repair decisions', async ({ page }) => {
+  await open(page, 'mission-control', 'dark');
+  const region = page.getByRole('region', { name: 'Eli repairs', exact: true });
+  await expect(region).toBeVisible();
 
   // The checklist names what blocked and what was never reached.
   const blocked = region.locator('[data-gallery="checks-blocked"]');
@@ -417,6 +430,12 @@ test('the Eli repair components show every state they can be in', async ({ page 
   await expect(region.locator('[data-gallery="decision-error"]').getByRole('alert')).toContainText(
     'The controller did not answer',
   );
+});
+
+test('Eli repair gallery: progress and repair outcomes', async ({ page }) => {
+  await open(page, 'mission-control', 'dark');
+  const region = page.getByRole('region', { name: 'Eli repairs', exact: true });
+  await expect(region).toBeVisible();
 
   // The progress track puts its mark on the step the worker is on, and the steps
   // either side say what is done and what is to come.
@@ -451,6 +470,12 @@ test('the Eli repair components show every state they can be in', async ({ page 
   ]) {
     await expect(outcomes.getByRole('heading', { name: heading })).toBeVisible();
   }
+});
+
+test('Eli repair gallery: technical details and next steps', async ({ page }) => {
+  await open(page, 'mission-control', 'dark');
+  const region = page.getByRole('region', { name: 'Eli repairs', exact: true });
+  await expect(region).toBeVisible();
 
   // Technical details: open once finished, shut while going, and a call whose usage
   // was never reported is unknown rather than zero.
@@ -491,6 +516,12 @@ test('the Eli repair components show every state they can be in', async ({ page 
       .locator('[data-gallery="next-unknown"]')
       .getByRole('link', { name: /Open pull request/ }),
   ).toHaveCount(0);
+});
+
+test('Eli repair gallery: attempt facts and setup states', async ({ page }) => {
+  await open(page, 'mission-control', 'dark');
+  const region = page.getByRole('region', { name: 'Eli repairs', exact: true });
+  await expect(region).toBeVisible();
 
   // The facts surface the attempt's own details, omit what the row has not got,
   // and say "None" for a commit that was not pushed. The timeline holds the
@@ -531,6 +562,12 @@ test('the Eli repair components show every state they can be in', async ({ page 
     'href',
     '/repairs/setup',
   );
+});
+
+test('Eli repair gallery: offers, active repairs and history', async ({ page }) => {
+  await open(page, 'mission-control', 'dark');
+  const region = page.getByRole('region', { name: 'Eli repairs', exact: true });
+  await expect(region).toBeVisible();
 
   // Offers say what failed and where, and a title or a job name with no break points wraps.
   const offers = region.locator('[data-gallery="offers"]');
@@ -570,6 +607,12 @@ test('the Eli repair components show every state they can be in', async ({ page 
   await expect(picking.getByRole('checkbox').nth(1)).toBeChecked();
   // The running repair's box says why it cannot be ticked.
   await expect(picking.getByRole('checkbox').nth(0)).toBeDisabled();
+});
+
+test('Eli repair gallery: every repair status', async ({ page }) => {
+  await open(page, 'mission-control', 'dark');
+  const region = page.getByRole('region', { name: 'Eli repairs', exact: true });
+  await expect(region).toBeVisible();
 
   // Every state a repair can end in has its word, and one this build does not know keeps its own.
   const badges = region.locator('[data-gallery="repair-status"]');
@@ -649,10 +692,10 @@ test('the list card is one frame: an eyebrow over the title, chips in a toolbar,
 
 // A filter chip says it is in force three ways, so the state survives greyscale
 // and forced colours: aria-pressed, a tick, and the weight of its words.
-test('filter chips say which are in force with a tick and aria-pressed, in every combination', async ({
-  page,
-}) => {
-  for (const { style, mode } of COMBINATIONS) {
+for (const { style, mode } of COMBINATIONS) {
+  test(`filter chips say which are in force with a tick and aria-pressed: ${style} ${mode}`, async ({
+    page,
+  }) => {
     await open(page, style, mode);
     const group = page.getByRole('group', { name: 'Filter by runner state' }).first();
     const busy = group.getByRole('button', { name: /^Busy/ });
@@ -668,8 +711,8 @@ test('filter chips say which are in force with a tick and aria-pressed, in every
     expect(
       parseFloat(await busy.evaluate((el) => getComputedStyle(el).borderRadius)),
     ).toBeGreaterThan(20);
-  }
-});
+  });
+}
 
 // A filter the chips cannot say leaves every chip unpressed, All included, and a
 // chip's hint is the shared tooltip, so a word like "Our failures" can explain
@@ -754,8 +797,10 @@ test('a status badge is a pill and keeps its height in both sizes', async ({ pag
 // A command the operator runs is shown in a window on the dark stage, the
 // same black in every combination, and a long one wraps inside it on a phone
 // rather than widening the page.
-test('the terminal is a window on the dark stage that wraps a long command', async ({ page }) => {
-  for (const { style, mode } of COMBINATIONS) {
+for (const { style, mode } of COMBINATIONS) {
+  test(`the terminal is a window on the dark stage that wraps a long command: ${style} ${mode}`, async ({
+    page,
+  }) => {
     await open(page, style, mode);
     const terminal = page.locator('.terminal').first();
     const [background, black, radius] = await Promise.all([
@@ -769,7 +814,10 @@ test('the terminal is a window on the dark stage that wraps a long command', asy
     expect(radius).not.toBe('0px');
     await expect(terminal.locator('.terminal-bar')).toContainText('sam@lab-vm-2');
     await expect(terminal.getByRole('button', { name: 'Copy the command' })).toBeVisible();
-  }
+  });
+}
+
+test('a long terminal command wraps on a phone', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   await open(page, 'mission-control', 'dark');
   const overflow = await page
