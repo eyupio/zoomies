@@ -17,10 +17,10 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#NEW](https://github.com/eyupio/zoomies/pull/NEW): S2e bounded repair chains for watched failures |
+| Latest slice | [#1381](https://github.com/eyupio/zoomies/pull/1381): S2e bounded repair chains for watched failures |
 | Investigated baseline | `80ed57e946a14f91e2da3c5cdce76dc1a9cb94d7` on `main` |
 | Working branches | `codex/eli-repair-chains` for S2e |
-| Verified code checkpoints | S1 through S2d merged through `80ed57e94`; S2e implementation commit recorded after publication |
+| Verified code checkpoints | S1 through S2d merged through `80ed57e94`; S2e: `7f29262dd3ae467cc2a41e7e667d315d43e57d70` |
 | Implementation | S1 through S2d are on `main`; S2e adds migration 0140, watch chain counters, one repair per watched head and pause checks before start and publication |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378) and [#1379](https://github.com/eyupio/zoomies/pull/1379) merged green; the handoff refresh merged as `07a49f664` |
@@ -398,7 +398,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1375](https://github.com/eyupio/zoomies/pull/1375), merged as `77a821023` | S2c: due-watch observation loop and check state | Focused repair and migration race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Existing-PR discovery, bounded repair chains and per-check evidence |
 | [#1378](https://github.com/eyupio/zoomies/pull/1378), merged as `85a7f6ca1` | S2d: repository-wide watch discovery and backfill | Focused repair race suites, vet, staticcheck, docs and formatting pass; merged green | Bounded repair chains and per-check evidence |
 | [#1379](https://github.com/eyupio/zoomies/pull/1379), merged as `80ed57e94` | S2d correction: create-only backfill admission in one transaction | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; merged green | Bounded repair chains and per-check evidence |
-| [#NEW](https://github.com/eyupio/zoomies/pull/NEW), open | S2e: bounded repair chains for watched failures | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | Per-check evidence, then conflict repair and UI |
+| [#1381](https://github.com/eyupio/zoomies/pull/1381), open | S2e: bounded repair chains for watched failures | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | Per-check evidence, then conflict repair and UI |
 
 S1 validation on 3 November 2026:
 
