@@ -95,7 +95,8 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 		return true
 	}
 
-	checkState, next := "unknown", now.Add(eliWatchRetry)
+	var checkState string
+	var next time.Time
 	if watch.Checks {
 		checkState, err = client.RepairChecks(checkCtx, watch.Repo, pull.HeadSHA)
 		if err != nil {
@@ -111,7 +112,7 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 			}
 		}
 	} else {
-		next = now.Add(eliWatchPending)
+		checkState, next = "unknown", now.Add(eliWatchPending)
 	}
 	cancel()
 

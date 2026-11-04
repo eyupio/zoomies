@@ -522,14 +522,17 @@ Validation on 3 November 2026:
 
 - `go test -race -count=1 -run 'Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique'`
   on `./internal/controller ./internal/store ./internal/api ./internal/github`:
-  all four packages pass (controller 19.805s, store 35.443s, api 58.229s,
-  github 1.284s). This includes the new observation, disabled-policy pause,
+  all four packages pass (controller 20.451s, store 35.564s, api 56.159s,
+  github 1.281s). This includes the new observation, disabled-policy pause,
   closed-PR stop and rate-limit scheduling cases.
 - `go vet ./internal/controller ./internal/store ./internal/api ./internal/github`:
   pass.
 - `go test -count=1 -timeout 10m ./internal/store`: pass (119.667s), the complete
   store suite without the race detector, including migration 0139.
-- `go test ./internal/docs -count=1`: pass (28.067s).
+- `go test ./internal/docs -count=1`: pass (29.500s).
+- `staticcheck ./internal/controller`: pass. The first CI run rejected an
+  initial `next` value that every branch overwrote; it is now declared without
+  that unused assignment.
 - `git diff --check` and changed-file `gofmt`: pass.
 - No OpenAPI regeneration was needed because no public contract changed.
 
