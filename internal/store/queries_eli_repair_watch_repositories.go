@@ -79,6 +79,14 @@ func (s *Store) SetEliRepairWatchRepository(ctx context.Context, in EliRepairWat
 	return out, nil
 }
 
+func (s *Store) EliRepairWatchRepositoryFor(ctx context.Context, repo, installation string) (*EliRepairWatchRepository, error) {
+	r, err := scanEliRepairWatchRepository(s.read.QueryRowContext(ctx, `SELECT `+eliRepairWatchRepositoryCols+` FROM eli_repair_watch_repositories WHERE repo COLLATE NOCASE=? AND installation_id=?`, repo, installation))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return r, err
+}
+
 func (s *Store) EliRepairWatchRepositories(ctx context.Context) ([]*EliRepairWatchRepository, error) {
 	rows, err := s.read.QueryContext(ctx, `SELECT `+eliRepairWatchRepositoryCols+` FROM eli_repair_watch_repositories ORDER BY repo COLLATE NOCASE,installation_id`)
 	if err != nil {
