@@ -2,7 +2,11 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/github"
@@ -17,6 +21,9 @@ const (
 	eliWatchPending = 30 * time.Second
 	eliWatchPassed  = 5 * time.Minute
 	eliWatchRetry   = 2 * time.Minute
+	// maxEliWatchRepairs is the whole chain, including the first attempt. The
+	// count lives on the watch and survives restarts and redelivered checks.
+	maxEliWatchRepairs = 3
 )
 
 func (c *Controller) repairWatchLoop(ctx context.Context) {
@@ -114,6 +121,29 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 	} else {
 		checkState, next = "unknown", now.Add(eliWatchPending)
 	}
+	if watch.Checks && checkState == "failed" && watch.ChainStopped == "" && watch.ChainAttempts < maxEliWatchRepairs {
+		run, runErr := client.RepairFailedJobs(checkCtx, watch.Repo, 0, pull.HeadSHA)
+		if runErr == nil {
+			repair := &store.EliRepair{
+				InstallationID: watch.InstallationID,
+				Repo:           watch.Repo,
+				PullNumber:     watch.PullNumber,
+				HeadSHA:        pull.HeadSHA,
+				ProviderID:     policy.ProviderID,
+				Trigger:        "automatic",
+				Instruction:    "Diagnose the failed checks on this watched pull request and fix the underlying code issue.",
+				DedupKey:       "watch:" + watch.ID + ":" + pull.HeadSHA,
+			}
+			added, attempts, enqueueErr := c.st.EnqueueEliWatchRepair(ctx, watch.ID, repair, eliWatchFailureSignature(run), maxEliWatchRepairs,
+				"Eli has made three repair attempts for this watched pull request. A person needs to look at the remaining failure.")
+			switch {
+			case enqueueErr != nil && !errors.Is(enqueueErr, store.ErrConflict):
+				c.log.Warn("could not start a repair for a watched pull request", "watch", watch.ID, "error", enqueueErr)
+			case added:
+				c.log.Info("started a repair for a watched pull request", "watch", watch.ID, "repair", repair.ID, "attempt", attempts)
+			}
+		}
+	}
 	cancel()
 
 	if ctx.Err() != nil || !c.mayAct() || c.transferDraining.Load() {
@@ -121,8 +151,34 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 		// again. Do not record a reading taken before a gate closed.
 		return true
 	}
+	if checkState == "passed" && (watch.ChainAttempts > 0 || watch.ChainStopped != "") {
+		if err := c.st.ResetEliWatchRepairChain(ctx, watch.ID); err != nil {
+			c.log.Warn("could not reset an Eli repair watch chain", "watch", watch.ID, "error", err)
+		}
+	}
 	c.releaseEliRepairWatch(ctx, watch, pull.HeadSHA, pull.Base, pull.BaseSHA, checkState, next)
 	return true
+}
+
+func (c *Controller) repairWatchEnabled(ctx context.Context, r *store.EliRepair) bool {
+	if r.WatchID == "" {
+		return true
+	}
+	watch, err := c.st.EliRepairWatch(ctx, r.WatchID)
+	return err == nil && watch.Enabled
+}
+
+func eliWatchFailureSignature(run *github.RepairFailureRun) string {
+	if run == nil || len(run.Jobs) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(run.Jobs))
+	for _, job := range run.Jobs {
+		parts = append(parts, job.Name+"="+job.Conclusion)
+	}
+	sort.Strings(parts)
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
+	return hex.EncodeToString(sum[:])
 }
 
 func (c *Controller) releaseEliRepairWatch(ctx context.Context, watch *store.EliRepairWatch, headSHA, baseRef, baseSHA, checkState string, next time.Time) {

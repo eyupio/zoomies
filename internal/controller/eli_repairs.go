@@ -756,6 +756,12 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 		_ = c.persistEliRepair(ctx, r)
 		return
 	}
+	if !c.repairWatchEnabled(ctx, r) {
+		r.State = "blocked"
+		r.Message = "Watching was paused or stopped for this pull request before the repair ran."
+		_ = c.persistEliRepair(ctx, r)
+		return
+	}
 	raw, err := c.ClientFor(ctx, r.InstallationID)
 	if err != nil {
 		r.State = "blocked"
@@ -799,7 +805,7 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 		c.repairNotice(ctx, client, r, r.Message)
 	}
 	var pull github.RepairPull
-	if r.Trigger == "automatic" {
+	if r.Trigger == "automatic" && r.RunID > 0 {
 		pull, err = client.RepairPullForRun(ctx, r.Repo, r.RunID)
 	} else {
 		pull, err = client.RepairPull(ctx, r.Repo, r.PullNumber)
@@ -951,6 +957,10 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 	}
 	if r.Trigger == "automatic" && (!latestPolicy.Automatic || latestPolicy.ProviderID != r.ProviderID) {
 		fail("Automatic repair was disabled or its provider changed.")
+		return
+	}
+	if !c.repairWatchEnabled(ctx, r) {
+		fail("Watching was paused or stopped before Eli published. No branch was changed.")
 		return
 	}
 	if r.Trigger == "mention" {
