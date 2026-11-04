@@ -289,3 +289,62 @@ func TestRepositoryAdmissionWritesNothingWhenTheListFails(t *testing.T) {
 		t.Fatalf("a failed list left watches: %+v, %v", watches, err)
 	}
 }
+
+func TestAFailedWatchStartsOneRepairForItsHead(t *testing.T) {
+	h := newHarness(t)
+	fake, watch, _ := watchLoopFixture(t, h)
+	fake.repairFake.failedJobs = &github.RepairFailureRun{RunID: 44, Workflow: "CI", RunNumber: 12, Jobs: []github.RepairFailedJob{{ID: 9001, Name: "Go (api)", Conclusion: "failure"}}}
+	if !h.c.observeDueEliRepairWatch(h.ctx) {
+		t.Fatal("the watch was not observed")
+	}
+	repair, err := h.st.NextEliRepair(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repair.WatchID != watch.ID || repair.Trigger != "automatic" || repair.HeadSHA != "head-new" ||
+		repair.ProviderID == "" || repair.DedupKey != "watch:"+watch.ID+":head-new" {
+		t.Fatalf("repair not linked to the watch: %+v", repair)
+	}
+	got, err := h.st.EliRepairWatch(h.ctx, watch.ID)
+	if err != nil || got.ChainAttempts != 1 || got.LastFailure == "" {
+		t.Fatalf("watch chain %+v, %v", got, err)
+	}
+	if h.c.repairWatchEnabled(h.ctx, repair) != true {
+		t.Fatal("a live watch was treated as paused")
+	}
+	if err := h.c.PauseEliRepairWatch(h.ctx, watch.ID, "Paused."); err != nil {
+		t.Fatal(err)
+	}
+	if h.c.repairWatchEnabled(h.ctx, repair) {
+		t.Fatal("a paused watch was treated as live")
+	}
+}
+
+func TestAQueuedWatchRepairStopsWhenTheWatchWasPaused(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	provider := &store.AssistantProvider{Name: "Team", Kind: "openai", Enabled: true}
+	if err := h.st.CreateAssistantProvider(h.ctx, provider); err != nil {
+		t.Fatal(err)
+	}
+	repo := inst.Target + "/repo"
+	if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: provider.ID, Enabled: true, Automatic: true}); err != nil {
+		t.Fatal(err)
+	}
+	watch, err := h.st.AdmitEliRepairWatch(h.ctx, store.EliRepairWatch{InstallationID: inst.ID, Repo: repo, PullNumber: 1, OwnerID: "usr_owner", Checks: true, PolicyProviderID: provider.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.PauseEliRepairWatch(h.ctx, watch.ID, "Paused for this pull request."); err != nil {
+		t.Fatal(err)
+	}
+	r := &store.EliRepair{InstallationID: inst.ID, Repo: repo, PullNumber: 1, HeadSHA: "old", ProviderID: provider.ID, Trigger: "automatic", DedupKey: "watch-queued", WatchID: watch.ID}
+	if _, err := h.st.EnqueueEliRepair(h.ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	h.c.runEliRepair(h.ctx, r)
+	got, err := h.st.GetEliRepair(h.ctx, r.ID, "", false)
+	if err != nil || got.State != "blocked" || !strings.Contains(got.Message, "paused") {
+		t.Fatalf("a paused watch did not stop its queued repair: %+v, %v", got, err)
+	}
+}

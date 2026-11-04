@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -289,5 +290,65 @@ func TestCreateOnlyAdmissionLeavesAnExistingWatchExactlyAsItWas(t *testing.T) {
 	})
 	if err != nil || !created || fresh.ID == "" || !fresh.Enabled {
 		t.Fatalf("a new pull request was not admitted: %+v, created %t, %v", fresh, created, err)
+	}
+}
+
+func TestAWatchRepairChainIsBoundedAndStopsAtTheThirdAttempt(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	inst := watchInstallation(t, s)
+	w, err := s.AdmitEliRepairWatch(ctx, EliRepairWatch{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, OwnerID: "usr_one", Checks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= 3; attempt++ {
+		r := &EliRepair{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, HeadSHA: "head-" + string(rune('0'+attempt)), ProviderID: "asp_team", Trigger: "automatic", DedupKey: "watch:" + w.ID + ":" + string(rune('0'+attempt))}
+		added, got, err := s.EnqueueEliWatchRepair(ctx, w.ID, r, "signature", 3, "Eli has made three repair attempts for this watched pull request.")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !added || got != attempt {
+			t.Fatalf("attempt %d answered added=%t attempts=%d", attempt, added, got)
+		}
+	}
+	got, err := s.EliRepairWatch(ctx, w.ID)
+	if err != nil || got.ChainAttempts != 3 || got.LastFailure != "signature" {
+		t.Fatalf("watch chain %+v, %v", got, err)
+	}
+	fourth := &EliRepair{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, HeadSHA: "head-4", ProviderID: "asp_team", Trigger: "automatic", DedupKey: "watch:" + w.ID + ":4"}
+	added, attempts, err := s.EnqueueEliWatchRepair(ctx, w.ID, fourth, "signature", 3, "Eli has made three repair attempts for this watched pull request.")
+	if err != nil || added || attempts != 3 {
+		t.Fatalf("an exhausted chain admitted a fourth attempt: added=%t attempts=%d err=%v", added, attempts, err)
+	}
+	got, err = s.EliRepairWatch(ctx, w.ID)
+	if err != nil || !strings.Contains(got.ChainStopped, "three") {
+		t.Fatalf("the chain did not record why it stopped: %+v, %v", got, err)
+	}
+}
+
+func TestARepeatedWatchCheckDoesNotSpendASecondAttempt(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	inst := watchInstallation(t, s)
+	w, err := s.AdmitEliRepairWatch(ctx, EliRepairWatch{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, OwnerID: "usr_one", Checks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		r := &EliRepair{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, HeadSHA: "head", ProviderID: "asp_team", Trigger: "automatic", DedupKey: "watch:" + w.ID + ":head"}
+		added, _, err := s.EnqueueEliWatchRepair(ctx, w.ID, r, "signature", 3, "stopped")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 && !added {
+			t.Fatal("the first attempt was not added")
+		}
+		if i == 1 && added {
+			t.Fatal("a repeated check added a second attempt for the same head")
+		}
+	}
+	got, err := s.EliRepairWatch(ctx, w.ID)
+	if err != nil || got.ChainAttempts != 1 {
+		t.Fatalf("a repeated check changed the chain: %+v, %v", got, err)
 	}
 }
