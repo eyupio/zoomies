@@ -17,18 +17,18 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1381](https://github.com/eyupio/zoomies/pull/1381): S2e bounded repair chains for watched failures |
-| Investigated baseline | `80ed57e946a14f91e2da3c5cdce76dc1a9cb94d7` on `main` |
-| Working branches | `codex/eli-repair-chains` for S2e |
-| Verified code checkpoints | S1 through S2d merged through `80ed57e94`; S2e: `7f29262dd3ae467cc2a41e7e667d315d43e57d70` |
-| Implementation | S1 through S2d are on `main`; S2e adds migration 0140, watch chain counters, one repair per watched head and pause checks before start and publication |
+| Latest slice | [#NEW](https://github.com/eyupio/zoomies/pull/NEW): S2f per-check evidence on watched heads |
+| Investigated baseline | `8a827168d2f4c0386890ab75e08bf1ea936185f3` on `main` |
+| Working branches | `codex/eli-check-evidence` for S2f |
+| Verified code checkpoints | S1 through S2e merged through `8a827168d`; S2f implementation commit recorded after publication |
+| Implementation | S1 through S2e are on `main`; S2f adds migration 0141 and stores bounded check-run and legacy-status evidence with each observation |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
-| Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378) and [#1379](https://github.com/eyupio/zoomies/pull/1379) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | S2e implemented on `main` and locally verified; awaits PR/CI review |
-| Next implementation | Per-check evidence, then S3 merge-conflict repair and S4 UX |
-| CI snapshot | `main` was green at `80ed57e94`; this PR's checks are separate |
+| Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379) and [#1381](https://github.com/eyupio/zoomies/pull/1381) merged green; the handoff refresh merged as `07a49f664` |
+| Current slice | S2f implemented on `main` and locally verified; awaits PR/CI review |
+| Next implementation | S3 merge-conflict detection and repair, then S4 UX |
+| CI snapshot | `main` was green at `8a827168d`; this PR's checks are separate |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
-| Persistent PR watcher | Due watches are observed, backfilled by S2d and can start a chain of at most three repairs in S2e |
+| Persistent PR watcher | Due watches are observed, backfilled, retain per-check evidence and can start a chain of at most three repairs |
 | Merge-conflict repair | Planned, not implemented. Admission refuses the conflicts capability until S3 exists |
 | Production configuration | No repository automation or model credentials changed by this work |
 
@@ -158,9 +158,9 @@ or remove the own-commit recursion guard.
 
 ### S2: persistent PR watcher and check repair chains
 
-Status: S2a through S2d are on `main`; S2e adds bounded repair chains. Per-check
-evidence, conflict repair and the final UI are not implemented. Split the
-remaining execution and UI into reviewable PRs; update this file in every one.
+Status: S2a through S2e are on `main`; S2f adds per-check evidence. Conflict
+repair and the final UI are not implemented. Split the remaining execution and
+UI into reviewable PRs; update this file in every one.
 
 S2a scope:
 
@@ -175,7 +175,8 @@ S2a scope:
 - [x] Add the watcher loop that consumes due watches in S2c.
 - [x] Add existing-PR discovery and backfill in S2d.
 - [x] Add bounded repair chains in S2e.
-- [ ] Add per-check evidence.
+- [x] Add per-check evidence in S2f.
+- [ ] Add conflict repair and the final repository and PR controls.
 
 S2b scope, merged in #1372:
 
@@ -213,7 +214,18 @@ S2c scope, this PR only:
   and an error at the GitHub Retry-After time when GitHub gave one.
 - [x] Start a repair from a failed watch and bound a chain, added by S2e.
 
-S2e scope, this PR only:
+S2f scope, this PR only:
+
+- [x] Read bounded check-run and legacy commit-status evidence for a watched
+  head, preserving the producer and each outcome alongside the overall state.
+- [x] Store at most fifty checks per observation, with the total and a truncation
+  flag. An incomplete read is still recorded as unknown, not passing.
+- [x] Keep the evidence on the watch with the head it describes, and clear it
+  when an explicit admission moves the watch to a different head.
+- [ ] Expose the evidence in the API and UI, and map required-status coverage.
+  That belongs with the final controls.
+
+S2e scope, merged in #1381:
 
 - [x] Add migration 0140 for a watch's chain count, last failure signature and
   stop reason.
@@ -398,7 +410,8 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1375](https://github.com/eyupio/zoomies/pull/1375), merged as `77a821023` | S2c: due-watch observation loop and check state | Focused repair and migration race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Existing-PR discovery, bounded repair chains and per-check evidence |
 | [#1378](https://github.com/eyupio/zoomies/pull/1378), merged as `85a7f6ca1` | S2d: repository-wide watch discovery and backfill | Focused repair race suites, vet, staticcheck, docs and formatting pass; merged green | Bounded repair chains and per-check evidence |
 | [#1379](https://github.com/eyupio/zoomies/pull/1379), merged as `80ed57e94` | S2d correction: create-only backfill admission in one transaction | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; merged green | Bounded repair chains and per-check evidence |
-| [#1381](https://github.com/eyupio/zoomies/pull/1381), open | S2e: bounded repair chains for watched failures | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | Per-check evidence, then conflict repair and UI |
+| [#1381](https://github.com/eyupio/zoomies/pull/1381), merged as `8a827168d` | S2e: bounded repair chains for watched failures | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; merged green | Per-check evidence, then conflict repair and UI |
+| [#NEW](https://github.com/eyupio/zoomies/pull/NEW), open | S2f: per-check evidence on watched heads | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | Conflict repair and the final controls |
 
 S1 validation on 3 November 2026:
 
@@ -606,6 +619,37 @@ Limits of this slice:
   are not retained yet. The watch records one overall state.
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S2f: per-check evidence, 4 November 2026
+
+This PR adds `0141` and records the bounded producers and outcomes behind a
+watch's overall check state. It does not add a route or UI.
+
+Validation on 4 November 2026:
+
+- `go test -race -count=1 -run 'Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique'`
+  on `./internal/controller ./internal/store ./internal/api ./internal/github`:
+  all four packages pass (controller 41.311s, store 76.862s, api 67.826s,
+  github 1.301s).
+- `go test -count=1 -timeout 10m ./internal/store`: pass (53.953s), the complete
+  store suite without the race detector, including migration 0141.
+- `go vet` on those four packages and `staticcheck ./internal/controller ./internal/store ./internal/github`:
+  pass.
+- `go test ./internal/docs -count=1`: pass (28.180s).
+- `git diff --check` and changed-file `gofmt`: pass.
+- No OpenAPI regeneration was needed because no public contract changed.
+
+Limits of this slice:
+
+- Evidence is stored on the watch for the head it describes. It is not exposed
+  through the API or UI yet.
+- The evidence cap is fifty checks. The total and a truncation flag say when
+  that happened.
+- Required-status and ruleset coverage, workflow run attempts and matrix
+  identity beyond a check's name are still absent.
+- Full repository `make test-short`, browser suites, the complete store suite
+  with the race detector, a live model and end-to-end GitHub mutations were not
+  run.
 
 ### S2e: bounded repair chains, 4 November 2026
 
@@ -869,9 +913,8 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
    Confirm which slices merged; a branch or checked box alone is not proof.
 2. Check the working tree and live base branch. Preserve unrelated user changes.
    Review this PR before starting a new slice. For further implementation, start
-   from `codex/eli-repair-chains` or its merged successor. Do not redo S1 through
-   S2e. The next unfinished work is per-check evidence, then conflict repair and
-   the final UI.
+   from `codex/eli-check-evidence` or its merged successor. Do not redo S1 through
+   S2f. The next unfinished work is conflict repair and the final UI.
 3. Continue the first unfinished acceptance criterion. Read the existing store,
    API and model boundaries before adding another path around them.
 4. Add regression tests for the observable behaviour and regenerate contracts

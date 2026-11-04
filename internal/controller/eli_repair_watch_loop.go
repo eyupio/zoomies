@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -62,7 +63,7 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 		_ = c.st.PauseEliRepairWatchLease(ctx, watch.ID, watch.LeaseToken, "The repository's repair policy is no longer enabled. Admit this watch again after enabling repairs.")
 		return true
 	case policyErr != nil:
-		c.releaseEliRepairWatch(ctx, watch, watch.HeadSHA, watch.BaseRef, watch.BaseSHA, "unknown", now.Add(eliWatchRetry))
+		c.releaseEliRepairWatch(ctx, watch, watch.HeadSHA, watch.BaseRef, watch.BaseSHA, "unknown", "[]", now.Add(eliWatchRetry))
 		return true
 	case !policy.Automatic:
 		_ = c.st.PauseEliRepairWatchLease(ctx, watch.ID, watch.LeaseToken, "The repository no longer repairs failed checks automatically. Admit this watch again after enabling automatic repairs.")
@@ -77,13 +78,13 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 	raw, clientErr := c.ClientFor(checkCtx, watch.InstallationID)
 	if clientErr != nil {
 		cancel()
-		c.releaseEliRepairWatch(ctx, watch, watch.HeadSHA, watch.BaseRef, watch.BaseSHA, "unknown", eliWatchRetryAt(clientErr, now))
+		c.releaseEliRepairWatch(ctx, watch, watch.HeadSHA, watch.BaseRef, watch.BaseSHA, "unknown", "[]", eliWatchRetryAt(clientErr, now))
 		return true
 	}
 	client, ok := raw.(github.RepairClient)
 	if !ok {
 		cancel()
-		c.releaseEliRepairWatch(ctx, watch, watch.HeadSHA, watch.BaseRef, watch.BaseSHA, "unknown", now.Add(eliWatchRetry))
+		c.releaseEliRepairWatch(ctx, watch, watch.HeadSHA, watch.BaseRef, watch.BaseSHA, "unknown", "[]", now.Add(eliWatchRetry))
 		return true
 	}
 	pull, err := client.RepairPull(checkCtx, watch.Repo, watch.PullNumber)
@@ -98,28 +99,48 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 			_ = c.st.StopEliRepairWatchLease(ctx, watch.ID, watch.LeaseToken, "The pull request is no longer open, writable and on a branch Eli may update, so watching stopped.")
 			return true
 		}
-		c.releaseEliRepairWatch(ctx, watch, watch.HeadSHA, watch.BaseRef, watch.BaseSHA, "unknown", eliWatchRetryAt(err, now))
+		c.releaseEliRepairWatch(ctx, watch, watch.HeadSHA, watch.BaseRef, watch.BaseSHA, "unknown", "[]", eliWatchRetryAt(err, now))
 		return true
 	}
 
 	var checkState string
+	var checkEvidence string
 	var next time.Time
 	if watch.Checks {
-		checkState, err = client.RepairChecks(checkCtx, watch.Repo, pull.HeadSHA)
-		if err != nil {
-			checkState, next = "unknown", eliWatchRetryAt(err, now)
+		if evidenceClient, ok := client.(github.RepairEvidenceClient); ok {
+			evidence, evidenceErr := evidenceClient.RepairCheckEvidence(checkCtx, watch.Repo, pull.HeadSHA)
+			if evidenceErr != nil {
+				checkState, checkEvidence, next = "unknown", "[]", eliWatchRetryAt(evidenceErr, now)
+			} else {
+				encoded, _ := json.Marshal(evidence)
+				checkState, checkEvidence = evidence.State, string(encoded)
+				switch checkState {
+				case "passed":
+					next = now.Add(eliWatchPassed)
+				case "failed", "waiting":
+					next = now.Add(eliWatchPending)
+				default:
+					checkState, checkEvidence, next = "unknown", "[]", now.Add(eliWatchRetry)
+				}
+			}
 		} else {
-			switch checkState {
-			case "passed":
-				next = now.Add(eliWatchPassed)
-			case "failed", "waiting":
-				next = now.Add(eliWatchPending)
-			default:
-				checkState, next = "unknown", now.Add(eliWatchRetry)
+			checkState, err = client.RepairChecks(checkCtx, watch.Repo, pull.HeadSHA)
+			checkEvidence = "[]"
+			if err != nil {
+				checkState, next = "unknown", eliWatchRetryAt(err, now)
+			} else {
+				switch checkState {
+				case "passed":
+					next = now.Add(eliWatchPassed)
+				case "failed", "waiting":
+					next = now.Add(eliWatchPending)
+				default:
+					checkState, next = "unknown", now.Add(eliWatchRetry)
+				}
 			}
 		}
 	} else {
-		checkState, next = "unknown", now.Add(eliWatchPending)
+		checkState, checkEvidence, next = "unknown", "[]", now.Add(eliWatchPending)
 	}
 	if watch.Checks && checkState == "failed" && watch.ChainStopped == "" && watch.ChainAttempts < maxEliWatchRepairs {
 		run, runErr := client.RepairFailedJobs(checkCtx, watch.Repo, 0, pull.HeadSHA)
@@ -156,7 +177,7 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 			c.log.Warn("could not reset an Eli repair watch chain", "watch", watch.ID, "error", err)
 		}
 	}
-	c.releaseEliRepairWatch(ctx, watch, pull.HeadSHA, pull.Base, pull.BaseSHA, checkState, next)
+	c.releaseEliRepairWatch(ctx, watch, pull.HeadSHA, pull.Base, pull.BaseSHA, checkState, checkEvidence, next)
 	return true
 }
 
@@ -181,8 +202,8 @@ func eliWatchFailureSignature(run *github.RepairFailureRun) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (c *Controller) releaseEliRepairWatch(ctx context.Context, watch *store.EliRepairWatch, headSHA, baseRef, baseSHA, checkState string, next time.Time) {
-	if err := c.st.ReleaseEliRepairWatch(ctx, watch.ID, watch.LeaseToken, headSHA, baseRef, baseSHA, checkState, next); err != nil && !errors.Is(err, store.ErrConflict) {
+func (c *Controller) releaseEliRepairWatch(ctx context.Context, watch *store.EliRepairWatch, headSHA, baseRef, baseSHA, checkState, checkEvidence string, next time.Time) {
+	if err := c.st.ReleaseEliRepairWatch(ctx, watch.ID, watch.LeaseToken, headSHA, baseRef, baseSHA, checkState, checkEvidence, next); err != nil && !errors.Is(err, store.ErrConflict) {
 		c.log.Warn("could not record an Eli repair watch observation", "watch", watch.ID, "error", err)
 	}
 }

@@ -783,7 +783,8 @@ on a watch at a time; a restart releases a lease left by the previous process
 and makes that interrupted observation due again, because observing a pull
 request is read-only. A separate guarded loop claims one due watch, pauses it if
 the repository policy stops being automatic, stops it when the pull request
-closes, and records the current head and overall check state. Repository-wide
+closes, and records the current head, overall check state and bounded check-run
+and legacy-status evidence. Repository-wide
 admission lists open pull requests once, within a page cap, and admits eligible
 ones without resuming a pause recorded on one pull request; forks, drafts and
 other exclusions are returned as reasons. A failed state is not a repair yet;
