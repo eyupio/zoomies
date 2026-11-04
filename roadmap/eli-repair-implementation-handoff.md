@@ -17,10 +17,10 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| This PR | [#NEW](https://github.com/eyupio/zoomies/pull/NEW): S2c due-watch observation loop and check state |
+| This PR | [#1375](https://github.com/eyupio/zoomies/pull/1375): S2c due-watch observation loop and check state |
 | Investigated baseline | `2d621add5003caf13911bc636aaeca19e049b5a5` on `main` |
 | Working branches | `codex/eli-repair-watcher` for S2c |
-| Verified code checkpoints | S1 plus S2a and S2b merged through `2d621add5`; S2c implementation commit recorded after publication |
+| Verified code checkpoints | S1 plus S2a and S2b merged through `2d621add5`; S2c: `081a567e4510e54b0ef2511e7c8185312d403d97` |
 | Implementation | S1, S2a and S2b are on `main`; S2c adds migration 0139, the guarded due-watch loop, check-state recording, policy pause and rate-limit scheduling |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369) and [#1372](https://github.com/eyupio/zoomies/pull/1372) merged into the stack before #1368 landed |
@@ -364,7 +364,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1368](https://github.com/eyupio/zoomies/pull/1368), open | S1, UX follow-up and this handoff | Local checks below pass; latest CI pending | Review S2a in #1369, then durable watches; S3 and S4 remain |
 | [#1369](https://github.com/eyupio/zoomies/pull/1369), open | S2a: independent check observation and comment-write isolation | Repair and lifecycle race tests, vet, docs and formatting pass; no completed check failure at this checkpoint | Durable watches and admission/recovery, then check evidence and repair chains |
 | [#1372](https://github.com/eyupio/zoomies/pull/1372), merged | S2b: durable watch state, explicit admission, work leases and restart recovery | Focused repair and migration race suites, vet, docs and formatting pass; merged in the #1368 stack | Watcher loop, existing-PR discovery and bounded repair chains |
-| [#NEW](https://github.com/eyupio/zoomies/pull/NEW), open | S2c: due-watch observation loop and check state | Focused repair and migration race suites, vet, docs and formatting pass; no UI or public API change | Existing-PR discovery, bounded repair chains and per-check evidence |
+| [#1375](https://github.com/eyupio/zoomies/pull/1375), open | S2c: due-watch observation loop and check state | Focused repair and migration race suites, vet, docs and formatting pass; no UI or public API change | Existing-PR discovery, bounded repair chains and per-check evidence |
 
 S1 validation on 3 November 2026:
 
