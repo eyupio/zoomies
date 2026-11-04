@@ -136,6 +136,51 @@ func (s *Store) AdmitEliRepairWatch(ctx context.Context, w EliRepairWatch) (*Eli
 	return out, nil
 }
 
+// CreateEliRepairWatchIfAbsent admits a watch only when none exists. Backfill
+// uses it so a race with another admission cannot turn an existing paused watch
+// back on; an explicit admission is still the only thing that resumes one.
+func (s *Store) CreateEliRepairWatchIfAbsent(ctx context.Context, w EliRepairWatch) (*EliRepairWatch, bool, error) {
+	now := s.Now()
+	created := false
+	var out *EliRepairWatch
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		existing, err := scanEliRepairWatch(tx.QueryRowContext(ctx,
+			`SELECT `+eliRepairWatchCols+` FROM eli_repair_watches WHERE repo COLLATE NOCASE=? AND pull_number=?`,
+			w.Repo, w.PullNumber))
+		switch {
+		case err == nil:
+			out = existing
+			return nil
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
+		w.ID = NewID(PrefixEliRepairWatch)
+		w.Enabled = true
+		w.PausedReason, w.StopReason = "", ""
+		w.LeaseToken, w.LeaseUntil = "", time.Time{}
+		w.CreatedAt, w.UpdatedAt = now, now
+		w.NextCheckAt = now
+		if w.CheckState == "" {
+			w.CheckState = "unknown"
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO eli_repair_watches(`+eliRepairWatchCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			w.ID, w.InstallationID, w.Repo, w.PullNumber, w.OwnerID, w.PolicyProviderID, ms(w.PolicyUpdatedAt),
+			boolInt(w.Checks), boolInt(w.Conflicts), boolInt(w.Enabled), w.PausedReason, w.HeadSHA,
+			w.BaseRef, w.BaseSHA, ms(w.LastObservedAt), ms(w.NextCheckAt), w.LeaseToken, ms(w.LeaseUntil),
+			w.StopReason, w.CheckState, ms(w.CreatedAt), ms(w.UpdatedAt))
+		if err != nil {
+			return err
+		}
+		created = true
+		out = &w
+		return nil
+	})
+	if err != nil {
+		return nil, false, wrapWrite(err)
+	}
+	return out, created, nil
+}
+
 func (s *Store) EliRepairWatch(ctx context.Context, id string) (*EliRepairWatch, error) {
 	w, err := scanEliRepairWatch(s.read.QueryRowContext(ctx, `SELECT `+eliRepairWatchCols+` FROM eli_repair_watches WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {

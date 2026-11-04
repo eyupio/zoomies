@@ -81,26 +81,7 @@ func (c *Controller) AdmitEliRepositoryWatches(ctx context.Context, in EliReposi
 			report.Excluded = append(report.Excluded, EliWatchExclusion{PullNumber: pull.Number, Title: pull.Title, Reason: reason})
 			continue
 		}
-		existing, err := c.st.EliRepairWatchForPull(ctx, repo, pull.Number)
-		switch {
-		case err == nil:
-			if existing.Enabled {
-				report.Existing++
-				continue
-			}
-			reason := existing.PausedReason
-			if reason == "" {
-				reason = existing.StopReason
-			}
-			if reason == "" {
-				reason = "This pull request has a watch that is not active."
-			}
-			report.Excluded = append(report.Excluded, EliWatchExclusion{PullNumber: pull.Number, Title: pull.Title, Reason: reason})
-			continue
-		case !errors.Is(err, store.ErrNotFound):
-			return nil, err
-		}
-		watch, err := c.st.AdmitEliRepairWatch(ctx, store.EliRepairWatch{
+		watch, created, err := c.st.CreateEliRepairWatchIfAbsent(ctx, store.EliRepairWatch{
 			InstallationID:   in.InstallationID,
 			Repo:             repo,
 			PullNumber:       pull.Number,
@@ -116,7 +97,22 @@ func (c *Controller) AdmitEliRepositoryWatches(ctx context.Context, in EliReposi
 		if err != nil {
 			return nil, err
 		}
-		report.Admitted = append(report.Admitted, watch)
+		if created {
+			report.Admitted = append(report.Admitted, watch)
+			continue
+		}
+		if watch.Enabled {
+			report.Existing++
+			continue
+		}
+		reason = watch.PausedReason
+		if reason == "" {
+			reason = watch.StopReason
+		}
+		if reason == "" {
+			reason = "This pull request has a watch that is not active."
+		}
+		report.Excluded = append(report.Excluded, EliWatchExclusion{PullNumber: pull.Number, Title: pull.Title, Reason: reason})
 	}
 	return report, nil
 }

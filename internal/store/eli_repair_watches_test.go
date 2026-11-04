@@ -259,3 +259,35 @@ func TestAStaleObserverCannotPauseOrStopANewerWatch(t *testing.T) {
 		t.Fatalf("a stale stop changed the new watch: %+v, %v", fresh, err)
 	}
 }
+
+func TestCreateOnlyAdmissionLeavesAnExistingWatchExactlyAsItWas(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	inst := watchInstallation(t, s)
+	w, err := s.AdmitEliRepairWatch(ctx, EliRepairWatch{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, OwnerID: "usr_one", Checks: true, HeadSHA: "head-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PauseEliRepairWatch(ctx, w.ID, "Paused for this pull request."); err != nil {
+		t.Fatal(err)
+	}
+	got, created, err := s.CreateEliRepairWatchIfAbsent(ctx, EliRepairWatch{
+		InstallationID: inst.ID, Repo: "ACME/REPO", PullNumber: 1, OwnerID: "usr_two", Checks: true, HeadSHA: "head-b",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created || got.ID != w.ID || got.Enabled || got.PausedReason != "Paused for this pull request." || got.HeadSHA != "head-a" || got.OwnerID != "usr_one" {
+		t.Fatalf("create-only admission changed an existing watch: %+v, created %t", got, created)
+	}
+	watches, err := s.EliRepairWatches(ctx)
+	if err != nil || len(watches) != 1 {
+		t.Fatalf("watches %+v, %v", watches, err)
+	}
+	fresh, created, err := s.CreateEliRepairWatchIfAbsent(ctx, EliRepairWatch{
+		InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 2, OwnerID: "usr_two", Checks: true, HeadSHA: "head-c",
+	})
+	if err != nil || !created || fresh.ID == "" || !fresh.Enabled {
+		t.Fatalf("a new pull request was not admitted: %+v, created %t, %v", fresh, created, err)
+	}
+}
