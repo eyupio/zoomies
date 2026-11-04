@@ -487,7 +487,8 @@ func (s *Server) repositoriesFor(ctx context.Context, installationID string) ([]
 }
 
 // missingEvents reports the webhook events Zoomies needs and the App is not
-// subscribed to. Only workflow_job matters: it is the only event acted on.
+// subscribed to. workflow_job is required for scaling; pull_request is optional
+// and only makes new-PR watching immediate rather than periodic.
 func missingEvents(events []string) []string {
 	for _, e := range events {
 		if strings.EqualFold(e, "workflow_job") {

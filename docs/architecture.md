@@ -791,7 +791,9 @@ reasons. Repository-wide admission records a separate explicit decision for the
 repository, in its own table; a per-PR watch never implies one. A five-minute
 pass revisits the least recently discovered decisions, rotates through them in
 bounded batches and admits newly opened pull requests through the same
-create-only path.
+create-only path. A verified `pull_request` opened or reopened delivery wakes
+that admission immediately when the App subscribes to it; the periodic pass
+remains the fallback.
 
 A failed check starts at most one repair for the watched head. The watch keeps
 the chain count, last failure signature and stop reason in SQLite, so a restart

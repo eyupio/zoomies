@@ -205,6 +205,7 @@ you add them later. The details below explain each grant.
     | `metadata: read` | required by GitHub for any App |
     | `workflow_job` event | the webhook that makes scaling instant |
     | `issue_comment` event | the webhook that carries a maintainer's `/eli fix` request |
+    | `pull_request` event | optional: tells repository-wide watching about a newly opened PR immediately. Periodic discovery still finds it within five minutes without this event. |
 
     That is the whole list, and none of it is access to your repositories' contents.
     Before it opens GitHub, Zoomies asks one more question: **Also let Zoomies open migration
