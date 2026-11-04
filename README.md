@@ -255,6 +255,10 @@ client addresses rather than Cloudflare's. Firewall the origin to Cloudflare, or
 use a Tunnel and publish no port at all. See
 [docs/configuration.md](docs/configuration.md#behind-cloudflare-or-any-reverse-proxy).
 
+### One-click deploy
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/Zoomies/)
+
 ### On a PaaS, with Nixpacks
 
 There is a `nixpacks.toml` in the repository root, so a platform that builds
