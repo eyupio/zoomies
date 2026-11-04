@@ -45,16 +45,16 @@ to one plan file.
 
 | # | Finding | Category | Evidence | Plan |
 |---|---------|----------|----------|------|
-| 1 | The agent heartbeat's nil-response guard sits after three uses of the response: dead guard, latent process-killing panic | bug | `internal/agent/daemon.go:1050-1072` | [001](plans/001-heartbeat-nil-guard.md) |
-| 2 | The bulk drain/delete endpoint answers with raw `err.Error()` per row, the one route that bypasses the error funnel that hides driver internals | security | `internal/api/handlers_runners.go:327` vs `internal/api/errors.go:328-347` | [002](plans/002-bulk-error-funnel.md) |
-| 3 | The process backend's log-bounding housekeeping (`PruneLogs`, `nativeLogLoop`) has zero test coverage anywhere in the tree | tests | `internal/backend/process_logs.go:15-79`, `internal/agent/native_logs.go:12-36` | [003](plans/003-process-log-pruning-tests.md) |
-| 4 | `GET /runners/{id}` re-reads the whole fleet to render one row (renderer listings, a duplicate host-count GROUP BY, a duplicate pool read) | perf | `internal/api/handlers_runners.go:74-106` | [004](plans/004-runner-detail-fleet-reads.md) |
-| 5 | The log relay's edges mislead: late follow viewers get no tail, drops are unmarked (unlike the agent's own buffer), a silent download returns an empty 200, and a narrow subscribe/teardown race closes a new viewer's channel | bug | `internal/controller/logs.go`, `internal/api/sse.go:540-597` | [005](plans/005-log-relay-edges.md) |
-| 6 | The MCP and assistant tool paths buffer whole answers (32 MiB each) with no per-caller budget, unlike every agent route | security | `internal/api/mcp.go:44,174-285` | [006](plans/006-mcp-response-budgets.md) |
-| 7 | `docs/architecture.md`, the doc every structural change is routed through, stops at the fleet core: the newer subsystems have no architectural rationale anywhere | docs | `docs/architecture.md` (headings end at line 673) | [007](plans/007-architecture-docs-subsystems.md) |
-| 8 | `tailscale.com v1.105.0-pre` is a direct dependency on an unstable channel dragging about 130 indirect modules, with no recorded channel policy | dependencies | `go.mod:25,28-159` | [008](plans/008-tailscale-channel-policy.md) |
-| 9 | `internal/controller` is a quarter of the Go tree and holds whole subsystems far beyond its documented "wiring" role | tech-debt | `internal/controller/` inventory vs the root `AGENTS.md` package table | [009](plans/009-controller-package-split.md) |
-| 10 | `frameFor` resolves the subscriber's identity (one SQLite read) per frame, per subscriber; the stream already has the cheaper per-heartbeat shape for `reader` | perf | `internal/api/sse.go:291-405` | [010](plans/010-sse-identity-tick.md) |
+| 1 | The agent heartbeat's nil-response guard sits after three uses of the response: dead guard, latent process-killing panic | bug | `internal/agent/daemon.go:1050-1072` | [001](001-heartbeat-nil-guard.md) |
+| 2 | The bulk drain/delete endpoint answers with raw `err.Error()` per row, the one route that bypasses the error funnel that hides driver internals | security | `internal/api/handlers_runners.go:327` vs `internal/api/errors.go:328-347` | [002](002-bulk-error-funnel.md) |
+| 3 | The process backend's log-bounding housekeeping (`PruneLogs`, `nativeLogLoop`) has zero test coverage anywhere in the tree | tests | `internal/backend/process_logs.go:15-79`, `internal/agent/native_logs.go:12-36` | [003](003-process-log-pruning-tests.md) |
+| 4 | `GET /runners/{id}` re-reads the whole fleet to render one row (renderer listings, a duplicate host-count GROUP BY, a duplicate pool read) | perf | `internal/api/handlers_runners.go:74-106` | [004](004-runner-detail-fleet-reads.md) |
+| 5 | The log relay's edges mislead: late follow viewers get no tail, drops are unmarked (unlike the agent's own buffer), a silent download returns an empty 200, and a narrow subscribe/teardown race closes a new viewer's channel | bug | `internal/controller/logs.go`, `internal/api/sse.go:540-597` | [005](005-log-relay-edges.md) |
+| 6 | The MCP and assistant tool paths buffer whole answers (32 MiB each) with no per-caller budget, unlike every agent route | security | `internal/api/mcp.go:44,174-285` | [006](006-mcp-response-budgets.md) |
+| 7 | `docs/architecture.md`, the doc every structural change is routed through, stops at the fleet core: the newer subsystems have no architectural rationale anywhere | docs | `docs/architecture.md` (headings end at line 673) | [007](007-architecture-docs-subsystems.md) |
+| 8 | `tailscale.com v1.105.0-pre` is a direct dependency on an unstable channel dragging about 130 indirect modules, with no recorded channel policy | dependencies | `go.mod:25,28-159` | [008](008-tailscale-channel-policy.md) |
+| 9 | `internal/controller` is a quarter of the Go tree and holds whole subsystems far beyond its documented "wiring" role | tech-debt | `internal/controller/` inventory vs the root `AGENTS.md` package table | [009](009-controller-package-split.md) |
+| 10 | `frameFor` resolves the subscriber's identity (one SQLite read) per frame, per subscriber; the stream already has the cheaper per-heartbeat shape for `reader` | perf | `internal/api/sse.go:291-405` | [010](010-sse-identity-tick.md) |
 
 Direction was deliberately not audited: this repository governs its own
 through `ROADMAP.md` (v3.13, the sole active source of truth) and
@@ -62,7 +62,7 @@ through `ROADMAP.md` (v3.13, the sole active source of truth) and
 
 ## Execution order and dependencies
 
-The table in [plans/README.md](plans/README.md) is the working index
+The table in [plans/README.md](README.md) is the working index
 (executors update their rows there). In short: 001-003 are small and
 independent; 004 then 005 share handlers; 006-008 are independent; 010 after
 005 (same file, different regions); 009 last (it moves files across
@@ -71,7 +71,7 @@ independent; 004 then 005 share handlers; 006-008 are independent; 010 after
 ## What was rejected, and why
 
 Recorded so the next audit does not re-report them (the list lives in
-[plans/README.md](plans/README.md) too):
+[plans/README.md](README.md) too):
 
 - `__Host-` cookie prefix: attributes otherwise right; exposure needs a
   hostile sibling subdomain on a shared parent domain, atypical for
