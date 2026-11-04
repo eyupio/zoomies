@@ -1,6 +1,6 @@
 # Eli Repair implementation handoff
 
-Last updated: 3 November 2026.
+Last updated: 4 November 2026.
 
 This file is the continuation record for the repository-first Eli Repair setup,
 continuous PR watching and merge-conflict repair work. Read it before changing
@@ -17,16 +17,16 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| This PR | [#1375](https://github.com/eyupio/zoomies/pull/1375): S2c due-watch observation loop and check state |
+| Latest slice | [#1375](https://github.com/eyupio/zoomies/pull/1375): S2c due-watch observation loop and check state, merged as `77a821023` |
 | Investigated baseline | `2d621add5003caf13911bc636aaeca19e049b5a5` on `main` |
-| Working branches | `codex/eli-repair-watcher` for S2c |
-| Verified code checkpoints | S1 plus S2a and S2b merged through `2d621add5`; S2c: `081a567e4510e54b0ef2511e7c8185312d403d97` |
-| Implementation | S1, S2a and S2b are on `main`; S2c adds migration 0139, the guarded due-watch loop, check-state recording, policy pause and rate-limit scheduling |
+| Working branches | None open for this initiative |
+| Verified code checkpoints | S1 plus S2a and S2b merged through `2d621add5`; S2c: `a3912e4e73b3cb9ce30c749c10cab43564f37024`, merged as `77a821023` |
+| Implementation | S1, S2a, S2b and S2c are on `main`; S2c adds migration 0139, the guarded due-watch loop, check-state recording, policy pause and rate-limit scheduling |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
-| Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369) and [#1372](https://github.com/eyupio/zoomies/pull/1372) merged into the stack before #1368 landed |
-| Current slice | S2c implemented on `main` and locally verified; awaits PR/CI review |
+| Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369) and [#1372](https://github.com/eyupio/zoomies/pull/1372) merged into the stack before #1368 landed; #1375 merged directly to `main` |
+| Current slice | S2c is merged on `main`; no follow-up PR is open |
 | Next implementation | Existing-PR discovery/backfill, then bounded repair chains and per-check evidence |
-| CI snapshot | The merged stack was green on `main` at `2d621add5`; this PR's checks are separate |
+| CI snapshot | #1375 merged green at `77a821023` after the review fixes; the stack before it was green at `2d621add5` |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are claimed, read and rescheduled in S2c; they still do not start repairs |
 | Merge-conflict repair | Planned, not implemented. Admission refuses the conflicts capability until S3 exists |
@@ -364,7 +364,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1368](https://github.com/eyupio/zoomies/pull/1368), open | S1, UX follow-up and this handoff | Local checks below pass; latest CI pending | Review S2a in #1369, then durable watches; S3 and S4 remain |
 | [#1369](https://github.com/eyupio/zoomies/pull/1369), open | S2a: independent check observation and comment-write isolation | Repair and lifecycle race tests, vet, docs and formatting pass; no completed check failure at this checkpoint | Durable watches and admission/recovery, then check evidence and repair chains |
 | [#1372](https://github.com/eyupio/zoomies/pull/1372), merged | S2b: durable watch state, explicit admission, work leases and restart recovery | Focused repair and migration race suites, vet, docs and formatting pass; merged in the #1368 stack | Watcher loop, existing-PR discovery and bounded repair chains |
-| [#1375](https://github.com/eyupio/zoomies/pull/1375), open | S2c: due-watch observation loop and check state | Focused repair and migration race suites, vet, docs and formatting pass; no UI or public API change | Existing-PR discovery, bounded repair chains and per-check evidence |
+| [#1375](https://github.com/eyupio/zoomies/pull/1375), merged as `77a821023` | S2c: due-watch observation loop and check state | Focused repair and migration race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Existing-PR discovery, bounded repair chains and per-check evidence |
 
 S1 validation on 3 November 2026:
 
@@ -513,7 +513,7 @@ stale, and bounds the request to ten seconds. This prevents a delayed worker
 comment from overwriting a newer terminal outcome, and prevents a check save
 from erasing a comment ID written while the check read was in flight.
 
-### S2c: due-watch observation loop, 3 November 2026
+### S2c: due-watch observation loop, 3 to 4 November 2026
 
 This PR starts from `main` after #1368 merged. It adds `0139` and the watcher
 loop; `0138` remains the S2b watch table.
@@ -526,7 +526,7 @@ remain unconditional. Re-admitting an idle watch also reset the stored check
 state but returned the old state in memory; the returned row now says unknown
 with the new head.
 
-Validation on 3 November 2026:
+Validation on 3 to 4 November 2026:
 
 - `go test -race -count=1 -run 'Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique'`
   on `./internal/controller ./internal/store ./internal/api ./internal/github`:
@@ -544,6 +544,9 @@ Validation on 3 November 2026:
   check-state regressions.
 - `git diff --check` and changed-file `gofmt`: pass.
 - No OpenAPI regeneration was needed because no public contract changed.
+
+#1375 merged as `77a821023` with all checks green. The review corrections are in
+`a3912e4e7`; the final focused tests above were run after them.
 
 Limits of this slice:
 
