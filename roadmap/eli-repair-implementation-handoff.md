@@ -518,21 +518,30 @@ from erasing a comment ID written while the check read was in flight.
 This PR starts from `main` after #1368 merged. It adds `0139` and the watcher
 loop; `0138` remains the S2b watch table.
 
+The Codex review found two edges, both fixed. A delayed closed or unsupported
+pull response could pause or stop a watch that had since been paused and
+explicitly re-admitted; observer decisions now update only the row if the
+claimed lease token is still present, while the person-facing pause and stop
+remain unconditional. Re-admitting an idle watch also reset the stored check
+state but returned the old state in memory; the returned row now says unknown
+with the new head.
+
 Validation on 3 November 2026:
 
 - `go test -race -count=1 -run 'Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique'`
   on `./internal/controller ./internal/store ./internal/api ./internal/github`:
-  all four packages pass (controller 20.451s, store 35.564s, api 56.159s,
-  github 1.281s). This includes the new observation, disabled-policy pause,
+  all four packages pass (controller 21.489s, store 37.215s, api 54.514s,
+  github 1.277s). This includes the new observation, disabled-policy pause,
   closed-PR stop and rate-limit scheduling cases.
 - `go vet ./internal/controller ./internal/store ./internal/api ./internal/github`:
   pass.
 - `go test -count=1 -timeout 10m ./internal/store`: pass (119.667s), the complete
   store suite without the race detector, including migration 0139.
-- `go test ./internal/docs -count=1`: pass (29.500s).
+- `go test ./internal/docs -count=1`: pass (27.450s).
 - `staticcheck ./internal/controller`: pass. The first CI run rejected an
   initial `next` value that every branch overwrote; it is now declared without
-  that unused assignment.
+  that unused assignment. The review fixes add the stale-lease and returned
+  check-state regressions.
 - `git diff --check` and changed-file `gofmt`: pass.
 - No OpenAPI regeneration was needed because no public contract changed.
 

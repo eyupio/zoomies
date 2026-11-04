@@ -117,6 +117,7 @@ func (s *Store) AdmitEliRepairWatch(ctx context.Context, w EliRepairWatch) (*Eli
 		} else {
 			existing.HeadSHA, existing.BaseRef, existing.BaseSHA = w.HeadSHA, w.BaseRef, w.BaseSHA
 			existing.LeaseToken, existing.LeaseUntil = "", time.Time{}
+			existing.CheckState = "unknown"
 			existing.NextCheckAt = now
 			_, err = tx.ExecContext(ctx, `UPDATE eli_repair_watches SET installation_id=?,owner_id=?,policy_provider_id=?,policy_updated_at=?,checks=?,conflicts=?,enabled=1,paused_reason='',head_sha=?,base_ref=?,base_sha=?,check_state='unknown',next_check_at=?,lease_token='',lease_until=0,stop_reason='',updated_at=? WHERE id=?`,
 				existing.InstallationID, existing.OwnerID, existing.PolicyProviderID, ms(existing.PolicyUpdatedAt),
@@ -227,20 +228,40 @@ func (s *Store) ReleaseEliRepairWatch(ctx context.Context, id, token, headSHA, b
 }
 
 func (s *Store) PauseEliRepairWatch(ctx context.Context, id, reason string) error {
-	return s.setEliRepairWatchEnabled(ctx, id, `paused_reason=?,stop_reason=''`, reason)
+	return s.setEliRepairWatchEnabled(ctx, id, "", `paused_reason=?,stop_reason=''`, reason)
 }
 
 func (s *Store) StopEliRepairWatch(ctx context.Context, id, reason string) error {
-	return s.setEliRepairWatchEnabled(ctx, id, `paused_reason='',stop_reason=?`, reason)
+	return s.setEliRepairWatchEnabled(ctx, id, "", `paused_reason='',stop_reason=?`, reason)
 }
 
-func (s *Store) setEliRepairWatchEnabled(ctx context.Context, id, fields, reason string) error {
-	result, err := s.exec(ctx, `UPDATE eli_repair_watches SET enabled=0,`+fields+`,lease_token='',lease_until=0,updated_at=? WHERE id=?`, reason, ms(s.Now()), id)
+// PauseEliRepairWatchLease and StopEliRepairWatchLease only change the row if
+// the caller still holds the lease it claimed. An observation that outlived a
+// pause and explicit re-admission must not stop the new watch.
+func (s *Store) PauseEliRepairWatchLease(ctx context.Context, id, token, reason string) error {
+	return s.setEliRepairWatchEnabled(ctx, id, token, `paused_reason=?,stop_reason=''`, reason)
+}
+
+func (s *Store) StopEliRepairWatchLease(ctx context.Context, id, token, reason string) error {
+	return s.setEliRepairWatchEnabled(ctx, id, token, `paused_reason='',stop_reason=?`, reason)
+}
+
+func (s *Store) setEliRepairWatchEnabled(ctx context.Context, id, token, fields, reason string) error {
+	query := `UPDATE eli_repair_watches SET enabled=0,` + fields + `,lease_token='',lease_until=0,updated_at=? WHERE id=?`
+	args := []any{reason, ms(s.Now()), id}
+	if token != "" {
+		query += ` AND lease_token=?`
+		args = append(args, token)
+	}
+	result, err := s.exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
 	n, err := result.RowsAffected()
 	if err == nil && n == 0 {
+		if token != "" {
+			return ErrConflict
+		}
 		return ErrNotFound
 	}
 	return err

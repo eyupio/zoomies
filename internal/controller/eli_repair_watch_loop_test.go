@@ -18,10 +18,14 @@ type watchLoopFake struct {
 	checkErr error
 	pulls    int
 	checks   int
+	onPull   func()
 }
 
 func (f *watchLoopFake) RepairPull(context.Context, string, int) (github.RepairPull, error) {
 	f.pulls++
+	if f.onPull != nil {
+		f.onPull()
+	}
 	if f.pullErr != nil {
 		return github.RepairPull{}, f.pullErr
 	}
@@ -131,5 +135,32 @@ func TestARateLimitedCheckReadUsesTheRetryItWasGiven(t *testing.T) {
 	}
 	if got.HeadSHA != "head-new" || got.BaseSHA != "base-new" {
 		t.Fatalf("a check read failure discarded a pull identity that was read: %+v", got)
+	}
+}
+
+func TestAStaleClosedObservationDoesNotStopAReAdmittedWatch(t *testing.T) {
+	h := newHarness(t)
+	fake, watch, inst := watchLoopFixture(t, h)
+	fake.pullErr = &github.RepairTargetChanged{Code: "closed", Message: "The PR is closed."}
+	fake.onPull = func() {
+		if err := h.st.PauseEliRepairWatch(h.ctx, watch.ID, "Paused."); err != nil {
+			t.Errorf("pause: %v", err)
+			return
+		}
+		if _, err := h.st.AdmitEliRepairWatch(h.ctx, store.EliRepairWatch{
+			InstallationID: inst.ID, Repo: watch.Repo, PullNumber: 1, OwnerID: "usr_owner", Checks: true,
+		}); err != nil {
+			t.Errorf("re-admit: %v", err)
+		}
+	}
+	if !h.c.observeDueEliRepairWatch(h.ctx) {
+		t.Fatal("the watch was not considered")
+	}
+	got, err := h.st.EliRepairWatch(h.ctx, watch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Enabled || got.StopReason != "" {
+		t.Fatalf("a stale closed response stopped a newer admission: %+v", got)
 	}
 }

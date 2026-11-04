@@ -52,17 +52,17 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 	policy, policyErr := c.repairPolicy(ctx, watch.Repo, watch.InstallationID)
 	switch {
 	case errors.Is(policyErr, store.ErrNotFound):
-		_ = c.PauseEliRepairWatch(ctx, watch.ID, "The repository's repair policy is no longer enabled. Admit this watch again after enabling repairs.")
+		_ = c.st.PauseEliRepairWatchLease(ctx, watch.ID, watch.LeaseToken, "The repository's repair policy is no longer enabled. Admit this watch again after enabling repairs.")
 		return true
 	case policyErr != nil:
 		c.releaseEliRepairWatch(ctx, watch, watch.HeadSHA, watch.BaseRef, watch.BaseSHA, "unknown", now.Add(eliWatchRetry))
 		return true
 	case !policy.Automatic:
-		_ = c.PauseEliRepairWatch(ctx, watch.ID, "The repository no longer repairs failed checks automatically. Admit this watch again after enabling automatic repairs.")
+		_ = c.st.PauseEliRepairWatchLease(ctx, watch.ID, watch.LeaseToken, "The repository no longer repairs failed checks automatically. Admit this watch again after enabling automatic repairs.")
 		return true
 	}
 	if _, err := c.st.GetInstallation(ctx, watch.InstallationID); errors.Is(err, store.ErrNotFound) {
-		_ = c.PauseEliRepairWatch(ctx, watch.ID, "The GitHub installation for this watch is no longer available. Admit the watch again after reconnecting it.")
+		_ = c.st.PauseEliRepairWatchLease(ctx, watch.ID, watch.LeaseToken, "The GitHub installation for this watch is no longer available. Admit the watch again after reconnecting it.")
 		return true
 	}
 
@@ -84,11 +84,11 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 		cancel()
 		var changed *github.RepairTargetChanged
 		if errors.As(err, &changed) && changed.Code == "closed" {
-			_ = c.StopEliRepairWatch(ctx, watch.ID, "The pull request was closed or merged, so watching stopped.")
+			_ = c.st.StopEliRepairWatchLease(ctx, watch.ID, watch.LeaseToken, "The pull request was closed or merged, so watching stopped.")
 			return true
 		}
 		if errors.Is(err, github.ErrRepairUnsupported) {
-			_ = c.StopEliRepairWatch(ctx, watch.ID, "The pull request is no longer open, writable and on a branch Eli may update, so watching stopped.")
+			_ = c.st.StopEliRepairWatchLease(ctx, watch.ID, watch.LeaseToken, "The pull request is no longer open, writable and on a branch Eli may update, so watching stopped.")
 			return true
 		}
 		c.releaseEliRepairWatch(ctx, watch, watch.HeadSHA, watch.BaseRef, watch.BaseSHA, "unknown", eliWatchRetryAt(err, now))

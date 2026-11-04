@@ -66,12 +66,16 @@ func TestAnExplicitAdmissionIsTheOnlyThingThatCreatesOrResumesAWatch(t *testing.
 	if _, err := s.EliRepairWatchForPull(ctx, "ACME/REPO", 7); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.exec(ctx, `UPDATE eli_repair_watches SET check_state='passed' WHERE id=?`, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	in.HeadSHA, in.BaseSHA = "head-c", "base-c"
 	resumed, err := s.AdmitEliRepairWatch(ctx, in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !resumed.Enabled || resumed.PausedReason != "" || resumed.ID != first.ID {
-		t.Fatalf("explicit admission did not resume the same watch: %+v", resumed)
+	if !resumed.Enabled || resumed.PausedReason != "" || resumed.ID != first.ID || resumed.CheckState != "unknown" {
+		t.Fatalf("explicit admission did not resume the same watch cleanly: %+v", resumed)
 	}
 }
 
@@ -214,5 +218,44 @@ func TestRepeatedAdmissionLeavesAnActiveObservationAlone(t *testing.T) {
 	}
 	if err := s.ReleaseEliRepairWatch(ctx, repeated.ID, claimed.LeaseToken, "head", "main", "base", "waiting", now.Add(time.Minute)); err != nil {
 		t.Fatalf("the original observer could not record its result: %v", err)
+	}
+}
+
+func TestAStaleObserverCannotPauseOrStopANewerWatch(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	inst := watchInstallation(t, s)
+	w, err := s.AdmitEliRepairWatch(ctx, EliRepairWatch{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, OwnerID: "usr_one", Checks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.ClaimDueEliRepairWatch(ctx, s.Now().Add(time.Second), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PauseEliRepairWatchLease(ctx, w.ID, "stale-token", "Paused."); err != ErrConflict {
+		t.Fatalf("a stale observer paused the watch: %v", err)
+	}
+	still, err := s.EliRepairWatch(ctx, w.ID)
+	if err != nil || !still.Enabled || still.LeaseToken != claimed.LeaseToken {
+		t.Fatalf("a stale pause changed the live watch: %+v, %v", still, err)
+	}
+	if err := s.PauseEliRepairWatchLease(ctx, w.ID, claimed.LeaseToken, "Paused."); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := s.AdmitEliRepairWatch(ctx, EliRepairWatch{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, OwnerID: "usr_one", Checks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err = s.ClaimDueEliRepairWatch(ctx, s.Now().Add(2*time.Second), time.Minute)
+	if err != nil || claimed.ID != resumed.ID {
+		t.Fatalf("re-admitted watch was not claimable: %+v, %v", claimed, err)
+	}
+	if err := s.StopEliRepairWatchLease(ctx, w.ID, "stale-token", "Stopped."); err != ErrConflict {
+		t.Fatalf("a stale observer stopped the watch: %v", err)
+	}
+	fresh, err := s.EliRepairWatch(ctx, w.ID)
+	if err != nil || !fresh.Enabled || fresh.StopReason != "" || fresh.LeaseToken != claimed.LeaseToken {
+		t.Fatalf("a stale stop changed the new watch: %+v, %v", fresh, err)
 	}
 }
