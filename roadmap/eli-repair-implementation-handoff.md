@@ -20,7 +20,7 @@ implementation from the newest branch after checking the live PR states.
 | Latest slice | [#1386](https://github.com/eyupio/zoomies/pull/1386): S2g periodic new-PR discovery |
 | Investigated baseline | `51206b990` on `codex/eli-check-evidence` |
 | Working branches | `codex/eli-watch-discovery` for S2g, stacked on S2f |
-| Verified code checkpoints | S1 through S2e merged through `8a827168d`; S2f in [#1384](https://github.com/eyupio/zoomies/pull/1384); S2g: `ce9151e6259f6cb4186d931f69a068a52a2b5717` |
+| Verified code checkpoints | S1 through S2e merged through `8a827168d`; S2f in [#1384](https://github.com/eyupio/zoomies/pull/1384); S2g: `42d6969931d455c86fe158a89dbb75aa40591fc5` |
 | Implementation | S2f adds migration 0141 and stored check evidence. S2g adds migration 0142 for explicit repository-wide decisions and scans the least recently discovered ones in bounded passes |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379) and [#1381](https://github.com/eyupio/zoomies/pull/1381) merged green; the handoff refresh merged as `07a49f664` |
