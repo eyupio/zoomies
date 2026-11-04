@@ -16,6 +16,9 @@ on:
       - "overrides/**"
       - "hooks/**"
       - "site-worker/**"
+      - "test/site/**"
+      - "web/package.json"
+      - "web/package-lock.json"
       - "skills/**"
       - "mkdocs.yml"
       - "install.sh"
@@ -29,6 +32,9 @@ on:
       - "overrides/**"
       - "hooks/**"
       - "site-worker/**"
+      - "test/site/**"
+      - "web/package.json"
+      - "web/package-lock.json"
       - "skills/**"
       - "mkdocs.yml"
       - "install.sh"
@@ -253,6 +259,27 @@ jobs:
           # The provider wizard's short Proxmox command fetches this one.
           cp connect-proxmox.sh site/connect-proxmox.sh
 
+      - name: Check canonical pages, sharing metadata, discovery and versioned assets
+        run: python test/site/check_site.py
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # Reuse the browser library already locked for the product. The docs
+      # check serves only static files and never starts a controller or agent.
+      - name: Install the existing browser test dependencies
+        run: npm ci --prefix web --ignore-scripts --no-audit --no-fund
+
+      - name: Install Chromium for the static-site checks
+        run: npx --no-install playwright install --with-deps chromium
+        working-directory: web
+
+      - name: Check search, themes, mobile navigation and responsive layouts
+        run: node test/site/browser.mjs
+
       # The edge worker answers Accept: text/markdown with the copies the build
       # just wrote, on the Accept header GitHub Pages cannot read. Its rules
       # are tested against an in-memory origin, so a change to either side
@@ -328,6 +355,10 @@ jobs:
             done
             test -n "$ok" || { echo "::error::https://zoomies.sh/$f is not serving the published file"; exit 1; }
           done
+
+      - name: The published pages, sitemap and sharing image match the checked build
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: python test/site/check_live.py
 
       # After the deploy, not before: an engine told about a page fetches it
       # straight away, and it has to find the new one. A failed submission is

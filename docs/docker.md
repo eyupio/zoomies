@@ -1,4 +1,5 @@
 ---
+layout: article
 icon: material/docker
 title: Self-hosted GitHub Actions runners in Docker
 description: >-

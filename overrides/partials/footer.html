@@ -1,0 +1,12 @@
+{% from "partials/icons-zoomies.html" import icon %}
+<footer class="footer wrap">
+  <div class="footer-top">
+    <a class="brand" href="{{ nav.homepage.url | url }}" aria-label="Zoomies home">{% include "partials/brand-zoomies.html" %}</a>
+    <p>A little more go.<br> A lot less runner wrangling.</p>
+    {% include "partials/source.html" %}
+  </div>
+  <div class="footer-links">
+    <a href="{{ 'start-here/' | url }}">Documentation</a><a href="{{ 'guides/' | url }}">Field guide</a><a href="{{ 'alternatives/' | url }}">Compare</a><a href="{{ 'security/' | url }}">Security</a><a href="{{ 'privacy/' | url }}">Privacy</a><a href="https://eyup.io/">Made by EyUp.io {{ icon('external') }}</a>
+  </div>
+  <div class="footer-bottom"><span>Free. Open source. AGPL-3.0.</span><span>Product screens show example data.</span><a href="#main">Back to the top ↑</a></div>
+</footer>

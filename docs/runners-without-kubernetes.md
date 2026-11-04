@@ -1,4 +1,5 @@
 ---
+layout: article
 icon: material/server-network
 title: GitHub Actions runners without Kubernetes
 description: >-

@@ -88,7 +88,9 @@ build [zoomies.sh](https://zoomies.sh) and nothing else.
 | `mkdocs` | Turns `docs/` into the site, so the website is the repository's own documentation rather than a second copy of it. Pinned below 2.0 deliberately; the reason is in `docs/requirements.txt`. |
 | `mkdocs-material` | The theme. It carries the search, the light/dark palettes, the tabbed blocks the quick start uses, and the Mermaid integration below. |
 | `pymdown-extensions` | The fenced-block, tabbed and admonition syntax the pages are written in, including the custom `mermaid` fence. |
-| Mermaid | Diagrams. Material fetches it from a CDN in the reader's browser, only on a page that has one, and colours it from the palette above, so a diagram lives in the Markdown beside what it explains, renders on GitHub as well, and there is no exported image to go stale. |
+| Mermaid | Renders the diagrams written in the Markdown, themed by Material. The pinned browser bundle in `docs/vendor/mermaid/` loads only on a page with a diagram; a slow or blocked third-party CDN cannot leave the reader with source code in its place. |
+| Fraunces, IBM Plex Sans and IBM Plex Mono | Self-hosted display, body and code fonts for the showcase and documentation. The Latin subsets and their SIL Open Font Licence live in `docs/stylesheets/fonts/showcase/`. |
+| Playwright | Browser checks for the generated docs reuse the version already locked in `web/package-lock.json`; search, themes and mobile navigation need to work in a returning reader’s browser. |
 | `pillow` | Encodes the screenshots in `docs/screenshots/` as lossless WebP, at under half the size of the PNGs Playwright takes. Only `make screenshots` needs it, so it is not in `docs/requirements.txt` and the site builds without it; the browser can write lossless WebP itself but compresses it six times worse. |
 
 ## Coverage reporting
