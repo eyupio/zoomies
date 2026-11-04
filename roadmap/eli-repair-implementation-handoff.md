@@ -17,7 +17,7 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1385](https://github.com/eyupio/zoomies/pull/1385): S2g periodic new-PR discovery |
+| Latest slice | [#1386](https://github.com/eyupio/zoomies/pull/1386): S2g periodic new-PR discovery |
 | Investigated baseline | `51206b990` on `codex/eli-check-evidence` |
 | Working branches | `codex/eli-watch-discovery` for S2g, stacked on S2f |
 | Verified code checkpoints | S1 through S2e merged through `8a827168d`; S2f in [#1384](https://github.com/eyupio/zoomies/pull/1384); S2g: `ce9151e6259f6cb4186d931f69a068a52a2b5717` |
@@ -425,7 +425,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1379](https://github.com/eyupio/zoomies/pull/1379), merged as `80ed57e94` | S2d correction: create-only backfill admission in one transaction | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; merged green | Bounded repair chains and per-check evidence |
 | [#1381](https://github.com/eyupio/zoomies/pull/1381), merged as `8a827168d` | S2e: bounded repair chains for watched failures | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; merged green | Per-check evidence, then conflict repair and UI |
 | [#1384](https://github.com/eyupio/zoomies/pull/1384), open | S2f: per-check evidence on watched heads | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | Conflict repair and the final controls |
-| [#1385](https://github.com/eyupio/zoomies/pull/1385), open, stacked on #1384 | S2g: periodic new-PR discovery | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Webhook wakeups, conflict repair and the final controls |
+| [#1386](https://github.com/eyupio/zoomies/pull/1386), open, stacked on #1384 | S2g: periodic new-PR discovery | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Webhook wakeups, conflict repair and the final controls |
 
 S1 validation on 3 November 2026:
 
