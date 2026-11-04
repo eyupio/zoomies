@@ -100,7 +100,7 @@ func tools() []*tool {
 		comparisonTools(), prDelayTools(), optimisationTools(), optimisationCacheTools(), optimisationReadinessTools(), kennelFixTools(), kennelReviewTools(), optimisationShardingTools(), noteTools(),
 		kennelTools(), catalogTools(), usageTools(), providerTools(),
 		configTools(), adminConfigTools(), windowTools(), analysisTools(),
-		repairTools(),
+		repairTools(), controllerLoadTools(),
 	} {
 		read = append(read, group...)
 	}

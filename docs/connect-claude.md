@@ -297,6 +297,12 @@ call them:
   away on it, and its disk. A measurement a host did not make is absent rather
   than zero, which is how a host that stopped reporting is told from an idle
   one.
+* `controller_load` is where the controller's own time goes since it started: its
+  loops step by step and its busiest route groups, longest first, with the
+  machine it runs on and the share of that machine's CPU the controller process
+  itself used. Read it when that machine is busy and the question is whether it
+  is Zoomies. The times are elapsed time and not CPU, and it names the loop and
+  not the function, which a CPU profile does.
 * `runner_timeline` is one runner's states and when it moved through each, while
   the runner exists.
 * `list_workflow_runs` is runs rather than jobs: one row per run, as GitHub's

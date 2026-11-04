@@ -2617,6 +2617,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/controller/load": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where the controller's own time goes
+         * @description The controller's loops and routes as its metrics endpoint counts them, read back since it started, with the machine it runs on beside them. `steps` are the stretches of its background loops that have run, longest total time first, and `api` the busiest groups of routes it has served. The times are elapsed time and not CPU time: a step waiting on the database or on GitHub is counted for as long as it waits. `machine` is the reading `GET /controller/machine` gives, whose `process_cpu_percent` is the share of the machine's CPU the controller process itself used, so the two together say whether a busy machine is Zoomies or something else on it. Everything is counted since `started_at`, so a controller that has just restarted has little in it. It says which loop or route is taking the time and never what it does with the CPU; a profile (`GET /diagnostics/cpu-profile`) says that. It reads what the controller already keeps and does no work of its own, so asking is cheap when the controller is busy.
+         */
+        get: operations["getControllerLoad"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hosts/{id}": {
         parameters: {
             query?: never;
@@ -10499,6 +10519,8 @@ export interface components {
                 io_wait_percent?: number;
                 /** @description The share of that interval the hypervisor kept the CPU from this virtual machine. Absent on a kernel that does not report it. */
                 steal_percent?: number;
+                /** @description The share of the machine's CPU capacity (every CPU it has, so one core of four is 25) that this controller process itself used over the same interval. Read beside cpu_percent it says how much of a busy machine is Zoomies and how much is everything else on it. Absent where procfs has no process figure, and when it read as more than the machine's own busy share. */
+                process_cpu_percent?: number;
                 /** @description The kernel's one-minute load average. */
                 load_average_1m?: number;
                 /**
@@ -10511,6 +10533,85 @@ export interface components {
             };
             /** @description Whether a measurement from the last 90 seconds stands behind usage. */
             usage_fresh: boolean;
+        };
+        /** @description Where the controller's own time goes, read from the timings it keeps for its metrics endpoint, counted since it started. */
+        ControllerLoad: {
+            /**
+             * Format: date-time
+             * @description When this process began.
+             */
+            started_at: string;
+            /** @description How long it has been running. Every total below is over this time, so a controller that has just restarted has little in it. */
+            uptime_seconds: number;
+            /** @description Goroutines alive now. A count that only climbs is a leak. */
+            goroutines: number;
+            /** @description Scheduling passes run, by what started them: startup, timer, nudge or request. A trigger that started none is left out. */
+            reconcile_passes: {
+                [key: string]: number;
+            };
+            /**
+             * Format: int64
+             * @description Wake-ups asked of the scheduling loop. Against the passes it shows how many each pass absorbed.
+             */
+            nudges: number;
+            /** @description The loop steps that have run, longest total time first. */
+            steps: components["schemas"]["StepLoad"][];
+            /** @description The busiest groups of routes by time, then by requests. */
+            api: components["schemas"]["RouteGroupLoad"][];
+            /** @description How many quieter route groups were left out of api. */
+            api_groups_not_shown: number;
+            machine: components["schemas"]["ControllerMachine"];
+        };
+        /** @description One step of one controller loop. */
+        StepLoad: {
+            /** @description The loop: reconcile, housekeeping, derived, job_attention or enrichment. */
+            loop: string;
+            /** @description The step of that loop. */
+            step: string;
+            /** @description Set on a step that times its loop's whole pass, whose time already contains the loop's other steps. Adding a loop's steps up counts that pass twice. */
+            whole?: boolean;
+            /**
+             * Format: int64
+             * @description How many times it ran.
+             */
+            count: number;
+            /** @description Elapsed time it took in all, not CPU time. */
+            seconds: number;
+            mean_seconds: number;
+            /** @description An upper bound on the slowest run: the upper edge of the timing bucket it fell in. Absent when a run was slower than the last bucket. */
+            slowest_at_most_seconds?: number;
+            /** @description Present only when a run was slower than the last bucket, and gives the last bucket's edge: the slowest run took more than this. */
+            slowest_over_seconds?: number;
+            /** @description Its seconds as a share of the controller's uptime. */
+            uptime_share_percent: number;
+        };
+        /** @description One group of API routes, named by the first part of the path or one of ui, health, webhook, metrics and mcp. */
+        RouteGroupLoad: {
+            group: string;
+            /**
+             * Format: int64
+             * @description Every request, including the long-lived ones (the event stream, a log tail, an agent's task poll) that are counted and not timed.
+             */
+            requests: number;
+            /**
+             * Format: int64
+             * @description Requests that ended in a 5xx.
+             */
+            server_errors: number;
+            /**
+             * Format: int64
+             * @description Requests that were timed.
+             */
+            timed: number;
+            /** @description Elapsed time the timed requests took in all. */
+            seconds: number;
+            mean_seconds: number;
+            /** @description An upper bound on the slowest timed request. Absent when one was slower than the last bucket. */
+            slowest_at_most_seconds?: number;
+            /** @description Present only when a timed request was slower than the last bucket, and gives the last bucket's edge. */
+            slowest_over_seconds?: number;
+            /** @description Its seconds as a share of the controller's uptime. */
+            uptime_share_percent: number;
         };
         /** @description One host at one minute. Absent measurements are gaps, never zero. */
         HostSample: {
@@ -18390,6 +18491,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ControllerMachine"];
+                };
+            };
+        };
+    };
+    getControllerLoad: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllerLoad"];
                 };
             };
         };
