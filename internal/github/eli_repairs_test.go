@@ -530,3 +530,30 @@ func TestRepairPullRefusesADraft(t *testing.T) {
 		t.Fatalf("a draft was admitted: %v", err)
 	}
 }
+
+func TestRepairCheckEvidenceKeepsEachProducerAndOutcome(t *testing.T) {
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/acme/repo/commits/abc/check-runs":
+			w.Write([]byte(`{"total_count":1,"check_runs":[{"name":"build","status":"completed","conclusion":"failure","details_url":"https://github.test/build","app":{"slug":"github-actions"}}]}`))
+		case "/repos/acme/repo/commits/abc/status":
+			w.Write([]byte(`{"total_count":1,"state":"failure","statuses":[{"context":"ci/legacy","state":"failure","target_url":"https://github.test/legacy"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	got, err := c.RepairCheckEvidence(t.Context(), "acme/repo", "abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != "failed" || got.Total != 2 || got.Truncated || len(got.Checks) != 2 {
+		t.Fatalf("evidence %+v", got)
+	}
+	if got.Checks[0].Name != "build" || got.Checks[0].App != "github-actions" || got.Checks[0].Kind != "check_run" {
+		t.Fatalf("check run evidence lost: %+v", got.Checks[0])
+	}
+	if got.Checks[1].Name != "ci/legacy" || got.Checks[1].Kind != "status" || got.Checks[1].Conclusion != "failure" {
+		t.Fatalf("legacy status evidence lost: %+v", got.Checks[1])
+	}
+}

@@ -40,6 +40,14 @@ func (f *watchLoopFake) RepairChecks(context.Context, string, string) (string, e
 	return f.check, f.checkErr
 }
 
+func (f *watchLoopFake) RepairCheckEvidence(context.Context, string, string) (github.RepairCheckEvidence, error) {
+	f.checks++
+	if f.checkErr != nil {
+		return github.RepairCheckEvidence{}, f.checkErr
+	}
+	return github.RepairCheckEvidence{State: f.check, Total: 1, Checks: []github.RepairCheck{{Kind: "check_run", Name: "CI", Status: "completed", Conclusion: "failure", App: "github-actions"}}}, nil
+}
+
 func (f *watchLoopFake) RepairOpenPulls(context.Context, string, int) ([]github.RepairPull, bool, error) {
 	if f.openErr != nil {
 		return nil, false, f.openErr
@@ -86,7 +94,8 @@ func TestADueWatchRecordsItsPullAndCheckState(t *testing.T) {
 		t.Fatal(err)
 	}
 	if fake.pulls != 1 || fake.checks != 1 || got.HeadSHA != "head-new" || got.BaseRef != "release" ||
-		got.BaseSHA != "base-new" || got.CheckState != "failed" || got.LastObservedAt.IsZero() {
+		got.BaseSHA != "base-new" || got.CheckState != "failed" || got.LastObservedAt.IsZero() ||
+		!strings.Contains(got.CheckEvidence, `"name":"CI"`) {
 		t.Fatalf("observation lost: %+v, pulls=%d checks=%d", got, fake.pulls, fake.checks)
 	}
 	if got.LeaseToken != "" || got.NextCheckAt.UnixMilli() < started.Add(eliWatchPending).UnixMilli() {

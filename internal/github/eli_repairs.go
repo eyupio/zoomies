@@ -580,16 +580,65 @@ func (c *appClient) RepairReact(ctx context.Context, repo string, commentID int6
 	}
 	return c.repairRequest(ctx, http.MethodPost, fmt.Sprintf("%s/issues/comments/%d/reactions", base, commentID), map[string]string{"content": content}, nil)
 }
+
+type RepairCheck struct {
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	Status     string `json:"status,omitempty"`
+	Conclusion string `json:"conclusion,omitempty"`
+	App        string `json:"app,omitempty"`
+	URL        string `json:"url,omitempty"`
+}
+
+// RepairCheckEvidence is the bounded record of what one head's checks said.
+// State is the overall answer the worker acts on; Checks keeps the producers
+// and individual outcomes for the page that explains a decision.
+type RepairCheckEvidence struct {
+	State     string        `json:"state"`
+	Checks    []RepairCheck `json:"checks"`
+	Total     int           `json:"total"`
+	Truncated bool          `json:"truncated"`
+}
+
+const maxRepairCheckEvidence = 50
+
+// RepairEvidenceClient is the richer check read a watcher uses. It is separate
+// from RepairClient so clients that only know the overall state keep working.
+type RepairEvidenceClient interface {
+	RepairCheckEvidence(context.Context, string, string) (RepairCheckEvidence, error)
+}
+
 func (c *appClient) RepairChecks(ctx context.Context, repo, sha string) (string, error) {
+	evidence, err := c.repairCheckEvidence(ctx, repo, sha)
+	return evidence.State, err
+}
+
+func (c *appClient) RepairCheckEvidence(ctx context.Context, repo, sha string) (RepairCheckEvidence, error) {
+	return c.repairCheckEvidence(ctx, repo, sha)
+}
+
+func (c *appClient) repairCheckEvidence(ctx context.Context, repo, sha string) (RepairCheckEvidence, error) {
+	out := RepairCheckEvidence{Checks: []RepairCheck{}}
+	add := func(check RepairCheck) {
+		if len(out.Checks) < maxRepairCheckEvidence {
+			out.Checks = append(out.Checks, check)
+		}
+	}
 	base, err := repairRepo(repo)
 	if err != nil {
-		return "", err
+		return out, err
 	}
 	var checks struct {
 		Total int `json:"total_count"`
 		Runs  []struct {
+			Name       string `json:"name"`
 			Status     string `json:"status"`
 			Conclusion string `json:"conclusion"`
+			DetailsURL string `json:"details_url"`
+			App        struct {
+				Slug string `json:"slug"`
+				Name string `json:"name"`
+			} `json:"app"`
 		} `json:"check_runs"`
 	}
 	// Matrix jobs regularly fill a page. Keep the read bounded, but do not
@@ -612,12 +661,30 @@ func (c *appClient) RepairChecks(ctx context.Context, repo, sha string) (string,
 		}
 	}
 	var statuses struct {
-		Total int    `json:"total_count"`
-		State string `json:"state"`
+		Total    int    `json:"total_count"`
+		State    string `json:"state"`
+		Statuses []struct {
+			Context   string `json:"context"`
+			State     string `json:"state"`
+			TargetURL string `json:"target_url"`
+		} `json:"statuses"`
 	}
 	statusesErr := c.repairRequest(ctx, http.MethodGet, base+"/commits/"+url.PathEscape(sha)+"/status", nil, &statuses)
+	out.Total = checks.Total + statuses.Total
+	for _, r := range checks.Runs {
+		app := r.App.Slug
+		if app == "" {
+			app = r.App.Name
+		}
+		add(RepairCheck{Kind: "check_run", Name: r.Name, Status: r.Status, Conclusion: r.Conclusion, App: app, URL: r.DetailsURL})
+	}
+	for _, st := range statuses.Statuses {
+		add(RepairCheck{Kind: "status", Name: st.Context, Status: "completed", Conclusion: st.State, URL: st.TargetURL})
+	}
+	out.Truncated = len(out.Checks) < out.Total
 	if statusesErr == nil && statuses.Total > 0 && (statuses.State == "failure" || statuses.State == "error") {
-		return "failed", nil
+		out.State = "failed"
+		return out, nil
 	}
 	pending := checks.Total > len(checks.Runs) || statuses.Total > 0 && statuses.State != "success"
 	passed := statuses.Total > 0 && statuses.State == "success"
@@ -628,7 +695,8 @@ func (c *appClient) RepairChecks(ctx context.Context, repo, sha string) (string,
 		}
 		switch r.Conclusion {
 		case "failure", "timed_out", "action_required", "startup_failure":
-			return "failed", nil
+			out.State = "failed"
+			return out, nil
 		case "success":
 			passed = true
 		case "neutral", "skipped":
@@ -669,17 +737,20 @@ func (c *appClient) RepairChecks(ctx context.Context, repo, sha string) (string,
 				if run.Status == "completed" {
 					switch run.Conclusion {
 					case "failure", "timed_out", "action_required", "startup_failure":
-						return "failed", nil
+						out.State = "failed"
+						return out, nil
 					}
 				}
 			}
 		}
-		return "", errors.Join(checksErr, statusesErr, runsErr)
+		return out, errors.Join(checksErr, statusesErr, runsErr)
 	}
 	if pending || !passed {
-		return "waiting", nil
+		out.State = "waiting"
+		return out, nil
 	}
-	return "passed", nil
+	out.State = "passed"
+	return out, nil
 }
 
 // RepairDiscoveryClient is the extra read a repository-wide watch needs. It is
