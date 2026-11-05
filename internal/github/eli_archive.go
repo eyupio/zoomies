@@ -61,18 +61,16 @@ func (e *ArchiveError) Unwrap() error { return e.Err }
 // to whoever the redirect names. The second request carries no credential at
 // all, and both are bounded.
 func (c *appClient) ArchiveOf(ctx context.Context, repo, commit string, opts gitbare.ArchiveOptions) ([]gitbare.File, error) {
-	if repo == "" {
-		repo = c.repo
-	}
-	if repo == "" || c.owner == "" {
-		return nil, &ArchiveError{Commit: commit, Err: errors.New("this installation names an organisation, so the repository must be given")}
+	owner, name, err := c.repository(repo)
+	if err != nil {
+		return nil, &ArchiveError{Commit: commit, Err: err}
 	}
 	if strings.TrimSpace(commit) == "" {
 		return nil, &ArchiveError{Err: errors.New("no commit was named")}
 	}
 
 	path := fmt.Sprintf("repos/%s/%s/tarball/%s",
-		url.PathEscape(c.owner), url.PathEscape(repo), url.PathEscape(commit))
+		url.PathEscape(owner), url.PathEscape(name), url.PathEscape(commit))
 	location, err := c.archiveLocation(ctx, path, commit)
 	if err != nil {
 		return nil, err

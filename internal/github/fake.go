@@ -197,6 +197,11 @@ func (f *FakeGitHub) Client(target string, kind store.TargetType) Client {
 		panic("github: fake: " + err.Error())
 	}
 	ac := newAppClient(c, c, target, kind, f.installationID, "https://github.com")
+	// The archive read takes two transports in production, the installation one
+	// and a bare one for the storage the API redirects to. A client from the
+	// fake has both, so a test exercises that split rather than a shortcut.
+	ac.http = &http.Client{Transport: f.srv.Client().Transport, Timeout: time.Minute}
+	ac.archiveHTTP = &http.Client{Transport: f.srv.Client().Transport, Timeout: time.Minute}
 	// Kennel Club's reads go through the conditional client in production, so a
 	// test of them must too, or it would pass while the real path was broken.
 	ac.enableConditionalReads(newConditionalCache(conditionalCacheBytes), "fake|"+strconv.FormatInt(f.installationID, 10))

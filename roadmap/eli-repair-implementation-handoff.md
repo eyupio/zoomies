@@ -687,6 +687,45 @@ Limits of this slice:
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
 
+### S3b: the controller's side of the fetch, 5 November 2026
+
+The controller can now prepare the repository a repair merges in, from three
+pinned commits, without Git and without a credential leaving it.
+
+- `mergeRepository` in `internal/controller` builds the workspace: a fresh
+temporary directory, the three commits fetched through the installation the watch
+was admitted under, and the worker's request names the ids it wrote. The caller's
+context bounds the whole fetch, and a fetch that fails removes what it wrote, so a
+controller that keeps failing does not keep filling its host.
+- `mergeLookup` is the adapter: a commit's tree and parents from `CommitOf`, the
+files from `ArchiveOf` with the provider's wrapper directory stripped. The pair is
+deliberate, because the two can disagree and `gitbare` refuses when they do.
+- `gitbare.TreeID` writes one tree and returns the id its files hash to, so a
+caller can check a provider's tree without a commit and a fixture can be built
+whose tree and archive agree by construction.
+- The fake's client now carries both transports a real one does, so a test
+exercises the two-request archive split rather than a shortcut.
+
+Validation on 5 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 -run MergeRepository ./internal/controller`: pass
+  (1.222s). Three pinned commits registered in the fake GitHub are fetched,
+  written and merged by `internal/gitmerge` into the conflict with its three
+  sides; a fetch whose target tip is missing removes the directory it made; and a
+  pin that names a branch is refused before GitHub is asked anything.
+- `staticcheck ./...`: pass (SC_EXIT=0), and `go build ./...` with it.
+- `go test -race -count=1 ./internal/gitbare ./internal/gitfetch ./internal/github`:
+  pass (1.395s, 1.585s, 3.538s).
+
+This slice also fixed a real bug the test above found: `ArchiveOf` took a
+repository name and pasted it into the path beside the installation's owner, so a
+full `owner/name` became `acme/acme%2Fwidgets` and answered 404. It now resolves
+the repository exactly as `CommitOf` does.
+
+Not run: the `merge_conflict` task, the pull endpoint and the agent transport,
+with the timeouts and cleanup around them. No container image was built (no
+Docker here) and no browser suite ran (no UI changed).
+
 ### S3b: the archive download, 5 November 2026
 
 This PR is stacked on the fetch in #1399. It adds no migration, no public API and

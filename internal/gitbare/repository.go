@@ -52,6 +52,19 @@ type Commit struct {
 	Files []File
 }
 
+// TreeID writes one tree's objects into dir and returns the id those files hash
+// to, without a commit.
+//
+// It is what a caller checks a provider's reported tree against when there is no
+// commit to write, and what a test uses to make a fixture whose tree and archive
+// agree by construction rather than by transcription.
+func TreeID(dir string, files []File) (string, error) {
+	if err := initRepository(dir); err != nil {
+		return "", err
+	}
+	return writeTree(dir, filesByDirectory(files))
+}
+
 // Write creates the bare repository at dir, writes every commit's objects and
 // returns the commit ids in the order the commits were given.
 //
