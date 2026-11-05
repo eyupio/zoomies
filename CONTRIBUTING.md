@@ -183,12 +183,12 @@ After the strict build, check the rendered site and its browser behaviour:
 
 ```sh
 cp install.sh install.ps1 connect-proxmox.sh site/
-python3 test/site/check_site.py
+python3 hooks/tests/check_site.py
 npm ci --prefix web --ignore-scripts --no-audit --no-fund
 cd web
 npx --no-install playwright install chromium
 cd ..
-node test/site/browser.mjs
+node hooks/tests/browser.mjs
 ```
 
 `check_site.py --baseline /path/to/previous/site` also checks that an existing

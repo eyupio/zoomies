@@ -5,8 +5,6 @@ test('one click prepares an instance and its encrypted archive verifies before c
   page,
   request,
 }) => {
-  // Export and verification both derive encryption keys on the fleet runner.
-  test.setTimeout(60_000);
   // This fixture has its own empty controller. Reset only its fence between
   // desktop and phone runs; no other fleet's work is paused by this spec.
   const reset = await request.post('/api/v1/recovery/unfence');
@@ -46,9 +44,7 @@ test('one click prepares an instance and its encrypted archive verifies before c
     .last()
     .fill('a strong archive passphrase');
   await page.getByRole('button', { name: 'Verify archive', exact: true }).click();
-  await expect(page.getByText(/Archive verified: 0 installations, 0 hosts, 0 jobs/)).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(page.getByText(/Archive verified: 0 installations, 0 hosts, 0 jobs/)).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Import and restart', exact: true }),
   ).toBeDisabled();
@@ -66,9 +62,6 @@ test('one click prepares an instance and its encrypted archive verifies before c
 test('a large instance archive stays below a proxy request limit and failed verification cannot import it', async ({
   page,
 }) => {
-  // Upload all 104 MiB through fourteen real requests before checking refusal.
-  // This is a request-size contract, rather than a transfer speed benchmark.
-  test.setTimeout(90_000);
   // A sparse file exercises the browser's file path without allocating the
   // complete archive in the test runner. Its contents are deliberately invalid.
   const { mkdtempSync, openSync, ftruncateSync, closeSync, rmSync } = await import('node:fs');
@@ -103,7 +96,7 @@ test('a large instance archive stays below a proxy request limit and failed veri
     await page.getByRole('button', { name: 'Verify archive', exact: true }).click();
     await expect(
       page.getByText(/That file is not an instance archive this controller can use/),
-    ).toBeVisible({ timeout: 60_000 });
+    ).toBeVisible({ timeout: 30000 });
     expect(chunks).toHaveLength(14);
     expect(chunks.every((n) => n > 0 && n <= 8 * 1024 * 1024)).toBeTruthy();
     expect(chunks.reduce((sum, n) => sum + n, 0)).toBe(size);

@@ -16,7 +16,6 @@ on:
       - "overrides/**"
       - "hooks/**"
       - "site-worker/**"
-      - "test/site/**"
       - "web/package.json"
       - "web/package-lock.json"
       - "skills/**"
@@ -32,7 +31,6 @@ on:
       - "overrides/**"
       - "hooks/**"
       - "site-worker/**"
-      - "test/site/**"
       - "web/package.json"
       - "web/package-lock.json"
       - "skills/**"
@@ -260,7 +258,7 @@ jobs:
           cp connect-proxmox.sh site/connect-proxmox.sh
 
       - name: Check canonical pages, sharing metadata, discovery and versioned assets
-        run: python test/site/check_site.py
+        run: python hooks/tests/check_site.py
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -278,7 +276,7 @@ jobs:
         working-directory: web
 
       - name: Check search, themes, mobile navigation and responsive layouts
-        run: node test/site/browser.mjs
+        run: node hooks/tests/browser.mjs
 
       # The edge worker answers Accept: text/markdown with the copies the build
       # just wrote, on the Accept header GitHub Pages cannot read. Its rules
@@ -358,7 +356,7 @@ jobs:
 
       - name: The published pages, sitemap and sharing image match the checked build
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        run: python test/site/check_live.py
+        run: python hooks/tests/check_live.py
 
       # After the deploy, not before: an engine told about a page fetches it
       # straight away, and it has to find the new one. A failed submission is

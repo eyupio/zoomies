@@ -10,6 +10,6 @@ the publishing workflow requires them before deployment.
 - `home-mobile.png`: 390 px homepage, first viewport.
 - `navigation-mobile.png`: 390 px navigation with a persistent close control.
 
-The browser checks in `test/site/browser.mjs` can also capture full layouts when
+The browser checks in `hooks/tests/browser.mjs` can also capture full layouts when
 `DOCS_SCREENSHOTS` names an output directory. They cover search, themes, native
 navigation, existing deep links, filtering, Mermaid and responsive reading.
