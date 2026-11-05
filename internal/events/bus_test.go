@@ -526,3 +526,48 @@ func TestMatchesIsTheOneRuleForKindsAndTopics(t *testing.T) {
 		}
 	}
 }
+
+// The statistics, the problems list and the host cards are worked out for the
+// event stream, and they are dear, so they are worked out only for somebody who
+// could be sent them. A subscription that named kinds asked for those and nothing
+// else; one that named none asked for everything; and a subscription that has
+// closed asked for nothing.
+func TestWantsIsTrueOnlyForKindsAnOpenSubscriptionAsksFor(t *testing.T) {
+	b := New()
+	ctx := context.Background()
+
+	if b.Wants(KindStats) {
+		t.Fatal("a bus nobody has subscribed to wants a kind")
+	}
+
+	jobs := b.Subscribe(ctx, SubscribeOptions{Kinds: []Kind{KindJobUpdated, KindRunnerUpdated}})
+	defer jobs.Close()
+	for kind, want := range map[Kind]bool{
+		KindJobUpdated: true, KindRunnerUpdated: true,
+		KindStats: false, KindProblems: false, KindHostUpdated: false,
+	} {
+		if got := b.Wants(kind); got != want {
+			t.Errorf("with one subscriber for jobs and runners, Wants(%s) = %v; want %v", kind, got, want)
+		}
+	}
+
+	everything := b.Subscribe(ctx, SubscribeOptions{})
+	for _, kind := range []Kind{KindStats, KindProblems, KindHostUpdated, KindJobUpdated} {
+		if !b.Wants(kind) {
+			t.Errorf("with a subscriber that named no kinds, Wants(%s) = false; it asked for them all", kind)
+		}
+	}
+	everything.Close()
+	if b.Wants(KindStats) {
+		t.Error("a subscription that closed still makes the bus want a kind")
+	}
+
+	// A topic narrows which events of a kind arrive, not which kinds: the host
+	// cards are worked out before any topic exists, so a subscriber that named a
+	// topic and no kind is still owed all of them.
+	topical := b.Subscribe(ctx, SubscribeOptions{TopicPrefix: "job:"})
+	defer topical.Close()
+	if !b.Wants(KindStats) {
+		t.Error("a subscriber that named a topic and no kind was not counted as wanting every kind")
+	}
+}

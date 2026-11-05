@@ -996,7 +996,7 @@ func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 	s.ctrl.PublishPool(r.Context(), events.KindPoolCreated, p)
 	// A new pool with a minimum above zero has runners to create; a new pool
 	// with none may still claim jobs that are queued right now.
-	s.ctrl.Nudge()
+	s.ctrl.NudgeOperator()
 	_, _ = s.ctrl.PrewarmPool(r.Context(), p)
 
 	view, err := s.ctrl.PoolRenderer(r.Context())
@@ -1299,7 +1299,7 @@ func (s *Server) applyPoolUpdate(w http.ResponseWriter, r *http.Request, id stri
 	s.ctrl.PublishPool(r.Context(), events.KindPoolUpdated, &updated)
 	// The pool's shape decides how many runners should exist, so the scheduler
 	// should look again rather than wait out its interval.
-	s.ctrl.Nudge()
+	s.ctrl.NudgeOperator()
 	// A daemon that comes or goes can change the image the runners are made
 	// from without changing the row -- a pool on the controller's default
 	// image has nothing in its own image field to differ -- so it counts as
@@ -1449,7 +1449,7 @@ func (s *Server) handleDeletePool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "pool", id, poolForAudit(p))
-	s.ctrl.Nudge()
+	s.ctrl.NudgeOperator()
 	writeJSON(w, http.StatusOK, deletePoolResponse{RunnersAffected: affected})
 }
 
@@ -1492,7 +1492,7 @@ func (s *Server) setPoolEnabled(w http.ResponseWriter, r *http.Request, enabled 
 			"name": p.Name, "enabled": enabled, "was": before.Enabled,
 		})
 		s.ctrl.PublishPool(r.Context(), events.KindPoolUpdated, p)
-		s.ctrl.Nudge()
+		s.ctrl.NudgeOperator()
 	}
 
 	view, verr := s.ctrl.PoolRenderer(r.Context())

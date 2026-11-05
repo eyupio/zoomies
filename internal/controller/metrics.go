@@ -57,8 +57,10 @@ type metrics struct {
 	reconcilePasses *prometheus.CounterVec
 	nudges          prometheus.Counter
 	// derivedSkipped counts the times the computed views were not worked out
-	// because nobody was watching.
+	// because nobody was watching, and derivedPaced the times they were left
+	// alone because they had been worked out a moment before.
 	derivedSkipped prometheus.Counter
+	derivedPaced   prometheus.Counter
 	// apiRequests and apiDuration are the controller's own API as it is used,
 	// by route group. They exist because the access log is debug only.
 	apiRequests                                    *prometheus.CounterVec
@@ -288,7 +290,11 @@ func newMetrics(c *Controller) *metrics {
 		}),
 		derivedSkipped: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "zoomies_derived_skipped_total",
-			Help: "Times the statistics, problems and host views for the event stream were not worked out because nothing was connected to it. While this stays flat and zoomies_event_subscribers is above zero, those views are being worked out on every pass and every housekeeping tick.",
+			Help: "Times the statistics, problems and host views for the event stream were not worked out because nothing connected to it asked for them. While this stays flat and zoomies_event_subscribers is above zero, those views are being worked out whenever the pacing allows.",
+		}),
+		derivedPaced: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "zoomies_derived_paced_total",
+			Help: "Times a scheduling pass or housekeeping tick left the statistics, problems and host views for the event stream alone because they had been worked out less than a few seconds before. The gap is five seconds at least and grows with what the work costs, so that it uses about a tenth of the controller's time. What an operator did skips it once, and a pass it turns away is followed by one when it ends.",
 		}),
 		apiRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "zoomies_api_requests_total",
@@ -401,7 +407,7 @@ func newMetrics(c *Controller) *metrics {
 	})
 
 	m.reg.MustRegister(
-		m.loopStep, m.reconcilePasses, m.nudges, m.derivedSkipped, m.apiRequests, m.apiDuration, subscribers,
+		m.loopStep, m.reconcilePasses, m.nudges, m.derivedSkipped, m.derivedPaced, m.apiRequests, m.apiDuration, subscribers,
 		m.jobsTotal, m.jobsRunnerLost, m.jobReruns, m.jobFailures, m.jobsSized, m.jobsRan, m.jobsRerouted, m.runnerStartFailures, m.queueWait, m.jobDuration, m.jobCPUThrottled, m.scalingEvents,
 		m.registrationsDeferred,
 		m.webhookDeliveries, m.githubRequests, m.kennelRequests, m.kennelOpened, m.kennelClosed, m.kennelWaived, m.kennelHolds, m.reconcileDuration, m.storeWriteWait, m.storeWriteHeld, m.reconcileErrors, m.cleanups, m.pollsShed, m.agentLimited, m.logRelayDropped, m.buildInfo,

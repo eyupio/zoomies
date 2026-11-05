@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/events"
@@ -21,20 +22,33 @@ const statsEventWindow = time.Hour
 //
 // Nothing writes a row when a job ages out of the wait percentiles or a host
 // stops sending heartbeats, so nothing in the store can announce those. They
-// are worked out here after every reconcile pass and every housekeeping tick,
-// and published only when the JSON actually differs from what was last sent.
+// are worked out here on the reconcile pass and the housekeeping tick (how
+// often is publishDerivedPaced's business), and published only when the JSON
+// actually differs from what was last sent.
 // Without this the Overview's four numbers and the problems bell were the
 // only parts of the product that stayed as they were until the browser was
 // reloaded.
 //
-// It costs a handful of SQLite queries per pass, so it is skipped when nobody
-// is connected to the stream: a controller nobody is watching should not do
-// the watchers' work.
-func (c *Controller) publishDerived(ctx context.Context) {
+// It costs a handful of SQLite queries per pass, so each piece is worked out
+// only when some subscriber asked for the kind of event it makes: a controller
+// nobody is watching should not do the watchers' work, and neither should one
+// whose only watcher is following jobs.
+func (c *Controller) publishDerived(ctx context.Context) { c.runDerived(ctx, false) }
+
+// publishDerivedPaced is publishDerived for the callers that come round on their
+// own, the scheduling pass and the housekeeping tick: it leaves the figures alone
+// when they were worked out less than derivedGap ago, and sets a timer to come
+// back when the gap is over. What an operator did, a Kennel action or an update
+// plan, calls publishDerived, and an edit nudges with NudgeOperator, and both are
+// shown at once, because somebody is looking at the page for it.
+func (c *Controller) publishDerivedPaced(ctx context.Context) { c.runDerived(ctx, true) }
+
+func (c *Controller) runDerived(ctx context.Context, paced bool) {
 	if c.bus == nil || ctx.Err() != nil {
 		return
 	}
-	if c.bus.Subscribers() == 0 {
+	want := c.derivedWanted()
+	if !want.any() {
 		// Counted, so that a controller doing this work every pass can be told
 		// from one that is skipping it: the pair of this and the subscriber
 		// gauge says which of the two a busy instance is.
@@ -42,45 +56,65 @@ func (c *Controller) publishDerived(ctx context.Context) {
 		return
 	}
 
-	// Called from seven places, so the whole is timed here and not by each of
-	// them. The parts are timed apart because they are very different sizes,
-	// and the one that is large on a big fleet is the one worth caching.
-	defer c.stepTimer(loopDerived, stepAll)()
-
 	c.derivedMu.Lock()
 	defer c.derivedMu.Unlock()
+	// Decided under the lock, so that two paced callers arriving together do not
+	// both work the figures out: the second waits, finds the first has just
+	// finished and has nothing to add.
+	if paced && !c.derivedDue() {
+		c.metrics.derivedPaced.Inc()
+		c.derivedComeBack()
+		return
+	}
+	// Called from several places, so the whole is timed here and not by each of
+	// them, and after the decision, so that a call that left the figures alone is
+	// not counted as a run of them. The parts are timed apart because they are
+	// very different sizes, and the one that is large on a big fleet is the one
+	// worth caching.
+	defer c.stepTimer(loopDerived, stepAll)()
+	started := c.derivedNow()
+	defer func() {
+		finished := c.derivedNow()
+		c.derivedPace.last, c.derivedPace.took = finished, max(finished.Sub(started), 0)
+	}()
 	// One set of reads for the figures below, so that the statistics, the
 	// problems list, the update status and the host views read the fleet once
 	// between them and not once each.
 	ctx = withFleetReads(ctx)
 
-	done := c.stepTimer(loopDerived, stepStats)
-	if stats, err := c.Stats(ctx, statsEventWindow); err != nil {
-		c.log.Warn("could not compute fleet statistics for the event stream", "error", err)
-	} else if raw, changed := c.derivedChanged(&c.lastStats, stats); changed {
-		c.bus.Publish(events.KindStats, "", json.RawMessage(raw))
+	if want.stats {
+		done := c.stepTimer(loopDerived, stepStats)
+		if stats, err := c.Stats(ctx, statsEventWindow); err != nil {
+			c.log.Warn("could not compute fleet statistics for the event stream", "error", err)
+		} else if raw, changed := c.derivedChanged(&c.lastStats, stats); changed {
+			c.bus.Publish(events.KindStats, "", json.RawMessage(raw))
+		}
+		done()
 	}
-	done()
 
-	done = c.stepTimer(loopDerived, stepProblems)
-	if problems, err := c.SharedProblems(ctx); err != nil {
-		c.log.Warn("could not gather the current problems for the event stream", "error", err)
-	} else if raw, changed := c.derivedChanged(&c.lastProblems, NewProblemsView(problems)); changed {
-		c.bus.Publish(events.KindProblems, "", json.RawMessage(raw))
+	if want.problems {
+		done := c.stepTimer(loopDerived, stepProblems)
+		if problems, err := c.SharedProblems(ctx); err != nil {
+			c.log.Warn("could not gather the current problems for the event stream", "error", err)
+		} else if raw, changed := c.derivedChanged(&c.lastProblems, NewProblemsView(problems)); changed {
+			c.bus.Publish(events.KindProblems, "", json.RawMessage(raw))
+		}
+		done()
 	}
-	done()
 
 	// The Overview of Kennel Club is computed, not stored: nothing writes a row
 	// when an evaluation grows older, so nothing could announce that it did. With
 	// the feature off this costs no query -- the document is the same "off" one
 	// each time -- and is sent once when it flips.
-	done = c.stepTimer(loopDerived, stepKennel)
-	if overview, err := c.KennelOverview(ctx); err != nil {
-		c.log.Warn("could not compute the Kennel Club overview for the event stream", "error", err)
-	} else if raw, changed := c.derivedChanged(&c.lastKennel, overview); changed {
-		c.bus.Publish(events.KindKennelSummary, "", json.RawMessage(raw))
+	if want.kennel {
+		done := c.stepTimer(loopDerived, stepKennel)
+		if overview, err := c.KennelOverview(ctx); err != nil {
+			c.log.Warn("could not compute the Kennel Club overview for the event stream", "error", err)
+		} else if raw, changed := c.derivedChanged(&c.lastKennel, overview); changed {
+			c.bus.Publish(events.KindKennelSummary, "", json.RawMessage(raw))
+		}
+		done()
 	}
-	done()
 
 	// What an update would take is computed too: a soak ends when the clock passes
 	// it and nothing is written, so no row could announce that auto may now act.
@@ -89,35 +123,169 @@ func (c *Controller) publishDerived(ctx context.Context) {
 	//
 	// A request and a closed attempt send their own frame through the same
 	// memory, so this one says nothing a button has just said.
-	done = c.stepTimer(loopDerived, stepUpdates)
-	if status, err := c.UpdatesView(ctx); err != nil {
-		c.log.Warn("could not work out the update status for the event stream", "error", err)
-	} else {
-		c.sendUpdates(status)
+	if want.updates {
+		done := c.stepTimer(loopDerived, stepUpdates)
+		if status, err := c.UpdatesView(ctx); err != nil {
+			c.log.Warn("could not work out the update status for the event stream", "error", err)
+		} else {
+			c.sendUpdates(status)
+		}
+		done()
 	}
-	done()
 
 	// A transfer's preparation is the same again: every count in it moves as
 	// runners are confirmed gone and jobs finish, and no row says so.
-	done = c.stepTimer(loopDerived, stepTransfer)
-	c.sendTransfer(ctx)
-	done()
+	if want.transfer {
+		done := c.stepTimer(loopDerived, stepTransfer)
+		c.sendTransfer(ctx)
+		done()
+	}
 
-	done = c.stepTimer(loopDerived, stepHosts)
-	c.publishHostChanges(ctx)
-	done()
-	done = c.stepTimer(loopDerived, stepMachines)
-	c.publishMachineChanges(ctx)
-	done()
+	if want.hosts {
+		done := c.stepTimer(loopDerived, stepHosts)
+		c.publishHostChanges(ctx)
+		done()
+	}
+	if want.machines {
+		done := c.stepTimer(loopDerived, stepMachines)
+		c.publishMachineChanges(ctx)
+		done()
+	}
 
 	// The machine the controller runs on is sampled on every housekeeping tick and
 	// nothing writes a row when it is, so nothing in the store could announce it.
 	// It is sent when its bytes move, which is each tick while one is being taken.
-	done = c.stepTimer(loopDerived, stepControllerMachine)
-	if raw, changed := c.derivedChanged(&c.lastMachine, c.ControllerMachine()); changed {
-		c.bus.Publish(events.KindControllerMachine, "", json.RawMessage(raw))
+	if want.controllerMachine {
+		done := c.stepTimer(loopDerived, stepControllerMachine)
+		if raw, changed := c.derivedChanged(&c.lastMachine, c.ControllerMachine()); changed {
+			c.bus.Publish(events.KindControllerMachine, "", json.RawMessage(raw))
+		}
+		done()
 	}
-	done()
+}
+
+// How long the scheduling pass and the housekeeping tick leave the figures alone
+// after working them out.
+//
+// A busy fleet nudges the scheduler every few seconds, and the figures cost a
+// tenth of a second to a second to work out, so doing it after every pass spent a
+// quarter of the controller's time on frames that said what the last one had. The
+// gap is derivedIdleFactor times as long as the work took, which keeps the work to
+// a tenth of the controller's time however large the fleet is, and never less than
+// derivedMinGap, so that a small fleet's cheap work is still not repeated every
+// pass. It is never more than derivedMaxGap, so that a change waits at most that
+// long: a pass the gap turns away sets a timer for the end of it (see
+// derivedComeBack), and does not leave the change for whichever pass or tick next
+// comes by.
+const (
+	derivedMinGap     = 5 * time.Second
+	derivedMaxGap     = 30 * time.Second
+	derivedIdleFactor = 9
+)
+
+// derivedPacing is what the pacing remembers: the clock it is measured on (the
+// controller's, unless a test replaces it, as a benchmark does to move pacing
+// time without ageing every host's heartbeat with it), when the last run
+// finished, and how long that run took. All of it is guarded by derivedMu except
+// owed, which is set from outside the lock (see demandDerived), and armed, which a
+// timer clears (see derivedComeBack). after is what sets that timer:
+// time.AfterFunc, unless a test replaces it.
+type derivedPacing struct {
+	now   func() time.Time
+	last  time.Time
+	took  time.Duration
+	owed  atomic.Bool
+	armed atomic.Bool
+	after func(d time.Duration, f func())
+}
+
+// derivedGap is how long after a run that took this long the paced callers leave
+// the figures alone.
+func derivedGap(took time.Duration) time.Duration {
+	return min(max(derivedIdleFactor*took, derivedMinGap), derivedMaxGap)
+}
+
+// demandDerived makes the next paced caller work the figures out whatever the gap.
+// It is for what an operator does that changes what the figures say, a saved
+// setting or an edit to a pool or a host, and is reached through NudgeOperator.
+// Waiting out the gap there is worse than late: the figures are sent only
+// when they differ from the last ones sent, so a save the gap left unworked, then a
+// page that opened and read the new value, then a save that put the old one back
+// were never told to that page, which kept what it had read. It takes no lock,
+// because a save must not wait for a run of the work that may be half done; a run
+// that is, and finishes after this, is followed by one the next caller makes.
+func (c *Controller) demandDerived() { c.derivedPace.owed.Store(true) }
+
+// derivedComeBack sets a timer to nudge the scheduler when the gap is over, unless
+// one is set already, so that a pass the gap turned away is followed by one it
+// does not. Without it a change that landed inside the gap waited for the next
+// pass or tick to come by themselves, which on a quiet fleet is the scheduler's
+// interval or the housekeeping tick's half a minute, and an edit undone two
+// seconds after it was made left the problems bell on its count for that long.
+// One timer serves however many passes find the gap open. Called with derivedMu
+// held, by a caller the gap turned away.
+func (c *Controller) derivedComeBack() {
+	p := &c.derivedPace
+	if !p.armed.CompareAndSwap(false, true) {
+		return
+	}
+	wait := max(derivedGap(p.took)-c.derivedNow().Sub(p.last), 0)
+	after := p.after
+	if after == nil {
+		after = func(d time.Duration, f func()) { time.AfterFunc(d, f) }
+	}
+	// Cleared before the nudge, so that the pass it starts, which a gap that opened
+	// a moment ago can turn away again, is able to set the next.
+	after(wait, func() {
+		p.armed.Store(false)
+		c.Nudge()
+	})
+}
+
+func (c *Controller) derivedNow() time.Time {
+	if c.derivedPace.now != nil {
+		return c.derivedPace.now()
+	}
+	return c.Now()
+}
+
+// derivedDue says whether the paced callers may work the figures out now. Called
+// with derivedMu held. A clock that has gone back is no reason to trust a
+// moment that is now in its future.
+func (c *Controller) derivedDue() bool {
+	p := &c.derivedPace
+	if p.owed.Swap(false) || p.last.IsZero() {
+		return true
+	}
+	now := c.derivedNow()
+	return now.Before(p.last) || now.Sub(p.last) >= derivedGap(p.took)
+}
+
+// derivedWant is which of the figures a pass works out for the stream some
+// subscriber could be sent. Each is the one kind of event it makes.
+type derivedWant struct {
+	stats, problems, kennel, updates, transfer, hosts, machines, controllerMachine bool
+}
+
+func (w derivedWant) any() bool {
+	return w.stats || w.problems || w.kennel || w.updates || w.transfer || w.hosts || w.machines || w.controllerMachine
+}
+
+// derivedWanted asks the bus, once per run, which figures anyone could be sent.
+// A subscriber that named no kinds, as the web UI's stream does, is owed all of
+// them; one that named some is owed those and is not charged for the rest.
+func (c *Controller) derivedWanted() derivedWant {
+	b := c.bus
+	return derivedWant{
+		stats:             b.Wants(events.KindStats),
+		problems:          b.Wants(events.KindProblems),
+		kennel:            b.Wants(events.KindKennelSummary),
+		updates:           b.Wants(events.KindUpdates),
+		transfer:          b.Wants(events.KindTransfer),
+		hosts:             b.Wants(events.KindHostUpdated),
+		machines:          b.Wants(events.KindMachineUpdated),
+		controllerMachine: b.Wants(events.KindControllerMachine),
+	}
 }
 
 // publishMachineChanges announces every machine whose rendered view has moved

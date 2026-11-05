@@ -147,6 +147,10 @@ type subscriber struct {
 	ch     chan Event
 	filter func(Event) bool
 	class  string
+	// kinds is what the subscription named, empty for all of them. It is kept
+	// beside the filter, which answers for an event, so that the bus can answer
+	// for a kind before there is an event to ask it about: see Wants.
+	kinds []Kind
 }
 
 // New returns a bus with sensible queue depths.
@@ -429,7 +433,7 @@ func (b *Bus) SubscribeWithin(ctx context.Context, opts SubscribeOptions, limit 
 	}
 	ch := make(chan Event, b.buffer)
 	b.nextID++
-	sub := &subscriber{id: b.nextID, ch: ch, filter: filter, class: opts.Class}
+	sub := &subscriber{id: b.nextID, ch: ch, filter: filter, class: opts.Class, kinds: slices.Clone(opts.Kinds)}
 	b.subs[sub.id] = sub
 	// Replay under the same lock so an event cannot slip between the replay
 	// and the subscription taking effect.
@@ -498,3 +502,22 @@ func (b *Bus) countLocked(class string) int {
 
 // LastID returns the most recently issued event ID.
 func (b *Bus) LastID() uint64 { return b.seq.Load() }
+
+// Wants reports whether any open subscription could be sent an event of this
+// kind, which is what decides whether anything is worth working out for it.
+//
+// A subscription that named no kinds asked for all of them, and one that named
+// some asked for those. A topic prefix does not narrow the answer: it narrows
+// which events of a kind arrive, and the figures this is asked about are worked
+// out before any event, and so any topic, exists. A subscriber that named a topic
+// and no kind is therefore owed every kind, as it is by the stream.
+func (b *Bus) Wants(kind Kind) bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	for _, s := range b.subs {
+		if len(s.kinds) == 0 || slices.Contains(s.kinds, kind) {
+			return true
+		}
+	}
+	return false
+}

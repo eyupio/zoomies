@@ -494,14 +494,23 @@ the one database writer for as long as it takes (read it beside
 shares its second with the other loops that tick at the same rate, so a burst
 that recurs at the same seconds of every minute is worth matching against it.
 
-**Is anybody watching?** While something is connected to the live event stream,
-every pass and every housekeeping tick works out the statistics, the problems
-list and the host views for it. `zoomies_event_subscribers` is how many are
-connected: open browser tabs, MCP clients, anything following changes.
-`zoomies_derived_skipped_total` counts the times that work was skipped because
-there was nobody to send it to. If the `derived` steps are a large share of the
-time, close the tabs and see whether the CPU falls, which is the cheapest test
-there is.
+**Is anybody watching?** While something is connected to the live event stream
+and has asked for them, the scheduling pass and the housekeeping tick work out
+the statistics, the problems list and the host views for it, no more often than
+every few seconds: the gap is five seconds at least and nine times as long as
+the work took, to at most thirty, which keeps it to about a tenth of the
+controller's time. What an operator does, such as saving a setting or editing a
+pool or a host, skips the gap once, so the page they are looking at shows it at
+once; anything else that lands inside the gap is shown when it ends, because a
+pass the gap turns away sets a timer for the end of it. `zoomies_event_subscribers` is
+how many are connected: open browser tabs, MCP clients, anything following
+changes. A stream that named
+kinds of event (`?kinds=`) is charged only for those, but the web UI's names
+none and is owed all of them. `zoomies_derived_skipped_total` counts the times
+that work was skipped because nobody had asked for it, and
+`zoomies_derived_paced_total` the times it was left alone because it had just
+been done. If the `derived` steps are still a large share of the time, close the
+tabs and see whether the CPU falls, which is the cheapest test there is.
 
 **Who is asking?** `zoomies_api_requests_total` and
 `zoomies_api_request_seconds` are the API by route group. A group that is

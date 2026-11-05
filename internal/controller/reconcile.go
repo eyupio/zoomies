@@ -95,7 +95,7 @@ func (c *Controller) reconcile(ctx context.Context, trigger string) error {
 	// that lock to enqueue its task, so holding it here made every create wait for a
 	// list nobody had asked for. It is safe without it -- the housekeeping tick
 	// already publishes with no lock held.
-	c.publishDerived(ctx)
+	c.publishDerivedPaced(ctx)
 	c.passes.Add(1)
 	c.metrics.reconcileDuration.Observe(time.Since(started).Seconds())
 	return nil

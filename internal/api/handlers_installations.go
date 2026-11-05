@@ -192,7 +192,7 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 	s.auth.Auditor().Created(r.Context(), Identity(r.Context()), "installation", inst.ID, inst)
 	s.ctrl.PublishInstallation(r.Context(), inst)
 	// A fresh installation may already own queued jobs.
-	s.ctrl.Nudge()
+	s.ctrl.NudgeOperator()
 	writeCreated(w, r, inst.ID, controller.NewInstallationView(inst, 0))
 }
 
@@ -368,7 +368,7 @@ func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request
 		}
 		s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "installation", id, inst)
 	}
-	s.ctrl.Nudge()
+	s.ctrl.NudgeOperator()
 	writeJSON(w, http.StatusOK, deleteInstallationResponse{PoolsDeleted: len(deleted), RunnersAffected: affected, Purged: purge})
 }
 

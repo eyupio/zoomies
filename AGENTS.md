@@ -97,9 +97,17 @@ Other invariants worth knowing before you edit:
   `healthy`, no `free`) repaints the host wrong. Publish through the
   controller's `publish*`/`Publish*` helpers, which render the view; never put a
   store row on the bus. `stats`, `problems.updated` and each host's view are
-  computed after every pass and sent only when they change, so a new kind of
-  problem (or a host whose slots or heartbeat moved with no row written)
-  needs no publish call of its own.
+  computed by the pass and the housekeeping tick and sent only when they change,
+  so a new kind of problem (or a host whose slots or heartbeat moved with no row
+  written) needs no publish call of its own. They are paced (`publishDerivedPaced`
+  leaves them alone for five seconds at least, longer when they are dear, and a
+  pass it turns away sets a timer that nudges the scheduler when the gap is over)
+  and each is worked out only if some subscriber asked for its kind
+  (`Bus.Wants`); what an operator just did calls `publishDerived`, which is
+  neither, or nudges with `NudgeOperator` (as every handler that edits something
+  does, and `UpdateConfig`), which skips the pacing once. A handler that edits
+  something and calls plain `Nudge` leaves the problems bell and the tiles
+  standing still for the rest of the gap.
 Read the scoped guidance when working in these directories:
 
 * [`internal/store/AGENTS.md`](internal/store/AGENTS.md): one writer, the runner state machine, sentinel errors, IDs.

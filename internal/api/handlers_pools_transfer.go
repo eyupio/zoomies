@@ -479,7 +479,7 @@ func (s *Server) handleImportPools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(planned) > 0 {
-		s.ctrl.Nudge()
+		s.ctrl.NudgeOperator()
 	}
 	s.auth.Auditor().Act(r.Context(), id, "pools.import", "pool", "pools", map[string]any{
 		"created": out.Summary.Create, "changed": out.Summary.Change, "unchanged": out.Summary.Unchanged,
