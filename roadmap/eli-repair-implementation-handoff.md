@@ -25,7 +25,7 @@ states.
 | Investigated baseline | `039aa7b1a` on `main` |
 | Working branches | `codex/eli-git-merge-worker` for the merge package, the worker command and image (the command slice merged into it as `6a9cb316`), `codex/eli-git-fetch` for the repository writer and the fetch |
 | Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b package: `e7f482f5`; S3b worker command and image: this branch |
-| Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds (unpublished: no workflow names it yet) |
+| Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds, whose publication #1398 wires for the merge into `main` |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
 | Current slice | The archive reader and the fetch are implemented and locally verified; nothing downloads an archive over HTTP or calls the fetch yet, and the pool has not yet reported on the open PRs |
@@ -475,7 +475,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1388](https://github.com/eyupio/zoomies/pull/1388), merged | S2h: pull_request webhook wakeup | Focused repair and webhook race suites, vet, staticcheck, docs and formatting pass; merged green | Conflict repair and the final controls |
 | [#1389](https://github.com/eyupio/zoomies/pull/1389), merged as `039aa7b1a` | S3a: merge-conflict detection and evidence | Focused repair and conflict race suites, full store suite, vet, staticcheck, docs and formatting pass; merged green | S3b resolution and publication, then S4 UX |
 | [#1391](https://github.com/eyupio/zoomies/pull/1391), open | S3b: bounded Git merge worker foundation, and the `--merge-base` portability fix below | `internal/gitmerge` race tests against real repositories on Git 2.39.5, vet, staticcheck, docs and formatting pass; no runtime surface yet | Worker command, image, transport, model resolution and publication |
-| [#1395](https://github.com/eyupio/zoomies/pull/1395), merged into #1391's branch as `6a9cb316` | S3b: the `git-worker` command, its bounded protocol and its image target | `internal/gitmerge` and `cmd/zoomies` race suites, the docs suite from a clean worktree, build, vet and formatting pass; the image is built by `make image-gitworker` but is not published | Workflow wiring for the image (needs `workflows` permission), then the controller fetch, transport and cleanup |
+| [#1395](https://github.com/eyupio/zoomies/pull/1395), merged into #1391's branch as `6a9cb316` | S3b: the `git-worker` command, its bounded protocol and its image target | `internal/gitmerge` and `cmd/zoomies` race suites, the docs suite from a clean worktree, build, vet and formatting pass; the image is built by `make image-gitworker` and #1398 wires its publication | The controller fetch, transport and cleanup |
 | [#1396](https://github.com/eyupio/zoomies/pull/1396), open, stacked on #1391 | S3b: decision 0017 and `internal/gitbare`, the bare repository the worker merges | `internal/gitbare` race tests, including an end-to-end merge of a reconstructed repository through `internal/gitmerge`, vet and formatting pass; no caller yet | The archive download, the controller fetch, the worker transport, timeouts and cleanup |
 | [#1399](https://github.com/eyupio/zoomies/pull/1399), open, stacked on #1396 | S3b: decision 0018, the archive reader and `internal/gitfetch` | `internal/gitbare` and `internal/gitfetch` race suites, including an end-to-end merge of what the fetch produced, docs, vet and formatting pass; nothing downloads an archive yet | The archive download over HTTP, then the `merge_conflict` task and the agent transport |
 
@@ -685,6 +685,51 @@ Limits of this slice:
   are not retained yet. The watch records one overall state.
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S3b: publish the Git worker image, 5 November 2026
+
+[#1398](https://github.com/eyupio/zoomies/pull/1398) is stacked on
+`codex/eli-git-merge-worker` because #1391 remains
+open and carries #1395's command and image target. It wires `gitworker` into the
+CI Images job, including its own cache and main-only dev/main/SHA tags. Release
+builds use both existing builders, release tags and stable-only latest, with
+build provenance. Cleanup now covers six package families. Documentation and a
+workflow regression test keep the worker from silently going unpublished again.
+No worker build passes a runner channel argument, and pull requests publish
+nothing. The controller does not start the worker yet.
+
+Before editing, a scratch commit appending a comment to `ci.yml` was pushed to
+`codex/check-workflow-permission-20261105115907` successfully, then the remote
+branch was deleted. This verifies workflow write permission for this session.
+
+Validation on 5 November 2026 (Go 1.27.1):
+
+- `make ui-stub`: pass.
+- `go test -count=1 ./internal/docs`: pass (209.427s).
+- `go vet ./...`: pass.
+- `gofmt -l internal/docs/workflows_test.go` and `git diff --check`: pass.
+- `make image-gitworker`: attempted with Docker 28.4.0. It failed at
+  `apk add --no-cache git`: the environment network policy denies
+  `dl-cdn.alpinelinux.org`. The in-image `git-worker --check` did not run;
+  the PR Images job must prove the target builds before merging.
+- Full repository tests, browser suites and a release publication were not run.
+  This slice changes no UI or runtime behaviour.
+
+The workspace uses `PATH=/workspace/.tools/go/bin:$PATH`,
+`GOCACHE=/workspace/.cache/go-build` and `GOMODCACHE=/workspace/.cache/go-mod` for
+Go commands. Its HOME is outside the checkout, so no extra worktree is needed.
+
+CI monitoring: #1398 was merged externally into the worker branch as
+`9656b8602e0e5f77ea931260dfe22513bcee954e` while local validation was running.
+Its first CI job had been queued without a runner; merging cancelled the suite,
+so it did not verify the image. The automated review could not run because the
+account review quota is exhausted; it reported no actionable code finding.
+#1391 remains open against main. Image publication awaits that integration and
+its successful Images job; a queued or cancelled check is not validation.
+
+Next unfinished step: bounded archive download and the controller fetch using
+`internal/gitbare`, then worker transport, timeouts and cleanup. Model resolution,
+two-parent publication and S4 UX remain later slices.
 
 ### S3b: fetching the incident, 5 November 2026
 
