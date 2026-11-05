@@ -36,7 +36,11 @@ const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 async function sectionLink(page: import('@playwright/test').Page, name: string) {
   const nav = page.getByRole('navigation', { name: 'On this page' });
   const link = nav.getByRole('link', { name });
-  if (!(await link.isVisible())) await nav.locator('details.more > summary').click();
+  // The count in the link's name arrives with the overview, so wait for the link to exist
+  // before asking whether it is visible. Asking first sent a desktop run to the More
+  // summary, which is hidden there, and the click timed out.
+  await link.first().waitFor({ state: 'attached' });
+  if (!(await link.first().isVisible())) await nav.locator('details.more > summary').click();
   await expect(link).toBeVisible();
 }
 
