@@ -33,6 +33,7 @@ states.
 | CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
+| Watcher claim cost | [#1392](https://github.com/eyupio/zoomies/pull/1392), a controller-load change that is not a slice, makes the due-watch claim look on the reader pool before it takes the writer. What is due, how a watch is leased and what an observation records are unchanged |
 | Merge-conflict repair | Detection is in S3a. S3b has decision 0016, the bounded merge package, the worker command and image, decision 0017 with the repository writer, and decision 0018 with the archive reader and the fetch. The HTTP download, the transport, model resolution and publication remain, and admission still refuses the conflicts capability |
 | Production configuration | No repository automation or model credentials changed by this work |
 
@@ -449,7 +450,7 @@ Status: not started. May accompany S2/S3 where the backend capability exists.
 | Durable state | `internal/store/queries_eli_repairs.go`, `queries_eli_repair_history.go`, `queries_eli_automatic.go` |
 | API | `internal/api/handlers_eli_repairs.go`, `api/openapi.yaml` |
 | Related read-only check evidence | `internal/github/pr_delay.go`, `internal/analysis/merge_delay.go`; these do not establish full merge readiness |
-| Backend regressions | `internal/github/eli_repairs_test.go`, `internal/controller/eli_repairs_test.go`, `internal/api/eli_automatic_test.go`, `internal/store/eli_repair_history_test.go` |
+| Backend regressions | `internal/github/eli_repairs_test.go`, `internal/controller/eli_repairs_test.go`, `internal/api/eli_automatic_test.go`, `internal/store/eli_repair_history_test.go`, `internal/store/eli_repair_watches_test.go` and `internal/store/idle_claims_test.go` (the watch claim) |
 | UI regressions | `web/tests/repairs.spec.ts`, `repair-hub.spec.ts`, `repair-attempt.spec.ts`, `repair-setup.spec.ts`, `web/unit/repair-*.test.ts` |
 
 The repository's `.claude/skills/babysit/SKILL.md` describes a maintenance skill,
@@ -480,6 +481,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1399](https://github.com/eyupio/zoomies/pull/1399), merged into #1396's branch as `fce82c8e`, stacked on #1396 | S3b: decision 0018, the archive reader and `internal/gitfetch` | `internal/gitbare` and `internal/gitfetch` race suites, including an end-to-end merge of what the fetch produced, docs, vet and formatting pass; nothing downloads an archive yet | The archive download over HTTP, then the `merge_conflict` task and the agent transport |
 | [#1402](https://github.com/eyupio/zoomies/pull/1402), open, stacked on #1399 | S3b: the archive download, the commit read and the `gitfetch` source adapter | Archive and commit tests through the production factory path, the no-credential-to-storage assertion, `staticcheck ./...`, build, vet and formatting pass | The controller adapter and the agent transport |
 | [#1404](https://github.com/eyupio/zoomies/pull/1404), open, stacked on #1402 | S3b: `gitbare.Pack` and `Unpack`, and the controller's attempt registry | Round-trip tests through the worker, the read-only loose objects, every refusal, the attempt lifecycle, `staticcheck ./...`, build and formatting pass | The `merge_conflict` task and the endpoints the agent uses |
+| [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
 
 S1 validation on 3 November 2026:
 
@@ -1120,6 +1122,74 @@ Limits of this slice:
 - Full repository `make test-short`, browser suites, the complete store suite
   with the race detector, a live model and end-to-end GitHub mutations were not
   run.
+
+### Controller load: the watch claim looks before it takes the writer, PR #1392, 5 November 2026
+
+This PR is about the controller's own cost and is not an Eli slice. It touches
+the watch loop in one place. `ClaimDueEliRepairWatch` (S2c) used to run its
+`SELECT` inside a write transaction, and the loop asks every three seconds
+whether or not anybody has set a watch up, so a controller with no watches took
+the single database writer for nothing every three seconds, queuing every webhook
+and heartbeat behind the question. It now runs the same predicate as a one-row
+`SELECT EXISTS` on the reader pool and takes the writer only when a watch is due.
+The claim under the writer reads again and is unchanged, so leasing, ordering and
+what an observation records are as they were. A watch that falls due just after
+the look is claimed by the next ask, and a look that fails falls through to the
+claim.
+
+Two later commits on the same PR change how the pacing treats what lands inside
+its gap. The first push turned the `Playwright (other)` check red on the Updates
+page specs, so a saved setting skips the gap once (`UpdateConfig` calls
+`demandDerived`). Running the broader UI specs then found that a pass the gap
+turned away was dropped, so it now sets one timer that nudges the scheduler when
+the gap ends, and what an operator does skips the gap too (`NudgeOperator`,
+which the handlers that edit a pool, a host, a runner or an installation call).
+They change `internal/controller`, fifteen call sites in `internal/api` and a
+comment in `web/tests/updates.spec.ts`, and no Eli code.
+
+Validation on 5 November 2026:
+
+- `TestAWatchClaimWithNothingDueNeverTakesTheWriter` (new, in
+  `internal/store/idle_claims_test.go`) counts writer acquisitions through
+  `ObserveWrites`. It failed on the previous code for the right reason (an empty
+  table, a watch not yet due and a watch already leased each took the writer
+  once) and passes now. The existing lease tests in
+  `internal/store/eli_repair_watches_test.go` pass unchanged.
+- `BenchmarkClaimDueEliRepairWatchIdle`, six runs each on an idle machine,
+  `benchstat`: an idle claim 67.5us to 12.7us (-81%), and writer takes per claim
+  1 to 0, with and without fifty watches waiting.
+- `make test` (`go test -race -count=1 ./...`): 55 packages ok, none failed, no
+  data race reported, 25 minutes 46 seconds (store 762.7s, controller 721.0s).
+- `go build ./...`, `go vet ./...`, `staticcheck ./...`, `gofmt -l` and
+  `go mod tidy -diff`: clean.
+- The later commits: `go test -race -count=1 ./internal/controller/...
+  ./internal/api/... ./internal/docs/...` passes (controller 729.8s, api 466.8s,
+  docs 141.8s), and `make lint` and `staticcheck` on the controller and API
+  packages are clean. Playwright against the real binary: the group CI calls
+  `other`, with CI's flags, 233 passed in 9.9 minutes (before the last commit);
+  its `updates` and `updates-mobile` projects again on the final tree, with the
+  473 specs of the `chromium` project that follow the event stream, 592 passed,
+  none failed, 7 skipped, in 20.3 minutes. `updates.spec.ts:411` failed on the
+  first push after 23 seconds and passes in 2.5. `live.spec.ts:152` failed on the
+  head before the last commit (14.0 seconds), passes on `main` (1.7 seconds) and
+  on this branch (1.2 to 1.6 seconds, `chromium` and `mobile`).
+- Four new tests, each failing with the call it guards removed and passing with
+  it: `TestAChangedSettingIsShownByTheNextPassWithoutWaitingOutTheGap`,
+  `TestAnOperatorsNudgeSkipsTheGapAndAnOrdinaryOneDoesNot`,
+  `TestAPassTheGapTurnedAwayIsFollowedByOneWhenTheGapIsOver` and, in
+  `internal/api`, `TestAPoolEditIsShownInTheProblemsListWithoutWaitingOutTheGap`.
+
+Limits of this slice:
+
+- No watch behaviour, API, UI, migration or capability changed, and nothing here
+  advances S3b.
+- The look is a hint. No new test races two observers for one due watch; the
+  existing lease test covers the claim under the writer, which is unchanged.
+- `npm run check` and `test:unit` were not run, because the only change under
+  `web/` is a comment. The `chromium` and `mobile` Playwright groups were not run
+  in full (1,155 specs each); the 473 specs of `chromium` that follow the event
+  stream were, and `live.spec.ts` on `mobile`. A live model and end-to-end GitHub
+  mutations were not run.
 
 ### S2h: pull_request webhook wakeup, 4 November 2026
 

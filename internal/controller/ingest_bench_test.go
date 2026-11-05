@@ -3,8 +3,11 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
@@ -330,6 +333,106 @@ func BenchmarkReconcile(b *testing.B) {
 					for range sub.C {
 					}
 				}()
+
+				b.ReportAllocs()
+				for b.Loop() {
+					if err := h.c.Reconcile(h.ctx); err != nil {
+						b.Fatal(err)
+					}
+				}
+				if h.c.Events().Subscribers() == 0 {
+					b.Fatal("the listener was dropped while the passes were timed")
+				}
+			})
+		}
+	})
+
+	// The watched fleet at the pace a busy one is driven at. Watched above is a pass
+	// that has to work the figures out, which every pass did until they were paced.
+	// A live controller measured one pass every three seconds, nudged by webhooks and
+	// heartbeats, and the figures are left alone for five, so about every second pass
+	// finds them worked out and has nothing to add. This is what a browser on the
+	// page costs a pass on average at that pace, and recomputes/pass says how many
+	// of them did the work.
+	b.Run("paced", func(b *testing.B) {
+		for _, n := range []int{4, 20, 100} {
+			b.Run(fmt.Sprintf("pools=%d", n), func(b *testing.B) {
+				h := warmFleet(b, n)
+				// The pacing is measured on a clock of its own, three seconds on for each
+				// pass, so that moving it does not age every host's heartbeat with it.
+				var passes atomic.Int64
+				start := time.Now()
+				h.c.derivedPace.now = func() time.Time {
+					return start.Add(time.Duration(passes.Load()) * 3 * time.Second)
+				}
+				pass := func() error {
+					passes.Add(1)
+					return h.c.Reconcile(h.ctx)
+				}
+				sub := h.listen()
+				told := map[events.Kind]bool{}
+				if err := pass(); err != nil {
+					b.Fatalf("Reconcile: %v", err)
+				}
+				for len(sub.C) > 0 {
+					told[(<-sub.C).Kind] = true
+				}
+				if !told[events.KindStats] || !told[events.KindProblems] {
+					b.Fatalf("a pass with a listener told it %v; want it told the statistics and the problems, or the figures that follow a pass are not being worked out", told)
+				}
+				// Three seconds on is inside the gap, six is past it: of two passes at
+				// this pace one leaves the figures alone, or this is not the pace it names.
+				before := testutil.ToFloat64(h.c.metrics.derivedPaced)
+				for range 2 {
+					if err := pass(); err != nil {
+						b.Fatalf("Reconcile: %v", err)
+					}
+				}
+				if got := testutil.ToFloat64(h.c.metrics.derivedPaced) - before; got != 1 {
+					b.Fatalf("%v of two passes three seconds apart left the figures alone; want one", got)
+				}
+				go func() {
+					for range sub.C {
+					}
+				}()
+
+				left := testutil.ToFloat64(h.c.metrics.derivedPaced)
+				b.ReportAllocs()
+				for b.Loop() {
+					if err := pass(); err != nil {
+						b.Fatal(err)
+					}
+				}
+				worked := float64(b.N) - (testutil.ToFloat64(h.c.metrics.derivedPaced) - left)
+				b.ReportMetric(worked/float64(b.N), "recomputes/pass")
+				if h.c.Events().Subscribers() == 0 {
+					b.Fatal("the listener was dropped while the passes were timed")
+				}
+			})
+		}
+	})
+
+	// The warm fleet with a listener that asks for one kind of event, as an API
+	// client following jobs does, or an agent waiting for something to change. It
+	// asked for no statistic, no problem and no host card, so there is nothing
+	// the pass has to work out for it.
+	b.Run("filtered", func(b *testing.B) {
+		for _, n := range []int{4, 20, 100} {
+			b.Run(fmt.Sprintf("pools=%d", n), func(b *testing.B) {
+				h := warmFleet(b, n)
+				sub := h.listen(events.KindJobUpdated)
+				if err := h.c.Reconcile(h.ctx); err != nil {
+					b.Fatalf("Reconcile: %v", err)
+				}
+				// A listener that does not read is dropped, and then the next pass
+				// is an unwatched one under the name of a watched one.
+				go func() {
+					for range sub.C {
+					}
+				}()
+				if h.c.Events().Subscribers() != 1 {
+					b.Fatalf("%d listeners; want the one that asked for job events", h.c.Events().Subscribers())
+				}
 
 				b.ReportAllocs()
 				for b.Loop() {

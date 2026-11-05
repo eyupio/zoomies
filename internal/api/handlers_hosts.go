@@ -320,7 +320,7 @@ func (s *Server) applyHostUpdate(w http.ResponseWriter, r *http.Request, id stri
 	s.auditHostUpdate(r, id, &before, h, cleared)
 	s.ctrl.PublishHost(h)
 	// Capacity, labels and the reserve all decide where runners may be placed.
-	s.ctrl.Nudge()
+	s.ctrl.NudgeOperator()
 	writeJSON(w, http.StatusOK, s.ctrl.HostView(h).For(isPlatform(r)))
 }
 
@@ -410,7 +410,7 @@ func (s *Server) handleCordonHost(w http.ResponseWriter, r *http.Request) {
 			"name": h.Name, "cordoned": req.Cordoned, "active_runners": h.ActiveRunners,
 		})
 		s.ctrl.PublishHost(h)
-		s.ctrl.Nudge()
+		s.ctrl.NudgeOperator()
 	}
 	writeJSON(w, http.StatusOK, s.ctrl.HostView(h).For(isPlatform(r)))
 }
@@ -580,7 +580,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "host", id, h)
-	s.ctrl.Nudge()
+	s.ctrl.NudgeOperator()
 	noContent(w)
 }
 

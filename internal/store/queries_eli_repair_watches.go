@@ -237,7 +237,21 @@ func (s *Store) EliRepairWatches(ctx context.Context) ([]*EliRepairWatch, error)
 // stops two passes, or a restarted controller, from observing the same pull
 // request at once. A watch already leased is not returned until its lease
 // expires or RecoverEliRepairWatches releases it.
+//
+// The loop asks every three seconds whether or not anybody has set a watch up, so
+// the answer is nearly always that none is due, and it is looked for on the
+// readers before the writer is taken for it. The claim under the writer reads
+// again, so the look is only a hint: a watch that falls due a moment after it is
+// claimed by the next ask, and a look that fails is no reason to skip the claim.
 func (s *Store) ClaimDueEliRepairWatch(ctx context.Context, now time.Time, ttl time.Duration) (*EliRepairWatch, error) {
+	if s.readOnly {
+		return nil, ErrReadOnly
+	}
+	var due bool
+	if s.read.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM eli_repair_watches WHERE enabled=1 AND next_check_at<=? AND lease_until<=?)`,
+		ms(now), ms(now)).Scan(&due) == nil && !due {
+		return nil, ErrNotFound
+	}
 	var out *EliRepairWatch
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		w, err := scanEliRepairWatch(tx.QueryRowContext(ctx,

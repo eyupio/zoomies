@@ -225,7 +225,7 @@ func (s *Server) handleDrainRunner(w http.ResponseWriter, r *http.Request) {
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "runner.drain", "runner", id, map[string]any{
 		"name": run.Name, "state": run.State, "pool_id": run.PoolID,
 	})
-	s.ctrl.Nudge()
+	s.ctrl.NudgeOperator()
 
 	view, verr := s.ctrl.RunnerRenderer(r.Context(), []*store.Runner{run})
 	if verr != nil {
@@ -247,7 +247,7 @@ func (s *Server) handleDeleteRunner(w http.ResponseWriter, r *http.Request) {
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "runner.delete", "runner", id, map[string]any{
 		"name": run.Name, "state": run.State, "pool_id": run.PoolID, "force": force,
 	})
-	s.ctrl.Nudge()
+	s.ctrl.NudgeOperator()
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -379,7 +379,7 @@ func (s *Server) handleBulkRunners(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if changed > 0 {
-		s.ctrl.Nudge()
+		s.ctrl.NudgeOperator()
 	}
 	writeJSON(w, http.StatusOK, bulkRunnerResponse{Results: results})
 }

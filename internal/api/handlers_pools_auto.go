@@ -179,7 +179,7 @@ func (s *Server) finishAutoPoolEdit(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 	s.ctrl.PublishPool(r.Context(), events.KindPoolUpdated, fresh)
-	s.ctrl.Nudge()
+	s.ctrl.NudgeOperator()
 	view, err := s.ctrl.PoolRenderer(r.Context())
 	if err != nil {
 		s.internal(w, r, "reading the pool back", err)
