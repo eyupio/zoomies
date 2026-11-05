@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/gitbare"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -304,6 +305,10 @@ type Client interface {
 	// GetWorkflowRun reads the run-level status used to distinguish one
 	// cancelled job from cancellation of the entire workflow run.
 	GetWorkflowRun(ctx context.Context, repo string, runID int64) (*WorkflowRunState, error)
+	// ArchiveOf reads one commit's tree from the repository's archive, bounded
+	// on the way in and on expansion, so a controller without Git can build the
+	// repository a merge worker is given.
+	ArchiveOf(ctx context.Context, repo, commit string, opts gitbare.ArchiveOptions) ([]gitbare.File, error)
 	// CancelWorkflowRun asks GitHub to cancel the entire run containing a job.
 	// Force bypasses conditions that may otherwise keep a run cancelling.
 	CancelWorkflowRun(ctx context.Context, repo string, runID int64, force bool) error

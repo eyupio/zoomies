@@ -33,6 +33,10 @@ import (
 type FakeGitHub struct {
 	srv *httptest.Server
 
+	// archives is what a commit's tarball holds, keyed by "repo@commit".
+	archiveMu sync.Mutex
+	archives  map[string]*fakeArchive
+
 	mu             sync.Mutex
 	appID          int64
 	installationID int64
@@ -466,6 +470,10 @@ func (f *FakeGitHub) handler() http.Handler {
 	mux.HandleFunc("POST /app/installations/{id}/access_tokens", f.createInstallationToken)
 	mux.HandleFunc("GET /installation/repositories", f.listInstallationRepos)
 	mux.HandleFunc("GET /rate_limit", f.getRateLimit)
+	// A commit's archive: the API redirects to storage, and storage refuses a
+	// request that carries a credential, as the two-request split demands.
+	mux.HandleFunc("GET /repos/{owner}/{repo}/tarball/{ref}", f.serveTarball)
+	mux.HandleFunc("GET /archives/{owner}/{repo}/{ref}", f.serveArchive)
 	// The repair flow's identity read. Served like the rest of the fake: a
 	// login nobody registered is not a collaborator GitHub would tell us
 	// about either.
