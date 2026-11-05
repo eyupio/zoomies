@@ -54,3 +54,4 @@ what was decided.
 | [0014](0014-test-sharding-is-offered-for-one-native-shard-flag-and-preserves-the-whole-suite.md) | Test sharding is offered for a native shard flag and preserves the whole suite | accepted, at the owner's instruction; Playwright only in the first slice |
 | [0015](0015-a-band-draws-its-sentence-in-one-blue.md) | A band draws its sentence beside it as one picture in the brand blue, with a Picture switch in Appearance | accepted, at the owner's instruction |
 | [0016](0016-eli-conflict-repair-runs-in-a-separate-git-worker.md) | Eli conflict repair runs in a separate, bounded Git worker image, not in the controller | accepted, at the owner's instruction |
+| [0017](0017-the-controller-builds-the-workers-repository.md) | The controller builds the Git worker's repository from each pinned commit's archive, and verifies every tree id it hashes | accepted, on 5 November 2026, by the same instruction that took 0016 |
