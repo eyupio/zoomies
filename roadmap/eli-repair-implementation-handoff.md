@@ -21,7 +21,7 @@ states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | the controller side of the fetch: the archive download, the commit read, the `gitfetch` adapter and `mergeRepository`, stacked on #1399 |
+| Latest slice | the repository's journey to the agent: `gitbare.Pack` and `Unpack`, stacked on #1402 |
 | Investigated baseline | `039aa7b1a` on `main` |
 | Working branches | `codex/eli-git-merge-worker` for the merge package, the worker command and image (the command slice merged into it as `6a9cb316`), `codex/eli-git-fetch` for the repository writer and the fetch |
 | Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b package: `e7f482f5`; S3b worker command and image: this branch |
@@ -29,7 +29,7 @@ states.
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
 | Current slice | The controller can prepare the repository a repair merges in, and the worker merges it end to end in a test; the agent transport is still to write |
-| Next implementation | The `merge_conflict` task, the pull endpoint and the agent transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
+| Next implementation | The `merge_conflict` task and the endpoints the agent pulls and posts to, with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
 | CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
@@ -479,6 +479,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1396](https://github.com/eyupio/zoomies/pull/1396), open, stacked on #1391 | S3b: decision 0017 and `internal/gitbare`, the bare repository the worker merges | `internal/gitbare` race tests, including an end-to-end merge of a reconstructed repository through `internal/gitmerge`, vet and formatting pass; no caller yet | The archive download, the controller fetch, the worker transport, timeouts and cleanup |
 | [#1399](https://github.com/eyupio/zoomies/pull/1399), merged into #1396's branch as `fce82c8e`, stacked on #1396 | S3b: decision 0018, the archive reader and `internal/gitfetch` | `internal/gitbare` and `internal/gitfetch` race suites, including an end-to-end merge of what the fetch produced, docs, vet and formatting pass; nothing downloads an archive yet | The archive download over HTTP, then the `merge_conflict` task and the agent transport |
 | [#1402](https://github.com/eyupio/zoomies/pull/1402), open, stacked on #1399 | S3b: the archive download, the commit read and the `gitfetch` source adapter | Archive and commit tests through the production factory path, the no-credential-to-storage assertion, `staticcheck ./...`, build, vet and formatting pass | The controller adapter and the agent transport |
+| [#1404](https://github.com/eyupio/zoomies/pull/1404), open, stacked on #1402 | S3b: `gitbare.Pack` and `Unpack`, and the controller's attempt registry | Round-trip tests through the worker, the read-only loose objects, every refusal, the attempt lifecycle, `staticcheck ./...`, build and formatting pass | The `merge_conflict` task and the endpoints the agent uses |
 
 S1 validation on 3 November 2026:
 
@@ -686,6 +687,64 @@ Limits of this slice:
   are not retained yet. The watch records one overall state.
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S3b: the repository's journey to the agent, 5 November 2026
+
+Decision 0018 has an agent pull the repository and run the worker against it. This
+slice is that journey's data half: the packing and the unpacking, bounded and
+path-safe, so the bytes can cross without either side trusting the other.
+
+- `gitbare.Pack` writes a built repository as a gzipped tarball, refusing a
+  symlink or a file that is not regular, because a repository this package wrote
+  has neither and one that did would point at whatever the packer's host had.
+- `gitbare.Unpack` writes it back, refusing an absolute path, a path that climbs
+  with `..`, an entry that is neither a file nor a directory, and a tarball past
+  its budget. It sets each file's mode after writing, because `WriteFile` applies
+  the umask and Git will not trust a loose object that can be rewritten.
+- `zoomies git-worker` gained `--request` and `--answer`: the agent runs it as a
+  one-shot container with the workspace mounted, and plumbing an attach into a
+  container runtime for a process that runs once is a lot of machinery for two
+  files. Standard streams remain the default, so the earlier examples still hold.
+- `mergeSession` is the controller's whole transport surface: prepare an incident
+  (build, pack, hold), hand its bytes out as often as an agent needs, take exactly
+  one answer, or abandon it. Every path removes the repository, and the agent's
+  endpoints become thin handlers over those three calls.
+- `mergeAttempts` is the controller's half: one prepared repository per attempt,
+  fetched as often as a lost reply needs and answered exactly once. It has three
+  ways to let one go (an answer, a deadline, shutdown) and every one of them
+  removes the temporary directory, so a controller that leaked one per conflict
+  would not fill its own disk with the evidence of repairs it gave up on. A
+  duplicate answer or a pull after answering says so rather than pretending the
+  attempt never existed.
+
+Validation on 5 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 ./internal/gitbare`: pass (1.522s). The round trip packs
+  a repository built from a real repository's three commits, unpacks it elsewhere
+  and merges it there with `internal/gitmerge`, getting the same conflict back;
+  the unpacked loose objects are checked read-only; and each refusal is covered:
+  a byte budget, a body that is not a tarball, a path that climbs out, and a
+  symlink at pack time.
+- `go test -race -count=1 -run MergeAttempt ./internal/controller`: pass (1.064s).
+  An attempt is fetchable until it is answered; a second answer and a pull after
+  answering each say which they are; a deadline removes the repository and the
+  entry; the cap refuses a further attempt; and shutdown gives back every
+  repository it holds, including none of the ones it never held.
+- `go test -race -count=1 -run GitWorker ./cmd/zoomies`: pass (1.223s), including a
+  request read from a file and an answer written to one, with stdout left empty,
+  and a request path that cannot be read being a usage error that names it rather
+  than a hang.
+- `go test -race -count=1 -run MergeSession ./internal/controller`: pass (1.320s),
+  which drives the whole surface through the worker: an incident is prepared, its
+  bytes are unpacked elsewhere and merged there with `internal/gitmerge`, the one
+  answer is accepted, and the repository is gone. An answered attempt serves
+  nothing, an abandoned one removes its repository and cannot be abandoned twice,
+  and a pin naming a branch prepares nothing at all.
+- `staticcheck ./...` and `go build ./...`: pass.
+
+Not run: the `merge_conflict` task, the endpoints the agent pulls and posts to,
+and the agent's own side of them. No container image was built (no Docker here)
+and no browser suite ran (no UI changed).
 
 ### S3b: the controller's side of the fetch, 5 November 2026
 

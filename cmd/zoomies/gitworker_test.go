@@ -129,3 +129,61 @@ func TestGitWorkerCheckNamesTheGitItFound(t *testing.T) {
 		t.Fatalf("--check said %q", out)
 	}
 }
+
+// The agent runs the worker as a one-shot container with the workspace mounted,
+// so the request and the answer are files beside the repository. Reading them
+// from standard input would mean plumbing an attach into a container runtime for
+// a process that runs once.
+func TestGitWorkerReadsAndWritesFilesWhenToldTo(t *testing.T) {
+	dir, ancestor, base, head := gitWorkerRepo(t)
+	workspace := t.TempDir()
+	requestPath := filepath.Join(workspace, "request.json")
+	answerPath := filepath.Join(workspace, "answer.json")
+	request, err := json.Marshal(map[string]string{"dir": dir, "ancestor": ancestor, "base": base, "head": head})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(requestPath, request, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e, out, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"git-worker", "--request", requestPath, "--answer", answerPath}); code != exitOK {
+		t.Fatalf("exit code = %d\n%s", code, errOut)
+	}
+	if strings.TrimSpace(out.String()) != "" {
+		t.Errorf("the answer also went to stdout:\n%s", out.String())
+	}
+
+	body, err := os.ReadFile(answerPath)
+	if err != nil {
+		t.Fatalf("reading the answer file: %v", err)
+	}
+	var answer struct {
+		Result struct {
+			Conflicts []struct {
+				Path string `json:"path"`
+			} `json:"conflicts"`
+		} `json:"result"`
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(body, &answer); err != nil {
+		t.Fatalf("the answer file is not one JSON object: %v\n%s", err, body)
+	}
+	if answer.Code != "" || len(answer.Result.Conflicts) != 1 || answer.Result.Conflicts[0].Path != "file.txt" {
+		t.Fatalf("answer %+v", answer)
+	}
+}
+
+// A path that cannot be read is a usage error naming the path, not a hang and not
+// an answer with an empty request in it.
+func TestGitWorkerSaysWhichFileItCannotRead(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "nowhere.json")
+	e, _, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"git-worker", "--request", missing}); code != exitUsage {
+		t.Fatalf("exit code = %d, want %d\n%s", code, exitUsage, errOut)
+	}
+	if !strings.Contains(errOut.String(), missing) {
+		t.Errorf("the error does not name the file:\n%s", errOut)
+	}
+}
