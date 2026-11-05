@@ -163,7 +163,7 @@ find out whether a release is on offer, read `zoomies updates status`. For
 output that keeps coming, ask for a bounded read instead: `zoomies audit list`,
 or `zoomies runners logs` without `--follow`.
 
-* `zoomies controller`, `zoomies agent`, `zoomies gateway`, `zoomies mcp`, `zoomies demo`, `zoomies audit tail`
+* `zoomies controller`, `zoomies agent`, `zoomies gateway`, `zoomies git-worker`, `zoomies mcp`, `zoomies demo`, `zoomies audit tail`
 * `zoomies transfer import`
 * `zoomies init`, `zoomies upgrade`, `zoomies update`, `zoomies uninstall`, `zoomies restore`
 * `zoomies updates helper`
