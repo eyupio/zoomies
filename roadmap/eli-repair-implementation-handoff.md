@@ -686,7 +686,8 @@ Limits of this slice:
 
 ### S3b: publish the Git worker image, 5 November 2026
 
-This follow-up is stacked on `codex/eli-git-merge-worker` because #1391 remains
+[#1398](https://github.com/eyupio/zoomies/pull/1398) is stacked on
+`codex/eli-git-merge-worker` because #1391 remains
 open and carries #1395's command and image target. It wires `gitworker` into the
 CI Images job, including its own cache and main-only dev/main/SHA tags. Release
 builds use both existing builders, release tags and stable-only latest, with
@@ -702,7 +703,8 @@ branch was deleted. This verifies workflow write permission for this session.
 Validation on 5 November 2026 (Go 1.27.1):
 
 - `make ui-stub`: pass.
-- `go test -count=1 ./internal/docs` and `go vet ./...`: running.
+- `go test -count=1 ./internal/docs`: pass (209.427s).
+- `go vet ./...`: pass.
 - `gofmt -l internal/docs/workflows_test.go` and `git diff --check`: pass.
 - `make image-gitworker`: attempted with Docker 28.4.0. It failed at
   `apk add --no-cache git`: the environment network policy denies
@@ -714,6 +716,14 @@ Validation on 5 November 2026 (Go 1.27.1):
 The workspace uses `PATH=/workspace/.tools/go/bin:$PATH`,
 `GOCACHE=/workspace/.cache/go-build` and `GOMODCACHE=/workspace/.cache/go-mod` for
 Go commands. Its HOME is outside the checkout, so no extra worktree is needed.
+
+CI monitoring: #1398 was merged externally into the worker branch as
+`9656b8602e0e5f77ea931260dfe22513bcee954e` while local validation was running.
+Its first CI job had been queued without a runner; merging cancelled the suite,
+so it did not verify the image. The automated review could not run because the
+account review quota is exhausted; it reported no actionable code finding.
+#1391 remains open against main. Image publication awaits that integration and
+its successful Images job; a queued or cancelled check is not validation.
 
 Next unfinished step: bounded archive download and the controller fetch using
 `internal/gitbare`, then worker transport, timeouts and cleanup. Model resolution,
