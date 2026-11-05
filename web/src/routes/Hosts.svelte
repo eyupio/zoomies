@@ -104,10 +104,15 @@
    * the machine it runs on is drawn once here. It is followed on the stream for as
    * long as the page is open and costs nothing when nobody is on it.
    * ---------------------------------------------------------------------- */
-  $effect(() => controllerMachine.follow());
+  // The controller's own machine is whoever runs the process's to watch; anyone else
+  // would be refused, so they are never asked and no card is drawn.
+  const canSeeMachine = $derived(session.can('platform'));
+  $effect(() => (canSeeMachine ? controllerMachine.follow() : undefined));
   const machineView = $derived(controllerMachine.view);
   // Not before the hosts are known: until then there is no telling whether one of them is this machine.
-  const machineShown = $derived(fleet.loaded && machineCardShown(hosts, machineView));
+  const machineShown = $derived(
+    canSeeMachine && fleet.loaded && machineCardShown(hosts, machineView),
+  );
   const machineItems = $derived(
     machineView
       ? machineFigures(machineView).map((f) => ({

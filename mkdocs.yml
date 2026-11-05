@@ -16,6 +16,7 @@ copyright: Zoomies is AGPL-3.0 licensed.
 
 repo_url: https://github.com/eyupio/zoomies
 repo_name: eyupio/zoomies
+edit_uri: edit/main/docs/
 
 docs_dir: docs
 site_dir: site
@@ -40,8 +41,6 @@ theme:
   # it. A third-party font stylesheet is render-blocking, and when the host is
   # slow or unreachable the tab spins with nothing to show.
   features:
-    - navigation.instant
-    - navigation.instant.progress
     - navigation.tracking
     - navigation.sections
     - navigation.top
@@ -73,9 +72,12 @@ theme:
 extra_css:
   - stylesheets/zoomies.css
   - stylesheets/animated-logo.css
+  - stylesheets/showcase.css
+  - stylesheets/showcase-material.css
 
 extra_javascript:
   - javascripts/animated-logo.js
+  - javascripts/showcase.js
 
 markdown_extensions:
   - abbr
@@ -135,8 +137,46 @@ hooks:
   # Lazy, sized images: the colour scheme a reader is not using is never
   # downloaded, and a page does not reflow as its screenshots arrive.
   - hooks/images.py
+  - hooks/showcase.py
 
 extra:
+  field_guides:
+    - source: what-are-self-hosted-runners.md
+      category: Getting started
+      card_title: Start with a runner. Build up to a fleet.
+    - source: runners-without-kubernetes.md
+      category: Architecture
+      card_title: All the runners. None of the Kubernetes.
+    - source: home-lab.md
+      category: Home lab
+      card_title: Good hardware deserves another lap.
+    - source: queued-job.md
+      category: Operations
+      card_title: A job is waiting. Find out why.
+    - source: persistent-caches.md
+      category: Operations
+      card_title: Disposable runners. Useful memories.
+    - source: migration.md
+      category: Getting started
+      card_title: A smaller leap than you think.
+    - source: ephemeral-runners.md
+      category: Architecture
+      card_title: A fresh start for every job.
+    - source: runner-autoscaling.md
+      category: Architecture
+      card_title: A little more room to run.
+    - source: should-i-self-host.md
+      category: Getting started
+      card_title: Your hardware. Your call.
+    - source: docker.md
+      category: Architecture
+      card_title: Put a runner in its place.
+    - source: many-repositories.md
+      category: Operations
+      card_title: More repositories. One happy pack.
+    - source: costs.md
+      category: Getting started
+      card_title: Count more than the minutes.
   # Who builds Zoomies. overrides/partials/copyright.html prints this in the
   # footer of every page, beside the licence; the product's own footer says the
   # same thing from web/src/lib/links.ts, so a fork renames it in two places
@@ -155,55 +195,57 @@ extra:
 # operator can go directly to a setting, command or API route.
 nav:
   - Home: index.md
-  - Documentation: start-here.md
-  - Get started:
-      - Understand the basics: fundamentals.md
-      - Run your first job: quickstart.md
-      - Docker Compose: compose.md
-      - Deploying on a PaaS: paas.md
-      - Deploying on InstaPods: instapods.md
-      - One-click deployment: marketplace.md
-  - Run your fleet:
-      - Web UI tour: ui.md
-      - Hosts and pools: hosts-and-pools.md
-      - Migrating repositories: migration.md
-      - Backup and restore: backup-and-restore.md
-      - Upgrading: upgrading.md
-      - Two-step verification: two-step.md
-      - Public view: public-view.md
-      - Host health and tuning: host-health.md
-      - Troubleshooting: troubleshooting.md
-      - A job stuck in the queue: queued-job.md
-  - Scale and tune:
-      - Advanced operations: advanced.md
-      - Size classes and automatic pools: auto-pools.md
-      - Persistent caches: persistent-caches.md
-      - Elastic CPU zoomies: elastic-cpu.md
-      - Elastic memory: elastic-memory.md
-      - Private hosts with Tailcat: private-hosts.md
-      - Proxmox VE: proxmox.md
-  - Assistants and repository checks:
-      - MCP for your AI assistant: mcp.md
-      - Eli conversations and PR repairs: eli.md
-      - Kennel Club: kennel-club.md
-      - Connect Claude: connect-claude.md
-      - AI Context for assistants: ai-context.md
-  - Reference:
-      - Configuration: configuration.md
-      - Command line: cli.md
-      - API: api-surface.md
-      - Architecture: architecture.md
-      - Naming and platforms: naming.md
-      - Security: security.md
-      - Problem codes: problem-codes.md
-      - Metrics: metrics.md
-      - Runner startup stability: runner-startup-stability.md
-      - Runtime compatibility: runtime-compatibility.md
-      - Provider contract: providers.md
-      - Automation contract: automation.md
-      - Capacity-demand receiver: capacity-demand-receiver.md
-      - Dependencies: dependencies.md
-      - UI guidelines: ui-guidelines.md
+  - Documentation:
+      - Overview: start-here.md
+      - Get started:
+          - Understand the basics: fundamentals.md
+          - Run your first job: quickstart.md
+          - Docker Compose: compose.md
+          - Deploying on a PaaS: paas.md
+          - Deploying on InstaPods: instapods.md
+          - One-click deployment: marketplace.md
+      - Run your fleet:
+          - Web UI tour: ui.md
+          - Hosts and pools: hosts-and-pools.md
+          - Migrating repositories: migration.md
+          - Backup and restore: backup-and-restore.md
+          - Upgrading: upgrading.md
+          - Two-step verification: two-step.md
+          - Public view: public-view.md
+          - Host health and tuning: host-health.md
+          - Troubleshooting: troubleshooting.md
+          - A job stuck in the queue: queued-job.md
+      - Scale and tune:
+          - Advanced operations: advanced.md
+          - Size classes and automatic pools: auto-pools.md
+          - Persistent caches: persistent-caches.md
+          - Elastic CPU zoomies: elastic-cpu.md
+          - Elastic memory: elastic-memory.md
+          - Private hosts with Tailcat: private-hosts.md
+          - Proxmox VE: proxmox.md
+      - Assistants and repository checks:
+          - MCP for your AI assistant: mcp.md
+          - Eli conversations and PR repairs: eli.md
+          - Kennel Club: kennel-club.md
+          - Connect Claude: connect-claude.md
+          - AI Context for assistants: ai-context.md
+      - Reference:
+          - Configuration: configuration.md
+          - Command line: cli.md
+          - API: api-surface.md
+          - Architecture: architecture.md
+          - Naming and platforms: naming.md
+          - Security: security.md
+          - Problem codes: problem-codes.md
+          - Metrics: metrics.md
+          - Runner startup stability: runner-startup-stability.md
+          - Runtime compatibility: runtime-compatibility.md
+          - Provider contract: providers.md
+          - Automation contract: automation.md
+          - Capacity-demand receiver: capacity-demand-receiver.md
+          - Dependencies: dependencies.md
+          - UI guidelines: ui-guidelines.md
+  - Field guide: guides/index.md
   - Choosing Zoomies:
       - What are self-hosted runners?: what-are-self-hosted-runners.md
       - Should you self-host?: should-i-self-host.md
@@ -215,21 +257,20 @@ nav:
       - Runners without Kubernetes: runners-without-kubernetes.md
       - Ephemeral runners: ephemeral-runners.md
       - Autoscaling runners: runner-autoscaling.md
-      - Alternatives:
-          - Overview: alternatives/index.md
-          - Compared with ARC: actions-runner-controller.md
-          - Compared with GARM: alternatives/garm.md
-          - Compared with the AWS Terraform module: alternatives/terraform-aws-github-runner.md
-          - Compared with TestFlows Hetzner runners: alternatives/testflows-hetzner-runners.md
-          - Compared with Cirun: alternatives/cirun.md
-          - Compared with runscaler: alternatives/runscaler.md
-          - Compared with gharp: alternatives/gharp.md
-          - Compared with runner services: hosted-runner-services.md
+  - Compare:
+      - Choose your setup: alternatives/index.md
+      - Compared with ARC: actions-runner-controller.md
+      - Compared with GARM: alternatives/garm.md
+      - Compared with the AWS Terraform module: alternatives/terraform-aws-github-runner.md
+      - Compared with TestFlows Hetzner runners: alternatives/testflows-hetzner-runners.md
+      - Compared with Cirun: alternatives/cirun.md
+      - Compared with runscaler: alternatives/runscaler.md
+      - Compared with gharp: alternatives/gharp.md
+      - Compared with runner services: hosted-runner-services.md
   - About:
       - Brand: brand.md
       - Privacy: privacy.md
       - Terms: terms.md
-
 # The brand pack's own guide is published because docs/brand.md links to it, but
 # it is not a section of the site's navigation.
 not_in_nav: |

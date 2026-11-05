@@ -1,4 +1,5 @@
 ---
+layout: article
 title: Should you self-host GitHub Actions runners?
 description: What a self-hosted GitHub Actions runner fleet actually has to do, what Zoomies handles, what it leaves to you, and when a managed runner service is the better choice.
 ---

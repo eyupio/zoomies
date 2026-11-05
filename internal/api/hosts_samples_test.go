@@ -122,12 +122,17 @@ func TestHostSamplesAndUsageCarrySteal(t *testing.T) {
 
 // The route serves what the housekeeping tick sampled and never samples, so a
 // controller that has not ticked says it has nothing fresh and does not invent a
-// reading; and it is a read a viewer may make and a stranger may not.
-func TestTheControllersMachineIsServedToAViewerWithoutSamplingOnRequest(t *testing.T) {
+// reading; and it is a read only whoever runs the process may make: the machine is
+// theirs to watch, not the fleet's.
+func TestTheControllersMachineIsServedToTheProcessOperatorWithoutSamplingOnRequest(t *testing.T) {
 	h := newHarness(t)
-	viewer := h.token("viewer", store.RoleViewer)
-	res := h.do(request{method: http.MethodGet, path: "/api/v1/controller/machine", token: viewer})
-	res.mustStatus(t, http.StatusOK, "viewer")
+	for _, role := range []store.Role{store.RoleViewer, store.RoleOperator, store.RoleAdmin} {
+		h.do(request{method: http.MethodGet, path: "/api/v1/controller/machine", token: h.token(string(role), role)}).
+			mustStatus(t, http.StatusForbidden, string(role))
+	}
+	platform := h.token("platform", store.RolePlatform)
+	res := h.do(request{method: http.MethodGet, path: "/api/v1/controller/machine", token: platform})
+	res.mustStatus(t, http.StatusOK, "platform")
 	var got struct {
 		Usage      map[string]any `json:"usage"`
 		UsageFresh *bool          `json:"usage_fresh"`

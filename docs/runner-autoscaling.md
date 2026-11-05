@@ -1,4 +1,5 @@
 ---
+layout: article
 icon: material/arrow-expand-vertical
 title: "Zoomies: autoscale GitHub Actions runners, no Kubernetes"
 description: >-

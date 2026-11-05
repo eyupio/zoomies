@@ -1,4 +1,5 @@
 ---
+layout: hub
 icon: material/book-open-page-variant-outline
 title: "Zoomies documentation: choose your starting point"
 description: >-

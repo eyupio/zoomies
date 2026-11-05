@@ -1,4 +1,5 @@
 ---
+layout: home
 icon: material/home
 title: Zoomies
 social_title: "Zoomies: open-source self-hosted GitHub Actions runners"
@@ -234,6 +235,17 @@ same fleet as your cloud machines, without a public host IP, router port
 forwarding, Tailscale account or separate tunnel installation. Choose
 **Private connection · Tailcat** in **Hosts → Add a host**, then run the
 command on that machine.
+
+<div class="pack-map-mermaid" markdown>
+
+```mermaid
+flowchart BT
+    cloud["Cloud host"] --> controller["Zoomies controller"]
+    office["Office host"] --> controller
+    home["Home-lab host · Tailcat"] --> controller
+```
+
+</div>
 
 [Connect a private host :material-arrow-right:](private-hosts.md){ .md-button }
 [Plan a home-lab fleet](home-lab.md){ .md-button }

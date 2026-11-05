@@ -451,7 +451,7 @@ func TestTheFenceAndTheBackupsNeedThePlatformRole(t *testing.T) {
 	moved := []Action{
 		ActionRecoveryWrite,
 		ActionBackupsRead, ActionBackupsWrite, ActionBackupsRestore,
-		ActionUpdatesApply,
+		ActionUpdatesApply, ActionControllerRead,
 	}
 	admin := &Identity{Kind: KindUser, ID: "usr_a", Name: "alex", Role: store.RoleAdmin}
 	platform := &Identity{Kind: KindUser, ID: "usr_p", Name: "pat", Role: store.RolePlatform}
@@ -479,7 +479,7 @@ func TestNothingElseMovedOutOfReachOfAnAdministrator(t *testing.T) {
 	moved := map[Action]bool{
 		ActionRecoveryWrite: true,
 		ActionBackupsRead:   true, ActionBackupsWrite: true, ActionBackupsRestore: true,
-		ActionUpdatesApply: true,
+		ActionUpdatesApply: true, ActionControllerRead: true,
 	}
 	admin := &Identity{Kind: KindUser, ID: "usr_a", Name: "alex", Role: store.RoleAdmin}
 	for _, a := range AllActions() {

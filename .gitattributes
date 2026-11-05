@@ -9,3 +9,6 @@ internal/installer/templates/* text eol=lf
 # turned the fixtures' line endings into CRLF would hash different bytes and fail
 # the golden test on every fixture.
 internal/kennel/offline/testdata/** text eol=lf
+# Keep the pinned browser dependency byte-identical to its upstream bundle.
+# Its provenance and SHA-256 are recorded beside the readable licence.
+docs/vendor/mermaid/*.min.js -text -diff

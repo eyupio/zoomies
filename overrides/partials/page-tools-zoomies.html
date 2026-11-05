@@ -1,0 +1,11 @@
+{% if layout not in ['home', 'hub', 'guides', 'compare', 'article'] and (page.previous_page or page.next_page) %}
+<nav class="doc-pagination" aria-label="More documentation">
+  {% if page.previous_page %}<a href="{{ page.previous_page.url | url }}"><span class="tiny-label">PREVIOUS</span><strong>{{ page.previous_page.title }}</strong></a>{% endif %}
+  {% if page.next_page %}<a href="{{ page.next_page.url | url }}"><span class="tiny-label">NEXT UP</span><strong>{{ page.next_page.title }} {{ icon('arrow') }}</strong></a>{% endif %}
+</nav>
+{% endif %}
+<div class="page-tools">
+  {% if page.meta.git_date %}<span>Last edited {{ page.meta.git_date }}</span>{% endif %}
+  {% if page.edit_url %}<a href="{{ page.edit_url }}">Improve this page {{ icon('external') }}</a>{% endif %}
+  <a href="{{ page.canonical_url }}index.md">Read as Markdown {{ icon('arrow') }}</a>
+</div>

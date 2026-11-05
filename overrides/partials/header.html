@@ -1,0 +1,25 @@
+{% from "partials/icons-zoomies.html" import icon %}
+<header class="header md-header" data-md-component="header">
+  <div class="wrap header-inner">
+    <div class="header-brand">
+      <a class="brand" href="{{ nav.homepage.url | url }}" aria-label="Zoomies home" data-md-component="logo">{% include "partials/brand-zoomies.html" %}</a>
+      {% if config.extra.source_facts.version %}<a class="release-label" href="{{ config.repo_url }}/releases/latest" aria-label="Latest release {{ config.extra.source_facts.version }}">{{ config.extra.source_facts.version }}</a>{% endif %}
+    </div>
+    <nav class="main-nav" aria-label="Main navigation">
+      <a href="{{ nav.homepage.url | url }}#product" {% if section == 'home' %}aria-current="page"{% endif %}>Product</a>
+      <a href="{{ 'start-here/' | url }}" {% if section == 'docs' %}aria-current="page"{% endif %}>Docs</a>
+      <a href="{{ 'guides/' | url }}" {% if section == 'guides' %}aria-current="page"{% endif %}>Field guide</a>
+      <a href="{{ 'alternatives/' | url }}" {% if section == 'compare' %}aria-current="page"{% endif %}>Compare</a>
+    </nav>
+    <div class="header-actions">
+      <button class="search-button" data-docs-search aria-label="Search documentation">{{ icon('search') }}<span>Search</span><kbd data-search-shortcut>Ctrl K</kbd></button>
+      <button class="icon-button theme-toggle" data-theme-toggle aria-label="Change colour theme">{{ icon('moon','on-light') }}{{ icon('sun','on-dark') }}</button>
+      <a class="button button-small header-cta" href="{{ 'quickstart/' | url }}">Get started {{ icon('arrow') }}</a>
+      <label class="icon-button menu-toggle" for="__drawer" role="button" tabindex="0" data-docs-menu aria-label="Open navigation" aria-expanded="false" aria-controls="zoomies-navigation">{{ icon('menu') }}</label>
+    </div>
+  </div>
+  <div data-md-component="header-title" hidden><span data-md-component="header-topic">{{ page.title if page else config.site_name }}</span></div>
+  <div class="native-palette" hidden>{% include "partials/palette.html" %}</div>
+  {% include "partials/javascripts/palette.html" %}
+  {% include "partials/search.html" %}
+</header>

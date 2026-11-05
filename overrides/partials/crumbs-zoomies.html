@@ -1,0 +1,5 @@
+<nav class="breadcrumbs" aria-label="Breadcrumb">
+  <a href="{{ nav.homepage.url | url }}">Home</a><span>/</span>
+  {% if section == 'guides' %}<a href="{{ 'guides/' | url }}">Field guide</a>{% elif section == 'compare' %}<a href="{{ 'alternatives/' | url }}">Compare</a>{% else %}<a href="{{ 'start-here/' | url }}">Documentation</a>{% endif %}
+  <span>/</span><span>{{ page.title }}</span>
+</nav>

@@ -273,6 +273,12 @@ are self-hosted as woff2 so an air-gapped install makes no third-party font
 request. The wordmark in the artwork is custom-rendered and is not Inter, do
 not try to set it in type.
 
+The documentation site uses **Fraunces** for its editorial headings, **IBM
+Plex Sans** for body text and **IBM Plex Mono** for commands and small labels.
+These self-hosted faces give the showcase and field guide their own reading
+rhythm. The product interface keeps Inter and JetBrains Mono, and the drawn
+Zoomies wordmark stays the original artwork in both places.
+
 ## Naming
 
 | | |

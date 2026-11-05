@@ -1,0 +1,307 @@
+{% from "partials/icons-zoomies.html" import icon %}
+<section class="hero wrap">
+<div class="hero-copy">
+<div class="eyebrow">
+<span class="blue-dot">
+</span> SELF-HOSTED GITHUB ACTIONS RUNNERS</div>
+<h1 id="github-actions-runners-on-machines-you-own">Big jobs.<br> <em>Happy runners.</em>
+</h1>
+<p class="hero-intro">Your hardware. A fresh runner for every job.<br> A fleet that knows when to get moving.</p>
+<div class="hero-actions">
+<a class="button" href="{{ 'quickstart/' | url }}">Run your first job <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M4 12h16m-6-6 6 6-6 6"/>
+</svg>
+</a>
+<a class="text-link" href="https://demo.zoomies.sh/" target="_blank" rel="noopener">Try the live demo <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M5 19 19 5M5 5h14v14"/>
+</svg>
+</a>
+</div>
+<div class="hero-footnote">
+<span>Single Go binary</span>
+<i>·</i>
+<span>SQLite</span>
+<i>·</i>
+<span>Open source</span>
+</div>
+</div>
+<div class="hero-art">
+<span class="tiny-label art-note">BUILT TO GO. EASY TO KEEP.</span>
+<div class="dog-orbit">
+<svg class="orbit-lines" viewBox="0 0 480 430" fill="none" aria-hidden="true">
+<path d="M25 287C-50 102 199-34 375 66c153 87 61 307-124 328" stroke="currentColor" stroke-width="1"/>
+<path d="M13 263C-20 93 176-9 352 49" stroke="currentColor" stroke-dasharray="3 8"/>
+<circle cx="421" cy="135" r="5" fill="currentColor"/>
+<path d="M56 100h35m-49 8h25m-17 8h13" stroke="currentColor" stroke-width="2"/>
+</svg>
+<img src="{{ 'brand/logo-black-transparent.svg' | url }}" alt="The Zoomies running cocker spaniel and circular swish" width="360" height="360">
+<span class="orbit-tag">LET’S GET<br> <strong>GOING.</strong>
+</span>
+</div>
+<p class="art-caption">Your machines. One happy pack.</p>
+</div>
+</section>
+<section class="hero-product wrap" aria-label="Zoomies product preview">
+<div class="screen-frame">
+<div class="screen-topline">
+<div>
+<span class="window-dot">
+</span>
+<span class="tiny-label">YOUR FLEET, IN FULL VIEW</span>
+</div>
+<div class="view-switch" role="group" aria-label="Dashboard style">
+<button class="active" data-style="overview" aria-pressed="true">Classic</button>
+<button data-style="mission-control/overview" aria-pressed="false">Mission control</button>
+</div>
+<a href="https://demo.zoomies.sh/" target="_blank" rel="noopener" class="screen-demo">Explore the demo <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M5 19 19 5M5 5h14v14"/>
+</svg>
+</a>
+</div>
+<div id="hero-screen">
+<picture class="product-picture ">
+<img class="on-light" src="{{ 'screenshots/overview-light.webp' | url }}" alt="Zoomies Overview, showing runner activity, fleet health, capacity and recent events" loading="lazy" width="2880" height="1800">
+<img class="on-dark" src="{{ 'screenshots/overview-dark.webp' | url }}" alt="Zoomies Overview, showing runner activity, fleet health, capacity and recent events" loading="lazy" width="2880" height="1800">
+</picture>
+</div>
+</div>
+<div class="screen-caption">
+<span>Real product. Example fleet. Everything in one place.</span>
+<a href="{{ 'ui/' | url }}">Take the web UI tour <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M4 12h16m-6-6 6 6-6 6"/>
+</svg>
+</a>
+</div>
+</section>
+<section class="facts wrap">
+<div>
+<span class="tiny-label">01 / FRESH BY DEFAULT</span>
+<p>One job. One runner.<br> A clean start every time.</p>
+</div>
+<div>
+<span class="tiny-label">02 / YOUR HARDWARE</span>
+<p>Cloud, office or home lab.<br> Bring them into the pack.</p>
+</div>
+<div>
+<span class="tiny-label">03 / A SMALL FOOTPRINT</span>
+<p>One controller. Your hosts.<br> No Kubernetes required.</p>
+</div>
+</section>
+<section class="section wrap" id="product">
+<div class="section-heading">
+<div>
+<div class="eyebrow">01 / A LOOK AROUND THE KENNEL</div>
+<h2>A proper view<br> of the whole pack.</h2>
+</div>
+<p>See what’s running, what’s waiting,<br> and what needs a hand. Follow the evidence<br> from the queue to the finish line.</p>
+</div>
+<div class="tour-tabs" role="tablist" aria-label="Explore Zoomies">
+<button role="tab" id="tab-jobs" aria-selected="true" aria-controls="tour-jobs" data-tour="jobs">
+<span>01</span> Jobs & logs</button>
+<button role="tab" id="tab-hosts" aria-selected="false" aria-controls="tour-hosts" data-tour="hosts" tabindex="-1">
+<span>02</span> Hosts & pools</button>
+<button role="tab" id="tab-eli" aria-selected="false" aria-controls="tour-eli" data-tour="eli" tabindex="-1">
+<span>03</span> Ask Eli</button>
+</div>
+<div class="tour-panel" id="tour-jobs" role="tabpanel" aria-labelledby="tab-jobs">
+<div class="tour-copy">
+<span class="tiny-label">FOLLOW THE WORK</span>
+<h3>From “why’s it waiting?”<br> to “all done”.</h3>
+<p>Live jobs, runner logs and scheduler reasons. See where work is going, then open the details that explain it.</p>
+<a class="text-link" href="{{ 'ui/' | url }}">Get to know your fleet <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M4 12h16m-6-6 6 6-6 6"/>
+</svg>
+</a>
+</div>
+<div class="tour-image">
+<a class="tour-expand" href="{{ 'screenshots/jobs-light.webp' | url }}" data-image="jobs" target="_blank" rel="noopener" aria-label="Open the jobs screenshot full size">Full screen <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M5 19 19 5M5 5h14v14"/>
+</svg>
+</a>
+<picture class="product-picture ">
+<img class="on-light" src="{{ 'screenshots/jobs-light.webp' | url }}" alt="Zoomies Jobs view with statuses, repositories and workflow runs" loading="lazy" width="2880" height="1800">
+<img class="on-dark" src="{{ 'screenshots/jobs-dark.webp' | url }}" alt="Zoomies Jobs view with statuses, repositories and workflow runs" loading="lazy" width="2880" height="1800">
+</picture>
+</div>
+</div>
+<div class="tour-panel" id="tour-hosts" role="tabpanel" aria-labelledby="tab-hosts">
+<div class="tour-copy">
+<span class="tiny-label">A PLACE IN THE PACK</span>
+<h3>Your machines.<br> Pulling together.</h3>
+<p>Pools define labels, runner sizes and limits. Agents contribute capacity from hosts that can run the job.</p>
+<a class="text-link" href="{{ 'hosts-and-pools/' | url }}">Meet hosts and pools <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M4 12h16m-6-6 6 6-6 6"/>
+</svg>
+</a>
+</div>
+<div class="tour-image">
+<a class="tour-expand" href="{{ 'screenshots/hosts-light.webp' | url }}" data-image="hosts" target="_blank" rel="noopener" aria-label="Open the hosts screenshot full size">Full screen <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M5 19 19 5M5 5h14v14"/>
+</svg>
+</a>
+<picture class="product-picture ">
+<img class="on-light" src="{{ 'screenshots/hosts-light.webp' | url }}" alt="Zoomies Hosts view with connected machines and resource capacity" loading="lazy" width="2880" height="1800">
+<img class="on-dark" src="{{ 'screenshots/hosts-dark.webp' | url }}" alt="Zoomies Hosts view with connected machines and resource capacity" loading="lazy" width="2880" height="1800">
+</picture>
+</div>
+</div>
+<div class="tour-panel" id="tour-eli" role="tabpanel" aria-labelledby="tab-eli">
+<div class="tour-copy">
+<span class="tiny-label">A LITTLE HELP FROM ELI</span>
+<h3>Ask your fleet.<br> Get some answers.</h3>
+<p>Investigate a failed job or a queue delay with the evidence in view. Eli explains what it looked at and what to try next.</p>
+<a class="text-link" href="{{ 'eli/' | url }}">Say hello to Eli <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M4 12h16m-6-6 6 6-6 6"/>
+</svg>
+</a>
+</div>
+<div class="tour-image">
+<a class="tour-expand" href="{{ 'screenshots/eli-chat-light.webp' | url }}" data-image="eli-chat" target="_blank" rel="noopener" aria-label="Open the eli-chat screenshot full size">Full screen <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M5 19 19 5M5 5h14v14"/>
+</svg>
+</a>
+<picture class="product-picture ">
+<img class="on-light" src="{{ 'screenshots/eli-chat-light.webp' | url }}" alt="The Eli conversation panel using fleet evidence to explain a job" loading="lazy" width="2880" height="1800">
+<img class="on-dark" src="{{ 'screenshots/eli-chat-dark.webp' | url }}" alt="The Eli conversation panel using fleet evidence to explain a job" loading="lazy" width="2880" height="1800">
+</picture>
+</div>
+</div>
+<p class="quiet-note">Product screens show example data. Available tools depend on your configuration and permissions.</p>
+</section>
+<section class="lifecycle">
+<div class="wrap">
+<div class="section-heading">
+<div>
+<div class="eyebrow">02 / SMALL SETUP. PLENTY OF GO.</div>
+<h2>The runner does its job.<br> <em>Then leaves.</em>
+</h2>
+</div>
+<p>No long-lived workspace to nurse.<br> A GitHub job, a suitable host,<br> and a fresh runner to get it done.</p>
+</div>
+<div class="lifecycle-track">
+<div>
+<span class="step-number">01</span>
+<svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M8 21v-4c-4 1-4-2-6-2m14 6v-4c0-1-.4-1.5-1-2 4-.5 6-2 6-5 0-1-.3-2-1-3 .2-1 .2-2-.3-3-1-.2-2 .2-3 1a15 15 0 0 0-9 0c-1-.8-2-1.2-3-1-.5 1-.5 2-.3 3-.7 1-1 2-1 3 0 3 2 4.5 6 5-.6.5-1 1-1 2"/>
+</svg>
+<h3>A job queues</h3>
+<p>GitHub sends a webhook.<br> Polling is the fallback.</p>
+</div>
+<span class="track-arrow">→</span>
+<div>
+<span class="step-number">02</span>
+<svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<rect x="3" y="3" width="18" height="7" rx="2"/>
+<rect x="3" y="14" width="18" height="7" rx="2"/>
+<path d="M7 6.5h.01M7 17.5h.01M11 6.5h6m-6 11h6"/>
+</svg>
+<h3>The fleet finds room</h3>
+<p>The controller matches a pool<br> and an eligible host.</p>
+</div>
+<span class="track-arrow">→</span>
+<div>
+<span class="step-number">03</span>
+<svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="m12 3 9 5-9 5-9-5 9-5Zm-9 5v9l9 5 9-5V8m-9 5v9m-5-17 10 6"/>
+</svg>
+<h3>A fresh runner starts</h3>
+<p>The agent starts the runner.<br> GitHub assigns the job.</p>
+</div>
+<span class="track-arrow">→</span>
+<div>
+<span class="step-number">04</span>
+<svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="m5 12 4 4L19 6"/>
+</svg>
+<h3>Done. And gone.</h3>
+<p>The job finishes. The ephemeral<br> runner is removed.</p>
+</div>
+</div>
+<div class="lifecycle-bottom">
+<a class="text-link" href="{{ 'architecture/' | url }}">See how the pieces fit <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M4 12h16m-6-6 6 6-6 6"/>
+</svg>
+</a>
+<span class="tiny-label">YOUR CODE. YOUR CAPACITY. YOUR CALL.</span>
+</div>
+</div>
+</section>
+<section class="homelab wrap">
+<div class="homelab-copy">
+<div class="eyebrow">03 / THERE’S ROOM FOR YOUR HOME LAB</div>
+<h2>That machine in<br> the spare room?<br> <em>In the pack.</em>
+</h2>
+<p>Bring private home and office machines into the same fleet as your cloud hosts with built-in Tailcat connections.</p>
+<p class="muted">No public host IP. No port forwarding. No separate Tailscale account or tunnel installation.</p>
+<a class="text-link" href="{{ 'private-hosts/' | url }}">Bring a host along <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M4 12h16m-6-6 6 6-6 6"/>
+</svg>
+</a>
+</div>
+<div class="pack-map">{{ page.meta.pack_diagram | default("", true) | safe }}<p class="tiny-label">HOST AGENTS CONNECT OUTBOUND TO THE CONTROLLER</p>
+</div>
+</section>
+<section class="section guide-section wrap">
+<div class="section-heading">
+<div>
+<div class="eyebrow">04 / THE RUNNER’S FIELD GUIDE</div>
+<h2>A little reading.<br> A running start.</h2>
+</div>
+<div>
+<p>Practical notes for your next step,<br> from a first runner to a happy fleet.</p>
+<a class="text-link" href="{{ 'guides/' | url }}">Explore the field guide <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M4 12h16m-6-6 6 6-6 6"/>
+</svg>
+</a>
+</div>
+</div>
+<div class="guide-grid">{% for guide in field_guides[:3] %}{% include "partials/guide-card.html" %}{% endfor %}</div>
+</section>
+<section class="home-notes wrap">
+<details data-reference-details>
+<summary>
+<span>
+<span class="eyebrow">A LITTLE MORE DETAIL</span>
+<span class="notes-title">Setup, platforms and operating details.</span>
+</span>{{ icon("chevron") }}</summary>
+<div class="md-typeset home-reference">{{ page.content }}</div>
+</details>
+</section>
+<section class="closing wrap">
+<div>
+<div class="eyebrow">READY WHEN YOU ARE</div>
+<h2>Go on.<br> <em>Give it the zoomies.</em>
+</h2>
+<p>Start with one host, one pool and a workflow you trust.</p>
+<div class="hero-actions">
+<a class="button" href="{{ 'quickstart/' | url }}">Run your first job <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M4 12h16m-6-6 6 6-6 6"/>
+</svg>
+</a>
+<a class="text-link" href="{{ 'start-here/' | url }}">Find your way around <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M4 12h16m-6-6 6 6-6 6"/>
+</svg>
+</a>
+</div>
+</div>
+<div class="closing-terminal">
+<div class="tiny-label">YOUR FIRST STEP</div>
+<div class="command">
+<span class="command-dollar">$</span>
+<code>curl -fsSL https://zoomies.sh/install.sh | sh</code>
+<button class="icon-button" data-copy="curl -fsSL https://zoomies.sh/install.sh | sh" aria-label="Copy installer command">
+<svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<rect x="8" y="8" width="12" height="13" rx="2"/>
+<path d="M15 8V3H3v13h5"/>
+</svg>
+</button>
+<span class="copy-status" role="status">
+</span>
+</div>
+<a href="{{ 'quickstart/#1-install' | url }}">Read the installer before running it <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M5 19 19 5M5 5h14v14"/>
+</svg>
+</a>
+<p>One binary. Your hardware. Let’s get moving.</p>
+</div>
+</section>

@@ -297,6 +297,13 @@ const (
 	ActionBackupsRead    Action = "backups.read"
 	ActionBackupsWrite   Action = "backups.write"
 	ActionBackupsRestore Action = "backups.restore"
+	// ActionControllerRead reads the machine the controller process runs on and
+	// where its own time goes. That machine belongs to whoever runs the process,
+	// not to whoever runs the fleet: on an instance one team operates for another,
+	// its load, steal and free memory are the operator's capacity to watch, and
+	// say nothing the fleet's own team can act on. Each host's own figures stay
+	// under hosts.read.
+	ActionControllerRead Action = "controller.read"
 )
 
 // actionRoles is the authorisation policy in one table.
@@ -416,6 +423,7 @@ var actionRoles = map[Action]store.Role{
 	ActionBackupsRead:    store.RolePlatform,
 	ActionBackupsWrite:   store.RolePlatform,
 	ActionBackupsRestore: store.RolePlatform,
+	ActionControllerRead: store.RolePlatform,
 }
 
 // AllActions returns every action, sorted. The UI's token editor lists the
