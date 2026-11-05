@@ -17,10 +17,10 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#NEW](https://github.com/eyupio/zoomies/pull/NEW): S3a merge-conflict detection and evidence |
+| Latest slice | [#1389](https://github.com/eyupio/zoomies/pull/1389): S3a merge-conflict detection and evidence |
 | Investigated baseline | `d33c073bc` on `main` |
 | Working branches | `codex/eli-conflict-detection` for S3a |
-| Verified code checkpoints | S1 through S2h merged through `d33c073bc`; S3a implementation commit recorded after publication |
+| Verified code checkpoints | S1 through S2h merged through `d33c073bc`; S3a: `dcad0291e17b8e6128b8dd2e70cb447fbed9b175` |
 | Implementation | S3a adds migration 0143 and records GitHub's mergeability, target tip and merge base for each watched head. It does not resolve or publish conflicts |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386) and [#1388](https://github.com/eyupio/zoomies/pull/1388) merged green; the handoff refresh merged as `07a49f664` |
@@ -455,7 +455,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1384](https://github.com/eyupio/zoomies/pull/1384), open | S2f: per-check evidence on watched heads | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | Conflict repair and the final controls |
 | [#1386](https://github.com/eyupio/zoomies/pull/1386), open, stacked on #1384 | S2g: periodic new-PR discovery | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Webhook wakeups, conflict repair and the final controls |
 | [#1388](https://github.com/eyupio/zoomies/pull/1388), merged | S2h: pull_request webhook wakeup | Focused repair and webhook race suites, vet, staticcheck, docs and formatting pass; merged green | Conflict repair and the final controls |
-| [#NEW](https://github.com/eyupio/zoomies/pull/NEW), open | S3a: merge-conflict detection and evidence | Focused repair and conflict race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | S3b resolution and publication, then S4 UX |
+| [#1389](https://github.com/eyupio/zoomies/pull/1389), open | S3a: merge-conflict detection and evidence | Focused repair and conflict race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | S3b resolution and publication, then S4 UX |
 
 S1 validation on 3 November 2026:
 
