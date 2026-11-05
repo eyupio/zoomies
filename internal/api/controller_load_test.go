@@ -9,19 +9,20 @@ import (
 )
 
 // The view is figures the metrics endpoint already publishes, with the machine
-// reading beside them, so a viewer may read it and a stranger may not. It is
+// reading beside them, so it is read by whoever runs the process and by nobody
+// else, which a test further down holds. It is
 // answered as lists and not nulls so that a client can loop over it, and it counts
 // the requests made to it like any others, which is how a busy route shows up.
-func TestTheControllersLoadIsServedToAViewerAsListsAndCountsItsOwnRequests(t *testing.T) {
+func TestTheControllersLoadIsServedAsListsAndCountsItsOwnRequests(t *testing.T) {
 	h := newHarness(t)
-	viewer := h.token("viewer", store.RoleViewer)
+	viewer := h.token("platform", store.RolePlatform)
 	path := "/api/v1/controller/load"
 
 	// The first request is counted once it has finished, so the second is the one
 	// that can see it.
-	h.do(request{method: http.MethodGet, path: path, token: viewer}).mustStatus(t, http.StatusOK, "viewer")
+	h.do(request{method: http.MethodGet, path: path, token: viewer}).mustStatus(t, http.StatusOK, "platform")
 	res := h.do(request{method: http.MethodGet, path: path, token: viewer})
-	res.mustStatus(t, http.StatusOK, "viewer, second request")
+	res.mustStatus(t, http.StatusOK, "platform, second request")
 
 	var got struct {
 		StartedAt       string            `json:"started_at"`
@@ -54,4 +55,14 @@ func TestTheControllersLoadIsServedToAViewerAsListsAndCountsItsOwnRequests(t *te
 	}
 
 	h.do(request{method: http.MethodGet, path: path}).mustStatus(t, http.StatusUnauthorized, "no credentials")
+}
+
+// The machine's figures are the operator's capacity, not the fleet's, so a fleet's
+// own administrator is refused them.
+func TestTheControllersLoadIsRefusedToAnyoneBelowThePlatformRole(t *testing.T) {
+	h := newHarness(t)
+	for _, role := range []store.Role{store.RoleViewer, store.RoleOperator, store.RoleAdmin} {
+		h.do(request{method: http.MethodGet, path: "/api/v1/controller/load", token: h.token(string(role), role)}).
+			mustStatus(t, http.StatusForbidden, string(role))
+	}
 }

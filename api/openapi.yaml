@@ -4270,7 +4270,7 @@ paths:
         over. `usage` is absent until two samples have been taken, and on a platform
         with no procfs; `usage_fresh` says whether a recent measurement stands
         behind it.
-      x-zoomies-role: viewer
+      x-zoomies-role: platform
       responses:
         "200":
           description: OK
@@ -4298,7 +4298,7 @@ paths:
         it does with the CPU; a profile (`GET /diagnostics/cpu-profile`) says that.
         It reads what the controller already keeps and does no work of its own, so
         asking is cheap when the controller is busy.
-      x-zoomies-role: viewer
+      x-zoomies-role: platform
       responses:
         "200":
           description: OK
