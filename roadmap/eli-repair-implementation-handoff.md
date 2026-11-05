@@ -21,15 +21,15 @@ states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | the bounded archive download in `internal/github`, stacked on #1399 |
+| Latest slice | the bounded archive download, the commit read and the `gitfetch` source adapter, stacked on #1399 |
 | Investigated baseline | `039aa7b1a` on `main` |
 | Working branches | `codex/eli-git-merge-worker` for the merge package, the worker command and image (the command slice merged into it as `6a9cb316`), `codex/eli-git-fetch` for the repository writer and the fetch |
 | Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b package: `e7f482f5`; S3b worker command and image: this branch |
 | Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds, whose publication #1398 wires for the merge into `main` |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | The archive download is implemented and locally verified; the commit read it pairs with and the controller adapter are still to write |
-| Next implementation | The bounded commit read (tree and parents), then the controller adapter that makes a `gitfetch.Source`, then the `merge_conflict` task and the agent transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
+| Current slice | The GitHub half of the fetch is implemented and locally verified; the controller call that binds it to a repository, and the agent transport, are still to write |
+| Next implementation | The controller call that binds a client and a repository into a `gitfetch.Lookup`, then the `merge_conflict` task and the agent transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
 | CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
@@ -706,6 +706,14 @@ no UI; nothing calls it yet.
   about a missing file, which says the wrong thing.
 - `FakeGitHub` serves the same shape, with a storage handler that refuses a
   request carrying a credential and records what it saw.
+- `CommitOf` reads the commit's tree id and parents, which is what the archive's
+  files are checked against: the archive says what a commit's files are, and this
+  says what they must hash to, so a reconstruction the provider would not
+  recognise is refused instead of merged.
+- `gitfetch.NewSource` turns that pair into the `Source` `Build` asks for, so the
+  controller's side of the fetch is one adapter over a client and a repository.
+  A `Lookup` whose two halves disagree is refused by the tree check that was
+  already there.
 
 Validation on 5 November 2026, on Git 2.39.5:
 
@@ -715,14 +723,23 @@ Validation on 5 November 2026, on Git 2.39.5:
   commit and the 404 when GitHub will not hand one over; honour a caller's byte
   budget; and refuse to archive a repository nobody named for an organisation
   installation.
-- `go build ./...`, `go vet ./...`: pass. The interface gain is implemented by
+- `go test -race -count=1 ./internal/github`: pass (3.311s), covering the commit
+  read as well: the tree and parents come back for a commit the fake has, a
+  commit it does not names itself, and an organisation installation refuses a
+  repository nobody named.
+- `go test -race -count=1 ./internal/gitfetch ./internal/gitbare`: pass (1.557s
+  and 1.356s), including a `Lookup` over a real repository feeding `Build` and
+  the worker's merge, and a `Lookup` whose tree does not match its files being
+  refused.
+- `go build ./...`, `go vet ./...`: pass. The interface gains are implemented by
   the demo client, which says it has nothing to serve rather than pretending.
 - `gofmt -l internal/github internal/controller`: pass.
 
-Not run: the commit read that supplies a commit's tree and parents, the
-controller adapter that turns `ArchiveOf` and a commit into a `gitfetch.Source`,
-the `merge_conflict` task and the agent transport. No container image was built
-(no Docker here) and no browser suite ran (no UI changed).
+Not run: the controller call that binds a client and a repository into a
+`Lookup` (it needs the transport to have somewhere to put the result), the
+`merge_conflict` task and the agent transport, and the timeouts and cleanup
+around them. No container image was built (no Docker here) and no browser suite
+ran (no UI changed).
 
 
 ### S3b: publish the Git worker image, 5 November 2026

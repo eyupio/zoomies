@@ -298,3 +298,9 @@ func (d *demoClient) CancelWorkflowRun(context.Context, string, int64, bool) err
 func (d *demoClient) ArchiveOf(context.Context, string, string, gitbare.ArchiveOptions) ([]gitbare.File, error) {
 	return nil, ErrDemoFixture
 }
+
+// CommitOf has nothing to serve for the same reason: the demo's commits are
+// fixture strings, not objects GitHub would describe.
+func (d *demoClient) CommitOf(context.Context, string, string) (github.CommitInfo, error) {
+	return github.CommitInfo{}, ErrDemoFixture
+}

@@ -309,6 +309,9 @@ type Client interface {
 	// on the way in and on expansion, so a controller without Git can build the
 	// repository a merge worker is given.
 	ArchiveOf(ctx context.Context, repo, commit string, opts gitbare.ArchiveOptions) ([]gitbare.File, error)
+	// CommitOf reads one commit's tree id and parents, which is the identity
+	// the archive's files are checked against before anything is merged.
+	CommitOf(ctx context.Context, repo, commit string) (CommitInfo, error)
 	// CancelWorkflowRun asks GitHub to cancel the entire run containing a job.
 	// Force bypasses conditions that may otherwise keep a run cancelling.
 	CancelWorkflowRun(ctx context.Context, repo string, runID int64, force bool) error
@@ -400,6 +403,64 @@ type PullRequest struct {
 	Number  int    `json:"number"`
 	HTMLURL string `json:"html_url"`
 	Branch  string `json:"branch"`
+}
+
+// CommitInfo is one commit as a merge fetch needs it: the id GitHub gave it, the
+// tree it points at, and the commits it follows. Nothing else about a commit is
+// read, because nothing else decides whether a repository was reconstructed
+// correctly.
+type CommitInfo struct {
+	SHA     string
+	Tree    string
+	Parents []string
+}
+
+// CommitOf reads one commit's tree id and parents.
+//
+// It is one API call and it is not optional: the archive tells the controller
+// what a commit's files are, and this tells it what those files must hash to. A
+// reconstruction the provider would not recognise is refused by comparing the
+// two, so a repair can never merge a tree nobody is looking at.
+func (c *appClient) CommitOf(ctx context.Context, repo, commit string) (CommitInfo, error) {
+	owner, name, err := c.repository(repo)
+	if err != nil {
+		return CommitInfo{}, err
+	}
+	if strings.TrimSpace(commit) == "" {
+		return CommitInfo{}, errors.New("github: no commit was named")
+	}
+	read, resp, err := c.asInstallation.Git.GetCommit(ctx, owner, name, commit)
+	if err != nil {
+		return CommitInfo{}, c.fail("read commit "+commit, resp, err)
+	}
+	info := CommitInfo{SHA: read.GetSHA(), Tree: read.GetTree().GetSHA()}
+	for _, parent := range read.Parents {
+		if sha := parent.GetSHA(); sha != "" {
+			info.Parents = append(info.Parents, sha)
+		}
+	}
+	if info.SHA == "" || info.Tree == "" {
+		return CommitInfo{}, fmt.Errorf("github: commit %s came back without a tree, so nothing can be checked against it", commit)
+	}
+	return info, nil
+}
+
+// repository works out which owner and repository a call names: the one given,
+// or the installation's own when it targets a single repository.
+func (c *appClient) repository(repo string) (owner, name string, err error) {
+	if repo == "" {
+		repo = c.repo
+	}
+	if repo == "" {
+		return "", "", fmt.Errorf("github: this installation %q names an organisation, so the repository must be given", c.target)
+	}
+	if strings.Contains(repo, "/") {
+		return splitRepo(repo)
+	}
+	if c.owner == "" {
+		return "", "", fmt.Errorf("github: %q is not a repository; write it owner/name", repo)
+	}
+	return c.owner, repo, nil
 }
 
 // Factory builds a Client for an installation. The controller holds one

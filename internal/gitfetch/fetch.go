@@ -47,6 +47,34 @@ type Commit struct {
 	Files   []gitbare.File
 }
 
+// Lookup is one repository as the controller's GitHub client sees it: the tree a
+// commit points at with the commits it follows, and the files of that tree.
+//
+// It is deliberately two calls rather than one, because they come from two
+// places: the commit is an API read and the files are the archive. The whole
+// point of the pair is that they can disagree, which is what Build checks.
+type Lookup interface {
+	Commit(ctx context.Context, commit string) (tree string, parents []string, err error)
+	Files(ctx context.Context, commit string) ([]gitbare.File, error)
+}
+
+// NewSource turns a Lookup into the Source Build asks for one commit at a time.
+func NewSource(l Lookup) Source { return lookupSource{lookup: l} }
+
+type lookupSource struct{ lookup Lookup }
+
+func (s lookupSource) Commit(ctx context.Context, sha string) (Commit, error) {
+	tree, parents, err := s.lookup.Commit(ctx, sha)
+	if err != nil {
+		return Commit{}, err
+	}
+	files, err := s.lookup.Files(ctx, sha)
+	if err != nil {
+		return Commit{}, err
+	}
+	return Commit{SHA: sha, Tree: tree, Parents: parents, Files: files}, nil
+}
+
 // Source hands back one commit at a time. The controller's implementation asks
 // GitHub for the commit and its archive; a test passes a real repository.
 type Source interface {

@@ -193,3 +193,66 @@ func TestRemoveDeletesABuiltRepository(t *testing.T) {
 		t.Fatalf("the repository is still there: %v", err)
 	}
 }
+
+// lookupFromRepo is a Lookup over a real repository, which is what the
+// controller's GitHub client will be: the commit's tree and parents from one
+// read, and the files from another.
+type lookupFromRepo struct {
+	t   *testing.T
+	dir string
+}
+
+func (l lookupFromRepo) Commit(_ context.Context, sha string) (string, []string, error) {
+	l.t.Helper()
+	tree := git(l.t, l.dir, "rev-parse", sha+"^{tree}")
+	parents := strings.Fields(git(l.t, l.dir, "rev-list", "--parents", "-n", "1", sha))
+	if len(parents) < 2 {
+		return tree, nil, nil
+	}
+	return tree, parents[1:], nil
+}
+
+func (l lookupFromRepo) Files(_ context.Context, sha string) ([]gitbare.File, error) {
+	return archive(l.t, l.dir, sha), nil
+}
+
+// The adapter is the whole of the controller's side: a commit's tree from one
+// read and its files from another, and Build refuses when they disagree.
+func TestNewSourceFeedsBuildFromALookup(t *testing.T) {
+	dir, pin := conflictingRepository(t)
+	repo, err := Build(context.Background(), t.TempDir(), NewSource(lookupFromRepo{t: t, dir: dir}), pin)
+	if err != nil {
+		t.Fatalf("building from a lookup: %v", err)
+	}
+	t.Cleanup(func() { _ = Remove(repo.Dir) })
+
+	result, err := gitmerge.Merge(context.Background(), gitmerge.Request{
+		Dir:      repo.Dir,
+		Ancestor: repo.Ancestor,
+		Base:     repo.Base,
+		Head:     repo.Head,
+	})
+	if err != nil {
+		t.Fatalf("the worker refused what the lookup produced: %v", err)
+	}
+	if len(result.Conflicts) != 1 || result.Conflicts[0].Path != "file.txt" {
+		t.Fatalf("merging what the lookup produced gave %+v", result)
+	}
+}
+
+// A lookup whose two halves disagree is the failure the pair exists to catch: the
+// commit says one tree and the archive hashes to another.
+func TestNewSourceRefusesALookupThatDisagrees(t *testing.T) {
+	dir, pin := conflictingRepository(t)
+	source := NewSource(disagreeingLookup{lookupFromRepo{t: t, dir: dir}})
+	if _, err := Build(context.Background(), t.TempDir(), source, pin); err == nil {
+		t.Fatal("a lookup whose tree does not match its files was built")
+	}
+}
+
+type disagreeingLookup struct{ lookupFromRepo }
+
+func (d disagreeingLookup) Commit(ctx context.Context, sha string) (string, []string, error) {
+	_, parents, err := d.lookupFromRepo.Commit(ctx, sha)
+	return strings.Repeat("0", 40), parents, err
+}

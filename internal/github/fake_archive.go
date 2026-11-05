@@ -8,10 +8,27 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	gh "github.com/google/go-github/v88/github"
 )
 
-// fakeArchive is one commit's tree as the fake serves it, and what happened when
-// it was asked for.
+// RegisterCommit gives the fake one commit's tree id and parents, which is what
+// the merge fetch reads before it trusts an archive.
+//
+// It writes into the same git object store the AI-context fixtures use, because
+// the fake serves one repository's objects from one place: two registries for
+// /git/commits would be two answers to the same question.
+func (f *FakeGitHub) RegisterCommit(repo, sha, tree string, parents ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	objects := f.repoLocked(repo).contextGit()
+	commit := &gh.Commit{SHA: gh.String(sha), Tree: &gh.Tree{SHA: gh.String(tree)}}
+	for _, parent := range parents {
+		commit.Parents = append(commit.Parents, &gh.Commit{SHA: gh.String(parent)})
+	}
+	objects.Commits[sha] = commit
+}
+
 type fakeArchive struct {
 	// files is path to content; the fake decides the mode by the extension, so a
 	// test that cares about an executable says .sh.
