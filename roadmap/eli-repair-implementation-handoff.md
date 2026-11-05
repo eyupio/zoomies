@@ -1,17 +1,18 @@
 # Eli Repair implementation handoff
 
-Last updated: 4 November 2026.
+Last updated: 5 November 2026.
 
 This file is the continuation record for the repository-first Eli Repair setup,
 continuous PR watching and merge-conflict repair work. Read it before changing
 these features. Update it in every PR for this initiative, including corrective
 PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 
-This is the shared workstream record on all three PR branches. S1 code is in
-PR #1368; S2a code is in PR #1369 only; S2b code is in this PR only, stacked on
-#1369. Describing a later slice here does not add its runtime implementation to
-an earlier branch. None of the three PRs is merged at this checkpoint. Continue
-implementation from the newest branch after checking the live PR states.
+This is the shared workstream record for the whole initiative. S1 through S3a
+are merged on `main`. The current slice is S3b in
+[PR #1391](https://github.com/eyupio/zoomies/pull/1391), which adds the bounded
+Git merge package but not its worker process or controller transport. Describing
+a later slice here does not add its runtime implementation to an earlier branch.
+Continue from the newest branch after checking the live PR states.
 
 ## Current checkpoint
 
@@ -24,20 +25,20 @@ implementation from the newest branch after checking the live PR states.
 | Implementation | S3b records decision 0016 and adds `internal/gitmerge`, a bounded `git merge-tree` merge with no hooks, external drivers or repository code. The worker command, image and controller transport are not connected yet |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | S3b worker foundation implemented on `main` and locally verified; awaits PR/CI review |
-| Next implementation | Worker command, image and controller transport, then model resolution and two-parent publication, then S4 UX |
-| CI snapshot | `main` was green at `039aa7b1a`; this PR's checks are separate |
+| Current slice | S3b worker foundation is in open PR #1391, locally verified; awaiting review and browser checks |
+| Next implementation | Worker command and image, controller fetch and transport, then model resolution and two-parent publication, then S4 UX |
+| CI snapshot | When last checked, PR #1391 had all non-browser jobs green and only Playwright chromium and mobile still running. Recheck the live PR before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
 | Merge-conflict repair | Detection is in S3a; decision 0016 and the bounded merge package are in S3b. The worker process, transport, model resolution and publication remain, and admission still refuses the conflicts capability |
 | Production configuration | No repository automation or model credentials changed by this work |
 
-Do not enable or advertise Baby sit or conflict-only behaviour on the strength
-of S1, S2b or S2c. The existing automatic mode still starts from a failed
-`workflow_job`, attempts one repair per failing head and refuses automatic
-repairs of its own published commit. It does not discover earlier failures when
-enabled. S2c observes an explicitly admitted watch and records its check state,
-but a failed watch does not start a repair, and conflict repair does not exist.
+The automatic mode still starts from a failed `workflow_job`, attempts one
+repair per failing head and refuses automatic repairs of its own published
+commit. A watch admitted through the controller APIs can observe checks, retain
+evidence, start a bounded chain of up to three repairs and discover new PRs. The
+final repository and PR controls are not exposed in the UI, and conflict repair
+is detection-only: no conflict is resolved or published.
 
 ## Agreed product behaviour
 
@@ -727,7 +728,8 @@ Limits of this slice:
 
 - Detection is read-only. There is no three-way merge, conflict classification,
   model resolution, two-parent commit or publication.
-- The Git merge engine and packaging decision from the S3 plan is still open.
+- The Git merge engine decision is now 0016 in S3b: a separate bounded worker.
+  That worker and its transport are not connected yet.
 - Mergeability can remain unknown; the watch records that rather than treating it
   as a conflict.
 - Full repository `make test-short`, browser suites, the complete store suite
