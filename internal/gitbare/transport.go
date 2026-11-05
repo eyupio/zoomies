@@ -141,7 +141,14 @@ func Unpack(r io.Reader, dir string, budget Budget) error {
 			if !inside {
 				return fmt.Errorf("%w: %q is not a path inside the repository", ErrRepository, header.Name)
 			}
-			if err := os.MkdirAll(filepath.Join(dir, filepath.FromSlash(trimmed)), 0o755); err != nil {
+			dirTarget := filepath.Join(dir, filepath.FromSlash(trimmed))
+			// insideRepository has already refused "..", so this is the same
+			// rule restated where the join happens: a second, local check is
+			// what stops a later edit to the helper from becoming a Zip Slip.
+			if !strings.HasPrefix(dirTarget, filepath.Clean(dir)+string(os.PathSeparator)) {
+				return fmt.Errorf("%w: %q is not a path inside the repository", ErrRepository, header.Name)
+			}
+			if err := os.MkdirAll(dirTarget, 0o755); err != nil {
 				return err
 			}
 			continue
@@ -160,6 +167,9 @@ func Unpack(r io.Reader, dir string, budget Budget) error {
 			return fmt.Errorf("%w: %s takes the repository past %d bytes", ErrRepository, name, budget.Bytes)
 		}
 		target := filepath.Join(dir, filepath.FromSlash(name))
+		if !strings.HasPrefix(target, filepath.Clean(dir)+string(os.PathSeparator)) {
+			return fmt.Errorf("%w: %q is not a path inside the repository", ErrRepository, header.Name)
+		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
