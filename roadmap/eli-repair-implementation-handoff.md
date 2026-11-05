@@ -21,15 +21,15 @@ states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | the bounded archive download, the commit read and the `gitfetch` source adapter, stacked on #1399 |
+| Latest slice | the controller side of the fetch: the archive download, the commit read, the `gitfetch` adapter and `mergeRepository`, stacked on #1399 |
 | Investigated baseline | `039aa7b1a` on `main` |
 | Working branches | `codex/eli-git-merge-worker` for the merge package, the worker command and image (the command slice merged into it as `6a9cb316`), `codex/eli-git-fetch` for the repository writer and the fetch |
 | Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b package: `e7f482f5`; S3b worker command and image: this branch |
 | Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds, whose publication #1398 wires for the merge into `main` |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | The GitHub half of the fetch is implemented and locally verified; the controller call that binds it to a repository, and the agent transport, are still to write |
-| Next implementation | The controller call that binds a client and a repository into a `gitfetch.Lookup`, then the `merge_conflict` task and the agent transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
+| Current slice | The controller can prepare the repository a repair merges in, and the worker merges it end to end in a test; the agent transport is still to write |
+| Next implementation | The `merge_conflict` task, the pull endpoint and the agent transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
 | CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
