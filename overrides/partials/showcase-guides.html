@@ -1,0 +1,44 @@
+{% from "partials/icons-zoomies.html" import icon %}
+<section class="page-heading wrap guide-heading">
+<div class="eyebrow">THE RUNNER’S FIELD GUIDE</div>
+<h1 id="the-runners-field-guide">Know your runners.<br> <em>Find your stride.</em>
+</h1>
+<div class="heading-bottom">
+<p>Practical guides for the questions that come<br> before, during and after your first job.</p>
+<span class="tiny-label">SOME GOOD READING FOR THE ROAD.</span>
+</div>
+</section>
+<section class="wrap guide-library">
+<div class="guide-feature-row">{% set guide = field_guides[1] %}{% set featured = true %}{% include "partials/guide-card.html" %}{% set featured = false %}<div class="guide-feature-art">
+<div class="tiny-label">A LITTLE KNOW-HOW GOES A LONG WAY</div>
+<img src="{{ 'brand/logo-black-transparent.svg' | url }}" alt="Zoomies’ running spaniel" width="260" height="260">
+<span class="tiny-label">YOUR HARDWARE. YOUR NEXT CHAPTER.</span>
+</div>
+</div>
+<div class="guide-filter-row">
+<div class="filter-buttons" role="group" aria-label="Filter the field guide">
+<button data-filter="All guides" aria-pressed="true" class="active">All guides</button>
+<button data-filter="Getting started" aria-pressed="false" class="">Getting started</button>
+<button data-filter="Architecture" aria-pressed="false" class="">Architecture</button>
+<button data-filter="Home lab" aria-pressed="false" class="">Home lab</button>
+<button data-filter="Operations" aria-pressed="false" class="">Operations</button>
+</div>
+<span class="tiny-label" id="guide-count" role="status">{{ field_guides | length }} GUIDES</span>
+</div>
+<div class="guide-grid guide-all">{% for guide in field_guides %}{% include "partials/guide-card.html" %}{% endfor %}</div>
+</section>
+<section class="help-strip wrap">
+<div>
+<svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M3 4h6c2 0 3 1 3 3 0-2 1-3 3-3h6v15h-6c-2 0-3 1-3 2 0-1-1-2-3-2H3V4Zm9 3v14"/>
+</svg>
+<div>
+<h3>Less reading. More running?</h3>
+<p>The quick start gets straight to your first working setup.</p>
+</div>
+</div>
+<a class="text-link" href="{{ 'quickstart/' | url }}">Run your first job <svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M4 12h16m-6-6 6 6-6 6"/>
+</svg>
+</a>
+</section>

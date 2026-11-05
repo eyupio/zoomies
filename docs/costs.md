@@ -1,4 +1,5 @@
 ---
+layout: article
 icon: material/currency-usd
 title: "GitHub Actions cost: hosted vs self-hosted"
 description: >-

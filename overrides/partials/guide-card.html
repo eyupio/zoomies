@@ -1,0 +1,6 @@
+<a class="guide-card {% if featured %}guide-featured{% endif %}" href="{{ guide.page.url | url }}" data-category="{{ guide.category }}">
+  <div class="guide-card-top"><span class="tiny-label">{{ guide.category | upper }}</span><span class="guide-number">{{ guide.number }}</span></div>
+  <h3>{{ guide.card_title }}</h3>
+  <p>{{ guide.page.meta.description }}</p>
+  <div class="guide-card-bottom"><span class="tiny-label">{{ guide.page.meta.read_time }} MIN READ</span>{{ icon('arrow') }}</div>
+</a>

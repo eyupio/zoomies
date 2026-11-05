@@ -14,6 +14,8 @@
   modified date comes from git by way of hooks/seo.py.
 #}
 {% extends "base.html" %}
+{% from "partials/icons-zoomies.html" import icon %}
+{% set layout = page.meta.layout if page else "notfound" %}
 
 {#
   Locally hosted faces, so the page makes no third-party font request. Material
@@ -23,7 +25,8 @@
   in stylesheets/ beside this theme's CSS.
 #}
 {% block fonts %}
-  <style>:root{--md-text-font:"InterVariable";--md-code-font:"JetBrains Mono"}</style>
+  <style>:root{--md-text-font:"Plex";--md-code-font:"PlexMono"}</style>
+  <link rel="preload" href="{{ 'stylesheets/fonts/showcase/fraunces-latin-600-normal.woff2' | url }}" as="font" type="font/woff2" crossorigin>
 {% endblock %}
 
 {#
@@ -133,10 +136,11 @@
   <link rel="api-catalog" href="/.well-known/api-catalog" />
   <link rel="ai-catalog" href="/.well-known/ai-catalog.json" />
   <meta property="og:image" content="{{ image }}" />
+  <meta property="og:image:secure_url" content="{{ image }}" />
   <meta property="og:image:type" content="image/png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="The Zoomies logo: a cocker spaniel curling through a circular motion path" />
+  <meta property="og:image:alt" content="The Zoomies logo: a running cocker spaniel inside a circular swish" />
   {% if modified %}
   <meta property="article:modified_time" content="{{ modified }}" />
   {% endif %}
@@ -144,7 +148,7 @@
   <meta name="twitter:title" content="{{ title }}" />
   <meta name="twitter:description" content="{{ description | striptags | trim }}" />
   <meta name="twitter:image" content="{{ image }}" />
-  <meta name="twitter:image:alt" content="The Zoomies logo: a cocker spaniel curling through a circular motion path" />
+  <meta name="twitter:image:alt" content="The Zoomies logo: a running cocker spaniel inside a circular swish" />
 
   {#
     The structured description search engines and AI assistants read. It says
@@ -300,4 +304,35 @@
       }
     })();
   </script>
+{% endblock %}
+
+
+{% block tabs %}{% endblock %}
+{% block scripts %}
+  {% if page and ('class="mermaid"' in page.content or page.meta.pack_diagram) %}
+    <script src="{{ config.extra.showcase_mermaid | url }}"></script>
+  {% endif %}
+  {{ super() }}
+{% endblock %}
+{% block site_nav %}
+  <div id="zoomies-navigation" class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+    <div class="md-sidebar__scrollwrap"><div class="md-sidebar__inner">{% include "partials/nav.html" %}</div></div>
+  </div>
+  {% if layout not in ['home', 'hub', 'guides', 'compare', 'article'] %}
+    <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc"><div class="md-sidebar__scrollwrap"><div class="md-sidebar__inner">{% include "partials/toc.html" %}</div></div></div>
+  {% endif %}
+{% endblock %}
+
+{% block container %}
+  {% if layout in ['home', 'hub', 'guides', 'compare'] %}
+    <div class="site-{{ layout }}" data-md-component="content" id="main" tabindex="-1">{% include "partials/showcase-" ~ layout ~ ".html" %}</div>
+  {% elif layout == 'article' %}
+    <div class="site-article" data-md-component="content" id="main" tabindex="-1">{% include "partials/field-article.html" %}</div>
+  {% else %}
+    <div class="md-content z-doc" data-md-component="content" id="main" tabindex="-1"><article class="md-content__inner md-typeset">
+      {% if page %}{% include "partials/crumbs-zoomies.html" %}<div class="eyebrow">THE ZOOMIES HANDBOOK</div>{% endif %}
+      {% block content %}{% include "partials/content.html" %}{% endblock %}
+      {% if page %}{% include "partials/page-tools-zoomies.html" %}{% endif %}
+    </article></div>
+  {% endif %}
 {% endblock %}

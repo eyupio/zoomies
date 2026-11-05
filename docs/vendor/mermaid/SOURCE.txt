@@ -1,0 +1,4 @@
+Mermaid 11.12.0, unmodified browser bundle.
+Source: https://cdn.jsdelivr.net/npm/mermaid@11.12.0/dist/mermaid.min.js
+SHA-256: 07e37dfa97b337ccc85365d57eddf99b9706f09db3b59b260d0333b23b343c4b
+Licence: MIT; LICENSE and the bundle’s embedded notices are included.

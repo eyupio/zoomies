@@ -1,0 +1,28 @@
+{% from "partials/icons-zoomies.html" import icon %}
+{% macro entries(items, level=0) %}
+<ul class="z-nav-list" data-level="{{ level }}">
+  {% for entry in items %}
+  <li>
+    {% if entry.children %}
+    <details class="z-nav-group" {% if entry.active %}open{% endif %}>
+      <summary>{{ entry.title }} {{ icon('chevron') }}</summary>
+      {{ entries(entry.children, level + 1) }}
+    </details>
+    {% else %}
+    <a href="{{ entry.url | url }}" {% if entry == page %}aria-current="page"{% endif %}>{{ entry.title }}</a>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+<nav class="z-navigation md-nav" aria-label="Documentation navigation">
+  <div class="z-drawer-head">
+    <a class="brand" href="{{ nav.homepage.url | url }}" aria-label="Zoomies home">{% include "partials/brand-zoomies.html" %}</a>
+    <label class="icon-button" for="__drawer" role="button" tabindex="0" data-docs-close aria-label="Close navigation">{{ icon('close') }}</label>
+  </div>
+  <div class="z-nav-scroll"><div class="eyebrow">FIND YOUR WAY</div>{{ entries(nav.items) }}</div>
+  <div class="z-drawer-footer">
+    <a class="button" href="{{ 'quickstart/' | url }}">Run your first job {{ icon('arrow') }}</a>
+    <a class="text-link" href="{{ config.repo_url }}">{{ icon('github') }} Open source on GitHub {{ icon('external') }}</a>
+  </div>
+</nav>

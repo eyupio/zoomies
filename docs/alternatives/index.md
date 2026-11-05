@@ -1,4 +1,5 @@
 ---
+layout: compare
 icon: material/compare-horizontal
 title: "ARC alternatives: runner controllers compared"
 description: >-
