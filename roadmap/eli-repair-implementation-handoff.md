@@ -705,6 +705,16 @@ Limits of this slice:
 - Full repository `make test-short`, browser suites, the complete store suite
   with the race detector and end-to-end GitHub mutations were not run.
 
+Correction after review, 5 November 2026: the merge called
+`git merge-tree --merge-base`, which does not exist in Git 2.39. Every merge
+answered `exit status 129` (`error: unknown option 'merge-base'`) on that Git, so
+the package passed only on a host with a newer Git than Debian 12 ships. The
+ancestor is already checked against `git merge-base` immediately before the
+merge, so the flag was redundant; `merge-tree` now re-derives the same base from
+the two commits it is given. The floor is Git 2.38, where `--write-tree` arrived,
+and the worker image asserts at build time that its Git has that option.
+Re-run on Git 2.39.5: `go test -race -count=1 ./internal/gitmerge` passes.
+
 ### S3a: merge-conflict detection and evidence, 4 November 2026
 
 This PR adds `0143` and pins the conflict facts a later resolution can trust. It

@@ -95,7 +95,12 @@ func Merge(ctx context.Context, in Request) (Result, error) {
 	if strings.TrimSpace(string(computed)) != in.Ancestor {
 		return Result{}, ErrMergeBaseMismatch
 	}
-	out, err := run(ctx, in.Dir, "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", "--merge-base", in.Ancestor, in.Base, in.Head)
+	// Two commits, not three: the ancestor was just checked against what the
+	// repository computes, so merge-tree re-deriving it is the same merge. The
+	// flag that would say it explicitly (--merge-base) arrived after the Git in
+	// Debian 12, which is the floor a controller host can meet, and a worker
+	// that needs a newer Git than the host has is a conflict nobody can repair.
+	out, err := run(ctx, in.Dir, "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", in.Base, in.Head)
 	if err != nil {
 		var exit *exec.ExitError
 		if !errors.As(err, &exit) || exit.ExitCode() != 1 {
