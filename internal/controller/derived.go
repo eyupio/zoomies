@@ -27,14 +27,16 @@ const statsEventWindow = time.Hour
 // only parts of the product that stayed as they were until the browser was
 // reloaded.
 //
-// It costs a handful of SQLite queries per pass, so it is skipped when nobody
-// is connected to the stream: a controller nobody is watching should not do
-// the watchers' work.
+// It costs a handful of SQLite queries per pass, so each piece is worked out
+// only when some subscriber asked for the kind of event it makes: a controller
+// nobody is watching should not do the watchers' work, and neither should one
+// whose only watcher is following jobs.
 func (c *Controller) publishDerived(ctx context.Context) {
 	if c.bus == nil || ctx.Err() != nil {
 		return
 	}
-	if c.bus.Subscribers() == 0 {
+	want := c.derivedWanted()
+	if !want.any() {
 		// Counted, so that a controller doing this work every pass can be told
 		// from one that is skipping it: the pair of this and the subscriber
 		// gauge says which of the two a busy instance is.
@@ -54,33 +56,39 @@ func (c *Controller) publishDerived(ctx context.Context) {
 	// between them and not once each.
 	ctx = withFleetReads(ctx)
 
-	done := c.stepTimer(loopDerived, stepStats)
-	if stats, err := c.Stats(ctx, statsEventWindow); err != nil {
-		c.log.Warn("could not compute fleet statistics for the event stream", "error", err)
-	} else if raw, changed := c.derivedChanged(&c.lastStats, stats); changed {
-		c.bus.Publish(events.KindStats, "", json.RawMessage(raw))
+	if want.stats {
+		done := c.stepTimer(loopDerived, stepStats)
+		if stats, err := c.Stats(ctx, statsEventWindow); err != nil {
+			c.log.Warn("could not compute fleet statistics for the event stream", "error", err)
+		} else if raw, changed := c.derivedChanged(&c.lastStats, stats); changed {
+			c.bus.Publish(events.KindStats, "", json.RawMessage(raw))
+		}
+		done()
 	}
-	done()
 
-	done = c.stepTimer(loopDerived, stepProblems)
-	if problems, err := c.SharedProblems(ctx); err != nil {
-		c.log.Warn("could not gather the current problems for the event stream", "error", err)
-	} else if raw, changed := c.derivedChanged(&c.lastProblems, NewProblemsView(problems)); changed {
-		c.bus.Publish(events.KindProblems, "", json.RawMessage(raw))
+	if want.problems {
+		done := c.stepTimer(loopDerived, stepProblems)
+		if problems, err := c.SharedProblems(ctx); err != nil {
+			c.log.Warn("could not gather the current problems for the event stream", "error", err)
+		} else if raw, changed := c.derivedChanged(&c.lastProblems, NewProblemsView(problems)); changed {
+			c.bus.Publish(events.KindProblems, "", json.RawMessage(raw))
+		}
+		done()
 	}
-	done()
 
 	// The Overview of Kennel Club is computed, not stored: nothing writes a row
 	// when an evaluation grows older, so nothing could announce that it did. With
 	// the feature off this costs no query -- the document is the same "off" one
 	// each time -- and is sent once when it flips.
-	done = c.stepTimer(loopDerived, stepKennel)
-	if overview, err := c.KennelOverview(ctx); err != nil {
-		c.log.Warn("could not compute the Kennel Club overview for the event stream", "error", err)
-	} else if raw, changed := c.derivedChanged(&c.lastKennel, overview); changed {
-		c.bus.Publish(events.KindKennelSummary, "", json.RawMessage(raw))
+	if want.kennel {
+		done := c.stepTimer(loopDerived, stepKennel)
+		if overview, err := c.KennelOverview(ctx); err != nil {
+			c.log.Warn("could not compute the Kennel Club overview for the event stream", "error", err)
+		} else if raw, changed := c.derivedChanged(&c.lastKennel, overview); changed {
+			c.bus.Publish(events.KindKennelSummary, "", json.RawMessage(raw))
+		}
+		done()
 	}
-	done()
 
 	// What an update would take is computed too: a soak ends when the clock passes
 	// it and nothing is written, so no row could announce that auto may now act.
@@ -89,35 +97,72 @@ func (c *Controller) publishDerived(ctx context.Context) {
 	//
 	// A request and a closed attempt send their own frame through the same
 	// memory, so this one says nothing a button has just said.
-	done = c.stepTimer(loopDerived, stepUpdates)
-	if status, err := c.UpdatesView(ctx); err != nil {
-		c.log.Warn("could not work out the update status for the event stream", "error", err)
-	} else {
-		c.sendUpdates(status)
+	if want.updates {
+		done := c.stepTimer(loopDerived, stepUpdates)
+		if status, err := c.UpdatesView(ctx); err != nil {
+			c.log.Warn("could not work out the update status for the event stream", "error", err)
+		} else {
+			c.sendUpdates(status)
+		}
+		done()
 	}
-	done()
 
 	// A transfer's preparation is the same again: every count in it moves as
 	// runners are confirmed gone and jobs finish, and no row says so.
-	done = c.stepTimer(loopDerived, stepTransfer)
-	c.sendTransfer(ctx)
-	done()
+	if want.transfer {
+		done := c.stepTimer(loopDerived, stepTransfer)
+		c.sendTransfer(ctx)
+		done()
+	}
 
-	done = c.stepTimer(loopDerived, stepHosts)
-	c.publishHostChanges(ctx)
-	done()
-	done = c.stepTimer(loopDerived, stepMachines)
-	c.publishMachineChanges(ctx)
-	done()
+	if want.hosts {
+		done := c.stepTimer(loopDerived, stepHosts)
+		c.publishHostChanges(ctx)
+		done()
+	}
+	if want.machines {
+		done := c.stepTimer(loopDerived, stepMachines)
+		c.publishMachineChanges(ctx)
+		done()
+	}
 
 	// The machine the controller runs on is sampled on every housekeeping tick and
 	// nothing writes a row when it is, so nothing in the store could announce it.
 	// It is sent when its bytes move, which is each tick while one is being taken.
-	done = c.stepTimer(loopDerived, stepControllerMachine)
-	if raw, changed := c.derivedChanged(&c.lastMachine, c.ControllerMachine()); changed {
-		c.bus.Publish(events.KindControllerMachine, "", json.RawMessage(raw))
+	if want.controllerMachine {
+		done := c.stepTimer(loopDerived, stepControllerMachine)
+		if raw, changed := c.derivedChanged(&c.lastMachine, c.ControllerMachine()); changed {
+			c.bus.Publish(events.KindControllerMachine, "", json.RawMessage(raw))
+		}
+		done()
 	}
-	done()
+}
+
+// derivedWant is which of the figures a pass works out for the stream some
+// subscriber could be sent. Each is the one kind of event it makes.
+type derivedWant struct {
+	stats, problems, kennel, updates, transfer, hosts, machines, controllerMachine bool
+}
+
+func (w derivedWant) any() bool {
+	return w.stats || w.problems || w.kennel || w.updates || w.transfer || w.hosts || w.machines || w.controllerMachine
+}
+
+// derivedWanted asks the bus, once per run, which figures anyone could be sent.
+// A subscriber that named no kinds, as the web UI's stream does, is owed all of
+// them; one that named some is owed those and is not charged for the rest.
+func (c *Controller) derivedWanted() derivedWant {
+	b := c.bus
+	return derivedWant{
+		stats:             b.Wants(events.KindStats),
+		problems:          b.Wants(events.KindProblems),
+		kennel:            b.Wants(events.KindKennelSummary),
+		updates:           b.Wants(events.KindUpdates),
+		transfer:          b.Wants(events.KindTransfer),
+		hosts:             b.Wants(events.KindHostUpdated),
+		machines:          b.Wants(events.KindMachineUpdated),
+		controllerMachine: b.Wants(events.KindControllerMachine),
+	}
 }
 
 // publishMachineChanges announces every machine whose rendered view has moved

@@ -160,6 +160,47 @@ func TestNothingIsComputedForNobody(t *testing.T) {
 	}
 }
 
+// The figures a pass works out for the event stream are the dearest part of it,
+// and a client that follows one kind of event, as an API client following jobs
+// or an agent waiting for a change does, asked for none of them. A pass works out
+// what some subscriber asked for and nothing it did not.
+func TestOnlyWhatASubscriberAsksForIsWorkedOutForIt(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	// With updating on, so that the status has something to say and there is a
+	// reason to render it for somebody.
+	withVersion(t, "1.3.0")
+	h.inMode("manual")
+
+	h.listen(events.KindJobUpdated)
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if h.c.lastStats != nil || h.c.lastProblems != nil || h.c.lastKennel != nil || h.c.lastHosts != nil {
+		t.Error("a pass worked out figures for a subscriber that asked for job events only")
+	}
+	if h.c.lastUpdates != nil {
+		t.Error("a pass rendered the update status for a subscriber that asked for job events only")
+	}
+}
+
+// Asking for one of them is not asking for the rest. The statistics are cheap
+// next to the problems list, which is the whole fleet read again section by
+// section, and a client that wants the first is not charged for the second.
+func TestAStatisticsSubscriberIsNotChargedForTheProblemsList(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	sub := h.listen(events.KindStats)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	nextOfKind(t, sub, events.KindStats)
+	if h.c.lastProblems != nil || h.c.lastKennel != nil || h.c.lastHosts != nil {
+		t.Error("a pass worked out the problems list, Kennel Club or the host cards for a subscriber that asked for the statistics")
+	}
+}
+
 // What an update would take changes with the clock as well as with the list: a
 // soak ends, and nothing is written when it does, so nothing but the pass could
 // say so. It says it once. A frame every few seconds repeating itself would
