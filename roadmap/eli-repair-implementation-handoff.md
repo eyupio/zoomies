@@ -21,22 +21,19 @@ states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1396](https://github.com/eyupio/zoomies/pull/1396): decision 0017 and `internal/gitbare`, the repository the Git worker merges, stacked on #1391 |
+| Latest slice | decision 0018 and `internal/gitfetch`: the three pinned commits fetched into the worker's repository, stacked on #1396 |
 | Investigated baseline | `039aa7b1a` on `main` |
-| Working branches | `codex/eli-git-merge-worker` for the merge package, the worker command and image (the command slice merged into it as `6a9cb316`), `codex/eli-git-fetch` for the repository writer |
+| Working branches | `codex/eli-git-merge-worker` for the merge package, the worker command and image (the command slice merged into it as `6a9cb316`), `codex/eli-git-fetch` for the repository writer and the fetch |
 | Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b package: `e7f482f5`; S3b worker command and image: this branch |
 | Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds (unpublished: no workflow names it yet) |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | The repository writer is implemented and locally verified; nothing downloads an archive or calls it yet, and the pool has not yet reported on either open PR |
-| Next implementation | The archive download and the controller fetch that uses the writer, the worker transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
+| Current slice | The archive reader and the fetch are implemented and locally verified; nothing downloads an archive over HTTP or calls the fetch yet, and the pool has not yet reported on the open PRs |
+| Next implementation | The archive download over HTTP, then the `merge_conflict` task and the agent transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
 | CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
-| Current slice | The repository writer is implemented and locally verified; nothing downloads an archive or calls it yet |
-| Next implementation | The archive download and the controller fetch that uses the writer, the worker transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
-| CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while #1391's `What changed` job stayed queued for over an hour. Every package these branches touch was green locally, with the exact commands above. Recheck the live PRs before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
-| Merge-conflict repair | Detection is in S3a; decision 0016, the bounded merge package, the worker command and the worker image are in S3b. The controller fetch and transport, model resolution and publication remain, and admission still refuses the conflicts capability |
+| Merge-conflict repair | Detection is in S3a. S3b has decision 0016, the bounded merge package, the worker command and image, decision 0017 with the repository writer, and decision 0018 with the archive reader and the fetch. The HTTP download, the transport, model resolution and publication remain, and admission still refuses the conflicts capability |
 | Production configuration | No repository automation or model credentials changed by this work |
 
 The automatic mode still starts from a failed `workflow_job`, attempts one
@@ -687,6 +684,48 @@ Limits of this slice:
   are not retained yet. The watch records one overall state.
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S3b: fetching the incident, 5 November 2026
+
+This PR is stacked on the repository writer in #1396. It adds no migration, no
+public API, no UI, and nothing in the controller calls it yet.
+
+- [Decision 0018](decisions/0018-an-agent-runs-the-git-worker.md) settles the
+  question 0016 and 0017 left open, what starts the worker container: an agent
+  host does, because it already runs containers through its backends and the
+  controller already reaches it for work. The controller queues a `merge_conflict`
+  task, the agent pulls that attempt's repository from the controller over its
+  authenticated transport, runs the worker image against it and posts the one
+  answer back. A repository travels as a tarball, never inside a task payload.
+- `internal/gitbare` gains the archive reader: a provider's gzipped tarball of one
+  commit becomes the file list the writer takes. It refuses rather than repairs:
+  an absolute path, a path that climbs with `..`, a hard link, a device, a named
+  pipe, more files or bytes than its budget, and a body that is not an archive all
+  say which entry caused it.
+- `internal/gitfetch` is the controller's half of the fetch: it asks a `Source`
+  for each of the three pinned commits, writes them with `gitbare` (the ancestor
+  first, named as the parent of both sides), refuses an answer about a commit
+  nobody asked for, refuses a pin that is not three commit ids, and removes a
+  built repository on every path out, including Windows, where a read-only loose
+  object cannot be deleted until its bit is cleared.
+
+Validation on 5 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 ./internal/gitbare`: pass (1.373s), including a
+  provider-shaped tarball whose files hash to the very tree id Git wrote for the
+  same commit, and each refusal naming its entry.
+- `go test -race -count=1 ./internal/gitfetch`: pass (1.378s), including three
+  pinned commits fetched one at a time and merged by `internal/gitmerge` into the
+  real conflict with its three sides, a source that answers about another commit,
+  a provider tree the files do not make, a pin that is not commit ids, and the
+  removal of a built repository.
+- `gofmt -l` on both packages: pass.
+
+Not run: the HTTP download of an archive, the `merge_conflict` task, the pull
+endpoint, the agent's temporary directory and the transport's timeouts. Those are
+the next slice. No container image was built (no Docker here) and no browser suite
+ran (no UI changed).
+
 
 ### S3b: the repository the worker merges, 5 November 2026
 
