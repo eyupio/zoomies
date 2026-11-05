@@ -806,6 +806,15 @@ Validation on 5 November 2026, on Git 2.39.5:
 
 Not run: the download itself, the controller's use of the writer, the worker
 transport, timeouts, cleanup and failure handling. Those are the next slice. No
+
+Correction after CI, 5 November 2026: this branch's staticcheck failed on
+`archive/tar.TypeRegA`, which Go has deprecated as a name. The marker it stands
+for is still what some archives write, so the reader keeps accepting it by
+spelling the byte once, as `typeRegOld`, with the reason beside it. `staticcheck
+./...` passes on the whole tree after the change, and the archive tests still
+pass.
+
+
 container image was built (no Docker in this environment) and no browser suite
 ran (no UI changed).
 
