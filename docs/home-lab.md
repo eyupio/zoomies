@@ -1,4 +1,5 @@
 ---
+layout: article
 icon: material/home-outline
 title: GitHub Actions runners in your home lab
 description: >-

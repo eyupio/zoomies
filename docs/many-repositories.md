@@ -1,4 +1,5 @@
 ---
+layout: article
 icon: material/source-repository-multiple
 title: One self-hosted runner fleet for many repositories
 description: >-

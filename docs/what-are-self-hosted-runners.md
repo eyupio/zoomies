@@ -1,4 +1,5 @@
 ---
+layout: article
 icon: material/server-outline
 title: "What are self-hosted GitHub Actions runners?"
 description: >-

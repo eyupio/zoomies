@@ -166,6 +166,38 @@ API for it at build time, so set `GITHUB_TOKEN` if the anonymous rate limit is
 in the way. These checks catch broken links and missing published assets before
 a PR is merged.
 
+The showcase and article layouts live in `overrides/partials/`. The existing
+Markdown files keep their URLs, metadata and machine-readable copies;
+`hooks/showcase.py` adds reading times and the field-guide cards. Add an
+existing page to `extra.field_guides` in `mkdocs.yml` to include it in the guide
+library. Its title and description remain the page's search metadata.
+
+The public site serves Fraunces and IBM Plex locally. The original Zoomies
+artwork stays monochrome; the display type and blue accents belong to the
+surrounding layout. Update `showcase.css` for that visual system and
+`showcase-material.css` for its integration with Material. The build gives
+stylesheets and scripts content-versioned filenames so returning browsers
+cannot combine new markup with stale styles.
+
+After the strict build, check the rendered site and its browser behaviour:
+
+```sh
+cp install.sh install.ps1 connect-proxmox.sh site/
+python3 hooks/tests/check_site.py
+npm ci --prefix web --ignore-scripts --no-audit --no-fund
+cd web
+npx --no-install playwright install chromium
+cd ..
+node hooks/tests/browser.mjs
+```
+
+`check_site.py --baseline /path/to/previous/site` also checks that an existing
+build's URLs, titles, descriptions, robots directives, sharing metadata and
+content anchors survive. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to use an
+installed Chromium, and `DOCS_SCREENSHOTS` to capture the responsive layouts.
+Mermaid stays in the Markdown; its pinned browser bundle is served locally
+only when a page needs it. Its source and licence are in `docs/vendor/mermaid/`.
+
 For web UI changes, also run:
 
 ```sh

@@ -1,4 +1,5 @@
 ---
+layout: article
 icon: material/timer-sand
 title: "Zoomies ephemeral GitHub Actions runners, one job each"
 description: >-
