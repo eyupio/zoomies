@@ -202,7 +202,7 @@ S2b scope, merged in #1372:
   resumes a paused watch, and no existing policy changes to continuous watching.
 - [x] Consume due watches with a GitHub observation loop, added by S2c.
 
-S2c scope, this PR only:
+S2c scope, merged in #1375:
 
 - [x] Add migration 0139 for the last check state on a watch.
 - [x] Start a guarded `eli-repair-watches` loop beside the model worker and the
@@ -218,7 +218,7 @@ S2c scope, this PR only:
   and an error at the GitHub Retry-After time when GitHub gave one.
 - [x] Start a repair from a failed watch and bound a chain, added by S2e.
 
-S2h scope, this PR only:
+S2h scope, merged in #1388:
 
 - [x] Accept a verified `pull_request` opened or reopened delivery and admit its
   watch immediately, but only where an explicit repository decision exists.
@@ -349,7 +349,7 @@ transport, model resolution and two-parent publication remain. Required even
 when CI never starts: ordinary `pull_request` workflows do not run while the PR
 has a merge conflict.
 
-S3a scope, this PR only:
+S3a scope, merged in #1389:
 
 - [x] Read GitHub's current mergeability without guessing while it is null, and
   pin the head, target tip and merge base for that head.
