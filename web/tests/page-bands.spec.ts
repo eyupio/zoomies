@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { FIXTURE, goto } from './support/fixtures';
+import type { Job } from '../src/lib/api/types';
 
 // A band is the dark stage at the top of a page that says its answer in a sentence. Each
 // is on by default and each can be switched off in Appearance, per page, in this browser.
@@ -776,6 +777,14 @@ test('the Pools, Queue and Usage bands draw their pictures, and each agrees with
 test('the Jobs, Workflows, Providers, Installations and Kennel Club bands draw their pictures', async ({
   page,
 }) => {
+  // The seed finishes jobs before the controller starts. After midnight those
+  // completions can all belong to yesterday, so use a real fixture job's day
+  // for this positive click contract rather than assuming today is busy.
+  const response = await page.request.get('/api/v1/jobs?state=completed&managed=true&limit=1');
+  expect(response.ok(), 'the completed fixture jobs can be read').toBeTruthy();
+  const { items } = (await response.json()) as { items: Job[] };
+  expect(items[0]?.completed_at, 'the fixture has a completed job').toBeTruthy();
+  await page.clock.setFixedTime(new Date(items[0]!.completed_at!));
   await goto(page, '/jobs', 'Jobs');
   const today = page.getByTestId('band-jobs').getByTestId('fleet-punch-card');
   await expect(today).toBeVisible();
