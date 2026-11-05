@@ -731,6 +731,12 @@ Validation on 5 November 2026, on Git 2.39.5:
   and 1.356s), including a `Lookup` over a real repository feeding `Build` and
   the worker's merge, and a `Lookup` whose tree does not match its files being
   refused.
+- `staticcheck ./...`: pass. The first CI run of this branch failed it on three
+  things this slice had added: `gh.String`, which go-github now deprecates in
+  favour of `gh.Ptr`, and `archive/tar.TypeRegA`, which is deprecated as a name.
+  The marker it stands for is still what some archives write, so it is spelled
+  once in `internal/gitbare` as `typeRegOld` with the reason beside it. Both were
+  fixed and the whole tree re-checked clean.
 - `go build ./...`, `go vet ./...`: pass. The interface gains are implemented by
   the demo client, which says it has nothing to serve rather than pretending.
 - `gofmt -l internal/github internal/controller`: pass.

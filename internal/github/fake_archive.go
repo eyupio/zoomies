@@ -22,9 +22,9 @@ func (f *FakeGitHub) RegisterCommit(repo, sha, tree string, parents ...string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	objects := f.repoLocked(repo).contextGit()
-	commit := &gh.Commit{SHA: gh.String(sha), Tree: &gh.Tree{SHA: gh.String(tree)}}
+	commit := &gh.Commit{SHA: gh.Ptr(sha), Tree: &gh.Tree{SHA: gh.Ptr(tree)}}
 	for _, parent := range parents {
-		commit.Parents = append(commit.Parents, &gh.Commit{SHA: gh.String(parent)})
+		commit.Parents = append(commit.Parents, &gh.Commit{SHA: gh.Ptr(parent)})
 	}
 	objects.Commits[sha] = commit
 }
