@@ -72,16 +72,19 @@ Examples:
 Merge one conflict for a controller, in the bounded Git worker image that holds no credentials
 
 ```text
-The bounded Git merge worker that conflict repair runs in its own image. It reads one JSON merge request on standard input and writes one JSON answer on standard output. It holds no credentials and runs no repository code.
+The bounded Git merge worker that conflict repair runs in its own image. It reads one JSON merge request, on standard input or from --request, and writes one JSON answer, on standard output or to --answer, then exits. It holds no credentials and runs no repository code.
 
 Usage:
-  zoomies git-worker [--check]
+  zoomies git-worker [--request path] [--answer path] [--check]
 
 Flags:
+  --answer                   write the answer to this file instead of standard output
   --check                    say whether this image's Git can run the bounded merge, then exit: the worker image's last build step
+  --request                  read the request from this file instead of standard input
 
 Examples:
   echo '{"dir":"/work/repo","ancestor":"<sha>","base":"<sha>","head":"<sha>"}' | zoomies git-worker
+  zoomies git-worker --request /work/request.json --answer /work/answer.json
   zoomies git-worker --check
 ```
 

@@ -701,6 +701,10 @@ path-safe, so the bytes can cross without either side trusting the other.
   with `..`, an entry that is neither a file nor a directory, and a tarball past
   its budget. It sets each file's mode after writing, because `WriteFile` applies
   the umask and Git will not trust a loose object that can be rewritten.
+- `zoomies git-worker` gained `--request` and `--answer`: the agent runs it as a
+  one-shot container with the workspace mounted, and plumbing an attach into a
+  container runtime for a process that runs once is a lot of machinery for two
+  files. Standard streams remain the default, so the earlier examples still hold.
 - `mergeAttempts` is the controller's half: one prepared repository per attempt,
   fetched as often as a lost reply needs and answered exactly once. It has three
   ways to let one go (an answer, a deadline, shutdown) and every one of them
@@ -722,6 +726,10 @@ Validation on 5 November 2026, on Git 2.39.5:
   answering each say which they are; a deadline removes the repository and the
   entry; the cap refuses a further attempt; and shutdown gives back every
   repository it holds, including none of the ones it never held.
+- `go test -race -count=1 -run GitWorker ./cmd/zoomies`: pass (1.223s), including a
+  request read from a file and an answer written to one, with stdout left empty,
+  and a request path that cannot be read being a usage error that names it rather
+  than a hang.
 - `staticcheck ./...` and `go build ./...`: pass.
 
 Not run: the `merge_conflict` task, the endpoints the agent pulls and posts to,
