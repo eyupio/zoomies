@@ -294,7 +294,7 @@ func newMetrics(c *Controller) *metrics {
 		}),
 		derivedPaced: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "zoomies_derived_paced_total",
-			Help: "Times a scheduling pass or housekeeping tick left the statistics, problems and host views for the event stream alone because they had been worked out less than a few seconds before. The gap is five seconds at least and grows with what the work costs, so that it uses about a tenth of the controller's time.",
+			Help: "Times a scheduling pass or housekeeping tick left the statistics, problems and host views for the event stream alone because they had been worked out less than a few seconds before. The gap is five seconds at least and grows with what the work costs, so that it uses about a tenth of the controller's time. A saved setting skips it once.",
 		}),
 		apiRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "zoomies_api_requests_total",

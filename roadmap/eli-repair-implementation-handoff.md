@@ -710,6 +710,12 @@ what an observation records are as they were. A watch that falls due just after
 the look is claimed by the next ask, and a look that fails falls through to the
 claim.
 
+A later commit on the same PR makes a saved setting skip the pacing gap once
+(`UpdateConfig` calls `demandDerived`), after the first push turned the
+`Playwright (other)` check red on the Updates page specs. It changes
+`internal/controller` and one comment in `web/tests/updates.spec.ts`, and no Eli
+code.
+
 Validation on 5 November 2026:
 
 - `TestAWatchClaimWithNothingDueNeverTakesTheWriter` (new, in
@@ -725,6 +731,16 @@ Validation on 5 November 2026:
   data race reported, 25 minutes 46 seconds (store 762.7s, controller 721.0s).
 - `go build ./...`, `go vet ./...`, `staticcheck ./...`, `gofmt -l` and
   `go mod tidy -diff`: clean.
+- The later commit: `go test -race -count=1 ./internal/controller/...
+  ./internal/docs/...` passes (controller 720.3s, docs 119.4s), and `make lint`
+  and `staticcheck ./internal/controller/...` are clean. The Playwright group CI
+  calls `other`, run here against the real binary with CI's flags: 233 passed,
+  none failed, in 9.9 minutes. Its `updates` and `updates-mobile` projects again
+  on the final tree: 126 passed in 3.9 minutes. The spec CI failed
+  (`updates.spec.ts:411`) failed the same way on the previous head, after 23
+  seconds with the page still on the old soak, and passes in 2.5 seconds. The new
+  test, `TestAChangedSettingIsShownByTheNextPassWithoutWaitingOutTheGap`, fails
+  with the call removed (`no updates.updated event arrived`) and passes with it.
 
 Limits of this slice:
 
@@ -732,8 +748,10 @@ Limits of this slice:
   advances S3b.
 - The look is a hint. No new test races two observers for one due watch; the
   existing lease test covers the claim under the writer, which is unchanged.
-- The UI checks were not run, because nothing under `web/` changed. A live model
-  and end-to-end GitHub mutations were not run.
+- `npm run check` and `test:unit` were not run, because the only change under
+  `web/` is a comment. The `chromium` and `mobile` Playwright groups were not run
+  in full (1,155 specs each). A live model and end-to-end GitHub mutations were
+  not run.
 
 ### S2h: pull_request webhook wakeup, 4 November 2026
 

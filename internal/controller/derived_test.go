@@ -294,6 +294,50 @@ func TestWhatAnOperatorDidIsNeverHeldBackByTheGap(t *testing.T) {
 	nothingFor(t, sub)
 }
 
+// A setting saved from the Settings page changes what the figures say (the update
+// status, Kennel Club's overview, the findings in the problems list), and whoever
+// saved it is looking at the page. The change runs a pass at once, and that pass
+// has to show it: waiting out the gap left the page on the old soak for as long
+// as a slow machine's gap was, which the web UI's own tests caught.
+func TestAChangedSettingIsShownByTheNextPassWithoutWaitingOutTheGap(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	withVersion(t, "1.3.0")
+	h.inMode("manual")
+	h.pacedByTheClock()
+	sub := h.listen(events.KindUpdates)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if got := nextOfKind(t, sub, events.KindUpdates)["soak"]; got != "24h0m0s" && got != "24h" {
+		t.Fatalf("first frame soak = %v, want the 24 hours it starts with", got)
+	}
+
+	// The save PATCH /settings makes, and the pass it nudges, a moment after the
+	// figures were last worked out.
+	h.c.UpdateConfig(func(cfg *config.Config) { cfg.Updates.Soak = 12 * time.Hour })
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile after the change: %v", err)
+	}
+	if got := nextOfKind(t, sub, events.KindUpdates)["soak"]; got != "12h0m0s" && got != "12h" {
+		t.Errorf("the pass after a saved setting told the stream soak = %v; want the 12 hours just saved, with no wait", got)
+	}
+
+	// It is the next pass that is owed, not every pass after it: the gap holds again.
+	paced := testutil.ToFloat64(h.c.metrics.derivedPaced)
+	h.c.UpdateConfig(func(cfg *config.Config) { cfg.Updates.Soak = 6 * time.Hour })
+	for range 2 {
+		if err := h.c.Reconcile(h.ctx); err != nil {
+			t.Fatalf("Reconcile: %v", err)
+		}
+	}
+	nextOfKind(t, sub, events.KindUpdates)
+	if got := testutil.ToFloat64(h.c.metrics.derivedPaced) - paced; got != 1 {
+		t.Errorf("of two passes after a saved setting %v were left alone; want the second only", got)
+	}
+}
+
 // A clock that has gone back is no reason to hold the figures back until it
 // catches up with the moment they were last worked out.
 func TestAClockThatWentBackDoesNotHoldTheFiguresBack(t *testing.T) {

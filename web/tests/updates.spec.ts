@@ -393,8 +393,8 @@ test('the page repaints from the event stream without a reload', async ({ page }
   try {
     expect((await setSoak(page, '12h')).ok(), 'the soak was changed').toBeTruthy();
     // A change to a setting runs a pass of the controller's loop at once, and
-    // the status is worked out after every pass; ten seconds is the longest
-    // wait for the next one.
+    // that pass works the status out whatever the pacing leaves between runs;
+    // the long wait is for a loaded machine.
     await expect(mode(page)).toContainText('12 hours', { timeout: 20_000 });
     await expectNoReload(page);
   } finally {

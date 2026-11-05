@@ -768,7 +768,8 @@ client ever has to poll or ask the operator to reload:
   on the reconcile pass and the housekeeping tick, no more often than every few
   seconds (five at least, and longer when the work is dear, so that it stays
   about a tenth of the controller's time), and sends each only when its JSON
-  changed. `stats` summarises the same one-hour window
+  changed. A saved setting skips that wait once. `stats` summarises the same
+  one-hour window
   `GET /stats` defaults to; `problems.updated` is the whole `GET /problems`
   response, narrowed to each subscriber's audience as it is sent; the frame is
   rendered once and filtered per connection, the way a pool frame's `env` values

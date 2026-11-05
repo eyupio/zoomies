@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/events"
@@ -181,11 +182,13 @@ const (
 // derivedPacing is what the pacing remembers: the clock it is measured on (the
 // controller's, unless a test replaces it, as a benchmark does to move pacing
 // time without ageing every host's heartbeat with it), when the last run
-// finished, and how long that run took. It is guarded by derivedMu.
+// finished, and how long that run took. All of it is guarded by derivedMu except
+// owed, which is set from outside the lock: see demandDerived.
 type derivedPacing struct {
 	now  func() time.Time
 	last time.Time
 	took time.Duration
+	owed atomic.Bool
 }
 
 // derivedGap is how long after a run that took this long the paced callers leave
@@ -193,6 +196,16 @@ type derivedPacing struct {
 func derivedGap(took time.Duration) time.Duration {
 	return min(max(derivedIdleFactor*took, derivedMinGap), derivedMaxGap)
 }
+
+// demandDerived makes the next paced caller work the figures out whatever the gap.
+// It is for what an operator saves that changes what the figures say, such as a
+// setting. Waiting out the gap there is worse than late: the figures are sent only
+// when they differ from the last ones sent, so a save the gap left unworked, then a
+// page that opened and read the new value, then a save that put the old one back
+// were never told to that page, which kept what it had read. It takes no lock,
+// because a save must not wait for a run of the work that may be half done; a run
+// that is, and finishes after this, is followed by one the next caller makes.
+func (c *Controller) demandDerived() { c.derivedPace.owed.Store(true) }
 
 func (c *Controller) derivedNow() time.Time {
 	if c.derivedPace.now != nil {
@@ -206,7 +219,7 @@ func (c *Controller) derivedNow() time.Time {
 // moment that is now in its future.
 func (c *Controller) derivedDue() bool {
 	p := &c.derivedPace
-	if p.last.IsZero() {
+	if p.owed.Swap(false) || p.last.IsZero() {
 		return true
 	}
 	now := c.derivedNow()

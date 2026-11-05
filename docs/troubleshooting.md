@@ -499,8 +499,10 @@ and has asked for them, the scheduling pass and the housekeeping tick work out
 the statistics, the problems list and the host views for it, no more often than
 every few seconds: the gap is five seconds at least and nine times as long as
 the work took, to at most thirty, which keeps it to about a tenth of the
-controller's time. `zoomies_event_subscribers` is how many are connected: open
-browser tabs, MCP clients, anything following changes. A stream that named
+controller's time. A setting saved from the Settings page skips the gap once, so
+the page that saved it shows the change at once. `zoomies_event_subscribers` is
+how many are connected: open browser tabs, MCP clients, anything following
+changes. A stream that named
 kinds of event (`?kinds=`) is charged only for those, but the web UI's names
 none and is owed all of them. `zoomies_derived_skipped_total` counts the times
 that work was skipped because nobody had asked for it, and

@@ -1017,6 +1017,12 @@ func (c *Controller) UpdateConfig(fn func(*config.Config)) *config.Config {
 	if kennelSettingsChanged(before.Kennel, after.Kennel) {
 		c.KickKennel()
 	}
+	// A saved setting changes what the figures worked out for the stream say (the
+	// update status, Kennel Club's overview, the findings in the problems list),
+	// and whoever saved it is looking at the page, so the pass this nudges shows it
+	// without waiting out the gap the pacing leaves after the last run. Set before
+	// the nudge, so that the pass it starts finds it.
+	c.demandDerived()
 	// The scheduler tunables change what the next pass decides, and a new
 	// interval takes effect once a pass has run and reset the timer.
 	c.Nudge()

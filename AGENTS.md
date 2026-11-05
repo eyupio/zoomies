@@ -102,7 +102,8 @@ Other invariants worth knowing before you edit:
   written) needs no publish call of its own. They are paced (`publishDerivedPaced`
   leaves them alone for five seconds at least, longer when they are dear) and
   each is worked out only if some subscriber asked for its kind (`Bus.Wants`);
-  what an operator just did calls `publishDerived`, which is neither.
+  what an operator just did calls `publishDerived`, which is neither, and a saved
+  setting (`UpdateConfig`) skips the pacing once with `demandDerived`.
 Read the scoped guidance when working in these directories:
 
 * [`internal/store/AGENTS.md`](internal/store/AGENTS.md): one writer, the runner state machine, sentinel errors, IDs.
