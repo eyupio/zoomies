@@ -67,6 +67,24 @@ Examples:
   zoomies gateway --target pve.lan:8006 --state-dir /var/lib/zoomies
 ```
 
+### zoomies git-worker
+
+Merge one conflict for a controller, in the bounded Git worker image that holds no credentials
+
+```text
+The bounded Git merge worker that conflict repair runs in its own image. It reads one JSON merge request on standard input and writes one JSON answer on standard output. It holds no credentials and runs no repository code.
+
+Usage:
+  zoomies git-worker [--check]
+
+Flags:
+  --check                    say whether this image's Git can run the bounded merge, then exit: the worker image's last build step
+
+Examples:
+  echo '{"dir":"/work/repo","ancestor":"<sha>","base":"<sha>","head":"<sha>"}' | zoomies git-worker
+  zoomies git-worker --check
+```
+
 ## Your fleet (these talk to a controller over its API)
 
 ### zoomies status

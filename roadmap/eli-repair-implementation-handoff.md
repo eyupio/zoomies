@@ -8,29 +8,32 @@ these features. Update it in every PR for this initiative, including corrective
 PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 
 This is the shared workstream record for the whole initiative. S1 through S3a
-are merged on `main`. The current slice is S3b in
-[PR #1391](https://github.com/eyupio/zoomies/pull/1391), which adds the bounded
-Git merge package but not its worker process or controller transport. Describing
-a later slice here does not add its runtime implementation to an earlier branch.
-Continue from the newest branch after checking the live PR states.
+are merged on `main`. The slice in [PR
+#1391](https://github.com/eyupio/zoomies/pull/1391) added the bounded Git merge
+package; the slice after it added the `zoomies git-worker` command and the
+`ghcr.io/eyupio/zoomies-git` image that wraps it. Neither has a controller
+transport yet, so nothing in the running controller can start the worker.
+Describing a later slice here does not add its runtime implementation to an
+earlier branch. Continue from the newest branch after checking the live PR
+states.
 
 ## Current checkpoint
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1391](https://github.com/eyupio/zoomies/pull/1391): S3b bounded Git merge worker foundation |
+| Latest slice | The `zoomies git-worker` command and its unimplemented-publishing Git worker image, stacked on [#1391](https://github.com/eyupio/zoomies/pull/1391): S3b bounded Git merge worker foundation |
 | Investigated baseline | `039aa7b1a` on `main` |
-| Working branches | `codex/eli-git-merge-worker` for S3b |
-| Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b: `c19a8f75f7f60a2fd05ce278f0efdd27f31876fb` |
-| Implementation | S3b records decision 0016 and adds `internal/gitmerge`, a bounded `git merge-tree` merge with no hooks, external drivers or repository code. The worker command, image and controller transport are not connected yet |
+| Working branches | `codex/eli-git-merge-worker` for the merge package, `codex/eli-git-worker` for the worker command and image |
+| Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b package: `e7f482f5`; S3b worker command and image: this branch |
+| Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds (unpublished: no workflow names it yet) |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | S3b worker foundation is in open PR #1391, locally verified; awaiting review and browser checks |
-| Next implementation | Worker command and image, controller fetch and transport, then model resolution and two-parent publication, then S4 UX |
-| CI snapshot | When last checked, PR #1391 had all non-browser jobs green and only Playwright chromium and mobile still running. Recheck the live PR before merging |
+| Current slice | The worker command and image are implemented and locally verified; the controller cannot reach the worker yet |
+| Next implementation | The controller's sanitised bare-repository fetch, the worker transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
+| CI snapshot | PR #1391 was green on every non-browser job when last checked; this branch's checks are separate. Recheck the live PR before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
-| Merge-conflict repair | Detection is in S3a; decision 0016 and the bounded merge package are in S3b. The worker process, transport, model resolution and publication remain, and admission still refuses the conflicts capability |
+| Merge-conflict repair | Detection is in S3a; decision 0016, the bounded merge package, the worker command and the worker image are in S3b. The controller fetch and transport, model resolution and publication remain, and admission still refuses the conflicts capability |
 | Production configuration | No repository automation or model credentials changed by this work |
 
 The automatic mode still starts from a failed `workflow_job`, attempts one
@@ -679,6 +682,82 @@ Limits of this slice:
   are not retained yet. The watch records one overall state.
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S3b: the bounded Git worker command and image, 5 November 2026
+
+This PR is stacked on the merge package in #1391. It adds no migration, no public
+API, no UI and no controller behaviour: nothing in the running controller can
+start the worker yet.
+
+What it adds:
+
+- `zoomies git-worker`, a subcommand of the one binary that reads one JSON merge
+  request on standard input and writes one JSON answer on standard output, then
+  exits. It refuses unknown request fields, a request over 64 KiB, a response
+  over 8 MiB, a relative or climbing repository path, and a second request on the
+  same input. A conflicted merge is a successful answer, because the conflict is
+  the evidence a repair is made from.
+- `--check`, which asks the host's Git whether it can merge and is the worker
+  image's own last build step, so a base image that lost `merge-tree
+  --write-tree` fails the build rather than the first conflict.
+- `deploy/Dockerfile`'s `gitworker` target, built by `make image-gitworker`:
+  Alpine with Git, the same static binary, running as 65534, with no database, no
+  GitHub App key and no model provider key. It holds nothing to steal and nothing
+  to drive but one request.
+- `docs/cli.md`, the generated `skills/zoomies/reference.md` and
+  `docs/architecture.md` say what the worker is and where it runs.
+
+The image is **not published**, and that is a limitation of this PR rather than a
+decision: `ci.yml`, `release.yml` and `cleanup-packages.yml` each need a line for
+it, and the token available to this session cannot push a change to a workflow
+file (`refusing to allow a GitHub App to create or update workflow ... without
+'workflows' permission`). The wiring was written, checked against
+`internal/docs`' workflow tests and then removed rather than left half-pushed. The
+first step of the next slice is to land it, with a token that has that permission:
+build `target: gitworker` on every `Images` run, publish
+`ghcr.io/eyupio/zoomies-git` as `:dev`, `:main` and `:sha-<commit>` from `main`,
+publish the release tag and `:latest` from `release.yml` with an attestation, and
+add `zoomies-git` to the cleanup matrix whose header would then say six families
+rather than five.
+
+Validation on 5 November 2026, on Git 2.39.5 (the Git Debian 12 ships):
+
+- `go test -race -count=1 ./internal/gitmerge ./cmd/zoomies`: pass (gitmerge
+  1.897s, cmd/zoomies 158.633s). The worker protocol is covered by real temporary
+  repositories for a clean merge, a text conflict with its three sides, an unknown
+  field, a relative path, a wrong merge base, a request over budget, an answer over
+  budget and a second request; the command is covered end to end through `dispatch`,
+  including that stdout carries exactly one JSON object and that a refusal still
+  answers in JSON and exits 1. The same suite caught the one thing this slice
+  missed at first: `skills/zoomies/SKILL.md` places every command in exactly one of
+  its three lists, and `zoomies git-worker` is now under "Leave to the user", with
+  the controller, the agent and the gateway.
+- `go test -count=1 ./internal/docs`: pass (20.519s in a clean worktree; this
+  environment's own `$HOME` inside the checkout makes several of its tree-wide
+  scans fail, which is why the suite was run from `git worktree`). It covers the
+  new command's documentation row, the regenerated skill reference and the labels
+  on the new image target.
+- `go build ./...`, `go vet ./internal/gitmerge ./cmd/zoomies ./internal/docs`,
+  `gofmt -l` and `git diff --check`: pass.
+- `git merge-tree --write-tree` was checked by hand against the Alpine 3.22 Git
+  the image installs; the `--check` step is what the image build runs.
+
+Not run: the container image itself was not built here (no Docker in this
+environment), so the `gitworker` target's build, the `apk add git` layer and the
+in-image `--check` await the CI job that will build it once the wiring above
+lands. `staticcheck` was not available in this environment and runs in CI. No
+browser suite was run: this slice changes no UI.
+
+Omissions and the next unfinished step:
+
+- The image is unpublished and unnamed by any workflow, so the controller has no
+  image to start even if it tried.
+- No controller fetch of a sanitised bare repository, no worker transport, no
+  timeouts, no cleanup and no failure handling. `internal/naming` does not yet
+  name the worker image for the controller, and admission still refuses the
+  conflicts capability.
+- After that: model resolution and the two-parent commit, then S4 UX.
+
 
 ### S3b: bounded Git merge worker foundation, 5 November 2026
 

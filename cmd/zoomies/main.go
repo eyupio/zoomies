@@ -93,6 +93,7 @@ func commands() []*command {
 		{"controller", groupRun, "Run the control plane, and an agent alongside it unless told otherwise", runController},
 		{"agent", groupRun, "Run a runner host's agent, or join this host to a controller", runAgent},
 		{"gateway", groupRun, "Publish a private provider API, such as a Proxmox cluster at home, to a controller over Tailcat", runGateway},
+		{"git-worker", groupRun, "Merge one conflict for a controller, in the bounded Git worker image that holds no credentials", runGitWorker},
 
 		{"status", groupFleet, "The Overview, in a terminal", runStatus},
 		{"events", groupFleet, "What happened lately, and a wait for the next change", runEvents},
