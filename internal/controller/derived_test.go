@@ -244,6 +244,73 @@ func TestAPassSoonAfterOneThatWorkedTheFiguresOutLeavesThemAlone(t *testing.T) {
 	}
 }
 
+// A pass the gap turns away has not lost what it was nudged for, and nothing else
+// need come along to say it. On a quiet fleet the next pass is the scheduler's
+// whole interval away and the next housekeeping tick half a minute, so an edit
+// undone two seconds after it was made left the problems bell on the edit's count
+// until one of them came, which the web UI's own specs saw. The pass that finds
+// the gap open sets one timer for what is left of it, and the nudge that timer
+// sends is the pass that says what changed.
+func TestAPassTheGapTurnedAwayIsFollowedByOneWhenTheGapIsOver(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	h.pacedByTheClock()
+	sub := h.listen(events.KindStats)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	nextOfKind(t, sub, events.KindStats)
+	if got := h.wakeUps.all(); len(got) != 0 {
+		t.Fatalf("a pass that worked the figures out set %d timer(s); want none", len(got))
+	}
+
+	// A job arrives and passes follow two seconds on: inside the gap, so they leave
+	// the figures alone, and between them they set one timer for what is left of it.
+	h.advance(2 * time.Second)
+	h.deliverJob(jobEvent{Action: "queued", JobID: 1, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	for range 3 {
+		if err := h.c.Reconcile(h.ctx); err != nil {
+			t.Fatalf("Reconcile inside the gap: %v", err)
+		}
+	}
+	nothingFor(t, sub)
+	timers := h.wakeUps.all()
+	if len(timers) != 1 {
+		t.Fatalf("three passes inside the gap set %d timer(s); want the one", len(timers))
+	}
+	if got, most := timers[0].after, derivedMinGap-2*time.Second; got <= 0 || got > most {
+		t.Errorf("the timer was set for %s; want what is left of the %s gap, which is no more than %s", got, derivedMinGap, most)
+	}
+
+	// The timer going off asks the scheduler to look again...
+	for len(h.c.nudges) > 0 {
+		<-h.c.nudges
+	}
+	timers[0].fire()
+	if len(h.c.nudges) == 0 {
+		t.Fatal("the timer going off did not nudge the scheduler")
+	}
+
+	// ...and the pass that follows, with the gap over, says what changed.
+	h.advance(derivedMinGap)
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile after the gap: %v", err)
+	}
+	if got := nextOfKind(t, sub, events.KindStats)["queued_jobs"]; got != float64(1) {
+		t.Errorf("the pass after the gap told the stream queued_jobs = %v; want the 1 it had missed", got)
+	}
+
+	// The timer is spent, so a gap that opens again sets a timer of its own.
+	h.deliverJob(jobEvent{Action: "queued", JobID: 2, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile inside the next gap: %v", err)
+	}
+	if got := len(h.wakeUps.all()); got != 2 {
+		t.Errorf("two gaps left %d timer(s) set in all; want 2, one for each", got)
+	}
+}
+
 // The gap is what keeps the work to about a tenth of the controller's time
 // however large the fleet grows: it waits nine times as long as the work took,
 // no sooner than the floor, and never so long that a change waits half a minute
@@ -292,6 +359,36 @@ func TestWhatAnOperatorDidIsNeverHeldBackByTheGap(t *testing.T) {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	nothingFor(t, sub)
+}
+
+// What an operator did is shown by the pass it nudges, inside the gap or not, and
+// what comes in by itself is not: a heartbeat or a webhook nudges the same
+// scheduler, and those are what the gap exists to thin out.
+func TestAnOperatorsNudgeSkipsTheGapAndAnOrdinaryOneDoesNot(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	h.pacedByTheClock()
+	sub := h.listen(events.KindStats)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	nextOfKind(t, sub, events.KindStats)
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 1, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	h.c.Nudge()
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile after an ordinary nudge: %v", err)
+	}
+	nothingFor(t, sub)
+
+	h.c.NudgeOperator()
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile after an operator's nudge: %v", err)
+	}
+	if got := nextOfKind(t, sub, events.KindStats)["queued_jobs"]; got != float64(1) {
+		t.Errorf("the pass after an operator's nudge told the stream queued_jobs = %v; want the 1 it had held back", got)
+	}
 }
 
 // A setting saved from the Settings page changes what the figures say (the update

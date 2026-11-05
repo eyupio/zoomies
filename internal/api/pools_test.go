@@ -5,8 +5,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/controller"
+	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -1743,5 +1745,39 @@ func TestAPoolsSidecarImageIsSetReadBackAndCleared(t *testing.T) {
 	cleared.mustStatus(t, http.StatusOK, "clear")
 	if stored, err := h.st.GetPool(h.ctx, pool.ID); err != nil || stored.DinDImage != "" {
 		t.Fatalf("a cleared dind image = %v, %v", stored, err)
+	}
+}
+
+// An operator who edits a pool is looking at the page, and the problems bell has
+// to follow the edit and not stand still for the gap the controller leaves between
+// workings out of the figures it sends. The edit is made straight after a pass that
+// worked them out, which is where a bell that waited would be caught.
+func TestAPoolEditIsShownInTheProblemsListWithoutWaitingOutTheGap(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	pool := h.pool(inst, "zoomies-arm")
+	admin, _ := h.user("admin", store.RoleAdmin)
+
+	sub := h.ctrl.Events().Subscribe(h.ctx, events.SubscribeOptions{Kinds: []events.Kind{events.KindProblems}})
+	if err := h.ctrl.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	select {
+	case <-sub.C:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the first pass told the stream no problems list, so there is no gap to be inside")
+	}
+
+	h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: h.session(admin),
+		body: map[string]any{"run_as_root": true}}).
+		mustStatus(t, http.StatusOK, "edit the pool")
+	if err := h.ctrl.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile after the edit: %v", err)
+	}
+	select {
+	case <-sub.C:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the pass after a pool edit told the stream no problems list; the bell would stand still for the rest of the gap")
 	}
 }

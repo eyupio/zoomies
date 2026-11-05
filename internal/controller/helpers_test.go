@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -77,6 +78,36 @@ type harness struct {
 	// until a test makes it, so a controller under test never finds the real
 	// host's helper, or none, by accident.
 	updateDir string
+	// wakeUps are the timers the controller set to look again when the gap that
+	// paces the figures for the stream is over. They are recorded and never run,
+	// so that no test waits out a gap for real or leaves a timer behind it, and a
+	// test that is about one fires it itself.
+	wakeUps *wakeUpLog
+}
+
+// wakeUp is one timer the controller asked for: how long from now, and what to
+// do then.
+type wakeUp struct {
+	after time.Duration
+	fire  func()
+}
+
+// wakeUpLog records the timers a controller sets in place of real ones.
+type wakeUpLog struct {
+	mu   sync.Mutex
+	list []wakeUp
+}
+
+func (l *wakeUpLog) set(d time.Duration, f func()) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.list = append(l.list, wakeUp{after: d, fire: f})
+}
+
+func (l *wakeUpLog) all() []wakeUp {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.list)
 }
 
 // advance moves the controller's clock forward without moving the test's.
@@ -174,8 +205,10 @@ func newHarnessAt(t testing.TB, clock func() time.Time) *harness {
 	c.derivedPace.now = func() time.Time {
 		return time.Unix(0, 0).Add(time.Duration(ticks.Add(1)) * 2 * derivedMaxGap)
 	}
+	wakeUps := &wakeUpLog{}
+	c.derivedPace.after = wakeUps.set
 	return &harness{t: t, c: c, st: st, gh: gh, factory: factory, key: key, cfg: cfg, ctx: ctx,
-		offset: offset, fake: fake, providers: providers, updateDir: updateDir}
+		offset: offset, fake: fake, providers: providers, updateDir: updateDir, wakeUps: wakeUps}
 }
 
 // pacedByTheClock puts the pacing of the figures worked out for the stream back

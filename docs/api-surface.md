@@ -768,8 +768,9 @@ client ever has to poll or ask the operator to reload:
   on the reconcile pass and the housekeeping tick, no more often than every few
   seconds (five at least, and longer when the work is dear, so that it stays
   about a tenth of the controller's time), and sends each only when its JSON
-  changed. A saved setting skips that wait once. `stats` summarises the same
-  one-hour window
+  changed. What an operator does, such as saving a setting or editing a pool or
+  a host, skips that wait once, and anything else that lands inside it is shown
+  when it ends. `stats` summarises the same one-hour window
   `GET /stats` defaults to; `problems.updated` is the whole `GET /problems`
   response, narrowed to each subscriber's audience as it is sent; the frame is
   rendered once and filtered per connection, the way a pool frame's `env` values

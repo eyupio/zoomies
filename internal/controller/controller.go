@@ -1017,15 +1017,12 @@ func (c *Controller) UpdateConfig(fn func(*config.Config)) *config.Config {
 	if kennelSettingsChanged(before.Kennel, after.Kennel) {
 		c.KickKennel()
 	}
-	// A saved setting changes what the figures worked out for the stream say (the
-	// update status, Kennel Club's overview, the findings in the problems list),
-	// and whoever saved it is looking at the page, so the pass this nudges shows it
-	// without waiting out the gap the pacing leaves after the last run. Set before
-	// the nudge, so that the pass it starts finds it.
-	c.demandDerived()
 	// The scheduler tunables change what the next pass decides, and a new
-	// interval takes effect once a pass has run and reset the timer.
-	c.Nudge()
+	// interval takes effect once a pass has run and reset the timer. A saved
+	// setting also changes what the figures worked out for the stream say (the
+	// update status, Kennel Club's overview, the findings in the problems list),
+	// and whoever saved it is looking at the page.
+	c.NudgeOperator()
 	// The jobs already waiting were classed under the old mode, or not at all,
 	// and the mode is only read as a job arrives: they are put through it again
 	// so that turning routing on reaches the queue and turning it off leaves no
@@ -1079,6 +1076,19 @@ func (c *Controller) Nudge() {
 	case c.nudges <- struct{}{}:
 	default:
 	}
+}
+
+// NudgeOperator is Nudge for what an operator has just done, such as an edit to a
+// pool or a host or a saved setting. The pass it starts works the figures for the
+// event stream out whatever the gap the pacing leaves after the last run (see
+// demandDerived), because somebody is looking at the page for the change, and a
+// bell or a tile that stood still for the rest of the gap would look like the
+// change had not been made. What comes in by itself, a heartbeat or a webhook,
+// calls Nudge and is paced.
+func (c *Controller) NudgeOperator() {
+	// Set before the nudge, so that the pass it starts finds it.
+	c.demandDerived()
+	c.Nudge()
 }
 
 // PollingOnly reports whether scaling is running on the fallback poller

@@ -499,8 +499,10 @@ and has asked for them, the scheduling pass and the housekeeping tick work out
 the statistics, the problems list and the host views for it, no more often than
 every few seconds: the gap is five seconds at least and nine times as long as
 the work took, to at most thirty, which keeps it to about a tenth of the
-controller's time. A setting saved from the Settings page skips the gap once, so
-the page that saved it shows the change at once. `zoomies_event_subscribers` is
+controller's time. What an operator does, such as saving a setting or editing a
+pool or a host, skips the gap once, so the page they are looking at shows it at
+once; anything else that lands inside the gap is shown when it ends, because a
+pass the gap turns away sets a timer for the end of it. `zoomies_event_subscribers` is
 how many are connected: open browser tabs, MCP clients, anything following
 changes. A stream that named
 kinds of event (`?kinds=`) is charged only for those, but the web UI's names

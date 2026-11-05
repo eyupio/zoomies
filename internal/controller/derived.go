@@ -37,9 +37,10 @@ func (c *Controller) publishDerived(ctx context.Context) { c.runDerived(ctx, fal
 
 // publishDerivedPaced is publishDerived for the callers that come round on their
 // own, the scheduling pass and the housekeeping tick: it leaves the figures alone
-// when they were worked out less than derivedGap ago. What an operator did, a
-// Kennel action or an update plan, calls publishDerived and is shown at once,
-// because somebody is looking at the page for it.
+// when they were worked out less than derivedGap ago, and sets a timer to come
+// back when the gap is over. What an operator did, a Kennel action or an update
+// plan, calls publishDerived, and an edit nudges with NudgeOperator, and both are
+// shown at once, because somebody is looking at the page for it.
 func (c *Controller) publishDerivedPaced(ctx context.Context) { c.runDerived(ctx, true) }
 
 func (c *Controller) runDerived(ctx context.Context, paced bool) {
@@ -62,6 +63,7 @@ func (c *Controller) runDerived(ctx context.Context, paced bool) {
 	// finished and has nothing to add.
 	if paced && !c.derivedDue() {
 		c.metrics.derivedPaced.Inc()
+		c.derivedComeBack()
 		return
 	}
 	// Called from several places, so the whole is timed here and not by each of
@@ -171,8 +173,10 @@ func (c *Controller) runDerived(ctx context.Context, paced bool) {
 // gap is derivedIdleFactor times as long as the work took, which keeps the work to
 // a tenth of the controller's time however large the fleet is, and never less than
 // derivedMinGap, so that a small fleet's cheap work is still not repeated every
-// pass. It is never more than derivedMaxGap, so that a change waits at most about
-// as long as the housekeeping tick takes to come round and say so.
+// pass. It is never more than derivedMaxGap, so that a change waits at most that
+// long: a pass the gap turns away sets a timer for the end of it (see
+// derivedComeBack), and does not leave the change for whichever pass or tick next
+// comes by.
 const (
 	derivedMinGap     = 5 * time.Second
 	derivedMaxGap     = 30 * time.Second
@@ -183,12 +187,16 @@ const (
 // controller's, unless a test replaces it, as a benchmark does to move pacing
 // time without ageing every host's heartbeat with it), when the last run
 // finished, and how long that run took. All of it is guarded by derivedMu except
-// owed, which is set from outside the lock: see demandDerived.
+// owed, which is set from outside the lock (see demandDerived), and armed, which a
+// timer clears (see derivedComeBack). after is what sets that timer:
+// time.AfterFunc, unless a test replaces it.
 type derivedPacing struct {
-	now  func() time.Time
-	last time.Time
-	took time.Duration
-	owed atomic.Bool
+	now   func() time.Time
+	last  time.Time
+	took  time.Duration
+	owed  atomic.Bool
+	armed atomic.Bool
+	after func(d time.Duration, f func())
 }
 
 // derivedGap is how long after a run that took this long the paced callers leave
@@ -198,14 +206,41 @@ func derivedGap(took time.Duration) time.Duration {
 }
 
 // demandDerived makes the next paced caller work the figures out whatever the gap.
-// It is for what an operator saves that changes what the figures say, such as a
-// setting. Waiting out the gap there is worse than late: the figures are sent only
+// It is for what an operator does that changes what the figures say, a saved
+// setting or an edit to a pool or a host, and is reached through NudgeOperator.
+// Waiting out the gap there is worse than late: the figures are sent only
 // when they differ from the last ones sent, so a save the gap left unworked, then a
 // page that opened and read the new value, then a save that put the old one back
 // were never told to that page, which kept what it had read. It takes no lock,
 // because a save must not wait for a run of the work that may be half done; a run
 // that is, and finishes after this, is followed by one the next caller makes.
 func (c *Controller) demandDerived() { c.derivedPace.owed.Store(true) }
+
+// derivedComeBack sets a timer to nudge the scheduler when the gap is over, unless
+// one is set already, so that a pass the gap turned away is followed by one it
+// does not. Without it a change that landed inside the gap waited for the next
+// pass or tick to come by themselves, which on a quiet fleet is the scheduler's
+// interval or the housekeeping tick's half a minute, and an edit undone two
+// seconds after it was made left the problems bell on its count for that long.
+// One timer serves however many passes find the gap open. Called with derivedMu
+// held, by a caller the gap turned away.
+func (c *Controller) derivedComeBack() {
+	p := &c.derivedPace
+	if !p.armed.CompareAndSwap(false, true) {
+		return
+	}
+	wait := max(derivedGap(p.took)-c.derivedNow().Sub(p.last), 0)
+	after := p.after
+	if after == nil {
+		after = func(d time.Duration, f func()) { time.AfterFunc(d, f) }
+	}
+	// Cleared before the nudge, so that the pass it starts, which a gap that opened
+	// a moment ago can turn away again, is able to set the next.
+	after(wait, func() {
+		p.armed.Store(false)
+		c.Nudge()
+	})
+}
 
 func (c *Controller) derivedNow() time.Time {
 	if c.derivedPace.now != nil {

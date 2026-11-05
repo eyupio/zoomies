@@ -710,11 +710,15 @@ what an observation records are as they were. A watch that falls due just after
 the look is claimed by the next ask, and a look that fails falls through to the
 claim.
 
-A later commit on the same PR makes a saved setting skip the pacing gap once
-(`UpdateConfig` calls `demandDerived`), after the first push turned the
-`Playwright (other)` check red on the Updates page specs. It changes
-`internal/controller` and one comment in `web/tests/updates.spec.ts`, and no Eli
-code.
+Two later commits on the same PR change how the pacing treats what lands inside
+its gap. The first push turned the `Playwright (other)` check red on the Updates
+page specs, so a saved setting skips the gap once (`UpdateConfig` calls
+`demandDerived`). Running the broader UI specs then found that a pass the gap
+turned away was dropped, so it now sets one timer that nudges the scheduler when
+the gap ends, and what an operator does skips the gap too (`NudgeOperator`,
+which the handlers that edit a pool, a host, a runner or an installation call).
+They change `internal/controller`, fifteen call sites in `internal/api` and a
+comment in `web/tests/updates.spec.ts`, and no Eli code.
 
 Validation on 5 November 2026:
 
@@ -731,16 +735,22 @@ Validation on 5 November 2026:
   data race reported, 25 minutes 46 seconds (store 762.7s, controller 721.0s).
 - `go build ./...`, `go vet ./...`, `staticcheck ./...`, `gofmt -l` and
   `go mod tidy -diff`: clean.
-- The later commit: `go test -race -count=1 ./internal/controller/...
-  ./internal/docs/...` passes (controller 720.3s, docs 119.4s), and `make lint`
-  and `staticcheck ./internal/controller/...` are clean. The Playwright group CI
-  calls `other`, run here against the real binary with CI's flags: 233 passed,
-  none failed, in 9.9 minutes. Its `updates` and `updates-mobile` projects again
-  on the final tree: 126 passed in 3.9 minutes. The spec CI failed
-  (`updates.spec.ts:411`) failed the same way on the previous head, after 23
-  seconds with the page still on the old soak, and passes in 2.5 seconds. The new
-  test, `TestAChangedSettingIsShownByTheNextPassWithoutWaitingOutTheGap`, fails
-  with the call removed (`no updates.updated event arrived`) and passes with it.
+- The later commits: `go test -race -count=1 ./internal/controller/...
+  ./internal/api/... ./internal/docs/...` passes (controller 729.8s, api 466.8s,
+  docs 141.8s), and `make lint` and `staticcheck` on the controller and API
+  packages are clean. Playwright against the real binary: the group CI calls
+  `other`, with CI's flags, 233 passed in 9.9 minutes (before the last commit);
+  its `updates` and `updates-mobile` projects again on the final tree, with the
+  473 specs of the `chromium` project that follow the event stream, 592 passed,
+  none failed, 7 skipped, in 20.3 minutes. `updates.spec.ts:411` failed on the
+  first push after 23 seconds and passes in 2.5. `live.spec.ts:152` failed on the
+  head before the last commit (14.0 seconds), passes on `main` (1.7 seconds) and
+  on this branch (1.2 to 1.6 seconds, `chromium` and `mobile`).
+- Four new tests, each failing with the call it guards removed and passing with
+  it: `TestAChangedSettingIsShownByTheNextPassWithoutWaitingOutTheGap`,
+  `TestAnOperatorsNudgeSkipsTheGapAndAnOrdinaryOneDoesNot`,
+  `TestAPassTheGapTurnedAwayIsFollowedByOneWhenTheGapIsOver` and, in
+  `internal/api`, `TestAPoolEditIsShownInTheProblemsListWithoutWaitingOutTheGap`.
 
 Limits of this slice:
 
@@ -750,8 +760,9 @@ Limits of this slice:
   existing lease test covers the claim under the writer, which is unchanged.
 - `npm run check` and `test:unit` were not run, because the only change under
   `web/` is a comment. The `chromium` and `mobile` Playwright groups were not run
-  in full (1,155 specs each). A live model and end-to-end GitHub mutations were
-  not run.
+  in full (1,155 specs each); the 473 specs of `chromium` that follow the event
+  stream were, and `live.spec.ts` on `mobile`. A live model and end-to-end GitHub
+  mutations were not run.
 
 ### S2h: pull_request webhook wakeup, 4 November 2026
 

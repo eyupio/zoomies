@@ -77,8 +77,8 @@ func (c *Controller) housekeep(ctx context.Context, last *housekeeping) {
 	done()
 	// A host going quiet is a problem and a capacity change, and neither
 	// waits for the next reconcile pass to be told about, unless the figures
-	// were worked out a moment ago, in which case the first pass or tick after
-	// the gap says so.
+	// were worked out a moment ago, in which case the pass the end of the gap
+	// brings says so.
 	c.publishDerivedPaced(ctx)
 
 	// The minute is the unit: the store keys a sample on it and the chart

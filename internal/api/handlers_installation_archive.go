@@ -117,7 +117,7 @@ func (s *Server) handleImportInstallation(w http.ResponseWriter, r *http.Request
 		"target": inst.Target, "rows": done.Rows, "skipped": done.Skipped,
 		"exported_from": req.Archive.ExportedFrom, "credentials": req.Archive.Secrets != nil,
 	})
-	s.ctrl.Nudge()
+	s.ctrl.NudgeOperator()
 	counts, cerr := s.ctrl.PoolCountsByInstallation(r.Context())
 	if cerr != nil {
 		s.internal(w, r, "reading the installation back", cerr)
