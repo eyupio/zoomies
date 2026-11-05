@@ -103,6 +103,14 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 		return true
 	}
 
+	conflictEvidence := "{}"
+	if conflictClient, ok := client.(github.RepairConflictClient); ok {
+		conflict, conflictErr := conflictClient.RepairConflictEvidence(checkCtx, watch.Repo, watch.PullNumber)
+		if conflictErr == nil {
+			encoded, _ := json.Marshal(conflict)
+			conflictEvidence = string(encoded)
+		}
+	}
 	var checkState string
 	var checkEvidence string
 	var next time.Time
@@ -176,6 +184,9 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 		if err := c.st.ResetEliWatchRepairChain(ctx, watch.ID); err != nil {
 			c.log.Warn("could not reset an Eli repair watch chain", "watch", watch.ID, "error", err)
 		}
+	}
+	if err := c.st.SetEliRepairWatchConflict(ctx, watch.ID, watch.LeaseToken, conflictEvidence); err != nil && !errors.Is(err, store.ErrConflict) {
+		c.log.Warn("could not record an Eli conflict check", "watch", watch.ID, "error", err)
 	}
 	c.releaseEliRepairWatch(ctx, watch, pull.HeadSHA, pull.Base, pull.BaseSHA, checkState, checkEvidence, next)
 	return true

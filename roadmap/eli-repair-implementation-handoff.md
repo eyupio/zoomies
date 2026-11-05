@@ -17,19 +17,19 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1388](https://github.com/eyupio/zoomies/pull/1388): S2h pull_request webhook wakeup |
-| Investigated baseline | `c97f32a12` on `codex/eli-watch-discovery` |
-| Working branches | `codex/eli-watch-webhook` for S2h, stacked on S2g |
-| Verified code checkpoints | S1 through S2e merged through `8a827168d`; S2f in [#1384](https://github.com/eyupio/zoomies/pull/1384); S2g in [#1386](https://github.com/eyupio/zoomies/pull/1386); S2h: `2a60c7409` plus the handoff-only link commit |
-| Implementation | S2g adds explicit repository decisions and periodic discovery. S2h wakes the same create-only admission from a `pull_request` opened/reopened delivery when the App subscribes to it |
+| Latest slice | [#NEW](https://github.com/eyupio/zoomies/pull/NEW): S3a merge-conflict detection and evidence |
+| Investigated baseline | `d33c073bc` on `main` |
+| Working branches | `codex/eli-conflict-detection` for S3a |
+| Verified code checkpoints | S1 through S2h merged through `d33c073bc`; S3a implementation commit recorded after publication |
+| Implementation | S3a adds migration 0143 and records GitHub's mergeability, target tip and merge base for each watched head. It does not resolve or publish conflicts |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
-| Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379) and [#1381](https://github.com/eyupio/zoomies/pull/1381) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | S2h implemented on top of S2g and locally verified; awaits PR/CI review |
-| Next implementation | S3 merge-conflict detection and repair, then S4 UX |
-| CI snapshot | #1386 was running when this record was refreshed; this PR is stacked on it |
+| Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386) and [#1388](https://github.com/eyupio/zoomies/pull/1388) merged green; the handoff refresh merged as `07a49f664` |
+| Current slice | S3a implemented on `main` and locally verified; awaits PR/CI review |
+| Next implementation | S3b conflict resolution and two-parent publication, including the Git-engine decision, then S4 UX |
+| CI snapshot | `main` was green at `d33c073bc`; this PR's checks are separate |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
-| Persistent PR watcher | Due watches are observed, backfilled, retain per-check evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
-| Merge-conflict repair | Planned, not implemented. Admission refuses the conflicts capability until S3 exists |
+| Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
+| Merge-conflict repair | Detection and pinned evidence land in S3a; resolution and publication remain, and admission still refuses the conflicts capability until they exist |
 | Production configuration | No repository automation or model credentials changed by this work |
 
 Do not enable or advertise Baby sit or conflict-only behaviour on the strength
@@ -342,8 +342,21 @@ other PR observations; green PR remaining watched; closed PR terminating.
 
 ### S3: merge-conflict detection and repair
 
-Status: not started. Required even when CI never starts: ordinary
-`pull_request` workflows do not run while the PR has a merge conflict.
+Status: S3a detection and evidence is implemented in this PR. S3b resolution,
+two-parent publication and the Git-engine decision remain. Required even when
+CI never starts: ordinary `pull_request` workflows do not run while the PR has a
+merge conflict.
+
+S3a scope, this PR only:
+
+- [x] Read GitHub's current mergeability without guessing while it is null, and
+  pin the head, target tip and merge base for that head.
+- [x] Keep that evidence on the watch with the head it describes, written only
+  by the observation that still holds the lease.
+- [x] Detect target-branch movement through the pinned base SHA, even when the
+  head did not move.
+- [ ] Compute or resolve a three-way merge. No repository code runs and no
+  conflict is classified or published in this PR.
 
 Detection and evidence:
 
@@ -441,7 +454,8 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1381](https://github.com/eyupio/zoomies/pull/1381), merged as `8a827168d` | S2e: bounded repair chains for watched failures | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; merged green | Per-check evidence, then conflict repair and UI |
 | [#1384](https://github.com/eyupio/zoomies/pull/1384), open | S2f: per-check evidence on watched heads | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | Conflict repair and the final controls |
 | [#1386](https://github.com/eyupio/zoomies/pull/1386), open, stacked on #1384 | S2g: periodic new-PR discovery | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Webhook wakeups, conflict repair and the final controls |
-| [#1388](https://github.com/eyupio/zoomies/pull/1388), open, stacked on #1386 | S2h: pull_request webhook wakeup | Focused repair and webhook race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Conflict repair and the final controls |
+| [#1388](https://github.com/eyupio/zoomies/pull/1388), merged | S2h: pull_request webhook wakeup | Focused repair and webhook race suites, vet, staticcheck, docs and formatting pass; merged green | Conflict repair and the final controls |
+| [#NEW](https://github.com/eyupio/zoomies/pull/NEW), open | S3a: merge-conflict detection and evidence | Focused repair and conflict race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | S3b resolution and publication, then S4 UX |
 
 S1 validation on 3 November 2026:
 
@@ -649,6 +663,36 @@ Limits of this slice:
   are not retained yet. The watch records one overall state.
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S3a: merge-conflict detection and evidence, 4 November 2026
+
+This PR adds `0143` and pins the conflict facts a later resolution can trust. It
+does not compute a three-way merge, run repository code or publish anything.
+
+Validation on 4 November 2026:
+
+- `go test -race -count=1 -run 'Eli|Repair|MigrationNamesAreFixedAndNewPrefixesAreUnique|Conflict'`
+  on `./internal/controller ./internal/store ./internal/api ./internal/github`:
+  all four pass (controller 23.038s, store 38.305s, api 67.645s, github 1.310s).
+- `go test -count=1 -timeout 10m ./internal/store`: pass (74.399s), the complete
+  store suite without the race detector, including migration 0143.
+- `go vet` on those four packages and `staticcheck ./internal/controller ./internal/store ./internal/github`:
+  pass.
+- `go test ./internal/docs -count=1`: pass (25.180s), changed-file `gofmt` and
+  `git diff --check`: pass.
+- New regressions cover mergeable, conflicted and still-unknown GitHub answers,
+  the pinned merge base, recording conflict evidence and refusing a stale lease.
+
+Limits of this slice:
+
+- Detection is read-only. There is no three-way merge, conflict classification,
+  model resolution, two-parent commit or publication.
+- The Git merge engine and packaging decision from the S3 plan is still open.
+- Mergeability can remain unknown; the watch records that rather than treating it
+  as a conflict.
+- Full repository `make test-short`, browser suites, the complete store suite
+  with the race detector, a live model and end-to-end GitHub mutations were not
+  run.
 
 ### S2h: pull_request webhook wakeup, 4 November 2026
 
@@ -1011,8 +1055,9 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
    Confirm which slices merged; a branch or checked box alone is not proof.
 2. Check the working tree and live base branch. Preserve unrelated user changes.
    Review this PR before starting a new slice. For further implementation, start
-   from `codex/eli-watch-webhook` or its merged successor. Do not redo S1 through
-   S2h. The next unfinished work is conflict repair and the final UI.
+   from `codex/eli-conflict-detection` or its merged successor. Do not redo S1
+   through S3a. The next unfinished work is S3b conflict resolution and
+   publication, then the final UI.
 3. Continue the first unfinished acceptance criterion. Read the existing store,
    API and model boundaries before adding another path around them.
 4. Add regression tests for the observable behaviour and regenerate contracts
