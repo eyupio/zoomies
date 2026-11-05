@@ -130,6 +130,21 @@ func (m *mergeAttempts) answer(id string, response gitmerge.WorkerResponse) (git
 	return repo, nil
 }
 
+// forget lets go of one attempt without an answer, which is what a repair that
+// was paused, cancelled or superseded does before any agent replies. The
+// repository is handed back for removal like every other exit.
+func (m *mergeAttempts) forget(id string) (gitfetch.Repository, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	attempt, ok := m.byID[id]
+	if !ok {
+		return gitfetch.Repository{}, ErrNoMergeAttempt
+	}
+	repo := attempt.repo
+	delete(m.byID, id)
+	return repo, nil
+}
+
 // expire lets go of every attempt past its deadline and reports how many it
 // removed, so the caller can log a number rather than a guess.
 func (m *mergeAttempts) expire() []gitfetch.Repository {

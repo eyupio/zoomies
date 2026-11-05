@@ -705,6 +705,10 @@ path-safe, so the bytes can cross without either side trusting the other.
   one-shot container with the workspace mounted, and plumbing an attach into a
   container runtime for a process that runs once is a lot of machinery for two
   files. Standard streams remain the default, so the earlier examples still hold.
+- `mergeSession` is the controller's whole transport surface: prepare an incident
+  (build, pack, hold), hand its bytes out as often as an agent needs, take exactly
+  one answer, or abandon it. Every path removes the repository, and the agent's
+  endpoints become thin handlers over those three calls.
 - `mergeAttempts` is the controller's half: one prepared repository per attempt,
   fetched as often as a lost reply needs and answered exactly once. It has three
   ways to let one go (an answer, a deadline, shutdown) and every one of them
@@ -730,6 +734,12 @@ Validation on 5 November 2026, on Git 2.39.5:
   request read from a file and an answer written to one, with stdout left empty,
   and a request path that cannot be read being a usage error that names it rather
   than a hang.
+- `go test -race -count=1 -run MergeSession ./internal/controller`: pass (1.320s),
+  which drives the whole surface through the worker: an incident is prepared, its
+  bytes are unpacked elsewhere and merged there with `internal/gitmerge`, the one
+  answer is accepted, and the repository is gone. An answered attempt serves
+  nothing, an abandoned one removes its repository and cannot be abandoned twice,
+  and a pin naming a branch prepares nothing at all.
 - `staticcheck ./...` and `go build ./...`: pass.
 
 Not run: the `merge_conflict` task, the endpoints the agent pulls and posts to,
