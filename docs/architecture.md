@@ -790,9 +790,9 @@ resolved or published yet. The bounded three-way merge lives in
 `internal/gitmerge` and runs in `zoomies git-worker`, the command in the separate
 Git worker image (`deploy/Dockerfile`'s `gitworker` target, built by
 `make image-gitworker`): one JSON request on standard input, one JSON answer on
-standard output, no hooks, no external merge driver and no credentials. That image
-is not published and the controller does not start it yet. Repository-wide admission lists open pull requests
-once, within a page cap, and admits eligible ones without resuming a pause
+standard output, no hooks, no external merge driver and no credentials. CI and
+releases publish it as `ghcr.io/eyupio/zoomies-git`; the controller does not start
+it yet. Repository-wide admission lists open pull requests once, within a page cap, and admits eligible ones without resuming a pause
 recorded on one pull request; forks, drafts and other exclusions are returned as
 reasons. Repository-wide admission records a separate explicit decision for the
 repository, in its own table; a per-PR watch never implies one. A five-minute

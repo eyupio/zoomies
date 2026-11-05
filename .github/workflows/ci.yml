@@ -1390,6 +1390,7 @@ jobs:
     env:
       CONTROLLER_IMAGE: ghcr.io/eyupio/zoomies
       AGENT_IMAGE: ghcr.io/eyupio/zoomies-agent
+      GIT_WORKER_IMAGE: ghcr.io/eyupio/zoomies-git
       RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner
       RUNNER_DOCKER_IMAGE: ghcr.io/eyupio/zoomies-runner-docker
     # The runner-images job below repeats none of these decisions; it reads them
@@ -1562,6 +1563,25 @@ jobs:
             ${{ env.AGENT_IMAGE }}:main
             ${{ env.AGENT_IMAGE }}:${{ steps.tags.outputs.sha }}
 
+      - name: Build the Git worker image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: gitworker
+          platforms: ${{ steps.platforms.outputs.list }}
+          push: ${{ steps.publish.outputs.value }}
+          cache-from: type=gha,version=2,scope=ci-gitworker
+          cache-to: ${{ steps.publish.outputs.value == 'true' && 'type=gha,version=2,scope=ci-gitworker,mode=max,timeout=5m,ignore-error=true' || '' }}
+          build-args: |
+            VERSION=${{ steps.tags.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.tags.outputs.date }}
+          tags: |
+            ${{ env.GIT_WORKER_IMAGE }}:dev
+            ${{ env.GIT_WORKER_IMAGE }}:main
+            ${{ env.GIT_WORKER_IMAGE }}:${{ steps.tags.outputs.sha }}
+
       - name: Say what happened
         env:
           PUBLISH: ${{ steps.publish.outputs.value }}
@@ -1581,6 +1601,7 @@ jobs:
               echo
               echo "- \`$CONTROLLER_IMAGE:dev\`, \`:main\`, \`:$SHA_TAG\`"
               echo "- \`$AGENT_IMAGE:dev\`, \`:main\`, \`:$SHA_TAG\`"
+              echo "- \`$GIT_WORKER_IMAGE:dev\`, \`:main\`, \`:$SHA_TAG\`"
               if [ "$RUNNER_BUILT" = "true" ]; then
                 echo "- \`$RUNNER_IMAGE:dev\`, \`:main\`, \`:$SHA_TAG\`"
                 echo "- \`$RUNNER_DOCKER_IMAGE:dev\`, \`:main\`, \`:$SHA_TAG\`"
