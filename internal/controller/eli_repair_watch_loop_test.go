@@ -12,17 +12,19 @@ import (
 
 type watchLoopFake struct {
 	*repairFake
-	pull      github.RepairPull
-	pullErr   error
-	check     string
-	checkErr  error
-	pulls     int
-	checks    int
-	onPull    func()
-	openPulls []github.RepairPull
-	openCap   bool
-	openErr   error
-	openCalls int
+	pull        github.RepairPull
+	pullErr     error
+	check       string
+	checkErr    error
+	pulls       int
+	checks      int
+	onPull      func()
+	openPulls   []github.RepairPull
+	openCap     bool
+	openErr     error
+	openCalls   int
+	conflict    *github.RepairConflict
+	conflictErr error
 }
 
 func (f *watchLoopFake) RepairPull(context.Context, string, int) (github.RepairPull, error) {
@@ -47,6 +49,16 @@ func (f *watchLoopFake) RepairCheckEvidence(context.Context, string, string) (gi
 		return github.RepairCheckEvidence{}, f.checkErr
 	}
 	return github.RepairCheckEvidence{State: f.check, Total: 1, Checks: []github.RepairCheck{{Kind: "check_run", Name: "CI", Status: "completed", Conclusion: "failure", App: "github-actions"}}}, nil
+}
+
+func (f *watchLoopFake) RepairConflictEvidence(context.Context, string, int) (github.RepairConflict, error) {
+	if f.conflictErr != nil {
+		return github.RepairConflict{}, f.conflictErr
+	}
+	if f.conflict == nil {
+		return github.RepairConflict{}, nil
+	}
+	return *f.conflict, nil
 }
 
 func (f *watchLoopFake) RepairOpenPulls(context.Context, string, int) ([]github.RepairPull, bool, error) {
@@ -87,6 +99,7 @@ func watchLoopFixture(t *testing.T, h *harness) (*watchLoopFake, *store.EliRepai
 func TestADueWatchRecordsItsPullAndCheckState(t *testing.T) {
 	h := newHarness(t)
 	fake, watch, _ := watchLoopFixture(t, h)
+	fake.conflict = &github.RepairConflict{Number: 1, HeadSHA: "head-new", BaseRef: "release", BaseSHA: "base-new", MergeBaseSHA: "merge-base", Mergeable: false, MergeableKnown: true, MergeState: "dirty"}
 	started := h.c.Now()
 	if !h.c.observeDueEliRepairWatch(h.ctx) {
 		t.Fatal("the due watch was not observed")
@@ -97,7 +110,7 @@ func TestADueWatchRecordsItsPullAndCheckState(t *testing.T) {
 	}
 	if fake.pulls != 1 || fake.checks != 1 || got.HeadSHA != "head-new" || got.BaseRef != "release" ||
 		got.BaseSHA != "base-new" || got.CheckState != "failed" || got.LastObservedAt.IsZero() ||
-		!strings.Contains(got.CheckEvidence, `"name":"CI"`) {
+		!strings.Contains(got.CheckEvidence, `"name":"CI"`) || !strings.Contains(got.ConflictEvidence, `"merge_base_sha":"merge-base"`) || !strings.Contains(got.ConflictEvidence, `"mergeable":false`) {
 		t.Fatalf("observation lost: %+v, pulls=%d checks=%d", got, fake.pulls, fake.checks)
 	}
 	if got.LeaseToken != "" || got.NextCheckAt.UnixMilli() < started.Add(eliWatchPending).UnixMilli() {

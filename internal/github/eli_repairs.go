@@ -753,6 +753,74 @@ func (c *appClient) repairCheckEvidence(ctx context.Context, repo, sha string) (
 	return out, nil
 }
 
+// RepairConflict is what GitHub currently says about one pull request's target
+// branch and mergeability, with the base tip and merge base pinned for a later
+// conflict repair. MergeableKnown is false while GitHub still reports null.
+type RepairConflict struct {
+	Number         int    `json:"number"`
+	HeadSHA        string `json:"head_sha"`
+	BaseRef        string `json:"base_ref"`
+	BaseSHA        string `json:"base_sha"`
+	MergeBaseSHA   string `json:"merge_base_sha,omitempty"`
+	Mergeable      bool   `json:"mergeable"`
+	MergeableKnown bool   `json:"mergeable_known"`
+	MergeState     string `json:"merge_state,omitempty"`
+}
+
+// RepairConflictClient is the conflict-detection read a watcher uses. It is
+// separate from RepairClient so a repair client without mergeability support
+// still works.
+type RepairConflictClient interface {
+	RepairConflictEvidence(context.Context, string, int) (RepairConflict, error)
+}
+
+func (c *appClient) RepairConflictEvidence(ctx context.Context, repo string, number int) (RepairConflict, error) {
+	base, err := repairRepo(repo)
+	if err != nil {
+		return RepairConflict{}, err
+	}
+	var p struct {
+		Number         int    `json:"number"`
+		State          string `json:"state"`
+		Mergeable      *bool  `json:"mergeable"`
+		MergeableState string `json:"mergeable_state"`
+		Draft          bool   `json:"draft"`
+		Head           struct {
+			SHA  string `json:"sha"`
+			Repo struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
+		} `json:"head"`
+		Base struct {
+			Ref string `json:"ref"`
+			SHA string `json:"sha"`
+		} `json:"base"`
+	}
+	if err := c.repairRequest(ctx, http.MethodGet, base+"/pulls/"+strconv.Itoa(number), nil, &p); err != nil {
+		return RepairConflict{}, err
+	}
+	out := RepairConflict{Number: p.Number, HeadSHA: p.Head.SHA, BaseRef: p.Base.Ref, BaseSHA: p.Base.SHA, MergeState: p.MergeableState}
+	if p.State == "closed" {
+		return out, &RepairTargetChanged{Code: "closed", Message: "The pull request is closed or merged."}
+	}
+	if p.Number <= 0 || p.State != "open" || p.Head.Repo.FullName != repo || p.Draft || p.Head.SHA == "" || p.Base.SHA == "" {
+		return out, fmt.Errorf("%w: an Eli conflict check needs an open, non-draft pull request in this repository", ErrRepairUnsupported)
+	}
+	if p.Mergeable != nil {
+		out.MergeableKnown, out.Mergeable = true, *p.Mergeable
+	}
+	var compare struct {
+		MergeBaseCommit struct {
+			SHA string `json:"sha"`
+		} `json:"merge_base_commit"`
+	}
+	if err := c.repairRequest(ctx, http.MethodGet, base+"/compare/"+url.PathEscape(p.Base.SHA)+"..."+url.PathEscape(p.Head.SHA), nil, &compare); err != nil {
+		return out, err
+	}
+	out.MergeBaseSHA = compare.MergeBaseCommit.SHA
+	return out, nil
+}
+
 // RepairDiscoveryClient is the extra read a repository-wide watch needs. It is
 // separate from RepairClient so an older client can still repair one named pull
 // request without pretending it can enumerate a repository.

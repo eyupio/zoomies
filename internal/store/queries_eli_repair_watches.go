@@ -38,11 +38,12 @@ type EliRepairWatch struct {
 	LastFailure      string    `json:"last_failure_signature,omitempty"`
 	ChainStopped     string    `json:"chain_stopped_reason,omitempty"`
 	CheckEvidence    string    `json:"check_evidence,omitempty"`
+	ConflictEvidence string    `json:"conflict_evidence,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-const eliRepairWatchCols = `id,installation_id,repo,pull_number,owner_id,policy_provider_id,policy_updated_at,checks,conflicts,enabled,paused_reason,head_sha,base_ref,base_sha,last_observed_at,next_check_at,lease_token,lease_until,stop_reason,check_state,chain_attempts,last_failure_signature,chain_stopped_reason,check_evidence,created_at,updated_at`
+const eliRepairWatchCols = `id,installation_id,repo,pull_number,owner_id,policy_provider_id,policy_updated_at,checks,conflicts,enabled,paused_reason,head_sha,base_ref,base_sha,last_observed_at,next_check_at,lease_token,lease_until,stop_reason,check_state,chain_attempts,last_failure_signature,chain_stopped_reason,check_evidence,conflict_evidence,created_at,updated_at`
 
 func scanEliRepairWatch(row interface{ Scan(...any) error }) (*EliRepairWatch, error) {
 	var w EliRepairWatch
@@ -50,7 +51,7 @@ func scanEliRepairWatch(row interface{ Scan(...any) error }) (*EliRepairWatch, e
 	err := row.Scan(&w.ID, &w.InstallationID, &w.Repo, &w.PullNumber, &w.OwnerID, &w.PolicyProviderID,
 		&policyUpdated, &w.Checks, &w.Conflicts, &w.Enabled, &w.PausedReason, &w.HeadSHA,
 		&w.BaseRef, &w.BaseSHA, &lastObserved, &nextCheck, &w.LeaseToken, &leaseUntil,
-		&w.StopReason, &w.CheckState, &w.ChainAttempts, &w.LastFailure, &w.ChainStopped, &w.CheckEvidence, &created, &updated)
+		&w.StopReason, &w.CheckState, &w.ChainAttempts, &w.LastFailure, &w.ChainStopped, &w.CheckEvidence, &w.ConflictEvidence, &created, &updated)
 	if policyUpdated > 0 {
 		w.PolicyUpdatedAt = at(policyUpdated)
 	}
@@ -91,11 +92,14 @@ func (s *Store) AdmitEliRepairWatch(ctx context.Context, w EliRepairWatch) (*Eli
 			if w.CheckEvidence == "" {
 				w.CheckEvidence = "[]"
 			}
-			_, err = tx.ExecContext(ctx, `INSERT INTO eli_repair_watches(`+eliRepairWatchCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			if w.ConflictEvidence == "" {
+				w.ConflictEvidence = "{}"
+			}
+			_, err = tx.ExecContext(ctx, `INSERT INTO eli_repair_watches(`+eliRepairWatchCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				w.ID, w.InstallationID, w.Repo, w.PullNumber, w.OwnerID, w.PolicyProviderID, ms(w.PolicyUpdatedAt),
 				boolInt(w.Checks), boolInt(w.Conflicts), boolInt(w.Enabled), w.PausedReason, w.HeadSHA,
 				w.BaseRef, w.BaseSHA, ms(w.LastObservedAt), ms(w.NextCheckAt), w.LeaseToken, ms(w.LeaseUntil),
-				w.StopReason, w.CheckState, w.ChainAttempts, w.LastFailure, w.ChainStopped, w.CheckEvidence, ms(w.CreatedAt), ms(w.UpdatedAt))
+				w.StopReason, w.CheckState, w.ChainAttempts, w.LastFailure, w.ChainStopped, w.CheckEvidence, w.ConflictEvidence, ms(w.CreatedAt), ms(w.UpdatedAt))
 			if err != nil {
 				return err
 			}
@@ -173,11 +177,14 @@ func (s *Store) CreateEliRepairWatchIfAbsent(ctx context.Context, w EliRepairWat
 		if w.CheckEvidence == "" {
 			w.CheckEvidence = "[]"
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO eli_repair_watches(`+eliRepairWatchCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		if w.ConflictEvidence == "" {
+			w.ConflictEvidence = "{}"
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO eli_repair_watches(`+eliRepairWatchCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			w.ID, w.InstallationID, w.Repo, w.PullNumber, w.OwnerID, w.PolicyProviderID, ms(w.PolicyUpdatedAt),
 			boolInt(w.Checks), boolInt(w.Conflicts), boolInt(w.Enabled), w.PausedReason, w.HeadSHA,
 			w.BaseRef, w.BaseSHA, ms(w.LastObservedAt), ms(w.NextCheckAt), w.LeaseToken, ms(w.LeaseUntil),
-			w.StopReason, w.CheckState, w.ChainAttempts, w.LastFailure, w.ChainStopped, w.CheckEvidence, ms(w.CreatedAt), ms(w.UpdatedAt))
+			w.StopReason, w.CheckState, w.ChainAttempts, w.LastFailure, w.ChainStopped, w.CheckEvidence, w.ConflictEvidence, ms(w.CreatedAt), ms(w.UpdatedAt))
 		if err != nil {
 			return err
 		}
@@ -386,5 +393,19 @@ func (s *Store) EnqueueEliWatchRepair(ctx context.Context, watchID string, r *El
 // ResetEliWatchRepairChain starts a new incident after a healthy observation.
 func (s *Store) ResetEliWatchRepairChain(ctx context.Context, id string) error {
 	_, err := s.exec(ctx, `UPDATE eli_repair_watches SET chain_attempts=0,last_failure_signature='',chain_stopped_reason='',updated_at=? WHERE id=?`, ms(s.Now()), id)
+	return err
+}
+
+// SetEliRepairWatchConflict records a conflict read only if the caller still
+// holds the observation lease, so a stale read cannot replace a newer head.
+func (s *Store) SetEliRepairWatchConflict(ctx context.Context, id, token, evidence string) error {
+	result, err := s.exec(ctx, `UPDATE eli_repair_watches SET conflict_evidence=?,updated_at=? WHERE id=? AND lease_token=?`, evidence, ms(s.Now()), id, token)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err == nil && n == 0 {
+		return ErrConflict
+	}
 	return err
 }
