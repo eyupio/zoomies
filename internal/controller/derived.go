@@ -21,8 +21,9 @@ const statsEventWindow = time.Hour
 //
 // Nothing writes a row when a job ages out of the wait percentiles or a host
 // stops sending heartbeats, so nothing in the store can announce those. They
-// are worked out here after every reconcile pass and every housekeeping tick,
-// and published only when the JSON actually differs from what was last sent.
+// are worked out here on the reconcile pass and the housekeeping tick (how
+// often is publishDerivedPaced's business), and published only when the JSON
+// actually differs from what was last sent.
 // Without this the Overview's four numbers and the problems bell were the
 // only parts of the product that stayed as they were until the browser was
 // reloaded.
