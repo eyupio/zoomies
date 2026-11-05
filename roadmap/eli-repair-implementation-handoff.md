@@ -21,16 +21,19 @@ states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | The `zoomies git-worker` command and its unimplemented-publishing Git worker image, stacked on [#1391](https://github.com/eyupio/zoomies/pull/1391): S3b bounded Git merge worker foundation |
+| Latest slice | [#1396](https://github.com/eyupio/zoomies/pull/1396): decision 0017 and `internal/gitbare`, the repository the Git worker merges, stacked on #1391 |
 | Investigated baseline | `039aa7b1a` on `main` |
-| Working branches | `codex/eli-git-merge-worker` for the merge package, `codex/eli-git-worker` for the worker command and image |
+| Working branches | `codex/eli-git-merge-worker` for the merge package, the worker command and image (the command slice merged into it as `6a9cb316`), `codex/eli-git-fetch` for the repository writer |
 | Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b package: `e7f482f5`; S3b worker command and image: this branch |
 | Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds (unpublished: no workflow names it yet) |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | The worker command and image are implemented and locally verified; the controller cannot reach the worker yet |
-| Next implementation | The controller's sanitised bare-repository fetch, the worker transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
+| Current slice | The repository writer is implemented and locally verified; nothing downloads an archive or calls it yet, and the pool has not yet reported on either open PR |
+| Next implementation | The archive download and the controller fetch that uses the writer, the worker transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
 | CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
+| Current slice | The repository writer is implemented and locally verified; nothing downloads an archive or calls it yet |
+| Next implementation | The archive download and the controller fetch that uses the writer, the worker transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
+| CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while #1391's `What changed` job stayed queued for over an hour. Every package these branches touch was green locally, with the exact commands above. Recheck the live PRs before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
 | Merge-conflict repair | Detection is in S3a; decision 0016, the bounded merge package, the worker command and the worker image are in S3b. The controller fetch and transport, model resolution and publication remain, and admission still refuses the conflicts capability |
@@ -475,7 +478,8 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1388](https://github.com/eyupio/zoomies/pull/1388), merged | S2h: pull_request webhook wakeup | Focused repair and webhook race suites, vet, staticcheck, docs and formatting pass; merged green | Conflict repair and the final controls |
 | [#1389](https://github.com/eyupio/zoomies/pull/1389), merged as `039aa7b1a` | S3a: merge-conflict detection and evidence | Focused repair and conflict race suites, full store suite, vet, staticcheck, docs and formatting pass; merged green | S3b resolution and publication, then S4 UX |
 | [#1391](https://github.com/eyupio/zoomies/pull/1391), open | S3b: bounded Git merge worker foundation, and the `--merge-base` portability fix below | `internal/gitmerge` race tests against real repositories on Git 2.39.5, vet, staticcheck, docs and formatting pass; no runtime surface yet | Worker command, image, transport, model resolution and publication |
-| [#1395](https://github.com/eyupio/zoomies/pull/1395), open, stacked on #1391 | S3b: the `git-worker` command, its bounded protocol and its image target | `internal/gitmerge` and `cmd/zoomies` race suites, the docs suite from a clean worktree, build, vet and formatting pass; the image is built by `make image-gitworker` but is not published | Workflow wiring for the image (needs `workflows` permission), then the controller fetch, transport and cleanup |
+| [#1395](https://github.com/eyupio/zoomies/pull/1395), merged into #1391's branch as `6a9cb316` | S3b: the `git-worker` command, its bounded protocol and its image target | `internal/gitmerge` and `cmd/zoomies` race suites, the docs suite from a clean worktree, build, vet and formatting pass; the image is built by `make image-gitworker` but is not published | Workflow wiring for the image (needs `workflows` permission), then the controller fetch, transport and cleanup |
+| [#1396](https://github.com/eyupio/zoomies/pull/1396), open, stacked on #1391 | S3b: decision 0017 and `internal/gitbare`, the bare repository the worker merges | `internal/gitbare` race tests, including an end-to-end merge of a reconstructed repository through `internal/gitmerge`, vet and formatting pass; no caller yet | The archive download, the controller fetch, the worker transport, timeouts and cleanup |
 
 S1 validation on 3 November 2026:
 
