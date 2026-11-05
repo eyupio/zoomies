@@ -701,6 +701,13 @@ path-safe, so the bytes can cross without either side trusting the other.
   with `..`, an entry that is neither a file nor a directory, and a tarball past
   its budget. It sets each file's mode after writing, because `WriteFile` applies
   the umask and Git will not trust a loose object that can be rewritten.
+- `mergeAttempts` is the controller's half: one prepared repository per attempt,
+  fetched as often as a lost reply needs and answered exactly once. It has three
+  ways to let one go (an answer, a deadline, shutdown) and every one of them
+  removes the temporary directory, so a controller that leaked one per conflict
+  would not fill its own disk with the evidence of repairs it gave up on. A
+  duplicate answer or a pull after answering says so rather than pretending the
+  attempt never existed.
 
 Validation on 5 November 2026, on Git 2.39.5:
 
@@ -710,6 +717,11 @@ Validation on 5 November 2026, on Git 2.39.5:
   the unpacked loose objects are checked read-only; and each refusal is covered:
   a byte budget, a body that is not a tarball, a path that climbs out, and a
   symlink at pack time.
+- `go test -race -count=1 -run MergeAttempt ./internal/controller`: pass (1.064s).
+  An attempt is fetchable until it is answered; a second answer and a pull after
+  answering each say which they are; a deadline removes the repository and the
+  entry; the cap refuses a further attempt; and shutdown gives back every
+  repository it holds, including none of the ones it never held.
 - `staticcheck ./...` and `go build ./...`: pass.
 
 Not run: the `merge_conflict` task, the endpoints the agent pulls and posts to,
