@@ -352,3 +352,27 @@ func TestARepeatedWatchCheckDoesNotSpendASecondAttempt(t *testing.T) {
 		t.Fatalf("a repeated check changed the chain: %+v, %v", got, err)
 	}
 }
+
+func TestAConflictCheckNeedsTheLiveObservationLease(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	inst := watchInstallation(t, s)
+	w, err := s.AdmitEliRepairWatch(ctx, EliRepairWatch{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, OwnerID: "usr_one", Checks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.ClaimDueEliRepairWatch(ctx, s.Now().Add(time.Second), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEliRepairWatchConflict(ctx, w.ID, "stale", `{"mergeable":false}`); err != ErrConflict {
+		t.Fatalf("a stale conflict read was accepted: %v", err)
+	}
+	if err := s.SetEliRepairWatchConflict(ctx, w.ID, claimed.LeaseToken, `{"mergeable":false,"mergeable_known":true}`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.EliRepairWatch(ctx, w.ID)
+	if err != nil || !strings.Contains(got.ConflictEvidence, `"mergeable":false`) {
+		t.Fatalf("conflict evidence %+v, %v", got, err)
+	}
+}

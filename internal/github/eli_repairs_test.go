@@ -557,3 +557,46 @@ func TestRepairCheckEvidenceKeepsEachProducerAndOutcome(t *testing.T) {
 		t.Fatalf("legacy status evidence lost: %+v", got.Checks[1])
 	}
 }
+
+func TestRepairConflictEvidencePinsMergeabilityAndMergeBase(t *testing.T) {
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/acme/repo/pulls/7":
+			w.Write([]byte(`{"number":7,"state":"open","mergeable":false,"mergeable_state":"dirty","head":{"sha":"head","repo":{"full_name":"acme/repo"}},"base":{"ref":"main","sha":"base"}}`))
+		case "/repos/acme/repo/compare/base...head":
+			w.Write([]byte(`{"merge_base_commit":{"sha":"merge-base"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	got, err := c.RepairConflictEvidence(t.Context(), "acme/repo", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.HeadSHA != "head" || got.BaseRef != "main" || got.BaseSHA != "base" || got.MergeBaseSHA != "merge-base" ||
+		!got.MergeableKnown || got.Mergeable || got.MergeState != "dirty" {
+		t.Fatalf("conflict evidence %+v", got)
+	}
+}
+
+func TestRepairConflictEvidenceLeavesUnknownMergeabilityUnknown(t *testing.T) {
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/acme/repo/pulls/7":
+			w.Write([]byte(`{"number":7,"state":"open","mergeable":null,"head":{"sha":"head","repo":{"full_name":"acme/repo"}},"base":{"ref":"main","sha":"base"}}`))
+		case "/repos/acme/repo/compare/base...head":
+			w.Write([]byte(`{"merge_base_commit":{"sha":"merge-base"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	got, err := c.RepairConflictEvidence(t.Context(), "acme/repo", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MergeableKnown || got.MergeBaseSHA != "merge-base" {
+		t.Fatalf("unknown mergeability was guessed: %+v", got)
+	}
+}

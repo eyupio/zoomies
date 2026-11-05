@@ -170,13 +170,27 @@ func (c *Controller) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 		c.recordDelivery(ctx, d, "accepted", note)
 		w.WriteHeader(http.StatusAccepted)
+	case event == "pull_request":
+		if err := c.admitWatchFromPullRequestWebhook(ctx, inst, body); err != nil {
+			if errors.Is(err, errMalformedDelivery) {
+				c.recordDelivery(ctx, d, "rejected", err.Error())
+				http.Error(w, "the delivery body is not a pull_request event this controller can read", http.StatusBadRequest)
+				return
+			}
+			c.recordDelivery(ctx, d, "error", err.Error())
+			http.Error(w, "the watched pull request could not be read", http.StatusInternalServerError)
+			return
+		}
+		c.recordDelivery(ctx, d, "accepted", note)
+		w.WriteHeader(http.StatusAccepted)
 	default:
-		// Zoomies subscribes to workflow_job and issue_comment; anything else
-		// is recorded so the delivery log explains what is arriving and ignored.
+		// Zoomies acts on workflow_job, issue_comment and pull_request;
+		// anything else is recorded so the delivery log explains what is
+		// arriving and ignored.
 		c.recordDelivery(ctx, d, "accepted", note)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":      true,
-			"message": fmt.Sprintf("Zoomies does not act on %q events; supported events are workflow_job and issue_comment", event),
+			"message": fmt.Sprintf("Zoomies does not act on %q events; supported events are workflow_job, issue_comment and pull_request", event),
 		})
 	}
 }

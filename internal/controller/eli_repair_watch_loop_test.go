@@ -12,16 +12,19 @@ import (
 
 type watchLoopFake struct {
 	*repairFake
-	pull      github.RepairPull
-	pullErr   error
-	check     string
-	checkErr  error
-	pulls     int
-	checks    int
-	onPull    func()
-	openPulls []github.RepairPull
-	openCap   bool
-	openErr   error
+	pull        github.RepairPull
+	pullErr     error
+	check       string
+	checkErr    error
+	pulls       int
+	checks      int
+	onPull      func()
+	openPulls   []github.RepairPull
+	openCap     bool
+	openErr     error
+	openCalls   int
+	conflict    *github.RepairConflict
+	conflictErr error
 }
 
 func (f *watchLoopFake) RepairPull(context.Context, string, int) (github.RepairPull, error) {
@@ -48,7 +51,18 @@ func (f *watchLoopFake) RepairCheckEvidence(context.Context, string, string) (gi
 	return github.RepairCheckEvidence{State: f.check, Total: 1, Checks: []github.RepairCheck{{Kind: "check_run", Name: "CI", Status: "completed", Conclusion: "failure", App: "github-actions"}}}, nil
 }
 
+func (f *watchLoopFake) RepairConflictEvidence(context.Context, string, int) (github.RepairConflict, error) {
+	if f.conflictErr != nil {
+		return github.RepairConflict{}, f.conflictErr
+	}
+	if f.conflict == nil {
+		return github.RepairConflict{}, nil
+	}
+	return *f.conflict, nil
+}
+
 func (f *watchLoopFake) RepairOpenPulls(context.Context, string, int) ([]github.RepairPull, bool, error) {
+	f.openCalls++
 	if f.openErr != nil {
 		return nil, false, f.openErr
 	}
@@ -85,6 +99,7 @@ func watchLoopFixture(t *testing.T, h *harness) (*watchLoopFake, *store.EliRepai
 func TestADueWatchRecordsItsPullAndCheckState(t *testing.T) {
 	h := newHarness(t)
 	fake, watch, _ := watchLoopFixture(t, h)
+	fake.conflict = &github.RepairConflict{Number: 1, HeadSHA: "head-new", BaseRef: "release", BaseSHA: "base-new", MergeBaseSHA: "merge-base", Mergeable: false, MergeableKnown: true, MergeState: "dirty"}
 	started := h.c.Now()
 	if !h.c.observeDueEliRepairWatch(h.ctx) {
 		t.Fatal("the due watch was not observed")
@@ -95,7 +110,7 @@ func TestADueWatchRecordsItsPullAndCheckState(t *testing.T) {
 	}
 	if fake.pulls != 1 || fake.checks != 1 || got.HeadSHA != "head-new" || got.BaseRef != "release" ||
 		got.BaseSHA != "base-new" || got.CheckState != "failed" || got.LastObservedAt.IsZero() ||
-		!strings.Contains(got.CheckEvidence, `"name":"CI"`) {
+		!strings.Contains(got.CheckEvidence, `"name":"CI"`) || !strings.Contains(got.ConflictEvidence, `"merge_base_sha":"merge-base"`) || !strings.Contains(got.ConflictEvidence, `"mergeable":false`) {
 		t.Fatalf("observation lost: %+v, pulls=%d checks=%d", got, fake.pulls, fake.checks)
 	}
 	if got.LeaseToken != "" || got.NextCheckAt.UnixMilli() < started.Add(eliWatchPending).UnixMilli() {
@@ -233,6 +248,10 @@ func TestRepositoryAdmissionBackfillsEligiblePullsAndShowsExclusions(t *testing.
 	if err != nil || len(watches) != 1 || watches[0].PullNumber != 1 || !watches[0].Checks {
 		t.Fatalf("watches %+v, %v", watches, err)
 	}
+	subscriptions, err := h.st.EliRepairWatchRepositories(h.ctx)
+	if err != nil || len(subscriptions) != 1 || subscriptions[0].Repo != repo || !subscriptions[0].Enabled {
+		t.Fatalf("repository decision not recorded: %+v, %v", subscriptions, err)
+	}
 }
 
 func TestRepositoryAdmissionLeavesAnExistingPauseAlone(t *testing.T) {
@@ -355,5 +374,52 @@ func TestAQueuedWatchRepairStopsWhenTheWatchWasPaused(t *testing.T) {
 	got, err := h.st.GetEliRepair(h.ctx, r.ID, "", false)
 	if err != nil || got.State != "blocked" || !strings.Contains(got.Message, "paused") {
 		t.Fatalf("a paused watch did not stop its queued repair: %+v, %v", got, err)
+	}
+}
+
+func TestPeriodicDiscoveryAdmitsOnlyNewEligiblePulls(t *testing.T) {
+	h := newHarness(t)
+	fake, watch, inst := watchLoopFixture(t, h)
+	if _, err := h.st.SetEliRepairWatchRepository(h.ctx, store.EliRepairWatchRepository{
+		InstallationID: inst.ID, Repo: watch.Repo, OwnerID: watch.OwnerID, Checks: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fake.openPulls = []github.RepairPull{
+		{Number: 1, Title: "already watched", Open: true, HeadSHA: "head-1", Branch: "fix-1", Base: "main", BaseSHA: "base-1"},
+		{Number: 2, Title: "new", Open: true, HeadSHA: "head-2", Branch: "fix-2", Base: "main", BaseSHA: "base-2"},
+		{Number: 3, Title: "draft", Open: true, HeadSHA: "head-3", Branch: "fix-3", Draft: true},
+	}
+	h.c.discoverEliRepairWatches(h.ctx)
+	if fake.openCalls != 1 {
+		t.Fatalf("open pulls called %d times", fake.openCalls)
+	}
+	watches, err := h.st.EliRepairWatches(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(watches) != 2 {
+		t.Fatalf("watches %+v", watches)
+	}
+	byPull := map[int]*store.EliRepairWatch{}
+	for _, w := range watches {
+		byPull[w.PullNumber] = w
+	}
+	if byPull[1] == nil || byPull[2] == nil || byPull[3] != nil || byPull[2].OwnerID != watch.OwnerID {
+		t.Fatalf("new watch admission %+v", byPull)
+	}
+}
+
+func TestPeriodicDiscoveryDoesNotInferARepositoryFromOnePRWatch(t *testing.T) {
+	h := newHarness(t)
+	fake, _, _ := watchLoopFixture(t, h)
+	fake.openPulls = []github.RepairPull{{Number: 2, Title: "new", Open: true, HeadSHA: "head-2", Branch: "fix-2", Base: "main"}}
+	h.c.discoverEliRepairWatches(h.ctx)
+	if fake.openCalls != 0 {
+		t.Fatalf("a per-PR watch admitted a repository-wide scan %d times", fake.openCalls)
+	}
+	watches, err := h.st.EliRepairWatches(h.ctx)
+	if err != nil || len(watches) != 1 {
+		t.Fatalf("a per-PR watch admitted another watch: %+v, %v", watches, err)
 	}
 }
