@@ -31,7 +31,16 @@ const statsEventWindow = time.Hour
 // only when some subscriber asked for the kind of event it makes: a controller
 // nobody is watching should not do the watchers' work, and neither should one
 // whose only watcher is following jobs.
-func (c *Controller) publishDerived(ctx context.Context) {
+func (c *Controller) publishDerived(ctx context.Context) { c.runDerived(ctx, false) }
+
+// publishDerivedPaced is publishDerived for the callers that come round on their
+// own, the scheduling pass and the housekeeping tick: it leaves the figures alone
+// when they were worked out less than derivedGap ago. What an operator did, a
+// Kennel action or an update plan, calls publishDerived and is shown at once,
+// because somebody is looking at the page for it.
+func (c *Controller) publishDerivedPaced(ctx context.Context) { c.runDerived(ctx, true) }
+
+func (c *Controller) runDerived(ctx context.Context, paced bool) {
 	if c.bus == nil || ctx.Err() != nil {
 		return
 	}
@@ -44,13 +53,26 @@ func (c *Controller) publishDerived(ctx context.Context) {
 		return
 	}
 
-	// Called from seven places, so the whole is timed here and not by each of
-	// them. The parts are timed apart because they are very different sizes,
-	// and the one that is large on a big fleet is the one worth caching.
-	defer c.stepTimer(loopDerived, stepAll)()
-
 	c.derivedMu.Lock()
 	defer c.derivedMu.Unlock()
+	// Decided under the lock, so that two paced callers arriving together do not
+	// both work the figures out: the second waits, finds the first has just
+	// finished and has nothing to add.
+	if paced && !c.derivedDue() {
+		c.metrics.derivedPaced.Inc()
+		return
+	}
+	// Called from several places, so the whole is timed here and not by each of
+	// them, and after the decision, so that a call that left the figures alone is
+	// not counted as a run of them. The parts are timed apart because they are
+	// very different sizes, and the one that is large on a big fleet is the one
+	// worth caching.
+	defer c.stepTimer(loopDerived, stepAll)()
+	started := c.derivedNow()
+	defer func() {
+		finished := c.derivedNow()
+		c.derivedPace.last, c.derivedPace.took = finished, max(finished.Sub(started), 0)
+	}()
 	// One set of reads for the figures below, so that the statistics, the
 	// problems list, the update status and the host views read the fleet once
 	// between them and not once each.
@@ -136,6 +158,58 @@ func (c *Controller) publishDerived(ctx context.Context) {
 		}
 		done()
 	}
+}
+
+// How long the scheduling pass and the housekeeping tick leave the figures alone
+// after working them out.
+//
+// A busy fleet nudges the scheduler every few seconds, and the figures cost a
+// tenth of a second to a second to work out, so doing it after every pass spent a
+// quarter of the controller's time on frames that said what the last one had. The
+// gap is derivedIdleFactor times as long as the work took, which keeps the work to
+// a tenth of the controller's time however large the fleet is, and never less than
+// derivedMinGap, so that a small fleet's cheap work is still not repeated every
+// pass. It is never more than derivedMaxGap, so that a change waits at most about
+// as long as the housekeeping tick takes to come round and say so.
+const (
+	derivedMinGap     = 5 * time.Second
+	derivedMaxGap     = 30 * time.Second
+	derivedIdleFactor = 9
+)
+
+// derivedPacing is what the pacing remembers: the clock it is measured on (the
+// controller's, unless a test replaces it, as a benchmark does to move pacing
+// time without ageing every host's heartbeat with it), when the last run
+// finished, and how long that run took. It is guarded by derivedMu.
+type derivedPacing struct {
+	now  func() time.Time
+	last time.Time
+	took time.Duration
+}
+
+// derivedGap is how long after a run that took this long the paced callers leave
+// the figures alone.
+func derivedGap(took time.Duration) time.Duration {
+	return min(max(derivedIdleFactor*took, derivedMinGap), derivedMaxGap)
+}
+
+func (c *Controller) derivedNow() time.Time {
+	if c.derivedPace.now != nil {
+		return c.derivedPace.now()
+	}
+	return c.Now()
+}
+
+// derivedDue says whether the paced callers may work the figures out now. Called
+// with derivedMu held. A clock that has gone back is no reason to trust a
+// moment that is now in its future.
+func (c *Controller) derivedDue() bool {
+	p := &c.derivedPace
+	if p.last.IsZero() {
+		return true
+	}
+	now := c.derivedNow()
+	return now.Before(p.last) || now.Sub(p.last) >= derivedGap(p.took)
 }
 
 // derivedWant is which of the figures a pass works out for the stream some

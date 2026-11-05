@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
@@ -198,6 +200,122 @@ func TestAStatisticsSubscriberIsNotChargedForTheProblemsList(t *testing.T) {
 	nextOfKind(t, sub, events.KindStats)
 	if h.c.lastProblems != nil || h.c.lastKennel != nil || h.c.lastHosts != nil {
 		t.Error("a pass worked out the problems list, Kennel Club or the host cards for a subscriber that asked for the statistics")
+	}
+}
+
+// A busy fleet nudges the scheduler every few seconds, and the figures worked out
+// for the stream cost a tenth of a second or more, so working them out after every
+// pass spent a quarter of the controller's time on frames that said what the last
+// one had. The pass that follows within the gap leaves them alone; the one after
+// it says what changed, so a change is shown a few seconds late and not missed.
+func TestAPassSoonAfterOneThatWorkedTheFiguresOutLeavesThemAlone(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	h.pacedByTheClock()
+	sub := h.listen(events.KindStats)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	nextOfKind(t, sub, events.KindStats)
+	paced := testutil.ToFloat64(h.c.metrics.derivedPaced)
+
+	// A job arrives and the next pass follows straight after: inside the gap.
+	h.deliverJob(jobEvent{Action: "queued", JobID: 1, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile inside the gap: %v", err)
+	}
+	nothingFor(t, sub)
+	if got := testutil.ToFloat64(h.c.metrics.derivedPaced) - paced; got != 1 {
+		t.Errorf("a pass inside the gap was counted as left alone %v time(s); want once", got)
+	}
+
+	// Once the gap has passed the next pass says what changed.
+	h.advance(derivedMinGap)
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile after the gap: %v", err)
+	}
+	stats := nextOfKind(t, sub, events.KindStats)
+	if got := stats["queued_jobs"]; got != float64(1) {
+		t.Errorf("the pass after the gap told the stream queued_jobs = %v; want the 1 it had missed", got)
+	}
+	if got := testutil.ToFloat64(h.c.metrics.derivedPaced) - paced; got != 1 {
+		t.Errorf("a pass after the gap was counted as left alone: %v in all; want the one before it", got)
+	}
+}
+
+// The gap is what keeps the work to about a tenth of the controller's time
+// however large the fleet grows: it waits nine times as long as the work took,
+// no sooner than the floor, and never so long that a change waits half a minute
+// for the housekeeping tick to come round.
+func TestTheGapGrowsWithWhatTheFiguresCostAndIsCapped(t *testing.T) {
+	for _, tc := range []struct {
+		took, want time.Duration
+	}{
+		{0, 5 * time.Second},
+		{50 * time.Millisecond, 5 * time.Second},
+		{500 * time.Millisecond, 5 * time.Second},
+		{time.Second, 9 * time.Second},
+		{2 * time.Second, 18 * time.Second},
+		{4 * time.Second, 30 * time.Second},
+		{time.Minute, 30 * time.Second},
+	} {
+		if got := derivedGap(tc.took); got != tc.want {
+			t.Errorf("after work that took %s the gap is %s; want %s", tc.took, got, tc.want)
+		}
+	}
+}
+
+// The gap is for the callers that come round on their own. What an operator did,
+// a Kennel action or an update plan, is shown at once, because somebody is
+// looking at the page for it.
+func TestWhatAnOperatorDidIsNeverHeldBackByTheGap(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	h.pacedByTheClock()
+	sub := h.listen(events.KindStats)
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	nextOfKind(t, sub, events.KindStats)
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 1, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	h.c.publishDerived(h.ctx)
+	stats := nextOfKind(t, sub, events.KindStats)
+	if got := stats["queued_jobs"]; got != float64(1) {
+		t.Errorf("an operator-driven refresh told the stream queued_jobs = %v; want 1 with no wait", got)
+	}
+
+	// And it counts as the figures having just been worked out, so the pass that
+	// follows has nothing to add.
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	nothingFor(t, sub)
+}
+
+// A clock that has gone back is no reason to hold the figures back until it
+// catches up with the moment they were last worked out.
+func TestAClockThatWentBackDoesNotHoldTheFiguresBack(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	now := time.Now()
+	h.c.derivedPace.now = func() time.Time { return now }
+	sub := h.listen(events.KindStats)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	nextOfKind(t, sub, events.KindStats)
+
+	now = now.Add(-time.Hour)
+	h.deliverJob(jobEvent{Action: "queued", JobID: 1, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile after the clock went back: %v", err)
+	}
+	stats := nextOfKind(t, sub, events.KindStats)
+	if got := stats["queued_jobs"]; got != float64(1) {
+		t.Errorf("after the clock went back the stream was told queued_jobs = %v; want 1", got)
 	}
 }
 

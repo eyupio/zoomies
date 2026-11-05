@@ -765,8 +765,10 @@ client ever has to poll or ask the operator to reload:
   A `*.deleted` frame carries `{ "id": … }` and nothing else.
 * **`stats`, `problems.updated` and a host's own numbers are computed, not
   stored**, so no row change can announce them. The controller works them out
-  after every reconcile pass and every housekeeping tick, and sends each only
-  when its JSON changed. `stats` summarises the same one-hour window
+  on the reconcile pass and the housekeeping tick, no more often than every few
+  seconds (five at least, and longer when the work is dear, so that it stays
+  about a tenth of the controller's time), and sends each only when its JSON
+  changed. `stats` summarises the same one-hour window
   `GET /stats` defaults to; `problems.updated` is the whole `GET /problems`
   response, narrowed to each subscriber's audience as it is sent; the frame is
   rendered once and filtered per connection, the way a pool frame's `env` values
@@ -776,7 +778,11 @@ client ever has to poll or ask the operator to reload:
   an agent checking in moves the card with no row change to announce it. Each
   host whose rendered view differs from the one last sent gets a `host.updated`;
   a host nobody has touched marshals to the same bytes and gets nothing. None of
-  this is computed while nobody is connected to the stream. `kennel.summary` is
+  this is computed while nobody is connected to the stream, and each piece is
+  computed only if some connection asked for its kind: a stream opened with
+  `?kinds=job.updated` is not charged for `stats` or `problems.updated`, while
+  one that names no kinds, as the web UI's does, is owed all of them.
+  `kennel.summary` is
   the same idea for Kennel Club: it is `GET /kennel` whole, sent when it changes,
   because nothing writes a row when an evaluation grows older. `kennel.updated`
   is one repository's `GET` shape and `kennel.deleted` carries `{ "id": … }`.

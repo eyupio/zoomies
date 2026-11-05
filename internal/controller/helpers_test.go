@@ -164,9 +164,23 @@ func newHarnessAt(t testing.TB, clock func() time.Time) *harness {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	// Most tests are about what a pass announces, not when, and they run several
+	// passes a few milliseconds apart and expect each to work the figures out.
+	// Pacing is what the controller does by default and has tests of its own, so
+	// everywhere else it is given a clock that has moved on by more than any gap
+	// each time it is read, and every pass is due. A test about the pacing hands
+	// it back to the controller's clock with pacedByTheClock.
+	var ticks atomic.Int64
+	c.derivedPace.now = func() time.Time {
+		return time.Unix(0, 0).Add(time.Duration(ticks.Add(1)) * 2 * derivedMaxGap)
+	}
 	return &harness{t: t, c: c, st: st, gh: gh, factory: factory, key: key, cfg: cfg, ctx: ctx,
 		offset: offset, fake: fake, providers: providers, updateDir: updateDir}
 }
+
+// pacedByTheClock puts the pacing of the figures worked out for the stream back
+// on the controller's clock, which advance moves, as it is in production.
+func (h *harness) pacedByTheClock() { h.c.derivedPace.now = nil }
 
 // sharedFakeFactory hands out one fake rather than building a new one per
 // call, which is what lets a test ask the provider what it was asked to do.

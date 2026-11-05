@@ -430,7 +430,11 @@ type Controller struct {
 	// payloads, which the reconcile loop and the housekeeping loop both
 	// compare against, and of each host, which every publisher records so the
 	// pass's diff does not send a frame that has just gone out.
-	derivedMu    sync.Mutex
+	derivedMu sync.Mutex
+	// derivedPace is when the figures were last worked out and what it cost, which
+	// is what the scheduling pass and the housekeeping tick are paced by. It is
+	// guarded by derivedMu with the rest.
+	derivedPace  derivedPacing
 	lastStats    []byte
 	lastProblems []byte
 	// lastKennel is the Overview's document as it was last sent.
