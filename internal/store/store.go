@@ -96,6 +96,20 @@ var ErrJoinTokenScope = errors.New("join token was issued for a different machin
 // checkpoint resets it; see the journal_size_limit pragma in Open.
 const walSizeLimit = 16 << 20
 
+// mmapSize is how much of the database file each connection may map into the
+// process, see the mmap_size pragma in Open.
+//
+// A scan of a month of job history reads most of the file, and without a map
+// every page of it is a system call. With one the page is already in the
+// operating system's cache and the read is a copy, which took the scans the
+// controller repeats (Kennel Club's served-repositories count, the week of peaks
+// the problems list reads) from half to a quarter of the time on a seven hundred
+// megabyte file. It is a ceiling and not a reservation: SQLite maps what the file
+// holds, up to this, and the pages are the cache's, which the kernel takes back
+// when it needs the memory. A file larger than this is mapped for its first
+// gigabyte and read the old way beyond it.
+const mmapSize = 1 << 30
+
 // Store is the single owner of the SQLite database.
 //
 // SQLite allows exactly one writer at a time. Rather than hope callers behave,
@@ -203,6 +217,7 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 				"foreign_keys(1)",
 				"synchronous(NORMAL)",
 				"journal_size_limit(" + strconv.Itoa(walSizeLimit) + ")",
+				"mmap_size(" + strconv.Itoa(mmapSize) + ")",
 			},
 			"_txlock": []string{"immediate"},
 		}.Encode()
