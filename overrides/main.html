@@ -50,6 +50,18 @@
 
 {% block extrahead %}
   {#
+    The full-width layouts have no sidebar on a desktop screen. The rule that
+    hides it in showcase-material.css is `:has(> .site-home)`, and the sidebar
+    comes before the content in the markup, so while the browser is still
+    parsing the page that selector has nothing to match and the unstyled
+    navigation flashes on the left of a blank page. The layout is known here, in
+    the head, before any of the body arrives, so say it plainly instead of
+    waiting for the parser to find out.
+  #}
+  {% if layout in ['home', 'hub', 'guides', 'compare', 'article'] %}
+  <style>@media (min-width:76.25em){.md-sidebar[id=zoomies-navigation]{display:none}}</style>
+  {% endif %}
+  {#
     Cloudflare Web Analytics: a cookieless page-view counter that sets nothing
     on the reader's device and keeps no per-visitor profile. It is the only
     third-party script the site loads, so docs/privacy.md names it and
