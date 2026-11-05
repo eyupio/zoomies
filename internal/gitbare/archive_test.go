@@ -37,7 +37,7 @@ func archive(t *testing.T, entries ...tarEntry) []byte {
 			Typeflag: entry.kind,
 			Linkname: entry.linkname,
 		}
-		if entry.kind == tar.TypeReg || entry.kind == tar.TypeRegA {
+		if entry.kind == tar.TypeReg {
 			header.Size = int64(len(entry.content))
 		}
 		if err := writer.WriteHeader(header); err != nil {

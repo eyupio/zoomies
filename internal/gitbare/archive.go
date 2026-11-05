@@ -120,6 +120,12 @@ func ReadTarGz(r io.Reader, opts ArchiveOptions) ([]File, error) {
 	return files, nil
 }
 
+// typeRegOld is the pre-POSIX marker for a regular file, which some archives
+// still write. It is spelled here rather than taken from archive/tar because
+// that constant is deprecated: the marker did not stop existing, the name for it
+// did.
+const typeRegOld = 0
+
 // archiveMode maps a tar header to the Git mode the file it describes has.
 //
 // The two that matter are executable and not, and the symlink is its own mode
@@ -127,7 +133,7 @@ func ReadTarGz(r io.Reader, opts ArchiveOptions) ([]File, error) {
 // refused by the caller.
 func archiveMode(header *tar.Header) (string, bool) {
 	switch header.Typeflag {
-	case tar.TypeReg, tar.TypeRegA:
+	case tar.TypeReg, typeRegOld:
 		if header.Mode&0o111 != 0 {
 			return "100755", true
 		}
