@@ -33,6 +33,10 @@ import (
 type FakeGitHub struct {
 	srv *httptest.Server
 
+	// archives is what a commit's tarball holds, keyed by "repo@commit".
+	archiveMu sync.Mutex
+	archives  map[string]*fakeArchive
+
 	mu             sync.Mutex
 	appID          int64
 	installationID int64
@@ -193,6 +197,11 @@ func (f *FakeGitHub) Client(target string, kind store.TargetType) Client {
 		panic("github: fake: " + err.Error())
 	}
 	ac := newAppClient(c, c, target, kind, f.installationID, "https://github.com")
+	// The archive read takes two transports in production, the installation one
+	// and a bare one for the storage the API redirects to. A client from the
+	// fake has both, so a test exercises that split rather than a shortcut.
+	ac.http = &http.Client{Transport: f.srv.Client().Transport, Timeout: time.Minute}
+	ac.archiveHTTP = &http.Client{Transport: f.srv.Client().Transport, Timeout: time.Minute}
 	// Kennel Club's reads go through the conditional client in production, so a
 	// test of them must too, or it would pass while the real path was broken.
 	ac.enableConditionalReads(newConditionalCache(conditionalCacheBytes), "fake|"+strconv.FormatInt(f.installationID, 10))
@@ -466,6 +475,10 @@ func (f *FakeGitHub) handler() http.Handler {
 	mux.HandleFunc("POST /app/installations/{id}/access_tokens", f.createInstallationToken)
 	mux.HandleFunc("GET /installation/repositories", f.listInstallationRepos)
 	mux.HandleFunc("GET /rate_limit", f.getRateLimit)
+	// A commit's archive: the API redirects to storage, and storage refuses a
+	// request that carries a credential, as the two-request split demands.
+	mux.HandleFunc("GET /repos/{owner}/{repo}/tarball/{ref}", f.serveTarball)
+	mux.HandleFunc("GET /archives/{owner}/{repo}/{ref}", f.serveArchive)
 	// The repair flow's identity read. Served like the rest of the fake: a
 	// login nobody registered is not a collaborator GitHub would tell us
 	// about either.

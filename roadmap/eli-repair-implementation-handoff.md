@@ -21,19 +21,19 @@ states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | The `zoomies git-worker` command and its unimplemented-publishing Git worker image, stacked on [#1391](https://github.com/eyupio/zoomies/pull/1391): S3b bounded Git merge worker foundation |
+| Latest slice | the controller side of the fetch: the archive download, the commit read, the `gitfetch` adapter and `mergeRepository`, stacked on #1399 |
 | Investigated baseline | `039aa7b1a` on `main` |
-| Working branches | `codex/eli-git-merge-worker` for the merge package, `codex/eli-git-worker` for the worker command and image |
+| Working branches | `codex/eli-git-merge-worker` for the merge package, the worker command and image (the command slice merged into it as `6a9cb316`), `codex/eli-git-fetch` for the repository writer and the fetch |
 | Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b package: `e7f482f5`; S3b worker command and image: this branch |
-| Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds (unpublished: no workflow names it yet) |
+| Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds, whose publication #1398 wires for the merge into `main` |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | The worker command and image are implemented and locally verified; the controller cannot reach the worker yet |
-| Next implementation | The controller's sanitised bare-repository fetch, the worker transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
+| Current slice | The controller can prepare the repository a repair merges in, and the worker merges it end to end in a test; the agent transport is still to write |
+| Next implementation | The `merge_conflict` task, the pull endpoint and the agent transport with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
 | CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
-| Merge-conflict repair | Detection is in S3a; decision 0016, the bounded merge package, the worker command and the worker image are in S3b. The controller fetch and transport, model resolution and publication remain, and admission still refuses the conflicts capability |
+| Merge-conflict repair | Detection is in S3a. S3b has decision 0016, the bounded merge package, the worker command and image, decision 0017 with the repository writer, and decision 0018 with the archive reader and the fetch. The HTTP download, the transport, model resolution and publication remain, and admission still refuses the conflicts capability |
 | Production configuration | No repository automation or model credentials changed by this work |
 
 The automatic mode still starts from a failed `workflow_job`, attempts one
@@ -475,7 +475,10 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1388](https://github.com/eyupio/zoomies/pull/1388), merged | S2h: pull_request webhook wakeup | Focused repair and webhook race suites, vet, staticcheck, docs and formatting pass; merged green | Conflict repair and the final controls |
 | [#1389](https://github.com/eyupio/zoomies/pull/1389), merged as `039aa7b1a` | S3a: merge-conflict detection and evidence | Focused repair and conflict race suites, full store suite, vet, staticcheck, docs and formatting pass; merged green | S3b resolution and publication, then S4 UX |
 | [#1391](https://github.com/eyupio/zoomies/pull/1391), open | S3b: bounded Git merge worker foundation, and the `--merge-base` portability fix below | `internal/gitmerge` race tests against real repositories on Git 2.39.5, vet, staticcheck, docs and formatting pass; no runtime surface yet | Worker command, image, transport, model resolution and publication |
-| [#1395](https://github.com/eyupio/zoomies/pull/1395), open, stacked on #1391 | S3b: the `git-worker` command, its bounded protocol and its image target | `internal/gitmerge` and `cmd/zoomies` race suites, the docs suite from a clean worktree, build, vet and formatting pass; the image is built by `make image-gitworker`; publication is wired by the follow-up below | Archive download and controller fetch using `internal/gitbare`, then transport and cleanup |
+| [#1395](https://github.com/eyupio/zoomies/pull/1395), merged into #1391's branch as `6a9cb316` | S3b: the `git-worker` command, its bounded protocol and its image target | `internal/gitmerge` and `cmd/zoomies` race suites, the docs suite from a clean worktree, build, vet and formatting pass; the image is built by `make image-gitworker` and #1398 wires its publication | The controller fetch, transport and cleanup |
+| [#1396](https://github.com/eyupio/zoomies/pull/1396), open, stacked on #1391 | S3b: decision 0017 and `internal/gitbare`, the bare repository the worker merges | `internal/gitbare` race tests, including an end-to-end merge of a reconstructed repository through `internal/gitmerge`, vet and formatting pass; no caller yet | The archive download, the controller fetch, the worker transport, timeouts and cleanup |
+| [#1399](https://github.com/eyupio/zoomies/pull/1399), merged into #1396's branch as `fce82c8e`, stacked on #1396 | S3b: decision 0018, the archive reader and `internal/gitfetch` | `internal/gitbare` and `internal/gitfetch` race suites, including an end-to-end merge of what the fetch produced, docs, vet and formatting pass; nothing downloads an archive yet | The archive download over HTTP, then the `merge_conflict` task and the agent transport |
+| [#1402](https://github.com/eyupio/zoomies/pull/1402), open, stacked on #1399 | S3b: the archive download, the commit read and the `gitfetch` source adapter | Archive and commit tests through the production factory path, the no-credential-to-storage assertion, `staticcheck ./...`, build, vet and formatting pass | The controller adapter and the agent transport |
 
 S1 validation on 3 November 2026:
 
@@ -684,6 +687,106 @@ Limits of this slice:
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
 
+### S3b: the controller's side of the fetch, 5 November 2026
+
+The controller can now prepare the repository a repair merges in, from three
+pinned commits, without Git and without a credential leaving it.
+
+- `mergeRepository` in `internal/controller` builds the workspace: a fresh
+temporary directory, the three commits fetched through the installation the watch
+was admitted under, and the worker's request names the ids it wrote. The caller's
+context bounds the whole fetch, and a fetch that fails removes what it wrote, so a
+controller that keeps failing does not keep filling its host.
+- `mergeLookup` is the adapter: a commit's tree and parents from `CommitOf`, the
+files from `ArchiveOf` with the provider's wrapper directory stripped. The pair is
+deliberate, because the two can disagree and `gitbare` refuses when they do.
+- `gitbare.TreeID` writes one tree and returns the id its files hash to, so a
+caller can check a provider's tree without a commit and a fixture can be built
+whose tree and archive agree by construction.
+- The fake's client now carries both transports a real one does, so a test
+exercises the two-request archive split rather than a shortcut.
+
+Validation on 5 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 -run MergeRepository ./internal/controller`: pass
+  (1.222s). Three pinned commits registered in the fake GitHub are fetched,
+  written and merged by `internal/gitmerge` into the conflict with its three
+  sides; a fetch whose target tip is missing removes the directory it made; and a
+  pin that names a branch is refused before GitHub is asked anything.
+- `staticcheck ./...`: pass (SC_EXIT=0), and `go build ./...` with it.
+- `go test -race -count=1 ./internal/gitbare ./internal/gitfetch ./internal/github`:
+  pass (1.395s, 1.585s, 3.538s).
+
+This slice also fixed a real bug the test above found: `ArchiveOf` took a
+repository name and pasted it into the path beside the installation's owner, so a
+full `owner/name` became `acme/acme%2Fwidgets` and answered 404. It now resolves
+the repository exactly as `CommitOf` does.
+
+Not run: the `merge_conflict` task, the pull endpoint and the agent transport,
+with the timeouts and cleanup around them. No container image was built (no
+Docker here) and no browser suite ran (no UI changed).
+
+### S3b: the archive download, 5 November 2026
+
+This PR is stacked on the fetch in #1399. It adds no migration, no public API and
+no UI; nothing calls it yet.
+
+- `internal/github` gains `ArchiveOf`: one commit's tree, read from the
+  repository's archive, bounded on the way in (64 MiB compressed) and on
+  expansion (the caller's `gitbare.Budget`).
+- The download is deliberately two requests. The API request carries the
+  installation token and is made with redirects refused, because the archive
+  endpoint answers with a redirect to storage whose URL is already signed;
+  following it with the client's headers would hand the token to whoever the
+  redirect names. The storage request carries no credential at all.
+- A failure names the commit and the status, because the operator has to know
+  which of the three pinned commits went, and an archive over a budget is refused
+  rather than truncated: half an archive fails the tree check with a message
+  about a missing file, which says the wrong thing.
+- `FakeGitHub` serves the same shape, with a storage handler that refuses a
+  request carrying a credential and records what it saw.
+- `CommitOf` reads the commit's tree id and parents, which is what the archive's
+  files are checked against: the archive says what a commit's files are, and this
+  says what they must hash to, so a reconstruction the provider would not
+  recognise is refused instead of merged.
+- `gitfetch.NewSource` turns that pair into the `Source` `Build` asks for, so the
+  controller's side of the fetch is one adapter over a client and a repository.
+  A `Lookup` whose two halves disagree is refused by the tree check that was
+  already there.
+
+Validation on 5 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 -run Archive ./internal/github`: pass (1.147s). The
+  tests read a commit's tree through the production factory path and check the
+  files and modes; assert the storage request carried no credential; name the
+  commit and the 404 when GitHub will not hand one over; honour a caller's byte
+  budget; and refuse to archive a repository nobody named for an organisation
+  installation.
+- `go test -race -count=1 ./internal/github`: pass (3.311s), covering the commit
+  read as well: the tree and parents come back for a commit the fake has, a
+  commit it does not names itself, and an organisation installation refuses a
+  repository nobody named.
+- `go test -race -count=1 ./internal/gitfetch ./internal/gitbare`: pass (1.557s
+  and 1.356s), including a `Lookup` over a real repository feeding `Build` and
+  the worker's merge, and a `Lookup` whose tree does not match its files being
+  refused.
+- `staticcheck ./...`: pass. The first CI run of this branch failed it on three
+  things this slice had added: `gh.String`, which go-github now deprecates in
+  favour of `gh.Ptr`, and `archive/tar.TypeRegA`, which is deprecated as a name.
+  The marker it stands for is still what some archives write, so it is spelled
+  once in `internal/gitbare` as `typeRegOld` with the reason beside it. Both were
+  fixed and the whole tree re-checked clean.
+- `go build ./...`, `go vet ./...`: pass. The interface gains are implemented by
+  the demo client, which says it has nothing to serve rather than pretending.
+- `gofmt -l internal/github internal/controller`: pass.
+
+Not run: the controller call that binds a client and a repository into a
+`Lookup` (it needs the transport to have somewhere to put the result), the
+`merge_conflict` task and the agent transport, and the timeouts and cleanup
+around them. No container image was built (no Docker here) and no browser suite
+ran (no UI changed).
+
+
 ### S3b: publish the Git worker image, 5 November 2026
 
 [#1398](https://github.com/eyupio/zoomies/pull/1398) is stacked on
@@ -729,6 +832,94 @@ Next unfinished step: bounded archive download and the controller fetch using
 `internal/gitbare`, then worker transport, timeouts and cleanup. Model resolution,
 two-parent publication and S4 UX remain later slices.
 
+### S3b: fetching the incident, 5 November 2026
+
+This PR is stacked on the repository writer in #1396. It adds no migration, no
+public API, no UI, and nothing in the controller calls it yet.
+
+- [Decision 0018](decisions/0018-an-agent-runs-the-git-worker.md) settles the
+  question 0016 and 0017 left open, what starts the worker container: an agent
+  host does, because it already runs containers through its backends and the
+  controller already reaches it for work. The controller queues a `merge_conflict`
+  task, the agent pulls that attempt's repository from the controller over its
+  authenticated transport, runs the worker image against it and posts the one
+  answer back. A repository travels as a tarball, never inside a task payload.
+- `internal/gitbare` gains the archive reader: a provider's gzipped tarball of one
+  commit becomes the file list the writer takes. It refuses rather than repairs:
+  an absolute path, a path that climbs with `..`, a hard link, a device, a named
+  pipe, more files or bytes than its budget, and a body that is not an archive all
+  say which entry caused it.
+- `internal/gitfetch` is the controller's half of the fetch: it asks a `Source`
+  for each of the three pinned commits, writes them with `gitbare` (the ancestor
+  first, named as the parent of both sides), refuses an answer about a commit
+  nobody asked for, refuses a pin that is not three commit ids, and removes a
+  built repository on every path out, including Windows, where a read-only loose
+  object cannot be deleted until its bit is cleared.
+
+Validation on 5 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 ./internal/gitbare`: pass (1.373s), including a
+  provider-shaped tarball whose files hash to the very tree id Git wrote for the
+  same commit, and each refusal naming its entry.
+- `go test -race -count=1 ./internal/gitfetch`: pass (1.378s), including three
+  pinned commits fetched one at a time and merged by `internal/gitmerge` into the
+  real conflict with its three sides, a source that answers about another commit,
+  a provider tree the files do not make, a pin that is not commit ids, and the
+  removal of a built repository.
+- `gofmt -l` on both packages: pass.
+
+Not run: the HTTP download of an archive, the `merge_conflict` task, the pull
+endpoint, the agent's temporary directory and the transport's timeouts. Those are
+the next slice. No container image was built (no Docker here) and no browser suite
+ran (no UI changed).
+
+
+### S3b: the repository the worker merges, 5 November 2026
+
+This PR is stacked on the worker command and image in #1395. It adds no
+migration, no public API, no UI and no controller wiring: nothing calls the new
+package yet.
+
+- [Decision 0017](decisions/0017-the-controller-builds-the-workers-repository.md)
+  settles how a controller with no Git and no repository code hands the worker a
+  repository: it downloads each pinned commit's archive, hashes the files into
+  blobs and the directories into trees, and writes a bare repository. Blobs and
+  trees are content-addressed, so every id the controller computes is the id Git
+  computes, and every commit's root tree is checked against the id the provider
+  reported before anything is merged.
+- `internal/gitbare` is that writer: a bare repository with objects, HEAD, refs
+  and a format-version config, and nothing else (no hooks, no remotes, no
+  credentials). A path in an archive that is absolute or climbs with `..` is
+  dropped, and dropping it cannot go unnoticed because the tree then fails the
+  check.
+
+Validation on 5 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 ./internal/gitbare`: pass (1.305s). The tests use a real
+  repository with nested directories, an executable and a symlink, and check that
+  hashing its files reproduces the very tree id Git wrote; that a claimed tree
+  which does not hash is refused and named; that an escaping path changes nothing;
+  and, end to end, that `internal/gitmerge` merges three commits
+  `internal/gitbare` wrote and returns the conflict with its three sides. That
+  last test is the point of the package: it proves a reconstruction without Git
+  feeds the worker.
+- `gofmt -l internal/gitbare`: pass.
+
+Not run: the download itself, the controller's use of the writer, the worker
+transport, timeouts, cleanup and failure handling. Those are the next slice. No
+
+Correction after CI, 5 November 2026: this branch's staticcheck failed on
+`archive/tar.TypeRegA`, which Go has deprecated as a name. The marker it stands
+for is still what some archives write, so the reader keeps accepting it by
+spelling the byte once, as `typeRegOld`, with the reason beside it. `staticcheck
+./...` passes on the whole tree after the change, and the archive tests still
+pass.
+
+
+container image was built (no Docker in this environment) and no browser suite
+ran (no UI changed).
+
+
 ### S3b: the bounded Git worker command and image, 5 November 2026
 
 This PR is stacked on the merge package in #1391. It adds no migration, no public
@@ -753,10 +944,18 @@ What it adds:
 - `docs/cli.md`, the generated `skills/zoomies/reference.md` and
   `docs/architecture.md` say what the worker is and where it runs.
 
-The workflow permission limitation recorded in #1395 is resolved by the image
-publishing follow-up below. CI now builds the worker on pull requests without
-publishing, and publishes `ghcr.io/eyupio/zoomies-git` on main and release tags.
-The controller still does not start it.
+The image is **not published**, and that is a limitation of this PR rather than a
+decision: `ci.yml`, `release.yml` and `cleanup-packages.yml` each need a line for
+it, and the token available to this session cannot push a change to a workflow
+file (`refusing to allow a GitHub App to create or update workflow ... without
+'workflows' permission`). The wiring was written, checked against
+`internal/docs`' workflow tests and then removed rather than left half-pushed. The
+first step of the next slice is to land it, with a token that has that permission:
+build `target: gitworker` on every `Images` run, publish
+`ghcr.io/eyupio/zoomies-git` as `:dev`, `:main` and `:sha-<commit>` from `main`,
+publish the release tag and `:latest` from `release.yml` with an attestation, and
+add `zoomies-git` to the cleanup matrix whose header would then say six families
+rather than five.
 
 Validation on 5 November 2026, on Git 2.39.5 (the Git Debian 12 ships):
 
@@ -788,8 +987,8 @@ browser suite was run: this slice changes no UI.
 
 Omissions and the next unfinished step:
 
-- Image publication is wired by the follow-up below; controller startup remains
-  unimplemented.
+- The image is unpublished and unnamed by any workflow, so the controller has no
+  image to start even if it tried.
 - No controller fetch of a sanitised bare repository, no worker transport, no
   timeouts, no cleanup and no failure handling. `internal/naming` does not yet
   name the worker image for the controller, and admission still refuses the
