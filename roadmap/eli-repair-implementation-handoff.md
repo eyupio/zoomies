@@ -17,19 +17,19 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1389](https://github.com/eyupio/zoomies/pull/1389): S3a merge-conflict detection and evidence |
-| Investigated baseline | `d33c073bc` on `main` |
-| Working branches | `codex/eli-conflict-detection` for S3a |
-| Verified code checkpoints | S1 through S2h merged through `d33c073bc`; S3a: `dcad0291e17b8e6128b8dd2e70cb447fbed9b175` |
-| Implementation | S3a adds migration 0143 and records GitHub's mergeability, target tip and merge base for each watched head. It does not resolve or publish conflicts |
+| Latest slice | [#NEW](https://github.com/eyupio/zoomies/pull/NEW): S3b bounded Git merge worker foundation |
+| Investigated baseline | `039aa7b1a` on `main` |
+| Working branches | `codex/eli-git-merge-worker` for S3b |
+| Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b worker package commit recorded after publication |
+| Implementation | S3b records decision 0016 and adds `internal/gitmerge`, a bounded `git merge-tree` merge with no hooks, external drivers or repository code. The worker command, image and controller transport are not connected yet |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
-| Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386) and [#1388](https://github.com/eyupio/zoomies/pull/1388) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | S3a implemented on `main` and locally verified; awaits PR/CI review |
-| Next implementation | S3b conflict resolution and two-parent publication, including the Git-engine decision, then S4 UX |
-| CI snapshot | `main` was green at `d33c073bc`; this PR's checks are separate |
+| Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
+| Current slice | S3b worker foundation implemented on `main` and locally verified; awaits PR/CI review |
+| Next implementation | Worker command, image and controller transport, then model resolution and two-parent publication, then S4 UX |
+| CI snapshot | `main` was green at `039aa7b1a`; this PR's checks are separate |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
-| Merge-conflict repair | Detection and pinned evidence land in S3a; resolution and publication remain, and admission still refuses the conflicts capability until they exist |
+| Merge-conflict repair | Detection is in S3a; decision 0016 and the bounded merge package are in S3b. The worker process, transport, model resolution and publication remain, and admission still refuses the conflicts capability |
 | Production configuration | No repository automation or model credentials changed by this work |
 
 Do not enable or advertise Baby sit or conflict-only behaviour on the strength
@@ -342,10 +342,11 @@ other PR observations; green PR remaining watched; closed PR terminating.
 
 ### S3: merge-conflict detection and repair
 
-Status: S3a detection and evidence is implemented in this PR. S3b resolution,
-two-parent publication and the Git-engine decision remain. Required even when
-CI never starts: ordinary `pull_request` workflows do not run while the PR has a
-merge conflict.
+Status: S3a detection and evidence is merged. S3b records the Git-engine
+decision and implements the bounded merge package; its worker command, image,
+transport, model resolution and two-parent publication remain. Required even
+when CI never starts: ordinary `pull_request` workflows do not run while the PR
+has a merge conflict.
 
 S3a scope, this PR only:
 
@@ -355,8 +356,21 @@ S3a scope, this PR only:
   by the observation that still holds the lease.
 - [x] Detect target-branch movement through the pinned base SHA, even when the
   head did not move.
-- [ ] Compute or resolve a three-way merge. No repository code runs and no
-  conflict is classified or published in this PR.
+- [ ] Compute or resolve a three-way merge in S3a; that work starts in S3b.
+
+S3b scope, this PR only:
+
+- [x] Record [decision 0016](decisions/0016-eli-conflict-repair-runs-in-a-separate-git-worker.md):
+  a separate bounded Git worker, never Git inside the controller.
+- [x] Add `internal/gitmerge`: verify the pinned merge base, run
+  `git merge-tree` with hooks and external merge drivers refused, and return the
+  clean tree or bounded ancestor/base/head text for supported conflicts.
+- [x] Refuse binary, symlink, submodule, delete/modify and mode-changing
+  conflicts explicitly, and stop at the configured conflict and byte budgets.
+- [ ] Add the worker command and image, fetch the sanitised bare repository, and
+  transport the request and result from the controller.
+- [ ] Ask the model for a resolution, build the two-parent commit and publish it
+  without force after rechecking pause, authorisation and head/base identity.
 
 Detection and evidence:
 
@@ -455,7 +469,8 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1384](https://github.com/eyupio/zoomies/pull/1384), open | S2f: per-check evidence on watched heads | Focused repair and store race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | Conflict repair and the final controls |
 | [#1386](https://github.com/eyupio/zoomies/pull/1386), open, stacked on #1384 | S2g: periodic new-PR discovery | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Webhook wakeups, conflict repair and the final controls |
 | [#1388](https://github.com/eyupio/zoomies/pull/1388), merged | S2h: pull_request webhook wakeup | Focused repair and webhook race suites, vet, staticcheck, docs and formatting pass; merged green | Conflict repair and the final controls |
-| [#1389](https://github.com/eyupio/zoomies/pull/1389), open | S3a: merge-conflict detection and evidence | Focused repair and conflict race suites, full store suite, vet, staticcheck, docs and formatting pass; no UI or public API change | S3b resolution and publication, then S4 UX |
+| [#1389](https://github.com/eyupio/zoomies/pull/1389), merged as `039aa7b1a` | S3a: merge-conflict detection and evidence | Focused repair and conflict race suites, full store suite, vet, staticcheck, docs and formatting pass; merged green | S3b resolution and publication, then S4 UX |
+| [#NEW](https://github.com/eyupio/zoomies/pull/NEW), open | S3b: bounded Git merge worker foundation | `internal/gitmerge` race tests against real repositories, vet, staticcheck, docs and formatting pass; no runtime surface yet | Worker command, image, transport, model resolution and publication |
 
 S1 validation on 3 November 2026:
 
@@ -663,6 +678,31 @@ Limits of this slice:
   are not retained yet. The watch records one overall state.
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S3b: bounded Git merge worker foundation, 5 November 2026
+
+This PR records decision 0016 and adds the merge package. It does not add a
+command, image or controller transport, so no production path can invoke it yet.
+
+Validation on 5 November 2026:
+
+- `go test -race -count=1 ./internal/gitmerge`: pass. The tests use real temporary
+  Git repositories for a clean merge, a text conflict, binary refusal,
+  delete/modify refusal, a wrong merge base, an external merge driver and the
+  byte budget.
+- `staticcheck ./internal/gitmerge` and `go test ./internal/docs -count=1`:
+  pass.
+- `git diff --check` and changed-file `gofmt`: pass.
+
+Limits of this slice:
+
+- No worker process, container image, controller client or transport exists. The
+  merge package is not reachable from the running controller.
+- No model resolution, no two-parent commit and no publication.
+- The worker input contract assumes a sanitised bare repository; the controller
+  fetch and cleanup are still to write.
+- Full repository `make test-short`, browser suites, the complete store suite
+  with the race detector and end-to-end GitHub mutations were not run.
 
 ### S3a: merge-conflict detection and evidence, 4 November 2026
 
@@ -1055,9 +1095,9 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
    Confirm which slices merged; a branch or checked box alone is not proof.
 2. Check the working tree and live base branch. Preserve unrelated user changes.
    Review this PR before starting a new slice. For further implementation, start
-   from `codex/eli-conflict-detection` or its merged successor. Do not redo S1
-   through S3a. The next unfinished work is S3b conflict resolution and
-   publication, then the final UI.
+   from `codex/eli-git-merge-worker` or its merged successor. Do not redo S1
+   through S3a or the merge package. The next unfinished work is the worker
+   command and transport, then model resolution and publication.
 3. Continue the first unfinished acceptance criterion. Read the existing store,
    API and model boundaries before adding another path around them.
 4. Add regression tests for the observable behaviour and regenerate contracts

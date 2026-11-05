@@ -786,7 +786,9 @@ the repository policy stops being automatic, stops it when the pull request
 closes, and records the current head, overall check state, bounded check-run and
 legacy-status evidence, and the target tip and merge base GitHub reports. The
 conflict evidence is detection only: no repository code runs and no conflict is
-resolved or published yet. Repository-wide admission lists open pull requests
+resolved or published yet. The bounded three-way merge lives in
+`internal/gitmerge` and is designed for a separate Git worker image; that worker
+is not connected to the controller yet. Repository-wide admission lists open pull requests
 once, within a page cap, and admits eligible ones without resuming a pause
 recorded on one pull request; forks, drafts and other exclusions are returned as
 reasons. Repository-wide admission records a separate explicit decision for the
