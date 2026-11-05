@@ -41,7 +41,7 @@ var frameReads = map[events.Kind]auth.Action{
 	events.KindWebhook:             auth.ActionWebhooksRead,
 	events.KindUpdates:             auth.ActionUpdatesRead,
 	events.KindTransfer:            auth.ActionBackupsRead,
-	events.KindControllerMachine:   auth.ActionHostsRead,
+	events.KindControllerMachine:   auth.ActionControllerRead,
 }
 
 // framesForEveryone are the kinds that describe the stream rather than the
