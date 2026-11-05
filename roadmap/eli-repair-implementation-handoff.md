@@ -475,7 +475,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1388](https://github.com/eyupio/zoomies/pull/1388), merged | S2h: pull_request webhook wakeup | Focused repair and webhook race suites, vet, staticcheck, docs and formatting pass; merged green | Conflict repair and the final controls |
 | [#1389](https://github.com/eyupio/zoomies/pull/1389), merged as `039aa7b1a` | S3a: merge-conflict detection and evidence | Focused repair and conflict race suites, full store suite, vet, staticcheck, docs and formatting pass; merged green | S3b resolution and publication, then S4 UX |
 | [#1391](https://github.com/eyupio/zoomies/pull/1391), open | S3b: bounded Git merge worker foundation, and the `--merge-base` portability fix below | `internal/gitmerge` race tests against real repositories on Git 2.39.5, vet, staticcheck, docs and formatting pass; no runtime surface yet | Worker command, image, transport, model resolution and publication |
-| [#1395](https://github.com/eyupio/zoomies/pull/1395), open, stacked on #1391 | S3b: the `git-worker` command, its bounded protocol and its image target | `internal/gitmerge` and `cmd/zoomies` race suites, the docs suite from a clean worktree, build, vet and formatting pass; the image is built by `make image-gitworker` but is not published | Workflow wiring for the image (needs `workflows` permission), then the controller fetch, transport and cleanup |
+| [#1395](https://github.com/eyupio/zoomies/pull/1395), open, stacked on #1391 | S3b: the `git-worker` command, its bounded protocol and its image target | `internal/gitmerge` and `cmd/zoomies` race suites, the docs suite from a clean worktree, build, vet and formatting pass; the image is built by `make image-gitworker`; publication is wired by the follow-up below | Archive download and controller fetch using `internal/gitbare`, then transport and cleanup |
 
 S1 validation on 3 November 2026:
 
@@ -684,6 +684,41 @@ Limits of this slice:
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
 
+### S3b: publish the Git worker image, 5 November 2026
+
+This follow-up is stacked on `codex/eli-git-merge-worker` because #1391 remains
+open and carries #1395's command and image target. It wires `gitworker` into the
+CI Images job, including its own cache and main-only dev/main/SHA tags. Release
+builds use both existing builders, release tags and stable-only latest, with
+build provenance. Cleanup now covers six package families. Documentation and a
+workflow regression test keep the worker from silently going unpublished again.
+No worker build passes a runner channel argument, and pull requests publish
+nothing. The controller does not start the worker yet.
+
+Before editing, a scratch commit appending a comment to `ci.yml` was pushed to
+`codex/check-workflow-permission-20261105115907` successfully, then the remote
+branch was deleted. This verifies workflow write permission for this session.
+
+Validation on 5 November 2026 (Go 1.27.1):
+
+- `make ui-stub`: pass.
+- `go test -count=1 ./internal/docs` and `go vet ./...`: running.
+- `gofmt -l internal/docs/workflows_test.go` and `git diff --check`: pass.
+- `make image-gitworker`: attempted with Docker 28.4.0. It failed at
+  `apk add --no-cache git`: the environment network policy denies
+  `dl-cdn.alpinelinux.org`. The in-image `git-worker --check` did not run;
+  the PR Images job must prove the target builds before merging.
+- Full repository tests, browser suites and a release publication were not run.
+  This slice changes no UI or runtime behaviour.
+
+The workspace uses `PATH=/workspace/.tools/go/bin:$PATH`,
+`GOCACHE=/workspace/.cache/go-build` and `GOMODCACHE=/workspace/.cache/go-mod` for
+Go commands. Its HOME is outside the checkout, so no extra worktree is needed.
+
+Next unfinished step: bounded archive download and the controller fetch using
+`internal/gitbare`, then worker transport, timeouts and cleanup. Model resolution,
+two-parent publication and S4 UX remain later slices.
+
 ### S3b: the bounded Git worker command and image, 5 November 2026
 
 This PR is stacked on the merge package in #1391. It adds no migration, no public
@@ -708,18 +743,10 @@ What it adds:
 - `docs/cli.md`, the generated `skills/zoomies/reference.md` and
   `docs/architecture.md` say what the worker is and where it runs.
 
-The image is **not published**, and that is a limitation of this PR rather than a
-decision: `ci.yml`, `release.yml` and `cleanup-packages.yml` each need a line for
-it, and the token available to this session cannot push a change to a workflow
-file (`refusing to allow a GitHub App to create or update workflow ... without
-'workflows' permission`). The wiring was written, checked against
-`internal/docs`' workflow tests and then removed rather than left half-pushed. The
-first step of the next slice is to land it, with a token that has that permission:
-build `target: gitworker` on every `Images` run, publish
-`ghcr.io/eyupio/zoomies-git` as `:dev`, `:main` and `:sha-<commit>` from `main`,
-publish the release tag and `:latest` from `release.yml` with an attestation, and
-add `zoomies-git` to the cleanup matrix whose header would then say six families
-rather than five.
+The workflow permission limitation recorded in #1395 is resolved by the image
+publishing follow-up below. CI now builds the worker on pull requests without
+publishing, and publishes `ghcr.io/eyupio/zoomies-git` on main and release tags.
+The controller still does not start it.
 
 Validation on 5 November 2026, on Git 2.39.5 (the Git Debian 12 ships):
 
@@ -751,8 +778,8 @@ browser suite was run: this slice changes no UI.
 
 Omissions and the next unfinished step:
 
-- The image is unpublished and unnamed by any workflow, so the controller has no
-  image to start even if it tried.
+- Image publication is wired by the follow-up below; controller startup remains
+  unimplemented.
 - No controller fetch of a sanitised bare repository, no worker transport, no
   timeouts, no cleanup and no failure handling. `internal/naming` does not yet
   name the worker image for the controller, and admission still refuses the

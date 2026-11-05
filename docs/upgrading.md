@@ -1122,6 +1122,7 @@ than only how new it is.
 ```text
 ghcr.io/eyupio/zoomies                 the controller
 ghcr.io/eyupio/zoomies-agent           an agent, for a host that runs one in a container
+ghcr.io/eyupio/zoomies-git             the bounded Git worker for merge-conflict repair
 ghcr.io/eyupio/zoomies-runner          the runners a pool starts
 ghcr.io/eyupio/zoomies-runner-docker   the same, with a Docker client
 ```

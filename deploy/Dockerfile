@@ -165,9 +165,9 @@ CMD ["agent"]
 # the controller ships, so the check at the end of this stage is the same one a
 # controller host could run.
 #
-# `make image-gitworker` builds it. No workflow names this target yet, so it is
-# not published: pushing it to GHCR, and the controller naming it, are the next
-# step, and until they happen nothing can start the worker.
+# CI and releases publish ghcr.io/eyupio/zoomies-git so a moved base image is
+# checked before conflict repair needs it. `make image-gitworker` builds it
+# locally; the controller does not start the worker yet.
 FROM alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f AS gitworker
 # No package index is kept: after this line the image installs nothing, ever.
 RUN apk add --no-cache git
