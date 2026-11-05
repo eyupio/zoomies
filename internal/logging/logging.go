@@ -49,7 +49,9 @@ func Setup(o Options) *slog.Logger {
 
 // sensitiveKeys are attribute names whose values never reach the log, whatever
 // a caller passes. It is cheaper to enforce this centrally than to trust every
-// call site.
+// call site. The list is exact matches, not substrings, so that a legitimate
+// field like "tokens_remaining" is not redacted; new entries are keys a value
+// under which is always a credential.
 var sensitiveKeys = map[string]bool{
 	"password":           true,
 	"token":              true,
@@ -64,6 +66,16 @@ var sensitiveKeys = map[string]bool{
 	"agent_token":        true,
 	"cookie":             true,
 	"registration_token": true,
+	"passphrase":         true,
+	"apikey":             true,
+	"api_key":            true,
+	"api_token":          true,
+	"access_token":       true,
+	"refresh_token":      true,
+	"id_token":           true,
+	"session_token":      true,
+	"recovery_code":      true,
+	"recovery_codes":     true,
 }
 
 func redact(_ []string, a slog.Attr) slog.Attr {
