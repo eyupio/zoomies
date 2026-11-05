@@ -17,10 +17,10 @@ implementation from the newest branch after checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#NEW](https://github.com/eyupio/zoomies/pull/NEW): S3b bounded Git merge worker foundation |
+| Latest slice | [#1391](https://github.com/eyupio/zoomies/pull/1391): S3b bounded Git merge worker foundation |
 | Investigated baseline | `039aa7b1a` on `main` |
 | Working branches | `codex/eli-git-merge-worker` for S3b |
-| Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b worker package commit recorded after publication |
+| Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b: `c19a8f75f7f60a2fd05ce278f0efdd27f31876fb` |
 | Implementation | S3b records decision 0016 and adds `internal/gitmerge`, a bounded `git merge-tree` merge with no hooks, external drivers or repository code. The worker command, image and controller transport are not connected yet |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
@@ -470,7 +470,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1386](https://github.com/eyupio/zoomies/pull/1386), open, stacked on #1384 | S2g: periodic new-PR discovery | Focused repair and store race suites, vet, staticcheck, docs and formatting pass; no UI or public API change | Webhook wakeups, conflict repair and the final controls |
 | [#1388](https://github.com/eyupio/zoomies/pull/1388), merged | S2h: pull_request webhook wakeup | Focused repair and webhook race suites, vet, staticcheck, docs and formatting pass; merged green | Conflict repair and the final controls |
 | [#1389](https://github.com/eyupio/zoomies/pull/1389), merged as `039aa7b1a` | S3a: merge-conflict detection and evidence | Focused repair and conflict race suites, full store suite, vet, staticcheck, docs and formatting pass; merged green | S3b resolution and publication, then S4 UX |
-| [#NEW](https://github.com/eyupio/zoomies/pull/NEW), open | S3b: bounded Git merge worker foundation | `internal/gitmerge` race tests against real repositories, vet, staticcheck, docs and formatting pass; no runtime surface yet | Worker command, image, transport, model resolution and publication |
+| [#1391](https://github.com/eyupio/zoomies/pull/1391), open | S3b: bounded Git merge worker foundation | `internal/gitmerge` race tests against real repositories, vet, staticcheck, docs and formatting pass; no runtime surface yet | Worker command, image, transport, model resolution and publication |
 
 S1 validation on 3 November 2026:
 
