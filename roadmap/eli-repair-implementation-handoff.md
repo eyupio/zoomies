@@ -684,6 +684,43 @@ Limits of this slice:
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
 
+### S3b: the repository the worker merges, 5 November 2026
+
+This PR is stacked on the worker command and image in #1395. It adds no
+migration, no public API, no UI and no controller wiring: nothing calls the new
+package yet.
+
+- [Decision 0017](decisions/0017-the-controller-builds-the-workers-repository.md)
+  settles how a controller with no Git and no repository code hands the worker a
+  repository: it downloads each pinned commit's archive, hashes the files into
+  blobs and the directories into trees, and writes a bare repository. Blobs and
+  trees are content-addressed, so every id the controller computes is the id Git
+  computes, and every commit's root tree is checked against the id the provider
+  reported before anything is merged.
+- `internal/gitbare` is that writer: a bare repository with objects, HEAD, refs
+  and a format-version config, and nothing else (no hooks, no remotes, no
+  credentials). A path in an archive that is absolute or climbs with `..` is
+  dropped, and dropping it cannot go unnoticed because the tree then fails the
+  check.
+
+Validation on 5 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 ./internal/gitbare`: pass (1.305s). The tests use a real
+  repository with nested directories, an executable and a symlink, and check that
+  hashing its files reproduces the very tree id Git wrote; that a claimed tree
+  which does not hash is refused and named; that an escaping path changes nothing;
+  and, end to end, that `internal/gitmerge` merges three commits
+  `internal/gitbare` wrote and returns the conflict with its three sides. That
+  last test is the point of the package: it proves a reconstruction without Git
+  feeds the worker.
+- `gofmt -l internal/gitbare`: pass.
+
+Not run: the download itself, the controller's use of the writer, the worker
+transport, timeouts, cleanup and failure handling. Those are the next slice. No
+container image was built (no Docker in this environment) and no browser suite
+ran (no UI changed).
+
+
 ### S3b: the bounded Git worker command and image, 5 November 2026
 
 This PR is stacked on the merge package in #1391. It adds no migration, no public
