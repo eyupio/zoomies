@@ -344,6 +344,41 @@ func BenchmarkReconcile(b *testing.B) {
 		}
 	})
 
+	// The warm fleet with a listener that asks for one kind of event, as an API
+	// client following jobs does, or an agent waiting for something to change. It
+	// asked for no statistic, no problem and no host card, so there is nothing
+	// the pass has to work out for it.
+	b.Run("filtered", func(b *testing.B) {
+		for _, n := range []int{4, 20, 100} {
+			b.Run(fmt.Sprintf("pools=%d", n), func(b *testing.B) {
+				h := warmFleet(b, n)
+				sub := h.listen(events.KindJobUpdated)
+				if err := h.c.Reconcile(h.ctx); err != nil {
+					b.Fatalf("Reconcile: %v", err)
+				}
+				// A listener that does not read is dropped, and then the next pass
+				// is an unwatched one under the name of a watched one.
+				go func() {
+					for range sub.C {
+					}
+				}()
+				if h.c.Events().Subscribers() != 1 {
+					b.Fatalf("%d listeners; want the one that asked for job events", h.c.Events().Subscribers())
+				}
+
+				b.ReportAllocs()
+				for b.Loop() {
+					if err := h.c.Reconcile(h.ctx); err != nil {
+						b.Fatal(err)
+					}
+				}
+				if h.c.Events().Subscribers() == 0 {
+					b.Fatal("the listener was dropped while the passes were timed")
+				}
+			})
+		}
+	})
+
 	// The watched fleet with a history behind it. A controller that has run for a
 	// week has a jobs table to match, and the problems list asks it how long jobs
 	// waited, how long they took against the week before, and what they used. The
