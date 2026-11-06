@@ -807,16 +807,7 @@ input,
    pans, or renders zoomed out) and on a laptop gave the page a sideways
    scrollbar -- for a glow that has faded to nothing long before the edge. */
 .zoomies-hero::before {
-  content: '';
-  position: absolute;
-  inset: -3rem 0 30%;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(rgba(47, 128, 237, 0.16) 1px, transparent 1.3px) 0 0 / 22px 22px,
-    radial-gradient(55% 60% at 50% 0%, rgba(47, 128, 237, 0.16) 0%, transparent 70%);
-  -webkit-mask-image: radial-gradient(60% 70% at 50% 15%, #000 0%, transparent 100%);
-  mask-image: radial-gradient(60% 70% at 50% 15%, #000 0%, transparent 100%);
+  display: none;
 }
 /* The eyebrow: what is new, one line, above the headline. */
 .md-typeset .zoomies-hero .eyebrow {
@@ -828,7 +819,7 @@ input,
   margin: 0;
   padding: 0.3em 0.85em 0.3em 0.35em;
   border: 1px solid var(--z-line);
-  border-radius: 999px;
+  border-radius: var(--z-radius-md);
   background: var(--z-surface);
   font-size: 0.66rem;
   font-weight: 500;
@@ -1221,26 +1212,13 @@ input,
   margin: 3rem 0 1rem;
   padding: 2rem 2.25rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--z-radius-xl);
-  background:
-    radial-gradient(60% 80% at 15% 50%, rgba(47, 128, 237, 0.3) 0%, transparent 70%),
-    radial-gradient(45% 40% at 90% 100%, rgba(34, 211, 238, 0.09) 0%, transparent 70%),
-    var(--z-brand-black);
+  border-radius: var(--z-radius-lg);
+  background: var(--z-brand-black);
   color: #f4f5f7;
-  box-shadow: 0 30px 80px -40px rgba(47, 128, 237, 0.35);
   text-align: left;
 }
-/* A dot grid that fades towards the edges, so the panel has texture where the
-   logo sits and reads as a plain surface where the text does. */
 .zoomies-cta::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.11) 1px, transparent 1.3px);
-  background-size: 22px 22px;
-  -webkit-mask-image: radial-gradient(50% 90% at 15% 50%, #000 20%, transparent 100%);
-  mask-image: radial-gradient(50% 90% at 15% 50%, #000 20%, transparent 100%);
+  display: none;
 }
 /* Keep the logo's own surround black in both schemes, as on the sign-in page.
    The pale Orbital haze stays inside it rather than fading into a light CTA.
@@ -1327,15 +1305,12 @@ input,
    the black lockup, and ink-coloured text and buttons. */
 [data-md-color-scheme='default'] .zoomies-cta {
   border-color: rgba(11, 12, 14, 0.1);
-  background:
-    radial-gradient(60% 80% at 15% 50%, rgba(47, 128, 237, 0.14) 0%, transparent 70%),
-    radial-gradient(45% 40% at 90% 100%, rgba(34, 211, 238, 0.07) 0%, transparent 70%),
-    #ffffff;
+  background: #ffffff;
   color: var(--md-default-fg-color);
-  box-shadow: 0 30px 80px -40px rgba(47, 128, 237, 0.3);
+  box-shadow: none;
 }
 [data-md-color-scheme='default'] .zoomies-cta::before {
-  background-image: radial-gradient(rgba(11, 12, 14, 0.1) 1px, transparent 1.3px);
+  display: none;
 }
 [data-md-color-scheme='default'] .md-typeset .zoomies-cta .title {
   color: var(--md-default-fg-color);

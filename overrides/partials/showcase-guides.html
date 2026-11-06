@@ -1,18 +1,20 @@
 {% from "partials/icons-zoomies.html" import icon %}
 <section class="page-heading wrap guide-heading">
-<div class="eyebrow">THE RUNNER’S FIELD GUIDE</div>
+<div class="eyebrow">The runner’s field guide</div>
 <h1 id="the-runners-field-guide">Know your runners.<br> <em>Find your stride.</em>
 </h1>
 <div class="heading-bottom">
 <p>Practical guides for the questions that come<br> before, during and after your first job.</p>
-<span class="tiny-label">SOME GOOD READING FOR THE ROAD.</span>
+<span class="tiny-label">Practical notes</span>
 </div>
 </section>
 <section class="wrap guide-library">
 <div class="guide-feature-row">{% set guide = field_guides[1] %}{% set featured = true %}{% include "partials/guide-card.html" %}{% set featured = false %}<div class="guide-feature-art">
-<div class="tiny-label">A LITTLE KNOW-HOW GOES A LONG WAY</div>
-<img src="{{ 'brand/logo-black-transparent.svg' | url }}" alt="Zoomies’ running spaniel" width="260" height="260">
-<span class="tiny-label">YOUR HARDWARE. YOUR NEXT CHAPTER.</span>
+<picture>
+<img class="on-light" src="{{ 'brand/logo-black-transparent.svg' | url }}" alt="Zoomies’ running spaniel" width="220" height="220">
+<img class="on-dark" src="{{ 'brand/logo-white-transparent.svg' | url }}" alt="Zoomies’ running spaniel" width="220" height="220">
+</picture>
+<p class="brand-caption">Your hardware. One pack.</p>
 </div>
 </div>
 <div class="guide-filter-row">
@@ -23,7 +25,7 @@
 <button data-filter="Home lab" aria-pressed="false" class="">Home lab</button>
 <button data-filter="Operations" aria-pressed="false" class="">Operations</button>
 </div>
-<span class="tiny-label" id="guide-count" role="status">{{ field_guides | length }} GUIDES</span>
+<span class="tiny-label" id="guide-count" role="status">{{ field_guides | length }} guides</span>
 </div>
 <div class="guide-grid guide-all">{% for guide in field_guides %}{% include "partials/guide-card.html" %}{% endfor %}</div>
 </section>
