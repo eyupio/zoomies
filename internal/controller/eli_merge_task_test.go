@@ -1,23 +1,32 @@
 package controller
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/agent"
 )
 
-// A merge task names the attempt and the image and nothing else, which is what
-// keeps a GitHub credential on the controller and megabytes out of the queue.
-func TestAMergeTaskCarriesTheAttemptAndTheImage(t *testing.T) {
+// A merge task names the attempt, the image and the three pinned commit ids,
+// which is what keeps a GitHub credential on the controller and megabytes out of
+// the queue while still giving the worker the request it must run.
+func TestAMergeTaskCarriesTheAttemptTheImageAndThePins(t *testing.T) {
 	h := newHarness(t)
 	host := h.host("m1")
+	prepared := MergePrepared{
+		ID: "attempt-1", Image: "ghcr.io/eyupio/zoomies-git:v1",
+		Ancestor: strings.Repeat("a", 40), Base: strings.Repeat("b", 40), Head: strings.Repeat("c", 40),
+	}
 
-	if !h.c.QueueMergeConflict(host.ID, "attempt-1", "ghcr.io/eyupio/zoomies-git:v1") {
+	if !h.c.QueueMergeConflict(host.ID, prepared) {
 		t.Fatal("the merge task was not queued")
 	}
 	task := h.taskOfKind(host.ID, agent.TaskMergeConflict)
-	if task.MergeID != "attempt-1" || task.MergeImage != "ghcr.io/eyupio/zoomies-git:v1" {
+	if task.MergeID != prepared.ID || task.MergeImage != prepared.Image {
 		t.Fatalf("task %+v", task)
+	}
+	if task.MergeAncestor != prepared.Ancestor || task.MergeBase != prepared.Base || task.MergeHead != prepared.Head {
+		t.Fatalf("task pins = %q/%q/%q, want %q/%q/%q", task.MergeAncestor, task.MergeBase, task.MergeHead, prepared.Ancestor, prepared.Base, prepared.Head)
 	}
 	if task.RunnerID != "" {
 		t.Errorf("a merge task names runner %q, but a merge is not a runner's work", task.RunnerID)
@@ -30,13 +39,16 @@ func TestAMergeTaskIsQueuedOncePerAttempt(t *testing.T) {
 	h := newHarness(t)
 	host := h.host("m2")
 
-	if !h.c.QueueMergeConflict(host.ID, "attempt-1", "image") {
+	one := MergePrepared{ID: "attempt-1", Image: "image", Ancestor: "a", Base: "b", Head: "c"}
+	if !h.c.QueueMergeConflict(host.ID, one) {
 		t.Fatal("the first task was refused")
 	}
-	if h.c.QueueMergeConflict(host.ID, "attempt-1", "image") {
+	if h.c.QueueMergeConflict(host.ID, one) {
 		t.Fatal("the same attempt was queued twice")
 	}
-	if !h.c.QueueMergeConflict(host.ID, "attempt-2", "image") {
+	two := one
+	two.ID = "attempt-2"
+	if !h.c.QueueMergeConflict(host.ID, two) {
 		t.Fatal("a second attempt was refused while the first was in flight")
 	}
 }

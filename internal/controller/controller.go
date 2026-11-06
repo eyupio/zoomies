@@ -187,6 +187,9 @@ type Controller struct {
 	// the questions a delivery asks.
 	findInstallation func(ctx context.Context, repo string) (*store.Installation, error)
 	queues           *taskQueues
+	// merge is the repositories prepared for conflict repair, held until the
+	// agent that merges one answers or their deadline passes.
+	merge *mergeSession
 	// hostChecks is the last request to each host to check itself; see host_check.go.
 	hostChecks hostChecks
 	relay      *logRelay
@@ -592,6 +595,7 @@ func New(opts Options) (*Controller, error) {
 	})
 	c.clients = newClientCache(c)
 	c.queues = newTaskQueues()
+	c.merge = newMergeSession(newMergeAttempts(clock, mergeLease, 8))
 	c.relay = newLogRelay(c)
 	c.machines = newMachineRuntime()
 	return c, nil
@@ -976,6 +980,9 @@ func (c *Controller) Stop(ctx context.Context) error {
 		c.log.Debug("could not write a final fleet sample", "error", err)
 	}
 	c.relay.closeAll()
+	if removed := c.merge.close(); removed > 0 {
+		c.log.Info("removed prepared merge repositories at shutdown", "count", removed)
+	}
 	c.log.Info("controller stopped; runners on every host are still running")
 	return nil
 }

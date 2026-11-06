@@ -720,6 +720,12 @@ func (s *Server) agentRoutes() chi.Router {
 		// No body limit: this one is a runner's whole output, streamed for as
 		// long as the job runs.
 		r.Post(strings.TrimPrefix(agent.PathLogs, "/api/v1/agent")+"/{stream_id}", s.handleAgentLogs)
+		// A merge repository is fetched by the agent that was told to merge it,
+		// and its one answer is posted back. The body is a gzipped tarball on the
+		// way out, so the GET is not JSON; the answer is bounded by the worker's
+		// own response budget rather than the ordinary JSON one.
+		r.With(s.agentBudget).Get(strings.TrimPrefix(agent.PathMerge, "/api/v1/agent")+"/{merge_id}", s.handleAgentMergePull)
+		r.With(s.agentBudget).Post(strings.TrimPrefix(agent.PathMerge, "/api/v1/agent")+"/{merge_id}", s.handleAgentMergeAnswer)
 	})
 	return r
 }

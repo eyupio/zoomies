@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/gitbare"
+	"github.com/eyupio/zoomies/internal/gitmerge"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
@@ -64,6 +66,10 @@ const (
 	// defaultCallTimeout bounds every request except a task long poll, which
 	// sets its own deadline from the wait it asked for.
 	defaultCallTimeout = 30 * time.Second
+	// mergeRepositoryTimeout bounds a packed repository pull. The bytes can be
+	// hundreds of megabytes on a slow link, and the task's ten-minute lease
+	// still bounds the whole repair.
+	mergeRepositoryTimeout = 5 * time.Minute
 	// pollMargin is added to the requested wait when a long poll's deadline is
 	// set. The request must outlive the wait the controller was asked for:
 	// giving a long poll an ordinary timeout is the classic bug that turns it
@@ -393,6 +399,12 @@ type request struct {
 	query  url.Values
 	body   any
 	out    any
+	// rawBody receives a response that is not JSON, such as a packed
+	// repository. header receives its headers. maxBytes bounds the read, and
+	// is maxResponseBytes unless a caller names something larger.
+	rawBody  *[]byte
+	header   *http.Header
+	maxBytes int64
 	// anonymous omits the credentials. Only Join is anonymous, because it is
 	// the call that mints them.
 	anonymous bool
@@ -450,6 +462,24 @@ func (t *HTTPTransport) call(ctx context.Context, r request) (int, error) {
 
 	if resp.StatusCode >= 300 {
 		return resp.StatusCode, statusError(r.method, r.path, resp)
+	}
+	if r.rawBody != nil {
+		limit := r.maxBytes
+		if limit <= 0 {
+			limit = maxResponseBytes
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+		if err != nil {
+			return resp.StatusCode, fmt.Errorf("agent: reading the %s %s response: %w: %w", r.method, r.path, ErrRetryable, err)
+		}
+		if int64(len(body)) > limit {
+			return resp.StatusCode, fmt.Errorf("agent: the %s %s response is larger than %d bytes", r.method, r.path, limit)
+		}
+		*r.rawBody = body
+		if r.header != nil {
+			*r.header = resp.Header.Clone()
+		}
+		return resp.StatusCode, nil
 	}
 	if r.out == nil || resp.StatusCode == http.StatusNoContent {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorBytes))
@@ -570,6 +600,49 @@ func (t *HTTPTransport) ReportRunners(ctx context.Context, reports []RunnerRepor
 		return nil
 	}
 	_, err := t.call(ctx, request{method: http.MethodPost, path: PathReport, body: reports})
+	return err
+}
+
+// PullMergeRepository fetches the packed repository a merge_conflict task named.
+func (t *HTTPTransport) PullMergeRepository(ctx context.Context, mergeID string) (MergeRepository, error) {
+	if strings.TrimSpace(mergeID) == "" {
+		return MergeRepository{}, errors.New("agent: cannot pull a merge repository without an attempt ID; the controller must set one on the merge_conflict task")
+	}
+	var body []byte
+	var header http.Header
+	_, err := t.call(ctx, request{
+		method:   http.MethodGet,
+		path:     PathMerge + "/" + url.PathEscape(mergeID),
+		rawBody:  &body,
+		header:   &header,
+		maxBytes: gitbare.MaxRepositoryBytes,
+		timeout:  mergeRepositoryTimeout,
+	})
+	if err != nil {
+		return MergeRepository{}, err
+	}
+	out := MergeRepository{
+		Ancestor:   header.Get(HeaderMergeAncestor),
+		Base:       header.Get(HeaderMergeBase),
+		Head:       header.Get(HeaderMergeHead),
+		Repository: body,
+	}
+	if out.Ancestor == "" || out.Base == "" || out.Head == "" {
+		return MergeRepository{}, errors.New("agent: the controller sent a merge repository without its three pinned commit ids, so the worker has nothing to merge")
+	}
+	return out, nil
+}
+
+// ReportMergeAnswer posts the one answer the worker produced for an attempt.
+func (t *HTTPTransport) ReportMergeAnswer(ctx context.Context, mergeID string, answer gitmerge.WorkerResponse) error {
+	if strings.TrimSpace(mergeID) == "" {
+		return errors.New("agent: cannot answer a merge without an attempt ID; the controller must set one on the merge_conflict task")
+	}
+	_, err := t.call(ctx, request{
+		method: http.MethodPost,
+		path:   PathMerge + "/" + url.PathEscape(mergeID),
+		body:   answer,
+	})
 	return err
 }
 

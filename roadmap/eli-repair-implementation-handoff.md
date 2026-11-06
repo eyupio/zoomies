@@ -1,6 +1,6 @@
 # Eli Repair implementation handoff
 
-Last updated: 5 November 2026.
+Last updated: 6 November 2026.
 
 This file is the continuation record for the repository-first Eli Repair setup,
 continuous PR watching and merge-conflict repair work. Read it before changing
@@ -8,33 +8,33 @@ these features. Update it in every PR for this initiative, including corrective
 PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 
 This is the shared workstream record for the whole initiative. S1 through S3a
-are merged on `main`. The slice in [PR
-#1391](https://github.com/eyupio/zoomies/pull/1391) added the bounded Git merge
-package; the slice after it added the `zoomies git-worker` command and the
-`ghcr.io/eyupio/zoomies-git` image that wraps it. Neither has a controller
-transport yet, so nothing in the running controller can start the worker.
-Describing a later slice here does not add its runtime implementation to an
-earlier branch. Continue from the newest branch after checking the live PR
-states.
+are merged on `main`. S3b's merge package, the `zoomies git-worker` command, the
+`ghcr.io/eyupio/zoomies-git` image, the repository writer and fetch, the archive
+download and the repository transport package are merged. The controller can now
+serve a prepared attempt and accept its one answer over the agent transport, but
+no agent handler pulls, unpacks or runs the worker image yet, so no conflict is
+resolved or published. Describing a later slice here does not add its runtime
+implementation to an earlier branch. Continue from the newest branch after
+checking the live PR states.
 
 ## Current checkpoint
 
 | Item | State |
 | --- | --- |
-| Latest slice | the `merge_conflict` task, stacked on `codex/eli-git-merge-worker` after #1404 merged |
-| Investigated baseline | `039aa7b1a` on `main` |
-| Working branches | `codex/eli-git-merge-worker` for the merge package, the worker command and image (the command slice merged into it as `6a9cb316`), `codex/eli-git-fetch` for the repository writer and the fetch |
-| Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b package: `e7f482f5`; S3b worker command and image: this branch |
-| Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds, whose publication #1398 wires for the merge into `main` |
+| Latest slice | [#1409](https://github.com/eyupio/zoomies/pull/1409): the agent merge transport, stacked on #1407 |
+| Investigated baseline | `568ec4017` on `main` |
+| Working branch | `codex/eli-merge-transport` |
+| Verified code checkpoints | S1 through S3a merged, and S3b's merge package, worker command and image, repository writer and fetch, archive download and repository transport merged through `568ec4017`; #1407's task is `c926789cd` |
+| Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds. Decisions 0017 and 0018 add the controller-built repository, the archive download and the agent transport contract. This slice serves that repository over the agent API and accepts the one answer, with a deadline removing an attempt nobody answers |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | The controller can prepare the repository a repair merges in, and the worker merges it end to end in a test; the agent transport is still to write |
-| Next implementation | The two endpoints over `mergeSession` and the agent handler that unpacks, runs the worker image and posts the answer, then model resolution and two-parent publication, then S4 UX |
+| Current slice | The controller holds prepared attempts, serves their packed repository with the three pinned commit ids, accepts exactly one worker answer, and removes a repository on answer, expiry or shutdown. The `merge_conflict` task now carries those pins. No agent handler consumes the task yet |
+| Next implementation | The agent side of the task: pull the repository, unpack it into a temporary directory, run the worker image against it, post the one answer and remove the directory whatever happened. Then model resolution and two-parent publication, then S4 UX |
 | CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
 | Watcher claim cost | [#1392](https://github.com/eyupio/zoomies/pull/1392), a controller-load change that is not a slice, makes the due-watch claim look on the reader pool before it takes the writer. What is due, how a watch is leased and what an observation records are unchanged |
-| Merge-conflict repair | Detection is in S3a. S3b has decision 0016, the bounded merge package, the worker command and image, decision 0017 with the repository writer, and decision 0018 with the archive reader and the fetch. The HTTP download, the transport, model resolution and publication remain, and admission still refuses the conflicts capability |
+| Merge-conflict repair | Detection is in S3a. S3b has decision 0016, the bounded merge package, the worker command and image, decision 0017 with the repository writer, and decision 0018 with the archive reader, the fetch and the agent transport. The agent's pull/unpack/run handler, model resolution and publication remain, and admission still refuses the conflicts capability |
 | Production configuration | No repository automation or model credentials changed by this work |
 
 The automatic mode still starts from a failed `workflow_job`, attempts one
@@ -482,6 +482,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1402](https://github.com/eyupio/zoomies/pull/1402), open, stacked on #1399 | S3b: the archive download, the commit read and the `gitfetch` source adapter | Archive and commit tests through the production factory path, the no-credential-to-storage assertion, `staticcheck ./...`, build, vet and formatting pass | The controller adapter and the agent transport |
 | [#1404](https://github.com/eyupio/zoomies/pull/1404), open, stacked on #1402 | S3b: `gitbare.Pack` and `Unpack`, and the controller's attempt registry | Round-trip tests through the worker, the read-only loose objects, every refusal, the attempt lifecycle, `staticcheck ./...`, build and formatting pass | The `merge_conflict` task and the endpoints the agent uses |
 | [#1407](https://github.com/eyupio/zoomies/pull/1407), open, stacked on `codex/eli-git-merge-worker` | S3b: the `merge_conflict` task and `QueueMergeConflict` | Task payload, queue key and lease tests, the older-agent compatibility suite, build and formatting pass | The two endpoints over `mergeSession` and the agent handler |
+| [#1409](https://github.com/eyupio/zoomies/pull/1409), open, stacked on #1407 | S3b: pull and answer endpoints over `mergeSession`, their agent transport client, and the prepared attempt's three pins on the task | Race tests for the controller session, the agent transport, the API routes and the task payload; `make openapi`, vet and formatting pass; no agent handler, model or publication | The agent handler that pulls, unpacks, runs the worker image and posts the answer, then model resolution and two-parent publication |
 | [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
 
 S1 validation on 3 November 2026:
@@ -722,6 +723,66 @@ Validation on 5 November 2026, on Git 2.39.5:
 Not run: the two agent endpoints over `mergeSession`, the agent handler that
 unpacks and runs the worker image, and the answer's return path. Those are the
 next slice.
+
+### S3b: the agent merge transport, 6 November 2026
+
+This slice is the controller's side of decision 0018. An agent can now pull a
+prepared attempt's repository with its three pinned commit ids and post exactly
+one worker answer. Nothing pulls the task yet: the agent handler that unpacks,
+runs the image and posts the answer is the next slice, and no conflict is
+resolved or published here.
+
+- `GET /api/v1/agent/merge/{merge_id}` serves the packed repository with
+  `X-Zoomies-Merge-Ancestor`, `-Base` and `-Head`, behind the agent credential and
+  the host budget. A second pull gets the same bytes; an answered or expired
+  attempt is refused rather than served.
+- `POST /api/v1/agent/merge/{merge_id}` accepts one `gitmerge.WorkerResponse`.
+  It must carry exactly one of a result and an error code, and a second answer is
+  a conflict, not a replacement. The answer is bounded by the worker's own 8 MiB
+  response budget, not the ordinary 1 MiB JSON limit.
+- `agent.Transport` gains `PullMergeRepository` and `ReportMergeAnswer`, with HTTP
+  and embedded implementations. The pull has its own five-minute deadline and is
+  bounded by `gitbare.MaxRepositoryBytes`; the answer uses the ordinary call
+  deadline.
+- The `merge_conflict` task now carries `MergeAncestor`, `MergeBase` and
+  `MergeHead`, as decision 0018 requires. `Controller.PrepareMerge` builds and
+  holds the attempt, and `QueueMergeConflict` takes the prepared attempt rather
+  than loose ids.
+- `mergeSession` is now owned by the controller. The housekeeping tick removes
+  attempts past their deadline, and shutdown removes every repository still held,
+  so neither a lost host nor a restart leaves prepared repositories on disk.
+- The private-connection allowlist admits the two new agent paths. Both are in
+  `api/openapi.yaml` as `x-internal` agent operations, and `make openapi`
+  regenerates the embedded document and the UI client as it does for every
+  served route.
+
+Validation on 6 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 -run 'Merge|AgentRoutes' ./internal/controller ./internal/api ./internal/agent`:
+  pass (controller 11.256s, api 15.054s, agent 1.054s). This covers the pull and
+  answer endpoints, a second pull and answer, an answer with neither or both
+  things, the prepared pins in headers and on the task, expiry and shutdown
+  cleanup, and the transport's own request shapes.
+- `go test -race -count=1 -run 'Merge|AgentRoutes' ./internal/gitmerge ./internal/gitbare ./internal/gitfetch`:
+  pass (1.625s, 1.385s, 1.013s; the last has no matching test).
+- `go vet` on the six changed packages and `staticcheck` on them: pass.
+- `go test -count=1 ./internal/docs`: pass (33.078s), with the handoff tracked.
+- `make openapi` regenerated `internal/api/openapi_spec.go` and
+  `web/src/lib/api/schema.d.ts`; `go test -count=1 -run 'TestTheSpecCoversTheRouter|TestEveryOperationRecordsItsRole|TestNoNewDescriptionInTheSpecIsCutAtItsFirstComma' ./internal/api`
+  passes. The first CI run found the new routes missing from the spec and two
+  unquoted flow descriptions; both are fixed.
+- The existing failed-fetch cleanup test now compares the temporary merge
+  directories before and after its own call. It previously failed when another
+  package's test binary happened to be preparing a repository at the same
+  moment; that is a test isolation fix, not a runtime change.
+
+Limits of this slice:
+
+- No agent handles `merge_conflict` yet. It is not queued by any production path,
+  and admission still refuses the conflicts capability.
+- No model resolution, two-parent commit or publication exists.
+- Full repository `make test`, browser suites, the complete store suite with the
+  race detector, a live model and end-to-end GitHub mutations were not run.
 
 ### S3b: the repository's journey to the agent, 5 November 2026
 

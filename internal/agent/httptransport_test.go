@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/eyupio/zoomies/internal/gitmerge"
 )
 
 func newTestTransport(t *testing.T, h http.Handler) (*HTTPTransport, *httptest.Server) {
@@ -414,5 +416,66 @@ func TestAnUnprocessableHeartbeatIsNotACredentialProblem(t *testing.T) {
 	}
 	if errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("heartbeat error = %v, reported as a credential problem: the agent would re-join over a malformed request", err)
+	}
+}
+
+func TestHTTPTransportPullsAMergeRepositoryWithItsPins(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc(PathMerge+"/merge-1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		w.Header().Set(HeaderMergeAncestor, "ancestor-1")
+		w.Header().Set(HeaderMergeBase, "base-1")
+		w.Header().Set(HeaderMergeHead, "head-1")
+		w.Header().Set("Content-Type", "application/gzip")
+		_, _ = w.Write([]byte("packed repository"))
+	})
+	tr, _ := newTestTransport(t, mux)
+
+	got, err := tr.PullMergeRepository(context.Background(), "merge-1")
+	if err != nil {
+		t.Fatalf("PullMergeRepository: %v", err)
+	}
+	if got.Ancestor != "ancestor-1" || got.Base != "base-1" || got.Head != "head-1" {
+		t.Fatalf("pins = %+v", got)
+	}
+	if string(got.Repository) != "packed repository" {
+		t.Fatalf("repository = %q", got.Repository)
+	}
+}
+
+func TestHTTPTransportRefusesAMergeRepositoryWithoutItsPins(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc(PathMerge+"/merge-1", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("packed repository"))
+	})
+	tr, _ := newTestTransport(t, mux)
+
+	if _, err := tr.PullMergeRepository(context.Background(), "merge-1"); err == nil {
+		t.Fatal("a repository without its three pins was accepted, so the worker has nothing to merge")
+	}
+}
+
+func TestHTTPTransportPostsAMergeAnswer(t *testing.T) {
+	var got gitmerge.WorkerResponse
+	mux := http.NewServeMux()
+	mux.HandleFunc(PathMerge+"/merge-1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decoding the answer: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	tr, _ := newTestTransport(t, mux)
+
+	answer := gitmerge.WorkerResponse{Result: &gitmerge.Result{Tree: "tree-1"}}
+	if err := tr.ReportMergeAnswer(context.Background(), "merge-1", answer); err != nil {
+		t.Fatalf("ReportMergeAnswer: %v", err)
+	}
+	if got.Result == nil || got.Result.Tree != "tree-1" {
+		t.Fatalf("posted answer = %+v", got)
 	}
 }

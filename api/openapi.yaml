@@ -8916,6 +8916,70 @@ paths:
         "204": { description: The stream ended. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { description: Nobody is watching this stream any more; the agent stops sending. }
+
+  /agent/merge/{merge_id}:
+    get:
+      operationId: agentPullMergeRepository
+      tags: [agent]
+      x-internal: true
+      summary: Pull the repository a merge_conflict task named
+      description: >-
+        The packed repository for one prepared merge attempt, as a gzipped tarball. The three
+        pinned commit ids travel in X-Zoomies-Merge-Ancestor, X-Zoomies-Merge-Base and
+        X-Zoomies-Merge-Head, so the body stays exactly what the worker unpacks. A second pull
+        gets the same bytes until the one answer arrives; an answered or expired attempt is
+        refused rather than served.
+      security: [{ agentAuth: [] }]
+      parameters:
+        - { name: merge_id, in: path, required: true, schema: { type: string }, description: The attempt named by the merge_conflict task. }
+      responses:
+        "200":
+          description: The packed repository and its three pinned commit ids.
+          headers:
+            X-Zoomies-Merge-Ancestor:
+              schema: { type: string }
+              description: The merge base the controller wrote.
+            X-Zoomies-Merge-Base:
+              schema: { type: string }
+              description: The target tip the controller wrote.
+            X-Zoomies-Merge-Head:
+              schema: { type: string }
+              description: The pull request head the controller wrote.
+          content:
+            application/gzip:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: "The attempt was answered, expired, or was never this controller's." }
+        "409": { description: "The attempt already has its one answer, so its repository is gone." }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    post:
+      operationId: agentReportMergeAnswer
+      tags: [agent]
+      x-internal: true
+      summary: Post the one answer a merge worker produced
+      description: >-
+        A clean merge and a text conflict are both successful answers: the conflict is the
+        evidence the next stage resolves. A second answer is refused, because a merge is one
+        incident and a second tree would be a second history for it.
+      security: [{ agentAuth: [] }]
+      parameters:
+        - { name: merge_id, in: path, required: true, schema: { type: string }, description: The attempt named by the merge_conflict task. }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentMergeAnswer" }
+      responses:
+        "204": { description: Recorded. }
+        "400":
+          description: "The body carried neither a result nor a code, or both."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: "The attempt expired, or was never this controller's." }
+        "409": { description: The attempt already has its one answer; a lost reply must not replace it. }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /comparisons:
     post:
       operationId: captureComparison
@@ -17601,6 +17665,44 @@ components:
     # --- agent protocol (internal) ------------------------------------------
     # The wire types of the agent routes. internal/agent/protocol.go owns them;
     # these describe what it sends so the document is whole.
+    AgentMergeAnswer:
+      type: object
+      description: >-
+        Exactly one of result and code is set. A result whose conflicts are non-empty is a
+        conflicted tree and is not publishable; an unsupported entry names a conflict this
+        worker refused to hand to a model.
+      properties:
+        result: { $ref: "#/components/schemas/AgentMergeResult" }
+        error: { type: string, description: "Why the merge did not happen, as a sentence for the operator." }
+        code:
+          type: string
+          enum: [invalid_request, merge_base_mismatch, unsafe_repository, merge_failed, too_large]
+          description: The stable outcome the controller can switch on.
+    AgentMergeResult:
+      type: object
+      properties:
+        tree: { type: string, description: The merge tree. It may contain conflict markers while conflicts is non-empty. }
+        conflicts:
+          type: array
+          items: { $ref: "#/components/schemas/AgentMergeConflict" }
+        unsupported:
+          type: array
+          items: { $ref: "#/components/schemas/AgentMergeUnsupportedConflict" }
+        truncated: { type: boolean, description: The conflict budget stopped the walk before every path was read. }
+    AgentMergeConflict:
+      type: object
+      required: [path, ancestor, base, head]
+      properties:
+        path: { type: string }
+        ancestor: { type: string }
+        base: { type: string }
+        head: { type: string }
+    AgentMergeUnsupportedConflict:
+      type: object
+      required: [path, reason]
+      properties:
+        path: { type: string }
+        reason: { type: string }
     AgentJoinRequest:
       type: object
       required: [protocol_version, join_token, name, capacity, os, arch, version, backends]

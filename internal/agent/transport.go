@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"time"
+
+	"github.com/eyupio/zoomies/internal/gitmerge"
 )
 
 // Transport is how an agent reaches its controller.
@@ -44,6 +46,17 @@ type Transport interface {
 	// copies a runner's output into it; the controller fans it out to whoever
 	// is watching in the browser. Closing the writer ends the stream.
 	OpenLogStream(ctx context.Context, streamID string) (io.WriteCloser, error)
+
+	// PullMergeRepository fetches the packed repository for one merge attempt,
+	// with the three pinned commit ids the worker's request needs. It is called
+	// only for a merge_conflict task, and the controller serves the same bytes
+	// however many times a lost reply makes the agent ask.
+	PullMergeRepository(ctx context.Context, mergeID string) (MergeRepository, error)
+
+	// ReportMergeAnswer posts the one answer a merge worker produced. An answer
+	// the controller already holds is refused, so a lost reply is visible rather
+	// than silently replacing the first.
+	ReportMergeAnswer(ctx context.Context, mergeID string, answer gitmerge.WorkerResponse) error
 
 	// SetCredentials installs the identity returned by Join, or restored from
 	// the agent's config, for use on subsequent calls.

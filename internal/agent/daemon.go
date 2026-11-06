@@ -1659,6 +1659,22 @@ func validateTask(task Task) error {
 		}
 	case TaskCheckHost:
 		// Nothing to check beyond the ID: it names no runner and carries no spec.
+	case TaskMergeConflict:
+		if task.MergeID == "" {
+			return errors.New("merge_conflict task has no attempt ID, so its repository cannot be pulled")
+		}
+		if task.MergeImage == "" {
+			return errors.New("merge_conflict task names no worker image to run")
+		}
+		for name, id := range map[string]string{
+			"merge ancestor": task.MergeAncestor,
+			"merge base":     task.MergeBase,
+			"merge head":     task.MergeHead,
+		} {
+			if id == "" {
+				return fmt.Errorf("merge_conflict task has no %s commit id, so the worker has nothing to merge", name)
+			}
+		}
 	case TaskUpdateAgent:
 		// The controller never sends a malformed one; these appear in the agent's
 		// log only if something else is speaking for it. An update with no ID has

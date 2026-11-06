@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/backend"
+	"github.com/eyupio/zoomies/internal/gitmerge"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -308,6 +309,11 @@ type fakeTransport struct {
 	reportErr error
 	pollErr   error
 	streams   map[string]*fakeStream
+	merges    map[string]MergeRepository
+	pulled    []string
+	answers   map[string]gitmerge.WorkerResponse
+	pullErr   error
+	answerErr error
 	openErr   error
 	writeHold time.Duration
 	polls     int
@@ -326,6 +332,8 @@ func newFakeTransport() *fakeTransport {
 		joinResp: &JoinResponse{HostID: "host-1", AgentToken: "agent-token", ControllerVersion: "test"},
 		beatResp: &HeartbeatResponse{OK: true},
 		streams:  make(map[string]*fakeStream),
+		merges:   make(map[string]MergeRepository),
+		answers:  make(map[string]gitmerge.WorkerResponse),
 	}
 }
 
@@ -395,6 +403,30 @@ func (f *fakeTransport) ReportRunners(_ context.Context, reports []RunnerReport)
 	case f.reports <- reports:
 	default:
 	}
+	return nil
+}
+
+func (f *fakeTransport) PullMergeRepository(_ context.Context, mergeID string) (MergeRepository, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.pullErr != nil {
+		return MergeRepository{}, f.pullErr
+	}
+	f.pulled = append(f.pulled, mergeID)
+	held, ok := f.merges[mergeID]
+	if !ok {
+		return MergeRepository{}, errors.New("no such merge attempt")
+	}
+	return held, nil
+}
+
+func (f *fakeTransport) ReportMergeAnswer(_ context.Context, mergeID string, answer gitmerge.WorkerResponse) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.answerErr != nil {
+		return f.answerErr
+	}
+	f.answers[mergeID] = answer
 	return nil
 }
 
