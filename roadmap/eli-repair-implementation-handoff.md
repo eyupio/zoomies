@@ -21,20 +21,20 @@ checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1413](https://github.com/eyupio/zoomies/pull/1413): the conflicted watch wired through the worker, model and two-parent publication, stacked on #1412 |
+| Latest slice | the durable-watch REST API, stacked on #1413 |
 | Investigated baseline | `568ec4017` on `main` |
-| Working branch | `codex/eli-conflict-repair` |
+| Working branch | `codex/eli-watch-api` |
 | Verified code checkpoints | S1 through S3a merged, and S3b's merge package, worker command and image, repository writer and fetch, archive download and repository transport merged through `568ec4017`; #1407's task is `c926789cd` |
 | Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds. Decisions 0017 and 0018 add the controller-built repository, the archive download and the agent transport contract. The controller serves that repository over the agent API and accepts the one answer, and an agent now pulls, unpacks, runs the worker image and posts that answer |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | A watch admitted with the conflicts capability now starts the worker when GitHub reports the head is not mergeable. The answer loop resolves the supported conflicts with the model, applies the resolved files to the worker's merged-tree changes, and publishes a two-parent commit with the head first after rechecking the watch, policy, provider, installation, head and target tip. Admission no longer refuses conflicts, and an agent advertises `merge-worker` only where its backend can run the image |
-| Next implementation | S4: expose the three behaviour choices and the per-repository/per-PR controls, show conflict and check activity together, and run a live model and real GitHub PR validation end to end |
+| Current slice | The controller's durable watches are now on the REST API: list per-PR and repository-wide decisions, admit one PR, admit a repository's open PRs, and pause, resume or stop a watch. Repository pause leaves already admitted PR watches alone; per-PR pause and stop keep their history. The same read/write roles and audit trail as the rest of Eli repairs apply |
+| Next implementation | S4 UI: the three behaviour choices, repository and PR controls, current conflict/check activity, and a live model and real GitHub PR validation end to end |
 | CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
 | Watcher claim cost | [#1392](https://github.com/eyupio/zoomies/pull/1392), a controller-load change that is not a slice, makes the due-watch claim look on the reader pool before it takes the writer. What is due, how a watch is leased and what an observation records are unchanged |
-| Merge-conflict repair | End to end in the controller: a conflicted watch prepares the repository from three pinned commits, an agent runs the worker, the model resolves supported text conflicts, and the controller publishes a two-parent, non-force merge commit after rechecking every authority. The final UI controls, conflict-only mode presentation and live end-to-end validation remain |
+| Merge-conflict repair | End to end in the controller: a conflicted watch prepares the repository from three pinned commits, an agent runs the worker, the model resolves supported text conflicts, and the controller publishes a two-parent, non-force merge commit after rechecking every authority. The API can now list and control the watches; the UI and live end-to-end validation remain |
 | Production configuration | No repository automation or model credentials changed by this work |
 
 The automatic mode still starts from a failed `workflow_job`, attempts one
@@ -496,6 +496,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1411](https://github.com/eyupio/zoomies/pull/1411), open, stacked on #1410 | S3b: bounded model resolution of the text conflicts a worker returned, producing complete resolved files and rejecting markers, protected paths and oversized conflict sets | Race tests for the resolver, vet, staticcheck and formatting pass; no caller, two-parent commit or publication | The two-parent commit and non-force publication, then wiring a conflicted watch to the worker, model and publisher |
 | [#1412](https://github.com/eyupio/zoomies/pull/1412), open, stacked on #1411 | S3b: the worker's merged-tree change list, applying resolved files to it, and a two-parent commit with the head first that advances the branch without force after rechecking head and base | Race tests for the change list, the apply step and the GitHub commit path; `make openapi`, vet, staticcheck, docs and formatting pass; no watch wiring or pause/authorisation boundary | Wire a conflicted watch through the worker, resolver and commit, with pause and authorisation rechecked before the ref update |
 | [#1413](https://github.com/eyupio/zoomies/pull/1413), open, stacked on #1412 | S3b: the conflicted watch starts the worker, the answer loop runs the model and publishes the two-parent commit, admission accepts conflicts, and agents advertise the worker capability | Race tests for the start, answer, pause, unsupported-conflict and already-waiting-answer paths; vet, staticcheck, docs and formatting pass; no live model, real worker image or real GitHub mutation | S4 controls and live end-to-end validation |
+| this PR, stacked on #1413 | S4 backend: REST routes to list, admit, pause, resume and stop per-PR watches, and to list, admit, pause and resume repository-wide decisions, with owner, role and audit handling | API and store tests, spec/router coverage, `make openapi`, vet, staticcheck, docs and formatting pass; no UI | The final UI and live end-to-end validation |
 | [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
 
 S1 validation on 3 November 2026:
@@ -796,6 +797,49 @@ Limits of this slice:
 - No model resolution, two-parent commit or publication exists.
 - Full repository `make test`, browser suites, the complete store suite with the
   race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S4 backend: durable watches on the REST API, 6 November 2026
+
+This slice puts the watcher on the API the UI will call. It changes no runtime
+behaviour: the same loops admit and observe the same rows.
+
+- `GET /assistant/repairs/watches` lists per-PR watches newest first, filtered by
+  exact repository and by `enabled`, `paused` or `stopped`, with a page and a
+  total. `POST` admits one pull request; the caller becomes its owner.
+- `POST /assistant/repairs/watches/{id}/pause`, `/resume` and `/stop` change one
+  watch. Resume goes through the normal admission path, so the policy, provider,
+  access and pull request are checked again; stop stays terminal until a new
+  explicit admission.
+- `GET/POST /assistant/repairs/watches/repositories` list and admit
+  repository-wide decisions. `POST .../{id}/pause` stops new-PR discovery but
+  leaves already admitted watches alone; `POST .../{id}/resume` runs the normal
+  repository admission and turns discovery back on.
+- Reads need `assistant.read`, changes need `assistant.write`, and every change
+  writes its own audit row. The list never carries the observation lease, which
+  stays internal.
+- A repository decision needed two small store additions: reading one by id, and
+  pausing or resuming it without creating a watch.
+
+Validation on 6 November 2026:
+
+- `go test -count=1 -run 'EliWatch|Spec|Route' ./internal/api`: pass (11.934s).
+  The tests cover list filters, the lease never being serialised, pause and stop
+  reasons, a missing watch, repository listing and repository pause.
+- `go test -count=1 -run 'TestRouteTableCoversTheSpec|TestTheSpecCoversTheRouter|TestNoNewDescriptionInTheSpecIsCutAtItsFirstComma|TestEmbeddedSpecMatchesTheSource' ./internal/api`:
+  pass after quoting three descriptions and adding the watch id prefixes to the
+  route-table normaliser.
+- `make openapi` regenerated the embedded spec and the UI client; `go build ./...`
+  and `go vet` on the changed packages pass.
+- Changed-file `gofmt` and `git diff --check`: pass.
+
+Limits of this slice:
+
+- No UI uses these routes yet. Nothing has been validated against a live model,
+  real worker image or real GitHub PR.
+- The list is scoped by the same read rule as repair history and is otherwise a
+  snapshot of the watch rows; a repository-membership-scoped activity view is
+  still S4.
+- Admission still enumerates at most the discovery cap and reports it.
 
 ### S3b: the conflicted watch, 6 November 2026
 

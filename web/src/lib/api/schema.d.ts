@@ -4153,6 +4153,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/assistant/repairs/watches/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List repository-wide watching decisions
+         * @description One row for each explicit decision to follow a repository's open pull requests. A paused decision admits nothing new but leaves watches already admitted alone. Optional `repo` exact match and `state` of `enabled` or `paused` narrow the list.
+         */
+        get: operations["listEliWatchRepositories"];
+        put?: never;
+        /**
+         * Follow a repository’s open pull requests
+         * @description Reads the repository's open pull requests once, admits a watch for each eligible one and records the repository-wide decision. A pull request already watched is left as it is, so a pause on one PR is not undone. Forks, drafts and unwritable heads are returned as exclusions, and the report says when discovery was capped.
+         */
+        post: operations["admitEliWatchRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/watches/repositories/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop admitting new pull requests for a repository
+         * @description Pausing a repository decision stops new-PR discovery for that repository. Watches already admitted keep following their own pull requests; pause one of those on its own.
+         */
+        post: operations["pauseEliWatchRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/watches/repositories/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume admitting new pull requests for a repository
+         * @description Re-reads the repository's open pull requests through the normal admission path, then turns discovery back on. A paused per-PR watch is not resumed.
+         */
+        post: operations["resumeEliWatchRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/watches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List durable pull-request watches
+         * @description Newest observation first. Optional `repo` exact match and `state` of `enabled`, `paused` or `stopped` narrow the list. Evidence is the bounded metadata the watcher recorded, never raw source, model output or job logs.
+         */
+        get: operations["listEliWatches"];
+        put?: never;
+        /**
+         * Follow one pull request
+         * @description Reads the pull request now and stores the head and base it started from. It needs an enabled Automatic policy and its installation provider; the caller becomes the owner of the watch. A policy, webhook or restart never creates one of these.
+         */
+        post: operations["admitEliWatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/watches/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause one pull-request watch
+         * @description Keeps its history and settings; an explicit resume checks the policy, provider and pull request again.
+         */
+        post: operations["pauseEliWatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/watches/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume one pull-request watch
+         * @description Admits the pull request again through the normal path, so its policy, provider, access and open state are checked afresh.
+         */
+        post: operations["resumeEliWatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/watches/{id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop one pull-request watch
+         * @description Terminal until a new explicit admission; the history stays on record.
+         */
+        post: operations["stopEliWatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/assistant/repairs/opportunities": {
         parameters: {
             query?: never;
@@ -11870,6 +12018,97 @@ export interface components {
             /** @default false */
             ask_first: boolean;
             allow_workflows: boolean;
+        };
+        EliRepairWatch: {
+            id: string;
+            installation_id: string;
+            repo: string;
+            pull_number: number;
+            owner_id: string;
+            policy_provider_id?: string;
+            /** Format: date-time */
+            policy_updated_at?: string;
+            /** @description Failed checks may lead to a repair. */
+            checks: boolean;
+            /** @description Merge conflicts may be resolved and published. */
+            conflicts: boolean;
+            enabled: boolean;
+            paused_reason?: string;
+            head_sha?: string;
+            base_ref?: string;
+            base_sha?: string;
+            /** Format: date-time */
+            last_observed_at?: string;
+            /** Format: date-time */
+            next_check_at?: string;
+            stop_reason?: string;
+            /** @enum {string} */
+            check_state?: "passed" | "failed" | "waiting" | "unknown";
+            chain_attempts?: number;
+            last_failure_signature?: string;
+            chain_stopped_reason?: string;
+            /** @description Bounded JSON evidence of the checks last observed. */
+            check_evidence?: string;
+            /** @description Bounded JSON evidence of mergeability, head, base and merge base last observed. */
+            conflict_evidence?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        EliRepairWatchList: {
+            items: components["schemas"]["EliRepairWatch"][];
+            total: number;
+        };
+        EliRepairWatchAdmission: {
+            repo: string;
+            pull_number: number;
+            installation_id: string;
+            capabilities: ("checks" | "conflicts")[];
+        };
+        EliRepairWatchRepository: {
+            id: string;
+            installation_id: string;
+            repo: string;
+            owner_id: string;
+            checks: boolean;
+            conflicts: boolean;
+            enabled: boolean;
+            /** Format: date-time */
+            last_discovered_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        EliRepairWatchRepositoryList: {
+            items: components["schemas"]["EliRepairWatchRepository"][];
+        };
+        EliRepairWatchRepositoryAdmission: {
+            repo: string;
+            installation_id: string;
+            capabilities: ("checks" | "conflicts")[];
+        };
+        EliWatchExclusion: {
+            pull_number: number;
+            title?: string;
+            reason: string;
+        };
+        EliRepositoryWatchReport: {
+            admitted: components["schemas"]["EliRepairWatch"][];
+            excluded: components["schemas"]["EliWatchExclusion"][];
+            /** @description Pull requests already watched and left as they were. */
+            existing: number;
+            /** @description Discovery stopped at the page cap, so more open pull requests may exist. */
+            capped: boolean;
+        };
+        EliRepairWatchRepositoryAdmissionResponse: {
+            decision: components["schemas"]["EliRepairWatchRepository"];
+            report: components["schemas"]["EliRepositoryWatchReport"];
+        };
+        EliWatchChangeRequest: {
+            /** @description Why the watch was paused or stopped, shown to whoever reads it later. */
+            reason?: string;
         };
         EliRepairRequest: {
             repo: string;
@@ -21038,6 +21277,235 @@ export interface operations {
                 };
             };
             422: components["responses"]["Unprocessable"];
+        };
+    };
+    listEliWatchRepositories: {
+        parameters: {
+            query?: {
+                /** @description Exact repository name to show. */
+                repo?: string;
+                state?: "enabled" | "paused";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatchRepositoryList"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    admitEliWatchRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EliRepairWatchRepositoryAdmission"];
+            };
+        };
+        responses: {
+            /** @description Admitted */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatchRepositoryAdmissionResponse"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    pauseEliWatchRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paused */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatchRepository"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    resumeEliWatchRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resumed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatchRepositoryAdmissionResponse"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    listEliWatches: {
+        parameters: {
+            query?: {
+                /** @description Exact repository name to show. */
+                repo?: string;
+                state?: "enabled" | "paused" | "stopped";
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatchList"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    admitEliWatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EliRepairWatchAdmission"];
+            };
+        };
+        responses: {
+            /** @description Admitted */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatch"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    pauseEliWatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EliWatchChangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Paused */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatch"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    resumeEliWatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resumed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatch"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    stopEliWatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EliWatchChangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Stopped */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatch"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listEliOpportunities: {
