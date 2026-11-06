@@ -25,6 +25,10 @@ type watchLoopFake struct {
 	openCalls   int
 	conflict    *github.RepairConflict
 	conflictErr error
+
+	commitConflicts   int
+	conflictChanges   []github.ConflictChange
+	conflictCommitErr error
 }
 
 func (f *watchLoopFake) RepairPull(context.Context, string, int) (github.RepairPull, error) {
@@ -59,6 +63,15 @@ func (f *watchLoopFake) RepairConflictEvidence(context.Context, string, int) (gi
 		return github.RepairConflict{}, nil
 	}
 	return *f.conflict, nil
+}
+
+func (f *watchLoopFake) CommitConflictResolution(_ context.Context, _ string, _ github.RepairPull, _ string, changes []github.ConflictChange) (string, error) {
+	f.commitConflicts++
+	f.conflictChanges = append([]github.ConflictChange(nil), changes...)
+	if f.conflictCommitErr != nil {
+		return "", f.conflictCommitErr
+	}
+	return "merge-commit", nil
 }
 
 func (f *watchLoopFake) RepairOpenPulls(context.Context, string, int) ([]github.RepairPull, bool, error) {

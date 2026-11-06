@@ -92,17 +92,6 @@ func TestAdmissionRefusesWhatItCannotHonour(t *testing.T) {
 		}, func(inst *store.Installation, repo string) EliWatchAdmission {
 			return EliWatchAdmission{Repo: repo, PullNumber: 1, InstallationID: inst.ID, OwnerID: "usr_owner", Capabilities: []string{EliWatchChecks}}
 		}, "cannot pay"},
-		{"conflict capability is not implemented", func(t *testing.T, h *harness, inst *store.Installation, repo string) {
-			p := &store.AssistantProvider{Name: "Team", Kind: "openai", Enabled: true}
-			if err := h.st.CreateAssistantProvider(h.ctx, p); err != nil {
-				t.Fatal(err)
-			}
-			if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: p.ID, Enabled: true, Automatic: true}); err != nil {
-				t.Fatal(err)
-			}
-		}, func(inst *store.Installation, repo string) EliWatchAdmission {
-			return EliWatchAdmission{Repo: repo, PullNumber: 1, InstallationID: inst.ID, OwnerID: "usr_owner", Capabilities: []string{EliWatchConflicts}}
-		}, "not available yet"},
 		{"no capability", func(*testing.T, *harness, *store.Installation, string) {}, func(inst *store.Installation, repo string) EliWatchAdmission {
 			return EliWatchAdmission{Repo: repo, PullNumber: 1, InstallationID: inst.ID, OwnerID: "usr_owner"}
 		}, "at least one"},

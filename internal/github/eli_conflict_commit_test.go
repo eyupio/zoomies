@@ -1,7 +1,9 @@
 package github
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -21,6 +23,20 @@ func TestConflictCommitHasTwoParentsAndNeverForcesTheBranch(t *testing.T) {
 			_, _ = w.Write([]byte(conflictPull))
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/repo/git/commits/head":
 			_, _ = w.Write([]byte(`{"sha":"head","tree":{"sha":"head-tree"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/repo/git/blobs":
+			var body struct {
+				Encoding string `json:"encoding"`
+				Content  string `json:"content"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			decoded, err := base64.StdEncoding.DecodeString(body.Content)
+			if body.Encoding != "base64" || err != nil || !bytes.Equal(decoded, []byte{0, 1, 2, 255}) {
+				t.Errorf("blob %+v decoded %v: %v", body, decoded, err)
+			}
+			writes++
+			_, _ = w.Write([]byte(`{"sha":"binary-blob"}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/repo/git/trees":
 			var body struct {
 				BaseTree string           `json:"base_tree"`
@@ -29,7 +45,7 @@ func TestConflictCommitHasTwoParentsAndNeverForcesTheBranch(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			if body.BaseTree != "head-tree" || len(body.Tree) != 3 {
+			if body.BaseTree != "head-tree" || len(body.Tree) != 4 {
 				t.Errorf("tree = %+v", body)
 			}
 			byPath := map[string]map[string]any{}
@@ -41,6 +57,9 @@ func TestConflictCommitHasTwoParentsAndNeverForcesTheBranch(t *testing.T) {
 			}
 			if entry := byPath["added.txt"]; entry["content"] != "from base\n" || entry["mode"] != "100755" {
 				t.Errorf("added entry = %+v", entry)
+			}
+			if entry := byPath["asset.bin"]; entry["sha"] != "binary-blob" || entry["content"] != nil {
+				t.Errorf("binary entry %+v", entry)
 			}
 			if entry := byPath["sub"]; entry["type"] != "commit" || entry["sha"] != "sub-sha" {
 				t.Errorf("submodule entry = %+v", entry)
@@ -88,8 +107,9 @@ func TestConflictCommitHasTwoParentsAndNeverForcesTheBranch(t *testing.T) {
 			{Path: "gone.txt", Deleted: true},
 			{Path: "added.txt", Mode: "100755", Content: []byte("from base\n")},
 			{Path: "sub", Mode: "160000", SHA: "sub-sha"},
+			{Path: "asset.bin", Content: []byte{0, 1, 2, 255}},
 		})
-	if err != nil || sha != "merge-commit" || writes != 3 || pulls != 2 {
+	if err != nil || sha != "merge-commit" || writes != 4 || pulls != 2 {
 		t.Fatalf("sha %s writes %d pulls %d: %v", sha, writes, pulls, err)
 	}
 }

@@ -774,6 +774,13 @@ type RepairConflictClient interface {
 	RepairConflictEvidence(context.Context, string, int) (RepairConflict, error)
 }
 
+// RepairConflictWriter is the publication half of a conflict repair. It is
+// separate so a client that can detect a conflict is not assumed to be able to
+// commit one.
+type RepairConflictWriter interface {
+	CommitConflictResolution(context.Context, string, RepairPull, string, []ConflictChange) (string, error)
+}
+
 func (c *appClient) RepairConflictEvidence(ctx context.Context, repo string, number int) (RepairConflict, error) {
 	base, err := repairRepo(repo)
 	if err != nil {

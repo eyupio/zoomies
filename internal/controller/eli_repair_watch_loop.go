@@ -104,9 +104,11 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 	}
 
 	conflictEvidence := "{}"
+	var conflict github.RepairConflict
 	if conflictClient, ok := client.(github.RepairConflictClient); ok {
-		conflict, conflictErr := conflictClient.RepairConflictEvidence(checkCtx, watch.Repo, watch.PullNumber)
+		read, conflictErr := conflictClient.RepairConflictEvidence(checkCtx, watch.Repo, watch.PullNumber)
 		if conflictErr == nil {
+			conflict = read
 			encoded, _ := json.Marshal(conflict)
 			conflictEvidence = string(encoded)
 		}
@@ -188,8 +190,30 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 	if err := c.st.SetEliRepairWatchConflict(ctx, watch.ID, watch.LeaseToken, conflictEvidence); err != nil && !errors.Is(err, store.ErrConflict) {
 		c.log.Warn("could not record an Eli conflict check", "watch", watch.ID, "error", err)
 	}
+	conflictDue := watch.Conflicts && conflict.MergeableKnown && !conflict.Mergeable && conflict.MergeBaseSHA != "" &&
+		conflict.HeadSHA == pull.HeadSHA && conflict.BaseSHA == pull.BaseSHA
+	if conflictDue {
+		key := conflictKey(watch.ID, conflict.HeadSHA, conflict.BaseSHA, conflict.MergeBaseSHA)
+		if c.claimConflict(key, now.Add(conflictClaimWindow)) {
+			c.goTracked(ctx, "conflict-start", func(runCtx context.Context) {
+				c.startConflictRepair(runCtx, key, raw, watch, pull, conflict)
+			})
+			next = laterOf(next, now.Add(2*time.Minute))
+		} else if c.conflictClaimed(key) {
+			// A worker or the model is already carrying this incident. Keep the
+			// watch checking, but do not start a second one.
+			next = laterOf(next, now.Add(2*time.Minute))
+		}
+	}
 	c.releaseEliRepairWatch(ctx, watch, pull.HeadSHA, pull.Base, pull.BaseSHA, checkState, checkEvidence, next)
 	return true
+}
+
+func laterOf(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
 }
 
 func (c *Controller) repairWatchEnabled(ctx context.Context, r *store.EliRepair) bool {

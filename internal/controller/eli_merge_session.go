@@ -57,6 +57,13 @@ type MergeRepository struct {
 // pull afterwards packs the same directory again, and the directory is removed
 // exactly once.
 func (s *mergeSession) prepare(ctx context.Context, client github.Client, repo string, pin gitfetch.Pin, image string) (MergePrepared, error) {
+	return s.prepareFor(ctx, client, repo, pin, image, nil)
+}
+
+// prepareFor prepares one repository with the job that will resolve its answer,
+// if it has one. The answer loop uses it; prepare keeps the API-facing path free
+// of a job it does not have.
+func (s *mergeSession) prepareFor(ctx context.Context, client github.Client, repo string, pin gitfetch.Pin, image string, job *conflictJob) (MergePrepared, error) {
 	built, err := mergeRepository(ctx, client, repo, pin)
 	if err != nil {
 		return MergePrepared{}, err
@@ -68,7 +75,7 @@ func (s *mergeSession) prepare(ctx context.Context, client github.Client, repo s
 		_ = discardMergeRepository(built)
 		return MergePrepared{}, fmt.Errorf("packing the merge repository: %w", err)
 	}
-	id, err := s.attempts.add(built, image)
+	id, err := s.attempts.add(built, image, job)
 	if err != nil {
 		_ = discardMergeRepository(built)
 		return MergePrepared{}, err
@@ -103,7 +110,8 @@ func (s *mergeSession) repository(ctx context.Context, id string) (MergeReposito
 
 // accept records the one answer for an attempt and removes the repository it was
 // built from, whatever the answer says. A conflicted merge is a successful answer:
-// the conflict is the evidence the repair is made from.
+// the conflict is the evidence the repair is made from. The conflict loop picks
+// it up from pending; nothing else has to be woken.
 func (s *mergeSession) accept(id string, response gitmerge.WorkerResponse) (gitmerge.WorkerResponse, error) {
 	released, err := s.attempts.answer(id, response)
 	if err != nil {
@@ -111,6 +119,14 @@ func (s *mergeSession) accept(id string, response gitmerge.WorkerResponse) (gitm
 	}
 	_ = discardMergeRepository(released)
 	return response, nil
+}
+
+// pending lists answers waiting for the conflict resolver.
+func (s *mergeSession) pending() []string { return s.attempts.pending() }
+
+// takeAnswer marks one answer handled and returns the job it belongs to.
+func (s *mergeSession) takeAnswer(id string) (*conflictJob, gitmerge.WorkerResponse, bool) {
+	return s.attempts.takeAnswer(id)
 }
 
 // abandon lets go of an attempt nobody will answer, which is what a repair that

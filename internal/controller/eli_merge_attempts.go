@@ -33,8 +33,12 @@ type mergeAttempt struct {
 	id       string
 	repo     gitfetch.Repository
 	image    string
+	job      *conflictJob
 	deadline time.Time
 	answer   *gitmerge.WorkerResponse
+	// handled says the answer has been taken for resolution. A duplicate
+	// answer still receives "already answered"; the work is not repeated.
+	handled bool
 }
 
 // mergeAttempts holds the attempts in flight and owns their repositories.
@@ -69,7 +73,7 @@ func newMergeAttempts(now func() time.Time, ttl time.Duration, max int) *mergeAt
 
 // add takes ownership of a prepared repository and returns the id an agent is
 // told to fetch it by.
-func (m *mergeAttempts) add(repo gitfetch.Repository, image string) (string, error) {
+func (m *mergeAttempts) add(repo gitfetch.Repository, image string, job ...*conflictJob) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.byID) >= m.max {
@@ -79,12 +83,16 @@ func (m *mergeAttempts) add(repo gitfetch.Repository, image string) (string, err
 	if err != nil {
 		return "", err
 	}
-	m.byID[id] = &mergeAttempt{
+	attempt := &mergeAttempt{
 		id:       id,
 		repo:     repo,
 		image:    image,
 		deadline: m.now().Add(m.ttl),
 	}
+	if len(job) > 0 {
+		attempt.job = job[0]
+	}
+	m.byID[id] = attempt
 	return id, nil
 }
 
@@ -130,6 +138,32 @@ func (m *mergeAttempts) answer(id string, response gitmerge.WorkerResponse) (git
 	return repo, nil
 }
 
+// pending lists the attempts whose one answer has arrived and has not been
+// taken for resolution yet.
+func (m *mergeAttempts) pending() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var ids []string
+	for id, attempt := range m.byID {
+		if attempt.answer != nil && !attempt.handled {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// takeAnswer hands the answer and the job it belongs to to the resolver once.
+func (m *mergeAttempts) takeAnswer(id string) (*conflictJob, gitmerge.WorkerResponse, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	attempt, ok := m.byID[id]
+	if !ok || attempt.answer == nil || attempt.handled {
+		return nil, gitmerge.WorkerResponse{}, false
+	}
+	attempt.handled = true
+	return attempt.job, *attempt.answer, true
+}
+
 // forget lets go of one attempt without an answer, which is what a repair that
 // was paused, cancelled or superseded does before any agent replies. The
 // repository is handed back for removal like every other exit.
@@ -153,6 +187,11 @@ func (m *mergeAttempts) expire() []gitfetch.Repository {
 	now := m.now()
 	var expired []gitfetch.Repository
 	for id, attempt := range m.byID {
+		// A completed worker result waits for the bounded resolver queue;
+		// another model call must not consume its worker deadline.
+		if attempt.answer != nil && !attempt.handled && attempt.job != nil {
+			continue
+		}
 		if now.Before(attempt.deadline) {
 			continue
 		}
