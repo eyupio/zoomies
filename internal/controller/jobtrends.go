@@ -201,6 +201,14 @@ func (c *Controller) readSlowerJobs(ctx context.Context, out *[]Problem) error {
 		*out = append(*out, Problem{
 			Code:     "jobs.duration_regressed",
 			Severity: config.SeverityInfo,
+			// There is one of these per slower job, so each needs an identity of
+			// its own: without one the UI cannot tell them apart, and a keyed
+			// list of them is a repeated key -- a rendering error rather than a
+			// cosmetic one -- while dismissing one would dismiss them all. The
+			// job's name is what the trend was grouped by and is stable from
+			// one pass to the next, unlike the durations in the title.
+			TargetKind: "job",
+			TargetID:   name,
 			Title: fmt.Sprintf("%s now takes %s, up from %s",
 				workflowText(name), now.Round(time.Second), was.Round(time.Second)),
 			Detail: fmt.Sprintf("the typical run of this job over the last %s took %s across %d runs, against %s across %d runs in the %s before. "+
