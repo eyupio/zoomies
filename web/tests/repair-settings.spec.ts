@@ -288,3 +288,38 @@ test('editing stays on one repository and adding repositories starts with safe d
     allow_workflows: false,
   });
 });
+
+test('editing another repository brings the form back on screen when it already has focus', async ({
+  page,
+}) => {
+  // Safari, and Firefox on macOS, do not focus a button when it is clicked, so
+  // after one edit the heading keeps focus while the operator scrolls back to
+  // the list. Focusing it again cannot scroll: it already has focus. The form
+  // is above the list, so without an explicit scroll a second Edit changes a
+  // form nobody can see and reads as a button that does nothing.
+  const policy: Schemas['EliRepairPolicy'] = {
+    repo: 'acme/site',
+    installation_id: 'inst-1',
+    provider_id: '',
+    enabled: true,
+    automatic: false,
+    ask_first: true,
+    allow_workflows: false,
+  };
+  const policies = Array.from({ length: 15 }, (_, i) => ({
+    ...policy,
+    repo: i === 0 ? 'acme/site' : `acme/repo-${i}`,
+  }));
+  await repositorySetup(page, { policies });
+  await page.goto('/repairs/setup');
+  await page.getByRole('button', { name: 'Edit repair settings for acme/site' }).click();
+  const heading = page.getByRole('heading', { name: 'Editing acme/site' });
+  await expect(heading).toBeFocused();
+
+  const second = page.getByRole('button', { name: 'Edit repair settings for acme/repo-14' });
+  await second.scrollIntoViewIfNeeded();
+  await expect(heading).not.toBeInViewport();
+  // A DOM click, which does not move focus, as those browsers' own would not.
+  await second.evaluate((el) => (el as HTMLElement).click());
+  await expect(page.getByRole('heading', { name: 'Editing acme/repo-14' })).toBeInViewport();
+});
