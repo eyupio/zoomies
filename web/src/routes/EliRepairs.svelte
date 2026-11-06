@@ -22,10 +22,13 @@
     getEliRepairSettings,
     listEliOpportunities,
     listEliRepairs,
+    listEliWatchRepositories,
+    listEliWatches,
     listJobs,
   } from '$lib/api/client';
   import type { Schemas } from '$lib/api/types';
   import Button from '$lib/components/Button.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Disclosure from '$lib/components/Disclosure.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import SectionNav from '$lib/components/SectionNav.svelte';
@@ -38,6 +41,24 @@
   import type { RepairHistorySummary } from '$lib/repairs/history';
   import { RUNNING_LIMIT, offerCases, setupSummary } from '$lib/repairs/hub';
   import { stopAutomatic } from '$lib/repairs/stop';
+  import {
+    pauseRepository,
+    pauseWatch,
+    resumeRepository,
+    resumeWatch,
+    stopAllWatches,
+    stopWatch,
+  } from '$lib/repairs/watchActions';
+  import {
+    pauseWatchCopy,
+    stopAllCopy,
+    stopWatchCopy,
+    summariseWatch,
+    watchingState,
+    type RepositoryWatch,
+    type Watch,
+    type WatchControlCopy,
+  } from '$lib/repairs/watches';
   import { parseTarget, targetHref } from '$lib/repairs/workspace';
   import ActiveRepairs from '$lib/repairs/ActiveRepairs.svelte';
   import AutomaticRepairs from '$lib/repairs/AutomaticRepairs.svelte';
@@ -48,6 +69,7 @@
   import RepairTargetDialog from '$lib/repairs/RepairTargetDialog.svelte';
   import SetupBar from '$lib/repairs/SetupBar.svelte';
   import StopAutomaticDialog from '$lib/repairs/StopAutomaticDialog.svelte';
+  import WatchedRepositories from '$lib/repairs/WatchedRepositories.svelte';
 
   /** How often the hub reads again, and how long the offers are left between reads. */
   const POLL_MS = 10_000;
@@ -81,6 +103,22 @@
   let stopError = $state('');
   let dismissing = $state(false);
   let dialogOpen = $state(false);
+  /** The watches and the repository decisions behind the Watching section, for an administrator. */
+  let decisions = $state<RepositoryWatch[]>([]);
+  let watches = $state<Watch[]>([]);
+  let watchLoaded = $state(false);
+  let watchFailed = $state(false);
+  let watchError = $state('');
+  let watchBusy = $state<string[]>([]);
+  /** The control waiting on a confirmation, with the promise it made. */
+  let confirming = $state<{
+    copy: WatchControlCopy;
+    run: () => Promise<string>;
+  } | null>(null);
+  let confirmBusy = $state(false);
+  let confirmError = $state('');
+  let confirmOpen = $state(false);
+
   let history = $state<RepairHistory | null>(null);
   /** What the closed History section says about the list it last read. */
   let historySummary = $state<RepairHistorySummary>({
@@ -132,6 +170,34 @@
       authDisabled: session.authDisabled,
     }),
   );
+  const watching = $derived(
+    watchingState({
+      loaded: watchLoaded,
+      failed: watchFailed,
+      repositories: decisions.length,
+      watches: watches.length,
+    }),
+  );
+  const watchCount = $derived(watches.filter((watch) => watch.enabled).length);
+  /** Something a person has to look at, so the section opens and the nav says so. */
+  const watchNeedsPerson = $derived(
+    watches.some((watch) => watch.enabled && summariseWatch(watch).attention.length > 0),
+  );
+  // A section appears when there is something in it, and also when the read
+  // failed: an administrator who has watches and cannot read them must not be
+  // shown a hub that looks as if nothing is being followed.
+  const showWatching = $derived(watching === 'working' || watching === 'failed');
+  const watchingWords = $derived.by(() => {
+    if (watching === 'failed') return 'Could not read what Eli is watching';
+    if (watching === 'loading') return 'Reading what Eli is watching';
+    if (watching === 'quiet') return 'Nothing being watched';
+    return `${pluralise(watchCount, 'pull request')} watched in ${pluralise(
+      new Set(watches.map((watch) => watch.repo.toLowerCase())).size,
+      'repository',
+      'repositories',
+    )}`;
+  });
+
   // Setup is a task, not a status: the bar appears only when something is
   // actually in the way. Once a person can repair, the header's Repair settings
   // link is the way back to the choices.
@@ -140,6 +206,9 @@
     { id: 'needs', label: 'Needs you', count: offers.length + attentionTotal },
     { id: 'running', label: 'In progress', count: running.length },
     { id: 'history', label: 'History', secondary: true },
+    ...(administrator && showWatching
+      ? [{ id: 'watching', label: 'Watching', count: watchCount, secondary: true }]
+      : []),
     ...(administrator && showAutomatic
       ? [{ id: 'automatic', label: 'Automatic', count: automatic.length, secondary: true }]
       : []),
@@ -175,13 +244,16 @@
 
   async function refresh(): Promise<void> {
     const readOffers = offering && Date.now() - offersReadAt >= OFFERS_EVERY_MS;
-    const [read, offered, going, automaticRead, needs] = await Promise.allSettled([
-      getEliRepairSettings(),
-      readOffers ? listEliOpportunities() : Promise.resolve(null),
-      listEliRepairs({ group: 'active', limit: RUNNING_LIMIT }),
-      administrator ? getEliAutomaticRepairs() : Promise.resolve(null),
-      listEliRepairs({ group: 'needs_action', limit: RUNNING_LIMIT }),
-    ]);
+    const [read, offered, going, automaticRead, needs, decisionsRead, watchesRead] =
+      await Promise.allSettled([
+        getEliRepairSettings(),
+        readOffers ? listEliOpportunities() : Promise.resolve(null),
+        listEliRepairs({ group: 'active', limit: RUNNING_LIMIT }),
+        administrator ? getEliAutomaticRepairs() : Promise.resolve(null),
+        listEliRepairs({ group: 'needs_action', limit: RUNNING_LIMIT }),
+        administrator ? listEliWatchRepositories() : Promise.resolve(null),
+        administrator ? listEliWatches({ limit: 100 }) : Promise.resolve(null),
+      ]);
     // One read failing leaves the others standing, and the first failure is the one said.
     // The automatic repairs say their own, in their panel, so one failure is not said twice.
     const failed = [read, offered, going, needs].find((result) => result.status === 'rejected');
@@ -193,6 +265,25 @@
     } else {
       automaticFailed = true;
     }
+    // The two watch reads are one answer: a failure in either means the section
+    // cannot say what is being followed, so neither half is trusted.
+    if (decisionsRead.status === 'fulfilled' && watchesRead.status === 'fulfilled') {
+      decisions = decisionsRead.value?.items ?? [];
+      watches = watchesRead.value?.items ?? [];
+      watchFailed = false;
+      watchError = '';
+    } else if (administrator) {
+      watchFailed = true;
+      const reason =
+        decisionsRead.status === 'rejected'
+          ? decisionsRead.reason
+          : watchesRead.status === 'rejected'
+            ? watchesRead.reason
+            : undefined;
+      watchError = reason ? failure(reason) : '';
+    }
+    watchLoaded = true;
+
     if (going.status === 'fulfilled') {
       running = going.value.items;
       runningTotal = going.value.total;
@@ -246,6 +337,54 @@
     stopping = repos;
     stopError = '';
     stopOpen = true;
+  }
+
+  /**
+   * Pausing, resuming and stopping a watch. The button that was pressed is
+   * disabled while its request is out, so a second press cannot make a second
+   * request that arrives after the first and undoes it.
+   */
+  async function changeWatch(
+    id: string,
+    action: () => Promise<string>,
+    then?: () => void,
+  ): Promise<void> {
+    if (watchBusy.includes(id)) return;
+    watchBusy = [...watchBusy, id];
+    try {
+      const error = await action();
+      if (!error) {
+        then?.();
+        await refresh();
+      }
+    } finally {
+      watchBusy = watchBusy.filter((busy) => busy !== id);
+    }
+  }
+
+  function confirmControl(copy: WatchControlCopy, run: () => Promise<string>): void {
+    confirming = { copy, run };
+    confirmError = '';
+    confirmOpen = true;
+  }
+
+  /** The confirmation closes on success and stays, with its reason, on a failure. */
+  async function runConfirmed(): Promise<boolean> {
+    if (!confirming || confirmBusy) return false;
+    confirmBusy = true;
+    const error = await confirming.run();
+    confirmBusy = false;
+    if (error) {
+      confirmError = error;
+      return false;
+    }
+    confirmError = '';
+    await refresh();
+    await tick();
+    if (!document.activeElement || document.activeElement === document.body) {
+      document.getElementById('page-heading')?.focus();
+    }
+    return true;
   }
 
   /**
@@ -368,6 +507,32 @@
       <RepairHistory bind:this={history} bare onsummary={(summary) => (historySummary = summary)} />
     </Disclosure>
 
+    {#if administrator && showWatching}
+      <Disclosure
+        id="watching"
+        title="Watching"
+        summary={watchingWords}
+        tone={watching === 'failed' ? 'danger' : watchNeedsPerson ? 'pending' : ''}
+        open={watching === 'failed' || watchNeedsPerson}
+        flush
+      >
+        <WatchedRepositories
+          {decisions}
+          {watches}
+          state={watching}
+          busy={watchBusy}
+          failure={watchError}
+          onpausewatch={(watch) => confirmControl(pauseWatchCopy(watch), () => pauseWatch(watch))}
+          onresumewatch={(watch) => void changeWatch(watch.id, () => resumeWatch(watch))}
+          onstopwatch={(watch) => confirmControl(stopWatchCopy(watch), () => stopWatch(watch))}
+          onpauserepo={(decision) => void changeWatch(decision.id, () => pauseRepository(decision))}
+          onresumerepo={(decision) =>
+            void changeWatch(decision.id, () => resumeRepository(decision))}
+          onstopall={() => confirmControl(stopAllCopy(watches), () => stopAllWatches(watches))}
+        />
+      </Disclosure>
+    {/if}
+
     {#if administrator && showAutomatic}
       <Disclosure
         id="automatic"
@@ -395,6 +560,24 @@
     error={stopError}
     onconfirm={(then) => void stop(then)}
   />
+  <ConfirmDialog
+    bind:open={confirmOpen}
+    title={confirming?.copy.title ?? 'Confirm'}
+    description={confirming?.copy.description ?? ''}
+    consequences={confirming ? [confirming.copy.inFlight] : []}
+    confirmLabel={confirming?.copy.confirm ?? 'Confirm'}
+    cancelLabel="Cancel"
+    tone={confirming?.copy.confirm.startsWith('Stop') ? 'danger' : 'default'}
+    busy={confirmBusy}
+    onconfirm={runConfirmed}
+    oncancel={() => {
+      if (confirmBusy) return;
+      confirming = null;
+      confirmError = '';
+    }}
+  >
+    {#if confirmError}<p class="error" role="alert">{confirmError}</p>{/if}
+  </ConfirmDialog>
 {/if}
 
 <style>

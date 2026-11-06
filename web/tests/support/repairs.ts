@@ -54,6 +54,21 @@ export interface RepairApiState {
    */
   automatic: Schemas['EliAutomaticRepository'][] | { status: number; message: string };
   /**
+   * What `GET /assistant/repairs/watches/repositories` answers: the repository
+   * decisions, which is what says what Eli is following and what behaviour each
+   * repository is on.
+   */
+  watchRepositories: Schemas['EliRepairWatchRepository'][];
+  /** What `GET /assistant/repairs/watches` answers: one row per watched pull request. */
+  watches: Schemas['EliRepairWatch'][];
+  /**
+   * What a repository admission answers, when it should not do what the
+   * controller does. Left null, the stub admits the repository and every pull
+   * request the decisions name as open.
+   */
+  admit:
+    ((body: { repo: string; capabilities: string[] }) => { status: number; body: unknown }) | null;
+  /**
    * What `POST /assistant/repairs/automatic/stop` answers. Left null, the stub does
    * what the controller does: each repository that is automatic stops being, and
    * leaves the overview and the policies' automatic count; one that is not is
@@ -80,11 +95,88 @@ export interface RepairApiCalls {
   automaticReads: number;
   /** The body of every stop. */
   stops: { repos: string[]; then: string }[];
+  /** How many times the watched pull requests were read. */
+  watchReads: number;
+  /** How many times the repository decisions were read. */
+  watchRepositoryReads: number;
+  /** The bodies of every repository admission. */
+  admissions: { repo: string; capabilities: string[] }[];
+  /** Every pause, resume or stop of one watch, in the order they were asked. */
+  watchChanges: { id: string; action: 'pause' | 'resume' | 'stop'; body: unknown }[];
+  /** Every pause or resume of one repository's decision. */
+  repositoryChanges: { id: string; action: 'pause' | 'resume' }[];
 }
 
 const ACTIVE = ['queued', 'working', 'checking'];
 
 export const SHA = 'a41c9e2f0b7d5c3e8a1f6d4b2c9e7a5f3d1b8c6e';
+
+/** A moment before now, as the ISO timestamp the API answers with. */
+const ago = (ms: number): string => new Date(Date.now() - ms).toISOString();
+
+/**
+ * A watched pull request as `GET /assistant/repairs/watches` lists it: following
+ * both checks and conflicts, with the check evidence of a repository whose lint
+ * job failed on the head it is on.
+ */
+export function watchRow(over: Partial<Schemas['EliRepairWatch']> = {}): Schemas['EliRepairWatch'] {
+  return {
+    id: 'watch-1',
+    installation_id: 'ins_1',
+    repo: 'acme/widgets',
+    pull_number: 17,
+    owner_id: 'user-1',
+    checks: true,
+    conflicts: true,
+    enabled: true,
+    head_sha: SHA,
+    base_ref: 'main',
+    check_state: 'failed',
+    check_evidence: JSON.stringify({
+      state: 'failed',
+      total: 2,
+      truncated: false,
+      checks: [
+        { name: 'test', status: 'completed', conclusion: 'success', app: 'github-actions' },
+        { name: 'lint', status: 'completed', conclusion: 'failure', app: 'github-actions' },
+      ],
+    }),
+    conflict_evidence: JSON.stringify({
+      number: 17,
+      head_sha: SHA,
+      base_ref: 'main',
+      base_sha: 'b2c3d4',
+      mergeable: true,
+      mergeable_known: true,
+      merge_state: 'clean',
+    }),
+    last_observed_at: ago(2 * 60_000),
+    next_check_at: new Date(Date.now() + 60_000).toISOString(),
+    chain_attempts: 1,
+    created_at: ago(3 * 3_600_000),
+    updated_at: ago(2 * 60_000),
+    ...over,
+  };
+}
+
+/** One repository's watching decision, as `GET /assistant/repairs/watches/repositories` lists it. */
+export function watchRepositoryRow(
+  over: Partial<Schemas['EliRepairWatchRepository']> = {},
+): Schemas['EliRepairWatchRepository'] {
+  return {
+    id: 'decrepo-1',
+    installation_id: 'ins_1',
+    repo: 'acme/widgets',
+    owner_id: 'user-1',
+    checks: true,
+    conflicts: true,
+    enabled: true,
+    last_discovered_at: ago(5 * 60_000),
+    created_at: ago(3 * 3_600_000),
+    updated_at: ago(5 * 60_000),
+    ...over,
+  };
+}
 
 /**
  * The commit a repair in the world is working on. It is not the head readiness
@@ -249,6 +341,9 @@ export async function mockRepairApi(
     settings: { identities: [], policies: [] },
     automatic: [],
     stop: null,
+    watchRepositories: [],
+    watches: [],
+    admit: null,
     ...options,
   };
   const calls: RepairApiCalls = {
@@ -262,6 +357,11 @@ export async function mockRepairApi(
     offerReads: 0,
     automaticReads: 0,
     stops: [],
+    watchReads: 0,
+    watchRepositoryReads: 0,
+    admissions: [],
+    watchChanges: [],
+    repositoryChanges: [],
   };
 
   await page.route('**/api/v1/**', async (route) => {
@@ -379,6 +479,130 @@ export async function mockRepairApi(
         ),
       };
       return json({ results });
+    }
+    if (path === '/assistant/repairs/watches/repositories' && method === 'GET') {
+      calls.watchRepositoryReads += 1;
+      const repo = url.searchParams.get('repo');
+      const wanted = url.searchParams.get('state');
+      const rows = state.watchRepositories.filter(
+        (row) =>
+          (!repo || row.repo.toLowerCase() === repo.toLowerCase()) &&
+          (!wanted || (wanted === 'enabled' ? row.enabled : !row.enabled)),
+      );
+      return json({ items: rows });
+    }
+    if (path === '/assistant/repairs/watches/repositories' && method === 'POST') {
+      const body = request.postDataJSON() as { repo: string; capabilities: string[] };
+      calls.admissions.push(body);
+      if (state.admit) {
+        const answer = state.admit(body);
+        return json(answer.body, answer.status);
+      }
+      const checks = body.capabilities.includes('checks');
+      const conflicts = body.capabilities.includes('conflicts');
+      const decision: Schemas['EliRepairWatchRepository'] = {
+        id: `decrepo-${state.watchRepositories.length + 1}`,
+        installation_id: 'ins_1',
+        repo: body.repo,
+        owner_id: 'user-1',
+        checks,
+        conflicts,
+        enabled: true,
+        created_at: ago(60_000),
+        updated_at: ago(1000),
+      };
+      state.watchRepositories = [
+        ...state.watchRepositories.filter((row) => row.repo !== body.repo),
+        decision,
+      ];
+      // One open pull request, as a backfill of a repository with one would find.
+      state.watches = [
+        ...state.watches.filter((row) => row.repo !== body.repo),
+        watchRow({ repo: body.repo, checks, conflicts, pull_number: 41 }),
+      ];
+      return json(
+        {
+          decision,
+          report: {
+            admitted: state.watches.filter((row) => row.repo === body.repo),
+            excluded: [],
+            existing: 0,
+            capped: false,
+          },
+        },
+        201,
+      );
+    }
+    const repositoryChange =
+      /^\/assistant\/repairs\/watches\/repositories\/([^/]+)\/(pause|resume)$/.exec(path);
+    if (repositoryChange && method === 'POST') {
+      const id = decodeURIComponent(repositoryChange[1]!);
+      const action = repositoryChange[2] as 'pause' | 'resume';
+      calls.repositoryChanges.push({ id, action });
+      const decision = state.watchRepositories.find((row) => row.id === id);
+      if (!decision) {
+        return json({ error: { code: 'not_found', message: 'no such repository watch' } }, 404);
+      }
+      state.watchRepositories = state.watchRepositories.map((row) =>
+        row.id === id ? { ...row, enabled: action === 'resume' } : row,
+      );
+      const updated = state.watchRepositories.find((row) => row.id === id)!;
+      return action === 'pause'
+        ? json(updated)
+        : json({
+            decision: updated,
+            report: { admitted: [], excluded: [], existing: 0, capped: false },
+          });
+    }
+    if (path === '/assistant/repairs/watches' && method === 'GET') {
+      calls.watchReads += 1;
+      const repo = url.searchParams.get('repo');
+      const rows = state.watches.filter(
+        (row) => !repo || row.repo.toLowerCase() === repo.toLowerCase(),
+      );
+      return json({ items: rows, total: rows.length });
+    }
+    if (path === '/assistant/repairs/watches' && method === 'POST') {
+      const body = request.postDataJSON() as {
+        repo: string;
+        pull_number: number;
+        installation_id: string;
+        capabilities: string[];
+      };
+      const row = watchRow({
+        repo: body.repo,
+        pull_number: body.pull_number,
+        checks: body.capabilities.includes('checks'),
+        conflicts: body.capabilities.includes('conflicts'),
+      });
+      state.watches = [...state.watches, row];
+      return json(row, 201);
+    }
+    const watchChange = /^\/assistant\/repairs\/watches\/([^/]+)\/(pause|resume|stop)$/.exec(path);
+    if (watchChange && method === 'POST') {
+      const id = decodeURIComponent(watchChange[1]!);
+      const action = watchChange[2] as 'pause' | 'resume' | 'stop';
+      calls.watchChanges.push({ id, action, body: request.postDataJSON() });
+      const row = state.watches.find((item) => item.id === id);
+      if (!row) return json({ error: { code: 'not_found', message: 'no such watch' } }, 404);
+      const next: Schemas['EliRepairWatch'] =
+        action === 'resume'
+          ? { ...row, enabled: true, paused_reason: undefined, stop_reason: undefined }
+          : action === 'pause'
+            ? {
+                ...row,
+                enabled: false,
+                paused_reason: (request.postDataJSON() as { reason?: string })?.reason,
+                stop_reason: undefined,
+              }
+            : {
+                ...row,
+                enabled: false,
+                paused_reason: undefined,
+                stop_reason: (request.postDataJSON() as { reason?: string })?.reason,
+              };
+      state.watches = state.watches.map((item) => (item.id === id ? next : item));
+      return json(next);
     }
     if (path === '/assistant/repairs/settings') {
       return json(state.settings);
@@ -623,6 +847,46 @@ export async function mockRepairWorld(page: Page, over: Partial<RepairApiState> 
           pull_number: 17,
           updated_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
         },
+      }),
+    ],
+    // One repository following two pull requests, one of each kind of work, and
+    // one that stopped, so the Watching section has every shape on it.
+    watchRepositories: [
+      watchRepositoryRow(),
+      watchRepositoryRow({ id: 'decrepo-2', repo: 'acme/site', conflicts: false }),
+      watchRepositoryRow({ id: 'decrepo-3', repo: 'acme/docs', enabled: false }),
+    ],
+    watches: [
+      watchRow({ last_observed_at: new Date(Date.now() - 2 * 60_000).toISOString() }),
+      watchRow({
+        id: 'watch-2',
+        pull_number: 18,
+        check_state: 'passed',
+        check_evidence: JSON.stringify({
+          state: 'passed',
+          total: 1,
+          truncated: false,
+          checks: [{ name: 'test', status: 'completed', conclusion: 'success' }],
+        }),
+        chain_attempts: 0,
+      }),
+      watchRow({
+        id: 'watch-3',
+        repo: 'acme/site',
+        pull_number: 21,
+        checks: true,
+        conflicts: false,
+        check_state: 'failed',
+        chain_attempts: 3,
+        chain_stopped_reason:
+          'Eli has made three repair attempts for this watched pull request. A person needs to look at the remaining failure.',
+      }),
+      watchRow({
+        id: 'watch-4',
+        repo: 'acme/docs',
+        pull_number: 5,
+        enabled: false,
+        stop_reason: 'The pull request was closed or merged, so watching stopped.',
       }),
     ],
     errorOutput: {
