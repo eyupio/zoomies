@@ -220,6 +220,9 @@ internal/optimisation  reviewable proposals computed from evidence handed in; re
 internal/provenance keeps third-party names out of the tree
 internal/proxmoxsetup  connecting a Proxmox host: its own principal, binary, service and state
 internal/prrepair   bounds what the model may edit when it proposes a pull request
+internal/gitmerge   the bounded, isolated three-way merge for Eli conflict repair
+internal/gitbare    a bare repository built from a commit's archive, so a controller without Git can hand the worker one
+internal/gitfetch   the three pinned commits fetched into that repository, with the tree check and the cleanup
 internal/qr         the smallest QR encoder that serves the two-step verification picture
 internal/redact     strips credentials and commit emails from text bound for a model
 internal/releasekey the release signing key: Ed25519 verification of a release's checksums
