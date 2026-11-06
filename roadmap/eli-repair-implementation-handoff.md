@@ -2063,3 +2063,8 @@ all 27 gallery cases and the documentation checks. The previous stack's
 The required CI gate on the final combined commit remains pending. The workflow's
 GitHub-hosted recovery option is available when the self-hosted fleet stalls.
 Live model, worker-image and production GitHub repair validation remain open.
+
+The final integration also aligns the sign-in stage and Overview event-marker
+browser contracts with the shared radius tokens. Their colour, theme, icon and
+border assertions remain in place; the obsolete 28-pixel and circular-shape
+expectations are removed. Changed browser specs pass formatting and ESLint.
