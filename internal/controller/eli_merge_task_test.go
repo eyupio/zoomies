@@ -72,3 +72,20 @@ func TestAMergeTaskIsOfferedAgainWhenItsLeaseLapses(t *testing.T) {
 		t.Fatal("a merge task is counted as cleaning a runner up")
 	}
 }
+
+// A merge task's result is not allowed to fail a runner: it names none, and a
+// merge that went wrong is the answer endpoint's business.
+func TestAMergeTaskResultChangesNoRunnerState(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("m3")
+	prepared := MergePrepared{ID: "attempt-merge", Image: "image", Ancestor: "a", Base: "b", Head: "c"}
+	if !h.c.QueueMergeConflict(host.ID, prepared) {
+		t.Fatal("the merge task was not queued")
+	}
+	task := h.taskOfKind(host.ID, agent.TaskMergeConflict)
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: task.ID, Kind: agent.TaskMergeConflict, OK: false, Error: "the worker did not answer",
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+}

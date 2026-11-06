@@ -790,10 +790,14 @@ conflict evidence is detection only: no repository code runs and no conflict is
 resolved or published yet. The bounded three-way merge lives in
 `internal/gitmerge` and runs in `zoomies git-worker`, the command in the separate
 Git worker image (`deploy/Dockerfile`'s `gitworker` target, built by
-`make image-gitworker`): one JSON request on standard input, one JSON answer on
-standard output, no hooks, no external merge driver and no credentials. CI and
-releases publish it as `ghcr.io/eyupio/zoomies-git`; the controller does not start
-it yet. Repository-wide admission lists open pull requests once, within a page cap, and admits eligible ones without resuming a pause
+`make image-gitworker`): one JSON request, one JSON answer, no hooks, no external
+merge driver and no credentials. CI and releases publish it as
+`ghcr.io/eyupio/zoomies-git`. The controller builds the repository from three
+pinned commits and serves it over the agent transport; the agent that was told
+to merge it unpacks the repository into a temporary workspace, runs the worker
+image there with only that workspace mounted and no network, posts the one
+answer back, and removes the workspace whatever happened. The controller removes
+a prepared repository on its answer, at its deadline, or at shutdown. Repository-wide admission lists open pull requests once, within a page cap, and admits eligible ones without resuming a pause
 recorded on one pull request; forks, drafts and other exclusions are returned as
 reasons. Repository-wide admission records a separate explicit decision for the
 repository, in its own table; a per-PR watch never implies one. A five-minute

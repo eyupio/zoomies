@@ -1444,6 +1444,17 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 			a.handleCheckHost(ctx, task)
 		}()
 		return
+	case TaskMergeConflict:
+		// A merge is one short container run and names no runner. It is not
+		// lifecycle work, so a failure cannot mark a runner failed, and a
+		// cordoned host may still merge: cordoning stops new jobs, not the
+		// repair of one already open.
+		a.tasks.Add(1)
+		go func() {
+			defer a.tasks.Done()
+			a.handleMergeConflict(ctx, task)
+		}()
+		return
 	case TaskFillToolCache:
 		// Nor is a fill, which is minutes of downloading: in a lifecycle slot
 		// or the startup queue it would hold back the very runners it exists

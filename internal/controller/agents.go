@@ -1410,6 +1410,20 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 	if kind == "" && known {
 		kind = task.Kind
 	}
+	if kind == agent.TaskMergeConflict {
+		// A merge task names no runner, so its result changes no runner state.
+		// The answer endpoint is what records the work; this only says in the
+		// log that a host could not run the worker, and the prepared repository
+		// is left to its deadline rather than deleted under a late answer.
+		if res.OK {
+			c.log.Debug("a host ran the merge worker", "host", hostID, "merge", task.MergeID)
+		} else {
+			c.log.Warn("a host could not run the merge worker",
+				"host", hostID, "merge", task.MergeID, "said", res.Error,
+				"next", "the prepared repository is removed when its deadline passes")
+		}
+		return nil
+	}
 	if kind == agent.TaskCheckHost {
 		// hostID is the authenticated agent's, never the body's. Returning nil
 		// clears the lease on every outcome, a failed check included.
