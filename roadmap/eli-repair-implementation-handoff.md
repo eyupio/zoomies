@@ -21,7 +21,7 @@ checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | the durable-watch REST API, stacked on #1413 |
+| Latest slice | [#1416](https://github.com/eyupio/zoomies/pull/1416): the durable-watch REST API, stacked on #1413 |
 | Investigated baseline | `568ec4017` on `main` |
 | Working branch | `codex/eli-watch-api` |
 | Verified code checkpoints | S1 through S3a merged, and S3b's merge package, worker command and image, repository writer and fetch, archive download and repository transport merged through `568ec4017`; #1407's task is `c926789cd` |
@@ -496,7 +496,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1411](https://github.com/eyupio/zoomies/pull/1411), open, stacked on #1410 | S3b: bounded model resolution of the text conflicts a worker returned, producing complete resolved files and rejecting markers, protected paths and oversized conflict sets | Race tests for the resolver, vet, staticcheck and formatting pass; no caller, two-parent commit or publication | The two-parent commit and non-force publication, then wiring a conflicted watch to the worker, model and publisher |
 | [#1412](https://github.com/eyupio/zoomies/pull/1412), open, stacked on #1411 | S3b: the worker's merged-tree change list, applying resolved files to it, and a two-parent commit with the head first that advances the branch without force after rechecking head and base | Race tests for the change list, the apply step and the GitHub commit path; `make openapi`, vet, staticcheck, docs and formatting pass; no watch wiring or pause/authorisation boundary | Wire a conflicted watch through the worker, resolver and commit, with pause and authorisation rechecked before the ref update |
 | [#1413](https://github.com/eyupio/zoomies/pull/1413), open, stacked on #1412 | S3b: the conflicted watch starts the worker, the answer loop runs the model and publishes the two-parent commit, admission accepts conflicts, and agents advertise the worker capability | Race tests for the start, answer, pause, unsupported-conflict and already-waiting-answer paths; vet, staticcheck, docs and formatting pass; no live model, real worker image or real GitHub mutation | S4 controls and live end-to-end validation |
-| this PR, stacked on #1413 | S4 backend: REST routes to list, admit, pause, resume and stop per-PR watches, and to list, admit, pause and resume repository-wide decisions, with owner, role and audit handling | API and store tests, spec/router coverage, `make openapi`, vet, staticcheck, docs and formatting pass; no UI | The final UI and live end-to-end validation |
+| [#1416](https://github.com/eyupio/zoomies/pull/1416), open, stacked on #1413 | S4 backend: REST routes to list, admit, pause, resume and stop per-PR watches, and to list, admit, pause and resume repository-wide decisions, with owner, role and audit handling | API and store tests, spec/router coverage, `make openapi`, vet, staticcheck, docs and formatting pass; no UI | The final UI and live end-to-end validation |
 | [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
 
 S1 validation on 3 November 2026:
