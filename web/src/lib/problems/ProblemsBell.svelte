@@ -80,7 +80,7 @@
     justify-content: center;
     min-width: var(--z-space-4);
     padding: 0 var(--z-space-1);
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-sm);
     font-variant-numeric: tabular-nums;
   }
   /* Colour is never the only carrier: the number is the count, and the label

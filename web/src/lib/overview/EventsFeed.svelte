@@ -289,7 +289,7 @@
     /* A pill in the tone's own colours, its edge included, so the kind of
        news is a shape and an icon before it is a colour. */
     border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-sm);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);
   }

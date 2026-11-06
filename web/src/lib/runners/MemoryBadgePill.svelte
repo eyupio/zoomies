@@ -77,7 +77,7 @@
     flex: none;
     padding: 0 var(--z-space-2) 0 var(--z-space-1);
     border: var(--z-border-width) solid var(--pill-border);
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-sm);
     background: var(--pill-subtle);
     color: var(--pill-colour);
     font: inherit;

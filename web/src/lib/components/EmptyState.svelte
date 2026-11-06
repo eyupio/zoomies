@@ -64,7 +64,7 @@
     width: var(--z-space-10);
     height: var(--z-space-10);
     margin-bottom: var(--z-space-1);
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-md);
     background: var(--z-surface-sunken);
     color: var(--z-text-subtle);
   }
