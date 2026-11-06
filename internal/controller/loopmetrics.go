@@ -34,6 +34,7 @@ const (
 	stepAutoAdjust    = "auto_adjust"
 	stepExpireQueued  = "expire_queued"
 	stepExpireRunning = "expire_running"
+	stepExpireMerges  = "expire_merges"
 	stepSample        = "sample"
 	stepMachine       = "machine"
 	stepPrune         = "prune"

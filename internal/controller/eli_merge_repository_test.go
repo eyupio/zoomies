@@ -78,21 +78,38 @@ func TestMergeRepositoryRemovesWhatItBuiltWhenTheFetchFails(t *testing.T) {
 	repo := "acme/widgets"
 	ancestor := strings.Repeat("a", 40)
 	mergeFixture(t, f, repo, ancestor, nil, map[string]string{"file.txt": "a\nb\nc\n"})
+	// Only what this call adds is this test's business: another package's test
+	// binary may be preparing its own merge repository in the same temporary
+	// directory at the same moment, and a directory it owns is not a leak.
+	before := mergeTempDirectories(t)
 	// The target tip is never registered, so the fetch cannot finish.
 	_, err := mergeRepository(context.Background(), f.Client(repo, store.TargetRepo), repo,
 		gitfetch.Pin{Ancestor: ancestor, Base: strings.Repeat("b", 40), Head: strings.Repeat("c", 40)})
 	if err == nil {
 		t.Fatal("a fetch with a missing commit succeeded")
 	}
-	entries, readErr := os.ReadDir(os.TempDir())
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), "zoomies-merge-") {
-			t.Fatalf("the failed fetch left %s behind", entry.Name())
+	for name := range mergeTempDirectories(t) {
+		if !before[name] {
+			t.Fatalf("the failed fetch left %s behind", name)
 		}
 	}
+}
+
+// mergeTempDirectories lists the prepared-repository directories in the
+// temporary directory, keyed by name.
+func mergeTempDirectories(t *testing.T) map[string]bool {
+	t.Helper()
+	entries, err := os.ReadDir(os.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "zoomies-merge-") {
+			found[entry.Name()] = true
+		}
+	}
+	return found
 }
 
 // A pin that is not three commit ids is refused before GitHub is asked anything,

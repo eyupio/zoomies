@@ -21,6 +21,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
+	"github.com/eyupio/zoomies/internal/gitmerge"
 	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
@@ -2227,6 +2228,18 @@ func (t *embeddedTransport) ReportResult(ctx context.Context, res agent.TaskResu
 
 func (t *embeddedTransport) ReportRunners(ctx context.Context, reports []agent.RunnerReport) error {
 	return t.c.ReportRunners(ctx, t.host(), reports)
+}
+
+func (t *embeddedTransport) PullMergeRepository(ctx context.Context, mergeID string) (agent.MergeRepository, error) {
+	held, err := t.c.PullMergeRepository(ctx, t.host(), mergeID)
+	if err != nil {
+		return agent.MergeRepository{}, err
+	}
+	return agent.MergeRepository{Ancestor: held.Ancestor, Base: held.Base, Head: held.Head, Repository: held.Repository}, nil
+}
+
+func (t *embeddedTransport) ReportMergeAnswer(ctx context.Context, mergeID string, answer gitmerge.WorkerResponse) error {
+	return t.c.ReportMergeAnswer(ctx, t.host(), mergeID, answer)
 }
 
 // OpenLogStream hands the agent a pipe whose read half goes straight into the
