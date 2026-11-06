@@ -210,6 +210,7 @@ internal/analysis   evidence-backed findings computed from explicit snapshots
 internal/assistant  the model-provider contract behind the assistant, and its adapters
 internal/catalog    the one machine-readable list of problem codes and Kennel Club checks
 internal/cliconfig  ~/.config/zoomies/cli.yaml: where the CLI finds its controller
+internal/conflictresolve  asks a model to resolve the text conflicts a merge worker found; edits only those files
 internal/docs       tests that hold the documentation to the code it describes; no source of its own
 internal/hosttune   host health and tuning: detection that never writes, and approved changes
 internal/kennel     pure evaluation of what is wrong with a repository's workflows

@@ -12794,9 +12794,30 @@ export interface components {
             unsupported?: components["schemas"]["AgentMergeUnsupportedConflict"][];
             /** @description The conflict budget stopped the walk before every path was read. */
             truncated?: boolean;
+            /** @description The files the merged tree has that the pull request head does not. The controller uses these to build the two-parent commit on GitHub, where the worker's tree object does not exist. */
+            changes?: components["schemas"]["AgentMergeChange"][];
+        };
+        AgentMergeChange: {
+            path: string;
+            /** @description The Git mode of the merged entry, such as 100644 or 100755. */
+            mode?: string;
+            /**
+             * Format: byte
+             * @description The file's bytes, base64 in JSON, for a blob.
+             */
+            content?: string;
+            /** @description The commit id for a submodule entry. */
+            sha?: string;
+            /** @description The merged tree has no entry at this path. */
+            deleted?: boolean;
         };
         AgentMergeConflict: {
             path: string;
+            /**
+             * @description The regular file mode preserved by the resolution.
+             * @enum {string}
+             */
+            mode?: "100644" | "100755";
             ancestor: string;
             base: string;
             head: string;
