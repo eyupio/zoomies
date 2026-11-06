@@ -11,6 +11,11 @@ import (
 // the GHCR package page both show the whole catalogue at once.
 const RunnerImageRepo = "ghcr.io/eyupio/zoomies-runner"
 
+// GitWorkerImageRepo is where the bounded Git worker is published. It shares
+// the runner images' channel tags, so a controller asks for the same release or
+// dev tag it runs.
+const GitWorkerImageRepo = "ghcr.io/eyupio/zoomies-git"
+
 // RunnerFullImageRepo is where the runner-full target of the same Dockerfile is
 // published, under the same tags as RunnerImageRepo, for the variants whose
 // catalogue row is Full.
@@ -162,6 +167,15 @@ func DefaultImage() Image {
 // DefaultRunnerImage is the image reference a pool gets when it names neither
 // an image nor an operating system.
 func DefaultRunnerImage() string { return RunnerImageRepo + ":" + RunnerImageTag }
+
+// GitWorkerImage is the bounded Git worker for one channel tag. An empty tag is
+// the latest released channel, which is what a locally built controller has.
+func GitWorkerImage(tag string) string {
+	if tag == "" {
+		tag = "latest"
+	}
+	return GitWorkerImageRepo + ":" + tag
+}
 
 // RunnerImageTag is stamped by the container build independently of the binary
 // version. Native builds retain the released channel. Container builds use dev

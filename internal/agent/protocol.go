@@ -60,6 +60,12 @@ const FeatureTmpfs = "tmpfs"
 // and the daemon it asked for is given 50%.
 const FeatureDaemonShare = "daemon-share"
 
+// FeatureMergeWorker is advertised by an agent whose container backend can run
+// the bounded Git worker image. An older agent reports the kind it does not know
+// as a failed task, so the controller asks for this flag before it queues a
+// merge and never starts one that no host can carry out.
+const FeatureMergeWorker = "merge-worker"
+
 // FeatureSelfUpdate is advertised by an agent that understands TaskUpdateAgent
 // and can carry it out on this host. An older agent does not ignore the kind, it
 // reports the task failed with "unknown task kind", so the controller asks for

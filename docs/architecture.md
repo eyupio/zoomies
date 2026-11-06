@@ -797,7 +797,13 @@ pinned commits and serves it over the agent transport; the agent that was told
 to merge it unpacks the repository into a temporary workspace, runs the worker
 image there with only that workspace mounted and no network, posts the one
 answer back, and removes the workspace whatever happened. The controller removes
-a prepared repository on its answer, at its deadline, or at shutdown. Repository-wide admission lists open pull requests once, within a page cap, and admits eligible ones without resuming a pause
+a prepared repository on its answer, at its deadline, or at shutdown. A watch
+that has the conflicts capability starts that worker when GitHub reports the
+head is not mergeable, asks the model to resolve only the conflicted files it
+supplied, and builds a commit from the merged tree with the pull request head
+first and the pinned base second. The branch is advanced without force after the
+watch, policy, provider, installation, head and target tip are read again; a
+movement or a pause discards the work. Repository-wide admission lists open pull requests once, within a page cap, and admits eligible ones without resuming a pause
 recorded on one pull request; forks, drafts and other exclusions are returned as
 reasons. Repository-wide admission records a separate explicit decision for the
 repository, in its own table; a per-PR watch never implies one. A five-minute

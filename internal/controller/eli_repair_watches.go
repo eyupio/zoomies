@@ -50,12 +50,6 @@ func eliWatchCapabilities(caps []string) (checks, conflicts bool, err error) {
 	if !checks && !conflicts {
 		return false, false, errors.New("choose at least one thing to watch: failed checks or merge conflicts")
 	}
-	if conflicts {
-		return false, false, errors.New("merge-conflict watching is not available yet; only failed-check watching can be admitted")
-	}
-	if !checks {
-		return false, false, errors.New("choose at least one thing to watch: failed checks or merge conflicts")
-	}
 	return checks, conflicts, nil
 }
 
