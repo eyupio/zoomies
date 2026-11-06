@@ -616,9 +616,7 @@ test('the list card is one frame: an eyebrow over the title, chips in a toolbar,
   const card = page.getByRole('region', { name: 'Data grid' });
   const eyebrow = card.locator('header .eyebrow');
   await expect(eyebrow).toHaveText('11 known, 9 live');
-  await expect(eyebrow.evaluate((el) => getComputedStyle(el).textTransform)).resolves.toBe(
-    'uppercase',
-  );
+  await expect(eyebrow.evaluate((el) => getComputedStyle(el).textTransform)).resolves.toBe('none');
   await expect(
     card.locator('.toolbar').getByRole('group', { name: 'Filter by runner state' }),
   ).toBeVisible();
@@ -665,9 +663,7 @@ test('filter chips say which are in force with a tick and aria-pressed, in every
       'aria-pressed',
       'false',
     );
-    expect(
-      parseFloat(await busy.evaluate((el) => getComputedStyle(el).borderRadius)),
-    ).toBeGreaterThan(20);
+    expect(parseFloat(await busy.evaluate((el) => getComputedStyle(el).borderRadius))).toBe(8);
   }
 });
 
@@ -685,11 +681,11 @@ test('a filter no chip says presses nothing, and a chip with a hint explains its
   await expect(page.locator('.bubble:popover-open')).toContainText('Failures this fleet caused');
 });
 
-// The shared look's one button: a pill in the brand's Runner Blue under Zoomies
+// The shared look's one button: an 8px rounded rectangle in the brand's Runner Blue under Zoomies
 // Black, which is 7.3:1 in every combination, where the darkened accent was
 // needed only to carry white text. Held here so a later component cannot drift
 // back to a rectangle or to the accent.
-test('the primary button is a pill in Runner Blue with Zoomies Black text, in every combination', async ({
+test('the primary button is a rounded rectangle in Runner Blue with Zoomies Black text, in every combination', async ({
   page,
 }) => {
   for (const { style, mode } of COMBINATIONS) {
@@ -703,7 +699,7 @@ test('the primary button is a pill in Runner Blue with Zoomies Black text, in ev
       root.evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-runner-blue').trim()),
       root.evaluate((el) => getComputedStyle(el).getPropertyValue('--z-brand-black').trim()),
     ]);
-    expect(parseFloat(radius), `${style} ${mode}`).toBeGreaterThanOrEqual(999);
+    expect(parseFloat(radius), `${style} ${mode}`).toBe(8);
     expect(parseColour(background), `${style} ${mode}`).toEqual(hexToRgb(runnerBlue));
     expect(parseColour(colour), `${style} ${mode}`).toEqual(hexToRgb(black));
   }
@@ -712,31 +708,29 @@ test('the primary button is a pill in Runner Blue with Zoomies Black text, in ev
 // The icon buttons share the pill, and a text field takes the large radius so
 // it reads as the card's child rather than a box inside it; the checkbox and
 // the radio box keep the small one.
-test('icon buttons are pills and text fields take the large radius', async ({ page }) => {
+test('icon buttons and text fields share the medium radius', async ({ page }) => {
   await open(page, 'mission-control', 'dark');
-  const large = await page
+  const medium = await page
     .locator(':root')
-    .evaluate((el) => getComputedStyle(el).getPropertyValue('--z-radius-lg').trim());
+    .evaluate((el) => getComputedStyle(el).getPropertyValue('--z-radius-md').trim());
   const icon = page.locator('.icon-btn').first();
-  expect(
-    parseFloat(await icon.evaluate((el) => getComputedStyle(el).borderRadius)),
-  ).toBeGreaterThanOrEqual(999);
+  expect(await icon.evaluate((el) => getComputedStyle(el).borderRadius)).toBe(medium);
   for (const selector of ['.field input', '.field select', '.field textarea']) {
     const control = page.locator(selector).first();
-    expect(await control.evaluate((el) => getComputedStyle(el).borderRadius), selector).toBe(large);
+    expect(await control.evaluate((el) => getComputedStyle(el).borderRadius), selector).toBe(
+      medium,
+    );
   }
 });
 
-// A status badge is a pill in shape as well as in name. Its two heights do not
+// A status badge is compact (4px corners) rather than a pill. Its two heights do not
 // move, so no grid row grows where a small badge sits beside a medium one.
-test('a status badge is a pill and keeps its height in both sizes', async ({ page }) => {
+test('a status badge is compact and keeps its height in both sizes', async ({ page }) => {
   await open(page, 'classic', 'light');
   const badges = page.locator('.badge');
   expect(await badges.count()).toBeGreaterThan(1);
   const first = badges.first();
-  expect(
-    parseFloat(await first.evaluate((el) => getComputedStyle(el).borderRadius)),
-  ).toBeGreaterThanOrEqual(999);
+  expect(parseFloat(await first.evaluate((el) => getComputedStyle(el).borderRadius))).toBe(4);
   const heights = await badges.evaluateAll((els) =>
     els.map((el) => el.getBoundingClientRect().height),
   );
@@ -782,21 +776,20 @@ test('the terminal is a window on the dark stage that wraps a long command', asy
 // The copy control inside the window is the one control on the stage, so its
 // edge has to read against the black (the 3:1 bar for a control's edge), and
 // it is a pill like every other button, not the one rectangle left.
-test('the copy control inside the terminal is a pill whose edge reads on the stage', async ({
+test('the copy control inside the terminal is rounded and its edge reads on the stage', async ({
   page,
 }) => {
   for (const { style, mode } of COMBINATIONS) {
     await open(page, style, mode);
     const terminal = page.locator('.terminal').first();
     const control = terminal.getByRole('button', { name: 'Copy the command' });
-    const [background, edge, radius, height] = await Promise.all([
+    const [background, edge, radius] = await Promise.all([
       terminal.evaluate((el) => getComputedStyle(el).backgroundColor),
       control.evaluate((el) => getComputedStyle(el).borderTopColor),
       control.evaluate((el) => parseFloat(getComputedStyle(el).borderTopLeftRadius)),
-      control.evaluate((el) => el.getBoundingClientRect().height),
     ]);
     expect(contrast(edge, background), `${style} ${mode} edge`).toBeGreaterThanOrEqual(3);
-    expect(radius, `${style} ${mode} radius`).toBeGreaterThanOrEqual(height / 2);
+    expect(radius, `${style} ${mode} radius`).toBe(8);
   }
 });
 
