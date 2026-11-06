@@ -11,12 +11,13 @@ This is the shared workstream record for the whole initiative. S1 through S3a
 are merged on `main`, as are S3b's merge package, the `zoomies git-worker`
 command, the worker image, the repository writer and fetch, the archive download
 and the repository transport package. The rest of S3b and S4 are an open stack of
-PRs, not merged to `main`: #1407, #1409, #1410, #1411, #1412, #1413, #1416 and
-#1417. Each is based on the previous one, and #1407 is based on `main`. The
-controller can prepare a repository, an agent can run the worker, the model can
-resolve supported conflicts, the controller can publish the two-parent commit,
-and the watches are on the REST API and in the UI. No conflict repair has been
-run against a live model, a real worker image or a real GitHub pull request yet.
+PRs, not merged to `main`: #1407, #1409, #1410, #1411, #1412, #1413, #1416,
+#1417 and #1418. Each is based on the previous one, and #1407 is based on `main`.
+The controller can prepare a repository, an agent can run the worker, the model
+can resolve supported conflicts, the controller can publish the two-parent
+commit, and the watches are on the REST API and in the UI, with each watched pull
+request showing the attempts already made on it. No conflict repair has been run
+against a live model, a real worker image or a real GitHub pull request yet.
 Describing a later slice here does not add its runtime implementation to an
 earlier branch. Continue from the top of the stack after checking the live PR
 states, or merge the stack in order first.
@@ -25,16 +26,16 @@ states, or merge the stack in order first.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1417](https://github.com/eyupio/zoomies/pull/1417): S4 UI, repository-first watching on the hub and in repair settings, stacked on #1416 |
-| Investigated baseline | `568ec4017` on `main`; the stack's tip is `216721d2e` on `codex/eli-watch-api` |
-| Working branch | `codex/eli-repair-ui`, branched from `codex/eli-watch-api` |
-| Verified code checkpoints | S1 through S3a, and the S3b foundation, merged through `568ec4017`. The open stack's newest local checkpoints: #1407 `c926789cd`, #1409 `27a075c80`, #1410 `63a4a921b`, #1411 `d290125ad`, #1412 `3ac6909e1`, #1413 `89f10cf8f`, #1416 `871ee5c14`, this slice `216721d2e` |
+| Latest slice | [#1418](https://github.com/eyupio/zoomies/pull/1418): the attempt history beside each watched pull request, stacked on #1417 |
+| Investigated baseline | `568ec4017` on `main`; the stack's tip is `31c0cdc72` on `codex/eli-repair-attempt-history` |
+| Working branch | `codex/eli-repair-attempt-history`, branched from `codex/eli-repair-ui` |
+| Verified code checkpoints | S1 through S3a, and the S3b foundation, merged through `568ec4017`. The open stack's newest local checkpoints: #1407 `c926789cd`, #1409 `27a075c80`, #1410 `63a4a921b`, #1411 `d290125ad`, #1412 `3ac6909e1`, #1413 `89f10cf8f`, #1416 `871ee5c14`, #1417 `264c4f6c6`, this slice `31c0cdc72` |
 | Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds. Decisions 0017 and 0018 add the controller-built repository, the archive download and the agent transport. The controller serves the repository over the agent API, an agent runs the worker in a one-shot container, `internal/conflictresolve` asks the model only for the conflicted files, and the controller publishes a two-parent non-force commit. The watch API can list, admit, pause, resume and stop the work, and the UI chooses a repository's behaviour, admits it, shows what is being followed and controls it |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | S4 UI, first half. Repair settings lead with the three behaviours (Baby sit PRs, Fix failed checks only, Fix merge conflicts only). Saving an automatic repository also admits its open pull requests through the watch API and reports what came of each repository separately, so a saved policy with a refused admission says both. A "What Eli is watching now" card lists each repository's effective behaviour, watched count, last successful observation, current activity, what needs a person, and pause or resume for the repository, with each watched pull request underneath |
-| Next implementation | Finish S4: live validation of conflict repair against a real model, the real worker image and a real GitHub pull request; the attempt history beside the current pull request; one row per repository instead of the separate Automatic repairs panel; repository-scoped activity for people who are not administrators; notifications |
-| CI snapshot | None of #1407, #1409, #1410, #1411, #1412, #1413, #1416 or #1417 is merged. Local focused checks pass on each; their CI has been uneven on the self-hosted pool. Recheck every PR before merging and merge in stack order, starting with #1407. A queued, cancelled or stale run is not a result |
+| Current slice | S4 UI follow-up. The watched pull request's disclosure now lists every attempt recorded on that pull request, newest first, with the current attempt marked. Each row says how it ended, when it was queued, who began it and the commit it published, and links out to the attempt page, where raw source, model output and job logs stay behind their existing permission. The history is read per repository and narrowed to the watched pull request, a failed read still says so, and a history longer than the page read says older attempts may be missing |
+| Next implementation | Finish S4: live validation of conflict repair against a real model, the real worker image and a real GitHub pull request; one row per repository instead of the separate Automatic repairs panel; repository-scoped activity for people who are not administrators, or an explicit statement that it stays administrator-only; notifications on publication, needs-help and completion |
+| CI snapshot | None of #1407, #1409, #1410, #1411, #1412, #1413, #1416, #1417 or #1418 is merged. Local focused checks pass on each; their CI has been uneven on the self-hosted pool. Recheck every PR before merging and merge in stack order, starting with #1407. A queued, cancelled or stale run is not a result |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook. Per-PR and repository-wide watches are listed, admitted, paused, resumed and stopped through the API, and chosen, shown and controlled in the UI |
 | Watcher claim cost | [#1392](https://github.com/eyupio/zoomies/pull/1392), a controller-load change that is not a slice, makes the due-watch claim look on the reader pool before it takes the writer. What is due, how a watch is leased and what an observation records are unchanged |
@@ -437,16 +438,16 @@ post-resolution CI failure; conflict-only mode not making unrelated code fixes.
 
 ### S4: final simplified controls and repository visibility
 
-Status: the backend is in #1416 and the first half of the UI is in this slice.
-Repair settings offer the three behaviours, admit repository watching when a
-repository is saved, and show what is being watched; the hub lists each
-repository and its watched pull requests with the pause, resume and stop
-controls; one pull request shows its intended action, evidence, first failure,
-published commit and files, and the checks now. Not yet done: the attempt history
-beside the current pull request, folding the Automatic repairs panel into these
-repository rows so one repository is one row, repository-scoped activity for
-people who are not administrators, and notifications. Nothing here has run
-against a live model, a real worker image or a real GitHub pull request.
+Status: the backend is in #1416, the first half of the UI in #1417, and the
+attempt history beside the current pull request in #1418. Repair settings offer
+the three behaviours, admit repository watching when a repository is saved, and
+show what is being watched; the hub lists each repository and its watched pull
+requests with the pause, resume and stop controls; one pull request shows its
+intended action, evidence, first failure, published commit and files, the checks
+now, and every attempt made on it. Not yet done: folding the Automatic repairs
+panel into these repository rows so one repository is one row, repository-scoped
+activity for people who are not administrators, and notifications. Nothing here
+has run against a live model, a real worker image or a real GitHub pull request.
 
 - Expose the final three behaviour choices only with actual capability support.
   Done in #1417: the three choices are the two capabilities, and a repository
@@ -462,12 +463,16 @@ against a live model, a real worker image or a real GitHub pull request.
   Done in #1417, on the hub and in repair settings.
 - Show one current PR view plus the attempt history: intended action, evidence,
   original failure, actual changed files/commit, new check results and next action.
-  Done in #1417 except the history beside it: the current pull request shows all
-  of those, and its attempts are opened on their own page.
+  Done in #1417 for the current pull request, and the history beside it in #1418:
+  the disclosure lists every attempt on that pull request, newest first, marks the
+  current one and links each to its own page. Raw source, model output and job
+  logs still stay on those pages behind their existing permission.
 - Add repository-scoped activity access using verified repository membership.
   Keep raw source/model responses and job-log access independently restricted.
   Not done: the watches are administrator-only, as #1416 left them, and the rows
-  here do not widen raw access to solve it.
+  here do not widen raw access to solve it. This stays administrator-only until a
+  separate permission change, and the UI does not offer the section to anyone
+  else.
 - Notify on publication, needs-help and completion using existing in-app/event
   patterns. Update one GitHub progress comment without comment spam. The user
   must not need an open tab for the backend to keep watching.
@@ -538,7 +543,27 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1413](https://github.com/eyupio/zoomies/pull/1413), open, stacked on #1412 | S3b: the conflicted watch starts the worker, the answer loop runs the model and publishes the two-parent commit, admission accepts conflicts, and agents advertise the worker capability | Race tests for the start, answer, pause, unsupported-conflict and already-waiting-answer paths; vet, staticcheck, docs and formatting pass; no live model, real worker image or real GitHub mutation | S4 controls and live end-to-end validation |
 | [#1416](https://github.com/eyupio/zoomies/pull/1416), open, stacked on #1413 | S4 backend: REST routes to list, admit, pause, resume and stop per-PR watches, and to list, admit, pause and resume repository-wide decisions, with owner, role and audit handling | API and store tests, spec/router coverage, `make openapi`, vet, staticcheck, docs and formatting pass; no UI | The final UI and live end-to-end validation |
 | [#1417](https://github.com/eyupio/zoomies/pull/1417), open, stacked on #1416 | S4 UI: repair settings lead with the three behaviours and admit repository watching on save; the hub and repair settings list each repository's effective behaviour, watched count, last successful observation, activity and attention with its pull requests underneath; one pull request shows its intended action, evidence, first failure, published commit and files and the checks now; pause one pull request, pause a repository, resume either and stop all, each saying what happens to work already under way; a failed read never shows an all-clear | UI unit, type, lint and production build pass; 26 Playwright cases on desktop and mobile for the watching spec, the repairs, setup, hub and automatic suites and the repairs accessibility audit; Go and docs tests unchanged and green; no live model, worker image or GitHub PR | Live end-to-end validation; the attempt history beside the current pull request; one row per repository; non-administrator activity; notifications |
+| [#1418](https://github.com/eyupio/zoomies/pull/1418), open, stacked on #1417 | S4 UI follow-up: the watched pull request's disclosure lists every attempt on that pull request, newest first, with how it ended, when, who began it and the commit it published, and links each to the attempt page; the list is narrowed to the watched pull request, a failed read says so, and a truncated history says older attempts may be missing | UI type, lint and production build pass; 1,335 unit cases pass including two new history-order cases; 28 Playwright cases on desktop and mobile for `repair-watching`, including the new history case; the repairs pages of the accessibility audit pass on both devices; no Go or API change | One row per repository; non-administrator activity or an explicit administrator-only statement; notifications; live end-to-end validation |
 | [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
+
+S4 attempt-history validation on 6 November 2026:
+
+- `npm run check` in `web`: zero errors and zero warnings in both configurations.
+- `npm run test:unit` in `web`: 1,335 passed, zero failures, including the two new
+  `pullAttempts` cases for ordering, repository and pull-request narrowing, and a
+  timestamp that cannot be read.
+- `npm run lint` in `web`: prettier, eslint and the block-spacing check pass.
+- `npm run build`: the app shell at 149.1 KB of its 200 KB budget and the status
+  page at 29.5 KB of 30 KB.
+- Browser tests against a locally built binary, desktop and mobile, on a
+  temporary config using the shared fixture only (port 8099, `reuseExistingServer`
+  false): `tests/repair-watching.spec.ts` ran 28 cases, all passed, including the
+  new attempt-history case on both devices. The repairs pages of
+  `tests/a11y.spec.ts` ran 12 cases, all passed, on both devices.
+- No Go code changed: `go test ./internal/docs` is run below for the handoff edit.
+- Not validated: a live model, the real Git worker image and a real GitHub pull
+  request, which remain the rest of S4.
+
 
 S4 UI validation on 6 November 2026:
 
@@ -1978,11 +2003,11 @@ project. Do not repurpose HOME or print credentials.
    Confirm which slices merged; a branch or checked box alone is not proof.
 2. Check the working tree and live base branch. Preserve unrelated user changes.
    Review the newest PR before starting a new slice. For further implementation,
-   merge #1407, #1409, #1410, #1411, #1412, #1413, #1416 and #1417 in that order
-   and start from `main`, or branch from the top of the stack. Do not redo
-   S1 through S3b. The next unfinished work is live validation of conflict repair
-   against a real model, the real worker image and a real GitHub pull request,
-   then the remaining S4 items listed above.
+   merge #1407, #1409, #1410, #1411, #1412, #1413, #1416, #1417 and #1418 in
+   that order and start from `main`, or branch from the top of the stack. Do not
+   redo S1 through S3b or the S4 UI already in #1417 and #1418. The next unfinished
+   work is live validation of conflict repair against a real model, the real worker
+   image and a real GitHub pull request, then the remaining S4 items listed above.
 3. Continue the first unfinished acceptance criterion. Read the existing store,
    API and model boundaries before adding another path around them.
 4. Add regression tests for the observable behaviour and regenerate contracts
