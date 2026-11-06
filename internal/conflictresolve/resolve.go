@@ -64,16 +64,43 @@ func Resolve(ctx context.Context, model prrepair.Model, conflicts []gitmerge.Con
 		if len(merged) > prrepair.MaxBlobBytes {
 			return nil, fmt.Errorf("%w: %s is larger than the %d KiB the model may read", ErrUnsupported, conflict.Path, prrepair.MaxBlobBytes/1024)
 		}
-		file := prrepair.File{Path: conflict.Path, Mode: "100644", Content: merged}
+		mode := conflict.Mode
+		if mode == "" {
+			mode = "100644"
+		}
+		if mode != "100644" && mode != "100755" {
+			return nil, fmt.Errorf("%w: %s has unsupported mode %s", ErrUnsupported, conflict.Path, mode)
+		}
+		file := prrepair.File{Path: conflict.Path, Mode: mode, Content: merged}
 		files = append(files, file)
 		originals[conflict.Path] = file
-		if strings.TrimSpace(conflict.Ancestor) != "" {
-			evidence = append(evidence, "The common ancestor of `"+conflict.Path+"` was:\n"+conflict.Ancestor)
+
+	}
+	// Ancestors are source too: put them behind the same window and byte
+	// accounting as the current sides, rather than in unbounded evidence.
+	readable := make(map[string]prrepair.File, len(originals)*2)
+	for path, file := range originals {
+		readable[path] = file
+	}
+	for i, conflict := range conflicts {
+		if strings.TrimSpace(conflict.Ancestor) == "" {
+			continue
 		}
+		path := fmt.Sprintf(".eli-ancestors/%d.txt", i)
+		for {
+			if _, exists := readable[path]; !exists {
+				break
+			}
+			path = ".eli-ancestors/" + path
+		}
+		ancestor := prrepair.File{Path: path, Mode: "100644", Content: conflict.Ancestor}
+		readable[path] = ancestor
+		files = append(files, ancestor)
+		evidence = append(evidence, "The common ancestor of `"+conflict.Path+"` is available as read-only source at `"+path+"`. Request windows if needed; do not edit it.")
 	}
 	sort.SliceStable(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 
-	plan, err := prrepair.Generate(ctx, model, conflictReader{files: originals},
+	plan, err := prrepair.Generate(ctx, model, conflictReader{files: readable},
 		prrepair.Snapshot{
 			Title:    "Resolve the merge conflicts on this pull request",
 			Files:    files,
@@ -101,7 +128,7 @@ func Resolve(ctx context.Context, model prrepair.Model, conflicts []gitmerge.Con
 		if !ok {
 			return nil, fmt.Errorf("%w: the model did not resolve %s", ErrUnresolved, conflict.Path)
 		}
-		out = append(out, Resolution{Path: conflict.Path, Mode: "100644", Content: content})
+		out = append(out, Resolution{Path: conflict.Path, Mode: originals[conflict.Path].Mode, Content: content})
 	}
 	return out, nil
 }

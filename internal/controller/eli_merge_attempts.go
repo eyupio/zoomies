@@ -187,6 +187,11 @@ func (m *mergeAttempts) expire() []gitfetch.Repository {
 	now := m.now()
 	var expired []gitfetch.Repository
 	for id, attempt := range m.byID {
+		// A completed worker result waits for the bounded resolver queue;
+		// another model call must not consume its worker deadline.
+		if attempt.answer != nil && !attempt.handled && attempt.job != nil {
+			continue
+		}
 		if now.Before(attempt.deadline) {
 			continue
 		}

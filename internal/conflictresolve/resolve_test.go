@@ -165,3 +165,32 @@ func TestApplyChangesRefusesADeletedFileAndAMarker(t *testing.T) {
 		t.Fatalf("marker error = %v", err)
 	}
 }
+
+func TestResolveBudgetsALargeAncestorAsWindowedSource(t *testing.T) {
+	model := &replyModel{replies: []string{`{"summary":"keep both edits","files":[{"path":"file.txt","content":"resolved\n"}]}`}}
+	resolved, err := Resolve(t.Context(), model, []gitmerge.Conflict{
+		conflict("file.txt", strings.Repeat("ancestor line\n", 16000), "base\n", "head\n"),
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved) != 1 || len(model.messages) != 1 {
+		t.Fatalf("resolved %+v, calls %d", resolved, len(model.messages))
+	}
+	if len(model.messages[0][0].Content) >= prrepair.MaxContextBytes {
+		t.Fatal("ancestor exceeded the context budget")
+	}
+}
+
+func TestResolveKeepsTheExecutableMode(t *testing.T) {
+	model := &replyModel{replies: []string{`{"summary":"keep both edits","files":[{"path":"run.sh","content":"resolved\n"}]}`}}
+	c := conflict("run.sh", "ancestor\n", "base\n", "head\n")
+	c.Mode = "100755"
+	resolved, err := Resolve(t.Context(), model, []gitmerge.Conflict{c}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved) != 1 || resolved[0].Mode != "100755" {
+		t.Fatalf("resolved %+v", resolved)
+	}
+}
