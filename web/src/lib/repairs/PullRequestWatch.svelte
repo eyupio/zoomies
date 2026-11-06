@@ -22,6 +22,7 @@
   import Button from '$lib/components/Button.svelte';
   import { formatNumber, pluralise, relativeTime, shortId } from '$lib/format';
   import { watchStatus } from '$lib/status';
+  import { pullAttempts } from './attempt';
   import { caseFromSnapshot } from './case';
   import { checkOutcome, failingChecks, summariseWatch, type Watch } from './watches';
 
@@ -50,6 +51,7 @@
   const uid = $props.id();
   let open = $state(false);
   let repairs = $state<Schemas['EliRepair'][]>([]);
+  let repairsTotal = $state(0);
   let repairsLoaded = $state(false);
   let repairsFailed = $state(false);
   /** Set once the read has been asked for, so opening and closing does not repeat it. */
@@ -72,6 +74,7 @@
       .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0],
   );
   const view = $derived(latest ? caseFromSnapshot(latest) : null);
+  const attempts = $derived(pullAttempts(repairs, watch.repo, watch.pull_number));
 
   /**
    * The attempts for this pull request, read once and kept. A failed read leaves
@@ -84,6 +87,7 @@
     try {
       const page = await listEliRepairs({ repo: watch.repo, limit: 50 });
       repairs = page.items ?? [];
+      repairsTotal = page.total ?? repairs.length;
       repairsFailed = false;
     } catch {
       repairsFailed = true;
@@ -241,6 +245,35 @@
             <a href="/repairs/{encodeURIComponent(latest.id)}">Open this attempt</a> for its steps, tokens
             and the retained model response.
           </p>
+        </section>
+      {/if}
+
+      {#if attempts.length}
+        <section aria-labelledby="{uid}-attempts">
+          <h4 id="{uid}-attempts">Attempts on this pull request</h4>
+          <ol class="attempts">
+            {#each attempts as attempt (attempt.id)}
+              <li class:current={attempt.id === latest?.id}>
+                <a
+                  href="/repairs/{encodeURIComponent(attempt.id)}"
+                  aria-label="Open the attempt from {relativeTime(
+                    attempt.at,
+                    now,
+                  )}, {attempt.stateLabel.toLowerCase()}">{attempt.stateLabel}</a
+                >
+                <span class="when">{relativeTime(attempt.at, now)}</span>
+                <span class="began">{attempt.began}</span>
+                {#if attempt.commitSha}<code>{shortId(attempt.commitSha, 8)}</code>{/if}
+                {#if attempt.id === latest?.id}<span class="current-tag">Current</span>{/if}
+              </li>
+            {/each}
+          </ol>
+          {#if repairsTotal > repairs.length}
+            <p class="note">
+              The newest {formatNumber(repairs.length)} repairs in this repository are listed, of
+              {formatNumber(repairsTotal)}. An older attempt may not be here.
+            </p>
+          {/if}
         </section>
       {/if}
     </div>
@@ -432,6 +465,31 @@
     padding: 0;
     list-style: none;
     font-size: var(--z-text-xs);
+  }
+  .attempts {
+    display: grid;
+    gap: var(--z-space-1);
+    margin: var(--z-space-2) 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--z-text-xs);
+  }
+  .attempts li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--z-space-2);
+  }
+  .attempts a {
+    color: var(--z-text);
+  }
+  .attempts .when,
+  .attempts .began {
+    color: var(--z-text-muted);
+  }
+  .attempts .current-tag {
+    color: var(--z-text-subtle);
+    font-weight: var(--z-weight-semibold);
   }
   .checks li,
   .jobs li {

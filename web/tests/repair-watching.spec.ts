@@ -162,6 +162,54 @@ test.describe('one pull request', () => {
     );
   });
 
+  test('lists the attempts on this pull request beside the current one', async ({ page }) => {
+    const current = repairRow({
+      id: 'rep-current',
+      repo: 'acme/widgets',
+      pull_number: 17,
+      state: 'checks_failed',
+      trigger: 'automatic',
+      commit_sha: 'fe1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d5',
+      created_at: '2026-10-18T10:20:00Z',
+      updated_at: '2026-10-18T10:30:00Z',
+    });
+    const earlier = repairRow({
+      id: 'rep-earlier',
+      repo: 'acme/widgets',
+      pull_number: 17,
+      state: 'failed',
+      created_at: '2026-10-18T09:20:00Z',
+      updated_at: '2026-10-18T09:21:08Z',
+    });
+    const otherPull = repairRow({
+      id: 'rep-other',
+      repo: 'acme/widgets',
+      pull_number: 18,
+      state: 'succeeded',
+      created_at: '2026-10-18T11:20:00Z',
+      updated_at: '2026-10-18T11:21:08Z',
+    });
+    await mockRepairApi(page, {
+      settings: { ...linkedAs('dana'), policies: [automaticPolicy('acme/widgets')] },
+      automatic: [],
+      watchRepositories: [watchRepositoryRow()],
+      watches: [watchRow()],
+      repairs: [earlier, current, otherPull],
+    });
+    await page.goto('/repairs');
+    const pull = page.getByRole('article', { name: 'Watched pull request acme/widgets #17' });
+    await pull.getByText('Evidence, what failed and what changed').click();
+    const history = pull.getByRole('region', { name: 'Attempts on this pull request' });
+    await expect(history).toBeVisible();
+    await expect(history.getByRole('listitem')).toHaveCount(2);
+    await expect(history).toContainText('Current');
+    // The newest first, and only this pull request's attempts.
+    await expect(history.getByRole('listitem').first()).toContainText('Checks failed');
+    await expect(history).toContainText('Could not repair');
+    await expect(history).not.toContainText('Checks passed');
+    await expect(history.getByRole('link').first()).toHaveAttribute('href', '/repairs/rep-current');
+  });
+
   test('says an observation failed instead of passing the pull request', async ({ page }) => {
     await mockRepairApi(page, {
       settings: { ...linkedAs('dana'), policies: [automaticPolicy('acme/widgets')] },
