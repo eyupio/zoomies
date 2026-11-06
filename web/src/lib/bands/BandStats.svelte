@@ -132,10 +132,8 @@
     cursor: pointer;
   }
   .label {
-    font-size: var(--z-text-2xs);
-    font-weight: var(--z-weight-semibold);
-    letter-spacing: var(--z-tracking-wider);
-    text-transform: uppercase;
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-medium);
   }
   .value {
     font-size: var(--z-text-lg);

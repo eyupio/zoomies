@@ -1135,9 +1135,7 @@
   }
   .facts dt {
     margin: 0 0 var(--z-space-1);
-    font-size: var(--z-text-2xs);
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
+    font-size: var(--z-text-xs);
     color: var(--z-text-muted);
     font-weight: var(--z-weight-medium);
   }

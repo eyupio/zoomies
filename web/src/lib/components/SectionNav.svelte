@@ -205,7 +205,7 @@
     height: 1.25rem;
     padding: 0 var(--z-space-1);
     border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-sm);
     background: var(--z-surface);
     color: var(--z-text-muted);
     font-size: var(--z-text-2xs);

@@ -111,15 +111,13 @@
   .channel {
     padding: 0 var(--z-space-2);
     border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-sm);
     color: var(--z-text-muted);
     font-family: var(--z-font-mono);
     white-space: nowrap;
   }
   .descriptor {
     flex: none;
-    letter-spacing: var(--z-tracking-wider);
-    text-transform: uppercase;
   }
   @media (max-width: 768px) {
     .inner {

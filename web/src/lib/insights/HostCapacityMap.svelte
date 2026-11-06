@@ -883,10 +883,8 @@
   }
   .reading thead th {
     color: var(--z-text-subtle);
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
-    letter-spacing: var(--z-tracking-wide);
-    text-transform: uppercase;
   }
   /*
     The name column takes whatever the figures do not want, and clips.

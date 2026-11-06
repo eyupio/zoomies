@@ -437,11 +437,9 @@
   th {
     padding: 0 var(--z-space-3) var(--z-space-2);
     color: var(--z-text-muted);
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
     text-align: left;
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
     white-space: nowrap;
   }
   td {
@@ -541,10 +539,8 @@
       content: attr(data-label);
       flex: none;
       color: var(--z-text-muted);
-      font-size: var(--z-text-2xs);
+      font-size: var(--z-text-xs);
       font-weight: var(--z-weight-medium);
-      text-transform: uppercase;
-      letter-spacing: var(--z-tracking-wide);
       text-align: left;
     }
     /*

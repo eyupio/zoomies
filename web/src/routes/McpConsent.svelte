@@ -335,10 +335,8 @@
     background: var(--z-surface-sunken);
   }
   .facts dt {
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
-    letter-spacing: var(--z-tracking-wide);
-    text-transform: uppercase;
     color: var(--z-text-muted);
   }
   .facts dd {

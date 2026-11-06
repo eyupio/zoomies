@@ -336,7 +336,7 @@
     flex: none;
     width: var(--z-space-10);
     height: var(--z-space-10);
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-md);
     background: var(--z-accent-subtle);
     color: var(--z-accent);
   }

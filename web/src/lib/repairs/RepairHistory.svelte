@@ -652,9 +652,7 @@
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);
     font-size: var(--z-text-xs);
-    font-weight: var(--z-weight-semibold);
-    letter-spacing: var(--z-tracking-wider);
-    text-transform: uppercase;
+    font-weight: var(--z-weight-medium);
   }
   .head.selecting {
     grid-template-columns:

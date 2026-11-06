@@ -192,9 +192,7 @@
     gap: var(--z-space-1) var(--z-space-3);
     color: var(--z-text-subtle);
     font-size: var(--z-text-xs);
-    font-weight: var(--z-weight-semibold);
-    letter-spacing: var(--z-tracking-wider);
-    text-transform: uppercase;
+    font-weight: var(--z-weight-medium);
   }
   .when {
     font-size: var(--z-text-sm);

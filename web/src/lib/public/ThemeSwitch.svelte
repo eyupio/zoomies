@@ -59,7 +59,7 @@
     gap: var(--z-space-1);
     padding: var(--z-space-1);
     border: var(--z-border-width) solid var(--z-border-strong);
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-md);
     background: var(--z-surface);
   }
   button {
@@ -70,7 +70,7 @@
     height: var(--z-space-8);
     padding: 0;
     border: var(--z-border-width) solid transparent;
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-sm);
     background: transparent;
     color: var(--z-text-muted);
     cursor: pointer;

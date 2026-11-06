@@ -197,10 +197,8 @@
     overflow-wrap: anywhere;
   }
   thead th {
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-muted);
   }
   tbody th {

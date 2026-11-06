@@ -181,11 +181,9 @@
     padding: var(--z-space-2) var(--z-space-4);
     border-bottom: var(--z-border-width) solid var(--z-border);
     color: var(--z-text-muted);
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
     text-align: left;
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
   }
   td {
     overflow: hidden;
@@ -259,10 +257,8 @@
       content: attr(data-label);
       flex: none;
       color: var(--z-text-muted);
-      font-size: var(--z-text-2xs);
+      font-size: var(--z-text-xs);
       font-weight: var(--z-weight-medium);
-      text-transform: uppercase;
-      letter-spacing: var(--z-tracking-wide);
       text-align: left;
     }
   }

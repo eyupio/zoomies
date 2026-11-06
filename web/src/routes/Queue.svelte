@@ -803,7 +803,7 @@
     height: var(--z-control-touch);
     padding: 0;
     border: var(--z-border-width) solid var(--z-border-strong);
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-md);
     background: var(--z-surface);
     color: var(--z-text-muted);
     font: inherit;

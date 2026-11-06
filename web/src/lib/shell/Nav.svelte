@@ -255,11 +255,9 @@
   */
   .descriptor {
     margin: var(--z-space-2) 0 0;
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     line-height: 1.4;
     font-weight: var(--z-weight-medium);
-    letter-spacing: var(--z-tracking-wider);
-    text-transform: uppercase;
     color: var(--z-text-subtle);
   }
   /*
@@ -281,11 +279,9 @@
   .group-label {
     margin: 0;
     padding: var(--z-space-3) var(--z-space-2) var(--z-space-1);
-    font-size: var(--z-text-2xs);
-    line-height: var(--z-leading-2xs);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
     font-weight: var(--z-weight-medium);
-    letter-spacing: var(--z-tracking-wide);
-    text-transform: uppercase;
     color: var(--z-text-subtle);
   }
   .rule {

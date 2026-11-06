@@ -402,9 +402,7 @@
   }
   .chip-label {
     font-family: inherit;
-    font-size: var(--z-text-2xs);
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
+    font-size: var(--z-text-xs);
     color: var(--z-text-subtle);
   }
   .chip.link:hover {
@@ -432,10 +430,8 @@
     }
   }
   dt {
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-subtle);
   }
   dd {
