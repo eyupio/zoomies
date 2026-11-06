@@ -457,6 +457,11 @@ const (
 	// as HeartbeatRequest.Update rather than as a result. The controller queues
 	// it only for a host that advertises FeatureSelfUpdate.
 	TaskUpdateAgent TaskKind = "update_agent"
+	// TaskMergeConflict asks the agent to run the bounded Git worker against one
+	// prepared repository and report the answer. It names no runner: the work is
+	// one three-way merge, and the repository comes from the controller rather
+	// than from GitHub, so the token that fetched it never leaves the controller.
+	TaskMergeConflict TaskKind = "merge_conflict"
 )
 
 // Task is one unit of work handed to an agent. Tasks are idempotent: the
@@ -499,6 +504,12 @@ type Task struct {
 	// URL, path or flag for a compromised controller to make an agent fetch.
 	UpdateID  string `json:"update_id,omitempty"`
 	UpdateTag string `json:"update_tag,omitempty"`
+	// MergeID names the attempt whose repository this task concerns, and
+	// MergeImage is the worker image to run against it. The repository's bytes
+	// are not here: the agent pulls them from the controller by MergeID, because
+	// a task that carried megabytes would make the queue unreadable.
+	MergeID    string `json:"merge_id,omitempty"`
+	MergeImage string `json:"merge_image,omitempty"`
 }
 
 // TaskResult reports the outcome of a task back to the controller.

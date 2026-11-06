@@ -33,6 +33,9 @@ import (
 // the others are quick. Log tasks are never re-queued -- see requeueAfter.
 const (
 	createLease = 20 * time.Minute
+	// mergeLease gives a host time to pull the worker image on a cold cache and
+	// still answer; a merge itself is seconds.
+	mergeLease  = 10 * time.Minute
 	stopLease   = 10 * time.Minute
 	removeLease = 5 * time.Minute
 	// A prewarm is a cold image pull like a create, and gets the same room. It
@@ -188,6 +191,11 @@ func taskKey(t agent.Task) string {
 	if t.Kind == agent.TaskUpdateAgent {
 		return string(t.Kind) + ":" + t.UpdateID
 	}
+	// One per merge attempt for the same reason: a repair that gave up leaves a
+	// task in flight, and the next conflict on the same host must not wait for it.
+	if t.Kind == agent.TaskMergeConflict {
+		return string(t.Kind) + ":" + t.MergeID
+	}
 	if t.StreamID != "" {
 		return string(t.Kind) + "|stream:" + t.StreamID
 	}
@@ -212,6 +220,10 @@ func requeueAfter(kind agent.TaskKind) time.Duration {
 		return hostCheckLease
 	case agent.TaskUpdateAgent:
 		return updateLease
+	case agent.TaskMergeConflict:
+		// A merge is seconds of work once the image is there, and minutes when it
+		// is being pulled for the first time on a host.
+		return mergeLease
 	default:
 		// Log relays are tied to a browser that has since gone away, so
 		// redelivering one would open a stream nobody is reading.

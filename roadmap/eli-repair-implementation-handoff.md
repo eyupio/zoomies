@@ -21,7 +21,7 @@ states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | the repository's journey to the agent: `gitbare.Pack` and `Unpack`, stacked on #1402 |
+| Latest slice | the `merge_conflict` task, stacked on `codex/eli-git-merge-worker` after #1404 merged |
 | Investigated baseline | `039aa7b1a` on `main` |
 | Working branches | `codex/eli-git-merge-worker` for the merge package, the worker command and image (the command slice merged into it as `6a9cb316`), `codex/eli-git-fetch` for the repository writer and the fetch |
 | Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b package: `e7f482f5`; S3b worker command and image: this branch |
@@ -29,7 +29,7 @@ states.
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
 | Current slice | The controller can prepare the repository a repair merges in, and the worker merges it end to end in a test; the agent transport is still to write |
-| Next implementation | The `merge_conflict` task and the endpoints the agent pulls and posts to, with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
+| Next implementation | The two endpoints over `mergeSession` and the agent handler that unpacks, runs the worker image and posts the answer, then model resolution and two-parent publication, then S4 UX |
 | CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
@@ -689,6 +689,38 @@ Limits of this slice:
   are not retained yet. The watch records one overall state.
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S3b: the merge task, 5 November 2026
+
+This slice adds the task an agent is given: `merge_conflict`, which names the
+attempt whose repository to run the worker against and the image to run.
+
+- `agent.TaskMergeConflict` with `MergeID` and `MergeImage`. The repository's
+  bytes are not in the task: the agent pulls them from the controller by attempt
+  id, which is what keeps a GitHub credential on the controller and megabytes out
+  of the queue.
+- The task has a lease (`mergeLease`, ten minutes: a merge is seconds, but a cold
+  image pull on that host is not), the shared attempt bound, and a queue key per
+  attempt, so a repair that gave up leaves its task behind without holding up the
+  next conflict on the same host. It is deliberately not a lifecycle task: an
+  agent one release behind reports an unknown kind as failed, and a merge failing
+  must not mark a runner failed.
+- `Controller.QueueMergeConflict` is the one call that hands it to a host.
+
+Validation on 5 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 -run MergeTask ./internal/controller`: pass (5.956s):
+  the task carries the attempt and the image and names no runner, it is queued
+  once per attempt while a second attempt still gets through, and its lease,
+  attempt bound, lifecycle answer and cleanup answer are all the ones this task
+  needs.
+- `go test -race -count=1 -run 'Compat|Task|Agent' ./internal/agent ./internal/controller ./internal/api`:
+  pass (13.195s, 14.860s, 10.766s), so an older agent's answer about a kind it
+  does not know still changes nothing.
+
+Not run: the two agent endpoints over `mergeSession`, the agent handler that
+unpacks and runs the worker image, and the answer's return path. Those are the
+next slice.
 
 ### S3b: the repository's journey to the agent, 5 November 2026
 
