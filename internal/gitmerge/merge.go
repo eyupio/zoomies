@@ -364,7 +364,7 @@ func side(ctx context.Context, in Request, commit, path string, total *int) (blo
 }
 
 func run(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	gitArgs := append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.attributesFile=/dev/null", "--no-pager"}, args...)
+	gitArgs := append([]string{"-c", "safe.directory=" + dir, "-c", "core.hooksPath=/dev/null", "-c", "core.attributesFile=/dev/null", "--no-pager"}, args...)
 	cmd := exec.CommandContext(ctx, "git", gitArgs...)
 	cmd.Dir = dir
 	cmd.Env = append(sanitisedEnv(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_ATTR_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")

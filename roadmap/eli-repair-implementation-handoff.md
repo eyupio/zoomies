@@ -1827,3 +1827,13 @@ an executable file executable. Tests cover a 200 KiB ancestor and mode 100755.
 `go test -race -count=1 ./internal/conflictresolve ./internal/gitmerge` passed.
 The next unfinished step remains live end-to-end validation and the later S4
 controls described in the newer stacked branches.
+
+## Review correction for #1410
+
+The Git worker now supplies its prepared repository's exact `safe.directory`
+through trusted Git command arguments, after environment sanitisation. The
+container no longer sets environment variables that the worker discards.
+A regression test simulates differing repository ownership at Git's boundary.
+`go test -race -count=1 ./internal/gitmerge ./internal/backend` passed.
+The next unfinished step remains model resolution and publication in the later
+stacked slices, followed by live end-to-end validation.
