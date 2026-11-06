@@ -2049,3 +2049,17 @@ A regression test simulates differing repository ownership at Git's boundary.
 `go test -race -count=1 ./internal/gitmerge ./internal/backend` passed.
 The next unfinished step remains model resolution and publication in the later
 stacked slices, followed by live end-to-end validation.
+
+## Final integration of the open PRs
+
+The independent UI fixes in #1408 and the typography and geometry work in
+#1415 have also merged into #1407's integration branch, at checkpoint
+`577bca8d`. #1407 is the only remaining open PR from this batch. Dashboard
+components, gallery assertions and the design guide now agree on sentence case,
+8-pixel controls and 4-pixel badges and chips. Dashboard validation passes both
+UI type checks, lint, build, 1,316 unit tests (one expected local gawk skip),
+all 27 gallery cases and the documentation checks. The previous stack's
+1,334 passing UI units and focused Go race tests are recorded above.
+The required CI gate on the final combined commit remains pending. The workflow's
+GitHub-hosted recovery option is available when the self-hosted fleet stalls.
+Live model, worker-image and production GitHub repair validation remain open.
