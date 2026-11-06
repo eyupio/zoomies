@@ -1872,3 +1872,15 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
    in the same commit set. Add the real PR link once assigned. State explicitly
    which user-visible capabilities are still unavailable and what the next PR
    should implement. Do not require the next session to reconstruct this chat.
+
+## Review corrections for #1413
+
+Merged assets with invalid UTF-8 now use base64 blob creation and tree SHA
+references, preserving their bytes. A merge task without an explicit backend
+selects a registered container worker when the default backend runs processes.
+Answered conflict jobs remain queued beyond the worker deadline until the
+resolver takes them; the attempt bound and shutdown cleanup still apply.
+Regression tests cover all three cases. `go test -race -count=1 -run
+'Conflict|Merge' ./internal/github ./internal/controller ./internal/agent`
+passed. The next unfinished step remains live end-to-end validation and the
+remaining S4 presentation work recorded on the later stacked branches.

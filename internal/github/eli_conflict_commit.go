@@ -2,9 +2,11 @@ package github
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 )
 
 // ConflictChange is one file the merged tree differs from the pull request head
@@ -68,7 +70,24 @@ func (c *appClient) CommitConflictResolution(ctx context.Context, repo string, p
 		}
 		switch mode {
 		case "100644", "100755", "120000":
-			entries = append(entries, map[string]any{"path": change.Path, "mode": mode, "type": "blob", "content": string(change.Content)})
+			entry := map[string]any{"path": change.Path, "mode": mode, "type": "blob"}
+			if utf8.Valid(change.Content) {
+				entry["content"] = string(change.Content)
+			} else {
+				// Tree JSON carries UTF-8 text. A separate base64 blob keeps
+				// arbitrary asset bytes intact when the clean merge includes one.
+				var blob struct {
+					SHA string `json:"sha"`
+				}
+				if err := c.repairRequest(ctx, http.MethodPost, base+"/git/blobs", map[string]any{"encoding": "base64", "content": base64.StdEncoding.EncodeToString(change.Content)}, &blob); err != nil {
+					return "", err
+				}
+				if blob.SHA == "" {
+					return "", fmt.Errorf("GitHub created no blob for %s", change.Path)
+				}
+				entry["sha"] = blob.SHA
+			}
+			entries = append(entries, entry)
 		case "160000":
 			if change.SHA == "" {
 				return "", fmt.Errorf("the submodule %s has no commit id", change.Path)
