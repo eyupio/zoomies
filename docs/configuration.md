@@ -990,7 +990,7 @@ Six images are published to GHCR:
 | --- | --- |
 | `ghcr.io/eyupio/zoomies` | the controller |
 | `ghcr.io/eyupio/zoomies-agent` | an agent, for a host that runs one in a container |
-| `ghcr.io/eyupio/zoomies-git` | the bounded Git worker for merge-conflict repair; it holds no credentials and is not a host you run anything on. The controller does not start it yet |
+| `ghcr.io/eyupio/zoomies-git` | the bounded Git worker for merge-conflict repair; it holds no credentials and is not a host you run anything on. An agent runs it as a one-shot container when the controller asks it to merge a prepared repository |
 | `ghcr.io/eyupio/zoomies-runner` | the runner a pool starts |
 | `ghcr.io/eyupio/zoomies-runner-docker` | the same, plus a Docker CLI; a pool is switched to it when its `docker_mode` gives jobs a daemon, see [Jobs that build container images](#jobs-that-build-container-images) |
 | `ghcr.io/eyupio/zoomies-runner-full` | `zoomies-runner-docker` plus the language toolchains the `setup-*` actions would otherwise download, for the Ubuntu variants; a pool opts in by naming it, see [The full image](#the-full-image) |

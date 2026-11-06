@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -65,6 +67,15 @@ type fakeBackend struct {
 	// two callers over one runner.
 	updateGate    chan struct{}
 	updateEntered chan struct{}
+	// mergeAnswer is what a merge worker run returns, and mergeErr makes it
+	// fail instead. mergeCalls, mergeImage, mergeWorkspace and mergeRequest
+	// record what the handler asked for.
+	mergeAnswer    []byte
+	mergeErr       error
+	mergeCalls     int
+	mergeImage     string
+	mergeWorkspace string
+	mergeRequest   []byte
 }
 
 // resourceUpdate is one UpdateResources call the fake backend received.
@@ -78,6 +89,24 @@ func newFakeBackend(kind store.BackendKind) *fakeBackend {
 }
 
 func (f *fakeBackend) Kind() store.BackendKind { return f.kind }
+
+// RunMergeWorker makes this backend a backend.MergeWorkerRunner. It records
+// the request the handler wrote and returns the configured answer, without
+// touching a container runtime.
+func (f *fakeBackend) RunMergeWorker(_ context.Context, image, workspace string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mergeCalls++
+	f.mergeImage = image
+	f.mergeWorkspace = workspace
+	if raw, err := os.ReadFile(filepath.Join(workspace, "request.json")); err == nil {
+		f.mergeRequest = raw
+	}
+	if f.mergeErr != nil {
+		return nil, f.mergeErr
+	}
+	return f.mergeAnswer, nil
+}
 
 // PrewarmImage makes this backend a backend.ImagePrewarmer, which is what
 // handlePrewarm requires of one.

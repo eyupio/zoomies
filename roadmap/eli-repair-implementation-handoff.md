@@ -21,20 +21,20 @@ checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1409](https://github.com/eyupio/zoomies/pull/1409): the agent merge transport, stacked on #1407 |
+| Latest slice | [#1410](https://github.com/eyupio/zoomies/pull/1410): the agent merge worker, stacked on #1409 |
 | Investigated baseline | `568ec4017` on `main` |
-| Working branch | `codex/eli-merge-transport` |
+| Working branch | `codex/eli-merge-agent` |
 | Verified code checkpoints | S1 through S3a merged, and S3b's merge package, worker command and image, repository writer and fetch, archive download and repository transport merged through `568ec4017`; #1407's task is `c926789cd` |
-| Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds. Decisions 0017 and 0018 add the controller-built repository, the archive download and the agent transport contract. This slice serves that repository over the agent API and accepts the one answer, with a deadline removing an attempt nobody answers |
+| Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds. Decisions 0017 and 0018 add the controller-built repository, the archive download and the agent transport contract. The controller serves that repository over the agent API and accepts the one answer, and an agent now pulls, unpacks, runs the worker image and posts that answer |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | The controller holds prepared attempts, serves their packed repository with the three pinned commit ids, accepts exactly one worker answer, and removes a repository on answer, expiry or shutdown. The `merge_conflict` task now carries those pins. No agent handler consumes the task yet |
-| Next implementation | The agent side of the task: pull the repository, unpack it into a temporary directory, run the worker image against it, post the one answer and remove the directory whatever happened. Then model resolution and two-parent publication, then S4 UX |
+| Current slice | An agent handles `merge_conflict`: it pulls the prepared repository, checks the pins against the task, unpacks it into a temporary workspace, runs the worker image with only that workspace mounted and no network, posts the one answer and removes the workspace. A container backend that cannot run the image is refused rather than guessed at |
+| Next implementation | Model resolution from the conflict answer, the two-parent commit and non-force publication after rechecking pause, authorisation and head/base identity, then S4 UX |
 | CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
 | Watcher claim cost | [#1392](https://github.com/eyupio/zoomies/pull/1392), a controller-load change that is not a slice, makes the due-watch claim look on the reader pool before it takes the writer. What is due, how a watch is leased and what an observation records are unchanged |
-| Merge-conflict repair | Detection is in S3a. S3b has decision 0016, the bounded merge package, the worker command and image, decision 0017 with the repository writer, and decision 0018 with the archive reader, the fetch and the agent transport. The agent's pull/unpack/run handler, model resolution and publication remain, and admission still refuses the conflicts capability |
+| Merge-conflict repair | Detection is in S3a. S3b has decision 0016, the bounded merge package, the worker command and image, decision 0017 with the repository writer, and decision 0018 with the archive reader, the fetch, the agent transport and the agent's one-shot worker run. Model resolution and publication remain, and admission still refuses the conflicts capability |
 | Production configuration | No repository automation or model credentials changed by this work |
 
 The automatic mode still starts from a failed `workflow_job`, attempts one
@@ -372,8 +372,10 @@ S3b scope, this PR only:
   clean tree or bounded ancestor/base/head text for supported conflicts.
 - [x] Refuse binary, symlink, submodule, delete/modify and mode-changing
   conflicts explicitly, and stop at the configured conflict and byte budgets.
-- [ ] Add the worker command and image, fetch the sanitised bare repository, and
+- [x] Add the worker command and image, fetch the sanitised bare repository, and
   transport the request and result from the controller.
+- [x] Run the worker from an agent in a one-shot container against the prepared
+  workspace, with no network and no credential.
 - [ ] Ask the model for a resolution, build the two-parent commit and publish it
   without force after rechecking pause, authorisation and head/base identity.
 
@@ -483,6 +485,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1404](https://github.com/eyupio/zoomies/pull/1404), open, stacked on #1402 | S3b: `gitbare.Pack` and `Unpack`, and the controller's attempt registry | Round-trip tests through the worker, the read-only loose objects, every refusal, the attempt lifecycle, `staticcheck ./...`, build and formatting pass | The `merge_conflict` task and the endpoints the agent uses |
 | [#1407](https://github.com/eyupio/zoomies/pull/1407), open, stacked on `codex/eli-git-merge-worker` | S3b: the `merge_conflict` task and `QueueMergeConflict` | Task payload, queue key and lease tests, the older-agent compatibility suite, build and formatting pass | The two endpoints over `mergeSession` and the agent handler |
 | [#1409](https://github.com/eyupio/zoomies/pull/1409), open, stacked on #1407 | S3b: pull and answer endpoints over `mergeSession`, their agent transport client, and the prepared attempt's three pins on the task | Race tests for the controller session, the agent transport, the API routes and the task payload; `make openapi`, vet and formatting pass; no agent handler, model or publication | The agent handler that pulls, unpacks, runs the worker image and posts the answer, then model resolution and two-parent publication |
+| [#1410](https://github.com/eyupio/zoomies/pull/1410), open, stacked on #1409 | S3b: the agent runs the prepared merge in a one-shot worker container, posts its answer and removes the workspace; the Docker and Podman backends gain the worker run | Race tests for the agent handler, the container backend, the controller result path and the docs; vet and formatting pass; no model resolution or publication | Model resolution, the two-parent commit and non-force publication, then S4 UX |
 | [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
 
 S1 validation on 3 November 2026:
@@ -781,6 +784,63 @@ Limits of this slice:
 - No agent handles `merge_conflict` yet. It is not queued by any production path,
   and admission still refuses the conflicts capability.
 - No model resolution, two-parent commit or publication exists.
+- Full repository `make test`, browser suites, the complete store suite with the
+  race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S3b: the agent runs the merge worker, 6 November 2026
+
+This slice completes decision 0018's agent half. A `merge_conflict` task now
+pulls the prepared repository, unpacks it, runs the published worker image in a
+one-shot container and posts the one answer. It adds no migration and no public
+API; admission still refuses the conflicts capability, and no conflict is
+resolved or published.
+
+- The task is dispatched beside runner work, not through the lifecycle claim:
+  it names no runner, a failure changes no runner state, and a cordoned host may
+  still merge.
+- `internal/agent/merge.go` pulls the attempt, refuses a repository whose three
+  pins differ from the task's, and makes a workspace under `agent.work_dir`
+  (or the temporary directory). It unpacks with `gitbare.Unpack`, writes the
+  worker request beside the repository, parses the answer with unknown fields
+  refused, posts it, and removes the workspace whatever happened.
+- A second answer the controller already holds (409) is a lost reply, not a
+  failure: the task reports success and stops. A worker answer carrying an
+  error code is posted and reported as a failed task with that sentence.
+- `backend.MergeWorkerRunner` is the new optional contract. Docker and Podman
+  implement it by preparing the image, creating a container with only the
+  workspace mounted at `/work` and no network, waiting with a deadline, reading
+  `answer.json` rather than mixing Git's stderr into the answer, and removing the
+  container before and after. The container carries no managed label, so
+  reconciliation never mistakes it for a runner.
+- The worker runs as the image's own user while the workspace belongs to the
+  agent, so the agent makes the workspace directories writable and passes
+  `safe.directory` for `/work/repository`; file modes, including read-only loose
+  objects, are left alone. The request carries no credential and the container
+  has no route out.
+- The controller's result path recognises a merge task and only logs the host's
+  failure; the prepared repository is left to its deadline rather than deleted
+  under a late answer. The docs now say the agent, not the controller, starts the
+  worker.
+
+Validation on 6 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 -run 'Merge|AgentRoutes' ./internal/agent ./internal/backend ./internal/controller ./internal/api`:
+  pass (agent 1.223s, backend 1.058s, controller 11.951s, api 15.196s). This
+  covers the pull/unpack/run/answer path, mismatched pins, an unreadable answer,
+  an already-answered attempt, a worker error answer, a backend without the
+  capability, workspace removal, the dispatch path and the container config.
+- `go test -race -count=1 -run RunMergeWorker ./internal/backend`: pass (1.041s).
+- `go vet` on the four packages and `staticcheck` on them: pass.
+- `go test -count=1 ./internal/docs`: pass (24.949s), with the three documentation
+  pages updated.
+- `go build ./...`, changed-file `gofmt` and `git diff --check`: pass.
+
+Limits of this slice:
+
+- The container backend is tested through the repository's fake engine; no real
+  worker image was built or run here and no container runtime was available.
+- Model resolution, the two-parent commit, non-force publication and the final
+  controls do not exist yet.
 - Full repository `make test`, browser suites, the complete store suite with the
   race detector, a live model and end-to-end GitHub mutations were not run.
 
@@ -1657,3 +1717,13 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
    in the same commit set. Add the real PR link once assigned. State explicitly
    which user-visible capabilities are still unavailable and what the next PR
    should implement. Do not require the next session to reconstruct this chat.
+
+## Review correction for #1410
+
+The Git worker now supplies its prepared repository's exact `safe.directory`
+through trusted Git command arguments, after environment sanitisation. The
+container no longer sets environment variables that the worker discards.
+A regression test simulates differing repository ownership at Git's boundary.
+`go test -race -count=1 ./internal/gitmerge ./internal/backend` passed.
+The next unfinished step remains model resolution and publication in the later
+stacked slices, followed by live end-to-end validation.
