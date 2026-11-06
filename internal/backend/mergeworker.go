@@ -66,15 +66,7 @@ func (b *DockerBackend) RunMergeWorker(ctx context.Context, image, workspace str
 		Image:      ref,
 		Entrypoint: []string{"/usr/local/bin/zoomies"},
 		Cmd:        []string{"git-worker", "--request", mergeWorkerMount + "/request.json", "--answer", mergeWorkerMount + "/" + mergeWorkerAnswer},
-		Env: []string{
-			// The workspace belongs to the agent's uid; the worker runs as the
-			// image's own user. This only exempts the checkout from Git's
-			// dubious-ownership check, and grants nothing else.
-			"GIT_CONFIG_COUNT=1",
-			"GIT_CONFIG_KEY_0=safe.directory",
-			"GIT_CONFIG_VALUE_0=" + mergeWorkerMount + "/repository",
-		},
-		Labels: map[string]string{LabelRole: "merge-worker"},
+		Labels:     map[string]string{LabelRole: "merge-worker"},
 		// Attach is not needed for the answer, but it keeps the daemon from
 		// discarding output that explains a crash.
 		AttachStdout: true,

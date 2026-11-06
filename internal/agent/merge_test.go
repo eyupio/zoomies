@@ -221,3 +221,23 @@ func TestAMergeTaskIsDispatchedBypassingRunnerAdmission(t *testing.T) {
 		t.Fatalf("answer = %+v", answer)
 	}
 }
+
+func TestAMergeUsesAContainerBackendWhenTheDefaultRunsProcesses(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 1)
+	process, err := backend.NewProcess(backend.ProcessOptions{WorkDir: t.TempDir(), Logger: testLogger()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.opts.Backends = backend.NewRegistry(process, be)
+	a.opts.DefaultBackend = store.BackendProcess
+	if !a.canRunMergeWorker() {
+		t.Fatal("the registered worker was not advertised")
+	}
+	packed, pin := mergePack(t)
+	tr.merges["merge-1"] = MergeRepository{Ancestor: pin, Base: pin, Head: pin, Repository: packed}
+	be.mergeAnswer = []byte(`{"result":{"tree":"abc"}}`)
+	a.handleMergeConflict(t.Context(), mergeTask("merge-1", "image", pin))
+	if res := mergeResult(t, tr); !res.OK || be.mergeCalls != 1 {
+		t.Fatalf("result %+v, calls %d", res, be.mergeCalls)
+	}
+}

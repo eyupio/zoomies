@@ -1930,3 +1930,34 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
    in the same commit set. Add the real PR link once assigned. State explicitly
    which user-visible capabilities are still unavailable and what the next PR
    should implement. Do not require the next session to reconstruct this chat.
+
+## Review corrections for #1413
+
+Merged assets with invalid UTF-8 now use base64 blob creation and tree SHA
+references, preserving their bytes. A merge task without an explicit backend
+selects a registered container worker when the default backend runs processes.
+Answered conflict jobs remain queued beyond the worker deadline until the
+resolver takes them; the attempt bound and shutdown cleanup still apply.
+Regression tests cover all three cases. `go test -race -count=1 -run
+'Conflict|Merge' ./internal/github ./internal/controller ./internal/agent`
+passed. The next unfinished step remains live end-to-end validation and the
+remaining S4 presentation work recorded on the later stacked branches.
+## Review corrections for #1411
+
+Ancestor text is now supplied as read-only virtual source through the repair
+reader and its existing window and byte budgets. It is no longer embedded in
+failure evidence. Conflicts carry the worker's file mode, and a resolution keeps
+an executable file executable. Tests cover a 200 KiB ancestor and mode 100755.
+`go test -race -count=1 ./internal/conflictresolve ./internal/gitmerge` passed.
+The next unfinished step remains live end-to-end validation and the later S4
+controls described in the newer stacked branches.
+
+## Review correction for #1410
+
+The Git worker now supplies its prepared repository's exact `safe.directory`
+through trusted Git command arguments, after environment sanitisation. The
+container no longer sets environment variables that the worker discards.
+A regression test simulates differing repository ownership at Git's boundary.
+`go test -race -count=1 ./internal/gitmerge ./internal/backend` passed.
+The next unfinished step remains model resolution and publication in the later
+stacked slices, followed by live end-to-end validation.

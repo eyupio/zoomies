@@ -13052,6 +13052,11 @@ export interface components {
         };
         AgentMergeConflict: {
             path: string;
+            /**
+             * @description The regular file mode preserved by the resolution.
+             * @enum {string}
+             */
+            mode?: "100644" | "100755";
             ancestor: string;
             base: string;
             head: string;

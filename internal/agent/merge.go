@@ -84,6 +84,16 @@ func (a *Agent) handleMergeConflict(ctx context.Context, task Task) {
 	kind := task.Backend
 	if kind == "" {
 		kind = a.opts.DefaultBackend
+		b, err := a.opts.Backends.Get(kind)
+		if _, capable := b.(backend.MergeWorkerRunner); err != nil || !capable {
+			for _, candidate := range a.opts.Backends.Kinds() {
+				b, err := a.opts.Backends.Get(candidate)
+				if _, capable := b.(backend.MergeWorkerRunner); err == nil && capable {
+					kind = candidate
+					break
+				}
+			}
+		}
 	}
 	b, err := a.opts.Backends.Get(kind)
 	if err != nil {

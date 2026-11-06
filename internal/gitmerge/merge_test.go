@@ -251,3 +251,34 @@ func TestMergeReportsBinaryChangesWithoutDecodingThem(t *testing.T) {
 	}
 	t.Fatalf("the binary change is missing: %+v", got.Changes)
 }
+
+// Git's test switch simulates a checkout owned by the agent rather than the
+// worker. The wrapper sets it after sanitisation, as a different uid would.
+func TestMergeAcceptsOnlyItsPreparedRepositoryWithDifferentOwnership(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := repo(t)
+	write(t, dir, "base.txt", []byte("base\n"))
+	ancestor := commit(t, dir, "base")
+	mustGit(t, dir, "checkout", "-qb", "side")
+	write(t, dir, "side.txt", []byte("side\n"))
+	head := commit(t, dir, "side")
+	mustGit(t, dir, "checkout", "-q", "-")
+	write(t, dir, "base.txt", []byte("main\n"))
+	base := commit(t, dir, "main")
+	wrapper := t.TempDir()
+	script := "#!/bin/sh\nexport GIT_TEST_ASSUME_DIFFERENT_OWNER=1\nexec '" + realGit + "' \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(wrapper, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", wrapper+string(os.PathListSeparator)+os.Getenv("PATH"))
+	got, err := Merge(context.Background(), Request{Dir: dir, Ancestor: ancestor, Base: base, Head: head})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tree == "" || len(got.Conflicts) != 0 {
+		t.Fatalf("merge %+v", got)
+	}
+}
