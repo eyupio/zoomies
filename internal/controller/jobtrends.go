@@ -203,8 +203,8 @@ func (c *Controller) readSlowerJobs(ctx context.Context, out *[]Problem) error {
 			Severity: config.SeverityInfo,
 			// There is one of these per slower job, so each needs an identity of
 			// its own: without one the UI cannot tell them apart, and a keyed
-			// list of them is a repeated key -- a rendering error rather than a
-			// cosmetic one -- while dismissing one would dismiss them all. The
+			// list of them is a repeated key: a rendering error rather than a
+			// cosmetic one, while dismissing one would dismiss them all. The
 			// job's name is what the trend was grouped by and is stable from
 			// one pass to the next, unlike the durations in the title.
 			TargetKind: "job",
