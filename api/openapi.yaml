@@ -17710,6 +17710,7 @@ components:
       required: [path, ancestor, base, head]
       properties:
         path: { type: string }
+        mode: { type: string, enum: ["100644", "100755"], description: "The regular file mode preserved by the resolution." }
         ancestor: { type: string }
         base: { type: string }
         head: { type: string }
