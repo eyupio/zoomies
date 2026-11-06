@@ -12,6 +12,9 @@
  * reasons, live contrast, and the phone width with no page-level overflow.
  */
 import { expect, test, type Page } from '@playwright/test';
+
+// Each contract is checked across four separately loaded style and mode pages.
+test.setTimeout(90_000);
 const COMBINATIONS = [
   { style: 'classic', mode: 'light' },
   { style: 'classic', mode: 'dark' },
