@@ -21,20 +21,20 @@ checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1410](https://github.com/eyupio/zoomies/pull/1410): the agent merge worker, stacked on #1409 |
+| Latest slice | the conflict model resolution, stacked on #1410 |
 | Investigated baseline | `568ec4017` on `main` |
-| Working branch | `codex/eli-merge-agent` |
+| Working branch | `codex/eli-conflict-resolution` |
 | Verified code checkpoints | S1 through S3a merged, and S3b's merge package, worker command and image, repository writer and fetch, archive download and repository transport merged through `568ec4017`; #1407's task is `c926789cd` |
 | Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds. Decisions 0017 and 0018 add the controller-built repository, the archive download and the agent transport contract. The controller serves that repository over the agent API and accepts the one answer, and an agent now pulls, unpacks, runs the worker image and posts that answer |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | An agent handles `merge_conflict`: it pulls the prepared repository, checks the pins against the task, unpacks it into a temporary workspace, runs the worker image with only that workspace mounted and no network, posts the one answer and removes the workspace. A container backend that cannot run the image is refused rather than guessed at |
-| Next implementation | Model resolution from the conflict answer, the two-parent commit and non-force publication after rechecking pause, authorisation and head/base identity, then S4 UX |
+| Current slice | `internal/conflictresolve` asks a model to resolve the text conflicts a merge worker found. It renders the two sides in the marker form, supplies the common ancestor as evidence, refuses protected paths and oversized conflict sets, and accepts only complete resolved files with no markers left. Nothing calls it and nothing is committed or published yet |
+| Next implementation | The two-parent commit built from the worker's merged-tree changes and the model's resolved files, then non-force publication after rechecking pause, authorisation and head/base identity, then S4 UX |
 | CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
 | Watcher claim cost | [#1392](https://github.com/eyupio/zoomies/pull/1392), a controller-load change that is not a slice, makes the due-watch claim look on the reader pool before it takes the writer. What is due, how a watch is leased and what an observation records are unchanged |
-| Merge-conflict repair | Detection is in S3a. S3b has decision 0016, the bounded merge package, the worker command and image, decision 0017 with the repository writer, and decision 0018 with the archive reader, the fetch, the agent transport and the agent's one-shot worker run. Model resolution and publication remain, and admission still refuses the conflicts capability |
+| Merge-conflict repair | Detection is in S3a. S3b has decision 0016, the bounded merge package, the worker command and image, decision 0017 with the repository writer, and decision 0018 with the archive reader, the fetch, the agent transport and the agent's one-shot worker run. Model resolution now exists in `internal/conflictresolve`; the two-parent commit, publication and the wiring from a conflicted watch remain, and admission still refuses the conflicts capability |
 | Production configuration | No repository automation or model credentials changed by this work |
 
 The automatic mode still starts from a failed `workflow_job`, attempts one
@@ -376,8 +376,10 @@ S3b scope, this PR only:
   transport the request and result from the controller.
 - [x] Run the worker from an agent in a one-shot container against the prepared
   workspace, with no network and no credential.
-- [ ] Ask the model for a resolution, build the two-parent commit and publish it
-  without force after rechecking pause, authorisation and head/base identity.
+- [x] Ask the model for a resolution in `internal/conflictresolve`, bounded to
+  the conflicted files and refusing any answer that leaves a marker.
+- [ ] Build the two-parent commit and publish it without force after rechecking
+  pause, authorisation and head/base identity.
 
 Detection and evidence:
 
@@ -486,6 +488,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1407](https://github.com/eyupio/zoomies/pull/1407), open, stacked on `codex/eli-git-merge-worker` | S3b: the `merge_conflict` task and `QueueMergeConflict` | Task payload, queue key and lease tests, the older-agent compatibility suite, build and formatting pass | The two endpoints over `mergeSession` and the agent handler |
 | [#1409](https://github.com/eyupio/zoomies/pull/1409), open, stacked on #1407 | S3b: pull and answer endpoints over `mergeSession`, their agent transport client, and the prepared attempt's three pins on the task | Race tests for the controller session, the agent transport, the API routes and the task payload; `make openapi`, vet and formatting pass; no agent handler, model or publication | The agent handler that pulls, unpacks, runs the worker image and posts the answer, then model resolution and two-parent publication |
 | [#1410](https://github.com/eyupio/zoomies/pull/1410), open, stacked on #1409 | S3b: the agent runs the prepared merge in a one-shot worker container, posts its answer and removes the workspace; the Docker and Podman backends gain the worker run | Race tests for the agent handler, the container backend, the controller result path and the docs; vet and formatting pass; no model resolution or publication | Model resolution, the two-parent commit and non-force publication, then S4 UX |
+| this PR, stacked on #1410 | S3b: bounded model resolution of the text conflicts a worker returned, producing complete resolved files and rejecting markers, protected paths and oversized conflict sets | Race tests for the resolver, vet, staticcheck and formatting pass; no caller, two-parent commit or publication | The two-parent commit and non-force publication, then wiring a conflicted watch to the worker, model and publisher |
 | [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
 
 S1 validation on 3 November 2026:
@@ -786,6 +789,47 @@ Limits of this slice:
 - No model resolution, two-parent commit or publication exists.
 - Full repository `make test`, browser suites, the complete store suite with the
   race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S3b: bounded model resolution of a merge conflict, 6 November 2026
+
+This slice adds `internal/conflictresolve`, the step between a worker's conflict
+answer and a commit. It asks a model to resolve only the text conflicts the
+worker classified as supported, and it returns complete files for those paths.
+It has no caller yet: nothing is committed, pushed or watched.
+
+- The two sides are rendered in the marker form a person sees, with the common
+  ancestor supplied beside them as evidence. The model is told to keep both
+  intents and remove every marker.
+- The resolver uses the existing bounded editor (`internal/prrepair`), so the
+  model reads and edits only the conflicted files, workflow paths stay subject
+  to the repository policy, and the source, file and step budgets are the ones
+  every repair already has.
+- A path protected by the repair policy, a conflict set larger than the editing
+  allowance, or a conflict file larger than the blob limit is refused before the
+  model is called.
+- The answer must name a resolved file for every conflict, and no resolved file
+  may still contain a marker line. A model that adds a path outside the conflict
+  set, leaves one unresolved or leaves markers is refused.
+
+Validation on 6 November 2026:
+
+- `go test -race -count=1 ./internal/conflictresolve`: pass (1.021s). The tests
+  cover both sides reaching the model, a complete resolved file, a marker left
+  in a changed file, a protected workflow path refused before any model call,
+  too many conflicts, an empty set and a missing resolution.
+- `go vet ./internal/conflictresolve` and `staticcheck ./internal/conflictresolve`:
+  pass.
+- Changed-file `gofmt` and `git diff --check`: pass.
+
+Limits of this slice:
+
+- There is no caller. The two-parent commit, the non-force publication, the
+  merged-tree change list and the wiring from a conflicted watch do not exist.
+- The model is not given the rest of the repository, only the conflicted files
+  and their common ancestor. That is deliberate for this stage; the next stage
+  may supply further context if the merge evidence supports it.
+- No live model was run; the tests use a scripted model. No real GitHub mutation
+  was made.
 
 ### S3b: the agent runs the merge worker, 6 November 2026
 
