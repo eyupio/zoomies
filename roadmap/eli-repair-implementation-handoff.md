@@ -10,32 +10,34 @@ PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 This is the shared workstream record for the whole initiative. S1 through S3a
 are merged on `main`, as are S3b's merge package, the `zoomies git-worker`
 command, the worker image, the repository writer and fetch, the archive download
-and the repository transport package. The rest of S3b and S4 are an open stack of
-PRs, not merged to `main`: #1407, #1409, #1410, #1411, #1412, #1413, #1416,
-#1417 and #1418. Each is based on the previous one, and #1407 is based on `main`.
+and the repository transport package. The remaining S3b and S4 implementation
+is integrated in [#1407](https://github.com/eyupio/zoomies/pull/1407), on
+`codex/eli-merge-task`, awaiting the required checks before merging to `main`.
+The dependent PRs #1409, #1410, #1411, #1413, #1416 and #1417 have merged into
+that integration branch; their earlier children #1412 and #1418 are included.
 The controller can prepare a repository, an agent can run the worker, the model
 can resolve supported conflicts, the controller can publish the two-parent
 commit, and the watches are on the REST API and in the UI, with each watched pull
 request showing the attempts already made on it. No conflict repair has been run
 against a live model, a real worker image or a real GitHub pull request yet.
 Describing a later slice here does not add its runtime implementation to an
-earlier branch. Continue from the top of the stack after checking the live PR
-states, or merge the stack in order first.
+earlier branch. Check the live state of #1407 before continuing; after it merges,
+continue from `main`.
 
 ## Current checkpoint
 
 | Item | State |
 | --- | --- |
-| Latest slice | [#1418](https://github.com/eyupio/zoomies/pull/1418): the attempt history beside each watched pull request, stacked on #1417 |
-| Investigated baseline | `568ec4017` on `main`; the stack's tip is `31c0cdc72` on `codex/eli-repair-attempt-history` |
-| Working branch | `codex/eli-repair-attempt-history`, branched from `codex/eli-repair-ui` |
-| Verified code checkpoints | S1 through S3a, and the S3b foundation, merged through `568ec4017`. The open stack's newest local checkpoints: #1407 `c926789cd`, #1409 `27a075c80`, #1410 `63a4a921b`, #1411 `d290125ad`, #1412 `3ac6909e1`, #1413 `89f10cf8f`, #1416 `871ee5c14`, #1417 `264c4f6c6`, this slice `31c0cdc72` |
+| Latest slice | [#1407](https://github.com/eyupio/zoomies/pull/1407): the integrated worker, resolver, publication, watch API, UI and attempt history, including review corrections |
+| Investigated baseline | `067dfd3b` on `main`; integrated implementation checkpoint `b9260c2b` on `codex/eli-merge-task` |
+| Working branch | `codex/eli-merge-task` |
+| Verified code checkpoints | The dependent PRs #1409, #1410, #1411, #1413, #1416 and #1417 are merged into the integration branch at `b9260c2b`. #1412 and #1418 were already merged into their parents. #1407 remains open against `main` until the required gate passes |
 | Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds. Decisions 0017 and 0018 add the controller-built repository, the archive download and the agent transport. The controller serves the repository over the agent API, an agent runs the worker in a one-shot container, `internal/conflictresolve` asks the model only for the conflicted files, and the controller publishes a two-parent non-force commit. The watch API can list, admit, pause, resume and stop the work, and the UI chooses a repository's behaviour, admits it, shows what is being followed and controls it |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | S4 UI follow-up. The watched pull request's disclosure now lists every attempt recorded on that pull request, newest first, with the current attempt marked. Each row says how it ended, when it was queued, who began it and the commit it published, and links out to the attempt page, where raw source, model output and job logs stay behind their existing permission. The history is read per repository and narrowed to the watched pull request, a failed read still says so, and a history longer than the page read says older attempts may be missing |
+| Current slice | Review corrections and integration: lossless binary publication, executable-mode preservation, windowed ancestor context, exact Git ownership configuration, capable backend selection and queued-answer retention. The full S4 UI and attempt history are included |
 | Next implementation | Finish S4: live validation of conflict repair against a real model, the real worker image and a real GitHub pull request; one row per repository instead of the separate Automatic repairs panel; repository-scoped activity for people who are not administrators, or an explicit statement that it stays administrator-only; notifications on publication, needs-help and completion |
-| CI snapshot | None of #1407, #1409, #1410, #1411, #1412, #1413, #1416, #1417 or #1418 is merged. Local focused checks pass on each; their CI has been uneven on the self-hosted pool. Recheck every PR before merging and merge in stack order, starting with #1407. A queued, cancelled or stale run is not a result |
+| CI snapshot | The dependent PRs are merged into #1407. Combined local Go race tests, both UI type checks, lint and build pass. UI units: 1,334 passed and one expected local skip because mawk cannot stream like gawk. Browser verification: 15 table tests, four transfer tests and 27 gallery tests pass. The required main-branch CI gate is still pending; queued, cancelled and stale runs are not passing results |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook. Per-PR and repository-wide watches are listed, admitted, paused, resumed and stopped through the API, and chosen, shown and controlled in the UI |
 | Watcher claim cost | [#1392](https://github.com/eyupio/zoomies/pull/1392), a controller-load change that is not a slice, makes the due-watch claim look on the reader pool before it takes the writer. What is due, how a watch is leased and what an observation records are unchanged |
