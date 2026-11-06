@@ -97,7 +97,7 @@ func TestAJobThatGotMuchSlowerIsSaidAsInformation(t *testing.T) {
 }
 
 // Two jobs getting slower are two problems, each with an identity of its own.
-// They used the same key -- same code, no target -- and the UI keys its list by
+// They used the same key (same code, no target) and the UI keys its list by
 // that, so a second one was a repeated key and the Problems panel failed to
 // render at all.
 func TestEachSlowerJobIsItsOwnProblem(t *testing.T) {
