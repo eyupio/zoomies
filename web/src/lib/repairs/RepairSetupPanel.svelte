@@ -272,7 +272,15 @@
   const moveHeld = (): Promise<void> => linkIdentity(true);
   async function focusPolicyForm(): Promise<void> {
     await tick();
-    document.getElementById('policy-form-heading')?.focus();
+    const heading = document.getElementById('policy-form-heading');
+    if (!heading) return;
+    // Bring the form back on screen even when the heading already has focus.
+    // A browser that does not focus a button on click (Safari, and Firefox on
+    // macOS) leaves focus on the heading after the last edit, and focus() on an
+    // element that already has it does not scroll: pressing Edit further down
+    // the list would update a form the operator cannot see.
+    heading.scrollIntoView({ block: 'start' });
+    heading.focus({ preventScroll: true });
   }
   function editPolicy(p: Schemas['EliRepairPolicy'], focus = false): void {
     editing = p.repo;
