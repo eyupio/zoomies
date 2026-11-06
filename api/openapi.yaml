@@ -17689,6 +17689,22 @@ components:
           type: array
           items: { $ref: "#/components/schemas/AgentMergeUnsupportedConflict" }
         truncated: { type: boolean, description: The conflict budget stopped the walk before every path was read. }
+        changes:
+          type: array
+          description: >-
+            The files the merged tree has that the pull request head does not. The controller
+            uses these to build the two-parent commit on GitHub, where the worker's tree object
+            does not exist.
+          items: { $ref: "#/components/schemas/AgentMergeChange" }
+    AgentMergeChange:
+      type: object
+      required: [path]
+      properties:
+        path: { type: string }
+        mode: { type: string, description: "The Git mode of the merged entry, such as 100644 or 100755." }
+        content: { type: string, format: byte, description: "The file's bytes, base64 in JSON, for a blob." }
+        sha: { type: string, description: "The commit id for a submodule entry." }
+        deleted: { type: boolean, description: "The merged tree has no entry at this path." }
     AgentMergeConflict:
       type: object
       required: [path, ancestor, base, head]

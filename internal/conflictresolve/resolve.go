@@ -151,3 +151,42 @@ func (r conflictReader) ReadFile(_ context.Context, path string) (prrepair.File,
 	}
 	return file, nil
 }
+
+// ApplyChanges puts the resolved files back into the merge worker's change
+// list. The worker's mode is kept, so an executable file stays executable, and
+// a path the worker did not report as changed is refused rather than added.
+func ApplyChanges(changes []gitmerge.Change, resolutions []Resolution) ([]gitmerge.Change, error) {
+	if len(resolutions) == 0 {
+		return changes, nil
+	}
+	index := make(map[string]int, len(changes))
+	for i, change := range changes {
+		index[change.Path] = i
+	}
+	seen := make(map[string]bool, len(resolutions))
+	for _, resolution := range resolutions {
+		i, ok := index[resolution.Path]
+		if !ok {
+			return nil, fmt.Errorf("%w: %s is not one of the merge worker's changed files", ErrUnresolved, resolution.Path)
+		}
+		if seen[resolution.Path] {
+			return nil, fmt.Errorf("%w: %s was resolved twice", ErrUnresolved, resolution.Path)
+		}
+		seen[resolution.Path] = true
+		change := changes[i]
+		if change.Deleted {
+			return nil, fmt.Errorf("%w: %s is deleted by the merge and cannot also be resolved", ErrUnresolved, resolution.Path)
+		}
+		if change.Mode != "100644" && change.Mode != "100755" {
+			return nil, fmt.Errorf("%w: %s has mode %s, which a model may not rewrite", ErrUnresolved, resolution.Path, change.Mode)
+		}
+		if hasConflictMarkers(resolution.Content) {
+			return nil, fmt.Errorf("%w: %s still carries conflict markers", ErrUnresolved, resolution.Path)
+		}
+		changes[i].Content = []byte(resolution.Content)
+		if changes[i].Mode == "" {
+			changes[i].Mode = "100644"
+		}
+	}
+	return changes, nil
+}
