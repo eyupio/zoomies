@@ -128,7 +128,7 @@
     align-items: center;
     justify-content: center;
     border: var(--z-border-width) solid transparent;
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-md);
     background: transparent;
     color: var(--z-text-muted);
     cursor: pointer;

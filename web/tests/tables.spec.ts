@@ -165,6 +165,8 @@ test('a long actor name is cut short in the Audit card instead of widening it', 
 
 for (const width of WIDTHS) {
   test(`no grid scrolls sideways at ${width}px`, async ({ page }) => {
+    // This walks every grid in both row and card layouts on the shared runner.
+    test.slow();
     await page.setViewportSize({ width, height: 900 });
 
     // `--z-bp-md` is a `max-width`, so 768 is itself a phone: the card layout
