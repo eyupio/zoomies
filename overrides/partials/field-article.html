@@ -1,18 +1,18 @@
 <div class="article-wrap wrap">
   {% include "partials/crumbs-zoomies.html" %}
   <header class="article-heading">
-    <div class="eyebrow">THE RUNNER’S FIELD GUIDE / {{ page.meta.read_time }} MIN READ</div>
+    <div class="eyebrow">Field guide · {{ page.meta.read_time }} min read</div>
     {{ page.meta.heading_html | safe }}
     <p class="article-deck">{{ page.meta.description }}</p>
-    <div class="article-meta"><span>BY {{ config.site_author | upper }}</span>{% if page.meta.git_date %}<span>UPDATED {{ page.meta.git_date }}</span>{% endif %}</div>
+    <div class="article-meta"><span>By {{ config.site_author }}</span>{% if page.meta.git_date %}<span>Updated {{ page.meta.git_date }}</span>{% endif %}</div>
   </header>
   <div class="article-layout">
     <article class="prose md-typeset">{{ page.content }}{% include "partials/page-tools-zoomies.html" %}</article>
     <aside class="article-aside"><div class="sticky-aside">
-      <span class="tiny-label">ON THIS PAGE</span>
+      <span class="tiny-label">On this page</span>
       {% for item in page.toc %}{% for child in item.children %}<a href="{{ child.url }}">{{ child.title }}</a>{% endfor %}{% endfor %}
       <div class="aside-next"><h3>Put it into practice.</h3><p>A small, working fleet starts with a single job.</p><a class="text-link" href="{{ 'quickstart/' | url }}">The quick start {{ icon('arrow') }}</a></div>
     </div></aside>
   </div>
 </div>
-<section class="section wrap related-guides"><div class="eyebrow">KEEP YOUR MOMENTUM</div><h2>A good next read.</h2><div class="guide-grid">{% for guide in field_guides if guide.page != page %}{% if loop.index <= 3 %}{% include "partials/guide-card.html" %}{% endif %}{% endfor %}</div></section>
+<section class="section wrap related-guides"><div class="eyebrow">Related guides</div><h2>A good next read.</h2><div class="guide-grid">{% for guide in field_guides if guide.page != page %}{% if loop.index <= 3 %}{% include "partials/guide-card.html" %}{% endif %}{% endfor %}</div></section>
