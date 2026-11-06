@@ -162,7 +162,6 @@ func TestConflictCommitRefusesATargetTipThatMovedBeforeTheRefUpdate(t *testing.T
 }
 
 type conflictCommitOptions struct {
-	pullCalls        int
 	secondPullStatus int
 	headStatus       int
 	headTree         string
