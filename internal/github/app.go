@@ -142,6 +142,11 @@ func (f *AppFactory) For(ctx context.Context, inst *store.Installation, privateK
 		return nil, err
 	}
 	c := newAppClient(asApp, asInstallation, inst.Target, inst.TargetType, inst.InstallationID, WebURLForAPI(apiBase))
+	// The installation client is what the API requests are made with, and the
+	// bare one is the same base transport without the token wrapper: a redirect
+	// to storage is fetched by it, so the token cannot travel there.
+	c.http = &http.Client{Transport: instTransport, Timeout: f.http.Timeout}
+	c.archiveHTTP = &http.Client{Transport: base, Timeout: f.http.Timeout}
 	c.enableConditionalReads(f.etags, apiBase+"|"+strconv.FormatInt(inst.InstallationID, 10))
 	return c, nil
 }
@@ -186,6 +191,12 @@ type appClient struct {
 	// asInstallation, so a client built without it still works.
 	conditional    *gh.Client
 	installationID int64
+	// http is the transport the installation token travels on, and archiveHTTP
+	// is the same base transport with no token and redirects followed. They are
+	// separate on purpose: the archive endpoint redirects to a storage host, and
+	// the second request must not carry a credential there.
+	http        *http.Client
+	archiveHTTP *http.Client
 
 	target string
 	kind   store.TargetType

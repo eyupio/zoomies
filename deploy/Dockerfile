@@ -148,3 +148,50 @@ ENV ZOOMIES_STATE_DIR=/var/lib/zoomies
 VOLUME ["/var/lib/zoomies"]
 ENTRYPOINT ["/usr/local/bin/zoomies"]
 CMD ["agent"]
+
+# ---- Git worker -------------------------------------------------------------
+# The bounded Git merge worker that conflict repair runs. Decision 0016 says why
+# the merge is here and not in the controller.
+#
+# The controller is distroless and runs no repository code. A real three-way
+# merge needs Git and a repository, so it gets an image that holds nothing worth
+# taking: no database, no GitHub App key, no model provider key, and nothing to
+# drive but one request and one answer. Its input is a sanitised bare repository
+# and three commit ids; its answer is a tree id, or the bounded text of each
+# conflict it refused to publish.
+#
+# Alpine rather than distroless because the merge needs a Git binary and this is
+# the smallest base that carries one. The binary inside is the same static build
+# the controller ships, so the check at the end of this stage is the same one a
+# controller host could run.
+#
+# CI and releases publish ghcr.io/eyupio/zoomies-git so a moved base image is
+# checked before conflict repair needs it. `make image-gitworker` builds it
+# locally; the controller does not start the worker yet.
+FROM alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f AS gitworker
+# No package index is kept: after this line the image installs nothing, ever.
+RUN apk add --no-cache git
+# Re-declared after FROM for the same reason the other targets' are.
+ARG VERSION=dev
+ARG COMMIT=""
+ARG DATE=""
+LABEL org.opencontainers.image.title="zoomies-git" \
+      org.opencontainers.image.description="Zoomies Git worker: the bounded merge that conflict repair runs, holding no credentials" \
+      org.opencontainers.image.source="https://github.com/eyupio/zoomies" \
+      org.opencontainers.image.url="https://zoomies.sh" \
+      org.opencontainers.image.documentation="https://zoomies.sh/architecture/" \
+      org.opencontainers.image.vendor="EyUp.io" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${DATE}"
+COPY --from=build /out/zoomies /usr/local/bin/zoomies
+# Fail the build, not the first conflict: merge-tree --write-tree arrived in Git
+# 2.38, and a base image that regressed below it would answer every merge with a
+# usage error at the moment an operator asked for a repair. 65534 is Alpine's
+# "nobody"; the worker reads the repository it was given and writes the objects
+# the merge produces into it, and needs to write nowhere else.
+USER 65534:65534
+RUN ["/usr/local/bin/zoomies", "git-worker", "--check"]
+ENTRYPOINT ["/usr/local/bin/zoomies"]
+CMD ["git-worker"]

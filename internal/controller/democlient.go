@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/gitbare"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -290,4 +291,16 @@ func (d *demoClient) RerunFailedWorkflowJobs(context.Context, string, int64) err
 
 func (d *demoClient) CancelWorkflowRun(context.Context, string, int64, bool) error {
 	return ErrDemoFixture
+}
+
+// ArchiveOf has nothing to serve: a demo repository exists in the fixture, not as
+// commits GitHub would hand over as a tarball.
+func (d *demoClient) ArchiveOf(context.Context, string, string, gitbare.ArchiveOptions) ([]gitbare.File, error) {
+	return nil, ErrDemoFixture
+}
+
+// CommitOf has nothing to serve for the same reason: the demo's commits are
+// fixture strings, not objects GitHub would describe.
+func (d *demoClient) CommitOf(context.Context, string, string) (github.CommitInfo, error) {
+	return github.CommitInfo{}, ErrDemoFixture
 }

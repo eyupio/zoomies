@@ -291,6 +291,17 @@ image: ## Build the controller image (deploy/Dockerfile, target controller)
 		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) \
 		-t ghcr.io/eyupio/zoomies:$(VERSION) -t ghcr.io/eyupio/zoomies:latest .
 
+# The bounded Git worker conflict repair merges in. It is not published yet: no
+# workflow names the target, so nothing pushes it to GHCR and nothing would
+# notice if its base image moved. The Dockerfile's last step in the target runs
+# the worker's own toolchain check, so a build that succeeds is a worker whose
+# Git can merge.
+.PHONY: image-gitworker
+image-gitworker: ## Build the Git worker image (deploy/Dockerfile, target gitworker)
+	docker build -f deploy/Dockerfile --target gitworker \
+		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) \
+		-t ghcr.io/eyupio/zoomies-git:$(VERSION) .
+
 .PHONY: image-nixpacks
 image-nixpacks: ## Build the controller image from source with Nixpacks (needs the nixpacks CLI)
 	@command -v nixpacks >/dev/null 2>&1 || { \

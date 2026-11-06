@@ -654,6 +654,20 @@ func TestTheAgentImageIsBuiltAndPublished(t *testing.T) {
 	}
 }
 
+// A worker target without workflow wiring can silently stop building.
+func TestTheGitWorkerImageIsBuiltAndPublished(t *testing.T) {
+	files := workflowFiles(t)
+	for _, name := range []string{"ci.yml", "release.yml"} {
+		body, ok := files[name]
+		if !ok {
+			t.Fatalf("no %s", name)
+		}
+		if !strings.Contains(body, "target: gitworker") {
+			t.Errorf("%s builds no `gitworker` target, so deploy/Dockerfile's Git worker image is published by nothing", name)
+		}
+	}
+}
+
 func TestCIDogfoodsZoomiesWithRecoveryForEveryJob(t *testing.T) {
 	files := workflowFiles(t)
 	selector := `((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64'`
