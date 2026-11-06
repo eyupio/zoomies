@@ -1917,6 +1917,8 @@
       border-top-right-radius: 0;
     }
     .grid:not(.rows) tbody tr.expansion td {
+      /* Match the hover rule so nested controls do not move mid-click. */
+      padding: 0;
       display: block;
       text-align: left;
     }

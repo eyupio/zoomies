@@ -2068,3 +2068,17 @@ The final integration also aligns the sign-in stage and Overview event-marker
 browser contracts with the shared radius tokens. Their colour, theme, icon and
 border assertions remain in place; the obsolete 28-pixel and circular-shape
 expectations are removed. Changed browser specs pass formatting and ESLint.
+
+## CI browser follow-up
+
+The full recovery run passed the Go shards, platform tests, image builds,
+coverage and supporting checks. Its browser legs found two stale repair-settings
+expectations and a real phone interaction defect: the expanded grid cell gained
+padding until hovered, then removed it, moving a nested job button as a click
+landed. The mobile expansion now keeps the same padding in both states.
+Repair-settings tests recognise the watching result and open the mode disclosure;
+the repair fixture aborts live event frames while it owns the mocked reads.
+All 38 repair-settings and workflow browser cases pass on desktop and mobile,
+including the unforced click that failed before the CSS fix. The production UI
+and binary builds and UI lint pass. The full gate must pass again on this revision
+before #1407 merges to `main`.

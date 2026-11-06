@@ -369,6 +369,8 @@ export async function mockRepairApi(
     const url = new URL(request.url());
     const path = url.pathname.replace(/^\/api\/v1/, '');
     const method = request.method();
+    // These fixtures own the reads; live frames must not replace their state.
+    if (path === '/events') return route.abort('connectionfailed');
     const json = (body: unknown, status = 200) => route.fulfill({ status, json: body });
 
     if (path === '/meta') {

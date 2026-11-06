@@ -98,7 +98,7 @@ test('repository automation uses the saved team provider without personal accoun
   await page.getByRole('button', { name: 'Select all matching repositories' }).click();
   await page.getByRole('button', { name: 'Save in 2 repositories' }).click();
   await expect(
-    page.getByText('Saved repair settings in 2 repositories', { exact: true }),
+    page.getByText('Saved repair settings in 2 repositories, watching 2', { exact: true }),
   ).toBeVisible();
   expect(model.identities).toEqual([]);
   expect(model.writes.map((p) => [p.repo, p.provider_id, p.automatic, p.allow_workflows])).toEqual([
@@ -174,10 +174,11 @@ test('partial saves report failure and retry only failed repositories with the r
     page.getByText('acme/widgets: Installation is unavailable.', { exact: true }),
   ).toBeVisible();
   model.fail('');
+  await page.getByText('When Eli acts, and what it may edit', { exact: true }).click();
   await page.locator('#repair-mode').selectOption('manual');
   await page.getByRole('button', { name: 'Retry 1 failed repository' }).click();
   await expect(
-    page.getByText('Saved repair settings in 1 repository', { exact: true }),
+    page.getByText('Saved repair settings in one repository, watching 1', { exact: true }),
   ).toBeVisible();
   expect(model.writes.map((p) => p.repo)).toEqual(['acme/site', 'acme/widgets', 'acme/widgets']);
   expect(model.writes[2]?.automatic).toBe(true);
