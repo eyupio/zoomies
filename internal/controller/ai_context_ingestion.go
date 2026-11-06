@@ -89,10 +89,21 @@ func aiContextRetained(config aicontext.Config) string {
 	return " The previous snapshot is retained."
 }
 
+// The verification loop's pacing. The first pass waits so start-up work is not
+// competing with it; each pass checks one batch under its own deadline, and the
+// batch size is also how the loop knows it has reached the end of the list and
+// should start again from the top.
+const (
+	aiContextLoopFirstDelay = 15 * time.Second
+	aiContextLoopInterval   = 5 * time.Minute
+	aiContextCheckTimeout   = 45 * time.Second
+	aiContextCheckBatch     = 20
+)
+
 // Context verification has its own bounded loop so a repository pack cannot
 // hold the fleet's scheduling lock. Polling also recovers missed push events.
 func (c *Controller) aiContextLoop(ctx context.Context) {
-	timer := time.NewTimer(15 * time.Second)
+	timer := time.NewTimer(aiContextLoopFirstDelay)
 	defer timer.Stop()
 	offset := 0
 	for {
@@ -100,10 +111,10 @@ func (c *Controller) aiContextLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
-			ids, err := c.st.ListAIContextVerificationCandidates(ctx, 20, offset)
+			ids, err := c.st.ListAIContextVerificationCandidates(ctx, aiContextCheckBatch, offset)
 			if err == nil {
 				for _, id := range ids {
-					checkCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+					checkCtx, cancel := context.WithTimeout(ctx, aiContextCheckTimeout)
 					_ = c.SyncAIContext(checkCtx, id, aiContextRunGrace)
 					cancel()
 					if ctx.Err() != nil {
@@ -111,11 +122,11 @@ func (c *Controller) aiContextLoop(ctx context.Context) {
 					}
 				}
 				offset += len(ids)
-				if len(ids) < 20 {
+				if len(ids) < aiContextCheckBatch {
 					offset = 0
 				}
 			}
-			timer.Reset(5 * time.Minute)
+			timer.Reset(aiContextLoopInterval)
 		}
 	}
 }
