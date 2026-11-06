@@ -90,6 +90,23 @@ func TestASensitiveValueNeverReachesTheLog(t *testing.T) {
 	}
 }
 
+// A credential this process handles (an archive passphrase, an API or OAuth
+// token, a recovery code) never reaches the log under its ordinary name. The
+// list is checked key by key so that a careless commit removing one has a test
+// to fail rather than quietly turning a redaction off.
+func TestEveryCredentialKindIsRedacted(t *testing.T) {
+	for _, key := range []string{
+		"passphrase", "apikey", "api_key", "api_token",
+		"access_token", "refresh_token", "id_token", "session_token",
+		"recovery_code", "recovery_codes",
+	} {
+		a := redact(nil, slog.String(key, "s3cr3t-do-not-log"))
+		if a.Value.String() != "[redacted]" {
+			t.Errorf("%s = %q, want [redacted] so a credential under this key never reaches the log", key, a.Value)
+		}
+	}
+}
+
 // Everything else is logged as it was passed. Redacting by guesswork would
 // cost an operator the field they were reading the log for.
 func TestAnOrdinaryAttributeIsLeftAlone(t *testing.T) {
