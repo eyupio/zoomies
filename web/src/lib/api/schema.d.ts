@@ -12779,7 +12779,7 @@ export interface components {
         /** @description Exactly one of result and code is set. A result whose conflicts are non-empty is a conflicted tree and is not publishable; an unsupported entry names a conflict this worker refused to hand to a model. */
         AgentMergeAnswer: {
             result?: components["schemas"]["AgentMergeResult"];
-            /** @description Why the merge did not happen */
+            /** @description Why the merge did not happen, as a sentence for the operator. */
             error?: string;
             /**
              * @description The stable outcome the controller can switch on.
@@ -23599,14 +23599,14 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description The attempt was answered */
+            /** @description The attempt was answered, expired, or was never this controller's. */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description The attempt already has its one answer */
+            /** @description The attempt already has its one answer, so its repository is gone. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -23649,7 +23649,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description The attempt expired */
+            /** @description The attempt expired, or was never this controller's. */
             404: {
                 headers: {
                     [name: string]: unknown;

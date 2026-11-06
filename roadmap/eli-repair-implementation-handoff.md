@@ -768,8 +768,9 @@ Validation on 6 November 2026, on Git 2.39.5:
 - `go vet` on the six changed packages and `staticcheck` on them: pass.
 - `go test -count=1 ./internal/docs`: pass (33.078s), with the handoff tracked.
 - `make openapi` regenerated `internal/api/openapi_spec.go` and
-  `web/src/lib/api/schema.d.ts`; `go test -count=1 -run 'TestTheSpecCoversTheRouter|TestEveryOperationRecordsItsRole' ./internal/api`
-  passes.
+  `web/src/lib/api/schema.d.ts`; `go test -count=1 -run 'TestTheSpecCoversTheRouter|TestEveryOperationRecordsItsRole|TestNoNewDescriptionInTheSpecIsCutAtItsFirstComma' ./internal/api`
+  passes. The first CI run found the new routes missing from the spec and two
+  unquoted flow descriptions; both are fixed.
 - The existing failed-fetch cleanup test now compares the temporary merge
   directories before and after its own call. It previously failed when another
   package's test binary happened to be preparing a repository at the same

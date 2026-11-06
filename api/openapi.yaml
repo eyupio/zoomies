@@ -8949,8 +8949,8 @@ paths:
             application/gzip:
               schema: { type: string, format: binary }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { description: The attempt was answered, expired, or was never this controller's. }
-        "409": { description: The attempt already has its one answer, so its repository is gone. }
+        "404": { description: "The attempt was answered, expired, or was never this controller's." }
+        "409": { description: "The attempt already has its one answer, so its repository is gone." }
         "429": { $ref: "#/components/responses/RateLimited" }
     post:
       operationId: agentReportMergeAnswer
@@ -8972,12 +8972,12 @@ paths:
       responses:
         "204": { description: Recorded. }
         "400":
-          description: The body carried neither a result nor a code, or both.
+          description: "The body carried neither a result nor a code, or both."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { description: The attempt expired, or was never this controller's. }
+        "404": { description: "The attempt expired, or was never this controller's." }
         "409": { description: The attempt already has its one answer; a lost reply must not replace it. }
         "429": { $ref: "#/components/responses/RateLimited" }
   /comparisons:
@@ -17673,7 +17673,7 @@ components:
         worker refused to hand to a model.
       properties:
         result: { $ref: "#/components/schemas/AgentMergeResult" }
-        error: { type: string, description: Why the merge did not happen, as a sentence for the operator. }
+        error: { type: string, description: "Why the merge did not happen, as a sentence for the operator." }
         code:
           type: string
           enum: [invalid_request, merge_base_mismatch, unsafe_repository, merge_failed, too_large]
