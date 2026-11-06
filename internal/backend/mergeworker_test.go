@@ -71,9 +71,6 @@ func TestRunMergeWorkerRunsTheWorkerWithOnlyTheWorkspace(t *testing.T) {
 	if _, ok := created.Labels[LabelManaged]; ok {
 		t.Errorf("labels = %v, want no managed label so reconciliation ignores it", created.Labels)
 	}
-	if !slices.Contains(created.Env, "GIT_CONFIG_VALUE_0=/work/repository") {
-		t.Errorf("env = %v, want safe.directory for the workspace", created.Env)
-	}
 }
 
 func TestRunMergeWorkerReturnsWhyItWroteNoAnswer(t *testing.T) {

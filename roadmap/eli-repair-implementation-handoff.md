@@ -1717,3 +1717,13 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
    in the same commit set. Add the real PR link once assigned. State explicitly
    which user-visible capabilities are still unavailable and what the next PR
    should implement. Do not require the next session to reconstruct this chat.
+
+## Review correction for #1410
+
+The Git worker now supplies its prepared repository's exact `safe.directory`
+through trusted Git command arguments, after environment sanitisation. The
+container no longer sets environment variables that the worker discards.
+A regression test simulates differing repository ownership at Git's boundary.
+`go test -race -count=1 ./internal/gitmerge ./internal/backend` passed.
+The next unfinished step remains model resolution and publication in the later
+stacked slices, followed by live end-to-end validation.
