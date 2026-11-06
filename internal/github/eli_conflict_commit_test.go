@@ -160,3 +160,140 @@ func TestConflictCommitRefusesATargetTipThatMovedBeforeTheRefUpdate(t *testing.T
 		t.Fatalf("error = %v, want ErrSetupConflict", err)
 	}
 }
+
+type conflictCommitOptions struct {
+	pullCalls        int
+	secondPullStatus int
+	headStatus       int
+	headTree         string
+	blobStatus       int
+	blobSHA          string
+	treeStatus       int
+	treeSHA          string
+	commitStatus     int
+	commitSHA        string
+	refStatus        int
+}
+
+func conflictCommitServer(t *testing.T, opt *conflictCommitOptions) http.HandlerFunc {
+	t.Helper()
+	pulls := 0
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/repo/pulls/1":
+			pulls++
+			if pulls > 1 && opt.secondPullStatus != 0 {
+				w.WriteHeader(opt.secondPullStatus)
+				_, _ = w.Write([]byte(`{"message":"no"}`))
+				return
+			}
+			_, _ = w.Write([]byte(conflictPull))
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/repo/git/commits/head":
+			if opt.headStatus != 0 {
+				w.WriteHeader(opt.headStatus)
+				_, _ = w.Write([]byte(`{"message":"no"}`))
+				return
+			}
+			tree := opt.headTree
+			if tree == "" {
+				tree = "head-tree"
+			}
+			if tree == "-" {
+				tree = ""
+			}
+			_, _ = w.Write([]byte(`{"sha":"head","tree":{"sha":"` + tree + `"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/repo/git/blobs":
+			if opt.blobStatus != 0 {
+				w.WriteHeader(opt.blobStatus)
+				_, _ = w.Write([]byte(`{"message":"no"}`))
+				return
+			}
+			sha := opt.blobSHA
+			if sha == "" {
+				sha = "binary-blob"
+			}
+			if sha == "-" {
+				sha = ""
+			}
+			_, _ = w.Write([]byte(`{"sha":"` + sha + `"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/repo/git/trees":
+			if opt.treeStatus != 0 {
+				w.WriteHeader(opt.treeStatus)
+				_, _ = w.Write([]byte(`{"message":"no"}`))
+				return
+			}
+			sha := opt.treeSHA
+			if sha == "" {
+				sha = "merged-tree"
+			}
+			if sha == "-" {
+				sha = ""
+			}
+			_, _ = w.Write([]byte(`{"sha":"` + sha + `"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/repo/git/commits":
+			if opt.commitStatus != 0 {
+				w.WriteHeader(opt.commitStatus)
+				_, _ = w.Write([]byte(`{"message":"no"}`))
+				return
+			}
+			sha := opt.commitSHA
+			if sha == "" {
+				sha = "merge-commit"
+			}
+			if sha == "-" {
+				sha = ""
+			}
+			_, _ = w.Write([]byte(`{"sha":"` + sha + `"}`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/repos/acme/repo/git/refs/heads/feature":
+			if opt.refStatus != 0 {
+				w.WriteHeader(opt.refStatus)
+				_, _ = w.Write([]byte(`{"message":"no"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"ref":"refs/heads/feature","object":{"sha":"merge-commit"}}`))
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}
+}
+
+func TestConflictCommitRefusesEveryInputAndWriteItCannotUse(t *testing.T) {
+	text := ConflictChange{Path: "a.txt", Mode: "100644", Content: []byte("x\n")}
+	binary := ConflictChange{Path: "asset.bin", Mode: "100644", Content: []byte{0, 1, 2, 255}}
+	pull := RepairPull{Number: 1, Branch: "feature", HeadSHA: "head", BaseSHA: "base"}
+	cases := []struct {
+		name    string
+		base    string
+		repo    string
+		changes []ConflictChange
+		opt     conflictCommitOptions
+	}{
+		{name: "no base", repo: "acme/repo", changes: []ConflictChange{text}},
+		{name: "no changes", base: "base", repo: "acme/repo"},
+		{name: "bad repository", base: "base", repo: "acme", changes: []ConflictChange{text}},
+		{name: "head read failed", base: "base", repo: "acme/repo", changes: []ConflictChange{text}, opt: conflictCommitOptions{headStatus: http.StatusInternalServerError}},
+		{name: "head has no tree", base: "base", repo: "acme/repo", changes: []ConflictChange{text}, opt: conflictCommitOptions{headTree: "-"}},
+		{name: "path missing", base: "base", repo: "acme/repo", changes: []ConflictChange{{Mode: "100644", Content: []byte("x\n")}}},
+		{name: "submodule has no commit", base: "base", repo: "acme/repo", changes: []ConflictChange{{Path: "sub", Mode: "160000"}}},
+		{name: "mode unsupported", base: "base", repo: "acme/repo", changes: []ConflictChange{{Path: "a.txt", Mode: "100600", Content: []byte("x\n")}}},
+		{name: "blob write failed", base: "base", repo: "acme/repo", changes: []ConflictChange{binary}, opt: conflictCommitOptions{blobStatus: http.StatusInternalServerError}},
+		{name: "blob has no sha", base: "base", repo: "acme/repo", changes: []ConflictChange{binary}, opt: conflictCommitOptions{blobSHA: "-"}},
+		{name: "tree write failed", base: "base", repo: "acme/repo", changes: []ConflictChange{text}, opt: conflictCommitOptions{treeStatus: http.StatusInternalServerError}},
+		{name: "tree has no sha", base: "base", repo: "acme/repo", changes: []ConflictChange{text}, opt: conflictCommitOptions{treeSHA: "-"}},
+		{name: "commit write failed", base: "base", repo: "acme/repo", changes: []ConflictChange{text}, opt: conflictCommitOptions{commitStatus: http.StatusInternalServerError}},
+		{name: "commit has no sha", base: "base", repo: "acme/repo", changes: []ConflictChange{text}, opt: conflictCommitOptions{commitSHA: "-"}},
+		{name: "ref update failed", base: "base", repo: "acme/repo", changes: []ConflictChange{text}, opt: conflictCommitOptions{refStatus: http.StatusInternalServerError}},
+		{name: "second read failed", base: "base", repo: "acme/repo", changes: []ConflictChange{text}, opt: conflictCommitOptions{secondPullStatus: http.StatusInternalServerError}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opt := tc.opt
+			c := repairTestClient(t, conflictCommitServer(t, &opt))
+			if _, err := c.CommitConflictResolution(context.Background(), tc.repo, pull, tc.base, tc.changes); err == nil {
+				t.Fatal("the input was accepted")
+			}
+		})
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -239,5 +240,96 @@ func TestAMergeUsesAContainerBackendWhenTheDefaultRunsProcesses(t *testing.T) {
 	a.handleMergeConflict(t.Context(), mergeTask("merge-1", "image", pin))
 	if res := mergeResult(t, tr); !res.OK || be.mergeCalls != 1 {
 		t.Fatalf("result %+v, calls %d", res, be.mergeCalls)
+	}
+}
+
+func TestAMergeConflictReportsAPullFailure(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 1)
+	_, pin := mergePack(t)
+	tr.pullErr = errors.New("the controller is unreachable")
+	a.handleMergeConflict(context.Background(), mergeTask("merge-1", "image", pin))
+	res := mergeResult(t, tr)
+	if res.OK || !strings.Contains(res.Error, "could not pull the repository") || be.mergeCalls != 0 {
+		t.Fatalf("result = %+v, calls = %d", res, be.mergeCalls)
+	}
+}
+
+func TestAMergeConflictReportsAWorkspaceItCannotMake(t *testing.T) {
+	a, tr, _, _ := newAgent(t, 1)
+	packed, pin := mergePack(t)
+	tr.merges["merge-1"] = MergeRepository{Ancestor: pin, Base: pin, Head: pin, Repository: packed}
+	// A file where the workspace directory should be makes MkdirTemp fail
+	// without touching anything else on the host.
+	notADir := filepath.Join(t.TempDir(), "workspace")
+	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a.opts.WorkDir = notADir
+	a.handleMergeConflict(context.Background(), mergeTask("merge-1", "image", pin))
+	res := mergeResult(t, tr)
+	if res.OK || !strings.Contains(res.Error, "could not make a workspace") {
+		t.Fatalf("result = %+v", res)
+	}
+}
+
+func TestAMergeConflictRefusesAPackItCannotUnpack(t *testing.T) {
+	a, tr, _, _ := newAgent(t, 1)
+	_, pin := mergePack(t)
+	tr.merges["merge-1"] = MergeRepository{Ancestor: pin, Base: pin, Head: pin, Repository: []byte("not a tarball")}
+	a.handleMergeConflict(context.Background(), mergeTask("merge-1", "image", pin))
+	res := mergeResult(t, tr)
+	if res.OK || !strings.Contains(res.Error, "could not be unpacked") {
+		t.Fatalf("result = %+v", res)
+	}
+}
+
+func TestAMergeConflictReportsAWorkerThatDidNotAnswer(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 1)
+	packed, pin := mergePack(t)
+	tr.merges["merge-1"] = MergeRepository{Ancestor: pin, Base: pin, Head: pin, Repository: packed}
+	be.mergeErr = errors.New("the container exited 137")
+	a.handleMergeConflict(context.Background(), mergeTask("merge-1", "image", pin))
+	res := mergeResult(t, tr)
+	if res.OK || !strings.Contains(res.Error, "did not answer") {
+		t.Fatalf("result = %+v", res)
+	}
+}
+
+func TestAMergeConflictReportsAnAnswerTheControllerRejected(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 1)
+	packed, pin := mergePack(t)
+	tr.merges["merge-1"] = MergeRepository{Ancestor: pin, Base: pin, Head: pin, Repository: packed}
+	be.mergeAnswer = []byte(`{"result":{"tree":"abc"}}`)
+	tr.answerErr = &HTTPError{Status: 500, Method: "POST", Path: "/api/v1/agent/merge/merge-1"}
+	a.handleMergeConflict(context.Background(), mergeTask("merge-1", "image", pin))
+	res := mergeResult(t, tr)
+	if res.OK || !strings.Contains(res.Error, "did not accept the merge answer") {
+		t.Fatalf("result = %+v", res)
+	}
+}
+
+func TestAMergeConflictReportsABackendNameThisHostDoesNotHave(t *testing.T) {
+	a, tr, _, _ := newAgent(t, 1)
+	packed, pin := mergePack(t)
+	tr.merges["merge-1"] = MergeRepository{Ancestor: pin, Base: pin, Head: pin, Repository: packed}
+	task := mergeTask("merge-1", "image", pin)
+	task.Backend = "not-registered"
+	a.handleMergeConflict(context.Background(), task)
+	res := mergeResult(t, tr)
+	if res.OK || !strings.Contains(res.Error, "has no not-registered backend") {
+		t.Fatalf("result = %+v", res)
+	}
+}
+
+func TestDecodeMergeAnswerRefusesEverythingButOneAnswer(t *testing.T) {
+	for name, raw := range map[string]string{
+		"unknown field": `{"result":{"tree":"x"},"surprise":true}`,
+		"two answers":   `{"result":{"tree":"x"}}{"result":{"tree":"y"}}`,
+		"neither":       `{}`,
+		"both":          `{"result":{"tree":"x"},"code":"merge_failed"}`,
+	} {
+		if _, err := decodeMergeAnswer([]byte(raw)); err == nil {
+			t.Errorf("%s: %s was accepted", name, raw)
+		}
 	}
 }

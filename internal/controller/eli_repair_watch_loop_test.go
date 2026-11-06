@@ -436,3 +436,34 @@ func TestPeriodicDiscoveryDoesNotInferARepositoryFromOnePRWatch(t *testing.T) {
 		t.Fatalf("a per-PR watch admitted another watch: %+v, %v", watches, err)
 	}
 }
+
+func TestARepositoryDecisionCanBePausedAndResumed(t *testing.T) {
+	h := newHarness(t)
+	fake, inst, repo := repositoryWatchFixture(t, h)
+	fake.openPulls = []github.RepairPull{{
+		Number: 1, Title: "watched", Open: true, HeadSHA: "head-1", Branch: "fix-1", Base: "main", BaseSHA: "base-1",
+	}}
+	if _, err := h.c.AdmitEliRepositoryWatches(h.ctx, EliRepositoryWatchAdmission{
+		Repo: repo, InstallationID: inst.ID, OwnerID: "usr_owner", Capabilities: []string{EliWatchChecks, EliWatchConflicts},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	decisions, err := h.st.EliRepairWatchRepositories(h.ctx)
+	if err != nil || len(decisions) != 1 {
+		t.Fatalf("decisions = %+v, %v", decisions, err)
+	}
+	paused, err := h.c.PauseEliRepositoryWatches(h.ctx, decisions[0].ID)
+	if err != nil || paused.Enabled {
+		t.Fatalf("paused = %+v, %v", paused, err)
+	}
+	resumed, err := h.c.ResumeEliRepositoryWatches(h.ctx, decisions[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed == nil || len(resumed.Admitted) != 0 || resumed.Existing != 1 {
+		t.Fatalf("resumed = %+v", resumed)
+	}
+	if _, err := h.c.ResumeEliRepositoryWatches(h.ctx, "erwr_nosuch"); err == nil {
+		t.Fatal("a missing repository decision was resumed")
+	}
+}

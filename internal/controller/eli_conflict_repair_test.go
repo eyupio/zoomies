@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -184,4 +185,279 @@ func TestTheConflictLoopProcessesAnAnswerAlreadyWaiting(t *testing.T) {
 	if fixture.fake.commitConflicts != 1 {
 		t.Fatalf("the waiting answer published %d commits, want 1", fixture.fake.commitConflicts)
 	}
+}
+
+func TestTheConflictClaimHoldsUntilItIsReleased(t *testing.T) {
+	h := newHarness(t)
+	key := "watch|head|base|merge"
+	until := h.c.Now().Add(time.Minute)
+	if !h.c.claimConflict(key, until) {
+		t.Fatal("the first claim was refused")
+	}
+	if h.c.claimConflict(key, until) {
+		t.Fatal("a second claim took an incident that was still held")
+	}
+	if !h.c.conflictClaimed(key) {
+		t.Fatal("the held incident was not reported as claimed")
+	}
+	h.c.releaseConflict(key)
+	if h.c.conflictClaimed(key) {
+		t.Fatal("a released incident was still claimed")
+	}
+	h.c.holdConflict(key, time.Minute)
+	if !h.c.conflictClaimed(key) {
+		t.Fatal("a held incident was not claimed")
+	}
+}
+
+func conflictJobFor(f conflictFixture) *conflictJob {
+	return &conflictJob{
+		WatchID: f.watch.ID, InstallationID: f.inst.ID, Repo: f.repo, PullNumber: 1,
+		HeadSHA: f.head, BaseSHA: f.base, MergeBaseSHA: f.merge,
+	}
+}
+
+func prepareConflictAnswer(t *testing.T, h *harness, f conflictFixture, answer gitmerge.WorkerResponse) {
+	t.Helper()
+	if !h.c.observeDueEliRepairWatch(h.ctx) {
+		t.Fatal("the due conflict watch was not observed")
+	}
+	task := waitForMergeTask(t, h, f.host.ID)
+	if err := h.c.ReportMergeAnswer(h.ctx, f.host.ID, task.MergeID, answer); err != nil {
+		t.Fatalf("ReportMergeAnswer: %v", err)
+	}
+	h.c.processConflictAnswer(h.ctx, task.MergeID)
+}
+
+func TestAConflictAnswerWithoutAResultIsLetGo(t *testing.T) {
+	h := newHarness(t)
+	f := newConflictFixture(t, h)
+	prepareConflictAnswer(t, h, f, gitmerge.WorkerResponse{Code: "merge_failed", Error: "the merge base is missing"})
+	if f.fake.commitConflicts != 0 {
+		t.Fatalf("a failed worker answer published %d commits", f.fake.commitConflicts)
+	}
+	if h.c.conflictClaimed(conflictKey(f.watch.ID, f.head, f.base, f.merge)) {
+		t.Fatal("a failed worker answer kept its claim")
+	}
+}
+
+func TestAConflictAnswerForAnUnknownAttemptDoesNothing(t *testing.T) {
+	h := newHarness(t)
+	h.c.processConflictAnswer(h.ctx, "merge_nosuch")
+}
+
+func TestAConflictRepairStopsWhenThePullRequestMoved(t *testing.T) {
+	h := newHarness(t)
+	f := newConflictFixture(t, h)
+	if !h.c.observeDueEliRepairWatch(h.ctx) {
+		t.Fatal("the due conflict watch was not observed")
+	}
+	task := waitForMergeTask(t, h, f.host.ID)
+	f.fake.pull.HeadSHA = strings.Repeat("d", 40)
+	if err := h.c.ReportMergeAnswer(h.ctx, f.host.ID, task.MergeID, f.resolveAnswer()); err != nil {
+		t.Fatal(err)
+	}
+	h.c.processConflictAnswer(h.ctx, task.MergeID)
+	if f.fake.commitConflicts != 0 {
+		t.Fatalf("a moved pull request published %d commits", f.fake.commitConflicts)
+	}
+}
+
+func TestAConflictRepairStopsWhenTheProviderCannotOpen(t *testing.T) {
+	h := newHarness(t)
+	f := newConflictFixture(t, h)
+	h.c.openProvider = func(*store.AssistantProvider, string) (assistant.Provider, error) {
+		return nil, errors.New("the provider is unreachable")
+	}
+	prepareConflictAnswer(t, h, f, f.resolveAnswer())
+	if f.fake.commitConflicts != 0 {
+		t.Fatalf("a closed provider published %d commits", f.fake.commitConflicts)
+	}
+}
+
+func TestAConflictRepairStopsWhenTheModelCannotResolveIt(t *testing.T) {
+	h := newHarness(t)
+	f := newConflictFixture(t, h)
+	h.c.openProvider = func(*store.AssistantProvider, string) (assistant.Provider, error) {
+		return assistant.NewFake(assistant.FakeOptions{Model: "scripted", Script: func(assistant.Request) []assistant.Event {
+			return []assistant.Event{{Delta: "not a plan"}}
+		}}), nil
+	}
+	prepareConflictAnswer(t, h, f, f.resolveAnswer())
+	if f.fake.commitConflicts != 0 {
+		t.Fatalf("an unusable resolution published %d commits", f.fake.commitConflicts)
+	}
+}
+
+func TestAConflictResolutionTheMergeDidNotChangeIsHeld(t *testing.T) {
+	h := newHarness(t)
+	f := newConflictFixture(t, h)
+	h.c.openProvider = func(*store.AssistantProvider, string) (assistant.Provider, error) {
+		return assistant.NewFake(assistant.FakeOptions{Model: "scripted", Script: func(assistant.Request) []assistant.Event {
+			return []assistant.Event{{Delta: `{"summary":"resolved elsewhere","files":[{"path":"other.txt","content":"resolved\n"}]}`}}
+		}}), nil
+	}
+	answer := f.resolveAnswer()
+	answer.Result.Conflicts = []gitmerge.Conflict{{
+		Path: "other.txt", Ancestor: "a\n", Base: "b\n", Head: "c\n",
+	}}
+	prepareConflictAnswer(t, h, f, answer)
+	if f.fake.commitConflicts != 0 {
+		t.Fatalf("a resolution outside the merge published %d commits", f.fake.commitConflicts)
+	}
+	if !h.c.conflictClaimed(conflictKey(f.watch.ID, f.head, f.base, f.merge)) {
+		t.Fatal("a resolution the merge did not change was not held")
+	}
+}
+
+func TestAConflictRepairStopsWhenTheConflictIsGone(t *testing.T) {
+	h := newHarness(t)
+	f := newConflictFixture(t, h)
+	h.c.openProvider = func(*store.AssistantProvider, string) (assistant.Provider, error) {
+		return assistant.NewFake(assistant.FakeOptions{Model: "scripted", Script: func(assistant.Request) []assistant.Event {
+			return []assistant.Event{{Delta: `{"summary":"keep both edits","files":[{"path":"file.txt","content":"a\nb\nc\n"}]}`}}
+		}}), nil
+	}
+	if !h.c.observeDueEliRepairWatch(h.ctx) {
+		t.Fatal("the due conflict watch was not observed")
+	}
+	task := waitForMergeTask(t, h, f.host.ID)
+	f.fake.conflict = &github.RepairConflict{
+		Number: 1, HeadSHA: f.head, BaseRef: "release", BaseSHA: f.base, MergeBaseSHA: f.merge,
+		Mergeable: true, MergeableKnown: true, MergeState: "clean",
+	}
+	if err := h.c.ReportMergeAnswer(h.ctx, f.host.ID, task.MergeID, f.resolveAnswer()); err != nil {
+		t.Fatal(err)
+	}
+	h.c.processConflictAnswer(h.ctx, task.MergeID)
+	if f.fake.commitConflicts != 0 {
+		t.Fatalf("a conflict that was gone published %d commits", f.fake.commitConflicts)
+	}
+}
+
+func TestAConflictRepairStopsWhileTheControllerIsDraining(t *testing.T) {
+	h := newHarness(t)
+	f := newConflictFixture(t, h)
+	h.c.openProvider = func(*store.AssistantProvider, string) (assistant.Provider, error) {
+		return assistant.NewFake(assistant.FakeOptions{Model: "scripted", Script: func(assistant.Request) []assistant.Event {
+			return []assistant.Event{{Delta: `{"summary":"keep both edits","files":[{"path":"file.txt","content":"a\nb\nc\n"}]}`}}
+		}}), nil
+	}
+	if !h.c.observeDueEliRepairWatch(h.ctx) {
+		t.Fatal("the due conflict watch was not observed")
+	}
+	task := waitForMergeTask(t, h, f.host.ID)
+	h.c.transferDraining.Store(true)
+	if err := h.c.ReportMergeAnswer(h.ctx, f.host.ID, task.MergeID, f.resolveAnswer()); err != nil {
+		t.Fatal(err)
+	}
+	h.c.processConflictAnswer(h.ctx, task.MergeID)
+	if f.fake.commitConflicts != 0 {
+		t.Fatalf("a draining controller published %d commits", f.fake.commitConflicts)
+	}
+}
+
+func TestAConflictPublishFailureIsLetGoForTheNextObservation(t *testing.T) {
+	for name, failure := range map[string]error{
+		"moved setup": github.ErrSetupConflict,
+		"other":       errors.New("GitHub is not answering"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			f := newConflictFixture(t, h)
+			h.c.openProvider = func(*store.AssistantProvider, string) (assistant.Provider, error) {
+				return assistant.NewFake(assistant.FakeOptions{Model: "scripted", Script: func(assistant.Request) []assistant.Event {
+					return []assistant.Event{{Delta: `{"summary":"keep both edits","files":[{"path":"file.txt","content":"a\nb\nc\n"}]}`}}
+				}}), nil
+			}
+			f.fake.conflictCommitErr = failure
+			prepareConflictAnswer(t, h, f, f.resolveAnswer())
+			if h.c.conflictClaimed(conflictKey(f.watch.ID, f.head, f.base, f.merge)) {
+				t.Fatal("a publish failure kept its claim")
+			}
+		})
+	}
+}
+
+func TestAConflictWithNoWorkerHostIsLetGo(t *testing.T) {
+	h := newHarness(t)
+	watch := &store.EliRepairWatch{ID: "watch_1", InstallationID: "ins_1", Repo: "acme/repo", PullNumber: 1}
+	key := conflictKey(watch.ID, "head", "base", "merge")
+	h.c.claimConflict(key, h.c.Now().Add(time.Minute))
+	h.c.startConflictRepair(h.ctx, key, nil, watch, github.RepairPull{}, github.RepairConflict{})
+	if h.c.conflictClaimed(key) {
+		t.Fatal("an incident with no worker host kept its claim")
+	}
+}
+
+func TestCurrentConflictAuthorityRefusesEveryChangedGate(t *testing.T) {
+	newJob := func(t *testing.T) (*harness, conflictFixture, *conflictJob) {
+		h := newHarness(t)
+		f := newConflictFixture(t, h)
+		return h, f, conflictJobFor(f)
+	}
+	check := func(t *testing.T, h *harness, job *conflictJob) error {
+		t.Helper()
+		_, _, _, _, err := h.c.currentConflictAuthority(h.ctx, job)
+		return err
+	}
+
+	t.Run("watch missing", func(t *testing.T) {
+		h, _, job := newJob(t)
+		job.WatchID = "watch_nosuch"
+		if err := check(t, h, job); err == nil {
+			t.Fatal("a missing watch was accepted")
+		}
+	})
+	t.Run("watch moved", func(t *testing.T) {
+		h, _, job := newJob(t)
+		job.HeadSHA = strings.Repeat("9", 40)
+		if err := check(t, h, job); err == nil {
+			t.Fatal("a moved watch was accepted")
+		}
+	})
+	t.Run("policy disabled", func(t *testing.T) {
+		h, f, job := newJob(t)
+		if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{
+			Repo: f.repo, InstallationID: f.inst.ID, ProviderID: f.watch.PolicyProviderID, Enabled: false, Automatic: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := check(t, h, job); err == nil {
+			t.Fatal("a disabled policy was accepted")
+		}
+	})
+	t.Run("provider changed", func(t *testing.T) {
+		h, f, job := newJob(t)
+		other := &store.AssistantProvider{Name: "Other", Kind: "openai", Enabled: true}
+		if err := h.st.CreateAssistantProvider(h.ctx, other); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{
+			Repo: f.repo, InstallationID: f.inst.ID, ProviderID: other.ID, Enabled: true, Automatic: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := check(t, h, job); err == nil {
+			t.Fatal("a changed provider was accepted")
+		}
+	})
+	t.Run("provider cannot pay", func(t *testing.T) {
+		h, f, job := newJob(t)
+		policy := store.EliRepairPolicy{Repo: f.repo, InstallationID: f.inst.ID, ProviderID: f.watch.PolicyProviderID, Enabled: true, Automatic: true}
+		if err := h.st.SetEliRepairPolicy(h.ctx, policy); err != nil {
+			t.Fatal(err)
+		}
+		provider, err := h.st.GetAssistantProvider(h.ctx, f.watch.PolicyProviderID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		provider.Enabled = false
+		if err := h.st.UpdateAssistantProvider(h.ctx, provider); err != nil {
+			t.Fatal(err)
+		}
+		if err := check(t, h, job); err == nil {
+			t.Fatal("a disabled provider was accepted")
+		}
+	})
 }

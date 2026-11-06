@@ -194,3 +194,81 @@ func TestResolveKeepsTheExecutableMode(t *testing.T) {
 		t.Fatalf("resolved %+v", resolved)
 	}
 }
+
+func TestResolveRefusesWithoutAModelOrWithAnUnusableConflict(t *testing.T) {
+	if _, err := Resolve(context.Background(), nil, []gitmerge.Conflict{conflict("a.txt", "", "a\n", "b\n")}, false); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("nil model error = %v, want ErrUnsupported", err)
+	}
+	big := strings.Repeat("x", prrepair.MaxBlobBytes)
+	if _, err := Resolve(context.Background(), &replyModel{}, []gitmerge.Conflict{conflict("big.txt", "", big, "b\n")}, false); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("oversized conflict error = %v, want ErrUnsupported", err)
+	}
+	c := conflict("link", "", "a\n", "b\n")
+	c.Mode = "120000"
+	if _, err := Resolve(context.Background(), &replyModel{}, []gitmerge.Conflict{c}, false); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("unsupported mode error = %v, want ErrUnsupported", err)
+	}
+}
+
+func TestResolveAddsTheNewlineTheSidesLack(t *testing.T) {
+	marked := conflictMarked(conflict("file.txt", "", "target", "pull"))
+	if !strings.Contains(marked, "target\n=======\n") || !strings.Contains(marked, "pull\n>>>>>>> pull request head\n") {
+		t.Fatalf("conflict-marked text = %q", marked)
+	}
+	if !hasConflictMarkers("a\n=======\nb\n") {
+		t.Fatal("a bare separator was not a conflict marker")
+	}
+}
+
+func TestResolveReportsAModelFailure(t *testing.T) {
+	model := &replyModel{replies: []string{"this is not a plan"}}
+	if _, err := Resolve(context.Background(), model, []gitmerge.Conflict{conflict("file.txt", "", "a\n", "b\n")}, false); err == nil {
+		t.Fatal("an unreadable plan was accepted")
+	}
+}
+
+// An ancestor is supplied as read-only source, so a model that edits it has
+// changed something that is not a conflicted file.
+func TestResolveRefusesAModelEditOfAnAncestor(t *testing.T) {
+	model := &replyModel{replies: []string{
+		`{"summary":"edited the ancestor","files":[{"path":".eli-ancestors/0.txt","content":"changed\n"}]}`,
+	}}
+	_, err := Resolve(context.Background(), model, []gitmerge.Conflict{
+		conflict("file.txt", "ancestor\n", "a\n", "b\n"),
+	}, false)
+	if !errors.Is(err, ErrUnresolved) {
+		t.Fatalf("error = %v, want ErrUnresolved", err)
+	}
+}
+
+func TestConflictReaderRefusesAPathItWasNotGiven(t *testing.T) {
+	_, err := (conflictReader{files: map[string]prrepair.File{"a.txt": {Path: "a.txt"}}}).ReadFile(context.Background(), "elsewhere.txt")
+	if err == nil || !strings.Contains(err.Error(), "not one of the conflicted files") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestApplyChangesWithNoResolutionsReturnsTheChanges(t *testing.T) {
+	changes := []gitmerge.Change{{Path: "a.txt", Mode: "100644", Content: []byte("a\n")}}
+	got, err := ApplyChanges(changes, nil)
+	if err != nil || len(got) != 1 || string(got[0].Content) != "a\n" {
+		t.Fatalf("changes = %+v, err = %v", got, err)
+	}
+}
+
+func TestApplyChangesRefusesADuplicateModeOrAnUnsetModeItCanFill(t *testing.T) {
+	if _, err := ApplyChanges(
+		[]gitmerge.Change{{Path: "a.txt", Mode: "100644"}},
+		[]Resolution{{Path: "a.txt", Content: "one\n"}, {Path: "a.txt", Content: "two\n"}},
+	); !errors.Is(err, ErrUnresolved) {
+		t.Fatalf("duplicate resolution error = %v", err)
+	}
+	if _, err := ApplyChanges([]gitmerge.Change{{Path: "a.txt", Mode: "160000"}}, []Resolution{{Path: "a.txt", Content: "x\n"}}); !errors.Is(err, ErrUnresolved) {
+		t.Fatalf("submodule mode error = %v", err)
+	}
+	// The worker always names a mode; an empty one is refused like any other
+	// mode a model may not rewrite, before the later default can apply.
+	if _, err := ApplyChanges([]gitmerge.Change{{Path: "a.txt"}}, []Resolution{{Path: "a.txt", Content: "x\n"}}); !errors.Is(err, ErrUnresolved) {
+		t.Fatalf("empty mode error = %v", err)
+	}
+}
