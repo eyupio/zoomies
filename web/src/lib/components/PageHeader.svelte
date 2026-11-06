@@ -142,10 +142,8 @@
     content: attr(data-eyebrow);
     display: block;
     margin-bottom: var(--z-space-2);
-    font-size: var(--z-text-2xs);
-    font-weight: var(--z-weight-semibold);
-    letter-spacing: var(--z-tracking-wider);
-    text-transform: uppercase;
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
   }
   h1 {

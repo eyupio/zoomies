@@ -134,10 +134,8 @@
   }
   h4 {
     margin: 0 0 var(--z-space-1);
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-muted);
   }
   p {
@@ -170,9 +168,7 @@
   }
   .kind {
     color: var(--z-text-subtle);
-    text-transform: uppercase;
-    font-size: var(--z-text-2xs);
-    letter-spacing: var(--z-tracking-wide);
+    font-size: var(--z-text-xs);
   }
   footer {
     display: flex;

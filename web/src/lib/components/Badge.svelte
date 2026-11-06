@@ -66,7 +66,7 @@
     align-items: center;
     gap: var(--z-space-2);
     border: var(--z-border-width) solid var(--badge-border);
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-sm);
     background: var(--badge-subtle);
     color: var(--badge-colour);
     font-weight: var(--z-weight-medium);

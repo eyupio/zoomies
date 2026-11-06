@@ -102,11 +102,9 @@
   .kicker {
     display: block;
     margin-bottom: var(--z-nudge-2);
-    font-size: var(--z-text-2xs);
-    line-height: var(--z-leading-2xs);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
     font-weight: var(--z-weight-medium);
-    letter-spacing: var(--z-tracking-wide);
-    text-transform: uppercase;
     color: var(--z-text-subtle);
   }
   .groups {
@@ -117,11 +115,9 @@
   h2 {
     margin: 0 0 var(--z-space-2);
     padding: 0 var(--z-space-1);
-    font-size: var(--z-text-2xs);
-    line-height: var(--z-leading-2xs);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
     font-weight: var(--z-weight-medium);
-    letter-spacing: var(--z-tracking-wide);
-    text-transform: uppercase;
     color: var(--z-text-subtle);
   }
   ul {

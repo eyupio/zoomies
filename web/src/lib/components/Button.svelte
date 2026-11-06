@@ -215,7 +215,7 @@
     justify-content: center;
     gap: var(--z-space-2);
     border: var(--z-border-width) solid transparent;
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-md);
     font-family: inherit;
     font-weight: var(--z-weight-medium);
     line-height: 1;

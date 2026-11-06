@@ -101,7 +101,7 @@
     min-height: var(--z-space-10);
     padding: var(--z-space-1) var(--z-space-4);
     border: var(--z-border-width) solid var(--z-border-strong);
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-md);
     background: var(--z-surface-raised);
     font: inherit;
     font-size: var(--z-text-sm);
