@@ -1817,3 +1817,13 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
    in the same commit set. Add the real PR link once assigned. State explicitly
    which user-visible capabilities are still unavailable and what the next PR
    should implement. Do not require the next session to reconstruct this chat.
+
+## Review corrections for #1411
+
+Ancestor text is now supplied as read-only virtual source through the repair
+reader and its existing window and byte budgets. It is no longer embedded in
+failure evidence. Conflicts carry the worker's file mode, and a resolution keeps
+an executable file executable. Tests cover a 200 KiB ancestor and mode 100755.
+`go test -race -count=1 ./internal/conflictresolve ./internal/gitmerge` passed.
+The next unfinished step remains live end-to-end validation and the later S4
+controls described in the newer stacked branches.

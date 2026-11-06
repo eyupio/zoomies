@@ -55,6 +55,7 @@ type Request struct {
 // may read. A side absent from the merge is empty.
 type Conflict struct {
 	Path     string `json:"path"`
+	Mode     string `json:"mode,omitempty"`
 	Ancestor string `json:"ancestor"`
 	Base     string `json:"base"`
 	Head     string `json:"head"`
@@ -309,7 +310,7 @@ func readConflict(ctx context.Context, in Request, path string, total *int) (Con
 	if base.Binary || head.Binary || ancestor.Binary {
 		return Conflict{}, "binary content is not resolved by a model"
 	}
-	return Conflict{Path: path, Ancestor: ancestor.Text, Base: base.Text, Head: head.Text}, ""
+	return Conflict{Path: path, Mode: base.Mode, Ancestor: ancestor.Text, Base: base.Text, Head: head.Text}, ""
 }
 
 type blobSide struct {
