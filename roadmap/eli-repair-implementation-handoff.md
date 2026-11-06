@@ -2082,3 +2082,53 @@ All 38 repair-settings and workflow browser cases pass on desktop and mobile,
 including the unforced click that failed before the CSS fix. The production UI
 and binary builds and UI lint pass. The full gate must pass again on this revision
 before #1407 merges to `main`.
+
+## Coverage correction for #1407
+
+The Codecov patch check failed at 74.59% of the diff against an 85.31% target,
+with 262 changed lines uncovered. There were no human review comments on the
+pull request; the only comment was Codecov's report. The gaps were failure paths
+in the conflict-repair controller, the watch routes, the agent merge handler,
+the conflict resolver, the two-parent commit, the container worker and the
+repository-wide admission.
+
+Tests were added for those paths, in the files that own the behaviour:
+
+- `internal/controller/eli_conflict_repair_test.go`: the claim lifetime, a
+  worker answer with no result, a moved pull request, a provider that cannot
+  open, an unusable model answer, a resolution outside the merged changes, a
+  conflict that disappeared, a draining controller, both publish failures, a
+  missing worker host and every `currentConflictAuthority` gate.
+- `internal/controller/eli_repair_watch_loop_test.go`: pausing and resuming a
+  repository decision, including a missing one.
+- `internal/api/eli_watches_test.go`: the three watch states, state filtering
+  and paging past the end, admit and resume refusals without a person or with a
+  malformed body, the capability list, and repository filtering and refusals.
+- `internal/agent/merge_test.go`: pull, workspace, unpack, worker, decode and
+  backend failures.
+- `internal/conflictresolve/resolve_test.go`: a missing model, oversized and
+  unsupported conflicts, model failures, ancestor edits, an unknown reader path
+  and the `ApplyChanges` refusals.
+- `internal/github/eli_conflict_commit_test.go`: every input and write the
+  commit path refuses.
+- `internal/backend/mergeworker_test.go`: an empty image, an unusable
+  workspace, each container failure and an oversized answer.
+
+Validation on 6 November 2026:
+
+- `go test -race -count=1 -timeout 40m ./internal/controller`: pass (991.873s).
+  The default 10-minute timeout failed this package on the first attempt; the
+  suite's own recorded runtime is longer than that under the race detector.
+- `go test -race -count=1 ./internal/api ./internal/agent ./internal/backend ./internal/conflictresolve ./internal/github ./internal/gitmerge ./internal/gitfetch ./internal/gitbare`:
+  pass (510.952s, 19.796s, 27.260s, 1.246s, 8.253s, 1.807s, 1.484s, 1.479s).
+- A combined coverage profile over those packages gives 86.49% of the changed
+  statements covered (826 of 955) against the 85.31% target. This is a local,
+  statement-weighted estimate; Codecov counts changed lines and may differ
+  slightly.
+- `go vet`, `staticcheck`, `gofmt -l` and `git diff --check`: clean on the
+  changed packages.
+- `go test -count=1 ./internal/docs`: pass (19.834s).
+
+Limitation: none of this covers the live model, the real worker image or a real
+GitHub pull request. The next step is to let CI recompute the Codecov check on
+this revision and confirm it passes.
