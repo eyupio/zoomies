@@ -10,16 +10,16 @@ PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 This is the shared workstream record for the whole initiative. S1 through S3a
 are merged on `main`, as are S3b's merge package, the `zoomies git-worker`
 command, the worker image, the repository writer and fetch, the archive download
-and the repository transport package. The rest of S3b and the S4 backend are an
-open stack of PRs, not merged to `main`: #1407, #1409, #1410, #1411, #1412,
-#1413 and #1416. Each is based on the previous one, and #1407 is based on
-`main`. The controller can prepare a repository, an agent can run the worker,
-the model can resolve supported conflicts, the controller can publish the
-two-parent commit, and the watches are on the REST API and in the UI. No conflict
-repair has been run against a live model, a real worker image or a real GitHub
-pull request yet. Describing a later slice here does not add its runtime
-implementation to an earlier branch. Continue from the top of the stack after
-checking the live PR states, or merge the stack in order first.
+and the repository transport package. The rest of S3b and S4 are an open stack of
+PRs, not merged to `main`: #1407, #1409, #1410, #1411, #1412, #1413, #1416 and
+#1417. Each is based on the previous one, and #1407 is based on `main`. The
+controller can prepare a repository, an agent can run the worker, the model can
+resolve supported conflicts, the controller can publish the two-parent commit,
+and the watches are on the REST API and in the UI. No conflict repair has been
+run against a live model, a real worker image or a real GitHub pull request yet.
+Describing a later slice here does not add its runtime implementation to an
+earlier branch. Continue from the top of the stack after checking the live PR
+states, or merge the stack in order first.
 
 ## Current checkpoint
 
@@ -34,7 +34,7 @@ checking the live PR states, or merge the stack in order first.
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
 | Current slice | S4 UI, first half. Repair settings lead with the three behaviours (Baby sit PRs, Fix failed checks only, Fix merge conflicts only). Saving an automatic repository also admits its open pull requests through the watch API and reports what came of each repository separately, so a saved policy with a refused admission says both. A "What Eli is watching now" card lists each repository's effective behaviour, watched count, last successful observation, current activity, what needs a person, and pause or resume for the repository, with each watched pull request underneath |
 | Next implementation | Finish S4: live validation of conflict repair against a real model, the real worker image and a real GitHub pull request; the attempt history beside the current pull request; one row per repository instead of the separate Automatic repairs panel; repository-scoped activity for people who are not administrators; notifications |
-| CI snapshot | None of #1407, #1409, #1410, #1411, #1412, #1413 or #1416 is merged. Local focused checks pass on each; their CI has been uneven on the self-hosted pool. Recheck every PR before merging and merge in stack order, starting with #1407. A queued, cancelled or stale run is not a result |
+| CI snapshot | None of #1407, #1409, #1410, #1411, #1412, #1413, #1416 or #1417 is merged. Local focused checks pass on each; their CI has been uneven on the self-hosted pool. Recheck every PR before merging and merge in stack order, starting with #1407. A queued, cancelled or stale run is not a result |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
 | Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook. Per-PR and repository-wide watches are listed, admitted, paused, resumed and stopped through the API, and chosen, shown and controlled in the UI |
 | Watcher claim cost | [#1392](https://github.com/eyupio/zoomies/pull/1392), a controller-load change that is not a slice, makes the due-watch claim look on the reader pool before it takes the writer. What is due, how a watch is leased and what an observation records are unchanged |
@@ -1978,8 +1978,8 @@ project. Do not repurpose HOME or print credentials.
    Confirm which slices merged; a branch or checked box alone is not proof.
 2. Check the working tree and live base branch. Preserve unrelated user changes.
    Review the newest PR before starting a new slice. For further implementation,
-   merge #1407, #1409, #1410, #1411, #1412, #1413, #1416 and this slice in that
-   order and start from `main`, or branch from the top of the stack. Do not redo
+   merge #1407, #1409, #1410, #1411, #1412, #1413, #1416 and #1417 in that order
+   and start from `main`, or branch from the top of the stack. Do not redo
    S1 through S3b. The next unfinished work is live validation of conflict repair
    against a real model, the real worker image and a real GitHub pull request,
    then the remaining S4 items listed above.
