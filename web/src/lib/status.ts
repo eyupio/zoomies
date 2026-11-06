@@ -1047,6 +1047,54 @@ export function automaticStatus(state: 'ready' | 'problem'): StatusMeta {
   }
 }
 
+/**
+ * The state of a watched pull request, in the hub's Watching rows. Watching is
+ * the healthy green and a person being needed is red, because nothing moves
+ * until they look; paused and stopped are neutral, since neither is a fault and
+ * an operator chose them. The shapes follow the map, so the four read apart
+ * without the colour.
+ */
+export function watchStatus(state: 'watching' | 'attention' | 'paused' | 'stopped'): StatusMeta {
+  switch (state) {
+    case 'watching':
+      return meta(
+        'watching',
+        'Watching',
+        'idle',
+        'filled',
+        CircleCheck,
+        'Eli is following this pull request and will act when something needs it.',
+      );
+    case 'attention':
+      return meta(
+        'attention',
+        'Needs a person',
+        'danger',
+        'triangle',
+        TriangleAlert,
+        'Eli cannot finish this on its own, so somebody has to look.',
+      );
+    case 'paused':
+      return meta(
+        'paused',
+        'Paused',
+        'neutral',
+        'dashed',
+        OctagonPause,
+        'Watching is paused and its settings are kept for a resume.',
+      );
+    default:
+      return meta(
+        'stopped',
+        'Stopped',
+        'neutral',
+        'square',
+        CircleMinus,
+        'Watching stopped and cannot be resumed; admitting the pull request starts it afresh.',
+      );
+  }
+}
+
 /* -- problems and deliveries ---------------------------------------------- */
 
 export function severityStatus(severity: Severity | undefined): StatusMeta {

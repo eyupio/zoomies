@@ -26,6 +26,53 @@ export function providerWords(repair: Pick<Repair, 'trigger'>): string {
   return repair.trigger === 'automatic' ? 'Installation provider' : 'Personal provider';
 }
 
+/** One attempt on a pull request, reduced to what its history row shows. */
+export interface PullAttempt {
+  id: string;
+  state: string;
+  /** How it ended, or how far it has got, in the history's own words. */
+  stateLabel: string;
+  began: string;
+  /** When it was queued, which is what orders the history. */
+  at: string;
+  headSha: string;
+  commitSha: string;
+  active: boolean;
+}
+
+/**
+ * The attempts recorded on one pull request, newest first. The history is read
+ * for a repository and can carry other pull requests, so this narrows by
+ * repository and number rather than trusting the query alone. An attempt with
+ * no timestamp sorts last, because it cannot be placed in the sequence.
+ */
+export function pullAttempts(
+  repairs: readonly Repair[],
+  repo: string,
+  pullNumber: number,
+): PullAttempt[] {
+  const when = (repair: Repair): number => {
+    const at = Date.parse(repair.created_at);
+    return Number.isNaN(at) ? Number.NEGATIVE_INFINITY : at;
+  };
+  return repairs
+    .filter(
+      (repair) =>
+        repair.pull_number === pullNumber && repair.repo.toLowerCase() === repo.toLowerCase(),
+    )
+    .sort((a, b) => when(b) - when(a) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+    .map((repair) => ({
+      id: repair.id,
+      state: repair.state,
+      stateLabel: stateLabel(repair.state),
+      began: requestedBy(repair),
+      at: repair.created_at,
+      headSha: repair.head_sha,
+      commitSha: repair.commit_sha,
+      active: isActive(repair.state),
+    }));
+}
+
 /**
  * How long a finished repair took. A repair still going has taken nothing yet,
  * and a clock that disagrees with the one that wrote the row is not a negative
