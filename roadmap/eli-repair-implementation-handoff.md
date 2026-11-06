@@ -8,14 +8,18 @@ these features. Update it in every PR for this initiative, including corrective
 PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 
 This is the shared workstream record for the whole initiative. S1 through S3a
-are merged on `main`. S3b's merge package, the `zoomies git-worker` command, the
-`ghcr.io/eyupio/zoomies-git` image, the repository writer and fetch, the archive
-download and the repository transport package are merged. The controller can now
-serve a prepared attempt and accept its one answer over the agent transport, but
-no agent handler pulls, unpacks or runs the worker image yet, so no conflict is
-resolved or published. Describing a later slice here does not add its runtime
-implementation to an earlier branch. Continue from the newest branch after
-checking the live PR states.
+are merged on `main`, as are S3b's merge package, the `zoomies git-worker`
+command, the worker image, the repository writer and fetch, the archive download
+and the repository transport package. The rest of S3b and the S4 backend are an
+open stack of PRs, not merged to `main`: #1407, #1409, #1410, #1411, #1412,
+#1413 and #1416. Each is based on the previous one, and #1407 is based on
+`main`. The controller can prepare a repository, an agent can run the worker,
+the model can resolve supported conflicts, the controller can publish the
+two-parent commit, and the watches are on the REST API. No conflict repair has
+been run against a live model, a real worker image or a real GitHub pull request
+yet. Describing a later slice here does not add its runtime implementation to an
+earlier branch. Continue from `codex/eli-watch-api` after checking the live PR
+states, or merge the stack in order first.
 
 ## Current checkpoint
 
@@ -24,15 +28,15 @@ checking the live PR states.
 | Latest slice | [#1416](https://github.com/eyupio/zoomies/pull/1416): the durable-watch REST API, stacked on #1413 |
 | Investigated baseline | `568ec4017` on `main` |
 | Working branch | `codex/eli-watch-api` |
-| Verified code checkpoints | S1 through S3a merged, and S3b's merge package, worker command and image, repository writer and fetch, archive download and repository transport merged through `568ec4017`; #1407's task is `c926789cd` |
-| Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds. Decisions 0017 and 0018 add the controller-built repository, the archive download and the agent transport contract. The controller serves that repository over the agent API and accepts the one answer, and an agent now pulls, unpacks, runs the worker image and posts that answer |
+| Verified code checkpoints | S1 through S3a, and the S3b foundation, merged through `568ec4017`. The open stack's newest local checkpoints: #1407 `c926789cd`, #1409 `27a075c80`, #1410 `63a4a921b`, #1411 `d290125ad`, #1412 `3ac6909e1`, #1413 `89f10cf8f`, #1416 `871ee5c14` |
+| Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds. Decisions 0017 and 0018 add the controller-built repository, the archive download and the agent transport. The controller serves the repository over the agent API, an agent runs the worker in a one-shot container, `internal/conflictresolve` asks the model only for the conflicted files, and the controller publishes a two-parent non-force commit. The watch API can list, admit, pause, resume and stop the work |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
 | Current slice | The controller's durable watches are now on the REST API: list per-PR and repository-wide decisions, admit one PR, admit a repository's open PRs, and pause, resume or stop a watch. Repository pause leaves already admitted PR watches alone; per-PR pause and stop keep their history. The same read/write roles and audit trail as the rest of Eli repairs apply |
 | Next implementation | S4 UI: the three behaviour choices, repository and PR controls, current conflict/check activity, and a live model and real GitHub PR validation end to end |
-| CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
+| CI snapshot | None of #1407, #1409, #1410, #1411, #1412, #1413 or #1416 is merged. Local focused checks pass on each; their CI has been uneven on the self-hosted pool. Recheck every PR before merging and merge in stack order, starting with #1407. A queued, cancelled or stale run is not a result |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
-| Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
+| Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook. Per-PR and repository-wide watches are listed, admitted, paused, resumed and stopped through the API |
 | Watcher claim cost | [#1392](https://github.com/eyupio/zoomies/pull/1392), a controller-load change that is not a slice, makes the due-watch claim look on the reader pool before it takes the writer. What is due, how a watch is leased and what an observation records are unchanged |
 | Merge-conflict repair | End to end in the controller: a conflicted watch prepares the repository from three pinned commits, an agent runs the worker, the model resolves supported text conflicts, and the controller publishes a two-parent, non-force merge commit after rechecking every authority. The API can now list and control the watches; the UI and live end-to-end validation remain |
 | Production configuration | No repository automation or model credentials changed by this work |
@@ -348,11 +352,13 @@ other PR observations; green PR remaining watched; closed PR terminating.
 
 ### S3: merge-conflict detection and repair
 
-Status: S3a detection and evidence is merged. S3b records the Git-engine
-decision and implements the bounded merge package; its worker command, image,
-transport, model resolution and two-parent publication remain. Required even
-when CI never starts: ordinary `pull_request` workflows do not run while the PR
-has a merge conflict.
+Status: S3a detection and evidence is merged. S3b is implemented in the open
+stack: the Git worker and image, the controller-built repository, the agent
+transport and one-shot run, bounded model resolution, the merged-tree change
+list and the two-parent non-force publication are all present, and a conflicted
+watch starts them. Live model and real-PR validation remain. Required even when
+CI never starts: ordinary `pull_request` workflows do not run while the PR has a
+merge conflict.
 
 S3a scope, merged in #1389:
 
@@ -411,13 +417,15 @@ Publication:
 - Return to the watcher and inspect CI on the actual published commit. Do not
   report a conflict resolution as verified just because the merge tree exists.
 
-Execution decision still to make in the S3 foundation PR: where the trusted Git
-merge engine runs. The controller currently does not execute repository code
-and the deployed image is distroless. A bounded, isolated Git worker is a
-candidate, not an approved dependency or deployment assumption. Disable hooks,
-repository-configured external merge drivers and filters; keep model/provider
-credentials out of that worker. Decide packaging and platform support before
-implementing a solution that works only on a maintainer's host.
+The execution decision is recorded in
+[decision 0016](decisions/0016-eli-conflict-repair-runs-in-a-separate-git-worker.md),
+with the repository built by the controller in
+[decision 0017](decisions/0017-the-controller-builds-the-workers-repository.md)
+and run by an agent host in
+[decision 0018](decisions/0018-an-agent-runs-the-git-worker.md). The worker runs
+with no network, no credential, hooks and external merge drivers refused, and
+only the prepared workspace mounted. The controller publishes the commit; the
+worker never holds the GitHub token.
 
 Minimum tests: competing text edits preserving both sides; changes on only one
 side; rename and delete/modify policy; multiple merge bases; protected workflow
@@ -427,7 +435,10 @@ post-resolution CI failure; conflict-only mode not making unrelated code fixes.
 
 ### S4: final simplified controls and repository visibility
 
-Status: not started. May accompany S2/S3 where the backend capability exists.
+Status: backend started, UI not started. The API can list, admit, pause, resume
+and stop per-PR watches and repository-wide decisions; the setup, hub and PR
+controls still need to use it. May accompany S2/S3 where the backend capability
+exists.
 
 - Expose the final three behaviour choices only with actual capability support.
 - Select across GitHub connections while preserving each repository's verified
@@ -457,7 +468,9 @@ Status: not started. May accompany S2/S3 where the backend capability exists.
 | GitHub source and commit operations | `internal/github/eli_repairs.go`, `manifest.go`, `internal/controller/webhooks.go` |
 | Bounded model editor | `internal/prrepair/repair.go`, `context.go`, `supplied.go`, `diff.go` |
 | Durable state | `internal/store/queries_eli_repairs.go`, `queries_eli_repair_history.go`, `queries_eli_automatic.go` |
-| API | `internal/api/handlers_eli_repairs.go`, `api/openapi.yaml` |
+| API | `internal/api/handlers_eli_repairs.go`, `handlers_eli_watches.go`, `api/openapi.yaml` |
+| Conflict merge and publication | `internal/gitmerge/merge.go`, `internal/gitbare`, `internal/gitfetch`, `internal/controller/eli_merge_session.go`, `eli_merge_attempts.go`, `eli_conflict_repair.go`, `internal/conflictresolve/resolve.go` |
+| Agent worker and backend | `internal/agent/merge.go`, `internal/backend/mergeworker.go`, `internal/agent/protocol.go` (`FeatureMergeWorker`) |
 | Related read-only check evidence | `internal/github/pr_delay.go`, `internal/analysis/merge_delay.go`; these do not establish full merge readiness |
 | Backend regressions | `internal/github/eli_repairs_test.go`, `internal/controller/eli_repairs_test.go`, `internal/api/eli_automatic_test.go`, `internal/store/eli_repair_history_test.go`, `internal/store/eli_repair_watches_test.go` and `internal/store/idle_claims_test.go` (the watch claim) |
 | UI regressions | `web/tests/repairs.spec.ts`, `repair-hub.spec.ts`, `repair-attempt.spec.ts`, `repair-setup.spec.ts`, `web/unit/repair-*.test.ts` |
@@ -1904,10 +1917,11 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
 1. Read this file, root/scoped `AGENTS.md`, and the actual latest PR diff/status.
    Confirm which slices merged; a branch or checked box alone is not proof.
 2. Check the working tree and live base branch. Preserve unrelated user changes.
-   Review this PR before starting a new slice. For further implementation, start
-   from `codex/eli-git-merge-worker` or its merged successor. Do not redo S1
-   through S3a or the merge package. The next unfinished work is the worker
-   command and transport, then model resolution and publication.
+   Review the newest PR before starting a new slice. For further implementation,
+   start from `codex/eli-watch-api`, or merge #1407, #1409, #1410, #1411, #1412,
+   #1413 and #1416 in that order and start from `main`. Do not redo S1 through
+   S3b. The next unfinished work is the S4 UI, then a live model and real GitHub
+   PR validation.
 3. Continue the first unfinished acceptance criterion. Read the existing store,
    API and model boundaries before adding another path around them.
 4. Add regression tests for the observable behaviour and regenerate contracts
