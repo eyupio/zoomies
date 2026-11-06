@@ -132,3 +132,36 @@ func TestResolveReadsAPlanTheModelAnswers(t *testing.T) {
 		t.Fatalf("plan = %+v", plan)
 	}
 }
+
+func TestApplyChangesKeepsTheWorkersModeAndOrder(t *testing.T) {
+	changes := []gitmerge.Change{
+		{Path: "run.sh", Mode: "100755", Content: []byte("old sh\n")},
+		{Path: "added.txt", Mode: "100644", Content: []byte("base side\n")},
+	}
+	got, err := ApplyChanges(changes, []Resolution{{Path: "run.sh", Content: "resolved sh\n"}})
+	if err != nil {
+		t.Fatalf("ApplyChanges: %v", err)
+	}
+	if len(got) != 2 || got[0].Path != "run.sh" || string(got[0].Content) != "resolved sh\n" || got[0].Mode != "100755" {
+		t.Fatalf("changes = %+v", got)
+	}
+	if string(got[1].Content) != "base side\n" {
+		t.Fatalf("an unrelated change was altered: %+v", got[1])
+	}
+}
+
+func TestApplyChangesRefusesAPathTheMergeDidNotChange(t *testing.T) {
+	_, err := ApplyChanges([]gitmerge.Change{{Path: "other.txt", Mode: "100644"}}, []Resolution{{Path: "missing.txt", Content: "x\n"}})
+	if !errors.Is(err, ErrUnresolved) {
+		t.Fatalf("error = %v, want ErrUnresolved", err)
+	}
+}
+
+func TestApplyChangesRefusesADeletedFileAndAMarker(t *testing.T) {
+	if _, err := ApplyChanges([]gitmerge.Change{{Path: "gone.txt", Deleted: true}}, []Resolution{{Path: "gone.txt", Content: "x\n"}}); !errors.Is(err, ErrUnresolved) {
+		t.Fatalf("deleted file error = %v", err)
+	}
+	if _, err := ApplyChanges([]gitmerge.Change{{Path: "file.txt", Mode: "100644"}}, []Resolution{{Path: "file.txt", Content: "<<<<<<< target\nx\n"}}); !errors.Is(err, ErrUnresolved) {
+		t.Fatalf("marker error = %v", err)
+	}
+}
