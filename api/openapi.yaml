@@ -6579,6 +6579,196 @@ paths:
               schema: { $ref: "#/components/schemas/EliAutomaticStopResponse" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
+  /assistant/repairs/watches/repositories:
+    get:
+      operationId: listEliWatchRepositories
+      tags: [assistant]
+      summary: List repository-wide watching decisions
+      description: >-
+        One row for each explicit decision to follow a repository's open pull requests. A paused
+        decision admits nothing new but leaves watches already admitted alone. Optional `repo`
+        exact match and `state` of `enabled` or `paused` narrow the list.
+      x-zoomies-role: admin
+      parameters:
+        - { name: repo, in: query, schema: { type: string }, description: Exact repository name to show. }
+        - { name: state, in: query, schema: { type: string, enum: [enabled, paused] } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliRepairWatchRepositoryList" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    post:
+      operationId: admitEliWatchRepository
+      tags: [assistant]
+      summary: Follow a repository’s open pull requests
+      description: >-
+        Reads the repository's open pull requests once, admits a watch for each eligible one and
+        records the repository-wide decision. A pull request already watched is left as it is,
+        so a pause on one PR is not undone. Forks, drafts and unwritable heads are returned as
+        exclusions, and the report says when discovery was capped.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EliRepairWatchRepositoryAdmission" }
+      responses:
+        "201":
+          description: Admitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliRepairWatchRepositoryAdmissionResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /assistant/repairs/watches/repositories/{id}/pause:
+    post:
+      operationId: pauseEliWatchRepository
+      tags: [assistant]
+      summary: Stop admitting new pull requests for a repository
+      description: >-
+        Pausing a repository decision stops new-PR discovery for that repository. Watches
+        already admitted keep following their own pull requests; pause one of those on its own.
+      x-zoomies-role: admin
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Paused
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliRepairWatchRepository" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /assistant/repairs/watches/repositories/{id}/resume:
+    post:
+      operationId: resumeEliWatchRepository
+      tags: [assistant]
+      summary: Resume admitting new pull requests for a repository
+      description: >-
+        Re-reads the repository's open pull requests through the normal admission path, then
+        turns discovery back on. A paused per-PR watch is not resumed.
+      x-zoomies-role: admin
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Resumed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliRepairWatchRepositoryAdmissionResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /assistant/repairs/watches:
+    get:
+      operationId: listEliWatches
+      tags: [assistant]
+      summary: List durable pull-request watches
+      description: >-
+        Newest observation first. Optional `repo` exact match and `state` of `enabled`, `paused`
+        or `stopped` narrow the list. Evidence is the bounded metadata the watcher recorded,
+        never raw source, model output or job logs.
+      x-zoomies-role: admin
+      parameters:
+        - { name: repo, in: query, schema: { type: string }, description: Exact repository name to show. }
+        - { name: state, in: query, schema: { type: string, enum: [enabled, paused, stopped] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliRepairWatchList" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    post:
+      operationId: admitEliWatch
+      tags: [assistant]
+      summary: Follow one pull request
+      description: >-
+        Reads the pull request now and stores the head and base it started from. It needs an
+        enabled Automatic policy and its installation provider; the caller becomes the owner of
+        the watch. A policy, webhook or restart never creates one of these.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EliRepairWatchAdmission" }
+      responses:
+        "201":
+          description: Admitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliRepairWatch" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /assistant/repairs/watches/{id}/pause:
+    post:
+      operationId: pauseEliWatch
+      tags: [assistant]
+      summary: Pause one pull-request watch
+      description: Keeps its history and settings; an explicit resume checks the policy, provider and pull request again.
+      x-zoomies-role: admin
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EliWatchChangeRequest" }
+      responses:
+        "200":
+          description: Paused
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliRepairWatch" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /assistant/repairs/watches/{id}/resume:
+    post:
+      operationId: resumeEliWatch
+      tags: [assistant]
+      summary: Resume one pull-request watch
+      description: Admits the pull request again through the normal path, so its policy, provider, access and open state are checked afresh.
+      x-zoomies-role: admin
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Resumed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliRepairWatch" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /assistant/repairs/watches/{id}/stop:
+    post:
+      operationId: stopEliWatch
+      tags: [assistant]
+      summary: Stop one pull-request watch
+      description: Terminal until a new explicit admission; the history stays on record.
+      x-zoomies-role: admin
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EliWatchChangeRequest" }
+      responses:
+        "200":
+          description: Stopped
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliRepairWatch" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /assistant/repairs/opportunities:
     get:
       operationId: listEliOpportunities
@@ -16500,6 +16690,124 @@ components:
         automatic: { type: boolean }
         ask_first: { type: boolean, default: false }
         allow_workflows: { type: boolean }
+
+    EliRepairWatch:
+      type: object
+      required: [id, installation_id, repo, pull_number, owner_id, checks, conflicts, enabled, created_at, updated_at]
+      properties:
+        id: { type: string }
+        installation_id: { type: string }
+        repo: { type: string }
+        pull_number: { type: integer }
+        owner_id: { type: string }
+        policy_provider_id: { type: string }
+        policy_updated_at: { type: string, format: date-time }
+        checks: { type: boolean, description: Failed checks may lead to a repair. }
+        conflicts: { type: boolean, description: Merge conflicts may be resolved and published. }
+        enabled: { type: boolean }
+        paused_reason: { type: string }
+        head_sha: { type: string }
+        base_ref: { type: string }
+        base_sha: { type: string }
+        last_observed_at: { type: string, format: date-time }
+        next_check_at: { type: string, format: date-time }
+        stop_reason: { type: string }
+        check_state: { type: string, enum: [passed, failed, waiting, unknown] }
+        chain_attempts: { type: integer }
+        last_failure_signature: { type: string }
+        chain_stopped_reason: { type: string }
+        check_evidence: { type: string, description: Bounded JSON evidence of the checks last observed. }
+        conflict_evidence: { type: string, description: "Bounded JSON evidence of mergeability, head, base and merge base last observed." }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    EliRepairWatchList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/EliRepairWatch" }
+        total: { type: integer }
+
+    EliRepairWatchAdmission:
+      type: object
+      required: [repo, pull_number, installation_id, capabilities]
+      properties:
+        repo: { type: string }
+        pull_number: { type: integer }
+        installation_id: { type: string }
+        capabilities:
+          type: array
+          minItems: 1
+          items: { type: string, enum: [checks, conflicts] }
+
+    EliRepairWatchRepository:
+      type: object
+      required: [id, installation_id, repo, owner_id, checks, conflicts, enabled, created_at, updated_at]
+      properties:
+        id: { type: string }
+        installation_id: { type: string }
+        repo: { type: string }
+        owner_id: { type: string }
+        checks: { type: boolean }
+        conflicts: { type: boolean }
+        enabled: { type: boolean }
+        last_discovered_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    EliRepairWatchRepositoryList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/EliRepairWatchRepository" }
+
+    EliRepairWatchRepositoryAdmission:
+      type: object
+      required: [repo, installation_id, capabilities]
+      properties:
+        repo: { type: string }
+        installation_id: { type: string }
+        capabilities:
+          type: array
+          minItems: 1
+          items: { type: string, enum: [checks, conflicts] }
+
+    EliWatchExclusion:
+      type: object
+      required: [pull_number, reason]
+      properties:
+        pull_number: { type: integer }
+        title: { type: string }
+        reason: { type: string }
+
+    EliRepositoryWatchReport:
+      type: object
+      required: [admitted, excluded, existing, capped]
+      properties:
+        admitted:
+          type: array
+          items: { $ref: "#/components/schemas/EliRepairWatch" }
+        excluded:
+          type: array
+          items: { $ref: "#/components/schemas/EliWatchExclusion" }
+        existing: { type: integer, description: Pull requests already watched and left as they were. }
+        capped: { type: boolean, description: "Discovery stopped at the page cap, so more open pull requests may exist." }
+
+    EliRepairWatchRepositoryAdmissionResponse:
+      type: object
+      required: [decision, report]
+      properties:
+        decision: { $ref: "#/components/schemas/EliRepairWatchRepository" }
+        report: { $ref: "#/components/schemas/EliRepositoryWatchReport" }
+
+    EliWatchChangeRequest:
+      type: object
+      properties:
+        reason: { type: string, description: "Why the watch was paused or stopped, shown to whoever reads it later." }
 
     EliRepairRequest:
       type: object

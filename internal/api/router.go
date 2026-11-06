@@ -496,6 +496,18 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionAssistantWrite)).Put("/assistant/repairs/policy", s.handleSetEliPolicy)
 		r.With(s.require(auth.ActionAssistantRead)).Get("/assistant/repairs/automatic", s.handleEliAutomatic)
 		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/automatic/stop", s.handleStopEliAutomatic)
+		// Durable watches: one pull request, or a repository-wide decision to
+		// follow its open pull requests. The repository routes come before the
+		// per-PR ones so the static segment is unambiguous.
+		r.With(s.require(auth.ActionAssistantRead)).Get("/assistant/repairs/watches/repositories", s.handleEliWatchRepositories)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches/repositories", s.handleAdmitEliWatchRepository)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches/repositories/{id}/pause", s.handlePauseEliWatchRepository)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches/repositories/{id}/resume", s.handleResumeEliWatchRepository)
+		r.With(s.require(auth.ActionAssistantRead)).Get("/assistant/repairs/watches", s.handleEliWatches)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches", s.handleAdmitEliWatch)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches/{id}/pause", s.handlePauseEliWatch)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches/{id}/resume", s.handleResumeEliWatch)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches/{id}/stop", s.handleStopEliWatch)
 		r.With(s.require(auth.ActionUsersWrite)).Put("/assistant/repairs/identity", s.handleSetEliIdentity)
 		r.With(s.require(auth.ActionAssistantOwn)).Get("/assistant/repairs/{id}", s.handleGetEliRepair)
 		r.With(s.require(auth.ActionAssistantChat)).Post("/assistant/chat", s.handleAssistantChat)
