@@ -21,7 +21,7 @@ checking the live PR states.
 
 | Item | State |
 | --- | --- |
-| Latest slice | the agent merge worker, stacked on #1409 |
+| Latest slice | [#1410](https://github.com/eyupio/zoomies/pull/1410): the agent merge worker, stacked on #1409 |
 | Investigated baseline | `568ec4017` on `main` |
 | Working branch | `codex/eli-merge-agent` |
 | Verified code checkpoints | S1 through S3a merged, and S3b's merge package, worker command and image, repository writer and fetch, archive download and repository transport merged through `568ec4017`; #1407's task is `c926789cd` |
@@ -485,7 +485,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1404](https://github.com/eyupio/zoomies/pull/1404), open, stacked on #1402 | S3b: `gitbare.Pack` and `Unpack`, and the controller's attempt registry | Round-trip tests through the worker, the read-only loose objects, every refusal, the attempt lifecycle, `staticcheck ./...`, build and formatting pass | The `merge_conflict` task and the endpoints the agent uses |
 | [#1407](https://github.com/eyupio/zoomies/pull/1407), open, stacked on `codex/eli-git-merge-worker` | S3b: the `merge_conflict` task and `QueueMergeConflict` | Task payload, queue key and lease tests, the older-agent compatibility suite, build and formatting pass | The two endpoints over `mergeSession` and the agent handler |
 | [#1409](https://github.com/eyupio/zoomies/pull/1409), open, stacked on #1407 | S3b: pull and answer endpoints over `mergeSession`, their agent transport client, and the prepared attempt's three pins on the task | Race tests for the controller session, the agent transport, the API routes and the task payload; `make openapi`, vet and formatting pass; no agent handler, model or publication | The agent handler that pulls, unpacks, runs the worker image and posts the answer, then model resolution and two-parent publication |
-| this PR, stacked on #1409 | S3b: the agent runs the prepared merge in a one-shot worker container, posts its answer and removes the workspace; the Docker and Podman backends gain the worker run | Race tests for the agent handler, the container backend, the controller result path and the docs; vet and formatting pass; no model resolution or publication | Model resolution, the two-parent commit and non-force publication, then S4 UX |
+| [#1410](https://github.com/eyupio/zoomies/pull/1410), open, stacked on #1409 | S3b: the agent runs the prepared merge in a one-shot worker container, posts its answer and removes the workspace; the Docker and Podman backends gain the worker run | Race tests for the agent handler, the container backend, the controller result path and the docs; vet and formatting pass; no model resolution or publication | Model resolution, the two-parent commit and non-force publication, then S4 UX |
 | [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
 
 S1 validation on 3 November 2026:
