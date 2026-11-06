@@ -211,7 +211,7 @@
   --z-radius-md: 8px;
   --z-radius-lg: 12px;
   /* The stage: the dark panel the dog stands on, on the pages before sign-in. */
-  --z-radius-xl: 28px;
+  --z-radius-xl: 14px;
   --z-radius-full: 9999px;
 
   /* Borders --------------------------------------------------------------
@@ -273,8 +273,8 @@
    * up needs the opposite. Body text is left alone.
    * ------------------------------------------------------------------ */
   --z-tracking-tight: -0.01em;
-  --z-tracking-wide: 0.04em;
-  --z-tracking-wider: 0.08em;
+  --z-tracking-wide: 0.01em;
+  --z-tracking-wider: 0.02em;
   /* How far a hover underline sits below a quiet link, clear of the
      descenders so "EyUp.io" does not read as a strikethrough. */
   --z-underline-offset: 0.15em;

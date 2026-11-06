@@ -402,6 +402,19 @@ type Backend interface {
 	List(ctx context.Context) ([]Workload, error)
 }
 
+// MergeWorkerRunner is implemented by a container backend that can run the
+// bounded Git worker image against a prepared workspace.
+//
+// The workspace is mounted at /work. It holds request.json, which names the
+// repository at /work/repository and its three pinned commits, and the worker
+// writes its one answer to answer.json beside it. The backend creates, waits
+// for and removes the container; the caller owns the workspace and everything
+// in it. A backend that cannot run a container does not implement this, and the
+// agent reports the merge as unsupported rather than pretending it ran.
+type MergeWorkerRunner interface {
+	RunMergeWorker(ctx context.Context, image, workspace string) ([]byte, error)
+}
+
 // TimedCreator is implemented by backends that expose creation timing. It is
 // optional so third-party and older backends retain the explicit unavailable
 // path rather than fabricating an image-pull duration.

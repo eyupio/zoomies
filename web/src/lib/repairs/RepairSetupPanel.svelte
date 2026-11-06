@@ -14,7 +14,10 @@
   import { Link } from '@lucide/svelte';
   import {
     ApiError,
+    admitEliWatchRepository,
     getEliRepairSettings,
+    listEliWatchRepositories,
+    listEliWatches,
     listInstallations,
     listUsers,
     listAssistantProviders,
@@ -27,10 +30,35 @@
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import RepositoryPicker from '$lib/repairs/RepositoryPicker.svelte';
+  import WatchedRepositories from '$lib/repairs/WatchedRepositories.svelte';
+  import {
+    pauseRepository,
+    pauseWatch,
+    resumeRepository,
+    resumeWatch,
+    stopAllWatches,
+    stopWatch,
+  } from '$lib/repairs/watchActions';
+  import {
+    BEHAVIOURS,
+    behaviourOf,
+    behaviourLabel,
+    capabilitiesFor,
+    pauseWatchCopy,
+    stopAllCopy,
+    stopWatchCopy,
+    watchingState,
+    type Behaviour,
+    type RepositoryWatch,
+    type Watch,
+    type WatchControlCopy,
+  } from '$lib/repairs/watches';
   import { heldLink, heldLinkMessage, type HeldLink } from '$lib/repairs/identity';
   import Button from '$lib/components/Button.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
+  import RadioGroup from '$lib/components/RadioGroup.svelte';
   import Select from '$lib/components/Select.svelte';
   import Switch from '$lib/components/Switch.svelte';
 
@@ -50,7 +78,10 @@
   let selectingAll = $state(false);
   let linkRepos = $state<string[]>([]);
   let mode = $state('automatic');
-  type SaveResult = { repo: string; saved: boolean; error?: string };
+  /** What Eli should do in the chosen repositories: the three behaviours, and nothing else in front. */
+  let behaviour = $state<Behaviour>('babysit');
+  /** What each repository got in the last save, so a partial result can say which part failed. */
+  type SaveResult = { repo: string; saved: boolean; error?: string; watching?: string };
   type PolicySettings = Omit<Schemas['EliRepairPolicy'], 'repo'>;
   let bulkResults = $state<SaveResult[]>([]);
   let lastSettings = $state<PolicySettings | null>(null);
@@ -71,6 +102,17 @@
   let settingsError = $state('');
   let choicesError = $state('');
   const error = $derived([settingsError, choicesError].filter(Boolean).join(' '));
+  /** What is being watched now, so saving and its result are on the same page. */
+  let decisions = $state<RepositoryWatch[]>([]);
+  let watches = $state<Watch[]>([]);
+  let watchLoaded = $state(false);
+  let watchFailed = $state(false);
+  let watchError = $state('');
+  let watchBusy = $state<string[]>([]);
+  let confirming = $state<{ copy: WatchControlCopy; run: () => Promise<string> } | null>(null);
+  let confirmOpen = $state(false);
+  let confirmBusy = $state(false);
+  let confirmError = $state('');
   /** Which reads have answered, so a repository handed in is prepared once both have. */
   let heard = $state({ settings: false, choices: false });
   let prepared = false;
@@ -102,7 +144,7 @@
 
   /** What the page header's Refresh means here: read everything again. */
   export async function reload(): Promise<void> {
-    await Promise.all([refresh(), adminChoices()]);
+    await Promise.all([refresh(), adminChoices(), readWatching()]);
   }
 
   async function adminChoices(): Promise<void> {
@@ -136,6 +178,12 @@
   // Read when the page opens and again if the person turns out to be an administrator.
   $effect(() => {
     void adminChoices();
+  });
+
+  // What is being watched is part of this page, so it is read as soon as an
+  // administrator can read it, not only when a save happens.
+  $effect(() => {
+    if (admin) void readWatching();
   });
 
   onMount(() => void refresh());
@@ -224,7 +272,15 @@
   const moveHeld = (): Promise<void> => linkIdentity(true);
   async function focusPolicyForm(): Promise<void> {
     await tick();
-    document.getElementById('policy-form-heading')?.focus();
+    const heading = document.getElementById('policy-form-heading');
+    if (!heading) return;
+    // Bring the form back on screen even when the heading already has focus.
+    // A browser that does not focus a button on click (Safari, and Firefox on
+    // macOS) leaves focus on the heading after the last edit, and focus() on an
+    // element that already has it does not scroll: pressing Edit further down
+    // the list would update a form the operator cannot see.
+    heading.scrollIntoView({ block: 'start' });
+    heading.focus({ preventScroll: true });
   }
   function editPolicy(p: Schemas['EliRepairPolicy'], focus = false): void {
     editing = p.repo;
@@ -236,12 +292,17 @@
     enabled = p.enabled;
     mode = p.automatic ? 'automatic' : p.ask_first ? 'ask' : 'manual';
     workflows = p.allow_workflows;
+    // What the repository already does, so opening it for editing does not
+    // quietly propose a different behaviour than the one it is on.
+    const decided = decisions.find((d) => d.repo.toLowerCase() === p.repo.toLowerCase());
+    behaviour = (decided && behaviourOf(decided.checks, decided.conflicts)) || 'babysit';
     if (focus) void focusPolicyForm();
   }
   function startNewPolicy(): void {
     editing = '';
     selectedRepos = [];
     mode = 'automatic';
+    behaviour = 'babysit';
     enabled = true;
     workflows = false;
     provider =
@@ -266,10 +327,10 @@
     busy = true;
     bulkResults = [];
     lastSettings = settings;
+    const watching = settings.automatic && settings.enabled;
     for (const repo of targets) {
       try {
         await setEliRepairPolicy({ repo, ...settings });
-        bulkResults = [...bulkResults, { repo, saved: true }];
       } catch (cause) {
         bulkResults = [
           ...bulkResults,
@@ -279,19 +340,53 @@
             error: cause instanceof ApiError ? cause.message : 'Could not save; try again.',
           },
         ];
+        continue;
+      }
+      // The policy is what repairs are allowed to be. Actually following the
+      // repository's pull requests is a second, explicit decision, so a save
+      // that turns automatic repairs on also admits them and says what came of
+      // it. An admission the controller refused leaves the policy saved and
+      // names the reason, rather than reporting a half-done job as done.
+      if (!watching) {
+        bulkResults = [...bulkResults, { repo, saved: true }];
+        continue;
+      }
+      try {
+        const { report } = await admitEliWatchRepository({
+          repo,
+          installation_id: settings.installation_id,
+          capabilities: capabilitiesFor(behaviour),
+        });
+        bulkResults = [...bulkResults, { repo, saved: true, watching: admitWords(report) }];
+      } catch (cause) {
+        bulkResults = [
+          ...bulkResults,
+          {
+            repo,
+            saved: true,
+            watching:
+              'Saved, but Eli is not watching this repository: ' +
+              (cause instanceof ApiError ? cause.message : 'the request was refused.'),
+          },
+        ];
       }
     }
     const saved = bulkResults.filter((result) => result.saved).length;
+    const admitted = bulkResults.filter(
+      (result) => result.watching && !result.watching.startsWith('Saved, but'),
+    ).length;
     if (saved === targets.length)
       toasts.success(
-        `Saved repair settings in ${saved} ${saved === 1 ? 'repository' : 'repositories'}`,
+        admitted
+          ? `Saved repair settings in ${saved === 1 ? 'one repository' : `${saved} repositories`}, watching ${admitted}`
+          : `Saved repair settings in ${saved} ${saved === 1 ? 'repository' : 'repositories'}`,
       );
     else
       toasts.error(
         saved ? `Saved ${saved} of ${targets.length} repositories` : 'No repository settings saved',
         'Review the failed repositories below, then retry.',
       );
-    await refresh();
+    await reload();
     busy = false;
   }
   const modeLabel = (p: Schemas['EliRepairPolicy']): string =>
@@ -302,6 +397,97 @@
         : p.ask_first
           ? 'Offer a fix for failed checks'
           : 'Manual requests only';
+
+  /** The mode, and what the repository is actually following when that is known. */
+  function policyWords(
+    p: Schemas['EliRepairPolicy'],
+    decided: RepositoryWatch | undefined,
+  ): string {
+    if (!decided) return modeLabel(p);
+    const behaviour = behaviourOf(decided.checks, decided.conflicts);
+    return behaviour ? `${modeLabel(p)} · ${behaviourLabel(behaviour)}` : modeLabel(p);
+  }
+
+  /** One repository's line in the save's results: what saved and what the admission did. */
+  function resultWords(result: SaveResult): string {
+    if (!result.saved) return result.error ?? 'Could not save.';
+    return result.watching ? `saved · ${result.watching}` : 'saved';
+  }
+
+  const watching = $derived(
+    watchingState({
+      loaded: watchLoaded,
+      failed: watchFailed,
+      repositories: decisions.length,
+      watches: watches.length,
+    }),
+  );
+
+  /**
+   * The two watch reads are one answer, as they are on the hub: a failure in
+   * either means this page cannot say what is being followed, so neither half is
+   * trusted and the section says so.
+   */
+  async function readWatching(): Promise<void> {
+    try {
+      const [d, w] = await Promise.all([
+        listEliWatchRepositories(),
+        listEliWatches({ limit: 100 }),
+      ]);
+      decisions = d.items ?? [];
+      watches = w.items ?? [];
+      watchFailed = false;
+      watchError = '';
+    } catch (cause) {
+      watchFailed = true;
+      watchError =
+        cause instanceof ApiError ? cause.message : 'Could not read what Eli is watching.';
+    } finally {
+      watchLoaded = true;
+    }
+  }
+
+  /** What one repository admission did, in the words the person needs to judge it. */
+  function admitWords(report: Schemas['EliRepositoryWatchReport']): string {
+    const parts: string[] = [];
+    if (report.admitted.length)
+      parts.push(`watching ${pluralise(report.admitted.length, 'open pull request')}`);
+    if (report.existing) parts.push(`${report.existing} already watched`);
+    if (report.excluded.length)
+      parts.push(`${pluralise(report.excluded.length, 'pull request')} left alone`);
+    if (report.capped) parts.push('the list stopped at the page limit, so more may exist');
+    return parts.length ? parts.join(', ') : 'nothing open to watch yet';
+  }
+
+  async function changeWatch(id: string, action: () => Promise<string>): Promise<void> {
+    if (watchBusy.includes(id)) return;
+    watchBusy = [...watchBusy, id];
+    try {
+      if (!(await action())) await readWatching();
+    } finally {
+      watchBusy = watchBusy.filter((busyId) => busyId !== id);
+    }
+  }
+
+  function confirmControl(copy: WatchControlCopy, run: () => Promise<string>): void {
+    confirming = { copy, run };
+    confirmError = '';
+    confirmOpen = true;
+  }
+
+  async function runConfirmed(): Promise<boolean> {
+    if (!confirming || confirmBusy) return false;
+    confirmBusy = true;
+    const failure = await confirming.run();
+    confirmBusy = false;
+    if (failure) {
+      confirmError = failure;
+      return false;
+    }
+    confirmError = '';
+    await readWatching();
+    return true;
+  }
 </script>
 
 <section class="setup" aria-label="Repair settings">
@@ -350,18 +536,17 @@
               disabled={busy}
             />{/key}
         {/if}
-        <Field id="repair-mode" label="What should Eli do?">
-          <Select
-            id="repair-mode"
-            bind:value={mode}
-            disabled={busy}
-            options={[
-              { value: 'automatic', label: 'Fix failed checks automatically' },
-              { value: 'ask', label: 'Offer a fix for failed checks' },
-              { value: 'manual', label: 'Manual requests only' },
-            ]}
-          />
-        </Field>
+        <RadioGroup
+          name="repair-behaviour"
+          legend="What should Eli do in these repositories?"
+          bind:value={behaviour}
+          disabled={busy}
+          options={BEHAVIOURS.map((choice) => ({
+            value: choice.value,
+            label: choice.label,
+            description: choice.description,
+          }))}
+        />
         {#if mode === 'automatic' && enabled}
           {#if usableProviders.length === 1 && selectedProvider?.enabled}
             <p>
@@ -401,7 +586,23 @@
           </p>
         {/if}
         <details class="advanced">
-          <summary>Advanced</summary>
+          <summary>When Eli acts, and what it may edit</summary>
+          <Field id="repair-mode" label="Repair mode">
+            <Select
+              id="repair-mode"
+              bind:value={mode}
+              disabled={busy}
+              options={[
+                { value: 'automatic', label: 'Repair without asking, and keep watching' },
+                { value: 'ask', label: 'Offer a fix for failed checks' },
+                { value: 'manual', label: 'Manual requests only' },
+              ]}
+            />
+          </Field>
+          <p class="hint">
+            Only the first can follow pull requests. The other two keep their one-attempt behaviour:
+            an offer waits for a person, and a manual request is made for one failure at a time.
+          </p>
           <Switch
             bind:checked={enabled}
             disabled={busy}
@@ -430,7 +631,7 @@
         {#if bulkResults.length}
           <div aria-live="polite">
             {#each bulkResults as result (result.repo)}<p class:error={!result.saved}>
-                {result.repo}: {result.saved ? 'saved' : result.error}
+                {result.repo}: {resultWords(result)}
               </p>{/each}
           </div>
         {/if}
@@ -461,10 +662,11 @@
         </p>
         <div class="policy-list">
           {#each filteredPolicies as p (p.repo)}
+            {@const decided = decisions.find((d) => d.repo.toLowerCase() === p.repo.toLowerCase())}
             <div class="policy-row">
               <div>
                 <strong>{p.repo}</strong>
-                <p>{modeLabel(p)}</p>
+                <p>{policyWords(p, decided)}</p>
               </div>
               <Button
                 size="sm"
@@ -487,6 +689,29 @@
           {/each}
         </div>
       {/if}
+    </section>
+
+    <section class="card" id="watching" aria-labelledby="watching-heading">
+      <h2 id="watching-heading">What Eli is watching now</h2>
+      <p>
+        Each row is one repository: what it was set to do, how many pull requests are being
+        followed, when it last saw something and whether anything needs a person. Pausing a
+        repository stops new pull requests being admitted; the ones already being followed carry on
+        until they are paused on their own.
+      </p>
+      <WatchedRepositories
+        {decisions}
+        {watches}
+        state={watching}
+        busy={watchBusy}
+        failure={watchError}
+        onpausewatch={(watch) => confirmControl(pauseWatchCopy(watch), () => pauseWatch(watch))}
+        onresumewatch={(watch) => void changeWatch(watch.id, () => resumeWatch(watch))}
+        onstopwatch={(watch) => confirmControl(stopWatchCopy(watch), () => stopWatch(watch))}
+        onpauserepo={(decision) => void changeWatch(decision.id, () => pauseRepository(decision))}
+        onresumerepo={(decision) => void changeWatch(decision.id, () => resumeRepository(decision))}
+        onstopall={() => confirmControl(stopAllCopy(watches), () => stopAllWatches(watches))}
+      />
     </section>
   {/if}
   <details class="card" id="access" open={!admin}>
@@ -602,6 +827,25 @@
     </details>
   {/if}
 </section>
+
+<ConfirmDialog
+  bind:open={confirmOpen}
+  title={confirming?.copy.title ?? 'Confirm'}
+  description={confirming?.copy.description ?? ''}
+  consequences={confirming ? [confirming.copy.inFlight] : []}
+  confirmLabel={confirming?.copy.confirm ?? 'Confirm'}
+  cancelLabel="Cancel"
+  tone={confirming?.copy.confirm.startsWith('Stop') ? 'danger' : 'default'}
+  busy={confirmBusy}
+  onconfirm={runConfirmed}
+  oncancel={() => {
+    if (confirmBusy) return;
+    confirming = null;
+    confirmError = '';
+  }}
+>
+  {#if confirmError}<p class="error" role="alert">{confirmError}</p>{/if}
+</ConfirmDialog>
 
 <style>
   .setup {

@@ -48,9 +48,7 @@
   h3 {
     margin: 0 0 var(--z-space-3);
     font-size: var(--z-text-xs);
-    font-weight: var(--z-weight-semibold);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-weight: var(--z-weight-medium);
     color: var(--z-text-subtle);
   }
   dl {

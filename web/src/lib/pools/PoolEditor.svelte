@@ -862,9 +862,7 @@
   .eyebrow {
     margin: 0;
     font-size: var(--z-text-xs);
-    font-weight: var(--z-weight-semibold);
-    letter-spacing: var(--z-tracking-wide);
-    text-transform: uppercase;
+    font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
   }
   .sub {

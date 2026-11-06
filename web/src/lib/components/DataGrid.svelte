@@ -1485,11 +1485,9 @@
     border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
     text-align: left;
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
     white-space: nowrap;
     /* The resize handle sits across the column edge, so the cell stays open
        and the heading inside it owns truncation. */
@@ -1888,10 +1886,8 @@
       content: attr(data-label);
       flex: none;
       color: var(--z-text-muted);
-      font-size: var(--z-text-2xs);
+      font-size: var(--z-text-xs);
       font-weight: var(--z-weight-medium);
-      text-transform: uppercase;
-      letter-spacing: var(--z-tracking-wide);
       text-align: left;
     }
     /*
@@ -1921,6 +1917,8 @@
       border-top-right-radius: 0;
     }
     .grid:not(.rows) tbody tr.expansion td {
+      /* Match the hover rule so nested controls do not move mid-click. */
+      padding: 0;
       display: block;
       text-align: left;
     }

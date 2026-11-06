@@ -391,11 +391,9 @@
     border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
     color: var(--z-text-muted);
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
     text-align: left;
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
   }
   td {
     overflow-wrap: anywhere;
@@ -465,9 +463,8 @@
     td::before {
       content: attr(data-label);
       display: block;
-      font-size: var(--z-text-2xs);
-      text-transform: uppercase;
-      letter-spacing: var(--z-tracking-wide);
+      font-size: var(--z-text-xs);
+      font-weight: var(--z-weight-medium);
       color: var(--z-text-muted);
     }
     .tick::before {

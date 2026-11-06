@@ -60,6 +60,12 @@ const FeatureTmpfs = "tmpfs"
 // and the daemon it asked for is given 50%.
 const FeatureDaemonShare = "daemon-share"
 
+// FeatureMergeWorker is advertised by an agent whose container backend can run
+// the bounded Git worker image. An older agent reports the kind it does not know
+// as a failed task, so the controller asks for this flag before it queues a
+// merge and never starts one that no host can carry out.
+const FeatureMergeWorker = "merge-worker"
+
 // FeatureSelfUpdate is advertised by an agent that understands TaskUpdateAgent
 // and can carry it out on this host. An older agent does not ignore the kind, it
 // reports the task failed with "unknown task kind", so the controller asks for
@@ -457,6 +463,11 @@ const (
 	// as HeartbeatRequest.Update rather than as a result. The controller queues
 	// it only for a host that advertises FeatureSelfUpdate.
 	TaskUpdateAgent TaskKind = "update_agent"
+	// TaskMergeConflict asks the agent to run the bounded Git worker against one
+	// prepared repository and report the answer. It names no runner: the work is
+	// one three-way merge, and the repository comes from the controller rather
+	// than from GitHub, so the token that fetched it never leaves the controller.
+	TaskMergeConflict TaskKind = "merge_conflict"
 )
 
 // Task is one unit of work handed to an agent. Tasks are idempotent: the
@@ -499,6 +510,19 @@ type Task struct {
 	// URL, path or flag for a compromised controller to make an agent fetch.
 	UpdateID  string `json:"update_id,omitempty"`
 	UpdateTag string `json:"update_tag,omitempty"`
+	// MergeID names the attempt whose repository this task concerns, and
+	// MergeImage is the worker image to run against it. MergeAncestor, MergeBase
+	// and MergeHead are the commits the controller wrote into that repository,
+	// so the worker's request names the same three ids the controller checked.
+	//
+	// The repository's bytes are not here: the agent pulls them from the
+	// controller by MergeID, because a task that carried megabytes would make the
+	// queue unreadable.
+	MergeID       string `json:"merge_id,omitempty"`
+	MergeImage    string `json:"merge_image,omitempty"`
+	MergeAncestor string `json:"merge_ancestor,omitempty"`
+	MergeBase     string `json:"merge_base,omitempty"`
+	MergeHead     string `json:"merge_head,omitempty"`
 }
 
 // TaskResult reports the outcome of a task back to the controller.
@@ -560,6 +584,16 @@ type TaskResult struct {
 	CompletedAt    time.Time `json:"completed_at"`
 }
 
+// MergeRepository is one attempt's packed repository and the three commit ids
+// the worker's request names. The ids travel in headers rather than the body so
+// the body stays the gzipped tarball the worker unpacks.
+type MergeRepository struct {
+	Ancestor   string
+	Base       string
+	Head       string
+	Repository []byte
+}
+
 // TaskBatch is the response to a task poll.
 type TaskBatch struct {
 	Tasks []Task `json:"tasks"`
@@ -586,6 +620,18 @@ const (
 	PathResults   = "/api/v1/agent/results"
 	PathReport    = "/api/v1/agent/report"
 	PathLogs      = "/api/v1/agent/logs"
+	// PathMerge is one attempt's repository. A GET pulls it and a POST answers
+	// it, both by the id the merge_conflict task named.
+	PathMerge = "/api/v1/agent/merge"
+)
+
+// The headers that carry a merge's three pinned commit ids beside its tarball.
+// They are part of the wire contract: the body is the repository, not a
+// document that could hold them.
+const (
+	HeaderMergeAncestor = "X-Zoomies-Merge-Ancestor"
+	HeaderMergeBase     = "X-Zoomies-Merge-Base"
+	HeaderMergeHead     = "X-Zoomies-Merge-Head"
 )
 
 // DefaultPollWait is how long a task poll blocks before returning empty. It is

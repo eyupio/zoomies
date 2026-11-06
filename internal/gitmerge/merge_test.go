@@ -176,3 +176,109 @@ func TestMergeRefusesContentOverItsBudget(t *testing.T) {
 		t.Fatalf("budget %+v", got)
 	}
 }
+
+// The controller has to build the two-parent commit on GitHub, where the merged
+// tree object does not exist. The worker therefore reports every file the merged
+// tree has that the pull request head does not, deletions included.
+func TestMergeReportsTheFilesTheMergedTreeChanges(t *testing.T) {
+	dir := repo(t)
+	write(t, dir, "common.txt", []byte("one\n"))
+	write(t, dir, "gone.txt", []byte("remove me\n"))
+	ancestor := commit(t, dir, "base")
+	mustGit(t, dir, "checkout", "-qb", "side")
+	write(t, dir, "side.txt", []byte("only on the pull request\n"))
+	side := commit(t, dir, "side")
+	mustGit(t, dir, "checkout", "-q", "-")
+	write(t, dir, "common.txt", []byte("one\ntwo\n"))
+	write(t, dir, "added-by-base.txt", []byte("from the target branch\n"))
+	if err := os.Remove(filepath.Join(dir, "gone.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "added-by-base.txt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := commit(t, dir, "target moved")
+
+	got, err := Merge(context.Background(), Request{Dir: dir, Ancestor: ancestor, Base: base, Head: side})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changes := map[string]Change{}
+	for _, change := range got.Changes {
+		changes[change.Path] = change
+	}
+	if len(changes) != 3 {
+		t.Fatalf("changes = %+v, want common, gone and added", got.Changes)
+	}
+	if change := changes["common.txt"]; string(change.Content) != "one\ntwo\n" || change.Mode != "100644" || change.Deleted {
+		t.Errorf("common.txt = %+v", change)
+	}
+	if change := changes["gone.txt"]; !change.Deleted || change.Path != "gone.txt" {
+		t.Errorf("gone.txt = %+v", change)
+	}
+	if change := changes["added-by-base.txt"]; string(change.Content) != "from the target branch\n" || change.Mode != "100755" {
+		t.Errorf("added-by-base.txt = %+v", change)
+	}
+	if _, ok := changes["side.txt"]; ok {
+		t.Error("a file the pull request head already has was reported as a change")
+	}
+}
+
+// Binary content crosses as bytes, because it is published exactly as the merge
+// produced it and is never handed to the model.
+func TestMergeReportsBinaryChangesWithoutDecodingThem(t *testing.T) {
+	dir := repo(t)
+	write(t, dir, "keep.txt", []byte("keep\n"))
+	ancestor := commit(t, dir, "base")
+	mustGit(t, dir, "checkout", "-qb", "side")
+	write(t, dir, "side.txt", []byte("side\n"))
+	side := commit(t, dir, "side")
+	mustGit(t, dir, "checkout", "-q", "-")
+	write(t, dir, "image.bin", []byte{0, 1, 2, 255})
+	base := commit(t, dir, "target adds a binary")
+
+	got, err := Merge(context.Background(), Request{Dir: dir, Ancestor: ancestor, Base: base, Head: side})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range got.Changes {
+		if change.Path == "image.bin" {
+			if string(change.Content) != string([]byte{0, 1, 2, 255}) {
+				t.Fatalf("binary content = %v", change.Content)
+			}
+			return
+		}
+	}
+	t.Fatalf("the binary change is missing: %+v", got.Changes)
+}
+
+// Git's test switch simulates a checkout owned by the agent rather than the
+// worker. The wrapper sets it after sanitisation, as a different uid would.
+func TestMergeAcceptsOnlyItsPreparedRepositoryWithDifferentOwnership(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := repo(t)
+	write(t, dir, "base.txt", []byte("base\n"))
+	ancestor := commit(t, dir, "base")
+	mustGit(t, dir, "checkout", "-qb", "side")
+	write(t, dir, "side.txt", []byte("side\n"))
+	head := commit(t, dir, "side")
+	mustGit(t, dir, "checkout", "-q", "-")
+	write(t, dir, "base.txt", []byte("main\n"))
+	base := commit(t, dir, "main")
+	wrapper := t.TempDir()
+	script := "#!/bin/sh\nexport GIT_TEST_ASSUME_DIFFERENT_OWNER=1\nexec '" + realGit + "' \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(wrapper, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", wrapper+string(os.PathListSeparator)+os.Getenv("PATH"))
+	got, err := Merge(context.Background(), Request{Dir: dir, Ancestor: ancestor, Base: base, Head: head})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tree == "" || len(got.Conflicts) != 0 {
+		t.Fatalf("merge %+v", got)
+	}
+}

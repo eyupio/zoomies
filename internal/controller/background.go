@@ -69,6 +69,11 @@ func (c *Controller) housekeep(ctx context.Context, last *housekeeping) {
 	done = c.stepTimer(loopHousekeeping, stepExpireRunning)
 	c.expireStaleRunningJobs(ctx, now)
 	done()
+	done = c.stepTimer(loopHousekeeping, stepExpireMerges)
+	if removed := c.merge.expire(); removed > 0 {
+		c.log.Info("removed merge repositories whose attempt expired", "count", removed)
+	}
+	done()
 	// The machine the controller itself runs on, every tick: its figures are shares
 	// of the interval between two samples, so the interval is the tick and a request
 	// for it never sets one.

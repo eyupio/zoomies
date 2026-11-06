@@ -10,6 +10,7 @@ import (
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/controller"
+	"github.com/eyupio/zoomies/internal/gitmerge"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -220,6 +221,67 @@ func (s *Server) handleAgentLogs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.internal(w, r, "relaying a log stream", err)
+		return
+	}
+	noContent(w)
+}
+
+// handleAgentMergePull serves one attempt's packed repository to the agent the
+// merge_conflict task named.
+//
+// The three commit ids ride in headers rather than a JSON envelope, so the body
+// is exactly the tarball the worker unpacks. A second pull is expected when a
+// reply was lost: it gets the same bytes until the one answer arrives.
+func (s *Server) handleAgentMergePull(w http.ResponseWriter, r *http.Request) {
+	id := chiURLParam(r, "merge_id")
+	held, err := s.ctrl.PullMergeRepository(r.Context(), agentHost(r).ID, id)
+	if err != nil {
+		switch {
+		case errors.Is(err, controller.ErrNoMergeAttempt):
+			notFound(w, "this merge attempt is not here: it was answered, expired, or was never this controller's")
+		case errors.Is(err, controller.ErrMergeAttemptAnswered):
+			conflict(w, "this merge attempt already has its one answer, so its repository is gone")
+		default:
+			s.internal(w, r, "serving a merge repository", err)
+		}
+		return
+	}
+	w.Header().Set(agent.HeaderMergeAncestor, held.Ancestor)
+	w.Header().Set(agent.HeaderMergeBase, held.Base)
+	w.Header().Set(agent.HeaderMergeHead, held.Head)
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Length", strconv.Itoa(len(held.Repository)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(held.Repository)
+}
+
+// handleAgentMergeAnswer accepts the one answer a worker produced. A clean merge
+// and a text conflict are both successful answers: the conflict is what the next
+// stage resolves.
+func (s *Server) handleAgentMergeAnswer(w http.ResponseWriter, r *http.Request) {
+	id := chiURLParam(r, "merge_id")
+	r.Body = http.MaxBytesReader(w, r.Body, gitmerge.MaxResponseBytes+1024)
+	var answer gitmerge.WorkerResponse
+	if !decodeLenient(w, r, &answer) {
+		return
+	}
+	if answer.Result == nil && answer.Code == "" {
+		badRequest(w, "a merge answer must carry either a result or an error code")
+		return
+	}
+	if answer.Result != nil && answer.Code != "" {
+		badRequest(w, "a merge answer carries either a result or an error code, not both")
+		return
+	}
+	if err := s.ctrl.ReportMergeAnswer(r.Context(), agentHost(r).ID, id, answer); err != nil {
+		switch {
+		case errors.Is(err, controller.ErrNoMergeAttempt):
+			notFound(w, "this merge attempt is not here: it expired, or was never this controller's")
+		case errors.Is(err, controller.ErrMergeAttemptAnswered):
+			conflict(w, "this merge attempt already has its one answer; a lost reply must not replace it")
+		default:
+			s.internal(w, r, "recording a merge answer", err)
+		}
 		return
 	}
 	noContent(w)

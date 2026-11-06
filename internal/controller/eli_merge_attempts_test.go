@@ -141,3 +141,25 @@ func TestAnUnknownMergeAttemptIsTheSameAnswerAsAnExpiredOne(t *testing.T) {
 		t.Fatalf("answering an unknown attempt gave %v", err)
 	}
 }
+
+func TestAnsweredConflictWaitsForTheResolverBeyondTheWorkerDeadline(t *testing.T) {
+	start := time.Unix(1700000000, 0)
+	attempts, clock := attemptsAt(start, time.Minute, 2)
+	id, err := attempts.add(gitfetch.Repository{}, "image", &conflictJob{WatchID: "watch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := attempts.answer(id, gitmerge.WorkerResponse{Result: &gitmerge.Result{Tree: "tree"}}); err != nil {
+		t.Fatal(err)
+	}
+	*clock = start.Add(time.Hour)
+	attempts.expire()
+	job, answer, ok := attempts.takeAnswer(id)
+	if !ok || job.WatchID != "watch" || answer.Result.Tree != "tree" {
+		t.Fatalf("lost queued answer: %+v %+v %v", job, answer, ok)
+	}
+	attempts.expire()
+	if attempts.len() != 0 {
+		t.Fatal("a handled answer did not expire")
+	}
+}

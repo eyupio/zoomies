@@ -584,9 +584,7 @@
     margin: 0;
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
-    font-weight: var(--z-weight-semibold);
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
+    font-weight: var(--z-weight-medium);
     color: var(--z-text-subtle);
   }
 </style>

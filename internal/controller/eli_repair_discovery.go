@@ -143,3 +143,30 @@ func watchExclusionReason(pull github.RepairPull) string {
 	}
 	return ""
 }
+
+// PauseEliRepositoryWatches stops admitting new pull requests for one
+// repository decision. Watches already admitted are left alone: pausing one PR
+// is its own control, and a repository pause must not quietly discard them.
+func (c *Controller) PauseEliRepositoryWatches(ctx context.Context, id string) (*store.EliRepairWatchRepository, error) {
+	return c.st.SetEliRepairWatchRepositoryEnabled(ctx, id, false)
+}
+
+// ResumeEliRepositoryWatches re-reads the repositories' open pull requests
+// through the normal admission path and turns discovery back on. It never
+// resumes a paused per-PR watch.
+func (c *Controller) ResumeEliRepositoryWatches(ctx context.Context, id string) (*EliRepositoryWatchReport, error) {
+	row, err := c.st.EliRepairWatchRepositoryByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	capabilities := []string{}
+	if row.Checks {
+		capabilities = append(capabilities, EliWatchChecks)
+	}
+	if row.Conflicts {
+		capabilities = append(capabilities, EliWatchConflicts)
+	}
+	return c.AdmitEliRepositoryWatches(ctx, EliRepositoryWatchAdmission{
+		Repo: row.Repo, InstallationID: row.InstallationID, OwnerID: row.OwnerID, Capabilities: capabilities,
+	})
+}

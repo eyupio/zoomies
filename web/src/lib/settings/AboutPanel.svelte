@@ -228,10 +228,8 @@
   }
   .descriptor {
     margin: var(--z-space-1) 0 0;
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
-    letter-spacing: var(--z-tracking-wider);
-    text-transform: uppercase;
     color: var(--z-text-subtle);
   }
   .description {
@@ -268,9 +266,7 @@
   }
   h2 {
     margin: 0 0 var(--z-space-3);
-    font-size: var(--z-text-2xs);
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
   }

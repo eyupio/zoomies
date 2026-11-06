@@ -12,7 +12,7 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// agentRoute is one of the five routes behind s.agentAuth. The bodies are the
+// agentRoute is one of the routes behind s.agentAuth. The bodies are the
 // smallest thing each handler will accept, because what is under test is the
 // middleware in front of them and not the handler's own validation.
 type agentRoute struct {
@@ -40,6 +40,9 @@ func agentRoutesUnderTest() []agentRoute {
 			body: []agent.RunnerReport{}},
 		{name: "logs", method: http.MethodPost, path: "/api/v1/agent/logs/log_nosuchstream",
 			raw: "chunk"},
+		{name: "merge pull", method: http.MethodGet, path: "/api/v1/agent/merge/merge_nosuchattempt"},
+		{name: "merge answer", method: http.MethodPost, path: "/api/v1/agent/merge/merge_nosuchattempt",
+			body: map[string]any{"code": "merge_failed", "error": "no such attempt"}},
 	}
 }
 
@@ -110,6 +113,7 @@ func TestAgentRoutesUnderTestCoverTheRouter(t *testing.T) {
 		agent.PathResults:   false,
 		agent.PathReport:    false,
 		agent.PathLogs:      false,
+		agent.PathMerge:     false,
 	}
 	for _, rt := range agentRoutesUnderTest() {
 		path, _, _ := strings.Cut(rt.path, "?")

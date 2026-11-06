@@ -1,6 +1,6 @@
 # Eli Repair implementation handoff
 
-Last updated: 5 November 2026.
+Last updated: 6 November 2026.
 
 This file is the continuation record for the repository-first Eli Repair setup,
 continuous PR watching and merge-conflict repair work. Read it before changing
@@ -8,41 +8,51 @@ these features. Update it in every PR for this initiative, including corrective
 PRs. `AGENTS.md` makes that requirement part of the repository guidance.
 
 This is the shared workstream record for the whole initiative. S1 through S3a
-are merged on `main`. The slice in [PR
-#1391](https://github.com/eyupio/zoomies/pull/1391) added the bounded Git merge
-package; the slice after it added the `zoomies git-worker` command and the
-`ghcr.io/eyupio/zoomies-git` image that wraps it. Neither has a controller
-transport yet, so nothing in the running controller can start the worker.
+are merged on `main`, as are S3b's merge package, the `zoomies git-worker`
+command, the worker image, the repository writer and fetch, the archive download
+and the repository transport package. The remaining S3b and S4 implementation
+is integrated in [#1407](https://github.com/eyupio/zoomies/pull/1407), on
+`codex/eli-merge-task`, awaiting the required checks before merging to `main`.
+The dependent PRs #1409, #1410, #1411, #1413, #1416 and #1417 have merged into
+that integration branch; their earlier children #1412 and #1418 are included.
+The controller can prepare a repository, an agent can run the worker, the model
+can resolve supported conflicts, the controller can publish the two-parent
+commit, and the watches are on the REST API and in the UI, with each watched pull
+request showing the attempts already made on it. No conflict repair has been run
+against a live model, a real worker image or a real GitHub pull request yet.
 Describing a later slice here does not add its runtime implementation to an
-earlier branch. Continue from the newest branch after checking the live PR
-states.
+earlier branch. Check the live state of #1407 before continuing; after it merges,
+continue from `main`.
 
 ## Current checkpoint
 
 | Item | State |
 | --- | --- |
-| Latest slice | the repository's journey to the agent: `gitbare.Pack` and `Unpack`, stacked on #1402 |
-| Investigated baseline | `039aa7b1a` on `main` |
-| Working branches | `codex/eli-git-merge-worker` for the merge package, the worker command and image (the command slice merged into it as `6a9cb316`), `codex/eli-git-fetch` for the repository writer and the fetch |
-| Verified code checkpoints | S1 through S3a merged through `039aa7b1a`; S3b package: `e7f482f5`; S3b worker command and image: this branch |
-| Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds, whose publication #1398 wires for the merge into `main` |
+| Latest slice | [#1407](https://github.com/eyupio/zoomies/pull/1407): the integrated worker, resolver, publication, watch API, UI and attempt history, including review corrections |
+| Investigated baseline | `067dfd3b` on `main`; integrated implementation checkpoint `b9260c2b` on `codex/eli-merge-task` |
+| Working branch | `codex/eli-merge-task` |
+| Verified code checkpoints | The dependent PRs #1409, #1410, #1411, #1413, #1416 and #1417 are merged into the integration branch at `b9260c2b`. #1412 and #1418 were already merged into their parents. #1407 remains open against `main` until the required gate passes |
+| Implementation | S3b records decision 0016, adds `internal/gitmerge` (a bounded `git merge-tree` merge with no hooks, external drivers or repository code), the `zoomies git-worker` command with a bounded JSON protocol and a build-time toolchain check, and the separate Git worker image that `make image-gitworker` builds. Decisions 0017 and 0018 add the controller-built repository, the archive download and the agent transport. The controller serves the repository over the agent API, an agent runs the worker in a one-shot container, `internal/conflictresolve` asks the model only for the conflicted files, and the controller publishes a two-parent non-force commit. The watch API can list, admit, pause, resume and stop the work, and the UI chooses a repository's behaviour, admits it, shows what is being followed and controls it |
 | Initial PR | [#1368](https://github.com/eyupio/zoomies/pull/1368), merged as `2d621add5` with all checks green |
 | Follow-up PRs | [#1369](https://github.com/eyupio/zoomies/pull/1369), [#1372](https://github.com/eyupio/zoomies/pull/1372), [#1375](https://github.com/eyupio/zoomies/pull/1375), [#1378](https://github.com/eyupio/zoomies/pull/1378), [#1379](https://github.com/eyupio/zoomies/pull/1379), [#1381](https://github.com/eyupio/zoomies/pull/1381), [#1384](https://github.com/eyupio/zoomies/pull/1384), [#1386](https://github.com/eyupio/zoomies/pull/1386), [#1388](https://github.com/eyupio/zoomies/pull/1388) and [#1389](https://github.com/eyupio/zoomies/pull/1389) merged green; the handoff refresh merged as `07a49f664` |
-| Current slice | The controller can prepare the repository a repair merges in, and the worker merges it end to end in a test; the agent transport is still to write |
-| Next implementation | The `merge_conflict` task and the endpoints the agent pulls and posts to, with timeouts and cleanup, then model resolution and two-parent publication, then S4 UX |
-| CI snapshot | On 5 November 2026 the self-hosted pool served these runs unevenly: jobs belonging to later commits were served while this branch's `What changed` job stayed queued, so the browser and full-suite jobs were still waiting when the code was pushed. Every package this branch touches was green locally, with the exact commands above. Recheck the live PR before merging |
+| Current slice | Review corrections and integration: lossless binary publication, executable-mode preservation, windowed ancestor context, exact Git ownership configuration, capable backend selection and queued-answer retention. The full S4 UI and attempt history are included |
+| Next implementation | Finish S4: live validation of conflict repair against a real model, the real worker image and a real GitHub pull request; one row per repository instead of the separate Automatic repairs panel; repository-scoped activity for people who are not administrators, or an explicit statement that it stays administrator-only; notifications on publication, needs-help and completion |
+| CI snapshot | The dependent PRs are merged into #1407. Combined local Go race tests, both UI type checks, lint and build pass. UI units: 1,334 passed and one expected local skip because mawk cannot stream like gawk. Browser verification: 15 table tests, four transfer tests and 27 gallery tests pass. The required main-branch CI gate is still pending; queued, cancelled and stale runs are not passing results |
 | S1 verification | Focused race tests, UI unit/type/lint/build, docs tests and browser regressions pass; exact coverage below |
-| Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook |
+| Persistent PR watcher | Due watches are observed, backfilled, retain check and conflict evidence, can start a bounded chain, and discover new PRs periodically or on a pull_request webhook. Per-PR and repository-wide watches are listed, admitted, paused, resumed and stopped through the API, and chosen, shown and controlled in the UI |
 | Watcher claim cost | [#1392](https://github.com/eyupio/zoomies/pull/1392), a controller-load change that is not a slice, makes the due-watch claim look on the reader pool before it takes the writer. What is due, how a watch is leased and what an observation records are unchanged |
-| Merge-conflict repair | Detection is in S3a. S3b has decision 0016, the bounded merge package, the worker command and image, decision 0017 with the repository writer, and decision 0018 with the archive reader and the fetch. The HTTP download, the transport, model resolution and publication remain, and admission still refuses the conflicts capability |
+| Merge-conflict repair | End to end in the controller: a conflicted watch prepares the repository from three pinned commits, an agent runs the worker, the model resolves supported text conflicts, and the controller publishes a two-parent, non-force merge commit after rechecking every authority. The UI can now choose the behaviour, admit, pause, resume and stop the work, and show what each repository and pull request is doing; live end-to-end validation remains |
 | Production configuration | No repository automation or model credentials changed by this work |
 
 The automatic mode still starts from a failed `workflow_job`, attempts one
 repair per failing head and refuses automatic repairs of its own published
-commit. A watch admitted through the controller APIs can observe checks, retain
-evidence, start a bounded chain of up to three repairs and discover new PRs. The
-final repository and PR controls are not exposed in the UI, and conflict repair
-is detection-only: no conflict is resolved or published.
+commit. A watch admitted through the controller APIs, or through repair settings
+now, can observe checks, retain evidence, start a bounded chain of up to three
+repairs and discover new PRs. A watch admitted with the conflicts capability can
+also resolve supported merge conflicts and publish a two-parent commit. The
+repository and pull-request controls are on the hub and in repair settings: pause
+one pull request, pause a repository's admission, resume either, and stop one or
+all of them, each with what happens to work already under way.
 
 ## Agreed product behaviour
 
@@ -347,11 +357,13 @@ other PR observations; green PR remaining watched; closed PR terminating.
 
 ### S3: merge-conflict detection and repair
 
-Status: S3a detection and evidence is merged. S3b records the Git-engine
-decision and implements the bounded merge package; its worker command, image,
-transport, model resolution and two-parent publication remain. Required even
-when CI never starts: ordinary `pull_request` workflows do not run while the PR
-has a merge conflict.
+Status: S3a detection and evidence is merged. S3b is implemented in the open
+stack: the Git worker and image, the controller-built repository, the agent
+transport and one-shot run, bounded model resolution, the merged-tree change
+list and the two-parent non-force publication are all present, and a conflicted
+watch starts them. Live model and real-PR validation remain. Required even when
+CI never starts: ordinary `pull_request` workflows do not run while the PR has a
+merge conflict.
 
 S3a scope, merged in #1389:
 
@@ -372,10 +384,18 @@ S3b scope, this PR only:
   clean tree or bounded ancestor/base/head text for supported conflicts.
 - [x] Refuse binary, symlink, submodule, delete/modify and mode-changing
   conflicts explicitly, and stop at the configured conflict and byte budgets.
-- [ ] Add the worker command and image, fetch the sanitised bare repository, and
+- [x] Add the worker command and image, fetch the sanitised bare repository, and
   transport the request and result from the controller.
-- [ ] Ask the model for a resolution, build the two-parent commit and publish it
-  without force after rechecking pause, authorisation and head/base identity.
+- [x] Run the worker from an agent in a one-shot container against the prepared
+  workspace, with no network and no credential.
+- [x] Ask the model for a resolution in `internal/conflictresolve`, bounded to
+  the conflicted files and refusing any answer that leaves a marker.
+- [x] Build the two-parent commit from the worker's merged-tree changes and the
+  model's resolved files.
+- [x] Advance the pull request branch without force after rechecking the head and
+  the pinned target tip.
+- [x] Recheck pause and authorisation at the publication boundary, and wire the
+  watch to the worker, model and commit.
 
 Detection and evidence:
 
@@ -402,13 +422,15 @@ Publication:
 - Return to the watcher and inspect CI on the actual published commit. Do not
   report a conflict resolution as verified just because the merge tree exists.
 
-Execution decision still to make in the S3 foundation PR: where the trusted Git
-merge engine runs. The controller currently does not execute repository code
-and the deployed image is distroless. A bounded, isolated Git worker is a
-candidate, not an approved dependency or deployment assumption. Disable hooks,
-repository-configured external merge drivers and filters; keep model/provider
-credentials out of that worker. Decide packaging and platform support before
-implementing a solution that works only on a maintainer's host.
+The execution decision is recorded in
+[decision 0016](decisions/0016-eli-conflict-repair-runs-in-a-separate-git-worker.md),
+with the repository built by the controller in
+[decision 0017](decisions/0017-the-controller-builds-the-workers-repository.md)
+and run by an agent host in
+[decision 0018](decisions/0018-an-agent-runs-the-git-worker.md). The worker runs
+with no network, no credential, hooks and external merge drivers refused, and
+only the prepared workspace mounted. The controller publishes the commit; the
+worker never holds the GitHub token.
 
 Minimum tests: competing text edits preserving both sides; changes on only one
 side; rename and delete/modify policy; multiple merge bases; protected workflow
@@ -418,40 +440,74 @@ post-resolution CI failure; conflict-only mode not making unrelated code fixes.
 
 ### S4: final simplified controls and repository visibility
 
-Status: not started. May accompany S2/S3 where the backend capability exists.
+Status: the backend is in #1416, the first half of the UI in #1417, and the
+attempt history beside the current pull request in #1418. Repair settings offer
+the three behaviours, admit repository watching when a repository is saved, and
+show what is being watched; the hub lists each repository and its watched pull
+requests with the pause, resume and stop controls; one pull request shows its
+intended action, evidence, first failure, published commit and files, the checks
+now, and every attempt made on it. Not yet done: folding the Automatic repairs
+panel into these repository rows so one repository is one row, repository-scoped
+activity for people who are not administrators, and notifications. Nothing here
+has run against a live model, a real worker image or a real GitHub pull request.
 
 - Expose the final three behaviour choices only with actual capability support.
+  Done in #1417: the three choices are the two capabilities, and a repository
+  recording neither is not offered a fourth.
 - Select across GitHub connections while preserving each repository's verified
   installation identity. Explain discovery caps and partial enablement.
+  Partly done: setup keeps each repository's connection, the admission report
+  says when discovery stopped at its page limit, and each repository reports its
+  own result. Choosing repositories across several connections in one pass is
+  still one connection at a time.
 - Show effective mode, watched PR count, last successful observation, active
   work, failures needing help and pause/resume for each repository.
+  Done in #1417, on the hub and in repair settings.
 - Show one current PR view plus the attempt history: intended action, evidence,
   original failure, actual changed files/commit, new check results and next action.
+  Done in #1417 for the current pull request, and the history beside it in #1418:
+  the disclosure lists every attempt on that pull request, newest first, marks the
+  current one and links each to its own page. Raw source, model output and job
+  logs still stay on those pages behind their existing permission.
 - Add repository-scoped activity access using verified repository membership.
   Keep raw source/model responses and job-log access independently restricted.
+  Not done: the watches are administrator-only, as #1416 left them, and the rows
+  here do not widen raw access to solve it. This stays administrator-only until a
+  separate permission change, and the UI does not offer the section to anyone
+  else.
 - Notify on publication, needs-help and completion using existing in-app/event
   patterns. Update one GitHub progress comment without comment spam. The user
   must not need an open tab for the backend to keep watching.
+  Not done. Watching is server-side already, but nothing notifies yet beyond the
+  section saying a pull request needs a person.
 - Add pause PR, pause repository and stop-all controls with truthful in-flight
   semantics. Preserve policy/provider choices for resume.
+  Done in #1417.
 - Validate desktop/mobile, keyboard/focus behaviour, accessible status changes,
   empty/loading/error/partial states and exact wording of current vs historical
   outcomes. Do not show an all-clear when an observation failed.
+  Done in #1417 for the pages it adds: 26 Playwright cases on both devices, the
+  repairs pages of the accessibility audit, and unit cases for every sentence a
+  failed observation produces. F7's per-check outcomes are visible here too: the
+  retained fix summary and changed paths, and each check's outcome for the head
+  last observed.
 
 ## Relevant code and tests
 
 | Area | Entry points |
 | --- | --- |
 | Setup | `web/src/routes/EliRepairSetup.svelte`, `web/src/lib/repairs/RepairSetupPanel.svelte`, `RepositoryPicker.svelte` |
-| Hub and attempt | `web/src/routes/EliRepairs.svelte`, `EliRepairAttempt.svelte`, `web/src/lib/repairs/` |
+| Hub, watching and attempt | `web/src/routes/EliRepairs.svelte`, `EliRepairAttempt.svelte`, `web/src/lib/repairs/`, in particular `watches.ts` (the three behaviours, one watch or repository summarised, the control copy and its in-flight promise), `watchActions.ts`, `WatchedRepositories.svelte` and `PullRequestWatch.svelte` |
 | Admission, work and verification | `internal/controller/eli_repairs.go`, `eli_experience.go`, `eli_automatic.go` |
 | GitHub source and commit operations | `internal/github/eli_repairs.go`, `manifest.go`, `internal/controller/webhooks.go` |
 | Bounded model editor | `internal/prrepair/repair.go`, `context.go`, `supplied.go`, `diff.go` |
 | Durable state | `internal/store/queries_eli_repairs.go`, `queries_eli_repair_history.go`, `queries_eli_automatic.go` |
-| API | `internal/api/handlers_eli_repairs.go`, `api/openapi.yaml` |
+| API | `internal/api/handlers_eli_repairs.go`, `handlers_eli_watches.go`, `api/openapi.yaml` |
+| Conflict merge and publication | `internal/gitmerge/merge.go`, `internal/gitbare`, `internal/gitfetch`, `internal/controller/eli_merge_session.go`, `eli_merge_attempts.go`, `eli_conflict_repair.go`, `internal/conflictresolve/resolve.go` |
+| Agent worker and backend | `internal/agent/merge.go`, `internal/backend/mergeworker.go`, `internal/agent/protocol.go` (`FeatureMergeWorker`) |
 | Related read-only check evidence | `internal/github/pr_delay.go`, `internal/analysis/merge_delay.go`; these do not establish full merge readiness |
 | Backend regressions | `internal/github/eli_repairs_test.go`, `internal/controller/eli_repairs_test.go`, `internal/api/eli_automatic_test.go`, `internal/store/eli_repair_history_test.go`, `internal/store/eli_repair_watches_test.go` and `internal/store/idle_claims_test.go` (the watch claim) |
-| UI regressions | `web/tests/repairs.spec.ts`, `repair-hub.spec.ts`, `repair-attempt.spec.ts`, `repair-setup.spec.ts`, `web/unit/repair-*.test.ts` |
+| UI regressions | `web/tests/repairs.spec.ts`, `repair-hub.spec.ts`, `repair-attempt.spec.ts`, `repair-setup.spec.ts`, `repair-watching.spec.ts`, `web/unit/repair-*.test.ts` (including `repair-watches.test.ts`) |
 
 The repository's `.claude/skills/babysit/SKILL.md` describes a maintenance skill,
 not a shipped product watcher. Its bounded-loop principles are relevant; do not
@@ -481,7 +537,59 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1399](https://github.com/eyupio/zoomies/pull/1399), merged into #1396's branch as `fce82c8e`, stacked on #1396 | S3b: decision 0018, the archive reader and `internal/gitfetch` | `internal/gitbare` and `internal/gitfetch` race suites, including an end-to-end merge of what the fetch produced, docs, vet and formatting pass; nothing downloads an archive yet | The archive download over HTTP, then the `merge_conflict` task and the agent transport |
 | [#1402](https://github.com/eyupio/zoomies/pull/1402), open, stacked on #1399 | S3b: the archive download, the commit read and the `gitfetch` source adapter | Archive and commit tests through the production factory path, the no-credential-to-storage assertion, `staticcheck ./...`, build, vet and formatting pass | The controller adapter and the agent transport |
 | [#1404](https://github.com/eyupio/zoomies/pull/1404), open, stacked on #1402 | S3b: `gitbare.Pack` and `Unpack`, and the controller's attempt registry | Round-trip tests through the worker, the read-only loose objects, every refusal, the attempt lifecycle, `staticcheck ./...`, build and formatting pass | The `merge_conflict` task and the endpoints the agent uses |
+| [#1407](https://github.com/eyupio/zoomies/pull/1407), open, stacked on `codex/eli-git-merge-worker` | S3b: the `merge_conflict` task and `QueueMergeConflict` | Task payload, queue key and lease tests, the older-agent compatibility suite, build and formatting pass | The two endpoints over `mergeSession` and the agent handler |
+| [#1409](https://github.com/eyupio/zoomies/pull/1409), open, stacked on #1407 | S3b: pull and answer endpoints over `mergeSession`, their agent transport client, and the prepared attempt's three pins on the task | Race tests for the controller session, the agent transport, the API routes and the task payload; `make openapi`, vet and formatting pass; no agent handler, model or publication | The agent handler that pulls, unpacks, runs the worker image and posts the answer, then model resolution and two-parent publication |
+| [#1410](https://github.com/eyupio/zoomies/pull/1410), open, stacked on #1409 | S3b: the agent runs the prepared merge in a one-shot worker container, posts its answer and removes the workspace; the Docker and Podman backends gain the worker run | Race tests for the agent handler, the container backend, the controller result path and the docs; vet and formatting pass; no model resolution or publication | Model resolution, the two-parent commit and non-force publication, then S4 UX |
+| [#1411](https://github.com/eyupio/zoomies/pull/1411), open, stacked on #1410 | S3b: bounded model resolution of the text conflicts a worker returned, producing complete resolved files and rejecting markers, protected paths and oversized conflict sets | Race tests for the resolver, vet, staticcheck and formatting pass; no caller, two-parent commit or publication | The two-parent commit and non-force publication, then wiring a conflicted watch to the worker, model and publisher |
+| [#1412](https://github.com/eyupio/zoomies/pull/1412), open, stacked on #1411 | S3b: the worker's merged-tree change list, applying resolved files to it, and a two-parent commit with the head first that advances the branch without force after rechecking head and base | Race tests for the change list, the apply step and the GitHub commit path; `make openapi`, vet, staticcheck, docs and formatting pass; no watch wiring or pause/authorisation boundary | Wire a conflicted watch through the worker, resolver and commit, with pause and authorisation rechecked before the ref update |
+| [#1413](https://github.com/eyupio/zoomies/pull/1413), open, stacked on #1412 | S3b: the conflicted watch starts the worker, the answer loop runs the model and publishes the two-parent commit, admission accepts conflicts, and agents advertise the worker capability | Race tests for the start, answer, pause, unsupported-conflict and already-waiting-answer paths; vet, staticcheck, docs and formatting pass; no live model, real worker image or real GitHub mutation | S4 controls and live end-to-end validation |
+| [#1416](https://github.com/eyupio/zoomies/pull/1416), open, stacked on #1413 | S4 backend: REST routes to list, admit, pause, resume and stop per-PR watches, and to list, admit, pause and resume repository-wide decisions, with owner, role and audit handling | API and store tests, spec/router coverage, `make openapi`, vet, staticcheck, docs and formatting pass; no UI | The final UI and live end-to-end validation |
+| [#1417](https://github.com/eyupio/zoomies/pull/1417), open, stacked on #1416 | S4 UI: repair settings lead with the three behaviours and admit repository watching on save; the hub and repair settings list each repository's effective behaviour, watched count, last successful observation, activity and attention with its pull requests underneath; one pull request shows its intended action, evidence, first failure, published commit and files and the checks now; pause one pull request, pause a repository, resume either and stop all, each saying what happens to work already under way; a failed read never shows an all-clear | UI unit, type, lint and production build pass; 26 Playwright cases on desktop and mobile for the watching spec, the repairs, setup, hub and automatic suites and the repairs accessibility audit; Go and docs tests unchanged and green; no live model, worker image or GitHub PR | Live end-to-end validation; the attempt history beside the current pull request; one row per repository; non-administrator activity; notifications |
+| [#1418](https://github.com/eyupio/zoomies/pull/1418), open, stacked on #1417 | S4 UI follow-up: the watched pull request's disclosure lists every attempt on that pull request, newest first, with how it ended, when, who began it and the commit it published, and links each to the attempt page; the list is narrowed to the watched pull request, a failed read says so, and a truncated history says older attempts may be missing | UI type, lint and production build pass; 1,335 unit cases pass including two new history-order cases; 28 Playwright cases on desktop and mobile for `repair-watching`, including the new history case; the repairs pages of the accessibility audit pass on both devices; no Go or API change | One row per repository; non-administrator activity or an explicit administrator-only statement; notifications; live end-to-end validation |
 | [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
+
+S4 attempt-history validation on 6 November 2026:
+
+- `npm run check` in `web`: zero errors and zero warnings in both configurations.
+- `npm run test:unit` in `web`: 1,335 passed, zero failures, including the two new
+  `pullAttempts` cases for ordering, repository and pull-request narrowing, and a
+  timestamp that cannot be read.
+- `npm run lint` in `web`: prettier, eslint and the block-spacing check pass.
+- `npm run build`: the app shell at 149.1 KB of its 200 KB budget and the status
+  page at 29.5 KB of 30 KB.
+- Browser tests against a locally built binary, desktop and mobile, on a
+  temporary config using the shared fixture only (port 8099, `reuseExistingServer`
+  false): `tests/repair-watching.spec.ts` ran 28 cases, all passed, including the
+  new attempt-history case on both devices. The repairs pages of
+  `tests/a11y.spec.ts` ran 12 cases, all passed, on both devices.
+- No Go code changed: `go test ./internal/docs` is run below for the handoff edit.
+- Not validated: a live model, the real Git worker image and a real GitHub pull
+  request, which remain the rest of S4.
+
+
+S4 UI validation on 6 November 2026:
+
+- `npm run check` in `web`: zero errors and zero warnings in both configurations.
+- `npm run test:unit` in `web`: 1,333 passed, zero failures, including the 16 new
+  cases for `watches.ts`.
+- `npm run lint` in `web`: prettier, eslint and the block-spacing check pass.
+- `npm run build`: the app shell at 149.1 KB of its 200 KB budget and the status
+  page at 29.5 KB of 30 KB.
+- `make openapi`: both generated copies are unchanged, because this slice adds no
+  API shape. It consumes the routes #1416 already put on the API, and
+  `docs/api-surface.md` now describes them.
+- Browser tests against a locally built binary, desktop and mobile: the new
+  `tests/repair-watching.spec.ts` ran 26 cases and passed. The existing repairs
+  suites (`repairs`, `repair-setup`, `repair-hub`, `repair-automatic`,
+  `repair-page`) ran 160 cases with 158 passes; the two failures were the one
+  assertion the new form moved behind its fold, corrected in
+  `tests/repairs.spec.ts`, and its rerun passed all ten cases. The repairs pages
+  of the accessibility audit passed on both devices.
+- `go test ./internal/docs -count=1`, `go vet` on `internal/api`,
+  `internal/controller`, `internal/store` and `internal/docs`, and `staticcheck`
+  on the first two: pass. No Go code changed in this slice.
+- Not validated: a live model, the real Git worker image and a real GitHub pull
+  request, which is the rest of S4.
 
 S1 validation on 3 November 2026:
 
@@ -689,6 +797,343 @@ Limits of this slice:
   are not retained yet. The watch records one overall state.
 - Full repository `make test-short`, browser suites, the complete store suite with
   the race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S3b: the merge task, 5 November 2026
+
+This slice adds the task an agent is given: `merge_conflict`, which names the
+attempt whose repository to run the worker against and the image to run.
+
+- `agent.TaskMergeConflict` with `MergeID` and `MergeImage`. The repository's
+  bytes are not in the task: the agent pulls them from the controller by attempt
+  id, which is what keeps a GitHub credential on the controller and megabytes out
+  of the queue.
+- The task has a lease (`mergeLease`, ten minutes: a merge is seconds, but a cold
+  image pull on that host is not), the shared attempt bound, and a queue key per
+  attempt, so a repair that gave up leaves its task behind without holding up the
+  next conflict on the same host. It is deliberately not a lifecycle task: an
+  agent one release behind reports an unknown kind as failed, and a merge failing
+  must not mark a runner failed.
+- `Controller.QueueMergeConflict` is the one call that hands it to a host.
+
+Validation on 5 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 -run MergeTask ./internal/controller`: pass (5.956s):
+  the task carries the attempt and the image and names no runner, it is queued
+  once per attempt while a second attempt still gets through, and its lease,
+  attempt bound, lifecycle answer and cleanup answer are all the ones this task
+  needs.
+- `go test -race -count=1 -run 'Compat|Task|Agent' ./internal/agent ./internal/controller ./internal/api`:
+  pass (13.195s, 14.860s, 10.766s), so an older agent's answer about a kind it
+  does not know still changes nothing.
+
+Not run: the two agent endpoints over `mergeSession`, the agent handler that
+unpacks and runs the worker image, and the answer's return path. Those are the
+next slice.
+
+### S3b: the agent merge transport, 6 November 2026
+
+This slice is the controller's side of decision 0018. An agent can now pull a
+prepared attempt's repository with its three pinned commit ids and post exactly
+one worker answer. Nothing pulls the task yet: the agent handler that unpacks,
+runs the image and posts the answer is the next slice, and no conflict is
+resolved or published here.
+
+- `GET /api/v1/agent/merge/{merge_id}` serves the packed repository with
+  `X-Zoomies-Merge-Ancestor`, `-Base` and `-Head`, behind the agent credential and
+  the host budget. A second pull gets the same bytes; an answered or expired
+  attempt is refused rather than served.
+- `POST /api/v1/agent/merge/{merge_id}` accepts one `gitmerge.WorkerResponse`.
+  It must carry exactly one of a result and an error code, and a second answer is
+  a conflict, not a replacement. The answer is bounded by the worker's own 8 MiB
+  response budget, not the ordinary 1 MiB JSON limit.
+- `agent.Transport` gains `PullMergeRepository` and `ReportMergeAnswer`, with HTTP
+  and embedded implementations. The pull has its own five-minute deadline and is
+  bounded by `gitbare.MaxRepositoryBytes`; the answer uses the ordinary call
+  deadline.
+- The `merge_conflict` task now carries `MergeAncestor`, `MergeBase` and
+  `MergeHead`, as decision 0018 requires. `Controller.PrepareMerge` builds and
+  holds the attempt, and `QueueMergeConflict` takes the prepared attempt rather
+  than loose ids.
+- `mergeSession` is now owned by the controller. The housekeeping tick removes
+  attempts past their deadline, and shutdown removes every repository still held,
+  so neither a lost host nor a restart leaves prepared repositories on disk.
+- The private-connection allowlist admits the two new agent paths. Both are in
+  `api/openapi.yaml` as `x-internal` agent operations, and `make openapi`
+  regenerates the embedded document and the UI client as it does for every
+  served route.
+
+Validation on 6 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 -run 'Merge|AgentRoutes' ./internal/controller ./internal/api ./internal/agent`:
+  pass (controller 11.256s, api 15.054s, agent 1.054s). This covers the pull and
+  answer endpoints, a second pull and answer, an answer with neither or both
+  things, the prepared pins in headers and on the task, expiry and shutdown
+  cleanup, and the transport's own request shapes.
+- `go test -race -count=1 -run 'Merge|AgentRoutes' ./internal/gitmerge ./internal/gitbare ./internal/gitfetch`:
+  pass (1.625s, 1.385s, 1.013s; the last has no matching test).
+- `go vet` on the six changed packages and `staticcheck` on them: pass.
+- `go test -count=1 ./internal/docs`: pass (33.078s), with the handoff tracked.
+- `make openapi` regenerated `internal/api/openapi_spec.go` and
+  `web/src/lib/api/schema.d.ts`; `go test -count=1 -run 'TestTheSpecCoversTheRouter|TestEveryOperationRecordsItsRole|TestNoNewDescriptionInTheSpecIsCutAtItsFirstComma' ./internal/api`
+  passes. The first CI run found the new routes missing from the spec and two
+  unquoted flow descriptions; both are fixed.
+- The existing failed-fetch cleanup test now compares the temporary merge
+  directories before and after its own call. It previously failed when another
+  package's test binary happened to be preparing a repository at the same
+  moment; that is a test isolation fix, not a runtime change.
+
+Limits of this slice:
+
+- No agent handles `merge_conflict` yet. It is not queued by any production path,
+  and admission still refuses the conflicts capability.
+- No model resolution, two-parent commit or publication exists.
+- Full repository `make test`, browser suites, the complete store suite with the
+  race detector, a live model and end-to-end GitHub mutations were not run.
+
+### S4 backend: durable watches on the REST API, 6 November 2026
+
+This slice puts the watcher on the API the UI will call. It changes no runtime
+behaviour: the same loops admit and observe the same rows.
+
+- `GET /assistant/repairs/watches` lists per-PR watches newest first, filtered by
+  exact repository and by `enabled`, `paused` or `stopped`, with a page and a
+  total. `POST` admits one pull request; the caller becomes its owner.
+- `POST /assistant/repairs/watches/{id}/pause`, `/resume` and `/stop` change one
+  watch. Resume goes through the normal admission path, so the policy, provider,
+  access and pull request are checked again; stop stays terminal until a new
+  explicit admission.
+- `GET/POST /assistant/repairs/watches/repositories` list and admit
+  repository-wide decisions. `POST .../{id}/pause` stops new-PR discovery but
+  leaves already admitted watches alone; `POST .../{id}/resume` runs the normal
+  repository admission and turns discovery back on.
+- Reads need `assistant.read`, changes need `assistant.write`, and every change
+  writes its own audit row. The list never carries the observation lease, which
+  stays internal.
+- A repository decision needed two small store additions: reading one by id, and
+  pausing or resuming it without creating a watch.
+
+Validation on 6 November 2026:
+
+- `go test -count=1 -run 'EliWatch|Spec|Route' ./internal/api`: pass (11.934s).
+  The tests cover list filters, the lease never being serialised, pause and stop
+  reasons, a missing watch, repository listing and repository pause.
+- `go test -count=1 -run 'TestRouteTableCoversTheSpec|TestTheSpecCoversTheRouter|TestNoNewDescriptionInTheSpecIsCutAtItsFirstComma|TestEmbeddedSpecMatchesTheSource' ./internal/api`:
+  pass after quoting three descriptions and adding the watch id prefixes to the
+  route-table normaliser.
+- `make openapi` regenerated the embedded spec and the UI client; `go build ./...`
+  and `go vet` on the changed packages pass.
+- Changed-file `gofmt` and `git diff --check`: pass.
+
+Limits of this slice:
+
+- No UI uses these routes yet. Nothing has been validated against a live model,
+  real worker image or real GitHub PR.
+- The list is scoped by the same read rule as repair history and is otherwise a
+  snapshot of the watch rows; a repository-membership-scoped activity view is
+  still S4.
+- Admission still enumerates at most the discovery cap and reports it.
+
+### S3b: the conflicted watch, 6 November 2026
+
+This slice joins the pieces: a watch that follows conflicts now starts the
+worker, resolves the answer with the model and publishes the two-parent commit.
+It adds no migration and no public contract change; the conflict capability
+becomes available through the controller's existing admission.
+
+- `eliWatchCapabilities` accepts `checks`, `conflicts` or both. The observer
+  reads GitHub's mergeability as it already did; when the head is known not to
+  be mergeable and a merge base is pinned, it claims the incident by watch,
+  head, base and merge base, prepares the repository in a tracked goroutine, and
+  queues `merge_conflict` on a host advertising the new `merge-worker` feature.
+  The watch's next check is kept at two minutes while the incident is carried.
+- An agent advertises `merge-worker` only when one of its registered backends
+  implements the one-shot worker run. The worker image tag follows the
+  controller's channel (`version.Channel`), through
+  `naming.GitWorkerImage`, so a dev controller asks for `:dev`.
+- A separate `conflict-repairs` loop takes answered attempts. It rechecks the
+  watch, policy, provider, installation and pull request before model work, asks
+  the model only for the conflicted files, applies those files to the worker's
+  merged-tree changes, and rechecks the same authority, the conflict evidence
+  and the head and target tip again before the ref update.
+- A paused or stopped watch, a changed policy or provider, a moved head or base,
+  a conflict that is no longer present, or a lost capability each discards the
+  work rather than publishing it. A second observation of the same incident does
+  not start a second worker.
+- A conflict no model may resolve is held for an hour for a person rather than
+  retried every couple of minutes. A transient model or provider failure is let
+  go so the next observation can try again.
+
+Validation on 6 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 -run 'Conflict|Conflicted|AdmitEliRepairWatch|DueWatch' ./internal/controller`:
+  pass (15.665s). The tests start the worker from a real prepared repository,
+  publish the model's resolved file through a two-parent commit, refuse to
+  publish after a pause, hold an unsupported conflict without opening the model,
+  and process an answer that arrived before the loop.
+- `go test -race -count=1 -run 'Merge|Feature|GitWorkerImage' ./internal/agent ./internal/naming`:
+  pass (agent 1.187s; naming has no matching test).
+- `go build ./...`, `go vet` on the changed packages and `staticcheck` on them:
+  pass.
+- `go test -count=1 ./internal/docs`: pass (23.769s), with the architecture text
+  updated.
+- Changed-file `gofmt` and `git diff --check`: pass.
+
+Limits of this slice:
+
+- The conflict claim is in memory. A controller restart during the worker or the
+  model loses that attempt; the watch starts again from fresh evidence.
+- No UI exposes the conflict capability or shows its activity yet, and no live
+  model, real worker image or real GitHub mutation was run.
+- The final S4 controls and the conflict-only presentation remain.
+
+### S3b: the merged tree and the two-parent commit, 6 November 2026
+
+This slice carries the merge out of the worker's repository and into GitHub. The
+worker's tree object does not exist there, so the worker now reports every file
+the merged tree has that the pull request head does not; the controller can
+therefore ask GitHub to build the same tree and commit it.
+
+- `gitmerge.Result` gains `Changes`: added, modified, deleted and mode-changed
+  entries relative to the pull request head, with blob content or a submodule
+  commit id. The set is bounded at 4,000 files and 4 MiB, and an oversized merge
+  is refused with the worker's existing `too_large` code rather than truncated.
+- `conflictresolve.ApplyChanges` puts the model's resolved files back into that
+  list, keeping the worker's mode and refusing a path the merge did not change, a
+  deleted path, or a resolved file that still carries a marker.
+- `github.CommitConflictResolution` re-reads the pull request, then creates a
+  tree from the head tree plus those changes, a commit whose parents are the head
+  first and the pinned base second, and advances the branch with `force: false`.
+  It reads the pull request again immediately before the ref update, so a head or
+  base movement after the model's work discards the attempt rather than
+  publishing a commit for a stale incident.
+- A deletion is sent as a null `sha`; a submodule as a commit entry; a file mode
+  outside the blob modes this path supports is refused.
+- The agent's merge answer schema in `api/openapi.yaml` now documents `changes`,
+  and `make openapi` regenerated both clients.
+
+Validation on 6 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 -run 'Merge|ConflictCommit|Resolve|ApplyChanges' ./internal/gitmerge ./internal/github ./internal/conflictresolve`:
+  pass (gitmerge 1.671s, github 1.167s, conflictresolve 1.022s). The tests cover
+  the head-relative change list including a deletion, a mode change and binary
+  content; applying a resolution while keeping an executable mode; refused
+  deletions, markers and out-of-scope paths; two parents with the head first;
+  a null deletion entry; a submodule entry; a non-forced ref update; and a head
+  or base movement refusing before the ref moves.
+- `go build ./...`, `go vet` on the changed packages, `staticcheck` on them,
+  `go test -count=1 ./internal/docs` (25.791s), changed-file `gofmt` and
+  `git diff --check`: pass.
+- `make openapi` regenerated `internal/api/openapi_spec.go` and
+  `web/src/lib/api/schema.d.ts`; the spec-cover-the-router and description-lint
+  tests pass.
+
+Limits of this slice:
+
+- No watch calls any of this yet. The pause, authorisation and transfer-drain
+  checks at the publication boundary, and the conflict capability's admission,
+  are still to write.
+- The worker's change list is the complete difference from the head, so a merge
+  whose base moved thousands of files is refused rather than partially published.
+- No live model, real GitHub mutation or real worker image was run. The tests use
+  real local Git repositories and a scripted GitHub API.
+
+### S3b: bounded model resolution of a merge conflict, 6 November 2026
+
+This slice adds `internal/conflictresolve`, the step between a worker's conflict
+answer and a commit. It asks a model to resolve only the text conflicts the
+worker classified as supported, and it returns complete files for those paths.
+It has no caller yet: nothing is committed, pushed or watched.
+
+- The two sides are rendered in the marker form a person sees, with the common
+  ancestor supplied beside them as evidence. The model is told to keep both
+  intents and remove every marker.
+- The resolver uses the existing bounded editor (`internal/prrepair`), so the
+  model reads and edits only the conflicted files, workflow paths stay subject
+  to the repository policy, and the source, file and step budgets are the ones
+  every repair already has.
+- A path protected by the repair policy, a conflict set larger than the editing
+  allowance, or a conflict file larger than the blob limit is refused before the
+  model is called.
+- The answer must name a resolved file for every conflict, and no resolved file
+  may still contain a marker line. A model that adds a path outside the conflict
+  set, leaves one unresolved or leaves markers is refused.
+
+Validation on 6 November 2026:
+
+- `go test -race -count=1 ./internal/conflictresolve`: pass (1.021s). The tests
+  cover both sides reaching the model, a complete resolved file, a marker left
+  in a changed file, a protected workflow path refused before any model call,
+  too many conflicts, an empty set and a missing resolution.
+- `go vet ./internal/conflictresolve` and `staticcheck ./internal/conflictresolve`:
+  pass.
+- Changed-file `gofmt` and `git diff --check`: pass.
+
+Limits of this slice:
+
+- There is no caller. The two-parent commit, the non-force publication, the
+  merged-tree change list and the wiring from a conflicted watch do not exist.
+- The model is not given the rest of the repository, only the conflicted files
+  and their common ancestor. That is deliberate for this stage; the next stage
+  may supply further context if the merge evidence supports it.
+- No live model was run; the tests use a scripted model. No real GitHub mutation
+  was made.
+
+### S3b: the agent runs the merge worker, 6 November 2026
+
+This slice completes decision 0018's agent half. A `merge_conflict` task now
+pulls the prepared repository, unpacks it, runs the published worker image in a
+one-shot container and posts the one answer. It adds no migration and no public
+API; admission still refuses the conflicts capability, and no conflict is
+resolved or published.
+
+- The task is dispatched beside runner work, not through the lifecycle claim:
+  it names no runner, a failure changes no runner state, and a cordoned host may
+  still merge.
+- `internal/agent/merge.go` pulls the attempt, refuses a repository whose three
+  pins differ from the task's, and makes a workspace under `agent.work_dir`
+  (or the temporary directory). It unpacks with `gitbare.Unpack`, writes the
+  worker request beside the repository, parses the answer with unknown fields
+  refused, posts it, and removes the workspace whatever happened.
+- A second answer the controller already holds (409) is a lost reply, not a
+  failure: the task reports success and stops. A worker answer carrying an
+  error code is posted and reported as a failed task with that sentence.
+- `backend.MergeWorkerRunner` is the new optional contract. Docker and Podman
+  implement it by preparing the image, creating a container with only the
+  workspace mounted at `/work` and no network, waiting with a deadline, reading
+  `answer.json` rather than mixing Git's stderr into the answer, and removing the
+  container before and after. The container carries no managed label, so
+  reconciliation never mistakes it for a runner.
+- The worker runs as the image's own user while the workspace belongs to the
+  agent, so the agent makes the workspace directories writable and passes
+  `safe.directory` for `/work/repository`; file modes, including read-only loose
+  objects, are left alone. The request carries no credential and the container
+  has no route out.
+- The controller's result path recognises a merge task and only logs the host's
+  failure; the prepared repository is left to its deadline rather than deleted
+  under a late answer. The docs now say the agent, not the controller, starts the
+  worker.
+
+Validation on 6 November 2026, on Git 2.39.5:
+
+- `go test -race -count=1 -run 'Merge|AgentRoutes' ./internal/agent ./internal/backend ./internal/controller ./internal/api`:
+  pass (agent 1.223s, backend 1.058s, controller 11.951s, api 15.196s). This
+  covers the pull/unpack/run/answer path, mismatched pins, an unreadable answer,
+  an already-answered attempt, a worker error answer, a backend without the
+  capability, workspace removal, the dispatch path and the container config.
+- `go test -race -count=1 -run RunMergeWorker ./internal/backend`: pass (1.041s).
+- `go vet` on the four packages and `staticcheck` on them: pass.
+- `go test -count=1 ./internal/docs`: pass (24.949s), with the three documentation
+  pages updated.
+- `go build ./...`, changed-file `gofmt` and `git diff --check`: pass.
+
+Limits of this slice:
+
+- The container backend is tested through the repository's fake engine; no real
+  worker image was built or run here and no container runtime was available.
+- Model resolution, the two-parent commit, non-force publication and the final
+  controls do not exist yet.
+- Full repository `make test`, browser suites, the complete store suite with the
+  race detector, a live model and end-to-end GitHub mutations were not run.
 
 ### S3b: the repository's journey to the agent, 5 November 2026
 
@@ -1535,26 +1980,36 @@ Limits of this slice:
 
 Use focused tests while iterating. The controller package is large, so record
 which tests actually ran and whether the race detector was used. Browser specs
-must exercise the current built UI and include desktop and mobile. Live-model
-evaluations and real GitHub mutation tests require separate configured access;
-local fixtures are not evidence of those running.
+must exercise the current built UI and include desktop and mobile. A browser run
+serves the controller the fixture boots, which is the binary at the repository
+root, so rebuild it (`npm run build`, then `go build -o zoomies ./cmd/zoomies`)
+after any UI change: `web/playwright.config.ts` reuses a server already listening
+on the fixture port, and a stale binary silently serves the previous page, which
+looks like a test failure rather than an old build. Live-model evaluations and
+real GitHub mutation tests require separate configured access; local fixtures are
+not evidence of those running.
 
-In this managed workspace the Go toolchain is `/workspace/.tools/go/bin/go`;
-`/usr/bin/go` is a different program. Cached modules/build data are under
-`/workspace/.cache/go-mod` and `/workspace/.cache/go-build`. Do not repurpose HOME
-or print credentials. Those paths are workspace conveniences, not production
-requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
-`PLAYWRIGHT_CHROMIUM` override when needed.
+A managed workspace may put the Go toolchain somewhere other than the default
+`go` on the path; run `go version` before trusting it, because an older build
+fails on `go.mod`'s floor. Earlier sessions in one workspace found
+`/workspace/.tools/go/bin/go` beside an unrelated `/usr/bin/go`, with module and
+build caches under `/workspace/.cache/`. Whether that applies is a property of
+the workspace, not of this repository, so nothing here depends on it. Playwright
+downloads its own Chromium; where a sandbox has a compatible build elsewhere,
+`PLAYWRIGHT_CHROMIUM` points at it and `playwright.config.ts` applies it to every
+project. Do not repurpose HOME or print credentials.
 
 ## Starting the next session
 
 1. Read this file, root/scoped `AGENTS.md`, and the actual latest PR diff/status.
    Confirm which slices merged; a branch or checked box alone is not proof.
 2. Check the working tree and live base branch. Preserve unrelated user changes.
-   Review this PR before starting a new slice. For further implementation, start
-   from `codex/eli-git-merge-worker` or its merged successor. Do not redo S1
-   through S3a or the merge package. The next unfinished work is the worker
-   command and transport, then model resolution and publication.
+   Review the newest PR before starting a new slice. For further implementation,
+   merge #1407, #1409, #1410, #1411, #1412, #1413, #1416, #1417 and #1418 in
+   that order and start from `main`, or branch from the top of the stack. Do not
+   redo S1 through S3b or the S4 UI already in #1417 and #1418. The next unfinished
+   work is live validation of conflict repair against a real model, the real worker
+   image and a real GitHub pull request, then the remaining S4 items listed above.
 3. Continue the first unfinished acceptance criterion. Read the existing store,
    API and model boundaries before adding another path around them.
 4. Add regression tests for the observable behaviour and regenerate contracts
@@ -1563,3 +2018,117 @@ requirements. Chromium is `/usr/bin/chromium`; use the test suite's existing
    in the same commit set. Add the real PR link once assigned. State explicitly
    which user-visible capabilities are still unavailable and what the next PR
    should implement. Do not require the next session to reconstruct this chat.
+
+## Review corrections for #1413
+
+Merged assets with invalid UTF-8 now use base64 blob creation and tree SHA
+references, preserving their bytes. A merge task without an explicit backend
+selects a registered container worker when the default backend runs processes.
+Answered conflict jobs remain queued beyond the worker deadline until the
+resolver takes them; the attempt bound and shutdown cleanup still apply.
+Regression tests cover all three cases. `go test -race -count=1 -run
+'Conflict|Merge' ./internal/github ./internal/controller ./internal/agent`
+passed. The next unfinished step remains live end-to-end validation and the
+remaining S4 presentation work recorded on the later stacked branches.
+## Review corrections for #1411
+
+Ancestor text is now supplied as read-only virtual source through the repair
+reader and its existing window and byte budgets. It is no longer embedded in
+failure evidence. Conflicts carry the worker's file mode, and a resolution keeps
+an executable file executable. Tests cover a 200 KiB ancestor and mode 100755.
+`go test -race -count=1 ./internal/conflictresolve ./internal/gitmerge` passed.
+The next unfinished step remains live end-to-end validation and the later S4
+controls described in the newer stacked branches.
+
+## Review correction for #1410
+
+The Git worker now supplies its prepared repository's exact `safe.directory`
+through trusted Git command arguments, after environment sanitisation. The
+container no longer sets environment variables that the worker discards.
+A regression test simulates differing repository ownership at Git's boundary.
+`go test -race -count=1 ./internal/gitmerge ./internal/backend` passed.
+The next unfinished step remains model resolution and publication in the later
+stacked slices, followed by live end-to-end validation.
+
+## Final integration of the open PRs
+
+The independent UI fixes in #1408 and the typography and geometry work in
+#1415 have also merged into #1407's integration branch, at checkpoint
+`577bca8d`. #1407 is the only remaining open PR from this batch. Dashboard
+components, gallery assertions and the design guide now agree on sentence case,
+8-pixel controls and 4-pixel badges and chips. Dashboard validation passes both
+UI type checks, lint, build, 1,316 unit tests (one expected local gawk skip),
+all 27 gallery cases and the documentation checks. The previous stack's
+1,334 passing UI units and focused Go race tests are recorded above.
+The required CI gate on the final combined commit remains pending. The workflow's
+GitHub-hosted recovery option is available when the self-hosted fleet stalls.
+Live model, worker-image and production GitHub repair validation remain open.
+
+The final integration also aligns the sign-in stage and Overview event-marker
+browser contracts with the shared radius tokens. Their colour, theme, icon and
+border assertions remain in place; the obsolete 28-pixel and circular-shape
+expectations are removed. Changed browser specs pass formatting and ESLint.
+
+## CI browser follow-up
+
+The full recovery run passed the Go shards, platform tests, image builds,
+coverage and supporting checks. Its browser legs found two stale repair-settings
+expectations and a real phone interaction defect: the expanded grid cell gained
+padding until hovered, then removed it, moving a nested job button as a click
+landed. The mobile expansion now keeps the same padding in both states.
+Repair-settings tests recognise the watching result and open the mode disclosure;
+the repair fixture aborts live event frames while it owns the mocked reads.
+All 38 repair-settings and workflow browser cases pass on desktop and mobile,
+including the unforced click that failed before the CSS fix. The production UI
+and binary builds and UI lint pass. The full gate must pass again on this revision
+before #1407 merges to `main`.
+
+## Coverage correction for #1407
+
+The Codecov patch check failed at 74.59% of the diff against an 85.31% target,
+with 262 changed lines uncovered. There were no human review comments on the
+pull request; the only comment was Codecov's report. The gaps were failure paths
+in the conflict-repair controller, the watch routes, the agent merge handler,
+the conflict resolver, the two-parent commit, the container worker and the
+repository-wide admission.
+
+Tests were added for those paths, in the files that own the behaviour:
+
+- `internal/controller/eli_conflict_repair_test.go`: the claim lifetime, a
+  worker answer with no result, a moved pull request, a provider that cannot
+  open, an unusable model answer, a resolution outside the merged changes, a
+  conflict that disappeared, a draining controller, both publish failures, a
+  missing worker host and every `currentConflictAuthority` gate.
+- `internal/controller/eli_repair_watch_loop_test.go`: pausing and resuming a
+  repository decision, including a missing one.
+- `internal/api/eli_watches_test.go`: the three watch states, state filtering
+  and paging past the end, admit and resume refusals without a person or with a
+  malformed body, the capability list, and repository filtering and refusals.
+- `internal/agent/merge_test.go`: pull, workspace, unpack, worker, decode and
+  backend failures.
+- `internal/conflictresolve/resolve_test.go`: a missing model, oversized and
+  unsupported conflicts, model failures, ancestor edits, an unknown reader path
+  and the `ApplyChanges` refusals.
+- `internal/github/eli_conflict_commit_test.go`: every input and write the
+  commit path refuses.
+- `internal/backend/mergeworker_test.go`: an empty image, an unusable
+  workspace, each container failure and an oversized answer.
+
+Validation on 6 November 2026:
+
+- `go test -race -count=1 -timeout 40m ./internal/controller`: pass (991.873s).
+  The default 10-minute timeout failed this package on the first attempt; the
+  suite's own recorded runtime is longer than that under the race detector.
+- `go test -race -count=1 ./internal/api ./internal/agent ./internal/backend ./internal/conflictresolve ./internal/github ./internal/gitmerge ./internal/gitfetch ./internal/gitbare`:
+  pass (510.952s, 19.796s, 27.260s, 1.246s, 8.253s, 1.807s, 1.484s, 1.479s).
+- A combined coverage profile over those packages gives 86.49% of the changed
+  statements covered (826 of 955) against the 85.31% target. This is a local,
+  statement-weighted estimate; Codecov counts changed lines and may differ
+  slightly.
+- `go vet`, `staticcheck`, `gofmt -l` and `git diff --check`: clean on the
+  changed packages.
+- `go test -count=1 ./internal/docs`: pass (19.834s).
+
+Limitation: none of this covers the live model, the real worker image or a real
+GitHub pull request. The next step is to let CI recompute the Codecov check on
+this revision and confirm it passes.

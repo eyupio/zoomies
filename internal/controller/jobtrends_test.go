@@ -96,6 +96,44 @@ func TestAJobThatGotMuchSlowerIsSaidAsInformation(t *testing.T) {
 	}
 }
 
+// Two jobs getting slower are two problems, each with an identity of its own.
+// They used the same key (same code, no target) and the UI keys its list by
+// that, so a second one was a repeated key and the Problems panel failed to
+// render at all.
+func TestEachSlowerJobIsItsOwnProblem(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation().ID
+	n := int64(1500)
+	for _, name := range []string{"Go (api)", "Go (web)"} {
+		for i := 0; i < 12; i++ {
+			n++
+			seedJob(t, h, inst, n, name, "success", 2*24*time.Hour+time.Duration(i)*time.Hour, 5*time.Minute, "")
+			n++
+			seedJob(t, h, inst, n, name, "success", time.Duration(i+1)*time.Hour, 11*time.Minute, "")
+		}
+	}
+	ps, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]bool{}
+	for _, p := range ps {
+		if p.Code != "jobs.duration_regressed" {
+			continue
+		}
+		if p.TargetKind != "job" || p.TargetID == "" {
+			t.Errorf("problem %q has no job identity: target %q %q", p.Title, p.TargetKind, p.TargetID)
+		}
+		if targets[p.TargetID] {
+			t.Errorf("two slower jobs share the target %q", p.TargetID)
+		}
+		targets[p.TargetID] = true
+	}
+	if len(targets) != 2 {
+		t.Errorf("got %d slower-job problems, want 2: %v", len(targets), targets)
+	}
+}
+
 func TestAJobWithTooFewRunsOrTooSmallAChangeIsNotSaidToBeSlower(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation().ID

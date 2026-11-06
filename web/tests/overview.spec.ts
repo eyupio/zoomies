@@ -1328,18 +1328,22 @@ test('the body is drawn from the registry, in its order, and one column on a pho
   expect(columns).toBe(1);
 });
 
-// The mark before an event is a pill in the tone of the news, with the icon
+// The compact mark before an event is in the tone of the news, with the icon
 // inside it: the shape and the icon both say what kind it is, never the
 // colour alone.
-test("an event's mark is a pill in its tone, the icon inside it", async ({ page }) => {
+test("an event's mark is compact and in its tone, with the icon inside it", async ({ page }) => {
   const feed = page.getByRole('region', { name: 'Recent events', exact: true });
   const mark = feed.getByRole('listitem').first().locator('.mark');
   await expect(mark).toBeVisible();
-  const [radius, height, border] = await mark.evaluate((el) => {
+  const [radius, small, border] = await mark.evaluate((el) => {
     const s = getComputedStyle(el);
-    return [parseFloat(s.borderTopLeftRadius), el.getBoundingClientRect().height, s.borderTopWidth];
+    return [
+      s.borderTopLeftRadius,
+      getComputedStyle(document.documentElement).getPropertyValue('--z-radius-sm').trim(),
+      s.borderTopWidth,
+    ];
   });
-  expect(radius).toBeGreaterThanOrEqual(height / 2);
+  expect(radius).toBe(small);
   expect(border).toBe('1px');
   await expect(mark.locator('svg')).toHaveCount(1);
 });

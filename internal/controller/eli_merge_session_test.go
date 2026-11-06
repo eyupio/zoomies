@@ -26,6 +26,7 @@ type mergeSessionFixture struct {
 	pin      gitfetch.Pin
 	session  *mergeSession
 	attempts *mergeAttempts
+	clock    *time.Time
 }
 
 func newMergeSessionFixture(t *testing.T) mergeSessionFixture {
@@ -39,7 +40,7 @@ func newMergeSessionFixture(t *testing.T) mergeSessionFixture {
 	mergeFixture(t, f, repo, ancestor, nil, map[string]string{"file.txt": "a\nb\nc\n"})
 	mergeFixture(t, f, repo, base, []string{ancestor}, map[string]string{"file.txt": "a\nb\nC\n"})
 	mergeFixture(t, f, repo, head, []string{ancestor}, map[string]string{"file.txt": "a\nB\nc\n"})
-	attempts, _ := attemptsAt(time.Unix(1700000000, 0), time.Minute, 4)
+	attempts, clock := attemptsAt(time.Unix(1700000000, 0), time.Minute, 4)
 	return mergeSessionFixture{
 		fake:     f,
 		client:   f.Client(repo, store.TargetRepo),
@@ -47,6 +48,7 @@ func newMergeSessionFixture(t *testing.T) mergeSessionFixture {
 		pin:      gitfetch.Pin{Ancestor: ancestor, Base: base, Head: head},
 		session:  newMergeSession(attempts),
 		attempts: attempts,
+		clock:    clock,
 	}
 }
 
@@ -58,17 +60,27 @@ func TestAMergeSessionPreparesAnswersAndCleansUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("preparing the merge: %v", err)
 	}
-	if prepared.ID == "" || prepared.Image == "" || len(prepared.Repository) == 0 {
+	if prepared.ID == "" || prepared.Image == "" {
 		t.Fatalf("prepared %+v", prepared)
+	}
+	if prepared.Ancestor == "" || prepared.Base == "" || prepared.Head == "" {
+		t.Fatalf("prepared %+v carries no pinned commits", prepared)
 	}
 	if fixture.attempts.len() != 1 {
 		t.Fatalf("%d attempts are held, want 1", fixture.attempts.len())
 	}
 
-	// The agent unpacks what it was given and merges in it, exactly as the worker
+	// The agent pulls what it was given and unpacks it, exactly as the worker
 	// will, so the bytes are checked by the thing that consumes them.
+	served, err := fixture.session.repository(context.Background(), prepared.ID)
+	if err != nil {
+		t.Fatalf("pulling the repository: %v", err)
+	}
+	if served.Ancestor != prepared.Ancestor || served.Base != prepared.Base || served.Head != prepared.Head {
+		t.Fatalf("served pins %q/%q/%q, want %q/%q/%q", served.Ancestor, served.Base, served.Head, prepared.Ancestor, prepared.Base, prepared.Head)
+	}
 	workspace := t.TempDir()
-	if err := gitbare.Unpack(bytes.NewReader(prepared.Repository), workspace, gitbare.Budget{}); err != nil {
+	if err := gitbare.Unpack(bytes.NewReader(served.Repository), workspace, gitbare.Budget{}); err != nil {
 		t.Fatalf("unpacking what the controller handed out: %v", err)
 	}
 	held, err := fixture.attempts.repository(prepared.ID)
@@ -154,5 +166,52 @@ func TestAMergeSessionPreparesNoAttemptForABadPin(t *testing.T) {
 	}
 	if fixture.attempts.len() != 0 {
 		t.Fatalf("%d attempts were held for a pin that was refused", fixture.attempts.len())
+	}
+}
+
+// A repository nobody answers is removed when its deadline passes, so a repair
+// lost with its host does not fill the controller's disk.
+func TestAMergeSessionExpiresWhatNoAgentAnswered(t *testing.T) {
+	fixture := newMergeSessionFixture(t)
+	prepared, err := fixture.session.prepare(context.Background(), fixture.client, fixture.repo, fixture.pin, "image")
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := fixture.attempts.repository(prepared.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*fixture.clock = fixture.clock.Add(2 * time.Minute)
+	if removed := fixture.session.expire(); removed != 1 {
+		t.Fatalf("expiring removed %d attempts, want 1", removed)
+	}
+	if _, statErr := os.Stat(held.Dir); !os.IsNotExist(statErr) {
+		t.Fatalf("the expired repository is still there: %v", statErr)
+	}
+	if _, err := fixture.session.repository(context.Background(), prepared.ID); !errors.Is(err, ErrNoMergeAttempt) {
+		t.Fatalf("an expired attempt answered %v", err)
+	}
+}
+
+// Shutdown removes every repository still held, and does nothing when there is
+// none.
+func TestAMergeSessionClosesEveryRepositoryItHolds(t *testing.T) {
+	fixture := newMergeSessionFixture(t)
+	prepared, err := fixture.session.prepare(context.Background(), fixture.client, fixture.repo, fixture.pin, "image")
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := fixture.attempts.repository(prepared.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed := fixture.session.close(); removed != 1 {
+		t.Fatalf("closing removed %d attempts, want 1", removed)
+	}
+	if _, statErr := os.Stat(held.Dir); !os.IsNotExist(statErr) {
+		t.Fatalf("closing left the repository behind: %v", statErr)
+	}
+	if removed := fixture.session.close(); removed != 0 {
+		t.Fatalf("a second close removed %d attempts, want 0", removed)
 	}
 }

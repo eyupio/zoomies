@@ -71,7 +71,7 @@
     margin-bottom: var(--z-space-2);
     padding: var(--z-space-1) var(--z-space-2) var(--z-space-1) var(--z-space-1);
     border: var(--z-border-width) solid var(--z-border-strong);
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-md);
     background: var(--z-surface-raised);
   }
   .grip {
@@ -81,7 +81,7 @@
     width: var(--z-space-8);
     height: var(--z-space-8);
     border: 0;
-    border-radius: var(--z-radius-full);
+    border-radius: var(--z-radius-sm);
     background: none;
     color: var(--z-text-muted);
     cursor: grab;

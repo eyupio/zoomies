@@ -1449,6 +1449,47 @@ export const listEliRepairRepositories = (
     query,
     signal,
   });
+
+/*
+  Durable watching: one pull request, or a repository's open ones. The three
+  behaviours a person chooses are pairs of these capabilities, so the API takes
+  the capabilities and the page names the behaviour.
+*/
+
+/** The per-PR watches, newest first. A filter of `repo` is an exact name. */
+export const listEliWatches = (query?: Query<'listEliWatches'>, signal?: AbortSignal) =>
+  api.get<Result<'listEliWatches'>>('/assistant/repairs/watches', { query, signal });
+export const admitEliWatch = (body: Body<'admitEliWatch'>) =>
+  api.post<Result<'admitEliWatch'>>('/assistant/repairs/watches', { body });
+export const pauseEliWatch = (id: string, body?: OptionalBody<'pauseEliWatch'>) =>
+  api.post<Result<'pauseEliWatch'>>(`/assistant/repairs/watches/${enc(id)}/pause`, { body });
+export const resumeEliWatch = (id: string) =>
+  api.post<Result<'resumeEliWatch'>>(`/assistant/repairs/watches/${enc(id)}/resume`, {});
+export const stopEliWatch = (id: string, body?: OptionalBody<'stopEliWatch'>) =>
+  api.post<Result<'stopEliWatch'>>(`/assistant/repairs/watches/${enc(id)}/stop`, { body });
+
+/** The repository-wide decisions: what a repository admits, and whether it is paused. */
+export const listEliWatchRepositories = (
+  query?: Query<'listEliWatchRepositories'>,
+  signal?: AbortSignal,
+) =>
+  api.get<Result<'listEliWatchRepositories'>>('/assistant/repairs/watches/repositories', {
+    query,
+    signal,
+  });
+export const admitEliWatchRepository = (body: Body<'admitEliWatchRepository'>) =>
+  api.post<Result<'admitEliWatchRepository'>>('/assistant/repairs/watches/repositories', { body });
+export const pauseEliWatchRepository = (id: string) =>
+  api.post<Result<'pauseEliWatchRepository'>>(
+    `/assistant/repairs/watches/repositories/${enc(id)}/pause`,
+    {},
+  );
+export const resumeEliWatchRepository = (id: string) =>
+  api.post<Result<'resumeEliWatchRepository'>>(
+    `/assistant/repairs/watches/repositories/${enc(id)}/resume`,
+    {},
+  );
+
 export const getEliReadiness = (query: Query<'getEliReadiness'>, signal?: AbortSignal) =>
   api.get<Result<'getEliReadiness'>>('/assistant/repairs/readiness', { query, signal });
 export const getEliRepair = (id: string, signal?: AbortSignal) =>

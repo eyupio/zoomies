@@ -202,7 +202,29 @@ func (a *Agent) features() []string {
 	if a.selfUpdateReady() {
 		out = append(out, FeatureSelfUpdate)
 	}
+	if a.canRunMergeWorker() {
+		out = append(out, FeatureMergeWorker)
+	}
 	return out
+}
+
+// canRunMergeWorker reports whether any registered backend can run the
+// one-shot worker image. The flag is about the backend, not about a pool or a
+// host's current load: a merge names no runner and needs no free slot.
+func (a *Agent) canRunMergeWorker() bool {
+	if a.opts.Backends == nil {
+		return false
+	}
+	for _, kind := range a.opts.Backends.Kinds() {
+		b, err := a.opts.Backends.Get(kind)
+		if err != nil {
+			continue
+		}
+		if _, ok := b.(backend.MergeWorkerRunner); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // applyMemoryDirective replaces the valve's rules with the heartbeat's. A

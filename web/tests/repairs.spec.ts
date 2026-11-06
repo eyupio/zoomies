@@ -5,6 +5,9 @@ test('repair settings discovers repositories and saves a manual policy without a
   page,
 }) => {
   await goto(page, '/repairs/setup', 'Repair settings');
+  // The three behaviours are the front of the form; a manual policy and the
+  // switches beside it are behind the fold, because they are the exceptions.
+  await page.getByText('When Eli acts, and what it may edit').click();
   await page.locator('#repair-mode').selectOption('manual');
   const repositories = page.getByRole('group', { name: 'Select repositories', exact: true });
   await repositories.getByRole('checkbox', { name: 'acme/site', exact: true }).check();

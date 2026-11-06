@@ -335,10 +335,8 @@
     flex-wrap: wrap;
   }
   .title {
-    font-size: var(--z-text-2xs);
-    font-weight: var(--z-weight-semibold);
-    letter-spacing: var(--z-tracking-wider);
-    text-transform: uppercase;
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-medium);
   }
   .summary {
     font-size: var(--z-text-xs);

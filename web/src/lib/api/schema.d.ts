@@ -4153,6 +4153,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/assistant/repairs/watches/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List repository-wide watching decisions
+         * @description One row for each explicit decision to follow a repository's open pull requests. A paused decision admits nothing new but leaves watches already admitted alone. Optional `repo` exact match and `state` of `enabled` or `paused` narrow the list.
+         */
+        get: operations["listEliWatchRepositories"];
+        put?: never;
+        /**
+         * Follow a repository’s open pull requests
+         * @description Reads the repository's open pull requests once, admits a watch for each eligible one and records the repository-wide decision. A pull request already watched is left as it is, so a pause on one PR is not undone. Forks, drafts and unwritable heads are returned as exclusions, and the report says when discovery was capped.
+         */
+        post: operations["admitEliWatchRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/watches/repositories/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop admitting new pull requests for a repository
+         * @description Pausing a repository decision stops new-PR discovery for that repository. Watches already admitted keep following their own pull requests; pause one of those on its own.
+         */
+        post: operations["pauseEliWatchRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/watches/repositories/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume admitting new pull requests for a repository
+         * @description Re-reads the repository's open pull requests through the normal admission path, then turns discovery back on. A paused per-PR watch is not resumed.
+         */
+        post: operations["resumeEliWatchRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/watches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List durable pull-request watches
+         * @description Newest observation first. Optional `repo` exact match and `state` of `enabled`, `paused` or `stopped` narrow the list. Evidence is the bounded metadata the watcher recorded, never raw source, model output or job logs.
+         */
+        get: operations["listEliWatches"];
+        put?: never;
+        /**
+         * Follow one pull request
+         * @description Reads the pull request now and stores the head and base it started from. It needs an enabled Automatic policy and its installation provider; the caller becomes the owner of the watch. A policy, webhook or restart never creates one of these.
+         */
+        post: operations["admitEliWatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/watches/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause one pull-request watch
+         * @description Keeps its history and settings; an explicit resume checks the policy, provider and pull request again.
+         */
+        post: operations["pauseEliWatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/watches/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume one pull-request watch
+         * @description Admits the pull request again through the normal path, so its policy, provider, access and open state are checked afresh.
+         */
+        post: operations["resumeEliWatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/watches/{id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop one pull-request watch
+         * @description Terminal until a new explicit admission; the history stays on record.
+         */
+        post: operations["stopEliWatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/assistant/repairs/opportunities": {
         parameters: {
             query?: never;
@@ -5820,6 +5968,30 @@ export interface paths {
          * @description The inverted half of log streaming. The controller never dials an agent, so a viewer's request makes it queue a stream_logs task, and the agent answers by opening this chunked POST, which stays open for as long as the runner produces output. Exempt from the body-size limit for that reason; instead each stream has a byte budget, and output over it is read and dropped rather than waited on.
          */
         post: operations["agentRelayLogs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/merge/{merge_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pull the repository a merge_conflict task named
+         * @description The packed repository for one prepared merge attempt, as a gzipped tarball. The three pinned commit ids travel in X-Zoomies-Merge-Ancestor, X-Zoomies-Merge-Base and X-Zoomies-Merge-Head, so the body stays exactly what the worker unpacks. A second pull gets the same bytes until the one answer arrives; an answered or expired attempt is refused rather than served.
+         */
+        get: operations["agentPullMergeRepository"];
+        put?: never;
+        /**
+         * Post the one answer a merge worker produced
+         * @description A clean merge and a text conflict are both successful answers: the conflict is the evidence the next stage resolves. A second answer is refused, because a merge is one incident and a second tree would be a second history for it.
+         */
+        post: operations["agentReportMergeAnswer"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11847,6 +12019,97 @@ export interface components {
             ask_first: boolean;
             allow_workflows: boolean;
         };
+        EliRepairWatch: {
+            id: string;
+            installation_id: string;
+            repo: string;
+            pull_number: number;
+            owner_id: string;
+            policy_provider_id?: string;
+            /** Format: date-time */
+            policy_updated_at?: string;
+            /** @description Failed checks may lead to a repair. */
+            checks: boolean;
+            /** @description Merge conflicts may be resolved and published. */
+            conflicts: boolean;
+            enabled: boolean;
+            paused_reason?: string;
+            head_sha?: string;
+            base_ref?: string;
+            base_sha?: string;
+            /** Format: date-time */
+            last_observed_at?: string;
+            /** Format: date-time */
+            next_check_at?: string;
+            stop_reason?: string;
+            /** @enum {string} */
+            check_state?: "passed" | "failed" | "waiting" | "unknown";
+            chain_attempts?: number;
+            last_failure_signature?: string;
+            chain_stopped_reason?: string;
+            /** @description Bounded JSON evidence of the checks last observed. */
+            check_evidence?: string;
+            /** @description Bounded JSON evidence of mergeability, head, base and merge base last observed. */
+            conflict_evidence?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        EliRepairWatchList: {
+            items: components["schemas"]["EliRepairWatch"][];
+            total: number;
+        };
+        EliRepairWatchAdmission: {
+            repo: string;
+            pull_number: number;
+            installation_id: string;
+            capabilities: ("checks" | "conflicts")[];
+        };
+        EliRepairWatchRepository: {
+            id: string;
+            installation_id: string;
+            repo: string;
+            owner_id: string;
+            checks: boolean;
+            conflicts: boolean;
+            enabled: boolean;
+            /** Format: date-time */
+            last_discovered_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        EliRepairWatchRepositoryList: {
+            items: components["schemas"]["EliRepairWatchRepository"][];
+        };
+        EliRepairWatchRepositoryAdmission: {
+            repo: string;
+            installation_id: string;
+            capabilities: ("checks" | "conflicts")[];
+        };
+        EliWatchExclusion: {
+            pull_number: number;
+            title?: string;
+            reason: string;
+        };
+        EliRepositoryWatchReport: {
+            admitted: components["schemas"]["EliRepairWatch"][];
+            excluded: components["schemas"]["EliWatchExclusion"][];
+            /** @description Pull requests already watched and left as they were. */
+            existing: number;
+            /** @description Discovery stopped at the page cap, so more open pull requests may exist. */
+            capped: boolean;
+        };
+        EliRepairWatchRepositoryAdmissionResponse: {
+            decision: components["schemas"]["EliRepairWatchRepository"];
+            report: components["schemas"]["EliRepositoryWatchReport"];
+        };
+        EliWatchChangeRequest: {
+            /** @description Why the watch was paused or stopped, shown to whoever reads it later. */
+            reason?: string;
+        };
         EliRepairRequest: {
             repo: string;
             pull_number: number;
@@ -12751,6 +13014,56 @@ export interface components {
             total: number;
             /** @description The name of the host being updated now */
             current: string;
+        };
+        /** @description Exactly one of result and code is set. A result whose conflicts are non-empty is a conflicted tree and is not publishable; an unsupported entry names a conflict this worker refused to hand to a model. */
+        AgentMergeAnswer: {
+            result?: components["schemas"]["AgentMergeResult"];
+            /** @description Why the merge did not happen, as a sentence for the operator. */
+            error?: string;
+            /**
+             * @description The stable outcome the controller can switch on.
+             * @enum {string}
+             */
+            code?: "invalid_request" | "merge_base_mismatch" | "unsafe_repository" | "merge_failed" | "too_large";
+        };
+        AgentMergeResult: {
+            /** @description The merge tree. It may contain conflict markers while conflicts is non-empty. */
+            tree?: string;
+            conflicts?: components["schemas"]["AgentMergeConflict"][];
+            unsupported?: components["schemas"]["AgentMergeUnsupportedConflict"][];
+            /** @description The conflict budget stopped the walk before every path was read. */
+            truncated?: boolean;
+            /** @description The files the merged tree has that the pull request head does not. The controller uses these to build the two-parent commit on GitHub, where the worker's tree object does not exist. */
+            changes?: components["schemas"]["AgentMergeChange"][];
+        };
+        AgentMergeChange: {
+            path: string;
+            /** @description The Git mode of the merged entry, such as 100644 or 100755. */
+            mode?: string;
+            /**
+             * Format: byte
+             * @description The file's bytes, base64 in JSON, for a blob.
+             */
+            content?: string;
+            /** @description The commit id for a submodule entry. */
+            sha?: string;
+            /** @description The merged tree has no entry at this path. */
+            deleted?: boolean;
+        };
+        AgentMergeConflict: {
+            path: string;
+            /**
+             * @description The regular file mode preserved by the resolution.
+             * @enum {string}
+             */
+            mode?: "100644" | "100755";
+            ancestor: string;
+            base: string;
+            head: string;
+        };
+        AgentMergeUnsupportedConflict: {
+            path: string;
+            reason: string;
         };
         AgentJoinRequest: {
             protocol_version: number;
@@ -20971,6 +21284,235 @@ export interface operations {
             422: components["responses"]["Unprocessable"];
         };
     };
+    listEliWatchRepositories: {
+        parameters: {
+            query?: {
+                /** @description Exact repository name to show. */
+                repo?: string;
+                state?: "enabled" | "paused";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatchRepositoryList"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    admitEliWatchRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EliRepairWatchRepositoryAdmission"];
+            };
+        };
+        responses: {
+            /** @description Admitted */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatchRepositoryAdmissionResponse"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    pauseEliWatchRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paused */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatchRepository"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    resumeEliWatchRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resumed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatchRepositoryAdmissionResponse"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    listEliWatches: {
+        parameters: {
+            query?: {
+                /** @description Exact repository name to show. */
+                repo?: string;
+                state?: "enabled" | "paused" | "stopped";
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatchList"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    admitEliWatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EliRepairWatchAdmission"];
+            };
+        };
+        responses: {
+            /** @description Admitted */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatch"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    pauseEliWatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EliWatchChangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Paused */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatch"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    resumeEliWatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resumed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatch"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    stopEliWatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EliWatchChangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Stopped */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairWatch"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
     listEliOpportunities: {
         parameters: {
             query?: never;
@@ -23516,6 +24058,101 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    agentPullMergeRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The attempt named by the merge_conflict task. */
+                merge_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The packed repository and its three pinned commit ids. */
+            200: {
+                headers: {
+                    /** @description The merge base the controller wrote. */
+                    "X-Zoomies-Merge-Ancestor"?: string;
+                    /** @description The target tip the controller wrote. */
+                    "X-Zoomies-Merge-Base"?: string;
+                    /** @description The pull request head the controller wrote. */
+                    "X-Zoomies-Merge-Head"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/gzip": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The attempt was answered, expired, or was never this controller's. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The attempt already has its one answer, so its repository is gone. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    agentReportMergeAnswer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The attempt named by the merge_conflict task. */
+                merge_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentMergeAnswer"];
+            };
+        };
+        responses: {
+            /** @description Recorded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The body carried neither a result nor a code, or both. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The attempt expired, or was never this controller's. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The attempt already has its one answer; a lost reply must not replace it. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["RateLimited"];
         };
     };
     captureComparison: {

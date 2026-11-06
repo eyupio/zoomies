@@ -543,7 +543,9 @@ test('the dog stands on a rounded Zoomies Black stage in both themes', async ({ 
     const got = await read();
     expect(got.stage, `the stage in the ${colorScheme} theme`).toEqual({
       ground: 'rgb(8, 8, 8)',
-      radius: '28px',
+      radius: await page
+        .locator(':root')
+        .evaluate((el) => getComputedStyle(el).getPropertyValue('--z-radius-xl').trim()),
       wraps: true,
     });
     expect(got.page, `the page in the ${colorScheme} theme`).not.toBe('rgb(8, 8, 8)');

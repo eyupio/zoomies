@@ -659,9 +659,7 @@
   }
   h3 {
     margin: 0 0 var(--z-space-2);
-    font-size: var(--z-text-2xs);
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
   }

@@ -21,6 +21,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
+	"github.com/eyupio/zoomies/internal/gitmerge"
 	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
@@ -33,6 +34,9 @@ import (
 // the others are quick. Log tasks are never re-queued -- see requeueAfter.
 const (
 	createLease = 20 * time.Minute
+	// mergeLease gives a host time to pull the worker image on a cold cache and
+	// still answer; a merge itself is seconds.
+	mergeLease  = 10 * time.Minute
 	stopLease   = 10 * time.Minute
 	removeLease = 5 * time.Minute
 	// A prewarm is a cold image pull like a create, and gets the same room. It
@@ -188,6 +192,11 @@ func taskKey(t agent.Task) string {
 	if t.Kind == agent.TaskUpdateAgent {
 		return string(t.Kind) + ":" + t.UpdateID
 	}
+	// One per merge attempt for the same reason: a repair that gave up leaves a
+	// task in flight, and the next conflict on the same host must not wait for it.
+	if t.Kind == agent.TaskMergeConflict {
+		return string(t.Kind) + ":" + t.MergeID
+	}
 	if t.StreamID != "" {
 		return string(t.Kind) + "|stream:" + t.StreamID
 	}
@@ -212,6 +221,10 @@ func requeueAfter(kind agent.TaskKind) time.Duration {
 		return hostCheckLease
 	case agent.TaskUpdateAgent:
 		return updateLease
+	case agent.TaskMergeConflict:
+		// A merge is seconds of work once the image is there, and minutes when it
+		// is being pulled for the first time on a host.
+		return mergeLease
 	default:
 		// Log relays are tied to a browser that has since gone away, so
 		// redelivering one would open a stream nobody is reading.
@@ -1397,6 +1410,20 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 	if kind == "" && known {
 		kind = task.Kind
 	}
+	if kind == agent.TaskMergeConflict {
+		// A merge task names no runner, so its result changes no runner state.
+		// The answer endpoint is what records the work; this only says in the
+		// log that a host could not run the worker, and the prepared repository
+		// is left to its deadline rather than deleted under a late answer.
+		if res.OK {
+			c.log.Debug("a host ran the merge worker", "host", hostID, "merge", task.MergeID)
+		} else {
+			c.log.Warn("a host could not run the merge worker",
+				"host", hostID, "merge", task.MergeID, "said", res.Error,
+				"next", "the prepared repository is removed when its deadline passes")
+		}
+		return nil
+	}
 	if kind == agent.TaskCheckHost {
 		// hostID is the authenticated agent's, never the body's. Returning nil
 		// clears the lease on every outcome, a failed check included.
@@ -2215,6 +2242,18 @@ func (t *embeddedTransport) ReportResult(ctx context.Context, res agent.TaskResu
 
 func (t *embeddedTransport) ReportRunners(ctx context.Context, reports []agent.RunnerReport) error {
 	return t.c.ReportRunners(ctx, t.host(), reports)
+}
+
+func (t *embeddedTransport) PullMergeRepository(ctx context.Context, mergeID string) (agent.MergeRepository, error) {
+	held, err := t.c.PullMergeRepository(ctx, t.host(), mergeID)
+	if err != nil {
+		return agent.MergeRepository{}, err
+	}
+	return agent.MergeRepository{Ancestor: held.Ancestor, Base: held.Base, Head: held.Head, Repository: held.Repository}, nil
+}
+
+func (t *embeddedTransport) ReportMergeAnswer(ctx context.Context, mergeID string, answer gitmerge.WorkerResponse) error {
+	return t.c.ReportMergeAnswer(ctx, t.host(), mergeID, answer)
 }
 
 // OpenLogStream hands the agent a pipe whose read half goes straight into the

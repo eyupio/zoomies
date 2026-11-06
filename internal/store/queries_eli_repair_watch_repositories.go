@@ -131,3 +131,25 @@ func (s *Store) MarkEliRepairWatchRepositoryDiscovered(ctx context.Context, id s
 	_, err := s.exec(ctx, `UPDATE eli_repair_watch_repositories SET last_discovered_at=?,updated_at=? WHERE id=?`, ms(now), ms(now), id)
 	return err
 }
+
+// EliRepairWatchRepositoryByID reads one repository-wide decision.
+func (s *Store) EliRepairWatchRepositoryByID(ctx context.Context, id string) (*EliRepairWatchRepository, error) {
+	r, err := scanEliRepairWatchRepository(s.read.QueryRowContext(ctx,
+		`SELECT `+eliRepairWatchRepositoryCols+` FROM eli_repair_watch_repositories WHERE id=?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return r, err
+}
+
+// SetEliRepairWatchRepositoryEnabled pauses or resumes discovery for one
+// repository decision. Resuming does not create a watch for a pull request; the
+// normal admission path does that from fresh evidence.
+func (s *Store) SetEliRepairWatchRepositoryEnabled(ctx context.Context, id string, enabled bool) (*EliRepairWatchRepository, error) {
+	if _, err := s.exec(ctx,
+		`UPDATE eli_repair_watch_repositories SET enabled=?,updated_at=? WHERE id=?`,
+		boolInt(enabled), ms(s.Now()), id); err != nil {
+		return nil, wrapWrite(err)
+	}
+	return s.EliRepairWatchRepositoryByID(ctx, id)
+}

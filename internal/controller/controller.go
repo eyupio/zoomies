@@ -187,6 +187,13 @@ type Controller struct {
 	// the questions a delivery asks.
 	findInstallation func(ctx context.Context, repo string) (*store.Installation, error)
 	queues           *taskQueues
+	// merge is the repositories prepared for conflict repair, held until the
+	// agent that merges one answers or their deadline passes.
+	merge *mergeSession
+	// conflictClaims holds the conflict incidents a worker or the model is
+	// still carrying, so another observation does not start one twice.
+	conflictMu     sync.Mutex
+	conflictClaims map[string]time.Time
 	// hostChecks is the last request to each host to check itself; see host_check.go.
 	hostChecks hostChecks
 	relay      *logRelay
@@ -563,6 +570,7 @@ func New(opts Options) (*Controller, error) {
 		restart:                 make(chan struct{}),
 		backups:                 backupState{ship: make(chan struct{}, 1)},
 		hostHealthy:             map[string]bool{},
+		conflictClaims:          map[string]time.Time{},
 		removing:                map[string]struct{}{},
 		// Generous next to what GitHub sends and mean next to what a probe
 		// wants: a real delivery never reaches this limiter, and a prober gets
@@ -592,6 +600,7 @@ func New(opts Options) (*Controller, error) {
 	})
 	c.clients = newClientCache(c)
 	c.queues = newTaskQueues()
+	c.merge = newMergeSession(newMergeAttempts(clock, mergeLease, 8))
 	c.relay = newLogRelay(c)
 	c.machines = newMachineRuntime()
 	return c, nil
@@ -677,6 +686,7 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.spawn("enrichment", loopCtx, c.enrichmentLoop)
 	c.spawn("ai-context", loopCtx, c.aiContextLoop)
 	c.startRepairLoops(loopCtx)
+	c.spawn("conflict-repairs", loopCtx, c.conflictRepairLoop)
 	c.spawn("job-attention", loopCtx, c.jobAttentionLoop)
 	// Its own loop, for the reason the AI Context loop has one: a pass of reads
 	// from GitHub is slow, and reconcileMu is held for a whole scheduling pass.
@@ -976,6 +986,9 @@ func (c *Controller) Stop(ctx context.Context) error {
 		c.log.Debug("could not write a final fleet sample", "error", err)
 	}
 	c.relay.closeAll()
+	if removed := c.merge.close(); removed > 0 {
+		c.log.Info("removed prepared merge repositories at shutdown", "count", removed)
+	}
 	c.log.Info("controller stopped; runners on every host are still running")
 	return nil
 }

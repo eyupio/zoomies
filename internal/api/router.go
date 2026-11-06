@@ -496,6 +496,18 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionAssistantWrite)).Put("/assistant/repairs/policy", s.handleSetEliPolicy)
 		r.With(s.require(auth.ActionAssistantRead)).Get("/assistant/repairs/automatic", s.handleEliAutomatic)
 		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/automatic/stop", s.handleStopEliAutomatic)
+		// Durable watches: one pull request, or a repository-wide decision to
+		// follow its open pull requests. The repository routes come before the
+		// per-PR ones so the static segment is unambiguous.
+		r.With(s.require(auth.ActionAssistantRead)).Get("/assistant/repairs/watches/repositories", s.handleEliWatchRepositories)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches/repositories", s.handleAdmitEliWatchRepository)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches/repositories/{id}/pause", s.handlePauseEliWatchRepository)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches/repositories/{id}/resume", s.handleResumeEliWatchRepository)
+		r.With(s.require(auth.ActionAssistantRead)).Get("/assistant/repairs/watches", s.handleEliWatches)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches", s.handleAdmitEliWatch)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches/{id}/pause", s.handlePauseEliWatch)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches/{id}/resume", s.handleResumeEliWatch)
+		r.With(s.require(auth.ActionAssistantWrite)).Post("/assistant/repairs/watches/{id}/stop", s.handleStopEliWatch)
 		r.With(s.require(auth.ActionUsersWrite)).Put("/assistant/repairs/identity", s.handleSetEliIdentity)
 		r.With(s.require(auth.ActionAssistantOwn)).Get("/assistant/repairs/{id}", s.handleGetEliRepair)
 		r.With(s.require(auth.ActionAssistantChat)).Post("/assistant/chat", s.handleAssistantChat)
@@ -720,6 +732,12 @@ func (s *Server) agentRoutes() chi.Router {
 		// No body limit: this one is a runner's whole output, streamed for as
 		// long as the job runs.
 		r.Post(strings.TrimPrefix(agent.PathLogs, "/api/v1/agent")+"/{stream_id}", s.handleAgentLogs)
+		// A merge repository is fetched by the agent that was told to merge it,
+		// and its one answer is posted back. The body is a gzipped tarball on the
+		// way out, so the GET is not JSON; the answer is bounded by the worker's
+		// own response budget rather than the ordinary JSON one.
+		r.With(s.agentBudget).Get(strings.TrimPrefix(agent.PathMerge, "/api/v1/agent")+"/{merge_id}", s.handleAgentMergePull)
+		r.With(s.agentBudget).Post(strings.TrimPrefix(agent.PathMerge, "/api/v1/agent")+"/{merge_id}", s.handleAgentMergeAnswer)
 	})
 	return r
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   investigationText,
   providerWords,
+  pullAttempts,
   requestedBy,
   responseText,
   timeline,
@@ -184,4 +185,47 @@ test('the investigation details say nothing about what was not recorded', () => 
   assert.ok(!text.includes('Source supplied'));
   assert.ok(!text.includes('Model calls'));
   assert.ok(text.startsWith('Eli repair eli_1\nRepository: acme/widgets\n'));
+});
+
+// The history beside one pull request holds that pull request's attempts and
+// nothing from a neighbouring row: the read is per repository, and a failed
+// read of another row must not appear as an attempt here.
+test('one pull request lists its own attempts, newest first', () => {
+  const older = repair({
+    id: 'eli_old',
+    state: 'failed',
+    created_at: '2026-10-18T09:20:00Z',
+    commit_sha: '',
+  });
+  const newer = repair({
+    id: 'eli_new',
+    state: 'succeeded',
+    trigger: 'automatic',
+    created_at: '2026-10-18T10:20:00Z',
+    commit_sha: 'abc1234def5678',
+  });
+  const otherPull = repair({ id: 'eli_other_pull', pull_number: 18 });
+  const otherRepo = repair({ id: 'eli_other_repo', repo: 'acme/site' });
+  const attempts = pullAttempts([older, otherPull, newer, otherRepo], 'ACME/widgets', 17);
+  assert.deepEqual(
+    attempts.map((attempt) => attempt.id),
+    ['eli_new', 'eli_old'],
+  );
+  assert.equal(attempts[0]?.stateLabel, 'Checks passed');
+  assert.equal(attempts[0]?.began, 'Started automatically');
+  assert.equal(attempts[0]?.commitSha, 'abc1234def5678');
+  assert.equal(attempts[0]?.active, false);
+  assert.equal(attempts[1]?.began, 'Requested by @dana');
+});
+
+// A timestamp the page cannot read must not jump to the front of the history:
+// the row keeps its place at the end rather than being drawn as the newest.
+test('an attempt with no readable time sorts last and still shows', () => {
+  const timed = repair({ id: 'eli_timed', created_at: '2026-10-18T09:20:00Z' });
+  const untimed = repair({ id: 'eli_untimed', created_at: 'not a time' });
+  const attempts = pullAttempts([untimed, timed], 'acme/widgets', 17);
+  assert.deepEqual(
+    attempts.map((attempt) => attempt.id),
+    ['eli_timed', 'eli_untimed'],
+  );
 });

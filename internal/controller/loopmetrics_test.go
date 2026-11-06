@@ -187,7 +187,7 @@ func TestEveryHousekeepingJobIsTimedOnItsOwn(t *testing.T) {
 	// minute sampler and the hourly prune are both due.
 	h.c.housekeep(h.ctx, &housekeeping{})
 
-	for _, step := range []string{stepSweepTasks, stepHostHealth, stepThrottles, stepAutoAdjust, stepExpireQueued, stepExpireRunning, stepSample, stepPrune} {
+	for _, step := range []string{stepSweepTasks, stepHostHealth, stepThrottles, stepAutoAdjust, stepExpireQueued, stepExpireRunning, stepExpireMerges, stepSample, stepPrune} {
 		if got := stepCount(t, h.c, loopHousekeeping, step); got != 1 {
 			t.Errorf("the %q job of the housekeeping tick was timed %d times, want 1", step, got)
 		}

@@ -111,3 +111,24 @@ func TestAnUpdateReportRoundTripsOnAHeartbeat(t *testing.T) {
 		t.Errorf("an empty To is on the wire: %s", raw)
 	}
 }
+
+func TestAMergeTaskNeedsItsAttemptImageAndPins(t *testing.T) {
+	valid := Task{
+		ID: "task-1", Kind: TaskMergeConflict, MergeID: "merge-1", MergeImage: "ghcr.io/eyupio/zoomies-git:v1",
+		MergeAncestor: "a", MergeBase: "b", MergeHead: "c",
+	}
+	if err := validateTask(valid); err != nil {
+		t.Fatalf("a complete merge task was refused: %v", err)
+	}
+	for name, broken := range map[string]Task{
+		"attempt":  {ID: "task-1", Kind: TaskMergeConflict, MergeImage: "image", MergeAncestor: "a", MergeBase: "b", MergeHead: "c"},
+		"image":    {ID: "task-1", Kind: TaskMergeConflict, MergeID: "merge-1", MergeAncestor: "a", MergeBase: "b", MergeHead: "c"},
+		"ancestor": {ID: "task-1", Kind: TaskMergeConflict, MergeID: "merge-1", MergeImage: "image", MergeBase: "b", MergeHead: "c"},
+		"base":     {ID: "task-1", Kind: TaskMergeConflict, MergeID: "merge-1", MergeImage: "image", MergeAncestor: "a", MergeHead: "c"},
+		"head":     {ID: "task-1", Kind: TaskMergeConflict, MergeID: "merge-1", MergeImage: "image", MergeAncestor: "a", MergeBase: "b"},
+	} {
+		if err := validateTask(broken); err == nil {
+			t.Errorf("a merge task with no %s was accepted", name)
+		}
+	}
+}

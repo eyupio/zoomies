@@ -232,10 +232,8 @@
   }
   thead th {
     overflow-wrap: anywhere;
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-muted);
     background: var(--z-surface-sunken);
   }
@@ -252,10 +250,8 @@
     padding: 0 var(--z-space-2);
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-sm);
-    font-size: var(--z-text-2xs);
+    font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
-    text-transform: uppercase;
-    letter-spacing: var(--z-tracking-wide);
     color: var(--z-text-muted);
     white-space: nowrap;
   }
@@ -309,10 +305,8 @@
     tbody td::before {
       content: attr(data-label);
       flex: none;
-      font-size: var(--z-text-2xs);
+      font-size: var(--z-text-xs);
       font-weight: var(--z-weight-medium);
-      text-transform: uppercase;
-      letter-spacing: var(--z-tracking-wide);
       color: var(--z-text-muted);
       text-align: left;
     }
