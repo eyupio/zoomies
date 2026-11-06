@@ -5826,6 +5826,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agent/merge/{merge_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pull the repository a merge_conflict task named
+         * @description The packed repository for one prepared merge attempt, as a gzipped tarball. The three pinned commit ids travel in X-Zoomies-Merge-Ancestor, X-Zoomies-Merge-Base and X-Zoomies-Merge-Head, so the body stays exactly what the worker unpacks. A second pull gets the same bytes until the one answer arrives; an answered or expired attempt is refused rather than served.
+         */
+        get: operations["agentPullMergeRepository"];
+        put?: never;
+        /**
+         * Post the one answer a merge worker produced
+         * @description A clean merge and a text conflict are both successful answers: the conflict is the evidence the next stage resolves. A second answer is refused, because a merge is one incident and a second tree would be a second history for it.
+         */
+        post: operations["agentReportMergeAnswer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/comparisons": {
         parameters: {
             query?: never;
@@ -12751,6 +12775,35 @@ export interface components {
             total: number;
             /** @description The name of the host being updated now */
             current: string;
+        };
+        /** @description Exactly one of result and code is set. A result whose conflicts are non-empty is a conflicted tree and is not publishable; an unsupported entry names a conflict this worker refused to hand to a model. */
+        AgentMergeAnswer: {
+            result?: components["schemas"]["AgentMergeResult"];
+            /** @description Why the merge did not happen */
+            error?: string;
+            /**
+             * @description The stable outcome the controller can switch on.
+             * @enum {string}
+             */
+            code?: "invalid_request" | "merge_base_mismatch" | "unsafe_repository" | "merge_failed" | "too_large";
+        };
+        AgentMergeResult: {
+            /** @description The merge tree. It may contain conflict markers while conflicts is non-empty. */
+            tree?: string;
+            conflicts?: components["schemas"]["AgentMergeConflict"][];
+            unsupported?: components["schemas"]["AgentMergeUnsupportedConflict"][];
+            /** @description The conflict budget stopped the walk before every path was read. */
+            truncated?: boolean;
+        };
+        AgentMergeConflict: {
+            path: string;
+            ancestor: string;
+            base: string;
+            head: string;
+        };
+        AgentMergeUnsupportedConflict: {
+            path: string;
+            reason: string;
         };
         AgentJoinRequest: {
             protocol_version: number;
@@ -23516,6 +23569,101 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    agentPullMergeRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The attempt named by the merge_conflict task. */
+                merge_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The packed repository and its three pinned commit ids. */
+            200: {
+                headers: {
+                    /** @description The merge base the controller wrote. */
+                    "X-Zoomies-Merge-Ancestor"?: string;
+                    /** @description The target tip the controller wrote. */
+                    "X-Zoomies-Merge-Base"?: string;
+                    /** @description The pull request head the controller wrote. */
+                    "X-Zoomies-Merge-Head"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/gzip": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The attempt was answered */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The attempt already has its one answer */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    agentReportMergeAnswer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The attempt named by the merge_conflict task. */
+                merge_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentMergeAnswer"];
+            };
+        };
+        responses: {
+            /** @description Recorded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The body carried neither a result nor a code, or both. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The attempt expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The attempt already has its one answer; a lost reply must not replace it. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["RateLimited"];
         };
     };
     captureComparison: {

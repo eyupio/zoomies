@@ -482,7 +482,7 @@ the previous PR's evidence with a claim that the entire feature is tested.
 | [#1402](https://github.com/eyupio/zoomies/pull/1402), open, stacked on #1399 | S3b: the archive download, the commit read and the `gitfetch` source adapter | Archive and commit tests through the production factory path, the no-credential-to-storage assertion, `staticcheck ./...`, build, vet and formatting pass | The controller adapter and the agent transport |
 | [#1404](https://github.com/eyupio/zoomies/pull/1404), open, stacked on #1402 | S3b: `gitbare.Pack` and `Unpack`, and the controller's attempt registry | Round-trip tests through the worker, the read-only loose objects, every refusal, the attempt lifecycle, `staticcheck ./...`, build and formatting pass | The `merge_conflict` task and the endpoints the agent uses |
 | [#1407](https://github.com/eyupio/zoomies/pull/1407), open, stacked on `codex/eli-git-merge-worker` | S3b: the `merge_conflict` task and `QueueMergeConflict` | Task payload, queue key and lease tests, the older-agent compatibility suite, build and formatting pass | The two endpoints over `mergeSession` and the agent handler |
-| [#1409](https://github.com/eyupio/zoomies/pull/1409), open, stacked on #1407 | S3b: pull and answer endpoints over `mergeSession`, their agent transport client, and the prepared attempt's three pins on the task | Race tests for the controller session, the agent transport, the API routes and the task payload; vet and formatting pass; no agent handler, model or publication | The agent handler that pulls, unpacks, runs the worker image and posts the answer, then model resolution and two-parent publication |
+| [#1409](https://github.com/eyupio/zoomies/pull/1409), open, stacked on #1407 | S3b: pull and answer endpoints over `mergeSession`, their agent transport client, and the prepared attempt's three pins on the task | Race tests for the controller session, the agent transport, the API routes and the task payload; `make openapi`, vet and formatting pass; no agent handler, model or publication | The agent handler that pulls, unpacks, runs the worker image and posts the answer, then model resolution and two-parent publication |
 | [#1392](https://github.com/eyupio/zoomies/pull/1392), open | Controller load, not a slice: the S2c due-watch claim looks on the reader pool before taking the writer, alongside the enrichment claim, the event stream's figures and the database file's mapping | Full `make test` race suite (55 packages), vet, staticcheck, gofmt and `go mod tidy -diff` pass; no UI, public API or watch behaviour change | Unchanged: S3b resolution and publication, then S4 UX |
 
 S1 validation on 3 November 2026:
@@ -751,8 +751,10 @@ resolved or published here.
 - `mergeSession` is now owned by the controller. The housekeeping tick removes
   attempts past their deadline, and shutdown removes every repository still held,
   so neither a lost host nor a restart leaves prepared repositories on disk.
-- The private-connection allowlist admits the two new agent paths. No public
-  OpenAPI contract changed, because these routes are agent-only.
+- The private-connection allowlist admits the two new agent paths. Both are in
+  `api/openapi.yaml` as `x-internal` agent operations, and `make openapi`
+  regenerates the embedded document and the UI client as it does for every
+  served route.
 
 Validation on 6 November 2026, on Git 2.39.5:
 
@@ -765,6 +767,9 @@ Validation on 6 November 2026, on Git 2.39.5:
   pass (1.625s, 1.385s, 1.013s; the last has no matching test).
 - `go vet` on the six changed packages and `staticcheck` on them: pass.
 - `go test -count=1 ./internal/docs`: pass (33.078s), with the handoff tracked.
+- `make openapi` regenerated `internal/api/openapi_spec.go` and
+  `web/src/lib/api/schema.d.ts`; `go test -count=1 -run 'TestTheSpecCoversTheRouter|TestEveryOperationRecordsItsRole' ./internal/api`
+  passes.
 - The existing failed-fetch cleanup test now compares the temporary merge
   directories before and after its own call. It previously failed when another
   package's test binary happened to be preparing a repository at the same
