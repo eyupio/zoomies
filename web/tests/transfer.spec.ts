@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { goto } from './support/fixtures';
 
+// Encryption and a 104 MiB upload share the runner with the fixture controllers.
+// Keep the same end-to-end assertions without making host speed the verdict.
+test.setTimeout(120_000);
+
 test('one click prepares an instance and its encrypted archive verifies before cutover', async ({
   page,
   request,
@@ -44,7 +48,9 @@ test('one click prepares an instance and its encrypted archive verifies before c
     .last()
     .fill('a strong archive passphrase');
   await page.getByRole('button', { name: 'Verify archive', exact: true }).click();
-  await expect(page.getByText(/Archive verified: 0 installations, 0 hosts, 0 jobs/)).toBeVisible();
+  await expect(page.getByText(/Archive verified: 0 installations, 0 hosts, 0 jobs/)).toBeVisible({
+    timeout: 30_000,
+  });
   await expect(
     page.getByRole('button', { name: 'Import and restart', exact: true }),
   ).toBeDisabled();
@@ -96,7 +102,7 @@ test('a large instance archive stays below a proxy request limit and failed veri
     await page.getByRole('button', { name: 'Verify archive', exact: true }).click();
     await expect(
       page.getByText(/That file is not an instance archive this controller can use/),
-    ).toBeVisible({ timeout: 30000 });
+    ).toBeVisible({ timeout: 60_000 });
     expect(chunks).toHaveLength(14);
     expect(chunks.every((n) => n > 0 && n <= 8 * 1024 * 1024)).toBeTruthy();
     expect(chunks.reduce((sum, n) => sum + n, 0)).toBe(size);
