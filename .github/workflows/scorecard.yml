@@ -46,7 +46,7 @@ jobs:
     # Publishing is deliberately independent of the fleet being assessed
     # anyway: a score of the fleet's own supply chain should not depend on
     # the fleet being up.
-    runs-on: zoomies-linux-x64
+    runs-on: ubuntu-latest
     timeout-minutes: 15 # the longest successful run seen was 1 minute
     permissions:
       security-events: write
