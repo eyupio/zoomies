@@ -115,9 +115,23 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 	conflictEvidence := ""
 	conflictRead := false
 	var conflict github.RepairConflict
-	if conflictClient, ok := client.(github.RepairConflictClient); ok {
-		read, conflictErr := conflictClient.RepairConflictEvidence(checkCtx, watch.Repo, watch.PullNumber)
-		if conflictErr == nil {
+	// Only a watch that follows conflicts reads them. A checks-only watch used to
+	// pay two GitHub requests for a reading nothing it shows or does uses, every
+	// thirty seconds while its checks were pending.
+	if watch.Conflicts {
+		var read github.RepairConflict
+		var conflictErr error
+		attempted := true
+		switch conflictClient := client.(type) {
+		case github.RepairConflictFromPullClient:
+			// The pull request was read a moment ago and carries its mergeability.
+			read, conflictErr = conflictClient.RepairConflictFor(checkCtx, watch.Repo, pull)
+		case github.RepairConflictClient:
+			read, conflictErr = conflictClient.RepairConflictEvidence(checkCtx, watch.Repo, watch.PullNumber)
+		default:
+			attempted = false
+		}
+		if attempted && conflictErr == nil {
 			conflict = read
 			conflictRead = true
 			encoded, _ := json.Marshal(conflict)

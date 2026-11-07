@@ -51,6 +51,13 @@ type RepairPull struct {
 	Fork          bool
 	Draft         bool
 	Open          bool
+	// MergeableKnown, Mergeable and MergeState are what the same read says about
+	// mergeability, so a caller that also wants the conflict evidence does not
+	// fetch the pull request a second time. MergeableKnown is false while GitHub
+	// still reports null.
+	MergeableKnown bool
+	Mergeable      bool
+	MergeState     string
 }
 
 // RepairJobStep is one step of a job, as GitHub reported it ended.
@@ -179,12 +186,17 @@ func (c *appClient) RepairPull(ctx context.Context, repo string, number int) (Re
 			Ref string `json:"ref"`
 			SHA string `json:"sha"`
 		} `json:"base"`
-		Draft bool `json:"draft"`
+		Draft          bool   `json:"draft"`
+		Mergeable      *bool  `json:"mergeable"`
+		MergeableState string `json:"mergeable_state"`
 	}
 	if err := c.repairRequest(ctx, http.MethodGet, base+"/pulls/"+strconv.Itoa(number), nil, &p); err != nil {
 		return RepairPull{}, err
 	}
-	out := RepairPull{Number: p.Number, AuthorID: p.User.ID, Author: p.User.Login, Branch: p.Head.Ref, Base: p.Base.Ref, BaseSHA: p.Base.SHA, HeadSHA: p.Head.SHA, Title: p.Title, Body: p.Body, URL: p.HTMLURL, DefaultBranch: p.Head.Repo.DefaultBranch, Fork: p.Head.Repo.FullName != repo, Draft: p.Draft, Open: p.State == "open"}
+	out := RepairPull{Number: p.Number, AuthorID: p.User.ID, Author: p.User.Login, Branch: p.Head.Ref, Base: p.Base.Ref, BaseSHA: p.Base.SHA, HeadSHA: p.Head.SHA, Title: p.Title, Body: p.Body, URL: p.HTMLURL, DefaultBranch: p.Head.Repo.DefaultBranch, Fork: p.Head.Repo.FullName != repo, Draft: p.Draft, Open: p.State == "open", MergeState: p.MergeableState}
+	if p.Mergeable != nil {
+		out.MergeableKnown, out.Mergeable = true, *p.Mergeable
+	}
 	if out.Number > 0 && p.State == "closed" {
 		return out, &RepairTargetChanged{Code: "closed", Message: fmt.Sprintf("PR #%d is closed or merged. This failure no longer needs a PR repair. You can still inspect the original run on GitHub.", out.Number)}
 	}
@@ -816,16 +828,58 @@ func (c *appClient) RepairConflictEvidence(ctx context.Context, repo string, num
 	if p.Mergeable != nil {
 		out.MergeableKnown, out.Mergeable = true, *p.Mergeable
 	}
+	out.MergeBaseSHA, err = c.repairMergeBase(ctx, base, p.Base.SHA, p.Head.SHA)
+	return out, err
+}
+
+// RepairConflictFromPullClient is the cheaper conflict read for a caller that
+// has just read the pull request. It is separate from RepairConflictClient so a
+// client that can only fetch the pull request itself still works.
+type RepairConflictFromPullClient interface {
+	RepairConflictFor(context.Context, string, RepairPull) (RepairConflict, error)
+}
+
+// The real client must satisfy it, or the watch loop quietly goes back to
+// fetching the pull request twice.
+var _ RepairConflictFromPullClient = (*appClient)(nil)
+
+// RepairConflictFor is RepairConflictEvidence for a pull request RepairPull has
+// already read: the mergeability came with that read, so only the merge base,
+// which GitHub's compare endpoint gives, is still to be asked for. A watch reads
+// a pull request every thirty seconds while its checks are pending, and the
+// second fetch of the same pull request was a fifth of what each observation
+// spent against the installation's rate limit.
+//
+// RepairPull has already refused a closed, draft, fork or unwritable pull
+// request, so none of those checks are repeated.
+func (c *appClient) RepairConflictFor(ctx context.Context, repo string, p RepairPull) (RepairConflict, error) {
+	base, err := repairRepo(repo)
+	if err != nil {
+		return RepairConflict{}, err
+	}
+	out := RepairConflict{
+		Number: p.Number, HeadSHA: p.HeadSHA, BaseRef: p.Base, BaseSHA: p.BaseSHA, MergeState: p.MergeState,
+		MergeableKnown: p.MergeableKnown, Mergeable: p.Mergeable,
+	}
+	if p.Number <= 0 || p.HeadSHA == "" || p.BaseSHA == "" {
+		return out, fmt.Errorf("%w: an Eli conflict check needs an open, non-draft pull request in this repository", ErrRepairUnsupported)
+	}
+	out.MergeBaseSHA, err = c.repairMergeBase(ctx, base, p.BaseSHA, p.HeadSHA)
+	return out, err
+}
+
+// repairMergeBase asks GitHub which commit the base and the head last had in
+// common.
+func (c *appClient) repairMergeBase(ctx context.Context, repoPath, baseSHA, headSHA string) (string, error) {
 	var compare struct {
 		MergeBaseCommit struct {
 			SHA string `json:"sha"`
 		} `json:"merge_base_commit"`
 	}
-	if err := c.repairRequest(ctx, http.MethodGet, base+"/compare/"+url.PathEscape(p.Base.SHA)+"..."+url.PathEscape(p.Head.SHA), nil, &compare); err != nil {
-		return out, err
+	if err := c.repairRequest(ctx, http.MethodGet, repoPath+"/compare/"+url.PathEscape(baseSHA)+"..."+url.PathEscape(headSHA), nil, &compare); err != nil {
+		return "", err
 	}
-	out.MergeBaseSHA = compare.MergeBaseCommit.SHA
-	return out, nil
+	return compare.MergeBaseCommit.SHA, nil
 }
 
 // RepairDiscoveryClient is the extra read a repository-wide watch needs. It is

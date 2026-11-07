@@ -600,3 +600,70 @@ func TestRepairConflictEvidenceLeavesUnknownMergeabilityUnknown(t *testing.T) {
 		t.Fatalf("unknown mergeability was guessed: %+v", got)
 	}
 }
+
+// A watch reads the pull request, then its conflicts. The second read used to
+// fetch the same pull request again; the conflict reading must come out the same
+// from the first read plus the one request only the compare endpoint can answer.
+func TestRepairConflictForGivesTheSameReadingFromOneFewerRequest(t *testing.T) {
+	var requests []string
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/acme/repo/pulls/7":
+			w.Write([]byte(`{"number":7,"state":"open","mergeable":false,"mergeable_state":"dirty","head":{"ref":"fix","sha":"head","repo":{"full_name":"acme/repo","default_branch":"main"}},"base":{"ref":"main","sha":"base"}}`))
+		case "/repos/acme/repo/compare/base...head":
+			w.Write([]byte(`{"merge_base_commit":{"sha":"merge-base"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	want, err := c.RepairConflictEvidence(t.Context(), "acme/repo", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("RepairConflictEvidence made %d requests, want the pull request and the compare: %v", len(requests), requests)
+	}
+
+	requests = nil
+	pull, err := c.RepairPull(t.Context(), "acme/repo", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pull.MergeableKnown || pull.Mergeable || pull.MergeState != "dirty" {
+		t.Fatalf("the pull read lost its mergeability: %+v", pull)
+	}
+	got, err := c.RepairConflictFor(t.Context(), "acme/repo", pull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("reading from the pull = %+v, want %+v", got, want)
+	}
+	if len(requests) != 2 || requests[1] != "/repos/acme/repo/compare/base...head" {
+		t.Fatalf("the pull and its conflicts took %v, want the pull once and then only the compare", requests)
+	}
+}
+
+func TestRepairConflictForLeavesUnknownMergeabilityUnknown(t *testing.T) {
+	c := repairTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/acme/repo/pulls/7":
+			w.Write([]byte(`{"number":7,"state":"open","mergeable":null,"head":{"ref":"fix","sha":"head","repo":{"full_name":"acme/repo","default_branch":"main"}},"base":{"ref":"main","sha":"base"}}`))
+		case "/repos/acme/repo/compare/base...head":
+			w.Write([]byte(`{"merge_base_commit":{"sha":"merge-base"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	pull, err := c.RepairPull(t.Context(), "acme/repo", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.RepairConflictFor(t.Context(), "acme/repo", pull)
+	if err != nil || got.MergeableKnown || got.MergeBaseSHA != "merge-base" {
+		t.Fatalf("unknown mergeability was guessed: %+v, %v", got, err)
+	}
+}
