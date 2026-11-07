@@ -71,18 +71,19 @@ func (c *appClient) ArchiveOf(ctx context.Context, repo, commit string, opts git
 
 	path := fmt.Sprintf("repos/%s/%s/tarball/%s",
 		url.PathEscape(owner), url.PathEscape(name), url.PathEscape(commit))
-	location, err := c.archiveLocation(ctx, path, commit)
+	location, response, err := c.archiveLocation(ctx, path, commit)
 	if err != nil {
 		return nil, err
 	}
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
-	if err != nil {
-		return nil, &ArchiveError{Commit: commit, Err: err}
-	}
-	response, err := c.archiveHTTP.Do(request)
-	if err != nil {
-		return nil, &ArchiveError{Commit: commit, Err: err}
+	if response == nil {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
+		if err != nil {
+			return nil, &ArchiveError{Commit: commit, Err: err}
+		}
+		response, err = c.archiveHTTP.Do(request)
+		if err != nil {
+			return nil, &ArchiveError{Commit: commit, Err: err}
+		}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -101,32 +102,36 @@ func (c *appClient) ArchiveOf(ctx context.Context, repo, commit string, opts git
 // archiveLocation asks the API where one commit's archive is.
 //
 // A provider answers with a redirect to the storage that holds it, which is what
-// GitHub does. A GHES instance that serves storage from its own host may answer
-// with the archive itself, so both are handled: the API URL is returned in that
-// case and the caller fetches it, without a token, on the same terms.
-func (c *appClient) archiveLocation(ctx context.Context, path, commit string) (string, error) {
+// GitHub does, and the location is returned for the caller to fetch without a
+// credential. A GHES instance that serves storage from its own host may answer
+// with the archive itself; that response was made with the installation token,
+// which is the only way a private repository's archive is readable, so it is
+// handed back as it is for the caller to read and close, not asked for a second
+// time without the token.
+func (c *appClient) archiveLocation(ctx context.Context, path, commit string) (string, *http.Response, error) {
 	request, err := c.installationRequest(ctx, path)
 	if err != nil {
-		return "", &ArchiveError{Commit: commit, Err: err}
+		return "", nil, &ArchiveError{Commit: commit, Err: err}
 	}
 	response, err := c.archiveAPI().Do(request)
 	if err != nil {
-		return "", &ArchiveError{Commit: commit, Err: err}
+		return "", nil, &ArchiveError{Commit: commit, Err: err}
 	}
-	defer response.Body.Close()
 
 	switch response.StatusCode {
 	case http.StatusOK:
-		return request.URL.String(), nil
+		return "", response, nil
 	case http.StatusFound, http.StatusMovedPermanently, http.StatusTemporaryRedirect, http.StatusSeeOther:
+		defer response.Body.Close()
 		location := response.Header.Get("Location")
 		if location == "" {
-			return "", &ArchiveError{Commit: commit, Status: response.StatusCode, Message: "the redirect named nowhere"}
+			return "", nil, &ArchiveError{Commit: commit, Status: response.StatusCode, Message: "the redirect named nowhere"}
 		}
-		return location, nil
+		return location, nil, nil
 	default:
+		defer response.Body.Close()
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 512))
-		return "", &ArchiveError{
+		return "", nil, &ArchiveError{
 			Commit:  commit,
 			Status:  response.StatusCode,
 			Message: strings.TrimSpace(string(message)),

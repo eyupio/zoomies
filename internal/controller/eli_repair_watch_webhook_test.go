@@ -65,3 +65,22 @@ func TestAPullRequestWebhookLeavesAPausedWatchPaused(t *testing.T) {
 		t.Fatalf("a webhook resumed a paused watch: %+v, %v", got, err)
 	}
 }
+
+// Pausing the repository decision is the operator saying "no more", and the
+// periodic discovery already honours it; the webhook reads the same row.
+func TestAPullRequestWebhookAdmitsNothingWhileTheRepositoryIsPaused(t *testing.T) {
+	h := newHarness(t)
+	fake, inst, repo := repositoryWatchFixture(t, h)
+	fake.pull = github.RepairPull{Number: 2, Branch: "fix-2", Base: "main", BaseSHA: "base-2", HeadSHA: "head-2", Open: true}
+	decision, err := h.st.SetEliRepairWatchRepository(h.ctx, store.EliRepairWatchRepository{InstallationID: inst.ID, Repo: repo, OwnerID: "usr_owner", Checks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.c.PauseEliRepositoryWatches(h.ctx, decision.ID); err != nil {
+		t.Fatal(err)
+	}
+	pullRequestWebhook(t, h, repo, 2, "opened")
+	if got, err := h.st.EliRepairWatchForPull(h.ctx, repo, 2); err != store.ErrNotFound {
+		t.Fatalf("a paused repository admitted a new pull request: %+v, %v", got, err)
+	}
+}

@@ -34,6 +34,11 @@ type Resolution struct {
 	Path    string
 	Mode    string
 	Content string
+	// sides is the text of the two sides the model was given, which is what
+	// tells a marker the model left from a line the file legitimately has (see
+	// hasConflictMarkers). It is not part of the answer, so a Resolution built
+	// without it is held to the strictest reading.
+	sides string
 }
 
 // Resolve asks model to rewrite each conflicted file so that both sides'
@@ -112,12 +117,16 @@ func Resolve(ctx context.Context, model prrepair.Model, conflicts []gitmerge.Con
 		return nil, err
 	}
 
+	sidesOf := make(map[string]string, len(conflicts))
+	for _, conflict := range conflicts {
+		sidesOf[conflict.Path] = conflict.Base + "\n" + conflict.Head
+	}
 	resolved := make(map[string]string, len(plan.Files))
 	for _, file := range plan.Files {
 		if _, ok := originals[file.Path]; !ok {
 			return nil, fmt.Errorf("%w: the model changed %s, which is not a conflicted file", ErrUnresolved, file.Path)
 		}
-		if hasConflictMarkers(file.Content) {
+		if hasConflictMarkers(file.Content, sidesOf[file.Path]) {
 			return nil, fmt.Errorf("%w: the model left conflict markers in %s", ErrUnresolved, file.Path)
 		}
 		resolved[file.Path] = file.Content
@@ -128,7 +137,7 @@ func Resolve(ctx context.Context, model prrepair.Model, conflicts []gitmerge.Con
 		if !ok {
 			return nil, fmt.Errorf("%w: the model did not resolve %s", ErrUnresolved, conflict.Path)
 		}
-		out = append(out, Resolution{Path: conflict.Path, Mode: originals[conflict.Path].Mode, Content: content})
+		out = append(out, Resolution{Path: conflict.Path, Mode: originals[conflict.Path].Mode, Content: content, sides: sidesOf[conflict.Path]})
 	}
 	return out, nil
 }
@@ -151,17 +160,38 @@ func conflictMarked(conflict gitmerge.Conflict) string {
 	return b.String()
 }
 
-// hasConflictMarkers reports whether a resolved file still has a line that is
-// only the marker form. A document may quote a marker in prose; what this
-// refuses is a tree Git would still consider conflicted.
-func hasConflictMarkers(content string) bool {
+// hasConflictMarkers reports whether content carries more marker lines than the
+// sides it was resolved from did. A document may legitimately hold a line that
+// looks like a marker: "=======" underlines a Markdown or reStructuredText
+// heading, and a file about merging may quote the other two. Counting against
+// what the sides already had refuses the markers the model left without refusing
+// every file that happens to contain one. With no sides given, any marker line is
+// one too many.
+func hasConflictMarkers(content string, sides ...string) bool {
+	open, separator, closing := markerLines(content)
+	var allowedOpen, allowedSeparator, allowedClosing int
+	for _, side := range sides {
+		o, s, c := markerLines(side)
+		allowedOpen += o
+		allowedSeparator += s
+		allowedClosing += c
+	}
+	return open > allowedOpen || separator > allowedSeparator || closing > allowedClosing
+}
+
+// markerLines counts the lines that are only the marker form.
+func markerLines(content string) (open, separator, closing int) {
 	for _, line := range strings.Split(content, "\n") {
 		switch {
-		case strings.HasPrefix(line, "<<<<<<< "), strings.HasPrefix(line, ">>>>>>> "), line == "=======":
-			return true
+		case strings.HasPrefix(line, "<<<<<<< "):
+			open++
+		case strings.HasPrefix(line, ">>>>>>> "):
+			closing++
+		case line == "=======":
+			separator++
 		}
 	}
-	return false
+	return open, separator, closing
 }
 
 // conflictReader serves the conflict-marked files. A path outside the conflict
@@ -207,7 +237,7 @@ func ApplyChanges(changes []gitmerge.Change, resolutions []Resolution) ([]gitmer
 		if change.Mode != "100644" && change.Mode != "100755" {
 			return nil, fmt.Errorf("%w: %s has mode %s, which a model may not rewrite", ErrUnresolved, resolution.Path, change.Mode)
 		}
-		if hasConflictMarkers(resolution.Content) {
+		if hasConflictMarkers(resolution.Content, resolution.sides) {
 			return nil, fmt.Errorf("%w: %s still carries conflict markers", ErrUnresolved, resolution.Path)
 		}
 		changes[i].Content = []byte(resolution.Content)

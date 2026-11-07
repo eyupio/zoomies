@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,8 @@ type watchLoopFake struct {
 	openCalls   int
 	conflict    *github.RepairConflict
 	conflictErr error
+	// conflictReads counts the conflict reads the watch made, by either route.
+	conflictReads int
 
 	commitConflicts   int
 	conflictChanges   []github.ConflictChange
@@ -56,6 +59,7 @@ func (f *watchLoopFake) RepairCheckEvidence(context.Context, string, string) (gi
 }
 
 func (f *watchLoopFake) RepairConflictEvidence(context.Context, string, int) (github.RepairConflict, error) {
+	f.conflictReads++
 	if f.conflictErr != nil {
 		return github.RepairConflict{}, f.conflictErr
 	}
@@ -109,9 +113,23 @@ func watchLoopFixture(t *testing.T, h *harness) (*watchLoopFake, *store.EliRepai
 	return fake, watch, inst
 }
 
+// followConflictsToo re-admits the fixture's watch so it follows merge conflicts
+// as well as checks. A watch that does not follow conflicts no longer reads them.
+func followConflictsToo(t *testing.T, h *harness, watch *store.EliRepairWatch) {
+	t.Helper()
+	if _, err := h.st.AdmitEliRepairWatch(h.ctx, store.EliRepairWatch{
+		InstallationID: watch.InstallationID, Repo: watch.Repo, PullNumber: watch.PullNumber, OwnerID: watch.OwnerID,
+		PolicyProviderID: watch.PolicyProviderID, Checks: true, Conflicts: true,
+		HeadSHA: watch.HeadSHA, BaseRef: watch.BaseRef, BaseSHA: watch.BaseSHA,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestADueWatchRecordsItsPullAndCheckState(t *testing.T) {
 	h := newHarness(t)
 	fake, watch, _ := watchLoopFixture(t, h)
+	followConflictsToo(t, h, watch)
 	fake.conflict = &github.RepairConflict{Number: 1, HeadSHA: "head-new", BaseRef: "release", BaseSHA: "base-new", MergeBaseSHA: "merge-base", Mergeable: false, MergeableKnown: true, MergeState: "dirty"}
 	started := h.c.Now()
 	if !h.c.observeDueEliRepairWatch(h.ctx) {
@@ -358,6 +376,163 @@ func TestAFailedWatchStartsOneRepairForItsHead(t *testing.T) {
 	}
 	if h.c.repairWatchEnabled(h.ctx, repair) {
 		t.Fatal("a paused watch was treated as live")
+	}
+}
+
+// The chain's limit used to be applied by a gate before the store was asked, so
+// the store never got the chance to record why it stopped and the page went on
+// saying a repair was under way.
+func TestAFailedWatchWithNoAttemptsLeftSaysAPersonMustLook(t *testing.T) {
+	h := newHarness(t)
+	fake, watch, _ := watchLoopFixture(t, h)
+	fake.repairFake.failedJobs = &github.RepairFailureRun{RunID: 44, Workflow: "CI", RunNumber: 12, Jobs: []github.RepairFailedJob{{ID: 9001, Name: "Go (api)", Conclusion: "failure"}}}
+	for attempt := 1; attempt <= maxEliWatchRepairs; attempt++ {
+		r := &store.EliRepair{
+			InstallationID: watch.InstallationID, Repo: watch.Repo, PullNumber: 1, HeadSHA: "head-" + string(rune('0'+attempt)),
+			ProviderID: "asp_team", Trigger: "automatic", DedupKey: "watch:" + watch.ID + ":earlier-" + string(rune('0'+attempt)),
+		}
+		if added, _, err := h.st.EnqueueEliWatchRepair(h.ctx, watch.ID, r, "signature", maxEliWatchRepairs, "unused"); err != nil || !added {
+			t.Fatalf("attempt %d: added=%t err=%v", attempt, added, err)
+		}
+	}
+	if !h.c.observeDueEliRepairWatch(h.ctx) {
+		t.Fatal("the watch was not observed")
+	}
+	got, err := h.st.EliRepairWatch(h.ctx, watch.ID)
+	if err != nil || got.ChainStopped == "" || got.ChainAttempts != maxEliWatchRepairs {
+		t.Fatalf("the exhausted chain was not recorded: %+v, %v", got, err)
+	}
+}
+
+// With no checks to wait on there is nothing to see at thirty-second intervals;
+// a conflicts-only watch over a busy repository would otherwise spend two GitHub
+// reads per pull request every half minute for as long as it lives.
+func TestAConflictsOnlyWatchIsReadAtTheRestingPace(t *testing.T) {
+	h := newHarness(t)
+	fake, watch, inst := watchLoopFixture(t, h)
+	if _, err := h.st.AdmitEliRepairWatch(h.ctx, store.EliRepairWatch{
+		InstallationID: inst.ID, Repo: watch.Repo, PullNumber: 1, OwnerID: "usr_owner", Conflicts: true,
+		HeadSHA: "head-old", BaseRef: "main", BaseSHA: "base-old", PolicyProviderID: watch.PolicyProviderID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fake.conflict = &github.RepairConflict{MergeableKnown: true, Mergeable: true, HeadSHA: "head-new", BaseSHA: "base-new", MergeBaseSHA: "mb"}
+	if !h.c.observeDueEliRepairWatch(h.ctx) {
+		t.Fatal("the watch was not observed")
+	}
+	got, err := h.st.EliRepairWatch(h.ctx, watch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gap := got.NextCheckAt.Sub(got.LastObservedAt); gap < eliWatchPassed-time.Second || gap > eliWatchPassed+time.Second {
+		t.Fatalf("a mergeable conflicts-only watch is read again after %s, want %s", gap, eliWatchPassed)
+	}
+}
+
+// A failed read says nothing about the pull request, so it must not replace the
+// last good reading with an empty one that the page shows as "not read".
+func TestAFailedConflictReadKeepsTheLastGoodEvidence(t *testing.T) {
+	h := newHarness(t)
+	fake, watch, _ := watchLoopFixture(t, h)
+	followConflictsToo(t, h, watch)
+	fake.conflict = &github.RepairConflict{MergeableKnown: true, Mergeable: true, HeadSHA: "head-new", BaseSHA: "base-new", MergeBaseSHA: "mb"}
+	if !h.c.observeDueEliRepairWatch(h.ctx) {
+		t.Fatal("the watch was not observed")
+	}
+	first, err := h.st.EliRepairWatch(h.ctx, watch.ID)
+	if err != nil || first.ConflictEvidence == "" || first.ConflictEvidence == "{}" {
+		t.Fatalf("the first reading was not kept: %+v, %v", first, err)
+	}
+	if _, err := h.st.AdmitEliRepairWatch(h.ctx, store.EliRepairWatch{
+		InstallationID: first.InstallationID, Repo: first.Repo, PullNumber: 1, OwnerID: "usr_owner", Checks: true, Conflicts: true,
+		PolicyProviderID: first.PolicyProviderID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fake.conflictErr = errors.New("GitHub is unavailable")
+	if !h.c.observeDueEliRepairWatch(h.ctx) {
+		t.Fatal("the watch was not observed the second time")
+	}
+	second, err := h.st.EliRepairWatch(h.ctx, watch.ID)
+	if err != nil || second.ConflictEvidence != first.ConflictEvidence {
+		t.Fatalf("a failed read replaced the evidence: %q, %v", second.ConflictEvidence, err)
+	}
+}
+
+// Held incidents are only ever released when the work ends, so the ones that wait
+// for a person would stay for as long as the process does.
+func TestExpiredConflictClaimsAreDroppedWhenAnotherIsMade(t *testing.T) {
+	h := newHarness(t)
+	h.c.holdConflict("old", time.Minute)
+	h.c.holdConflict("current", time.Hour)
+	h.c.conflictMu.Lock()
+	h.c.conflictClaims["old"] = h.c.Now().Add(-time.Second)
+	h.c.conflictMu.Unlock()
+	if !h.c.claimConflict("new", h.c.Now().Add(time.Minute)) {
+		t.Fatal("a fresh incident was refused")
+	}
+	h.c.conflictMu.Lock()
+	defer h.c.conflictMu.Unlock()
+	if _, kept := h.c.conflictClaims["old"]; kept {
+		t.Fatal("an expired hold was kept")
+	}
+	if _, kept := h.c.conflictClaims["current"]; !kept {
+		t.Fatal("a live hold was dropped")
+	}
+}
+
+// The conflict reading is two GitHub requests, and a watch that only follows
+// checks shows nothing it could change, so it is not asked for.
+func TestAChecksOnlyWatchDoesNotReadConflicts(t *testing.T) {
+	h := newHarness(t)
+	fake, watch, _ := watchLoopFixture(t, h)
+	fake.conflict = &github.RepairConflict{MergeableKnown: true, Mergeable: false, HeadSHA: "head-new", BaseSHA: "base-new", MergeBaseSHA: "mb"}
+	if !h.c.observeDueEliRepairWatch(h.ctx) {
+		t.Fatal("the watch was not observed")
+	}
+	if fake.conflictReads != 0 {
+		t.Fatalf("a checks-only watch read conflicts %d times", fake.conflictReads)
+	}
+	got, err := h.st.EliRepairWatch(h.ctx, watch.ID)
+	if err != nil || got.ConflictEvidence != "{}" || got.CheckState != "failed" {
+		t.Fatalf("watch %+v, %v", got, err)
+	}
+}
+
+// pullConflictFake is a client that can read conflicts from the pull request the
+// watch has just read, as the real one can.
+type pullConflictFake struct {
+	*watchLoopFake
+	fromPull int
+	seen     github.RepairPull
+}
+
+func (f *pullConflictFake) RepairConflictFor(_ context.Context, _ string, pull github.RepairPull) (github.RepairConflict, error) {
+	f.fromPull++
+	f.seen = pull
+	return github.RepairConflict{Number: pull.Number, HeadSHA: pull.HeadSHA, BaseRef: pull.Base, BaseSHA: pull.BaseSHA, MergeBaseSHA: "mb", MergeableKnown: true, Mergeable: true}, nil
+}
+
+// The pull request was read a moment before, so a client that can use that read
+// is not made to fetch it again.
+func TestAConflictWatchReusesThePullRequestItJustRead(t *testing.T) {
+	h := newHarness(t)
+	fake, watch, inst := watchLoopFixture(t, h)
+	followConflictsToo(t, h, watch)
+	wrapped := &pullConflictFake{watchLoopFake: fake}
+	h.c.clients.entries[inst.ID] = &clientEntry{client: wrapped, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
+	if !h.c.observeDueEliRepairWatch(h.ctx) {
+		t.Fatal("the watch was not observed")
+	}
+	if wrapped.fromPull != 1 || fake.conflictReads != 0 || fake.pulls != 1 {
+		t.Fatalf("conflict reads from the pull = %d, by number = %d, pull reads = %d; want 1, 0, 1", wrapped.fromPull, fake.conflictReads, fake.pulls)
+	}
+	if wrapped.seen.HeadSHA != "head-new" {
+		t.Fatalf("the conflict read was given %+v, not the pull request just read", wrapped.seen)
+	}
+	got, err := h.st.EliRepairWatch(h.ctx, watch.ID)
+	if err != nil || !strings.Contains(got.ConflictEvidence, `"merge_base_sha":"mb"`) {
+		t.Fatalf("conflict evidence %q, %v", got.ConflictEvidence, err)
 	}
 }
 

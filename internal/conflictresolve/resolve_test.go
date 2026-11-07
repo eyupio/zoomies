@@ -220,6 +220,22 @@ func TestResolveAddsTheNewlineTheSidesLack(t *testing.T) {
 	}
 }
 
+// "=======" underlines a heading in Markdown and reStructuredText. A file that
+// already had one on both sides is not conflicted again because it kept it, but
+// a marker the model added to it still is.
+func TestAHeadingUnderlineIsNotAConflictMarker(t *testing.T) {
+	side := "Title\n=======\ntext\n"
+	if hasConflictMarkers(side, side, side) {
+		t.Fatal("a heading underline both sides already had was taken for a conflict marker")
+	}
+	if !hasConflictMarkers("Title\n=======\ntext\n=======\nmore\n", side, side[:5]) {
+		t.Fatal("an extra separator on top of the heading was not a conflict marker")
+	}
+	if !hasConflictMarkers(side+"<<<<<<< target\n", side, side) {
+		t.Fatal("an opening marker the sides did not have was missed")
+	}
+}
+
 func TestResolveReportsAModelFailure(t *testing.T) {
 	model := &replyModel{replies: []string{"this is not a plan"}}
 	if _, err := Resolve(context.Background(), model, []gitmerge.Conflict{conflict("file.txt", "", "a\n", "b\n")}, false); err == nil {

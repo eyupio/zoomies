@@ -16,11 +16,13 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -253,6 +255,19 @@ func writeCommit(repo string, commit Commit, tree string) (string, error) {
 	return writeObject(repo, "commit", body.Bytes())
 }
 
+// A zlib writer carries a compressor of about a megabyte, and a repository is
+// written one object at a time, so a writer made for each object was nearly all
+// of what writing cost: about 1 MB of garbage per file, which on a tree of
+// thousands is gigabytes for the controller's collector to chase. The writer is
+// reset onto each object instead.
+var objectWriters = sync.Pool{New: func() any { return zlib.NewWriter(io.Discard) }}
+
+// maxPooledBuffer is the largest compressed object whose buffer is kept. One big
+// file must not leave a buffer that size in the pool for the life of the process.
+const maxPooledBuffer = 1 << 20
+
+var objectBuffers = sync.Pool{New: func() any { return new(bytes.Buffer) }}
+
 // writeObject writes one loose object and returns its id: the SHA-1 of the header
 // and the content, which is exactly how Git names it.
 func writeObject(repo, kind string, content []byte) (string, error) {
@@ -269,8 +284,16 @@ func writeObject(repo, kind string, content []byte) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return "", err
 	}
-	var compressed bytes.Buffer
-	writer := zlib.NewWriter(&compressed)
+	compressed := objectBuffers.Get().(*bytes.Buffer)
+	compressed.Reset()
+	defer func() {
+		if compressed.Cap() <= maxPooledBuffer {
+			objectBuffers.Put(compressed)
+		}
+	}()
+	writer := objectWriters.Get().(*zlib.Writer)
+	defer objectWriters.Put(writer)
+	writer.Reset(compressed)
 	if _, err := writer.Write([]byte(header)); err != nil {
 		return "", err
 	}

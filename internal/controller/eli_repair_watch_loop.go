@@ -34,7 +34,13 @@ func (c *Controller) repairWatchLoop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		c.observeDueEliRepairWatch(ctx)
+		// A watch that was observed has moved its next check on (or been paused or
+		// stopped), so asking again at once finds the next due one, or none. Waiting
+		// out the tick after every watch would cap the fleet at one observation
+		// every three seconds, however many fell due together.
+		if c.observeDueEliRepairWatch(ctx) {
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -103,12 +109,31 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 		return true
 	}
 
-	conflictEvidence := "{}"
+	// conflictEvidence stays empty when the read failed, so that a transient
+	// error leaves the last good reading in place instead of overwriting it with
+	// "nothing is known".
+	conflictEvidence := ""
+	conflictRead := false
 	var conflict github.RepairConflict
-	if conflictClient, ok := client.(github.RepairConflictClient); ok {
-		read, conflictErr := conflictClient.RepairConflictEvidence(checkCtx, watch.Repo, watch.PullNumber)
-		if conflictErr == nil {
+	// Only a watch that follows conflicts reads them. A checks-only watch used to
+	// pay two GitHub requests for a reading nothing it shows or does uses, every
+	// thirty seconds while its checks were pending.
+	if watch.Conflicts {
+		var read github.RepairConflict
+		var conflictErr error
+		attempted := true
+		switch conflictClient := client.(type) {
+		case github.RepairConflictFromPullClient:
+			// The pull request was read a moment ago and carries its mergeability.
+			read, conflictErr = conflictClient.RepairConflictFor(checkCtx, watch.Repo, pull)
+		case github.RepairConflictClient:
+			read, conflictErr = conflictClient.RepairConflictEvidence(checkCtx, watch.Repo, watch.PullNumber)
+		default:
+			attempted = false
+		}
+		if attempted && conflictErr == nil {
 			conflict = read
+			conflictRead = true
 			encoded, _ := json.Marshal(conflict)
 			conflictEvidence = string(encoded)
 		}
@@ -150,9 +175,24 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 			}
 		}
 	} else {
-		checkState, checkEvidence, next = "unknown", "[]", now.Add(eliWatchPending)
+		// A watch that follows only conflicts has no checks to wait on, so it
+		// is read at the pace of a pull request whose checks passed. Mergeability
+		// that GitHub is still working out, or a read that failed, is looked at
+		// sooner.
+		checkState, checkEvidence = "unknown", "[]"
+		switch {
+		case !conflictRead:
+			next = now.Add(eliWatchRetry)
+		case !conflict.MergeableKnown:
+			next = now.Add(eliWatchPending)
+		default:
+			next = now.Add(eliWatchPassed)
+		}
 	}
-	if watch.Checks && checkState == "failed" && watch.ChainStopped == "" && watch.ChainAttempts < maxEliWatchRepairs {
+	// The limit is the store's to apply, not this gate's: it is the store that
+	// records why the chain stopped, and it can tell the last attempt still working
+	// on this head from a new failing head that no attempt is left for.
+	if watch.Checks && checkState == "failed" && watch.ChainStopped == "" {
 		run, runErr := client.RepairFailedJobs(checkCtx, watch.Repo, 0, pull.HeadSHA)
 		if runErr == nil {
 			repair := &store.EliRepair{
@@ -187,8 +227,10 @@ func (c *Controller) observeDueEliRepairWatch(ctx context.Context) bool {
 			c.log.Warn("could not reset an Eli repair watch chain", "watch", watch.ID, "error", err)
 		}
 	}
-	if err := c.st.SetEliRepairWatchConflict(ctx, watch.ID, watch.LeaseToken, conflictEvidence); err != nil && !errors.Is(err, store.ErrConflict) {
-		c.log.Warn("could not record an Eli conflict check", "watch", watch.ID, "error", err)
+	if conflictRead {
+		if err := c.st.SetEliRepairWatchConflict(ctx, watch.ID, watch.LeaseToken, conflictEvidence); err != nil && !errors.Is(err, store.ErrConflict) {
+			c.log.Warn("could not record an Eli conflict check", "watch", watch.ID, "error", err)
+		}
 	}
 	conflictDue := watch.Conflicts && conflict.MergeableKnown && !conflict.Mergeable && conflict.MergeBaseSHA != "" &&
 		conflict.HeadSHA == pull.HeadSHA && conflict.BaseSHA == pull.BaseSHA

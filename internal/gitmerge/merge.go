@@ -5,12 +5,15 @@
 package gitmerge
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -171,21 +174,27 @@ func Merge(ctx context.Context, in Request) (Result, error) {
 // readChanges lists what the merged tree changes relative to the pull request
 // head. The head is the first parent of the commit the controller will build,
 // so this is exactly the tree difference that commit must carry.
+//
+// One diff-tree names every path with its new mode and object id, and one
+// cat-file reads all the blobs, so the cost is two processes however many files
+// the merge brought in rather than two for each of them.
 func readChanges(ctx context.Context, in Request, tree string) ([]Change, error) {
-	out, err := run(ctx, in.Dir, "diff-tree", "--no-commit-id", "--name-status", "-r", "-z", "--no-renames", in.Head, tree)
+	out, err := run(ctx, in.Dir, "diff-tree", "--no-commit-id", "--raw", "-z", "--no-abbrev", "-r", "--no-renames", in.Head, tree)
 	if err != nil {
 		return nil, fmt.Errorf("gitmerge: listing the merged tree: %w", err)
 	}
 	parts := bytes.Split(out, []byte{0})
 	changes := make([]Change, 0, len(parts)/2)
-	total := 0
+	// blobs[i] is the object whose bytes become changes[blobAt[i]].Content.
+	var blobs []string
+	var blobAt []int
 	for i := 0; i < len(parts); {
-		status := string(parts[i])
+		record := string(parts[i])
 		i++
-		if status == "" {
+		if record == "" {
 			continue
 		}
-		if i >= len(parts) || parts[i] == nil {
+		if !strings.HasPrefix(record, ":") || i >= len(parts) {
 			return nil, errors.New("gitmerge: the merged tree's change list is malformed")
 		}
 		path := string(parts[i])
@@ -193,61 +202,100 @@ func readChanges(ctx context.Context, in Request, tree string) ([]Change, error)
 		if path == "" {
 			return nil, errors.New("gitmerge: the merged tree's change list names an empty path")
 		}
+		fields := strings.Fields(record[1:])
+		if len(fields) != 5 {
+			return nil, errors.New("gitmerge: the merged tree's change list is malformed")
+		}
+		mode, object, status := fields[1], fields[3], fields[4]
 		if len(changes) >= defaultMaxChanges {
 			return nil, fmt.Errorf("%w: the merge changes more than %d files", ErrTooLarge, defaultMaxChanges)
 		}
 		switch status {
 		case "D":
 			changes = append(changes, Change{Path: path, Deleted: true})
-			continue
 		case "A", "M", "T":
+			change := Change{Path: path, Mode: mode}
+			switch mode {
+			case "160000":
+				change.SHA = object
+			case "100644", "100755", "120000":
+				blobs = append(blobs, object)
+				blobAt = append(blobAt, len(changes))
+			default:
+				return nil, fmt.Errorf("gitmerge: the merged tree entry for %s has mode %s, which is not publishable this way", path, mode)
+			}
+			changes = append(changes, change)
 		default:
 			return nil, fmt.Errorf("gitmerge: the merged tree change %q has an unsupported status %q", path, status)
 		}
-		change, err := readChange(ctx, in, tree, path)
-		if err != nil {
-			return nil, err
-		}
-		total += len(change.Content)
-		if total > defaultMaxChangeBytes {
-			return nil, fmt.Errorf("%w: the merged tree changes more than %d bytes", ErrTooLarge, defaultMaxChangeBytes)
-		}
-		changes = append(changes, change)
+	}
+	contents, err := readBlobs(ctx, in.Dir, blobs, defaultMaxChangeBytes)
+	if err != nil {
+		return nil, err
+	}
+	for i, content := range contents {
+		changes[blobAt[i]].Content = content
 	}
 	return changes, nil
 }
 
-// readChange reads one entry of the merged tree.
-func readChange(ctx context.Context, in Request, tree, path string) (Change, error) {
-	out, err := run(ctx, in.Dir, "ls-tree", "-z", "--full-tree", tree, "--", path)
+// readBlobs reads the named blobs with one cat-file, in order, and refuses to go
+// past limit bytes in all. The size comes before the bytes, so a blob over the
+// budget is declined without being read.
+func readBlobs(ctx context.Context, dir string, objects []string, limit int) ([][]byte, error) {
+	if len(objects) == 0 {
+		return nil, nil
+	}
+	cmd := gitCommand(ctx, dir, "cat-file", "--batch")
+	cmd.Stdin = strings.NewReader(strings.Join(objects, "\n") + "\n")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return Change{}, fmt.Errorf("gitmerge: reading %s from the merged tree: %w", path, err)
+		return nil, fmt.Errorf("gitmerge: reading the merged content: %w", err)
 	}
-	entry := strings.TrimSuffix(string(out), "\x00")
-	meta, _, ok := strings.Cut(entry, "\t")
-	if !ok {
-		return Change{}, fmt.Errorf("gitmerge: the merged tree entry for %s is malformed", path)
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("gitmerge: reading the merged content: %w", err)
 	}
-	fields := strings.Fields(meta)
-	if len(fields) != 3 {
-		return Change{}, fmt.Errorf("gitmerge: the merged tree entry for %s is malformed", path)
+	abandon := func(err error) ([][]byte, error) {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return nil, err
 	}
-	mode, kind, object := fields[0], fields[1], fields[2]
-	change := Change{Path: path, Mode: mode}
-	switch {
-	case kind == "commit" || mode == "160000":
-		change.SHA = object
-		return change, nil
-	case kind == "blob":
-		content, err := run(ctx, in.Dir, "cat-file", "blob", object)
+	reader := bufio.NewReader(stdout)
+	contents := make([][]byte, 0, len(objects))
+	total := 0
+	for _, object := range objects {
+		header, err := reader.ReadString('\n')
 		if err != nil {
-			return Change{}, fmt.Errorf("gitmerge: reading the merged content of %s: %w", path, err)
+			return abandon(fmt.Errorf("gitmerge: reading the merged content of %s: %w%s", object, err, stderrNote(stderr.Bytes())))
 		}
-		change.Content = content
-		return change, nil
-	default:
-		return Change{}, fmt.Errorf("gitmerge: the merged tree entry for %s is a %s, which is not publishable this way", path, kind)
+		fields := strings.Fields(header)
+		if len(fields) != 3 || fields[1] != "blob" {
+			return abandon(fmt.Errorf("gitmerge: the merged tree object %s is not a blob git can read: %q", object, strings.TrimSpace(header)))
+		}
+		size, err := strconv.Atoi(fields[2])
+		if err != nil || size < 0 {
+			return abandon(fmt.Errorf("gitmerge: the size of the merged blob %s is malformed", object))
+		}
+		if size > limit-total {
+			return abandon(fmt.Errorf("%w: the merged tree changes more than %d bytes", ErrTooLarge, limit))
+		}
+		content := make([]byte, size)
+		if _, err := io.ReadFull(reader, content); err != nil {
+			return abandon(fmt.Errorf("gitmerge: reading the merged content of %s: %w", object, err))
+		}
+		// Each object is followed by a newline that is not part of it.
+		if _, err := reader.ReadByte(); err != nil {
+			return abandon(fmt.Errorf("gitmerge: reading the merged content of %s: %w", object, err))
+		}
+		total += size
+		contents = append(contents, content)
 	}
+	if err := cmd.Wait(); err != nil {
+		return nil, fmt.Errorf("gitmerge: reading the merged content: %w%s", err, stderrNote(stderr.Bytes()))
+	}
+	return contents, nil
 }
 
 func validate(in Request) error {
@@ -363,12 +411,43 @@ func side(ctx context.Context, in Request, commit, path string, total *int) (blo
 	return blobSide{Mode: mode, Text: string(content)}, ""
 }
 
-func run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+// maxGitStderr bounds the part of Git's own complaint that is kept in an error.
+const maxGitStderr = 512
+
+// gitCommand is Git run the way this worker allows it: no hooks, no attributes
+// file, no system or user configuration and none of the caller's GIT_ variables.
+func gitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
 	gitArgs := append([]string{"-c", "safe.directory=" + dir, "-c", "core.hooksPath=/dev/null", "-c", "core.attributesFile=/dev/null", "--no-pager"}, args...)
 	cmd := exec.CommandContext(ctx, "git", gitArgs...)
 	cmd.Dir = dir
 	cmd.Env = append(sanitisedEnv(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_ATTR_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")
-	return cmd.Output()
+	return cmd
+}
+
+// run returns Git's output. A failure keeps what Git said on standard error, since
+// "exit status 128" is all an operator would otherwise have to go on, and still
+// wraps the *exec.ExitError so a caller can read the exit code.
+func run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	out, err := gitCommand(ctx, dir, args...).Output()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		if note := stderrNote(exit.Stderr); note != "" {
+			return out, fmt.Errorf("%w%s", err, note)
+		}
+	}
+	return out, err
+}
+
+// stderrNote renders Git's complaint as a suffix for an error, or nothing.
+func stderrNote(stderr []byte) string {
+	msg := strings.TrimSpace(string(stderr))
+	if msg == "" {
+		return ""
+	}
+	if len(msg) > maxGitStderr {
+		msg = msg[:maxGitStderr] + "..."
+	}
+	return ": " + msg
 }
 
 func sanitisedEnv() []string {

@@ -33,8 +33,15 @@ func (l mergeLookup) Commit(ctx context.Context, sha string) (string, []string, 
 func (l mergeLookup) Files(ctx context.Context, sha string) ([]gitbare.File, error) {
 	// Every provider archive is wrapped in one directory named after the
 	// repository and the commit, and that directory is not part of the tree.
-	return l.client.ArchiveOf(ctx, l.repo, sha, gitbare.ArchiveOptions{StripTopLevel: true})
+	return l.client.ArchiveOf(ctx, l.repo, sha, gitbare.ArchiveOptions{StripTopLevel: true, Budget: mergeArchiveBudget})
 }
+
+// mergeArchiveBudget is what one commit's archive may cost the controller. The
+// package default (256 MiB) suits a caller that reads one archive; a conflict
+// repair holds up to eight attempts at once in a process that is also serving the
+// API, and a conflict in a tree this size is one a person is better placed to
+// resolve than a model reading it through a window.
+var mergeArchiveBudget = gitbare.Budget{Files: 100_000, Bytes: 96 << 20}
 
 // mergeRepository builds the repository one conflict repair merges in, and owns
 // its lifetime.
