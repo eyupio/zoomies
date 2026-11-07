@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func repo(t *testing.T) string {
+func repo(t testing.TB) string {
 	t.Helper()
 	dir := t.TempDir()
 	mustGit(t, dir, "init", "-q")
@@ -19,7 +19,7 @@ func repo(t *testing.T) string {
 	return dir
 }
 
-func mustGit(t *testing.T, dir string, args ...string) string {
+func mustGit(t testing.TB, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
@@ -30,14 +30,14 @@ func mustGit(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func commit(t *testing.T, dir, message string) string {
+func commit(t testing.TB, dir, message string) string {
 	t.Helper()
 	mustGit(t, dir, "add", "-A")
 	mustGit(t, dir, "commit", "-qm", message)
 	return mustGit(t, dir, "rev-parse", "HEAD")
 }
 
-func write(t *testing.T, dir, name string, content []byte) {
+func write(t testing.TB, dir, name string, content []byte) {
 	t.Helper()
 	path := filepath.Join(dir, name)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -280,5 +280,42 @@ func TestMergeAcceptsOnlyItsPreparedRepositoryWithDifferentOwnership(t *testing.
 	}
 	if got.Tree == "" || len(got.Conflicts) != 0 {
 		t.Fatalf("merge %+v", got)
+	}
+}
+
+// "exit status 128" tells an operator nothing; Git's own sentence does.
+func TestAGitFailureCarriesWhatGitSaid(t *testing.T) {
+	dir := repo(t)
+	write(t, dir, "a.txt", []byte("a\n"))
+	commit(t, dir, "base")
+	absent := strings.Repeat("a", 40)
+	_, err := Merge(context.Background(), Request{Dir: dir, Ancestor: absent, Base: absent, Head: absent})
+	if err == nil || !strings.Contains(err.Error(), "fatal") {
+		t.Fatalf("error = %v, want one that carries git's message", err)
+	}
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		t.Fatalf("error %v no longer exposes the exit status", err)
+	}
+}
+
+// The blobs of a merge come from one cat-file, so the budget has to be applied
+// to what it reports, size first, rather than to bytes already read.
+func TestReadBlobsRefusesAnObjectPastTheBudgetBeforeReadingIt(t *testing.T) {
+	dir := repo(t)
+	write(t, dir, "big.txt", []byte(strings.Repeat("x", 4096)))
+	write(t, dir, "small.txt", []byte("s\n"))
+	commit(t, dir, "files")
+	big := mustGit(t, dir, "rev-parse", "HEAD:big.txt")
+	small := mustGit(t, dir, "rev-parse", "HEAD:small.txt")
+	got, err := readBlobs(context.Background(), dir, []string{small, big, small}, 1<<20)
+	if err != nil || len(got) != 3 || string(got[0]) != "s\n" || len(got[1]) != 4096 || string(got[2]) != "s\n" {
+		t.Fatalf("blobs = %d, %v", len(got), err)
+	}
+	if _, err := readBlobs(context.Background(), dir, []string{small, big}, 1024); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("an object past the budget answered %v, want ErrTooLarge", err)
+	}
+	if _, err := readBlobs(context.Background(), dir, []string{strings.Repeat("0", 40)}, 1024); err == nil {
+		t.Fatal("a missing object was read")
 	}
 }

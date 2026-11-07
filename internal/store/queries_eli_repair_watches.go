@@ -376,17 +376,30 @@ func (s *Store) EnqueueEliWatchRepair(ctx context.Context, watchID string, r *El
 		if limit <= 0 {
 			limit = 3
 		}
-		if attempts >= limit {
-			_, err = tx.ExecContext(ctx, `UPDATE eli_repair_watches SET chain_stopped_reason=?,updated_at=? WHERE id=?`, exhaustedReason, ms(s.Now()), watchID)
+		stopChain := func() error {
+			_, err := tx.ExecContext(ctx, `UPDATE eli_repair_watches SET chain_stopped_reason=?,updated_at=? WHERE id=?`, exhaustedReason, ms(s.Now()), watchID)
 			return err
 		}
-		var existing string
-		err = tx.QueryRowContext(ctx, `SELECT id FROM eli_repairs WHERE dedup_key=?`, r.DedupKey).Scan(&existing)
+		// The head's own repair is looked for before the limit is, because the
+		// last allowed attempt is still working on the head the checks keep
+		// reporting as failed. Stopping the chain for that head would write "a
+		// person needs to look" over a repair that has not finished.
+		var existing, existingState string
+		err = tx.QueryRowContext(ctx, `SELECT id,state FROM eli_repairs WHERE dedup_key=?`, r.DedupKey).Scan(&existing, &existingState)
 		switch {
 		case err == nil:
+			// An attempt that ended without moving the head leaves the checks
+			// failing on the same commit, so no new head will ever arrive to
+			// show the limit was reached. Say so now rather than never.
+			if attempts >= limit && !eliRepairInFlight(existingState) {
+				return stopChain()
+			}
 			return nil
 		case !errors.Is(err, sql.ErrNoRows):
 			return err
+		}
+		if attempts >= limit {
+			return stopChain()
 		}
 		r.ID = NewID(PrefixEliRepair)
 		r.WatchID = watchID
@@ -402,6 +415,16 @@ func (s *Store) EnqueueEliWatchRepair(ctx context.Context, watchID string, r *El
 		return err
 	})
 	return added, attempts, wrapWrite(err)
+}
+
+// eliRepairInFlight reports whether an attempt is still queued or working, the
+// same three states eliRepairActive names for SQL.
+func eliRepairInFlight(state string) bool {
+	switch state {
+	case "queued", "working", "checking":
+		return true
+	}
+	return false
 }
 
 // ResetEliWatchRepairChain starts a new incident after a healthy observation.

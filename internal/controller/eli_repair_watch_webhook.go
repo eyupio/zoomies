@@ -41,6 +41,13 @@ func (c *Controller) admitWatchFromPullRequestWebhook(ctx context.Context, inst 
 	if err != nil {
 		return err
 	}
+	// A paused repository decision has stopped admitting new pull requests, and
+	// the periodic discovery already honours that. Without this the webhook, which
+	// reads the same row, would go on spending the owner's provider budget on
+	// every pull request opened after the pause.
+	if !subscription.Enabled {
+		return nil
+	}
 	policy, err := c.eliWatchPolicy(ctx, repo, inst.ID)
 	if err != nil {
 		return nil

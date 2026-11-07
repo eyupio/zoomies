@@ -40,7 +40,11 @@ type fakeArchive struct {
 	authorization []string
 	// downloads counts the storage requests.
 	downloads int
-	mu        sync.Mutex
+	// direct makes the API answer with the archive itself, as a GHES instance
+	// that keeps its storage on its own host does, and only to a caller that sent
+	// the installation token.
+	direct bool
+	mu     sync.Mutex
 }
 
 // Archive registers one commit's tree with the fake. The commit is served as a
@@ -63,6 +67,17 @@ func (f *FakeGitHub) ArchiveStatus(repo, commit string, status int) {
 		f.archives = map[string]*fakeArchive{}
 	}
 	f.archives[repo+"@"+commit] = &fakeArchive{status: status}
+}
+
+// ArchiveServedByTheAPI makes the fake answer the tarball request with the
+// archive itself instead of a redirect, and only to a request that carries a
+// credential, which is how a private repository behaves on such an instance.
+func (f *FakeGitHub) ArchiveServedByTheAPI(repo, commit string) {
+	if entry := f.archiveFor(repo, commit); entry != nil {
+		entry.mu.Lock()
+		entry.direct = true
+		entry.mu.Unlock()
+	}
 }
 
 // ArchiveTokensSeen returns the Authorization headers the fake saw on storage
@@ -90,8 +105,26 @@ func (f *FakeGitHub) archiveFor(repo, commit string) *fakeArchive {
 func (f *FakeGitHub) serveTarball(w http.ResponseWriter, r *http.Request) {
 	repo := r.PathValue("owner") + "/" + r.PathValue("repo")
 	commit := r.PathValue("ref")
-	if f.archiveFor(repo, commit) == nil {
+	entry := f.archiveFor(repo, commit)
+	if entry == nil {
 		http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+		return
+	}
+	entry.mu.Lock()
+	direct := entry.direct
+	entry.mu.Unlock()
+	if direct {
+		if r.Header.Get("Authorization") == "" {
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+			return
+		}
+		body, err := archiveBody(repo, commit, entry.files)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-gzip")
+		_, _ = w.Write(body)
 		return
 	}
 	http.Redirect(w, r, f.srv.URL+"/archives/"+repo+"/"+commit, http.StatusFound)

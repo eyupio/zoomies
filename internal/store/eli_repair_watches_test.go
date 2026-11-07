@@ -326,6 +326,68 @@ func TestAWatchRepairChainIsBoundedAndStopsAtTheThirdAttempt(t *testing.T) {
 	}
 }
 
+// The limit is reached when the third attempt is queued, and the checks go on
+// reporting the old head as failed until that attempt pushes. The chain must not
+// be called stopped while its last attempt is still working: a person is told
+// "look at this" about a repair that has not finished.
+func TestTheLastAllowedAttemptStillWorkingDoesNotStopTheChain(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	inst := watchInstallation(t, s)
+	w, err := s.AdmitEliRepairWatch(ctx, EliRepairWatch{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, OwnerID: "usr_one", Checks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const reason = "Eli has made three repair attempts for this watched pull request."
+	var last *EliRepair
+	for attempt := 1; attempt <= 3; attempt++ {
+		last = &EliRepair{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, HeadSHA: "head-" + string(rune('0'+attempt)), ProviderID: "asp_team", Trigger: "automatic", DedupKey: "watch:" + w.ID + ":" + string(rune('0'+attempt))}
+		if added, _, err := s.EnqueueEliWatchRepair(ctx, w.ID, last, "signature", 3, reason); err != nil || !added {
+			t.Fatalf("attempt %d: added=%t err=%v", attempt, added, err)
+		}
+	}
+	again := &EliRepair{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, HeadSHA: "head-3", ProviderID: "asp_team", Trigger: "automatic", DedupKey: last.DedupKey}
+	if added, _, err := s.EnqueueEliWatchRepair(ctx, w.ID, again, "signature", 3, reason); err != nil || added {
+		t.Fatalf("a repeated check for the working head: added=%t err=%v", added, err)
+	}
+	got, err := s.EliRepairWatch(ctx, w.ID)
+	if err != nil || got.ChainStopped != "" {
+		t.Fatalf("the chain was stopped while its last attempt was working: %+v, %v", got, err)
+	}
+}
+
+// An attempt that ends without moving the head leaves the checks failing on the
+// same commit, so no new head will ever show that the limit was reached.
+func TestTheLastAttemptEndingWithoutANewHeadStopsTheChain(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	inst := watchInstallation(t, s)
+	w, err := s.AdmitEliRepairWatch(ctx, EliRepairWatch{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, OwnerID: "usr_one", Checks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const reason = "Eli has made three repair attempts for this watched pull request."
+	var last *EliRepair
+	for attempt := 1; attempt <= 3; attempt++ {
+		last = &EliRepair{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, HeadSHA: "head-" + string(rune('0'+attempt)), ProviderID: "asp_team", Trigger: "automatic", DedupKey: "watch:" + w.ID + ":" + string(rune('0'+attempt))}
+		if added, _, err := s.EnqueueEliWatchRepair(ctx, w.ID, last, "signature", 3, reason); err != nil || !added {
+			t.Fatalf("attempt %d: added=%t err=%v", attempt, added, err)
+		}
+	}
+	last.State = "failed"
+	if err := s.SaveEliRepair(ctx, last); err != nil {
+		t.Fatal(err)
+	}
+	again := &EliRepair{InstallationID: inst.ID, Repo: "acme/repo", PullNumber: 1, HeadSHA: "head-3", ProviderID: "asp_team", Trigger: "automatic", DedupKey: last.DedupKey}
+	if added, _, err := s.EnqueueEliWatchRepair(ctx, w.ID, again, "signature", 3, reason); err != nil || added {
+		t.Fatalf("an exhausted chain admitted another attempt: added=%t err=%v", added, err)
+	}
+	got, err := s.EliRepairWatch(ctx, w.ID)
+	if err != nil || got.ChainStopped != reason {
+		t.Fatalf("the chain did not record why it stopped: %+v, %v", got, err)
+	}
+}
+
 func TestARepeatedWatchCheckDoesNotSpendASecondAttempt(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)

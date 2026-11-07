@@ -2132,3 +2132,43 @@ Validation on 6 November 2026:
 Limitation: none of this covers the live model, the real worker image or a real
 GitHub pull request. The next step is to let CI recompute the Codecov check on
 this revision and confirm it passes.
+
+## Release review corrections, 7 November 2026
+
+A review of everything since `v1.4.2` found ten defects in this stack. They are
+fixed together, each with a test that fails without it.
+
+- **A chain that ran out of attempts was never recorded.** The watch loop only
+  asked the store to start a repair while `ChainAttempts` was below the limit,
+  and the store only wrote `chain_stopped_reason` when asked at or above it, so
+  the reason was unreachable and the page kept saying a repair was under way.
+  The loop now leaves the limit to the store. The store looks for the head's own
+  repair first, so the last allowed attempt still working on the failing head
+  does not stop the chain, and records the stop when that attempt ended without
+  moving the head or when a new head fails with no attempt left.
+- **A paused repository decision still admitted pull requests from the
+  `pull_request` webhook.** The webhook now honours `enabled`, as the periodic
+  discovery already did.
+- **`=======` is no longer a conflict marker on its own.** A resolved file is
+  refused only when it has more marker lines than the two sides it came from, so
+  a Markdown or reStructuredText heading underline survives.
+- **The watch loop no longer waits three seconds after each watch.** It asks
+  again at once while a watch was observed.
+- **A conflicts-only watch is read every five minutes**, not thirty seconds, and
+  sooner only while GitHub is still working out mergeability or a read failed. A
+  failed conflict read no longer overwrites the last good evidence with `{}`.
+- **Conflict claims are pruned** when another is made.
+- **The merge worker reads the merged tree with one `diff-tree --raw` and one
+  `cat-file --batch`**, not two Git processes per file, applies the byte budget
+  to the size Git reports before reading, and keeps Git's own message in an
+  error.
+- **GHES archives served by the API itself** are read from that authenticated
+  response instead of being requested again without the token.
+- **Memory.** The merge archive budget is 96 MiB and 100,000 files per commit,
+  each side is written before the next is fetched, and the pack check streams to
+  `io.Discard` (`gitbare.PackTo`) instead of holding a second tarball.
+
+Not changed, and still open: the 8-attempt cap and the 512 MiB pack ceiling are
+unchanged, so a repository whose three trees approach the new archive budget can
+still hold a few hundred MiB while it is packed for an agent. The worker
+workspace directories remain `0777` so the container's user can write objects.

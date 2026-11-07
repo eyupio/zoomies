@@ -123,3 +123,19 @@ func TestArchiveOfNeedsARepositoryForAnOrganisation(t *testing.T) {
 		t.Fatal("an organisation installation archived a repository nobody named")
 	}
 }
+
+// A GHES instance that serves the archive from the API host answers the
+// authenticated request with the archive. Asking again without the token, as the
+// redirect path does, is a 404 for a private repository.
+func TestArchiveOfReadsAnArchiveTheAPIServedItself(t *testing.T) {
+	f := newFake(t)
+	f.Archive("acme/widgets", "abc1234", map[string]string{"README.md": "hello\n"})
+	f.ArchiveServedByTheAPI("acme/widgets", "abc1234")
+	files, err := archiveClient(t, f).ArchiveOf(context.Background(), "", "abc1234", gitbare.ArchiveOptions{StripTopLevel: true})
+	if err != nil {
+		t.Fatalf("reading the archive: %v", err)
+	}
+	if len(files) != 1 || string(files[0].Content) != "hello\n" {
+		t.Fatalf("files %+v", files)
+	}
+}
