@@ -31,11 +31,21 @@ var ErrRepository = errors.New("gitbare: this is not a repository this worker wi
 // task: a task is a bounded command, and a queue that carries megabytes is a queue
 // nobody can reason about.
 func Pack(ctx context.Context, dir string, maxBytes int64) ([]byte, error) {
+	var buffer bytes.Buffer
+	if err := PackTo(ctx, dir, maxBytes, &buffer); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+// PackTo is Pack written to w as it goes. A caller that only needs to know the
+// repository can be packed passes io.Discard and holds none of it, where Pack
+// would keep the whole tarball in memory to throw it away.
+func PackTo(ctx context.Context, dir string, maxBytes int64, w io.Writer) error {
 	if maxBytes <= 0 {
 		maxBytes = MaxRepositoryBytes
 	}
-	var buffer bytes.Buffer
-	zipper := gzip.NewWriter(&buffer)
+	zipper := gzip.NewWriter(w)
 	writer := tar.NewWriter(zipper)
 	var total int64
 	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
@@ -92,15 +102,12 @@ func Pack(ctx context.Context, dir string, maxBytes int64) ([]byte, error) {
 		return copyErr
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if err := writer.Close(); err != nil {
-		return nil, err
+		return err
 	}
-	if err := zipper.Close(); err != nil {
-		return nil, err
-	}
-	return buffer.Bytes(), nil
+	return zipper.Close()
 }
 
 // Unpack writes a packed repository into dir, creating it.

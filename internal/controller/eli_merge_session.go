@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/eyupio/zoomies/internal/gitbare"
 	"github.com/eyupio/zoomies/internal/gitfetch"
@@ -68,7 +69,10 @@ func (s *mergeSession) prepareFor(ctx context.Context, client github.Client, rep
 	if err != nil {
 		return MergePrepared{}, err
 	}
-	if _, err := gitbare.Pack(ctx, built.Dir, 0); err != nil {
+	// Streamed to nowhere: this is only the check, and the bytes are packed again
+	// when an agent asks for them, so holding a second copy of a large repository
+	// here would be memory spent on an answer nobody reads.
+	if err := gitbare.PackTo(ctx, built.Dir, 0, io.Discard); err != nil {
 		// Pack before an agent is told to fetch: a repository the controller
 		// cannot hand out is one no worker could unpack, so the repair fails now
 		// rather than at the host that was asked to merge it.

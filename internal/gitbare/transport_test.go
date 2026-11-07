@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,5 +155,28 @@ func TestPackRefusesASymlink(t *testing.T) {
 	}
 	if _, err := Pack(context.Background(), repo, 0); !errors.Is(err, ErrRepository) {
 		t.Fatalf("packing a symlink answered %v", err)
+	}
+}
+
+// A caller that only needs to know a repository can be packed must not have to
+// hold the tarball to find out.
+func TestPackToWritesWhatPackReturnsAndRefusesWhatPackRefuses(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Write(dir, []Commit{{Files: []File{{Path: "a.txt", Content: []byte(strings.Repeat("a", 2048))}}}}); err != nil {
+		t.Fatal(err)
+	}
+	packed, err := Pack(context.Background(), dir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var streamed bytes.Buffer
+	if err := PackTo(context.Background(), dir, 0, &streamed); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(packed, streamed.Bytes()) {
+		t.Fatal("PackTo wrote different bytes from Pack")
+	}
+	if err := PackTo(context.Background(), dir, 16, io.Discard); !errors.Is(err, ErrRepository) {
+		t.Fatalf("a repository over the budget answered %v, want ErrRepository", err)
 	}
 }

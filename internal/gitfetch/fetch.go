@@ -119,32 +119,38 @@ func Build(ctx context.Context, dir string, src Source, pin Pin) (Repository, er
 		return Repository{}, fmt.Errorf("writing the merge base: %w", err)
 	}
 	ancestorID := ids[0]
+	ancestor.Files = nil
 
+	// Each side is written before the next is fetched, so only one commit's files
+	// are in memory at a time. The ancestor's were released the same way.
 	base, err := fetch(ctx, src, pin.Base)
 	if err != nil {
 		return Repository{}, fmt.Errorf("the target tip: %w", err)
 	}
+	baseIDs, err := gitbare.Write(dir, []gitbare.Commit{{
+		Tree:    base.Tree,
+		Parents: []string{ancestorID},
+		Message: "target tip " + short(pin.Base),
+		Files:   base.Files,
+	}})
+	if err != nil {
+		return Repository{}, fmt.Errorf("writing the target tip: %w", err)
+	}
+	base.Files = nil
 	head, err := fetch(ctx, src, pin.Head)
 	if err != nil {
 		return Repository{}, fmt.Errorf("the pull request head: %w", err)
 	}
-	ids, err = gitbare.Write(dir, []gitbare.Commit{
-		{
-			Tree:    base.Tree,
-			Parents: []string{ancestorID},
-			Message: "target tip " + short(pin.Base),
-			Files:   base.Files,
-		},
-		{
-			Tree:    head.Tree,
-			Parents: []string{ancestorID},
-			Message: "head " + short(pin.Head),
-			Files:   head.Files,
-		},
-	})
+	headIDs, err := gitbare.Write(dir, []gitbare.Commit{{
+		Tree:    head.Tree,
+		Parents: []string{ancestorID},
+		Message: "head " + short(pin.Head),
+		Files:   head.Files,
+	}})
 	if err != nil {
-		return Repository{}, fmt.Errorf("writing the two sides: %w", err)
+		return Repository{}, fmt.Errorf("writing the pull request head: %w", err)
 	}
+	ids = []string{baseIDs[0], headIDs[0]}
 	return Repository{Dir: dir, Ancestor: ancestorID, Base: ids[0], Head: ids[1]}, nil
 }
 

@@ -282,3 +282,40 @@ func TestMergeAcceptsOnlyItsPreparedRepositoryWithDifferentOwnership(t *testing.
 		t.Fatalf("merge %+v", got)
 	}
 }
+
+// "exit status 128" tells an operator nothing; Git's own sentence does.
+func TestAGitFailureCarriesWhatGitSaid(t *testing.T) {
+	dir := repo(t)
+	write(t, dir, "a.txt", []byte("a\n"))
+	commit(t, dir, "base")
+	absent := strings.Repeat("a", 40)
+	_, err := Merge(context.Background(), Request{Dir: dir, Ancestor: absent, Base: absent, Head: absent})
+	if err == nil || !strings.Contains(err.Error(), "fatal") {
+		t.Fatalf("error = %v, want one that carries git's message", err)
+	}
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		t.Fatalf("error %v no longer exposes the exit status", err)
+	}
+}
+
+// The blobs of a merge come from one cat-file, so the budget has to be applied
+// to what it reports, size first, rather than to bytes already read.
+func TestReadBlobsRefusesAnObjectPastTheBudgetBeforeReadingIt(t *testing.T) {
+	dir := repo(t)
+	write(t, dir, "big.txt", []byte(strings.Repeat("x", 4096)))
+	write(t, dir, "small.txt", []byte("s\n"))
+	commit(t, dir, "files")
+	big := mustGit(t, dir, "rev-parse", "HEAD:big.txt")
+	small := mustGit(t, dir, "rev-parse", "HEAD:small.txt")
+	got, err := readBlobs(context.Background(), dir, []string{small, big, small}, 1<<20)
+	if err != nil || len(got) != 3 || string(got[0]) != "s\n" || len(got[1]) != 4096 || string(got[2]) != "s\n" {
+		t.Fatalf("blobs = %d, %v", len(got), err)
+	}
+	if _, err := readBlobs(context.Background(), dir, []string{small, big}, 1024); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("an object past the budget answered %v, want ErrTooLarge", err)
+	}
+	if _, err := readBlobs(context.Background(), dir, []string{strings.Repeat("0", 40)}, 1024); err == nil {
+		t.Fatal("a missing object was read")
+	}
+}

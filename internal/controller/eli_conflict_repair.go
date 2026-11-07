@@ -65,6 +65,14 @@ func (c *Controller) claimConflict(key string, until time.Time) bool {
 	if expiry, ok := c.conflictClaims[key]; ok && now.Before(expiry) {
 		return false
 	}
+	// A hold that was never released (the hour a conflict no model may resolve
+	// waits for a person) would otherwise stay in the map for the life of the
+	// process, one entry per head and base ever seen.
+	for held, expiry := range c.conflictClaims {
+		if !now.Before(expiry) {
+			delete(c.conflictClaims, held)
+		}
+	}
 	c.conflictClaims[key] = until
 	return true
 }
