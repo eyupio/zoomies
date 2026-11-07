@@ -55,7 +55,7 @@ jobs:
     # build is killed with exit 137, on changes that touch neither. The rest of
     # CI stays on the fleet it is testing; this one job needs the memory more
     # than the dogfooding, and on a public repository it costs nothing.
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     timeout-minutes: 90
     permissions:
       contents: read
