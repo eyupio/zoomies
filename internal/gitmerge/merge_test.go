@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func repo(t *testing.T) string {
+func repo(t testing.TB) string {
 	t.Helper()
 	dir := t.TempDir()
 	mustGit(t, dir, "init", "-q")
@@ -19,7 +19,7 @@ func repo(t *testing.T) string {
 	return dir
 }
 
-func mustGit(t *testing.T, dir string, args ...string) string {
+func mustGit(t testing.TB, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
@@ -30,14 +30,14 @@ func mustGit(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func commit(t *testing.T, dir, message string) string {
+func commit(t testing.TB, dir, message string) string {
 	t.Helper()
 	mustGit(t, dir, "add", "-A")
 	mustGit(t, dir, "commit", "-qm", message)
 	return mustGit(t, dir, "rev-parse", "HEAD")
 }
 
-func write(t *testing.T, dir, name string, content []byte) {
+func write(t testing.TB, dir, name string, content []byte) {
 	t.Helper()
 	path := filepath.Join(dir, name)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
