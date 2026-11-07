@@ -69,9 +69,25 @@ func (s *Store) RecordJobAttentionRun(ctx context.Context, repo string, run int6
 	return err
 }
 
+// PruneJobAttentionRuns forgets the runs none of whose jobs is inside the
+// attention window any longer.
 func (s *Store) PruneJobAttentionRuns(ctx context.Context) error {
-	_, err := s.exec(ctx, `DELETE FROM job_attention_runs WHERE NOT EXISTS
-		(SELECT 1 FROM jobs WHERE jobs.repo=job_attention_runs.repo AND jobs.github_run_id=job_attention_runs.run_id
-		AND jobs.queued_at >= ?)`, ms(s.Now().Add(-AttentionWindow)))
+	_, err := s.exec(ctx, pruneJobAttentionRunsSQL, ms(s.Now().Add(-AttentionWindow)))
 	return err
 }
+
+// pruneJobAttentionRunsSQL is a constant so that a test can ask SQLite how it
+// reads it.
+//
+// It must look each record's run up by idx_jobs_run. Left to choose, SQLite reads
+// the jobs of the repository in the window through idx_jobs_repo for every record
+// instead, because the range on queued_at looks as selective to it as the run id
+// does, and the statement then costs the records times the week's jobs: 30
+// seconds for 10,000 records over 40,000 jobs, all of it on the single writer, so
+// that every heartbeat, webhook and job update queued behind it. INDEXED BY states
+// the plan; if the index is ever renamed or dropped the statement fails at once
+// instead of going back to scanning.
+const pruneJobAttentionRunsSQL = `DELETE FROM job_attention_runs WHERE NOT EXISTS
+	(SELECT 1 FROM jobs INDEXED BY idx_jobs_run
+	WHERE jobs.github_run_id=job_attention_runs.run_id AND jobs.repo=job_attention_runs.repo
+	AND jobs.queued_at >= ?)`
