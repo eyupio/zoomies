@@ -33,7 +33,7 @@ jobs:
     if: >-
       (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))
       && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     timeout-minutes: 60 # the longest successful run seen was 32 minutes
     steps:
       - name: Checkout repository

@@ -67,7 +67,7 @@ jobs:
       contents: read
       packages: write
     name: Cleanup ${{ matrix.package }}
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     timeout-minutes: 60 # the longest successful run seen was 19 minutes
     strategy:
       fail-fast: false

@@ -78,7 +78,7 @@ jobs:
     # release asks for a new run whose ref really is main.
     # workflow_dispatch can be triggered by GITHUB_TOKEN.
     if: github.event.action != 'closed' && github.event_name == 'release'
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     timeout-minutes: 10 # the longest successful run seen was under a minute
     permissions:
       actions: write

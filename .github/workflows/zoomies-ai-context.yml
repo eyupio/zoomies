@@ -12,7 +12,7 @@ concurrency:
 jobs:
   generate:
     if: "${{ github.ref == 'refs/heads/main' \u0026\u0026 (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}"
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     timeout-minutes: 15
     permissions:
       contents: read
@@ -318,7 +318,7 @@ jobs:
   publish:
     needs: generate
     if: "${{ github.ref == 'refs/heads/main' }}"
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     timeout-minutes: 10
     permissions:
       contents: write
