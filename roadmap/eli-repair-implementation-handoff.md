@@ -2172,3 +2172,28 @@ Not changed, and still open: the 8-attempt cap and the 512 MiB pack ceiling are
 unchanged, so a repository whose three trees approach the new archive budget can
 still hold a few hundred MiB while it is packed for an agent. The worker
 workspace directories remain `0777` so the container's user can write objects.
+
+## Two runtime costs, 7 November 2026
+
+Found by looking for costs like the merge worker's per-file Git processes, and
+shipped as their own PR on top of the release-review corrections.
+
+- **Writing the merge repository.** `gitbare.writeObject` built a zlib compressor
+  of about 1 MB for every object, so a 5,000-file tree cost about 5.2 GB of
+  garbage on the controller for each of the three commits a repair writes. The
+  writers and buffers are pooled. Interleaved, nine runs each, on the same idle
+  machine: 5,000 files 2.79 s to 1.54 s (-44.8%), 5195 MiB to 8.9 MiB allocated
+  (-99.8%). Wall time on this disk varies a lot between runs of the same code,
+  so read the allocation figure as the firm one. `BenchmarkWriteARepository`
+  checks that the repository holds an object per file before it times anything.
+- **A watch observation's GitHub requests.** Each observation made at least five
+  sequential requests. A watch that does not follow conflicts no longer reads
+  them (two requests, whose result its page never uses), and one that does reads
+  them from the pull request it has just read (`RepairConflictFor`) instead of
+  fetching the pull request again. A checks-only watch is down from five requests
+  to three and a conflicts watch from five to four.
+
+Not done: conditional requests (`If-None-Match`), which GitHub does not count
+against the rate limit when nothing changed. They need a response cache per
+installation client and a rule for when a cached answer may not be used, so they
+are their own change. Observation is also still one watch at a time.
