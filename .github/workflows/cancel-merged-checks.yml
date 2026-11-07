@@ -28,7 +28,7 @@ jobs:
   cancel:
     name: Cancel
     if: github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     timeout-minutes: 10 # the longest successful run seen was under a minute
     permissions:
       actions: write
