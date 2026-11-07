@@ -1069,7 +1069,7 @@ and the toolchain a build typically reaches for without saying so:
 | --- | --- |
 | Compilers and build tools | `build-essential` (gcc, g++, make), `cmake`, `pkg-config`, `autoconf`, `automake`, `libtool`, `patch`, `gettext` |
 | Headers native extensions link against | OpenSSL, zlib, libffi, libyaml, libxml2, libxslt, libcurl, SQLite, readline, bzip2, lzma, ncurses, uuid |
-| Interpreters | `python3` with `pip` and `venv`; Node.js 22 with `npm`, `npx` and `corepack` |
+| Interpreters | `python3`, also as `python`, with `pip` and `venv`; Node.js 22 with `npm`, `npx` and `corepack` |
 | Source and transfer | `git`, `git-lfs`, `curl`, `wget`, `rsync`, `openssh-client`, `gnupg` |
 | Archives | `tar`, `gzip`, `xz-utils`, `bzip2`, `zstd`, `zip`, `unzip` |
 | GitHub | the `gh` CLI |
@@ -1079,7 +1079,9 @@ and the toolchain a build typically reaches for without saying so:
 `python3` and `node` are a floor, not a choice about versions: `setup-python`
 and `setup-node` still install what a workflow asks for and take precedence on
 `PATH`. They are here so that a step which uses either **without** a setup
-action first does not fail.
+action first does not fail. `python` is the same interpreter as `python3`, so a
+workflow written for GitHub's hosted runners, which have both names, runs
+unchanged (`shell: python` included).
 
 The default `node` is a long-term-support release, Node.js 22, rather than the
 distribution's package. Those freeze whatever the release shipped (Node 18 on

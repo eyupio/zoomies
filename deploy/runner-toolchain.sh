@@ -7,8 +7,8 @@
 # wheel with no arm64 build, a Ruby gem -- and every one of them fails at `make`
 # with a message about the missing library rather than about this image.
 #
-# python3 and node are here for the steps that use them without a setup-python
-# or setup-node first. The setup actions still install their own versions and
+# python3 (also reachable as `python`, below) and node are here for the steps
+# that use them without a setup-python or setup-node first. The setup actions still install their own versions and
 # take precedence on PATH, so the versions here are a floor, not a choice about
 # which version a workflow gets.
 #
@@ -86,5 +86,20 @@ case "${family}" in
     exit 64
     ;;
 esac
+
+# `python`, as well as python3. GitHub's hosted runners have both, so a workflow
+# written for them calls `python` without a thought: `shell: python`, a bare
+# `python script.py`, `python -m venv`. A runner that has only python3 fails
+# those at their first line with "python: command not found", which is the first
+# thing that goes wrong for a repository moving its workflows onto this fleet.
+#
+# A link, not python-is-python3 or python-unversioned-command: the two families
+# name the package differently and release by release, and the link is the same
+# four lines on both. It sits in /usr/local/bin, which is ahead of /usr/bin, so a
+# package that later ships /usr/bin/python is not in its way, and setup-python's
+# own interpreter still takes precedence on PATH as it always has.
+if ! command -v python >/dev/null 2>&1; then
+  ln -s "$(command -v python3)" /usr/local/bin/python
+fi
 
 git lfs install --system
