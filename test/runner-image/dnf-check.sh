@@ -91,7 +91,10 @@ echo 'ok: empty package list rejected before invoking dnf'
 
 rm -f "$scratch/count" "$scratch/delays" "$scratch"/args-*
 export DNF_TEST_CASE=toolchain
-sh "$root/deploy/runner-toolchain.sh" dnf > "$scratch/output" 2>&1
+# The script gives the image a `python` beside python3 when it has none, in
+# /usr/local/bin, which this test may not write: point it at the scratch space.
+mkdir "$scratch/python-link"
+PYTHON_LINK_DIR="$scratch/python-link" sh "$root/deploy/runner-toolchain.sh" dnf > "$scratch/output" 2>&1
 upgrade_attempts=0
 for args in "$scratch"/args-*; do
   if grep -qx upgrade "$args"; then
@@ -115,3 +118,12 @@ for args in "$scratch"/args-*; do
 done
 [ "$found_compilers" = true ]
 echo 'ok: RPM base upgrade retries before compiler package installation'
+
+# A machine that already has a python is left alone; one that has only python3
+# gets a link to it, which is what a workflow written for a hosted runner needs.
+if [ -e "$scratch/python-link/python" ]; then
+  [ "$(readlink "$scratch/python-link/python")" = "$(command -v python3)" ]
+else
+  command -v python > /dev/null
+fi
+echo 'ok: the image has a python as well as python3'

@@ -13,7 +13,7 @@ import (
 // its build proves that the name resolves to the interpreter python3 does.
 func TestTheRunnerImageProvidesPythonAsWellAsPython3(t *testing.T) {
 	toolchain := readDeployFile(t, "runner-toolchain.sh")
-	if !strings.Contains(toolchain, `ln -s "$(command -v python3)" /usr/local/bin/python`) {
+	if !strings.Contains(toolchain, `ln -s "$(command -v python3)" "${PYTHON_LINK_DIR:-/usr/local/bin}/python"`) {
 		t.Error("deploy/runner-toolchain.sh no longer links `python` to python3, so a hosted-runner workflow that calls `python` fails with \"command not found\"")
 	}
 	if !strings.Contains(toolchain, "if ! command -v python ") {

@@ -98,8 +98,10 @@ esac
 # four lines on both. It sits in /usr/local/bin, which is ahead of /usr/bin, so a
 # package that later ships /usr/bin/python is not in its way, and setup-python's
 # own interpreter still takes precedence on PATH as it always has.
+# PYTHON_LINK_DIR is only there for test/runner-image/dnf-check.sh, which runs
+# this script without root against a fake package manager.
 if ! command -v python >/dev/null 2>&1; then
-  ln -s "$(command -v python3)" /usr/local/bin/python
+  ln -s "$(command -v python3)" "${PYTHON_LINK_DIR:-/usr/local/bin}/python"
 fi
 
 git lfs install --system
