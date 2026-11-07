@@ -652,7 +652,7 @@ jobs:
     # The drill uses two local processes and no Docker daemon. Keep it off the
     # project runner pool so a lost runner cannot discard its evidence or block
     # this independent integration check.
-    runs-on: zoomies-linux-x64
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

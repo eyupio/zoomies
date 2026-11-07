@@ -91,7 +91,7 @@ jobs:
     # A push only. A dispatched run is a recovery, possibly this workflow's
     # own, and a watchdog waiting on it would recover the recovery.
     if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
-    runs-on: zoomies-linux-x64
+    runs-on: ubuntu-latest
     # GitHub's ceiling for a hosted job. A limit longer than this cannot be
     # waited out here; the schedule is what covers it.
     timeout-minutes: 360
@@ -161,7 +161,7 @@ jobs:
     if: ${{ !cancelled() && (github.event_name != 'workflow_run' || needs.wait.outputs.act == 'true') }}
     # GitHub's machines, never the fleet's: this is the job that has to run
     # when the fleet cannot.
-    runs-on: zoomies-linux-x64
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     # Two watchdogs deciding at once could each start a recovery run. Queue
     # them; the second finds the first's recovery under way and leaves it.
