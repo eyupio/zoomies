@@ -282,3 +282,275 @@ func TestScanRefusesAFileThatIsNotYAML(t *testing.T) {
 		t.Fatal("expected an error")
 	}
 }
+
+// scanWith is ScanWith for a test, with local actions served from a map of
+// their directories to their action.yml, and a record of which were asked for.
+func scanWith(t *testing.T, content string, actions map[string]string) ([]Requirement, []string) {
+	t.Helper()
+	var asked []string
+	got, err := ScanWith(".github/workflows/ci.yml", content, Options{ReadLocal: func(dir string) (string, bool) {
+		asked = append(asked, dir)
+		c, ok := actions[dir]
+		return c, ok
+	}})
+	if err != nil {
+		t.Fatalf("ScanWith: %v", err)
+	}
+	return got, asked
+}
+
+// A workflow that writes its Node version once, in env, and passes it to every
+// setup-node step is the ordinary way to keep versions in step.
+func TestScanReadsAVersionFromTheWorkflowsEnv(t *testing.T) {
+	got := scan(t, `
+env:
+  NODE_VERSION: "22"
+  GO_VERSION: "1.26"
+jobs:
+  web:
+    runs-on: linux
+    env:
+      GO_VERSION: "1.27"
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-python@v6
+        env:
+          PY: "3.13"
+        with:
+          python-version: ${{ env.py }}
+`)
+	want := []string{"web node 22", "web go 1.27", "web python 3.13"}
+	if !reflect.DeepEqual(brief(got), want) {
+		t.Fatalf("got %q\nwant %q\n(a job's env wins over the workflow's, a step's over both, and a name is read without regard to case)", brief(got), want)
+	}
+}
+
+func TestScanSaysWhyAnEnvValueIsUnresolved(t *testing.T) {
+	got := scan(t, `
+env:
+  FROM_A_SECRET: ${{ secrets.NODE }}
+jobs:
+  a:
+    runs-on: linux
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.MISSING }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.FROM_A_SECRET }}
+`)
+	want := []string{
+		"a node ? set by env.MISSING, which the workflow does not set",
+		"a node ? set by the expression ${{ secrets.NODE }}",
+	}
+	if !reflect.DeepEqual(brief(got), want) {
+		t.Fatalf("got %q\nwant %q", brief(got), want)
+	}
+}
+
+func TestScanFollowsAMatrixIntoAnEnvValue(t *testing.T) {
+	got := scan(t, `
+jobs:
+  a:
+    runs-on: linux
+    strategy:
+      matrix:
+        v: ["20", "22"]
+    env:
+      NODE_VERSION: ${{ matrix.v }}
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+`)
+	if want := []string{"a node 20", "a node 22"}; !reflect.DeepEqual(brief(got), want) {
+		t.Fatalf("got %q, want %q", brief(got), want)
+	}
+}
+
+// The shape this repository's own CI has: the version is pinned once, inside a
+// local composite action every job calls, so the workflow never names it.
+const goAction = `
+name: Set up Go
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: "1.27.3"
+        cache: true
+`
+
+func TestScanFollowsALocalCompositeActionToTheVersionItPins(t *testing.T) {
+	got, asked := scanWith(t, `
+jobs:
+  test:
+    runs-on: linux
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-go
+  vet:
+    runs-on: linux
+    steps:
+      - uses: ./.github/actions/setup-go
+`, map[string]string{".github/actions/setup-go": goAction})
+	if want := []string{"test go 1.27.3", "vet go 1.27.3"}; !reflect.DeepEqual(brief(got), want) {
+		t.Fatalf("got %q, want %q", brief(got), want)
+	}
+	if want := []string{".github/actions/setup-go"}; !reflect.DeepEqual(asked, want) {
+		t.Fatalf("asked for %q: an action is read once, however many jobs use it, and actions/checkout is not local", asked)
+	}
+}
+
+func TestScanPassesAStepsInputsIntoALocalAction(t *testing.T) {
+	got, _ := scanWith(t, `
+env:
+  FALLBACK: "1.25"
+jobs:
+  a:
+    runs-on: linux
+    strategy:
+      matrix:
+        go: ["1.26", "1.27"]
+    steps:
+      - uses: ./.github/actions/go
+        with:
+          version: ${{ matrix.go }}
+  b:
+    runs-on: linux
+    steps:
+      - uses: ./.github/actions/go
+  c:
+    runs-on: linux
+    steps:
+      - uses: ./.github/actions/go
+        with:
+          version: ${{ steps.pick.outputs.go }}
+`, map[string]string{".github/actions/go": `
+inputs:
+  version:
+    default: ${{ env.FALLBACK }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v6
+      with:
+        go-version: ${{ inputs.version }}
+`})
+	want := []string{
+		"a go 1.26",
+		"a go 1.27",
+		"b go 1.25",
+		"c go ? set by the expression ${{ steps.pick.outputs.go }}",
+	}
+	if !reflect.DeepEqual(brief(got), want) {
+		t.Fatalf("got %q\nwant %q", brief(got), want)
+	}
+}
+
+func TestScanSaysWhenALocalActionNamesAnInputItDoesNotDeclare(t *testing.T) {
+	got, _ := scanWith(t, `
+jobs:
+  a:
+    runs-on: linux
+    steps:
+      - uses: ./act
+`, map[string]string{"act": `
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v6
+      with:
+        go-version: ${{ inputs.nope }}
+`})
+	want := []string{"a go ? set by inputs.nope, which the local action does not declare"}
+	if !reflect.DeepEqual(brief(got), want) {
+		t.Fatalf("got %q, want %q", brief(got), want)
+	}
+}
+
+func TestScanFollowsLocalActionsThroughEachOtherButNotForever(t *testing.T) {
+	// act0 calls act1 calls act2 calls act3, which installs Go: three hops are
+	// followed and a fourth is not.
+	chain := map[string]string{}
+	for i := 0; i < 4; i++ {
+		next := "./act" + string(rune('0'+i+1))
+		inner := "    - uses: " + next
+		if i == 3 {
+			inner = "    - uses: actions/setup-go@v6\n      with:\n        go-version: \"1.27\""
+		}
+		chain["act"+string(rune('0'+i))] = "runs:\n  using: composite\n  steps:\n" + inner + "\n"
+	}
+	got, _ := scanWith(t, "jobs:\n  a:\n    runs-on: linux\n    steps:\n      - uses: ./act0\n", chain)
+	if len(got) != 0 {
+		t.Fatalf("followed a fourth local action: %q", brief(got))
+	}
+	// One hop fewer, and it is found.
+	chain["act2"] = "runs:\n  using: composite\n  steps:\n    - uses: actions/setup-go@v6\n      with:\n        go-version: \"1.27\"\n"
+	got, _ = scanWith(t, "jobs:\n  a:\n    runs-on: linux\n    steps:\n      - uses: ./act0\n", chain)
+	if want := []string{"a go 1.27"}; !reflect.DeepEqual(brief(got), want) {
+		t.Fatalf("got %q, want %q", brief(got), want)
+	}
+}
+
+func TestScanStopsAtALocalActionThatCallsItself(t *testing.T) {
+	got, asked := scanWith(t, "jobs:\n  a:\n    runs-on: linux\n    steps:\n      - uses: ./loop\n", map[string]string{
+		"loop": "runs:\n  using: composite\n  steps:\n    - uses: ./loop\n",
+	})
+	if len(got) != 0 || len(asked) != 1 {
+		t.Fatalf("got %q after asking for %q", brief(got), asked)
+	}
+}
+
+// Without the means to read a local action, a workflow is read as it always
+// was, and a local action that cannot be read is not a setup action and not a
+// complaint: most local actions have nothing to do with a toolchain.
+func TestScanLeavesALocalActionAloneWhenItCannotBeRead(t *testing.T) {
+	const wf = "jobs:\n  a:\n    runs-on: linux\n    steps:\n      - uses: ./.github/actions/setup-go\n"
+	if got := scan(t, wf); len(got) != 0 {
+		t.Fatalf("Scan followed a local action: %q", brief(got))
+	}
+	got, asked := scanWith(t, wf, nil)
+	if len(got) != 0 || len(asked) != 1 {
+		t.Fatalf("got %q after asking for %q", brief(got), asked)
+	}
+}
+
+func TestScanIgnoresALocalActionThatIsNotComposite(t *testing.T) {
+	got, _ := scanWith(t, "jobs:\n  a:\n    runs-on: linux\n    steps:\n      - uses: ./js\n", map[string]string{
+		"js": "runs:\n  using: node20\n  main: index.js\n",
+	})
+	if len(got) != 0 {
+		t.Fatalf("got %q", brief(got))
+	}
+}
+
+func TestScanDoesNotReadAPathOutsideTheRepository(t *testing.T) {
+	_, asked := scanWith(t, `
+jobs:
+  a:
+    runs-on: linux
+    steps:
+      - uses: ./../outside
+      - uses: ./a/../../outside
+      - uses: ./ok/../fine
+`, map[string]string{})
+	if want := []string{"fine"}; !reflect.DeepEqual(asked, want) {
+		t.Fatalf("asked for %q, want only %q: a path that climbs out of the repository is not a local action", asked, want)
+	}
+}
+
+func TestScanReadsALocalActionAtTheRepositoryRoot(t *testing.T) {
+	got, asked := scanWith(t, "jobs:\n  a:\n    runs-on: linux\n    steps:\n      - uses: ./\n", map[string]string{
+		".": goAction,
+	})
+	if want := []string{"a go 1.27.3"}; !reflect.DeepEqual(brief(got), want) || !reflect.DeepEqual(asked, []string{"."}) {
+		t.Fatalf("got %q after asking for %q", brief(got), asked)
+	}
+}

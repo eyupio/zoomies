@@ -342,6 +342,10 @@ type Client interface {
 	// ListWorkflows returns the workflow files at the top of a repository's
 	// .github/workflows, with their contents.
 	ListWorkflows(ctx context.Context, repo string) ([]WorkflowFile, error)
+	// ReadFile returns one file from a repository's default branch, or an error
+	// wrapping ErrNotFound when there is none. It exists for the files a
+	// workflow refers to, such as a local action's action.yml.
+	ReadFile(ctx context.Context, repo, path string) (string, error)
 	// ReadReadme returns the README GitHub renders on the repository's front
 	// page, or ErrNoReadme when there is none. It is where the badge goes.
 	ReadReadme(ctx context.Context, repo string) (*Readme, error)

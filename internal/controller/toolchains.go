@@ -3,11 +3,14 @@ package controller
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"path"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/toolscan"
@@ -228,9 +231,12 @@ func (c *Controller) scanInstallation(ctx context.Context, inst *store.Installat
 			report.Unreadable[src.repo.FullName] = src.err
 			continue
 		}
+		// One reader for the repository, so a local action that twelve jobs
+		// use is fetched once.
+		local := &localActionReader{ctx: ctx, client: client, repo: src.repo.FullName, log: c.log, seen: map[string]localActionFile{}}
 		for _, wf := range src.workflows {
 			report.Workflows++
-			reqs, err := toolscan.Scan(wf.Path, wf.Content)
+			reqs, err := toolscan.ScanWith(wf.Path, wf.Content, toolscan.Options{ReadLocal: local.read})
 			if err != nil {
 				// A workflow GitHub itself would refuse to run asks for
 				// nothing; it is not worth failing the repository over.
@@ -242,6 +248,58 @@ func (c *Controller) scanInstallation(ctx context.Context, inst *store.Installat
 		}
 	}
 	return report, out
+}
+
+// maxLocalActionReads bounds the GitHub requests a scan spends on one
+// repository's local actions. A repository with more local actions than this
+// is read for the first ones and the rest are left as they were before local
+// actions were followed: not setup actions, and not a complaint.
+const maxLocalActionReads = 16
+
+// localActionFile is what asking for one local action found.
+type localActionFile struct {
+	content string
+	ok      bool
+}
+
+// localActionReader reads the action.yml of the local actions one repository's
+// workflows use, so a version pinned inside `./.github/actions/setup-go` is
+// seen. It reads each directory once, and stops asking when a request fails for
+// any reason but the file not being there: a rate limit or a permission is not
+// going to improve by asking again, and the next scan is the retry.
+type localActionReader struct {
+	ctx    context.Context
+	client github.Client
+	repo   string
+	log    *slog.Logger
+	seen   map[string]localActionFile
+	reads  int
+	failed bool
+}
+
+func (r *localActionReader) read(dir string) (string, bool) {
+	if f, ok := r.seen[dir]; ok {
+		return f.content, f.ok
+	}
+	found := localActionFile{}
+	for _, name := range []string{"action.yml", "action.yaml"} {
+		if r.failed || r.reads >= maxLocalActionReads || r.ctx.Err() != nil {
+			break
+		}
+		r.reads++
+		content, err := r.client.ReadFile(r.ctx, r.repo, path.Join(dir, name))
+		if err == nil {
+			found = localActionFile{content: content, ok: true}
+			break
+		}
+		if !errors.Is(err, github.ErrNotFound) {
+			r.failed = true
+			r.log.Debug("could not read a local action while scanning for toolchains; local actions are left alone for the rest of this repository",
+				"repo", r.repo, "dir", dir, "error", err)
+		}
+	}
+	r.seen[dir] = found
+	return found.content, found.ok
 }
 
 // aggregateToolchains decides which pool would run each job and totals what
