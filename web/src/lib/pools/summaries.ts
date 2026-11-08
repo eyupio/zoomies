@@ -183,7 +183,7 @@ function speed(draft: PoolDraft): string {
       ? `${folders.join(', ')} in memory${draft.tmpfs_auto ? ' where there is room' : ''}`
       : 'Scratch space on disk',
     draft.cache_enabled
-      ? `${draft.cache_scope === 'repository' ? 'per-repository' : 'shared'} cache${draft.cache_tools ? ' with tools' : ''}`
+      ? `${draft.cache_scope === 'repository' ? 'per-repository' : 'shared'} cache${draft.cache_tools ? ' with tools' : ''}${draft.cache_service && containers ? ', served from the host' : ''}`
       : 'no cache',
   ]);
 }

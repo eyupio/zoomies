@@ -70,6 +70,9 @@ type poolItem struct {
 	// each given one slot's share of the machine they land on.
 	Resources poolResources `json:"resources"`
 	Sizing    string        `json:"sizing"`
+	// Cache is the pool's cache as it stands, which an edit to part of it has
+	// to carry forward: the API replaces the object whole.
+	Cache poolCache `json:"cache"`
 	// SizeFromProfile is a pool that takes each runner's size from the host it
 	// lands on, as that host's runner profile says; FleetStandard is the size a
 	// runner is on a host whose profile names none.
@@ -979,4 +982,16 @@ type updatesAttempt struct {
 	RequestedAt time.Time  `json:"requested_at"`
 	FinishedAt  *time.Time `json:"finished_at"`
 	Error       string     `json:"error"`
+}
+
+// poolCache is a pool's cache settings. Tools and Service have no part in an
+// edit that does not name them, so they are read to be written back.
+type poolCache struct {
+	Enabled    bool   `json:"enabled"`
+	Scope      string `json:"scope"`
+	SizeLimit  int64  `json:"size_limit"`
+	Source     string `json:"source"`
+	Repository string `json:"repository"`
+	Tools      bool   `json:"tools"`
+	Service    bool   `json:"service"`
 }

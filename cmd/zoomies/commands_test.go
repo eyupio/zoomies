@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -613,6 +614,83 @@ func TestPoolsEditLeavesTheInMemoryFoldersAloneWhenNotNamed(t *testing.T) {
 
 	if _, ok := sent["tmpfs"]; ok {
 		t.Errorf("an edit that names no in-memory folder must not send them: %v", sent)
+	}
+}
+
+// The API replaces the cache whole, so an edit that names one setting has to
+// write the others back as they stand. Before this carried them, typing only
+// --cache-size sent enabled=false and quietly turned the cache off, and dropped
+// the tool cache and the cache service with it.
+func TestPoolsEditOfOneCacheSettingKeepsTheRest(t *testing.T) {
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-4vcpu","resources":{},"sizing":"automatic",
+				"cache":{"enabled":true,"scope":"repository","size_limit":1073741824,"source":"/var/cache/zoomies","repository":"acme/widgets","tools":true,"service":true}}`))
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Errorf("decoding the PATCH body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-4vcpu","enabled":true}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	runCLI(t, "pools", "edit", "pool_1", "--cache-size", "2147483648", "--url", srv.URL)
+
+	cache, _ := sent["cache"].(map[string]any)
+	want := map[string]any{
+		"enabled": true, "scope": "repository", "size_limit": 2147483648.0, "source": "/var/cache/zoomies",
+		"repository": "acme/widgets", "tools": true, "service": true,
+	}
+	for k, v := range want {
+		if cache[k] != v {
+			t.Errorf("cache.%s = %v, want %v (the whole cache sent: %v)", k, cache[k], v, cache)
+		}
+	}
+}
+
+func TestPoolsEditTurnsTheCacheServiceOnAndOffWithoutTouchingTheRest(t *testing.T) {
+	for _, tc := range []struct {
+		args    []string
+		service bool
+	}{
+		{[]string{"--cache-service"}, true},
+		{[]string{"--cache-service=false"}, false},
+	} {
+		var sent map[string]any
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch r.Method {
+			case http.MethodGet:
+				_, _ = w.Write([]byte(`{"id":"pool_1","name":"p","resources":{},"sizing":"automatic",
+					"cache":{"enabled":true,"scope":"pool","tools":true,"service":` + fmt.Sprint(!tc.service) + `}}`))
+			case http.MethodPatch:
+				_ = json.NewDecoder(r.Body).Decode(&sent)
+				_, _ = w.Write([]byte(`{"id":"pool_1","name":"p","enabled":true}`))
+			}
+		}))
+		runCLI(t, append([]string{"pools", "edit", "pool_1", "--url", srv.URL}, tc.args...)...)
+		srv.Close()
+		cache, _ := sent["cache"].(map[string]any)
+		if cache["service"] != tc.service || cache["enabled"] != true || cache["tools"] != true {
+			t.Errorf("%v sent %v, want service=%v with the cache and tool cache left on", tc.args, cache, tc.service)
+		}
+	}
+}
+
+// A create has nothing to carry, and the service is off unless asked for.
+func TestPoolsCreateSendsTheCacheServiceOnlyWhenAsked(t *testing.T) {
+	flags := newFlagSet(&env{}, "zoomies pools create", "")
+	spec := registerPoolFlags(flags)
+	if err := flags.parse([]string{"--cache"}); err != nil {
+		t.Fatal(err)
+	}
+	cache, _ := spec.body(flags, false)["cache"].(map[string]any)
+	if cache["service"] != false {
+		t.Errorf("a create that did not ask for the cache service sent %v", cache["service"])
 	}
 }
 

@@ -1165,6 +1165,43 @@ func (c *APIClient) NetworkEnsure(ctx context.Context, name string) error {
 	return err
 }
 
+// NetworkGateway is the address the host itself has on a network: the one a
+// container on it reaches the host by. The daemon's built-in bridge is asked
+// for when no name is given, and host networking has no gateway to find: a
+// container on the host's network reaches the host on loopback.
+func (c *APIClient) NetworkGateway(ctx context.Context, name string) (string, error) {
+	switch name {
+	case "", "default", "bridge":
+		name = "bridge"
+	case "host":
+		return "127.0.0.1", nil
+	case "none":
+		return "", errors.New("docker api: a runner with no network cannot reach the host")
+	}
+	var out struct {
+		IPAM struct {
+			Config []struct {
+				Subnet  string `json:"Subnet"`
+				Gateway string `json:"Gateway"`
+			} `json:"Config"`
+		} `json:"IPAM"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/networks/"+name, nil, nil, &out); err != nil {
+		return "", err
+	}
+	for _, cfg := range out.IPAM.Config {
+		if ip := net.ParseIP(cfg.Gateway); ip != nil && ip.To4() != nil {
+			return cfg.Gateway, nil
+		}
+		// A daemon that does not say takes the first address of the subnet.
+		if _, subnet, err := net.ParseCIDR(cfg.Subnet); err == nil && subnet.IP.To4() != nil {
+			first := subnet.IP.To4()
+			return net.IPv4(first[0], first[1], first[2], first[3]+1).String(), nil
+		}
+	}
+	return "", fmt.Errorf("docker api: network %s has no IPv4 gateway to reach the host by", name)
+}
+
 // Volume is the part of a volume the agent reads: its name, when it was
 // created, and the labels that say whether it is the agent's at all.
 type Volume struct {

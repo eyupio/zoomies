@@ -10,16 +10,21 @@
 // It is pure: it takes a file and returns what the file asks for. Fetching the
 // files and deciding which pool would run each job are the controller's.
 //
-// Only what can be known from the file is reported as known. A version that
-// comes from an expression, or from a file in the repository such as
-// .python-version or go.mod, is reported with the reason it is not resolved
-// rather than guessed at or dropped: an operator reading the result has to be
+// Only what can be known from the files is reported as known. A version may be
+// written in the step, taken from an env value the workflow sets, or passed
+// through a local composite action (`uses: ./.github/actions/setup-go`) that
+// wraps the setup action; all three are followed. A version that comes from
+// anything else, or from a file in the repository such as .python-version or
+// go.mod, is reported with the reason it is not resolved rather than guessed at
+// or dropped: an operator reading the result has to be
 // able to tell "nothing asks for Python" from "something does, and it says
 // which in a file this did not read".
 package toolscan
 
 import (
 	"fmt"
+	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -83,31 +88,65 @@ type Requirement struct {
 	Unresolved string `json:"unresolved,omitempty"`
 }
 
+// step is a step of a job or of a composite action.
+type step struct {
+	Uses string               `yaml:"uses"`
+	With map[string]yaml.Node `yaml:"with"`
+	Env  map[string]yaml.Node `yaml:"env"`
+}
+
 // workflow is the part of a workflow file this package reads. Everything is a
 // yaml.Node so that values keep the text they were written as: to a YAML
 // decoder `python-version: 3.10` is the float 3.1, and GitHub passes the text
 // "3.10" to the action.
 type workflow struct {
+	Env  map[string]yaml.Node `yaml:"env"`
 	Jobs map[string]struct {
-		RunsOn   yaml.Node `yaml:"runs-on"`
+		RunsOn   yaml.Node            `yaml:"runs-on"`
+		Env      map[string]yaml.Node `yaml:"env"`
 		Strategy struct {
 			Matrix yaml.Node `yaml:"matrix"`
 		} `yaml:"strategy"`
-		Steps []struct {
-			Uses string               `yaml:"uses"`
-			With map[string]yaml.Node `yaml:"with"`
-		} `yaml:"steps"`
+		Steps []step `yaml:"steps"`
 	} `yaml:"jobs"`
+}
+
+// localAction is the part of a local action's action.yml this package reads.
+type localAction struct {
+	Inputs map[string]struct {
+		Default yaml.Node `yaml:"default"`
+	} `yaml:"inputs"`
+	Runs struct {
+		Using string `yaml:"using"`
+		Steps []step `yaml:"steps"`
+	} `yaml:"runs"`
+}
+
+// maxLocalDepth bounds how far local actions are followed through one another.
+const maxLocalDepth = 3
+
+// Options say how to read what a workflow file refers to.
+type Options struct {
+	// ReadLocal returns the action.yml of a local action, given its directory in
+	// the repository (".github/actions/setup-go"), or false when there is none or
+	// it cannot be read. Nil means local actions are not followed, which is what
+	// Scan does.
+	ReadLocal func(dir string) (string, bool)
 }
 
 // Scan returns every toolchain requirement in one workflow file, in a stable
 // order. A file that is not valid YAML is an error; a job this package cannot
 // fully read is not -- what it can read is returned, and what it cannot is
-// marked Unresolved.
-func Scan(path, content string) ([]Requirement, error) {
+// marked Unresolved. Local actions are not followed; ScanWith does that.
+func Scan(workflowPath, content string) ([]Requirement, error) {
+	return ScanWith(workflowPath, content, Options{})
+}
+
+// ScanWith is Scan with the means to read the local actions a workflow uses.
+func ScanWith(workflowPath, content string, opts Options) ([]Requirement, error) {
 	var wf workflow
 	if err := yaml.Unmarshal([]byte(content), &wf); err != nil {
-		return nil, fmt.Errorf("toolscan: %s is not valid YAML: %w", path, err)
+		return nil, fmt.Errorf("toolscan: %s is not valid YAML: %w", workflowPath, err)
 	}
 	jobs := make([]string, 0, len(wf.Jobs))
 	for name := range wf.Jobs {
@@ -115,6 +154,7 @@ func Scan(path, content string) ([]Requirement, error) {
 	}
 	sort.Strings(jobs)
 
+	rd := &localReader{read: opts.ReadLocal, parsed: map[string]*localAction{}}
 	var out []Requirement
 	seen := map[string]bool{}
 	for _, name := range jobs {
@@ -122,29 +162,139 @@ func Scan(path, content string) ([]Requirement, error) {
 		combos, matrixNote := expandMatrix(&job.Strategy.Matrix)
 		for _, combo := range combos {
 			labels := runsOn(&job.RunsOn, combo)
-			for _, step := range job.Steps {
-				action, ok := setupActions[actionName(step.Uses)]
-				if !ok {
+			sc := scope{matrix: combo}
+			sc.env = sc.withEnv(wf.Env).withEnv(job.Env).env
+			for _, r := range rd.collect(job.Steps, sc, 0, nil) {
+				r.Workflow, r.Job, r.Labels = workflowPath, name, labels
+				// A matrix this package could not read explains a
+				// missing matrix value better than the value does.
+				if matrixNote != "" && strings.HasPrefix(r.Unresolved, "set by matrix.") {
+					r.Unresolved = matrixNote
+				}
+				key := fmt.Sprintf("%s\x00%q\x00%s\x00%s\x00%s\x00%s", r.Job, r.Labels, r.Tool, r.Version, r.Distribution, r.Unresolved)
+				if seen[key] {
 					continue
 				}
-				for _, r := range stepRequirements(action, step.With, combo) {
-					r.Workflow, r.Job, r.Labels = path, name, labels
-					// A matrix this package could not read explains a
-					// missing matrix value better than the value does.
-					if matrixNote != "" && strings.HasPrefix(r.Unresolved, "set by matrix.") {
-						r.Unresolved = matrixNote
-					}
-					key := fmt.Sprintf("%s\x00%q\x00%s\x00%s\x00%s\x00%s", r.Job, r.Labels, r.Tool, r.Version, r.Distribution, r.Unresolved)
-					if seen[key] {
-						continue
-					}
-					seen[key] = true
-					out = append(out, r)
-				}
+				seen[key] = true
+				out = append(out, r)
 			}
 		}
 	}
 	return out, nil
+}
+
+// scope is what an expression in a job can be answered from: the matrix
+// combination, the env values the workflow, job and step set, and, inside a
+// local action, the inputs the step gave it.
+type scope struct {
+	matrix map[string]string
+	// env and inputs are keyed by lower-case name, because GitHub reads a
+	// property name without regard to case. A nil inputs is a scope that is not
+	// inside a local action.
+	env    map[string]resolved
+	inputs map[string]resolved
+}
+
+// resolved is a value, or the reason it is not known.
+type resolved struct {
+	value string
+	why   string
+}
+
+// withEnv returns the scope with a layer of env values added over it. A value
+// is substituted in the scope as it stands, so it may name the matrix; one that
+// names anything else is recorded as unresolved, with why.
+func (sc scope) withEnv(layer map[string]yaml.Node) scope {
+	if len(layer) == 0 {
+		return sc
+	}
+	env := make(map[string]resolved, len(sc.env)+len(layer))
+	for k, v := range sc.env {
+		env[k] = v
+	}
+	for k, n := range layer {
+		v, why := substitute(nodeText(&n), scope{matrix: sc.matrix})
+		env[strings.ToLower(k)] = resolved{value: v, why: why}
+	}
+	sc.env = env
+	return sc
+}
+
+// localReader follows local actions, reading each one once.
+type localReader struct {
+	read   func(dir string) (string, bool)
+	parsed map[string]*localAction
+}
+
+// collect reads the requirements of a list of steps, following local actions.
+func (rd *localReader) collect(steps []step, sc scope, depth int, stack []string) []Requirement {
+	var out []Requirement
+	for _, st := range steps {
+		stepScope := sc.withEnv(st.Env)
+		if action, ok := setupActions[actionName(st.Uses)]; ok {
+			out = append(out, stepRequirements(action, st.With, stepScope)...)
+			continue
+		}
+		dir, ok := localDir(st.Uses)
+		if !ok || rd.read == nil || depth >= maxLocalDepth || slices.Contains(stack, dir) {
+			continue
+		}
+		la := rd.load(dir)
+		if la == nil {
+			continue
+		}
+		inner := scope{matrix: stepScope.matrix, env: stepScope.env, inputs: la.bind(st.With, stepScope)}
+		out = append(out, rd.collect(la.Runs.Steps, inner, depth+1, append(slices.Clone(stack), dir))...)
+	}
+	return out
+}
+
+// load reads and parses a local action, or returns nil if it cannot or is not
+// a composite action: a JavaScript or Docker action runs no setup step of its
+// own that this could see.
+func (rd *localReader) load(dir string) *localAction {
+	if la, ok := rd.parsed[dir]; ok {
+		return la
+	}
+	var la *localAction
+	if content, ok := rd.read(dir); ok {
+		var parsed localAction
+		if yaml.Unmarshal([]byte(content), &parsed) == nil && parsed.Runs.Using == "composite" {
+			la = &parsed
+		}
+	}
+	rd.parsed[dir] = la
+	return la
+}
+
+// bind answers the action's inputs: what the step passed, else the default, else
+// nothing, which is what GitHub gives an input that has neither.
+func (la *localAction) bind(with map[string]yaml.Node, caller scope) map[string]resolved {
+	in := map[string]resolved{}
+	for name, decl := range la.Inputs {
+		var v, why string
+		if n, ok := with[name]; ok {
+			v, why = substitute(nodeText(&n), caller)
+		} else if decl.Default.Kind != 0 {
+			v, why = substitute(nodeText(&decl.Default), scope{matrix: caller.matrix, env: caller.env})
+		}
+		in[strings.ToLower(name)] = resolved{value: v, why: why}
+	}
+	return in
+}
+
+// localDir is the directory a `uses: ./path` step names, relative to the
+// repository's root. Anything that climbs out of the repository is not one.
+func localDir(uses string) (string, bool) {
+	uses = strings.TrimSpace(uses)
+	if uses != "." && !strings.HasPrefix(uses, "./") {
+		return "", false
+	}
+	dir := path.Clean(strings.TrimPrefix(uses, "./"))
+	if dir == ".." || strings.HasPrefix(dir, "../") || path.IsAbs(dir) {
+		return "", false
+	}
+	return dir, true
 }
 
 // actionName turns `actions/setup-python@v6` into "actions/setup-python". A
@@ -155,11 +305,11 @@ func actionName(uses string) string {
 }
 
 // stepRequirements reads the versions one setup step asks for.
-func stepRequirements(action setupAction, with map[string]yaml.Node, combo map[string]string) []Requirement {
+func stepRequirements(action setupAction, with map[string]yaml.Node, sc scope) []Requirement {
 	distribution := ""
 	if action.tool == Java {
 		if n, ok := with["distribution"]; ok {
-			d, unresolved := substitute(n.Value, combo)
+			d, unresolved := substitute(n.Value, sc)
 			if unresolved == "" {
 				distribution = d
 			}
@@ -182,7 +332,7 @@ func stepRequirements(action setupAction, with map[string]yaml.Node, combo map[s
 
 	var out []Requirement
 	for _, v := range versions(&n) {
-		value, unresolved := substitute(v, combo)
+		value, unresolved := substitute(v, sc)
 		if unresolved != "" {
 			out = append(out, Requirement{Tool: action.tool, Distribution: distribution, Unresolved: unresolved})
 			continue
@@ -222,10 +372,12 @@ func nodeText(n *yaml.Node) string {
 	return n.Value
 }
 
-// substitute replaces ${{ matrix.<key> }} with the combination's value. Any
-// other expression -- an input, an env var, a step's output -- is not
-// knowable from the file, and is reported as the reason.
-func substitute(s string, combo map[string]string) (string, string) {
+// substitute replaces the expressions in a value it can answer: ${{ matrix.<key> }},
+// ${{ env.<name> }} for an env value the workflow, job or step sets, and, inside
+// a local action, ${{ inputs.<name> }}. Any other expression (a secret, a
+// step's output, a file's contents) is not knowable from the files, and is
+// reported as the reason.
+func substitute(s string, sc scope) (string, string) {
 	var b strings.Builder
 	rest := s
 	for {
@@ -239,13 +391,37 @@ func substitute(s string, combo map[string]string) (string, string) {
 			return "", fmt.Sprintf("the expression in %q is not closed", s)
 		}
 		expr := strings.TrimSpace(rest[i+3 : i+j])
-		key, ok := strings.CutPrefix(expr, "matrix.")
-		if !ok {
+		var v string
+		switch {
+		case strings.HasPrefix(expr, "matrix."):
+			key := strings.TrimPrefix(expr, "matrix.")
+			m, ok := sc.matrix[key]
+			if !ok {
+				return "", fmt.Sprintf("set by matrix.%s, which the matrix does not list as a value", key)
+			}
+			v = m
+		case strings.HasPrefix(expr, "env."):
+			name := strings.TrimPrefix(expr, "env.")
+			r, ok := sc.env[strings.ToLower(name)]
+			if !ok {
+				return "", fmt.Sprintf("set by env.%s, which the workflow does not set", name)
+			}
+			if r.why != "" {
+				return "", r.why
+			}
+			v = r.value
+		case strings.HasPrefix(expr, "inputs.") && sc.inputs != nil:
+			name := strings.TrimPrefix(expr, "inputs.")
+			r, ok := sc.inputs[strings.ToLower(name)]
+			if !ok {
+				return "", fmt.Sprintf("set by inputs.%s, which the local action does not declare", name)
+			}
+			if r.why != "" {
+				return "", r.why
+			}
+			v = r.value
+		default:
 			return "", fmt.Sprintf("set by the expression ${{ %s }}", expr)
-		}
-		v, ok := combo[key]
-		if !ok {
-			return "", fmt.Sprintf("set by matrix.%s, which the matrix does not list as a value", key)
 		}
 		b.WriteString(rest[:i])
 		b.WriteString(v)
@@ -286,7 +462,7 @@ func runsOn(n *yaml.Node, combo map[string]string) []string {
 	}
 	labels := []string{}
 	for _, l := range raw {
-		v, unresolved := substitute(l, combo)
+		v, unresolved := substitute(l, scope{matrix: combo})
 		if unresolved != "" {
 			return nil
 		}

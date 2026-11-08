@@ -98,12 +98,12 @@ pull-through registry mirror.
 
 1. **ZF-212 as written**: recipes, no code. Cheapest and already approved in
    shape.
-2. **A pull-through registry mirror per host** (proposed ZF-230). The agent
+2. **A pull-through registry mirror per host** (proposed ZF-246). The agent
    already owns image pulls and prewarm; pointing a pool's DinD sidecar and
    the host daemon at a local mirror saves the same Docker Hub pull on every
    runner and avoids its rate limit. Read-only from a job's point of view, so
    it leaks nothing a job wrote.
-3. **An `actions/cache`-compatible service** (proposed ZF-231), run by the
+3. **An `actions/cache`-compatible service** (ZF-245, see [the design](cache-service.md)), run by the
    agent on each host and reached by runners on the host's bridge, backed by
    the host's shared folder by default and optionally S3-compatible storage.
    The runner is told where it is through `ACTIONS_CACHE_URL` (or the v2

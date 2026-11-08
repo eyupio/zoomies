@@ -189,7 +189,13 @@ test('a draft made from a pool and sent back says what the pool said', () => {
     ephemeral: true,
     host_selector: { arch: 'amd64' },
     runner_settings: { provision_timeout: '45m' },
-    cache: { enabled: true, scope: 'pool', source: '/var/cache/zoomies', tools: false },
+    cache: {
+      enabled: true,
+      scope: 'pool',
+      source: '/var/cache/zoomies',
+      tools: false,
+      service: false,
+    },
     cpu_burst: { mode: 'off', size_for_ceiling: false },
     memory_burst: { mode: 'automatic', max_memory_mb: 24576, spill_mb: 2048 },
   } as Pool;
@@ -488,4 +494,24 @@ test('the sidecar image is sent only for a pool that runs a sidecar', () => {
   });
   assert.equal(none.dind_image, '');
   assert.equal('dind_image' in toPoolBody(valid({ docker_mode: 'none', dind_image: 'x' })), false);
+});
+
+test('the cache service is sent only for a container runner with the cache on', () => {
+  const base = draftFromPool({
+    id: 'pool_1',
+    name: 'p',
+    backend: 'docker',
+    cache: { enabled: true, scope: 'pool', tools: false, service: true },
+  } as Pool);
+  assert.equal(base.cache_service, true);
+  assert.equal(toPoolBody(base, { complete: true }).cache?.service, true);
+  // The server refuses these two, so the draft never sends them.
+  assert.equal(
+    toPoolBody({ ...base, cache_enabled: false }, { complete: true }).cache?.service,
+    false,
+  );
+  assert.equal(
+    toPoolBody({ ...base, backend: 'process' }, { complete: true }).cache?.service,
+    false,
+  );
 });

@@ -150,6 +150,14 @@ func TestStartingTheRepairLoopsRecoversAnInterruptedWatch(t *testing.T) {
 	if err != nil || claimed.ID != watch.ID {
 		t.Fatalf("watch was not claimed: %+v, %v", claimed, err)
 	}
+	// Recovery is what is being held here, and recovery makes the watch due. A
+	// loop that has started would claim it at once, which is what it is for, and
+	// would leave a lease where this reads the row. Cancelling straight after
+	// starting does not prevent that: on a busy machine the loop's goroutine
+	// runs first, and this failed about once in four hundred runs under load.
+	// Draining stops the loops from acting while recovery, which runs before
+	// they start, still happens.
+	h.c.transferDraining.Store(true)
 	ctx, cancel := context.WithCancel(h.ctx)
 	h.c.startRepairLoops(ctx)
 	cancel()

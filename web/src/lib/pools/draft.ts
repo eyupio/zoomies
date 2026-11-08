@@ -113,6 +113,7 @@ export interface PoolDraft {
   docker_wait: string;
   cache_enabled: boolean;
   cache_tools: boolean;
+  cache_service: boolean;
   cache_scope: 'pool' | 'repository';
   cache_size_limit: string;
   cache_source: string;
@@ -202,6 +203,7 @@ export function emptyDraft(): PoolDraft {
     docker_wait: '',
     cache_enabled: false,
     cache_tools: false,
+    cache_service: false,
     cache_scope: 'pool',
     cache_size_limit: '',
     cache_source: '',
@@ -281,6 +283,7 @@ export function draftFromPool(pool: Pool): PoolDraft {
     docker_wait: pool.runner_settings?.docker_wait ?? '',
     cache_enabled: pool.cache?.enabled === true,
     cache_tools: pool.cache?.tools === true,
+    cache_service: pool.cache?.service === true,
     cache_scope: pool.cache?.scope ?? 'pool',
     cache_size_limit: fromNumber(pool.cache?.size_limit),
     cache_source: pool.cache?.source ?? '',
@@ -459,6 +462,12 @@ export function toPoolBody(draft: PoolDraft, options: { complete?: boolean } = {
       tools:
         draft.cache_enabled &&
         draft.cache_tools &&
+        (draft.backend === 'docker' || draft.backend === 'podman'),
+      // The cache service listens on a container network, so it is for a
+      // container runner with the cache on; anything else the server refuses.
+      service:
+        draft.cache_enabled &&
+        draft.cache_service &&
         (draft.backend === 'docker' || draft.backend === 'podman'),
       scope: draft.cache_scope,
       size_limit: toInteger(draft.cache_size_limit) ?? 0,

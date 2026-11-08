@@ -586,6 +586,20 @@ func (r *Registry) Get(k store.BackendKind) (Backend, error) {
 	return b, nil
 }
 
+// Close stops what the backends run on the host for their runners, which a
+// runner does not need to survive an agent restart: a backend that runs
+// nothing of its own has nothing to stop. It never touches a runner.
+func (r *Registry) Close() {
+	if r == nil {
+		return
+	}
+	for _, b := range r.backends {
+		if c, ok := b.(interface{ Close() }); ok {
+			c.Close()
+		}
+	}
+}
+
 // Kinds returns the registered backend kinds.
 func (r *Registry) Kinds() []store.BackendKind {
 	out := make([]store.BackendKind, 0, len(r.backends))

@@ -269,6 +269,16 @@ test('speed-ups say what is kept in memory and whether there is a cache', () => 
     ).speed,
     'image store in memory where there is room · per-repository cache with tools',
   );
+  // The host serving the cache is worth a phrase in the row, and only for a
+  // container runner with the cache on, which is all the server accepts.
+  assert.equal(
+    summarise(draft({ cache_enabled: true, cache_service: true })).speed,
+    'Scratch space on disk · shared cache, served from the host',
+  );
+  assert.equal(
+    summarise(draft({ cache_enabled: false, cache_service: true })).speed,
+    'Scratch space on disk · no cache',
+  );
   // A process runner has nothing to mount over.
   assert.equal(
     summarise(draft({ backend: 'process', tmpfs_work: true })).speed,

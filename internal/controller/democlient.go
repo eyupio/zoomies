@@ -181,6 +181,11 @@ var _ github.RepoReader = (*demoClient)(nil)
 // workflows at all, which is what the "hide repositories with nothing to move"
 // filter exists for, and one that has already been migrated, which has nothing
 // to move for the opposite reason.
+// ReadFile has no file to give: the demo's workflows refer to no local action.
+func (d *demoClient) ReadFile(_ context.Context, repo, path string) (string, error) {
+	return "", fmt.Errorf("%s in %s: %w", path, repo, github.ErrNotFound)
+}
+
 func (d *demoClient) ListWorkflows(_ context.Context, repo string) ([]github.WorkflowFile, error) {
 	for _, quiet := range demoQuietRepos {
 		if repo == quiet {

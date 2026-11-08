@@ -170,6 +170,35 @@ func (c *appClient) ListWorkflows(ctx context.Context, repo string) ([]WorkflowF
 	return out, nil
 }
 
+// ReadFile returns one file from the default branch. A file that is not there is
+// ErrNotFound and not a failure, because the caller is asking about files a
+// workflow merely refers to.
+func (c *appClient) ReadFile(ctx context.Context, repo, filePath string) (string, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return "", err
+	}
+	file, _, resp, err := c.asInstallation.Repositories.GetContents(ctx, owner, name, filePath, nil)
+	if err != nil {
+		e := classify(resp, err)
+		if errors.Is(e, ErrNotFound) {
+			return "", fmt.Errorf("%s in %s: %w", filePath, repo, ErrNotFound)
+		}
+		return "", c.migrationError(fmt.Sprintf("read %s in %s", filePath, repo), e)
+	}
+	if file == nil {
+		return "", fmt.Errorf("github: read %s in %s: GitHub returned a directory where a file was expected", filePath, repo)
+	}
+	if size := file.GetSize(); size > maxWorkflowBytes {
+		return "", fmt.Errorf("github: %s in %s is %d bytes, over the %d this reads", filePath, repo, size, maxWorkflowBytes)
+	}
+	decoded, err := file.GetContent()
+	if err != nil {
+		return "", fmt.Errorf("github: read %s in %s: %w", filePath, repo, err)
+	}
+	return decoded, nil
+}
+
 // fileContent fetches one file's decoded contents.
 func (c *appClient) fileContent(ctx context.Context, owner, repo, filePath string) (string, error) {
 	file, _, resp, err := c.asInstallation.Repositories.GetContents(ctx, owner, repo, filePath, nil)

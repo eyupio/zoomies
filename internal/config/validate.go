@@ -96,6 +96,8 @@ var ReservedRunnerEnv = []string{
 	"ZOOMIES_RUNNER_URL", "ZOOMIES_RUNNER_TOKEN", "ZOOMIES_RUNNER_NAME",
 	"ZOOMIES_RUNNER_LABELS", "ZOOMIES_RUNNER_GROUP", "ZOOMIES_EPHEMERAL",
 	"ZOOMIES_RUNNER_NO_DEFAULT_LABELS",
+	// Where the host's cache service is for this runner's pool, or absent.
+	"ZOOMIES_CACHE_SERVICE_URL",
 }
 
 // reservedRunnerEnv returns the reserved names env sets, sorted.

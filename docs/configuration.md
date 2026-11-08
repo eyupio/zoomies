@@ -927,8 +927,22 @@ Read the result with `GET /api/v1/toolchains`, and start a scan by hand with
 with the reason: `go-version-file: go.mod` reads a file this does not fetch, and
 `${{ inputs.python }}` is only known when the run starts. A matrix is expanded
 the way GitHub expands it, so `python-version: ${{ matrix.python }}` over
-`["3.12", "3.13"]` is two versions. Jobs on GitHub-hosted labels, or labels no
-pool carries, are listed as unmatched rather than guessed onto a pool.
+`["3.12", "3.13"]` is two versions.
+
+A version written once and passed along is followed, in the two ways workflows
+usually do it. A value from `env` is read from the workflow, job or step that
+sets it, so `node-version: ${{ env.NODE_VERSION }}` is the version
+`NODE_VERSION` holds. A step that calls a **local composite action**, such as
+`uses: ./.github/actions/setup-go`, is followed into that action's
+`action.yml`, which the scan reads from the repository's default branch (the
+inputs the step passes, and the action's defaults, are filled in); a version
+pinned inside it counts for every job that calls it. Local actions are followed
+up to three deep, each is read once per repository, and no more than sixteen
+files are fetched for one repository in a scan. A local action that is not
+there, or is not a composite action, is left alone and is not reported.
+
+Jobs on GitHub-hosted labels, or labels no pool carries, are listed as
+unmatched rather than guessed onto a pool.
 
 It needs the App's **Contents: read** permission, which the migration wizard
 already asks for. GitHub answers an App without it exactly as it answers a
@@ -2443,6 +2457,81 @@ It needs the cache on and a container backend: a process runner uses the host's
 own tool cache already. A host whose shared folder cannot be created starts the
 pool's runners without the kept tool cache and says so in its log, rather than
 not starting them.
+
+#### Serving the Actions cache from the host
+
+`cache.service` runs a cache service on each host for the pool's runners, so
+the Actions cache is kept on the host instead of in GitHub's service. That is
+`actions/cache` and the caches the `setup-*` actions keep, **with no change to
+any workflow**. It is a setting of the pool,
+stored with it (the **Serve the Actions cache from the host** box in the pool
+editor's **Speed-ups** section, or `zoomies pools edit --cache-service`), and it
+is off unless you ask for it.
+
+```yaml
+cache:
+  enabled: true
+  scope: pool          # or: repository
+  service: true
+```
+
+The runner sets the address of GitHub's results service for every JavaScript
+action itself, after the step's own environment, so nothing a pool or a workflow
+sets can change it, and that address is also where `upload-artifact` and
+`download-artifact` find the artifact service, so it cannot be pointed at a cache
+service. The runner image therefore wraps the `node` the runner starts actions
+with. When the agent has given the runner the address of its host's service, in
+`ZOOMIES_CACHE_SERVICE_URL`, the wrapper loads a small script that rewrites the
+calls addressed to the cache service and nothing else: artifacts, and every other
+request an action makes, go where they always did. With the variable unset it
+changes nothing. That is why this needs one of the Zoomies runner images; a pool
+with an image of its own keeps GitHub's cache.
+
+The service listens on the host's address on the network the runners are
+attached to, and on nothing else, on a port of its own for each pool (and each
+repository, for a repository-scoped cache), so it is shared with exactly the
+runners the pool cache is. It keeps its entries in the host's
+[shared folder](#the-shared-folder), under `cache/service`, within the cache's
+`size_limit` or 10 GiB where there is none, evicting the least recently used
+first. An agent restart starts a new service on a new port, and runners that
+were already running keep the old address, so their cache calls miss until they
+finish; a miss is a slower build and never a failed one.
+
+Everything it cannot do is a runner on GitHub's cache, as before, and the host's
+log says why once for the pool: no shared folder, an agent that runs in a
+container, no address for the host on the runners' network, or a firewall that
+does not let the runners' network reach it. Whether the host's own firewall
+allows a container to reach the host on that port is yours to check.
+
+It shares more than a build cache does. What an action saves here, a later job
+restores, and a pull request reads its base branch's entries and writes only its
+own, as GitHub's cache does. That rule reads the job's token and does not check
+it, so it guards against a workflow doing the wrong thing and not against code
+that is trying to. The boundary is the pool: keep untrusted pull requests on a
+pool of their own, as [Security](security.md) says for any self-hosted runner.
+
+It needs the cache on and a container backend. Only JavaScript actions are
+redirected, so a Docker action keeps GitHub's cache, and so, by default, does
+Buildx's `type=gha` image-layer cache: BuildKit is a separate program that reads
+the results address for itself.
+
+**Image builds (experimental, off by default).** Set `ZOOMIES_CACHE_SERVICE_BUILDX`
+to `true` in the pool's environment and the `docker` commands a JavaScript action
+starts, which is how `docker/build-push-action` and `docker/bake-action` run
+`docker buildx build`, are given the host's address for their `type=gha` cache.
+The action's own address is not changed, so its artifact calls still go to
+GitHub. A `docker buildx build` typed into a `run:` step is not started by an
+action and is not reached.
+
+It is separate, and off, because it can fail a build where the redirect above
+cannot. A cache export the service refuses fails a build that does not say
+`ignore-error=true`, where the toolkit only warns. The builder also reaches the
+service from inside the sidecar's own network, which an action's calls never
+cross, so the host's firewall has to let that traffic through too. It has been
+checked against BuildKit's own cache client (save, restore by key, ranged reads
+of a large layer, a miss) and against the preload under a real Node. It has not
+been run against a live BuildKit builder, so turn it on for one pool, run an
+image build twice and look for the second one importing layers from the cache.
 
 #### Filling the tool cache
 

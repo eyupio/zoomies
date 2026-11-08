@@ -987,6 +987,8 @@ func (a *Agent) run(ctx context.Context) error {
 	} else {
 		a.shutdown(ctx)
 	}
+	// After the drain, so a task that was finishing could still use them.
+	a.opts.Backends.Close()
 	return err
 }
 

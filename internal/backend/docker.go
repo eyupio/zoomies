@@ -67,6 +67,12 @@ const (
 	// the entrypoint adds to the image's trust store. It is set only when the
 	// host has agent.extra_ca_file.
 	EnvExtraCAFile = "ZOOMIES_EXTRA_CA_FILE"
+	// EnvCacheServiceURL is the address, inside the runner, of the host's cache
+	// service. The runner image's node wrapper (deploy/runner-node-wrapper.sh)
+	// is what reads it, so the name is a contract with that script and a test
+	// holds the two together. It is set only for a pool that turned its cache
+	// service on, and only when this host started one.
+	EnvCacheServiceURL = "ZOOMIES_CACHE_SERVICE_URL"
 
 	// EnvUpstreamJITConfig is the name actions/runner itself understands. It is
 	// set alongside EnvJITConfig so that an operator can point a pool at a
@@ -348,6 +354,8 @@ type DockerBackend struct {
 	// because it cannot write to it; see prepareCacheDirs.
 	toolCacheMu      sync.Mutex
 	toolCacheProblem string
+	// cacheSvcs runs the pool cache services runners are pointed at.
+	cacheSvcs *cacheServices
 	// externalsMu guards the maps below. Each externals volume has a lock of
 	// its own, so a fill blocks only the runners waiting for that volume.
 	// externalsReady is every volume filled and checked by this agent, and
@@ -431,7 +439,7 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 		dind = DefaultDinDImage
 	}
 
-	return &DockerBackend{
+	b := &DockerBackend{
 		api:     api,
 		fl:      fl,
 		network: strings.TrimSpace(opts.Network),
@@ -448,8 +456,14 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 		nameRelease: nameReleaseBudget,
 		nameSettle:  nameSettleBudget,
 		removalWait: removalWaitBudget,
-	}, nil
+	}
+	b.cacheSvcs = newCacheServices(b.sharedDir, b.sharedProblem, b.log, api.NetworkGateway)
+	return b, nil
 }
+
+// Close stops what this backend runs on the host for its runners, which is the
+// cache services. It does not touch a runner: those outlive the agent by design.
+func (b *DockerBackend) Close() { b.cacheSvcs.close() }
 
 // Kind identifies the implementation.
 func (b *DockerBackend) Kind() store.BackendKind { return b.fl.kind }
@@ -586,6 +600,9 @@ type containerOptions struct {
 	// ToolFarmDir is the host folder holding this runner's own tool cache,
 	// bound at RunnerToolCacheMount; it is set whenever ToolCacheDir is.
 	ToolFarmDir string
+	// CacheServiceURL is the address, as the runner reaches it, of the cache
+	// service this runner's pool is offered; empty when there is none.
+	CacheServiceURL string
 }
 
 // extraCABind is the read-only mount for the extra CA bundle. The Podman
@@ -791,6 +808,11 @@ func runnerEnv(spec Spec, o containerOptions) []string {
 	sort.Strings(keys)
 	for _, k := range keys {
 		env = append(env, k+"="+spec.Env[k])
+	}
+	// After the pool's own variables, so that nothing a pool names can send its
+	// runners to a service this host did not start.
+	if o.CacheServiceURL != "" {
+		env = append(env, EnvCacheServiceURL+"="+o.CacheServiceURL)
 	}
 	// Last, so that a pool's env cannot point the entrypoint somewhere the
 	// mount is not: the daemon keeps the last of a repeated name.
@@ -1329,6 +1351,9 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	// can reap it when the network or work directory setup fails first.
 	b.prepareCacheDirs(spec, &opts)
 	b.pruneCacheFor(ctx, spec)
+	// Offered, never required: a host that cannot run the service leaves the
+	// runner on GitHub's cache, as it was before the pool asked for one.
+	opts.CacheServiceURL = b.cacheSvcs.urlFor(ctx, spec, network)
 
 	var dindReadyDuration *time.Duration
 	switch spec.DockerMode {
