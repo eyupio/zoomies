@@ -1,9 +1,13 @@
 # Support
 
-Zoomies is free and open-source software, published under AGPL-3.0 by people
-who are not on call for it. There is no support contract, no guaranteed
-response time, and no paid tier that would buy one. That is the whole boundary,
-and it is stated plainly so that nobody discovers it during an incident.
+Zoomies is free and open-source software, published under AGPL-3.0. Community
+support for a self-hosted installation comes with no support contract or
+guaranteed response time.
+
+[Zoomies Cloud](https://cloud.zoomies.sh/) is a separate paid service that hosts
+the controller and handles its updates and backups. For a Cloud account, use
+support in that account; the service's own terms apply. Your runner machines
+remain yours to operate.
 
 What there is: documentation written to be acted on, error messages that name
 the setting to change, and maintainers who read what comes in.

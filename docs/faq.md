@@ -215,8 +215,11 @@ and edits nothing without a selection. A controller joins in only when
 
 ## What does it cost?
 
-Nothing. Zoomies is free and open source under the GNU Affero General Public
-License (AGPL-3.0). You pay for the machines you run it on.
+The Zoomies software is free and open source under the GNU Affero General Public
+License (AGPL-3.0). You pay for the machines you run it on and the time to look
+after them. [Zoomies Cloud](https://cloud.zoomies.sh/) is an optional paid
+service that hosts the controller and handles its updates and backups; you
+still supply the runner machines. See [current Cloud pricing](https://cloud.zoomies.sh/pricing).
 [What self-hosted runners cost](costs.md) works through the sums against
 GitHub's hosted runner prices.
 
@@ -419,7 +422,7 @@ modified or not, asks nothing of you. The full text is in
       "name": "What does Zoomies cost?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Nothing. Zoomies is free and open source under the GNU Affero General Public License (AGPL-3.0). You pay only for the machines you run it on."
+        "text": "The Zoomies software is free and open source under the GNU Affero General Public License (AGPL-3.0). You pay for your machines and the time to look after them. Zoomies Cloud is an optional paid service that hosts the controller and handles its updates and backups; you still supply the runner machines. Current Cloud pricing is at https://cloud.zoomies.sh/pricing."
       }
     },
     {

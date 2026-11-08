@@ -45,6 +45,12 @@ jobs start.
   [compose file](compose.md#the-proxy-in-front) is set up for, restores
   webhooks without opening a port.
 
+- **Hosted for you, with [Zoomies Cloud](https://cloud.zoomies.sh/).** Keep the
+  builds on your home machines and let us look after the controller, including
+  its updates and backups. Useful when you want a home-lab fleet without
+  another service to maintain. Cloud is paid controller hosting; you still
+  supply and look after the runner machines.
+
 ## Keeping jobs on the right machines
 
 A pool chooses its hosts with a host selector, and a host carries labels you
@@ -92,15 +98,17 @@ the network.
 
 ## What it costs
 
-Nothing for Zoomies, and nothing from GitHub for self-hosted runner minutes
-today; you pay for the electricity and your time. A machine you already own
+The self-hosted Zoomies controller is free, and GitHub charges nothing for
+self-hosted runner minutes today; you pay for the electricity and your time.
+If you choose Zoomies Cloud, include its controller subscription too; see
+[current Cloud pricing](https://cloud.zoomies.sh/pricing). A machine you already own
 starts ahead of anything you would rent, [what self-hosted runners
 cost](costs.md) works through the sums against GitHub's hosted runner prices.
 
 ## Getting started
 
 1. Run the controller: [quick start](quickstart.md) on a small VM or a home
-   machine.
+   machine, or use a hosted controller with [Zoomies Cloud](https://cloud.zoomies.sh/).
 2. Connect GitHub, and create a pool with a host selector for the machines it
    should use.
 3. Join each home machine through **Hosts → Add a host → Private connection ·

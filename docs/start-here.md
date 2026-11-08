@@ -18,6 +18,11 @@ after its job. You manage the fleet through a web UI, CLI or API.
 then [run your first job](quickstart.md). **Already running Zoomies?** Use the
 task table below or go straight to [advanced operations](advanced.md).
 
+Prefer to skip controller setup? [Zoomies Cloud](https://cloud.zoomies.sh/)
+hosts the controller and handles its updates and backups. You still supply and
+look after the machines that run your jobs. It is an optional paid service;
+self-hosting the open-source controller stays free.
+
 ## Choose a path
 
 <div class="zoomies-paths" markdown>

@@ -378,8 +378,8 @@ list is the only account of what was decided.
 
 30. **The primary target.** An instance operated on a team's behalf, where
     the team connects its own runner hosts; section 2 defines it. *Taken by
-    the owner.* It is not documented on the site, in the README or in the UI,
-    and no page names a plan, a tier or a hosted service; delivery rule 15.
+    the owner.* The public site may now offer this as the optional Zoomies
+    Cloud hosted controller at launch; delivery rule 15.
 31. **What a fleet may change on an operated instance.** ZF-207 splits the
     settings registry a fourth way. A key is *platform-scoped* when it
     changes what the process binds, trusts, stores, logs or dials from its
@@ -479,12 +479,12 @@ and `README.md`'s must name every top-level directory. Read it,
     with the rule it asserts removed and seen to fail; an assertion that
     cannot be made to fail is deleted rather than shipped, and the pull
     request says which assertions were checked this way.
-15. **The primary target is not documented.** Nothing under `docs/`, in
-    `README.md`, `SUPPORT.md` or the UI describes an instance operated on a
-    team's behalf, names a plan or a tier, or distinguishes a platform
-    operator from a fleet owner in words a visitor would read as an offer.
-    `SUPPORT.md`'s "no paid tier" sentence stays true as written. Every
-    package below ships as a self-hosted feature with a self-hosted reason
+15. **Cloud is an optional hosted controller.** The site and documentation may
+    offer Zoomies Cloud alongside self-hosting. Keep the free software's
+    licence and community support distinct from the paid service's terms.
+    Pricing, billing and service support belong on the Cloud site; customers
+    still supply and operate their runner machines. Every package below
+    ships as a self-hosted feature with a self-hosted reason
     (a platform team running an instance for a product team, which is real)
     and is off or invisible on an instance that has only one team: a
     fleet admin on an instance with no separate platform identity sees

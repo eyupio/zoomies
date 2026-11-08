@@ -1,6 +1,6 @@
 ---
 icon: material/shield-account-outline
-title: "Zoomies privacy: no telemetry, tracking cookies or accounts"
+title: "Zoomies privacy: the website and self-hosted software"
 description: >-
   What the Zoomies website and software collect. The software has no telemetry
   or account; the website counts page views without cookies; the only non-fleet
@@ -9,14 +9,18 @@ description: >-
 
 # Privacy
 
-Zoomies is software you run yourself, so most of the privacy question is
+For self-hosted Zoomies, most of the privacy question is
 answered by where it runs: on your machines, with its data in a SQLite file you
 own. This page says what is left over, what the website at zoomies.sh does,
 and what the software sends anywhere you did not point it.
 
+[Zoomies Cloud](https://cloud.zoomies.sh/) is a separate hosted service. Its
+[privacy notice](https://cloud.zoomies.sh/privacy) covers Cloud accounts and
+the data the service handles.
+
 ## The website
 
-zoomies.sh is a static site published through GitHub Pages from the
+zoomies.sh is a static site published through Cloudflare Workers from the
 [documentation in the repository](https://github.com/eyupio/zoomies/tree/main/docs).
 
 - **Cookieless page-view counts and no advertising.** The site loads one
@@ -33,12 +37,8 @@ zoomies.sh is a static site published through GitHub Pages from the
   queried locally; what you type is not sent anywhere.
 - **Your colour-scheme choice stays on your device.** The light and dark toggle
   remembers your choice in your browser's local storage. It never leaves it.
-- **GitHub sees ordinary web-server data.** As the host, GitHub receives the
-  address and browser details any web server receives, under
-  [GitHub's privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
-  This project does not receive those logs.
-- **Cloudflare sees it too.** zoomies.sh is served through Cloudflare, which sits
-  in front of GitHub Pages and so receives the same ordinary web-server data,
+- **Cloudflare hosts the site.** Cloudflare receives the ordinary address and
+  browser details a web server receives,
   under [Cloudflare's privacy policy](https://www.cloudflare.com/privacypolicy/).
   Cloudflare may also serve its own bot-detection script from this site's
   address (under `/cdn-cgi/`); that script is Cloudflare's, not part of this

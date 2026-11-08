@@ -3,15 +3,16 @@ icon: material/file-document-outline
 title: Terms
 description: >-
   The terms Zoomies and its website are offered under: the AGPL-3.0 licence for
-  the software, no warranty, no service to depend on, and where to report a
+  the self-hosted software, no warranty, and where to report a
   problem.
 ---
 
 # Terms
 
-Zoomies is free software, not a service. There is no account to create with this
-project, nothing to subscribe to and no hosted product whose availability we
-promise, so these terms are short.
+This page covers the open-source Zoomies software and the documentation at
+zoomies.sh. [Zoomies Cloud](https://cloud.zoomies.sh/) is an optional paid
+service with its own [terms of service](https://cloud.zoomies.sh/terms). Its
+subscription does not change the open-source software's licence.
 
 ## The software
 
@@ -45,7 +46,7 @@ You are responsible for the machines you run it on, the repositories you point
 it at, and the GitHub App you give it. Read those pages before you put anything
 precious on it.
 
-## No support contract
+## Community support for self-hosted installations
 
 Zoomies is developed in the open by [EyUp.io](https://eyup.io) and its contributors.
 Help comes through

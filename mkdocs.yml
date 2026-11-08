@@ -74,6 +74,7 @@ extra_css:
   - stylesheets/animated-logo.css
   - stylesheets/showcase.css
   - stylesheets/showcase-material.css
+  - stylesheets/cloud.css
 
 extra_javascript:
   - javascripts/animated-logo.js

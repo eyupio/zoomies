@@ -99,6 +99,13 @@ twenty-five at a time, and never onto a default branch directly. Jobs already
 on self-hosted runners are left alone; for those,
 [give a pool the label they already use](migration.md#coming-from-your-own-static-runners).
 
+!!! note "Prefer a hosted controller?"
+
+    [Zoomies Cloud](https://cloud.zoomies.sh/) hosts the controller and handles
+    its updates and backups. Useful when your team wants a shared fleet without
+    another controller to maintain. Your team still supplies and operates the
+    runner machines; Cloud is an optional paid service.
+
 ## Where to go next
 
 - [Quick start](quickstart.md): connect GitHub and create the first pool.
