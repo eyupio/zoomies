@@ -267,6 +267,8 @@ RUN set -eux; \
     make --version; \
     cmake --version; \
     python3 --version; \
+    python --version; \
+    test "$(readlink -f "$(command -v python)")" = "$(readlink -f "$(command -v python3)")"; \
     node --version; \
     npm --version; \
     test "$(readlink -f "$(command -v node)")" = "$(readlink -f /usr/local/bin/node)"; \
