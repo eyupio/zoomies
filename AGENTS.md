@@ -68,6 +68,7 @@ review.
 | `internal/updates/channel` | The impure half of `internal/updates`: finds the update folder, writes a request into it and reads what the helper left. It is the only place the service touches that folder, and it never creates it (the installer does, with the service account's ownership). |
 | `internal/api` | Transport only. A handler reads a request, asks the controller / auth / store, and renders the shape `api/openapi.yaml` promises. It has no opinions about the fleet. The resource views themselves (`HostView`, `PoolView`, …) are `internal/controller/views.go` types the handlers alias, because the event stream renders the same JSON and is fed from the controller. |
 | `internal/provider` | The infrastructure-provider contract, a fake that obeys it, and `RunContractTests`, the conformance suite every provider passes. It may import `internal/store`'s domain types and `config.Finding` and **nothing else**; two tests enforce that, and that it names nothing provider-specific. Renting a machine is not placing a runner: this is separate from `internal/backend` on purpose. |
+| `internal/cacheservice` | **Stdlib only.** The host-local Actions cache protocol (`actions/cache`, `type=gha`) and nothing about the fleet: no store, no config, no controller, no clock of its own. The agent decides where and when it runs. `purity_test.go` enforces the imports. Every failure it cannot answer is a miss, never a failed build. |
 | `internal/provider/proxmox` | The first provider. The Proxmox VE API is hand-rolled `net/http` for the same reason the Docker one is. |
 | `internal/controller` | Wiring: the reconcile loop, the machine loop, webhook ingest, the agent task queue, the log relay, and every payload the event stream carries (`views.go`, `derived.go`). The machine loop is **not** part of `Reconcile`: a clone takes minutes and `reconcileMu` is held for a whole scheduling pass. |
 | `internal/config` | `zoomies.yaml` + `ZOOMIES_*` overrides, and the validator. |
@@ -191,6 +192,7 @@ internal/backend    Docker, Podman and bare-process runner backends
 internal/auth       identity, RBAC, tokens, audit, OIDC
 internal/api        REST, SSE, metrics, and the embedded UI
 internal/provider   the infrastructure-provider contract, its fake, and Proxmox
+internal/cacheservice the Actions cache protocol, served from a host's own disk
 internal/registry   what a container registry says a tag points at, for the digest-pinning generators
 internal/controller the reconcile loop, the machine loop and the agent task queue
 internal/agent      the runner-executing half

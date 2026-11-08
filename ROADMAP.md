@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 3.13 · 17 October 2026 · derived from the owner's
+Version 3.14 · 8 November 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md),
 reconciled against `main` at `6d12a72` on 6 September, at `9a80b31`
 on 19 September and at `88c41f6` on 8 October, when the owner set a new primary target, withdrew the
@@ -1895,6 +1895,22 @@ Depends on ZF-242 and ZF-243's descriptive milestone. Size M.
 The preview foundation merged in #1021 and private retention in #1022.
 The policy, routes and web flow merged in #1171 (see [the 19 October plan](roadmap/plans/2026-10-19-eli-e3-checkout-web.md)), tested against fakes only. Attributed approval of a kept preview is in [the 23 October approval slice](roadmap/plans/2026-10-23-eli-e3-preview-approval.md): it names the preview, head, source digest and actor, is audited, expires with the preview and publishes nothing. Reconciled draft publication is in [the 23 October publication slice](roadmap/plans/2026-10-23-eli-e3-draft-publication.md): its own live opt-in, fresh head, branch, policy, source and approval checks, one draft pull request, non-force and never merged. The published preview links to E2's Comparisons page with the scope, workflow kind and a reviewable reference filled in, and can carry the captured comparison back as its verification ([the verification link](roadmap/plans/2026-10-23-eli-e3-verification-link.md)); the comparison itself stays a manual, inconclusive capture until suitable runs are chosen. The CLI, MCP and Eli read the same bounded preview ([the read-surfaces slice](roadmap/plans/2026-10-23-eli-e3-read-surfaces.md)): metadata and the one changed line, never the full file, with approval and publication staying on the web page. The wider catalogue starts with a pure supplied-evidence setup cache preview ([the cache foundation](roadmap/plans/2026-10-23-eli-e3-cache-preview-foundation.md)), the fleet's retained job history for repeated setup samples ([the cache history slice](roadmap/plans/2026-10-23-eli-e3-cache-history.md)), a bounded GitHub source read bound to one selected job ([the cache source slice](roadmap/plans/2026-10-23-eli-e3-cache-source.md)), and private retention plus inspect/capture/replay routes ([the cache retention and API slice](roadmap/plans/2026-10-23-eli-e3-cache-retention-api.md)) a Cache preview page ([the cache web slice](roadmap/plans/2026-10-23-eli-e3-cache-web.md)), bounded CLI/MCP/Eli replay of the kept preview ([the cache read slice](roadmap/plans/2026-10-23-eli-e3-cache-read.md)), attributed approval ([the cache approval slice](roadmap/plans/2026-10-23-eli-e3-cache-approval.md)) and one draft pull request for an approved preview ([the cache publication slice](roadmap/plans/2026-10-23-eli-e3-cache-publication.md)). Bounded readiness polling replaces one fixed sleep on an Ubuntu runner with a bounded poll of an operator-supplied condition, never a guessed one. It now has the pure preview and workflow edit ([the readiness foundation](roadmap/plans/2026-10-24-eli-e3-readiness-foundation.md)), bounded GitHub source binding and inspection ([the readiness source slice](roadmap/plans/2026-10-24-eli-e3-readiness-source.md)), the `/optimisations/readiness` page with its run picker and operator-supplied condition ([the readiness web slice](roadmap/plans/2026-10-24-eli-e3-readiness-web.md)), private retention and replay in migration 0126 ([the readiness retention slice](roadmap/plans/2026-10-24-eli-e3-readiness-retention.md)) bounded CLI, MCP and Eli replay ([the readiness read slice](roadmap/plans/2026-10-24-eli-e3-readiness-read.md)) attributed approval in migration 0127 ([the readiness approval slice](roadmap/plans/2026-10-24-eli-e3-readiness-approval.md)) and one reconciled draft pull request in migration 0128 ([the readiness publication slice](roadmap/plans/2026-10-24-eli-e3-readiness-publication.md)). Test sharding is built end to end, for Playwright only, as the owner accepted ([the contract](roadmap/plans/2026-10-24-eli-e3-test-sharding-contract.md)); the pure foundation is in [the foundation](roadmap/plans/2026-10-24-eli-e3-sharding-foundation.md), with bounded source binding and an inspect route in [the source slice](roadmap/plans/2026-10-24-eli-e3-sharding-source.md), and private retention with replay in migration 0129 ([the retention slice](roadmap/plans/2026-10-24-eli-e3-sharding-retention.md)) and the `/optimisations/sharding` page ([the web slice](roadmap/plans/2026-10-24-eli-e3-sharding-web.md)) and bounded CLI, MCP and Eli replay ([the read slice](roadmap/plans/2026-10-24-eli-e3-sharding-read.md)) and attributed approval in migration 0130 ([the approval slice](roadmap/plans/2026-10-24-eli-e3-sharding-approval.md)) and one reconciled draft pull request in migration 0131 ([the publication slice](roadmap/plans/2026-10-24-eli-e3-sharding-publication.md)). Still to do, and the owner's: a run against one real repository and a real E2 comparison of a published change. Writes from the CLI, MCP and Eli remain deliberately out of scope. [The handoff](eli-enhancement-roadmap-handoff.md#e3-what-is-built-and-what-is-not) has the detail.
 
+### ZF-245: a cache service on every host
+
+A runner restores and saves the Actions cache (`actions/cache`, the `setup-*`
+actions' own caches, Buildx's `type=gha`) on its own host, with no change to any
+workflow. The agent runs an `actions/cache`-compatible service per cache
+identity and tells the runner where it is; a pool turns it on with
+`cache.service`, off by default. Every failure is a miss, and a pull request
+reads its base branch's entries and writes only its own.
+
+Slice 1, the protocol core in `internal/cacheservice`, is tested against
+GitHub's own `@actions/cache` client. The rest is gated on a real runner
+accepting the URL, and on BuildKit's own client working against it. See
+[the design](roadmap/cache-service.md), which lists what is and is not proven.
+It was asked for on 8 November 2026 because a fleet should not rewrite its
+workflows to get a warm cache. Size M. The registry mirror is ZF-246.
+
 ## 9. Kept for the day somebody asks
 
 Nothing here is authorised by planning alone. Each starts when a fleet
@@ -2010,6 +2026,7 @@ every package in section 8 was re-read on 19 September against the code.
 | Order | Work | Exit criterion |
 | --- | --- | --- |
 | next | ZF-237 complete instance transfer | The round-trip, ownership and refusal tests, with CLI and REST documentation |
+| later | ZF-245 a cache service on every host | A real runner restores from the host's service with no workflow change, and a pull request cannot plant an entry the default branch restores |
 | 0 | ZF-005 documentation corrections and the marketplace repin, done, 19 September | The three pages agree with the record; `release.env` pins the current full release |
 | 1 | ZF-207 two audiences: the role and its migration, the actions, the settings scope, the problems split, tokens, copy and audit | The per-role Playwright assertions hold; a single-team instance is unchanged; an upgraded instance has one platform identity |
 | 1b | ZF-224 auto-recovery on a lost runner, off by default | A job the fleet broke is re-run once on its own; a test that failed never is; the bound holds across a restart |
@@ -2078,6 +2095,13 @@ results or user feedback; do not wait for them either.
 
 ## 13. Change record
 
+* **8 November 2026: Version 3.14:** ZF-245 added: a cache service on every
+  host, so a fleet gets a warm Actions cache without rewriting its workflows.
+  The earlier proposal for it in
+  [candidates-from-hosted-services.md](roadmap/candidates-from-hosted-services.md)
+  used the number ZF-231, which was taken by then; it is ZF-245 now, and the
+  registry mirror proposed beside it is ZF-246. Slice 1 is built; the design
+  note lists what is not yet proven.
 * **17 October 2026: Version 3.13:** ZF-241 implemented: the four analyses in
   `internal/analysis`, each a viewer route under `/api/v1/analysis`, an MCP tool
   on Eli's list, a subcommand of `zoomies analyse` and a card where its question
