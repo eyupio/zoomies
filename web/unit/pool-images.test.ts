@@ -89,7 +89,7 @@ test('the words name no toolchain version and use no dash for a pause', () => {
     entry.keepInMind,
   ]).join('\n');
   assert.doesNotMatch(all, /\b\d+\.\d+\b/, 'a version number');
-  assert.doesNotMatch(all, /—| -- /, 'a dash used as punctuation');
+  assert.doesNotMatch(all, /\u2014|\s--\s/, 'a dash used as punctuation');
 });
 
 test('the Docker variant is not offered as a choice, and the Standard words say why', () => {
