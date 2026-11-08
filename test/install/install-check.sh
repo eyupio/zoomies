@@ -337,6 +337,220 @@ for combo in "--mode agent" "--deployment compose" "--upgrade" "--uninstall" "--
     fi
 done
 
+# GitHub's download host (github.com/.../releases/download) has answered 504 at its
+# edge while api.github.com served the same files normally, and an installer that
+# knew only the first could not install anything until it recovered. A fake of both
+# makes each way the host can fail observable without reaching the network. The
+# API's answer is shaped like the real one: a release with its own url and name, an
+# uploader inside each asset, and an asset whose name only begins like the one asked
+# for, listed first.
+outage="$root/outage"
+mkdir -p "$outage/release" "$outage/bin"
+cat > "$outage/release/zoomies_linux_amd64" <<'STUB'
+#!/bin/sh
+case "$1 $2" in
+    "version --short") printf '%s\n' "9.9.9 (outage)" ;;
+    *) exit 0 ;;
+esac
+STUB
+chmod +x "$outage/release/zoomies_linux_amd64"
+printf '#!/bin/sh\nexit 0\n# not the release\n' > "$outage/release/zoomies_linux_amd64.bad"
+(
+    cd "$outage/release"
+    sha256sum zoomies_linux_amd64 > checksums.txt
+)
+cat > "$outage/release/release.json" <<'JSON'
+{
+  "url": "https://api.github.com/repos/eyupio/zoomies/releases/777",
+  "html_url": "https://github.com/eyupio/zoomies/releases/tag/v9.9.9",
+  "id": 777,
+  "author": {
+    "login": "someone",
+    "url": "https://api.github.com/users/someone",
+    "type": "User"
+  },
+  "tag_name": "v9.9.9",
+  "name": "v9.9.9",
+  "assets": [
+    {
+      "url": "https://api.github.com/repos/eyupio/zoomies/releases/assets/100",
+      "id": 100,
+      "name": "zoomies_linux_amd64.sbom",
+      "uploader": {
+        "login": "github-actions[bot]",
+        "url": "https://api.github.com/users/github-actions%5Bbot%5D"
+      },
+      "browser_download_url": "https://github.com/eyupio/zoomies/releases/download/v9.9.9/zoomies_linux_amd64.sbom"
+    },
+    {
+      "url": "https://api.github.com/repos/eyupio/zoomies/releases/assets/101",
+      "id": 101,
+      "name": "zoomies_linux_amd64",
+      "uploader": {
+        "login": "github-actions[bot]",
+        "url": "https://api.github.com/users/github-actions%5Bbot%5D"
+      },
+      "browser_download_url": "https://github.com/eyupio/zoomies/releases/download/v9.9.9/zoomies_linux_amd64"
+    },
+    {
+      "url": "https://api.github.com/repos/eyupio/zoomies/releases/assets/102",
+      "id": 102,
+      "name": "checksums.txt",
+      "uploader": {
+        "login": "github-actions[bot]",
+        "url": "https://api.github.com/users/github-actions%5Bbot%5D"
+      },
+      "browser_download_url": "https://github.com/eyupio/zoomies/releases/download/v9.9.9/checksums.txt"
+    }
+  ]
+}
+JSON
+# FAKE_DL is what the download host answers (ok, or the status it fails with) and
+# FAKE_API what the API does: ok, oneline (the same, on a single line), badbin (the
+# binary's bytes are not the ones checksums.txt names) or down. Every request is
+# written to FAKE_LOG with the Accept header it carried.
+cat > "$outage/bin/curl" <<'STUB'
+#!/bin/sh
+set -eu
+out=""
+url=""
+accept=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -o) out="$2"; shift 2 ;;
+        -H) case "$2" in Accept:*) accept="${2#Accept: }" ;; esac; shift 2 ;;
+        http://*|https://*) url="$1"; shift ;;
+        *) shift ;;
+    esac
+done
+printf '%s accept=%s\n' "$url" "$accept" >> "$FAKE_LOG"
+serve() { if [ -n "$out" ]; then cp "$1" "$out"; else cat "$1"; fi; }
+fail() { printf 'curl: (22) The requested URL returned error: %s\n' "$1" >&2; exit 22; }
+case "$url" in
+    */download/v9.9.9/*)
+        [ "$FAKE_DL" = ok ] || fail "$FAKE_DL"
+        serve "$FAKE_RELEASE/${url##*/}" ;;
+    https://api.github.com/repos/eyupio/zoomies/releases/tags/v9.9.9)
+        [ "$FAKE_API" != down ] || fail 503
+        if [ "$FAKE_API" = oneline ]; then tr -d '\n' < "$FAKE_RELEASE/release.json"; else cat "$FAKE_RELEASE/release.json"; fi ;;
+    https://api.github.com/repos/eyupio/zoomies/releases/assets/*)
+        [ "$accept" = application/octet-stream ] || fail 415
+        case "${url##*/}" in
+            100) printf 'not the binary\n' > "$FAKE_RELEASE/.sbom"; serve "$FAKE_RELEASE/.sbom" ;;
+            101) if [ "$FAKE_API" = badbin ]; then serve "$FAKE_RELEASE/zoomies_linux_amd64.bad"; else serve "$FAKE_RELEASE/zoomies_linux_amd64"; fi ;;
+            102) serve "$FAKE_RELEASE/checksums.txt" ;;
+            *) fail 404 ;;
+        esac ;;
+    *) exit 22 ;;
+esac
+STUB
+chmod +x "$outage/bin/curl"
+
+# outage_run <case> <download host> <api> [VAR=value...] leaves the installer's
+# output in $out and what it asked the network for in $log.
+outage_run() {
+    name=$1; dl=$2; api=$3; shift 3
+    mkdir -p "$root/outage-$name/prefix"
+    log="$root/outage-$name/log"
+    : > "$log"
+    out=$(env "$@" FAKE_DL="$dl" FAKE_API="$api" FAKE_LOG="$log" FAKE_RELEASE="$outage/release" \
+        PATH="$outage/bin:$PATH" "$SH" "$SCRIPT_UNDER_TEST" \
+        --prefix "$root/outage-$name/prefix" --version v9.9.9 --no-init --yes 2>&1) || true
+}
+
+# The download host fails; the API is up. The install goes through, says it went
+# round, and the file it installed is the one the checksum names.
+outage_run via-api 504 ok
+if ! printf '%s' "$out" | grep -qF -e "came through the release API"; then
+    printf 'FAIL release-api-fallback: the installer did not say it used the API\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+elif ! printf '%s' "$out" | grep -qF -e "error: 504"; then
+    printf 'FAIL release-api-fallback: the installer did not say what the download host answered\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+elif ! printf '%s' "$out" | grep -qF -e "matches"; then
+    printf 'FAIL release-api-fallback: the checksum was not checked\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+elif [ ! -x "$root/outage-via-api/prefix/zoomies" ]; then
+    printf 'FAIL release-api-fallback: nothing was installed\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+elif ! grep -qF -e "/releases/assets/101 accept=application/octet-stream" "$log"; then
+    printf 'FAIL release-api-fallback: the asset was not asked for as application/octet-stream\n%s\n' "$(cat "$log")" >&2
+    failures=$((failures + 1))
+elif grep -qF -e "/releases/assets/100 " "$log"; then
+    printf 'FAIL release-api-fallback: a file whose name only begins like the asset was taken for it\n%s\n' "$(cat "$log")" >&2
+    failures=$((failures + 1))
+elif [ "$(grep -c -e '/releases/tags/' "$log")" -ne 1 ]; then
+    # The binary and the checksums both went round, so the release was needed
+    # twice and asked about once: the API allows an address sixty requests an hour.
+    printf 'FAIL release-api-fallback: the release was not looked up exactly once\n%s\n' "$(cat "$log")" >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   release-api-fallback-installs-when-the-download-host-504s\n'
+fi
+
+# Something in between can hand the API's answer on without its line ends.
+outage_run oneline 504 oneline
+if [ -x "$root/outage-oneline/prefix/zoomies" ] && printf '%s' "$out" | grep -qF -e "matches"; then
+    printf 'ok   release-api-fallback-reads-an-answer-on-one-line\n'
+else
+    printf 'FAIL release-api-fallback: an answer on a single line was not read\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+fi
+
+# A 404 is the host saying the file is not there, which the API would say too. It
+# is not gone round, so it costs no request out of an hourly allowance.
+outage_run not-found 404 ok
+if grep -qF -e "api.github.com" "$log"; then
+    printf 'FAIL release-api-fallback: a 404 was taken to the API\n%s\n' "$(cat "$log")" >&2
+    failures=$((failures + 1))
+elif ! printf '%s' "$out" | grep -qF -e "could not download"; then
+    printf 'FAIL release-api-fallback: a 404 was not reported as a failed download\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   release-api-fallback-leaves-a-404-alone\n'
+fi
+
+# Both fail: the operator is told what the first one said, which is the one they
+# can look up, and nothing is installed.
+outage_run both-down 504 down
+if ! printf '%s' "$out" | grep -qF -e "could not download"; then
+    printf 'FAIL release-api-fallback: no failed download was reported\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+elif ! printf '%s' "$out" | grep -qF -e "error: 504"; then
+    printf 'FAIL release-api-fallback: the download host'"'"'s error was lost\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+elif [ -e "$root/outage-both-down/prefix/zoomies" ]; then
+    printf 'FAIL release-api-fallback: something was installed with both doors shut\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   release-api-fallback-reports-the-first-failure-when-both-fail\n'
+fi
+
+# Where the file came from does not loosen how it is checked.
+outage_run bad-bytes 504 badbin
+if ! printf '%s' "$out" | grep -qF -e "checksum mismatch"; then
+    printf 'FAIL release-api-fallback: a binary that does not match its checksum was not refused\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+elif [ -e "$root/outage-bad-bytes/prefix/zoomies" ]; then
+    printf 'FAIL release-api-fallback: a binary that does not match its checksum was installed\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   release-api-fallback-still-checks-the-checksum\n'
+fi
+
+# The API is GitHub's. A mirror an operator pointed the installer at has no such
+# thing, and is not asked for one.
+outage_run mirror 504 ok ZOOMIES_BASE_URL=https://mirror.example/releases
+if grep -qF -e "api.github.com" "$log"; then
+    printf 'FAIL release-api-fallback: a mirror was sent to GitHub'"'"'s API\n%s\n' "$(cat "$log")" >&2
+    failures=$((failures + 1))
+elif [ -e "$root/outage-mirror/prefix/zoomies" ]; then
+    printf 'FAIL release-api-fallback: something was installed from a mirror that was down\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   release-api-fallback-is-for-github-only\n'
+fi
+
 if [ "$failures" -ne 0 ]; then
     printf '\n%d check(s) failed\n' "$failures" >&2
     exit 1

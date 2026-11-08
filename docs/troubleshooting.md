@@ -47,7 +47,7 @@ assistant paths below help investigate fleet faults and workflow failures.
 
 ## When setup goes wrong
 
-Five things go wrong on a first run more often than anything else, and each has
+Six things go wrong on a first run more often than anything else, and each has
 a way back.
 
 **Locked out of your own controller.** There is no password reset over the
@@ -79,6 +79,21 @@ encryption key and database. To start over instead, `zoomies uninstall` (or
 `sh install.sh --uninstall`) stops the service, removes the unit, the service
 account and the data directory, and offers to deregister your runners from
 GitHub first.
+
+**The installer cannot download the release.** GitHub serves a release's files
+from two places, `github.com/.../releases/download` and its API, and the first
+has answered 504 at its edge while the second was working. `install.sh` asks the
+download host first. When that fails with anything but a 404, it fetches the
+same files through the API instead and says so: "did not answer, so
+`zoomies_linux_amd64` came through the release API". The checksum and the
+release signature are checked exactly as they would have been, wherever the file
+came from. If both fail you are shown what the download host said; try again in
+a few minutes, or pass `--version` with an earlier tag. A 404 is not retried this
+way, because it means the release has no such file: a mistyped `--version`, or
+binaries that are still uploading, which `latest` waits for. The API allows an
+address sixty unauthenticated requests an hour, and an install that goes round
+the host uses one of them. A mirror set with `ZOOMIES_BASE_URL` is never sent to
+GitHub's API.
 
 **No Docker or Podman on the host.** The native install works regardless, only
 the compose and docker *deployments* need a runtime. For running jobs, the
