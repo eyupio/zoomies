@@ -1,7 +1,9 @@
 # A cache service on every host (ZF-245)
 
 Status: slice 1 built (the protocol core, `internal/cacheservice`); the rest is
-not started. This note is the design the later slices are held to.
+not started. This note is the design the later slices are held to. Its first
+open risk was checked on 8 November 2026 and the original plan did not survive
+it; see "What is not proven".
 
 ## The problem
 
@@ -21,8 +23,9 @@ requirement is that Zoomies manages it.
 ## The approach
 
 Run a small `actions/cache`-compatible server in the agent on each host and
-tell the runner to use it. The toolkit finds its service through
-`ACTIONS_RESULTS_URL`, so `actions/cache`, every `setup-*` action's built-in
+redirect the runner's actions to it. The toolkit finds its service through
+`ACTIONS_RESULTS_URL`, which the runner sets itself (see "Redirecting the
+runner"), so `actions/cache`, every `setup-*` action's built-in
 cache and Buildx's `type=gha,version=2` all reach it with **no workflow change**.
 A lost cache must only make a build slower: every call is a miss on failure.
 
@@ -50,15 +53,24 @@ miss reported as a miss, an 8 MiB archive (one PUT) and a 200 MiB archive
 
 ## What is not proven
 
-These are the risks, in the order they matter. Nothing after slice 1 should
-start before the first is settled.
+These are the risks, in the order they matter. The first is now settled, and
+it changed the design.
 
-1. **Whether the runner lets us set `ACTIONS_RESULTS_URL`.** The runner hands
-   each step the URL from the job message. Whether a value in the runner
-   container's own environment wins is not something this work could check:
-   the runner release could not be downloaded here. The alternative is a
-   `ACTIONS_RUNNER_HOOK_JOB_STARTED` script that writes the variables to
-   `GITHUB_ENV`. Settle this with a real runner before building the wiring.
+1. **Settled against the plan: a runner does not honour `ACTIONS_RESULTS_URL`
+   from its container environment.** Read from the runner source
+   (`actions/runner` at `5ba5044`, 6 November 2026). For every Node action
+   `NodeScriptActionHandler.PrepareExecution`, and for every container action
+   `ContainerActionHandler`, assigns `Environment["ACTIONS_RESULTS_URL"]` and
+   `Environment["ACTIONS_CACHE_URL"]` from the job message's system connection
+   (`ResultsServiceUrl`, `CacheServerUrl`). It does this after the handler's
+   environment was seeded from the step's `env`, so a value in the runner
+   container, in a step's `env:` or written to `GITHUB_ENV` by a
+   `ACTIONS_RUNNER_HOOK_JOB_STARTED` script is overwritten, and no other code in
+   the runner reads the variable. The fallback this note first proposed (a
+   job-started hook) therefore does not work either. `run:` steps are not given
+   the variable at all, so only actions are affected, which is what the cache
+   action and `docker/build-push-action` are.
+   The redirect has to happen below the runner. See "Redirecting the runner".
 2. **BuildKit's `type=gha,version=2` against this service.** BuildKit has its
    own GitHub-cache client. There was no Docker daemon here to run it.
 3. **The token's `ac` claim.** The branch rule reads the `ac` claim of the job's
@@ -77,6 +89,22 @@ start before the first is settled.
 
 ## Design for the slices that follow
 
+* **Redirecting the runner.** The runner starts every Node action as
+  `<externals>/<node version>/bin/node`, with the environment it has just built.
+  The runner image is Zoomies', and the runner is started with `--disableupdate`
+  on the registration path, so the image can replace each `externals/node*/bin/node`
+  with a small wrapper that, when `ZOOMIES_CACHE_SERVICE_URL` is set in the
+  container, sets `ACTIONS_RESULTS_URL` to it and then runs the real node. No
+  runner patch, nothing a workflow can see or has to change, and with the
+  variable unset the wrapper is a pass-through, so the failure mode is GitHub's
+  cache as today. The costs are real: it covers Node actions only (a Docker
+  action keeps GitHub's URL), it covers only the stock images (an image of the
+  operator's own is left alone, as it is for the Docker client), the wrapper
+  has to be rebuilt against each runner release's layout, and whether a
+  JIT-configured runner can still self-update was not checked. The alternatives
+  were weighed and set aside: a patched runner fork (a build and a supply-chain
+  burden for two lines) and a TLS-intercepting proxy that rewrites the calls
+  (a CA every job would trust).
 * **Setting.** `cache.service` on the pool's `CacheConfig`, a JSON field like
   `cache.tools`, so no migration. Off by default, refused without
   `cache.enabled`, refused on the `process` backend. It reaches the agent in
