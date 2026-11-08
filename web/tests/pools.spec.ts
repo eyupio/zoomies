@@ -555,6 +555,52 @@ test('the runner section names the image the chosen operating system will boot',
   await expect(page.getByText('No connected host matches')).toBeVisible();
 });
 
+test('the runner image is a dropdown that says what each choice holds and keeps an image of your own', async ({
+  page,
+}) => {
+  await goto(page, '/pools/new', 'Create a pool');
+  await openSection(page, 'runner');
+
+  // Nothing chosen is the standard image, and the words for it are on the page
+  // before anyone has to open anything.
+  const image = page.getByLabel('Runner image');
+  await expect(image).toHaveValue('standard');
+  const standard = page.getByRole('region', { name: 'About the Standard image' });
+  await expect(standard).toContainText('What is in it');
+  await expect(standard).toContainText('Docker client added');
+
+  // The toolchain image is the one that used to be reachable only by typing its
+  // name. The default operating system has it, and choosing it names it.
+  await image.selectOption('full');
+  const full = page.getByRole('region', { name: 'About the Full toolchains image' });
+  await expect(full).toContainText('Python, Node.js, Go, Java');
+  await expect(page.locator('p.platform-note')).toContainText(
+    'ghcr.io/eyupio/zoomies-runner-full:ubuntu-2404',
+  );
+
+  // It is published for Ubuntu only: moving to Debian says so and goes back to
+  // the standard image, and the option is not offered there at all.
+  await page.getByLabel('Operating system').selectOption('debian-12');
+  await expect(image).toHaveValue('standard');
+  await expect(page.getByText('The toolchain image is published for Ubuntu only')).toBeVisible();
+  await expect(image.locator('option[value="full"]')).toBeDisabled();
+
+  // An image of your own is the last choice and keeps its free-text field. It
+  // is only there when asked for, and what was typed survives a look at the
+  // other choices.
+  const field = page.getByRole('textbox', { name: 'Image', exact: true });
+  await expect(field).toHaveCount(0);
+  await image.selectOption('custom');
+  await field.fill('registry.example.invalid/ci/runner:1');
+  await expect(page.locator('p.platform-note')).toContainText(
+    'registry.example.invalid/ci/runner:1',
+  );
+  await image.selectOption('standard');
+  await expect(field).toHaveCount(0);
+  await image.selectOption('custom');
+  await expect(field).toHaveValue('registry.example.invalid/ci/runner:1');
+});
+
 test('the hosts section keeps a pool to an architecture and says which machines that is', async ({
   page,
 }) => {

@@ -155,6 +155,12 @@ test('the runner says what it is made of, and only what was changed from the def
     summarise(tuned).runner,
     'Podman · Debian 12 · your own image · runner 2.330.0 · runs as root',
   );
+  // The toolchain image is named for what it is rather than called "your own":
+  // it is one of ours, and the line is how an operator reads what a pool boots.
+  assert.equal(
+    summarise(draft({ image: 'ghcr.io/eyupio/zoomies-runner-full:ubuntu-2404' })).runner,
+    'Docker · default image · full toolchains image',
+  );
   // A process runner has no image to speak of.
   assert.equal(summarise(draft({ backend: 'process' })).runner, 'Process');
 });

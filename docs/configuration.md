@@ -1133,6 +1133,17 @@ any job needs it. To keep one tool cache between a pool's runners instead, see
 variant with the toolchains most builds reach for already in place, so the
 first step of a job is its own work rather than a download.
 
+In the pool editor it is the **Runner image** dropdown in the **Runner** section:
+*Standard* (the default), *Full toolchains*, and *Custom image* for a reference
+of your own. Each choice comes with a short account of what is in it, when to
+choose it and what it costs, and the dropdown offers *Full toolchains* only for an
+operating system that has one. The Docker variant is not a fourth choice: a pool
+whose jobs get a Docker daemon is moved onto it for you, as
+[Jobs that build container images](#jobs-that-build-container-images) says.
+Choosing *Full toolchains* writes the pool's `image` as the full image for the
+chosen operating system, so the same pool can be made from the API or the CLI by
+naming that image, which `GET /api/v1/pools/platforms` gives in `full_image`.
+
 | Toolchain | Versions | Where a job finds it |
 | --- | --- | --- |
 | Python | 3.10 to 3.14 | the tool cache, for `setup-python` |

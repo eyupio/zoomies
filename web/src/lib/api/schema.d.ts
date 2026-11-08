@@ -8183,6 +8183,11 @@ export interface components {
             /** @example ghcr.io/eyupio/zoomies-runner:ubuntu-2404 */
             image?: string;
             /**
+             * @description The same operating system with the language toolchains the setup-* actions would download already installed, or absent when none is published for it. Naming it as a pool's image selects it.
+             * @example ghcr.io/eyupio/zoomies-runner-full:ubuntu-2404
+             */
+            full_image?: string;
+            /**
              * @example [
              *       "amd64",
              *       "arm64"

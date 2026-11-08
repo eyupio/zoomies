@@ -62,6 +62,17 @@ func (i Image) Tag() string {
 // Ref is the fully qualified image reference for this variant.
 func (i Image) Ref() string { return RunnerImageRepo + ":" + i.Tag() }
 
+// FullRef is the fully qualified reference of this variant's runner-full image,
+// or "" for a variant that has none. It is the same tag as Ref on the other
+// repository, which is what lets a pool move between the two by changing the
+// repository and nothing else.
+func (i Image) FullRef() string {
+	if !i.Full {
+		return ""
+	}
+	return RunnerFullImageRepo + ":" + i.Tag()
+}
+
 // Supports reports whether this variant is published for an architecture. An
 // empty arch is not a mismatch -- the caller simply has not said -- but an
 // architecture Zoomies does not build for at all is.

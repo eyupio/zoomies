@@ -15,6 +15,7 @@
 import type { Platform } from '$lib/api/types';
 import { shortGoDuration } from '$lib/format';
 import type { PoolDraft } from './draft';
+import { isToolchainImage } from './images';
 import type { SectionId } from './sections';
 import { cpuLabel, memoryLabel } from './sizing';
 import { backendLabel, platformLabel } from './vocabulary';
@@ -101,7 +102,8 @@ function runner(draft: PoolDraft): string {
   return join([
     backendLabel(draft.backend),
     draft.backend === 'process' ? false : platformLabel(platform) || 'default image',
-    draft.image.trim() !== '' && 'your own image',
+    draft.image.trim() !== '' &&
+      (isToolchainImage(draft.image) ? 'full toolchains image' : 'your own image'),
     draft.runner_version.trim() !== '' && `runner ${draft.runner_version.trim()}`,
     draft.docker_mode === 'dind' && draft.dind_image.trim() !== '' && 'your own Docker sidecar',
     draft.run_as_root && 'runs as root',

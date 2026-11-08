@@ -544,7 +544,7 @@ test('the pool editor never scrolls sideways, in any section or state', async ({
   await expectNoSidewaysScroll(page, 'a cache per repository');
 
   // One long word, in the field that takes one, and in the written-out pool.
-  await page.locator('summary', { hasText: 'Your own image' }).click();
+  await page.getByLabel('Runner image').selectOption('custom');
   await page
     .getByRole('textbox', { name: 'Image', exact: true })
     .fill('registry.example.invalid/some/very/long/image/name/that/goes/on/and/on:and-on-latest');

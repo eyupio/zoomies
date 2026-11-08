@@ -476,10 +476,14 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 // needs it: what to select, what to call it, and which architectures it can be
 // asked for.
 type platformOption struct {
-	OS        string   `json:"os"`
-	OSVersion string   `json:"os_version"`
-	Label     string   `json:"label"`
-	Image     string   `json:"image"`
+	OS        string `json:"os"`
+	OSVersion string `json:"os_version"`
+	Label     string `json:"label"`
+	Image     string `json:"image"`
+	// FullImage is the same operating system with the language toolchains
+	// already installed, or empty when none is published for it. The editor
+	// offers it as a choice only where it exists.
+	FullImage string   `json:"full_image,omitempty"`
 	Arches    []string `json:"arches"`
 	Default   bool     `json:"default"`
 }
@@ -563,6 +567,7 @@ func (s *Server) handlePoolPlatforms(w http.ResponseWriter, _ *http.Request) {
 			OSVersion: img.Version,
 			Label:     naming.PrettyOS(img.OS) + " " + img.Version,
 			Image:     img.Ref(),
+			FullImage: img.FullRef(),
 			Arches:    img.Arches,
 			Default:   img.Default,
 		})

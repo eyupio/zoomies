@@ -1781,3 +1781,31 @@ func TestAPoolEditIsShownInTheProblemsListWithoutWaitingOutTheGap(t *testing.T) 
 		t.Fatal("the pass after a pool edit told the stream no problems list; the bell would stand still for the rest of the gap")
 	}
 }
+
+// The editor offers the toolchain image only where one is published, and takes
+// its reference from here rather than building the string itself: an operating
+// system with no such image would otherwise be a pool that validates and then
+// never starts a runner.
+func TestThePlatformCatalogueNamesTheFullImageOnlyWhereOneIsPublished(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("viewer", store.RoleViewer)
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/pools/platforms", cookie: h.session(u)})
+	resp.mustStatus(t, http.StatusOK, "platforms")
+	var list struct {
+		Items []platformOption `json:"items"`
+	}
+	resp.into(t, &list)
+	byKey := map[string]platformOption{}
+	for _, p := range list.Items {
+		byKey[p.OS+" "+p.OSVersion] = p
+	}
+	if got := byKey["ubuntu 24.04"].FullImage; got != "ghcr.io/eyupio/zoomies-runner-full:ubuntu-2404" {
+		t.Errorf("ubuntu 24.04 full image = %q", got)
+	}
+	for _, other := range []string{"debian 12", "fedora 42", "rocky 9"} {
+		p, ok := byKey[other]
+		if !ok || p.FullImage != "" {
+			t.Errorf("%s: present=%v full image=%q, want one that exists and has none", other, ok, p.FullImage)
+		}
+	}
+}
