@@ -67,6 +67,11 @@ const (
 	// the entrypoint adds to the image's trust store. It is set only when the
 	// host has agent.extra_ca_file.
 	EnvExtraCAFile = "ZOOMIES_EXTRA_CA_FILE"
+	// EnvCacheServiceURL is the address, inside the runner, of the host's cache
+	// service. The runner image's node wrapper (deploy/runner-node-wrapper.sh)
+	// is what reads it, so the name is a contract with that script and a test
+	// holds the two together. Nothing sets it yet.
+	EnvCacheServiceURL = "ZOOMIES_CACHE_SERVICE_URL"
 
 	// EnvUpstreamJITConfig is the name actions/runner itself understands. It is
 	// set alongside EnvJITConfig so that an operator can point a pool at a

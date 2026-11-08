@@ -87,9 +87,31 @@ it changed the design.
 5. **GitHub's protocol is not a published contract.** A change would turn into
    "always miss". Keep the real-client test in CI where node is available.
 
+## What slice 2 proves: the node wrapper
+
+`deploy/runner-node-wrapper.sh` and `deploy/runner-node-wrap.sh` are built, and
+the runner image installs them in the RUN that unpacks the runner (a later RUN
+would copy two hundred megabytes of node into a new layer). They were tested
+against the real thing: the glibc node binaries from the pinned release
+(`actions-runner-linux-x64-2.338.2`, checked against the Dockerfile's SHA-256),
+node 20.20.2 and 24.22.1, wrapped by the same installer the image build runs,
+and running GitHub's `@actions/cache` client. The address the runner would give
+the action was a host that cannot be resolved, and a control run without
+`ZOOMIES_CACHE_SERVICE_URL` failed, so the success of the other run is the
+redirect and nothing else. `TestTheRunnersOwnNodeIsRedirectedToTheService`
+repeats it (opt in with `ZOOMIES_RUNNER_DIR`). The wrapper's own behaviour (the
+v2 guard, arguments, exit code, standard input, the v1 address and the token
+left alone) is held by tests that run the real scripts and was checked by
+breaking each in turn.
+
+Still not run: a whole job on a real runner, which needs GitHub to dispatch one.
+That the runner starts node with the environment it built is read from its source
+(`NodeScriptActionHandler` passes `Environment` to `StepHost.ExecuteAsync`), not
+observed. `test/runner-image/check.sh` checks the built image once CI builds one.
+
 ## Design for the slices that follow
 
-* **Redirecting the runner.** The runner starts every Node action as
+* **Redirecting the runner (built and tested; see below).** The runner starts every Node action as
   `<externals>/<node version>/bin/node`, with the environment it has just built.
   The runner image is Zoomies', and the runner is started with `--disableupdate`
   on the registration path, so the image can replace each `externals/node*/bin/node`

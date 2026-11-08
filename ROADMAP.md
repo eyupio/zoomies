@@ -1905,10 +1905,11 @@ identity and tells the runner where it is; a pool turns it on with
 reads its base branch's entries and writes only its own.
 
 Slice 1, the protocol core in `internal/cacheservice`, is tested against
-GitHub's own `@actions/cache` client. The runner overwrites
+GitHub's own `@actions/cache` client, and slice 2, the node wrapper in the runner
+image, against the pinned runner release's own node. The runner overwrites
 `ACTIONS_RESULTS_URL` for every action, so the redirect is made in the runner
 image (a wrapper around the bundled node), not by setting the variable; the
-rest is gated on that working on a real runner and on BuildKit's own client
+rest is gated on a whole job on a real runner and on BuildKit's own client
 working against the service. See
 [the design](roadmap/cache-service.md), which lists what is and is not proven.
 It was asked for on 8 November 2026 because a fleet should not rewrite its
