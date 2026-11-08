@@ -838,6 +838,14 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	} else if p.Cache.Tools && p.Backend == store.BackendProcess {
 		add("cache.tools", "a process runner uses the host's own tool cache already; a kept tool cache is for container runners")
 	}
+	// The cache service keeps the Actions cache under the pool cache's scope, so
+	// it needs the cache to be on to have one, and it listens on the host's side
+	// of a container network, which a process runner is not on.
+	if p.Cache.Service && !p.Cache.Enabled {
+		add("cache.service", "the cache service is kept with the pool cache and shared with the same runners; turn the cache on, or turn the cache service off")
+	} else if p.Cache.Service && p.Backend == store.BackendProcess {
+		add("cache.service", "a process runner is not on a container network the cache service could listen on; the cache service is for container runners")
+	}
 	if p.Cache.Enabled {
 		if !p.Cache.Scope.Valid() {
 			add("cache.scope", "use pool or repository")

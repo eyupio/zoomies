@@ -34,6 +34,7 @@ Either way, a missing cache must make a job slower and never make it fail.
 | Preinstalled image tools/libraries | Runner image layers | Immutable image reference; inventory inside image |
 | DinD daemon state | One runner's isolated sidecar lifetime | Do not share live `/var/lib/docker` between daemons |
 | BuildKit build cache | External registry, or another explicitly managed BuildKit cache service | Separate cache reference and write credentials per repository and trust boundary |
+| Actions cache (`actions/cache`, the `setup-*` actions) | A cache service on the host, when the pool turns it on, in the host's shared folder | The pool cache's scope; a pull request reads its base branch and writes only its own, checked from the token's claim and not verified |
 
 ## Enable a pool cache
 
@@ -115,6 +116,27 @@ Three things are different from a cache on disk:
 
 A tool cache lives under the host's shared folder rather than the cache source,
 so it stays on disk unless that folder is the mount.
+
+## Serving the Actions cache from the host
+
+The recipes below point a tool at `/opt/zoomies-cache`, which means editing every
+workflow. For the caches that go through GitHub's own cache protocol, which is
+`actions/cache` and the caches the `setup-*` actions keep, a pool can turn on
+**Serve the Actions cache from the host** instead (`cache.service`, or
+`zoomies pools edit --cache-service`) and change nothing: the cache calls go to a
+service on the host, and artifact calls still go to GitHub. [How it works, what
+it needs and what it shares](configuration.md#serving-the-actions-cache-from-the-host)
+are in the configuration reference; the short version is that it needs one of the
+Zoomies runner images, it redirects JavaScript actions only, and a host that
+cannot run it leaves the runner on GitHub's cache.
+
+It does not reach a plain `run:` step: `go build`, `npm ci` and `docker build`
+without a cache flag never ask the Actions cache for anything. Nor does it reach
+Buildx's `type=gha` layer cache by default, which BuildKit reads for itself; an
+experimental setting
+[sends it to the host too](configuration.md#serving-the-actions-cache-from-the-host).
+The registry and local recipes below are still how an image build is kept warm
+everywhere else, or a workflow that restores through an action.
 
 ## Using the pool cache from a workflow
 

@@ -48,6 +48,8 @@ the row in `progress.md` is the record of what shipped.
 * [candidates-from-hosted-services.md](candidates-from-hosted-services.md) and
   [competitive-review-2026-09.md](competitive-review-2026-09.md): what hosted
   runner services ship, compared with this repository.
+* [cache-service.md](cache-service.md): the design for serving the Actions cache from
+  each host with no workflow change (ZF-245), and what is and is not yet proven.
 * [eli-review.md](eli-review.md): what Eli was, what competitors ship, what to
   do next.
 * [eli-repair-implementation-handoff.md](eli-repair-implementation-handoff.md):

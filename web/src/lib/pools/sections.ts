@@ -164,6 +164,7 @@ export const SECTIONS: readonly SectionDef[] = [
     fields: [
       'cache.enabled',
       'cache.tools',
+      'cache.service',
       'cache.scope',
       'cache.size_limit',
       'cache.source',
@@ -178,6 +179,7 @@ export const SECTIONS: readonly SectionDef[] = [
     keys: [
       'cache_enabled',
       'cache_tools',
+      'cache_service',
       'cache_scope',
       'cache_size_limit',
       'cache_source',

@@ -247,6 +247,7 @@ Flags:
   --cache                    mount a disposable performance cache (not workflow storage)
   --cache-repository         owner/name for a repository-scoped cache under an organisation installation
   --cache-scope=pool         cache isolation: pool or repository
+  --cache-service            run a cache service on each host for this pool's runners, so the Actions cache (actions/cache, setup-*) is kept on the host with no workflow change; needs --cache and a container backend
   --cache-size=0             cache limit in bytes, enforced by eviction; needs an absolute cache-source (0 is unlimited)
   --cache-source             absolute host path or named-volume prefix
   --cpu-burst                elastic CPU: off, observe (measure without moving a quota) or automatic (lend spare host CPU to busy runners); needs automatic sizing on docker or podman
@@ -329,6 +330,7 @@ Flags:
   --cache                    mount a disposable performance cache (not workflow storage)
   --cache-repository         owner/name for a repository-scoped cache under an organisation installation
   --cache-scope=pool         cache isolation: pool or repository
+  --cache-service            run a cache service on each host for this pool's runners, so the Actions cache (actions/cache, setup-*) is kept on the host with no workflow change; needs --cache and a container backend
   --cache-size=0             cache limit in bytes, enforced by eviction; needs an absolute cache-source (0 is unlimited)
   --cache-source             absolute host path or named-volume prefix
   --cap=0                    on a pool the controller keeps: the most runners to allow, however many slots its hosts give (0 for no cap)

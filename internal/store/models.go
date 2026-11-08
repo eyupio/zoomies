@@ -881,6 +881,12 @@ type CacheConfig struct {
 	// job that can write to it can replace a tool the next job runs, which is
 	// why it follows the cache's scope rather than being fleet-wide.
 	Tools bool `json:"tools,omitempty"`
+	// Service runs a cache service on each host for this pool's runners, so the
+	// Actions cache (actions/cache, the setup-* actions)
+	// is kept on the host instead of in GitHub's service, with no change to any
+	// workflow. It follows this cache's scope, because what a job saves there a
+	// later job restores. Off unless asked for, and an older agent ignores it.
+	Service bool `json:"service,omitempty"`
 }
 
 // Pool is a named group of interchangeable runners: what labels they answer to,
