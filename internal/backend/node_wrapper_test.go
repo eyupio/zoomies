@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -24,6 +25,12 @@ const (
 // was given so a test can see what reached the "real" node.
 func fakeRunner(t *testing.T) string {
 	t.Helper()
+	// The wrapper and its installer are POSIX shell for the Linux runner image,
+	// and Windows cannot run a script by its path. The Windows job runs this
+	// package, so the tests that run the scripts are for the platforms that do.
+	if runtime.GOOS == "windows" {
+		t.Skip("the runner image's node wrapper is a shell script; it runs on Linux only")
+	}
 	dir := t.TempDir()
 	report := "#!/bin/sh\nprintf 'results=%s\\ncache=%s\\ntoken=%s\\nargs=' \"${ACTIONS_RESULTS_URL-unset}\" \"${ACTIONS_CACHE_URL-unset}\" \"${ACTIONS_RUNTIME_TOKEN-unset}\"\nfor a in \"$@\"; do printf '[%s]' \"$a\"; done\necho\n"
 	for _, d := range []string{"node20", "node24", "node20_alpine", "node24_alpine"} {
