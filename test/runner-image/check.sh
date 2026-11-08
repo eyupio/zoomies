@@ -149,9 +149,10 @@ done
 [ -w /home/runner ] && pass "/home/runner is writable (config.sh writes .runner there)" || fail "/home/runner is not writable by the runner"
 
 # The node the runner starts every JavaScript action with is a wrapper
-# (deploy/runner-node-wrapper.sh) that sends the cache to the host's cache
-# service when the agent says to, and only then. The runner overwrites the
-# variable itself, so this is the one place the redirect can be made.
+# (deploy/runner-node-wrapper.sh) that loads a preload sending the Actions cache's
+# calls to the host's cache service when the agent says to, and only then. The
+# runner overwrites ACTIONS_RESULTS_URL itself and the artifact actions share it,
+# so the address is left alone and only the cache's calls are rewritten.
 for d in node20 node24; do
   n="/home/runner/externals/$d/bin/node"
   if [ -x "$n.real" ] && grep -q ZOOMIES_CACHE_SERVICE_URL "$n" 2>/dev/null; then
@@ -160,11 +161,22 @@ for d in node20 node24; do
     fail "$n is not the cache service wrapper, or $n.real is missing"
   fi
 done
+redirect=/usr/local/lib/zoomies/runner-cache-redirect.cjs
+[ -r "$redirect" ] && pass "the cache redirect is in the image" || fail "$redirect is missing or unreadable"
 node=/home/runner/externals/node20/bin/node
-redirected=$(env ZOOMIES_CACHE_SERVICE_URL=http://host.invalid:1/ ACTIONS_CACHE_SERVICE_V2=true ACTIONS_RESULTS_URL=https://github.invalid/ "$node" -p 'process.env.ACTIONS_RESULTS_URL' 2>&1) || redirected="failed: $redirected"
-[ "$redirected" = "http://host.invalid:1/" ] && pass "the wrapped node redirects the cache when told to" || fail "the wrapped node gave '$redirected', want the cache service's address"
-untouched=$(env -u ZOOMIES_CACHE_SERVICE_URL ACTIONS_CACHE_SERVICE_V2=true ACTIONS_RESULTS_URL=https://github.invalid/ "$node" -p 'process.env.ACTIONS_RESULTS_URL' 2>&1) || untouched="failed: $untouched"
-[ "$untouched" = "https://github.invalid/" ] && pass "the wrapped node leaves GitHub's cache alone by default" || fail "the wrapped node gave '$untouched' with no cache service set, want GitHub's address"
+loaded=$(env ZOOMIES_CACHE_SERVICE_URL=http://host.invalid:1/ ACTIONS_CACHE_SERVICE_V2=true ACTIONS_RESULTS_URL=https://github.invalid/ "$node" -p 'process.env.NODE_OPTIONS + " " + process.env.ACTIONS_RESULTS_URL' 2>&1) || loaded="failed: $loaded"
+# Whatever NODE_OPTIONS the image already had stays, so only the start of it and
+# the unchanged address are held to exact values.
+case "$loaded" in
+  "--require=$redirect"*" https://github.invalid/") pass "the wrapped node loads the redirect and leaves the results address alone" ;;
+  *) fail "the wrapped node gave '$loaded', want the redirect loaded and GitHub's address unchanged" ;;
+esac
+untouched=$(env -u ZOOMIES_CACHE_SERVICE_URL ACTIONS_CACHE_SERVICE_V2=true ACTIONS_RESULTS_URL=https://github.invalid/ "$node" -p 'String(process.env.NODE_OPTIONS) + " " + process.env.ACTIONS_RESULTS_URL' 2>&1) || untouched="failed: $untouched"
+case "$untouched" in
+  *runner-cache-redirect*) fail "the wrapped node loaded the redirect with no cache service set: '$untouched'" ;;
+  *" https://github.invalid/") pass "the wrapped node loads nothing by default" ;;
+  *) fail "the wrapped node gave '$untouched' with no cache service set, want GitHub's address unchanged" ;;
+esac
 
 # The runner release the Dockerfile pinned, asked of the binary itself rather
 # than of a label that could have been stamped without it. The image sets

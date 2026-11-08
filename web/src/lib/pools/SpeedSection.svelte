@@ -383,7 +383,7 @@
       <Checkbox
         bind:checked={draft.cache_service}
         label="Serve the Actions cache from the host"
-        description="actions/cache, the setup-* actions' own caches and Buildx's type=gha are kept on the host instead of in GitHub's service, with no change to any workflow. A job that can write to it can plant an entry the next job restores, so keep untrusted pull requests on a pool of their own. A host that cannot run it leaves the runner on GitHub's cache."
+        description="actions/cache and the setup-* actions' own caches are kept on the host instead of in GitHub's service, with no change to any workflow; artifacts still go to GitHub, and so does an image build's type=gha layer cache. A job that can write to it can plant an entry the next job restores, so keep untrusted pull requests on a pool of their own. A host that cannot run it leaves the runner on GitHub's cache."
         onchange={() => touch('cache.service')}
       />
     {/if}

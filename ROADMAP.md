@@ -1898,7 +1898,7 @@ The policy, routes and web flow merged in #1171 (see [the 19 October plan](roadm
 ### ZF-245: a cache service on every host
 
 A runner restores and saves the Actions cache (`actions/cache`, the `setup-*`
-actions' own caches, Buildx's `type=gha`) on its own host, with no change to any
+actions' own caches) on its own host, with no change to any
 workflow. The agent runs an `actions/cache`-compatible service per cache
 identity and tells the runner where it is; a pool turns it on with
 `cache.service`, off by default. Every failure is a miss, and a pull request
@@ -1908,10 +1908,10 @@ Slice 1, the protocol core in `internal/cacheservice`, is tested against
 GitHub's own `@actions/cache` client, slice 2, the node wrapper in the runner
 image, against the pinned runner release's own node, and slice 3, the
 `cache.service` pool setting, the host listener and the runner's environment. The runner overwrites
-`ACTIONS_RESULTS_URL` for every action, so the redirect is made in the runner
-image (a wrapper around the bundled node), not by setting the variable; the
-rest is gated on a whole job on a real runner and on BuildKit's own client
-working against the service. See
+`ACTIONS_RESULTS_URL` for every action, and that address is also where artifacts
+are found, so the redirect is made in the runner image: a wrapper around the
+bundled node loads a preload that rewrites only the cache's calls. Buildx's
+`type=gha` is not covered. The rest is gated on a whole job on a real runner. See
 [the design](roadmap/cache-service.md), which lists what is and is not proven.
 It was asked for on 8 November 2026 because a fleet should not rewrite its
 workflows to get a warm cache. Size M. The registry mirror is ZF-246.

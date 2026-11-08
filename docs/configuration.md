@@ -2437,8 +2437,8 @@ not starting them.
 
 `cache.service` runs a cache service on each host for the pool's runners, so
 the Actions cache is kept on the host instead of in GitHub's service. That is
-`actions/cache`, the caches the `setup-*` actions keep, and Buildx's
-`type=gha`, **with no change to any workflow**. It is a setting of the pool,
+`actions/cache` and the caches the `setup-*` actions keep, **with no change to
+any workflow**. It is a setting of the pool,
 stored with it (the **Serve the Actions cache from the host** box in the pool
 editor's **Speed-ups** section, or `zoomies pools edit --cache-service`), and it
 is off unless you ask for it.
@@ -2450,13 +2450,17 @@ cache:
   service: true
 ```
 
-The runner sets the address of GitHub's cache service for every JavaScript
+The runner sets the address of GitHub's results service for every JavaScript
 action itself, after the step's own environment, so nothing a pool or a workflow
-sets can change it. The runner image therefore wraps the `node` the runner
-starts actions with: when the agent has given the runner the address of its
-host's service, in `ZOOMIES_CACHE_SERVICE_URL`, the wrapper passes it on, and
-with the variable unset it changes nothing. That is why this needs one of the
-Zoomies runner images; a pool with an image of its own keeps GitHub's cache.
+sets can change it, and that address is also where `upload-artifact` and
+`download-artifact` find the artifact service, so it cannot be pointed at a cache
+service. The runner image therefore wraps the `node` the runner starts actions
+with. When the agent has given the runner the address of its host's service, in
+`ZOOMIES_CACHE_SERVICE_URL`, the wrapper loads a small script that rewrites the
+calls addressed to the cache service and nothing else: artifacts, and every other
+request an action makes, go where they always did. With the variable unset it
+changes nothing. That is why this needs one of the Zoomies runner images; a pool
+with an image of its own keeps GitHub's cache.
 
 The service listens on the host's address on the network the runners are
 attached to, and on nothing else, on a port of its own for each pool (and each
@@ -2481,8 +2485,10 @@ it, so it guards against a workflow doing the wrong thing and not against code
 that is trying to. The boundary is the pool: keep untrusted pull requests on a
 pool of their own, as [Security](security.md) says for any self-hosted runner.
 
-It needs the cache on and a container backend, and only JavaScript actions are
-redirected, so a Docker action keeps GitHub's cache.
+It needs the cache on and a container backend. Only JavaScript actions are
+redirected, so a Docker action keeps GitHub's cache, and so does Buildx's
+`type=gha` image-layer cache: BuildKit is a separate program that reads the
+results address for itself, which this does not reach yet.
 
 #### Filling the tool cache
 

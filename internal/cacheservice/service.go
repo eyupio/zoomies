@@ -1,9 +1,9 @@
 // Package cacheservice is the host-local half of the Actions cache.
 //
-// A runner that is told to use it (through ACTIONS_RESULTS_URL) restores and
-// saves what actions/cache, the setup-* actions and Buildx's type=gha cache
-// keep, here and not in GitHub's service, so a workflow changes nothing and a
-// fresh runner no longer starts cold. It speaks the toolkit's v2 protocol: four
+// A runner whose node is wrapped to reach it (deploy/runner-node-wrapper.sh)
+// restores and saves what actions/cache and the setup-* actions keep, here and
+// not in GitHub's service, so a workflow changes nothing and a fresh runner no
+// longer starts cold. It speaks the toolkit's v2 protocol: four
 // JSON calls under /twirp/ and one blob URL per entry.
 //
 // It is only a cache. Every answer it cannot give is a miss, a lost upload is

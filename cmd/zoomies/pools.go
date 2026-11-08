@@ -509,7 +509,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.cacheSize = fs.Int64("cache-size", 0, "cache limit in bytes, enforced by eviction; needs an absolute cache-source (0 is unlimited)")
 	spec.cacheSource = fs.String("cache-source", "", "absolute host path or named-volume prefix")
 	spec.cacheRepo = fs.String("cache-repository", "", "owner/name for a repository-scoped cache under an organisation installation")
-	spec.cacheService = fs.Bool("cache-service", false, "run a cache service on each host for this pool's runners, so the Actions cache (actions/cache, setup-*, Buildx type=gha) is kept on the host with no workflow change; needs --cache and a container backend")
+	spec.cacheService = fs.Bool("cache-service", false, "run a cache service on each host for this pool's runners, so the Actions cache (actions/cache, setup-*) is kept on the host with no workflow change; needs --cache and a container backend")
 	spec.provisionTimeout = fs.String("provision-timeout", "", "override scheduler.provision_timeout for this pool, e.g. 30m (empty follows the fleet; 0 never gives up)")
 	spec.drainTimeout = fs.String("drain-timeout", "", "override scheduler.drain_timeout for this pool (empty follows the fleet; 0 leaves a drain unbounded)")
 	spec.maxRunnerLifetime = fs.String("max-runner-lifetime", "", "override scheduler.max_runner_lifetime for this pool (empty follows the fleet; 0 is no limit)")

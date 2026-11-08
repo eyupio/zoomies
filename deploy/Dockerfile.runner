@@ -204,8 +204,10 @@ ENV AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache
 # The runner's node is wrapped as it is unpacked, below, so that a pool whose
 # cache service is on can send the cache's address to the host. The wrapper does
 # nothing unless the agent sets ZOOMIES_CACHE_SERVICE_URL; see
-# deploy/runner-node-wrapper.sh for why it has to be done here.
+# deploy/runner-node-wrapper.sh for why it has to be done here, and
+# deploy/runner-cache-redirect.cjs for what it redirects.
 COPY --chmod=0755 deploy/runner-node-wrap.sh deploy/runner-node-wrapper.sh /usr/local/lib/zoomies/
+COPY --chmod=0644 deploy/runner-cache-redirect.cjs /usr/local/lib/zoomies/
 WORKDIR /home/runner
 RUN set -eux; \
     case "${TARGETARCH}" in \

@@ -882,7 +882,7 @@ type CacheConfig struct {
 	// why it follows the cache's scope rather than being fleet-wide.
 	Tools bool `json:"tools,omitempty"`
 	// Service runs a cache service on each host for this pool's runners, so the
-	// Actions cache (actions/cache, the setup-* actions, Buildx's type=gha)
+	// Actions cache (actions/cache, the setup-* actions)
 	// is kept on the host instead of in GitHub's service, with no change to any
 	// workflow. It follows this cache's scope, because what a job saves there a
 	// later job restores. Off unless asked for, and an older agent ignores it.

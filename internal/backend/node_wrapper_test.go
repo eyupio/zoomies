@@ -32,7 +32,7 @@ func fakeRunner(t *testing.T) string {
 		t.Skip("the runner image's node wrapper is a shell script; it runs on Linux only")
 	}
 	dir := t.TempDir()
-	report := "#!/bin/sh\nprintf 'results=%s\\ncache=%s\\ntoken=%s\\nargs=' \"${ACTIONS_RESULTS_URL-unset}\" \"${ACTIONS_CACHE_URL-unset}\" \"${ACTIONS_RUNTIME_TOKEN-unset}\"\nfor a in \"$@\"; do printf '[%s]' \"$a\"; done\necho\n"
+	report := "#!/bin/sh\nprintf 'results=%s\\ncache=%s\\ntoken=%s\\noptions=%s\\nargs=' \"${ACTIONS_RESULTS_URL-unset}\" \"${ACTIONS_CACHE_URL-unset}\" \"${ACTIONS_RUNTIME_TOKEN-unset}\" \"${NODE_OPTIONS-unset}\"\nfor a in \"$@\"; do printf '[%s]' \"$a\"; done\necho\n"
 	for _, d := range []string{"node20", "node24", "node20_alpine", "node24_alpine"} {
 		bin := filepath.Join(dir, "externals", d, "bin")
 		if err := os.MkdirAll(bin, 0o755); err != nil {
@@ -60,13 +60,26 @@ func runNode(t *testing.T, runner string, env []string, args ...string) (string,
 	return string(out), err
 }
 
-func TestTheWrapperSendsTheCacheToTheHostWhenTheAgentSaidSo(t *testing.T) {
+// preload is a stand-in for the redirect script the image carries; the wrapper
+// only loads it, so what it holds does not matter here, only that it is there.
+func preload(t *testing.T) string {
+	t.Helper()
+	f := filepath.Join(t.TempDir(), "runner-cache-redirect.cjs")
+	if err := os.WriteFile(f, []byte("// stand-in\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func TestTheWrapperLoadsTheCacheRedirectWhenTheAgentSaidSo(t *testing.T) {
 	runner := fakeRunner(t)
 	if out, err := wrap(t, runner); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
+	redirect := preload(t)
 	out, err := runNode(t, runner, []string{
 		EnvCacheServiceURL + "=http://172.17.0.1:41234/",
+		"ZOOMIES_CACHE_REDIRECT_FILE=" + redirect,
 		"ACTIONS_CACHE_SERVICE_V2=true",
 		"ACTIONS_RESULTS_URL=https://results-receiver.actions.githubusercontent.com/",
 		"ACTIONS_CACHE_URL=https://artifactcache.actions.githubusercontent.com/abc/",
@@ -76,8 +89,10 @@ func TestTheWrapperSendsTheCacheToTheHostWhenTheAgentSaidSo(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"results=http://172.17.0.1:41234/\n",
-		// Only the v2 address moves; the v1 one and the token are GitHub's.
+		"options=--require=" + redirect + "\n",
+		// The address is where the artifact actions find their service too, so
+		// it must stay GitHub's; the preload redirects the cache's calls alone.
+		"results=https://results-receiver.actions.githubusercontent.com/\n",
 		"cache=https://artifactcache.actions.githubusercontent.com/abc/\n",
 		"token=jwt-from-github\n",
 	} {
@@ -87,17 +102,31 @@ func TestTheWrapperSendsTheCacheToTheHostWhenTheAgentSaidSo(t *testing.T) {
 	}
 }
 
+func TestTheWrapperKeepsTheNodeOptionsTheJobAlreadyHad(t *testing.T) {
+	runner := fakeRunner(t)
+	wrap(t, runner)
+	redirect := preload(t)
+	out, _ := runNode(t, runner, []string{
+		EnvCacheServiceURL + "=http://172.17.0.1:41234/", "ZOOMIES_CACHE_REDIRECT_FILE=" + redirect,
+		"ACTIONS_CACHE_SERVICE_V2=true", "NODE_OPTIONS=--max-old-space-size=512",
+	}, "main.js")
+	if want := "options=--require=" + redirect + " --max-old-space-size=512\n"; !strings.Contains(out, want) {
+		t.Fatalf("node saw:\n%s\nwant it to contain %q", out, want)
+	}
+}
+
 func TestTheWrapperLeavesGitHubsCacheAloneWithoutTheVariable(t *testing.T) {
 	// A pool that has not turned the service on gets exactly today's behaviour.
 	runner := fakeRunner(t)
 	wrap(t, runner)
+	redirect := preload(t)
 	for name, env := range map[string][]string{
-		"unset": {"ACTIONS_CACHE_SERVICE_V2=true", "ACTIONS_RESULTS_URL=https://gh/"},
-		"empty": {EnvCacheServiceURL + "=", "ACTIONS_CACHE_SERVICE_V2=true", "ACTIONS_RESULTS_URL=https://gh/"},
+		"unset": {"ZOOMIES_CACHE_REDIRECT_FILE=" + redirect, "ACTIONS_CACHE_SERVICE_V2=true"},
+		"empty": {EnvCacheServiceURL + "=", "ZOOMIES_CACHE_REDIRECT_FILE=" + redirect, "ACTIONS_CACHE_SERVICE_V2=true"},
 	} {
 		out, err := runNode(t, runner, env, "main.js")
-		if err != nil || !strings.Contains(out, "results=https://gh/\n") {
-			t.Errorf("%s: node saw %q (%v), want GitHub's address", name, out, err)
+		if err != nil || !strings.Contains(out, "options=unset\n") {
+			t.Errorf("%s: node saw %q (%v), want no preload", name, out, err)
 		}
 	}
 }
@@ -108,9 +137,23 @@ func TestTheWrapperDoesNotRedirectAJobThatIsNotOnCacheServiceV2(t *testing.T) {
 	runner := fakeRunner(t)
 	wrap(t, runner)
 	out, _ := runNode(t, runner, []string{
-		EnvCacheServiceURL + "=http://172.17.0.1:41234/", "ACTIONS_RESULTS_URL=https://gh/"}, "main.js")
-	if !strings.Contains(out, "results=https://gh/\n") {
+		EnvCacheServiceURL + "=http://172.17.0.1:41234/", "ZOOMIES_CACHE_REDIRECT_FILE=" + preload(t)}, "main.js")
+	if !strings.Contains(out, "options=unset\n") {
 		t.Fatalf("a job without cache service v2 was redirected: %s", out)
+	}
+}
+
+func TestTheWrapperStillRunsTheActionWhenTheImageLacksThePreload(t *testing.T) {
+	// A custom or older image has the wrapper without the script. Losing the
+	// cache service is acceptable; failing the action is not.
+	runner := fakeRunner(t)
+	wrap(t, runner)
+	out, err := runNode(t, runner, []string{
+		EnvCacheServiceURL + "=http://172.17.0.1:41234/", "ACTIONS_CACHE_SERVICE_V2=true",
+		"ZOOMIES_CACHE_REDIRECT_FILE=" + filepath.Join(t.TempDir(), "missing.cjs"),
+	}, "main.js")
+	if err != nil || !strings.Contains(out, "options=unset\n") || !strings.Contains(out, "args=[main.js]") {
+		t.Fatalf("node saw %q (%v)", out, err)
 	}
 }
 
@@ -201,6 +244,24 @@ func TestTheWrapperAndTheBackendAgreeOnTheVariable(t *testing.T) {
 	}
 	if !strings.Contains(string(body), EnvCacheServiceURL) {
 		t.Fatalf("deploy/runner-node-wrapper.sh does not read %s, the name the backend sets", EnvCacheServiceURL)
+	}
+}
+
+func TestTheImageCarriesTheRedirectWhereTheWrapperLooksForIt(t *testing.T) {
+	wrapper, err := os.ReadFile(wrapperScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dockerfile, err := os.ReadFile("../../deploy/Dockerfile.runner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const home = "/usr/local/lib/zoomies/"
+	if !strings.Contains(string(wrapper), home+"runner-cache-redirect.cjs") {
+		t.Errorf("the wrapper does not look for the redirect in %s", home)
+	}
+	if !strings.Contains(string(dockerfile), "deploy/runner-cache-redirect.cjs "+home) {
+		t.Errorf("deploy/Dockerfile.runner does not copy the redirect into %s", home)
 	}
 }
 

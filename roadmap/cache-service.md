@@ -12,7 +12,8 @@ A runner is ephemeral, so every job starts with an empty disk. The pool cache
 (`/opt/zoomies-cache`) was meant to fix that, but Zoomies only mounts it. A
 workflow has to point its tools at it, and the repository's own CI does not:
 `setup-go` uses `actions/cache` and every image build uses `type=gha`, both of
-which go to GitHub's cache service over the internet.
+which go to GitHub's cache service over the internet. (This design reaches the
+first; the second is not redirected, see below.)
 
 Measured on this fleet on 8 November 2026, a `Go (rest)` job spent 35 to 89
 seconds in `setup-go` restoring that cache, against 16 to 19 seconds for the
@@ -24,11 +25,21 @@ requirement is that Zoomies manages it.
 ## The approach
 
 Run a small `actions/cache`-compatible server in the agent on each host and
-redirect the runner's actions to it. The toolkit finds its service through
-`ACTIONS_RESULTS_URL`, which the runner sets itself (see "Redirecting the
-runner"), so `actions/cache`, every `setup-*` action's built-in
-cache and Buildx's `type=gha,version=2` all reach it with **no workflow change**.
-A lost cache must only make a build slower: every call is a miss on failure.
+redirect the cache's calls from the runner's actions to it, so `actions/cache`
+and every `setup-*` action's built-in cache reach it with **no workflow
+change**. The toolkit finds its service through `ACTIONS_RESULTS_URL`, which the
+runner sets itself and which is also where the artifact actions find the
+artifact service, so the address cannot simply be replaced (see "Redirecting the
+runner"). A lost cache must only make a build slower: every call is a miss on
+failure.
+
+**Not covered: Buildx's `type=gha` layer cache.** BuildKit is a Go program that
+reads the results address for itself, which a preload inside node does not
+reach. An image build is still kept warm by the registry and local recipes in
+[persistent-caches.md](../docs/persistent-caches.md). Covering it would mean
+setting the address in the environment of the `docker` processes an action
+starts, which is safe (BuildKit only uses the cache API) and is a follow-up that
+needs a Docker daemon to test.
 
 This is the third layer of
 [candidates-from-hosted-services.md](candidates-from-hosted-services.md); it
@@ -72,8 +83,18 @@ it changed the design.
    the variable at all, so only actions are affected, which is what the cache
    action and `docker/build-push-action` are.
    The redirect has to happen below the runner. See "Redirecting the runner".
-2. **BuildKit's `type=gha,version=2` against this service.** BuildKit has its
-   own GitHub-cache client. There was no Docker daemon here to run it.
+
+   **A defect in the first version of that redirect, found and fixed on
+   8 November 2026.** The wrapper set `ACTIONS_RESULTS_URL` to the service. That
+   address is also where `@actions/artifact` (upload-artifact and
+   download-artifact v4) finds the artifact service, a different Twirp service
+   under the same base, so a pool with the service on would have failed every job
+   that uploads or downloads an artifact, and this repository's CI does both. The
+   wrapper now leaves the address alone and loads
+   `deploy/runner-cache-redirect.cjs`, which rewrites a request only when it is
+   addressed to the cache service by name.
+2. **BuildKit's `type=gha,version=2` against this service.** Not covered by this
+   design (see "The approach"); it needs the follow-up above and a Docker daemon.
 3. **The token's `ac` claim.** The branch rule reads the `ac` claim of the job's
    runtime token. Its shape (a JSON string holding `{Scope, Permission}` with
    bits 1 for read and 2 for write) is from memory and is not verified; the
@@ -90,20 +111,25 @@ it changed the design.
 
 ## What slice 2 proves: the node wrapper
 
-`deploy/runner-node-wrapper.sh` and `deploy/runner-node-wrap.sh` are built, and
-the runner image installs them in the RUN that unpacks the runner (a later RUN
-would copy two hundred megabytes of node into a new layer). They were tested
-against the real thing: the glibc node binaries from the pinned release
+`deploy/runner-node-wrapper.sh`, `deploy/runner-node-wrap.sh` and
+`deploy/runner-cache-redirect.cjs` are built, and the runner image installs them
+(the wrap in the RUN that unpacks the runner, because a later RUN would copy two
+hundred megabytes of node into a new layer). They were tested against the real
+thing: the glibc node binaries from the pinned release
 (`actions-runner-linux-x64-2.338.2`, checked against the Dockerfile's SHA-256),
 node 20.20.2 and 24.22.1, wrapped by the same installer the image build runs,
-and running GitHub's `@actions/cache` client. The address the runner would give
-the action was a host that cannot be resolved, and a control run without
-`ZOOMIES_CACHE_SERVICE_URL` failed, so the success of the other run is the
-redirect and nothing else. `TestTheRunnersOwnNodeIsRedirectedToTheService`
-repeats it (opt in with `ZOOMIES_RUNNER_DIR`). The wrapper's own behaviour (the
-v2 guard, arguments, exit code, standard input, the v1 address and the token
-left alone) is held by tests that run the real scripts and was checked by
-breaking each in turn.
+running GitHub's `@actions/cache` client. GitHub's results service is stood in
+for by an HTTPS server, as it is in production, which answers artifact calls and
+refuses cache calls. A control run without `ZOOMIES_CACHE_SERVICE_URL` fails by
+asking it for the cache; the run with the service on saves and restores through
+the service with no cache call reaching "GitHub"; and an artifact-style call made
+by the toolkit's own HTTP client still reaches "GitHub" and never the service.
+`TestTheRunnersOwnNodeSendsOnlyTheCacheToTheService` repeats it (opt in with
+`ZOOMIES_RUNNER_DIR`), and was checked by making the preload redirect every
+request, which fails the artifact assertion: the defect above. The wrapper's own
+behaviour (the v2 guard, an image without the preload, arguments, exit code,
+standard input, the address and the token left alone) is held by tests that run
+the real scripts and was checked by breaking each in turn.
 
 Still not run: a whole job on a real runner, which needs GitHub to dispatch one.
 That the runner starts node with the environment it built is read from its source
@@ -165,22 +191,30 @@ Not done, and why it matters:
 
 ## Design for the slices that follow
 
-* **Redirecting the runner (built and tested; see below).** The runner starts every Node action as
-  `<externals>/<node version>/bin/node`, with the environment it has just built.
-  The runner image is Zoomies', and the runner is started with `--disableupdate`
-  on the registration path, so the image can replace each `externals/node*/bin/node`
-  with a small wrapper that, when `ZOOMIES_CACHE_SERVICE_URL` is set in the
-  container, sets `ACTIONS_RESULTS_URL` to it and then runs the real node. No
-  runner patch, nothing a workflow can see or has to change, and with the
-  variable unset the wrapper is a pass-through, so the failure mode is GitHub's
-  cache as today. The costs are real: it covers Node actions only (a Docker
-  action keeps GitHub's URL), it covers only the stock images (an image of the
-  operator's own is left alone, as it is for the Docker client), the wrapper
-  has to be rebuilt against each runner release's layout, and whether a
-  JIT-configured runner can still self-update was not checked. The alternatives
-  were weighed and set aside: a patched runner fork (a build and a supply-chain
-  burden for two lines) and a TLS-intercepting proxy that rewrites the calls
-  (a CA every job would trust).
+* **Redirecting the runner (built and tested; see above).** The runner starts
+  every Node action as `<externals>/<node version>/bin/node`, with the
+  environment it has just built. The runner image is Zoomies', and the runner is
+  started with `--disableupdate` on the registration path, so the image replaces
+  each glibc `externals/node*/bin/node` with a small wrapper. When
+  `ZOOMIES_CACHE_SERVICE_URL` is set in the container and the job is on cache
+  service v2, the wrapper adds `--require` of a preload to `NODE_OPTIONS` and
+  runs the real node. The preload rewrites a request only if it is addressed to
+  `/twirp/github.actions.results.api.v1.CacheService/`; the address, the token
+  and every other request are untouched. No runner patch, nothing a workflow can
+  see or has to change, and with the variable unset, or an image without the
+  preload, the wrapper is a pass-through, so the failure mode is GitHub's cache
+  as today. The costs are real: it covers Node actions only (a Docker action keeps
+  GitHub's URL), and Buildx's `type=gha` too; it covers only the stock images (an
+  image of the operator's own is left alone, as it is for the Docker client); the
+  wrapper has to be rebuilt against each runner release's layout; the preload
+  patches Node's `http`, `https` and `fetch`, so a cache client that used another
+  transport would not be redirected (it would fall back to GitHub's cache); and
+  whether a JIT-configured runner can still self-update was not checked. The
+  alternatives were weighed and set aside: a patched runner fork (a build and a
+  supply-chain burden for two lines), a TLS-intercepting proxy that rewrites the
+  calls (a CA every job would trust), and a reverse proxy in the service that
+  forwards what it does not implement (it would need the job's real results
+  address, which only the runner has, and a wrong guess breaks artifacts).
 * **Setting.** `cache.service` on the pool's `CacheConfig`, a JSON field like
   `cache.tools`, so no migration. Off by default, refused without
   `cache.enabled`, refused on the `process` backend. It reaches the agent in

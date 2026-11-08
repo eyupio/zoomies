@@ -8561,7 +8561,7 @@ export interface components {
              */
             tools: boolean;
             /**
-             * @description Run a cache service on each host for this pool's runners, so the Actions cache (`actions/cache`, the `setup-*` actions and Buildx's `type=gha`) is kept on the host instead of in GitHub's service, with no change to any workflow. Shared with the same runners as the cache above, and a job that can write to it can plant an entry the next job restores. Needs `enabled`, and a container backend. A host that cannot run the service leaves its runners on GitHub's cache.
+             * @description Run a cache service on each host for this pool's runners, so the Actions cache (`actions/cache` and the `setup-*` actions' own caches) is kept on the host instead of in GitHub's service, with no change to any workflow. Artifacts, and Buildx's `type=gha` image layer cache, still go to GitHub. Shared with the same runners as the cache above, and a job that can write to it can plant an entry the next job restores. Needs `enabled`, and a container backend. A host that cannot run the service leaves its runners on GitHub's cache.
              * @default false
              */
             service: boolean;
