@@ -18,6 +18,9 @@ minutes today, so you pay only for your own machines.
 GitHub does not charge for minutes on self-hosted runners. You pay for the
 machines, and for the time it takes to look after them; Zoomies itself is free
 under the [AGPL-3.0](https://github.com/eyupio/zoomies/blob/main/LICENSE).
+If you choose [Zoomies Cloud](https://cloud.zoomies.sh/), include its controller
+subscription alongside your runner machines; [current Cloud pricing](https://cloud.zoomies.sh/pricing)
+is on the service's own site.
 Whether that works out cheaper than GitHub's own runners depends on how many
 minutes you use, on which operating system, and whether your repositories are
 public.
@@ -62,8 +65,7 @@ Postponed is not cancelled. If it comes back at the announced rate, 20,000
 minutes a month would cost $40; a third of the Linux hosted rate, and paid on
 top of your own machines.
 
-Zoomies adds no charge of its own either way: it is software you run, not a
-service you rent.
+Self-hosting the open-source Zoomies controller adds no software charge.
 
 ## Working out whether it pays
 

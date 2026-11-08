@@ -22,6 +22,13 @@ terminal; container deployments complete them in the **web UI**. The UI is
 where you can operate either fleet afterwards. [Other ways in](#other-ways-in)
 collects the Docker Compose, CLI and API equivalents.
 
+!!! note "Using Zoomies Cloud?"
+
+    Your controller is already hosted. Open your [Cloud instance](https://cloud.zoomies.sh/),
+    connect GitHub and follow its instructions to add a runner host. This guide
+    walks through installing and running the controller yourself. Your machines
+    supply the runner compute in either setup.
+
 !!! note "Before you start"
 
     * **A Linux host you can reach.** A small cloud VM, a home server or a spare
