@@ -2486,9 +2486,27 @@ that is trying to. The boundary is the pool: keep untrusted pull requests on a
 pool of their own, as [Security](security.md) says for any self-hosted runner.
 
 It needs the cache on and a container backend. Only JavaScript actions are
-redirected, so a Docker action keeps GitHub's cache, and so does Buildx's
-`type=gha` image-layer cache: BuildKit is a separate program that reads the
-results address for itself, which this does not reach yet.
+redirected, so a Docker action keeps GitHub's cache, and so, by default, does
+Buildx's `type=gha` image-layer cache: BuildKit is a separate program that reads
+the results address for itself.
+
+**Image builds (experimental, off by default).** Set `ZOOMIES_CACHE_SERVICE_BUILDX`
+to `true` in the pool's environment and the `docker` commands a JavaScript action
+starts, which is how `docker/build-push-action` and `docker/bake-action` run
+`docker buildx build`, are given the host's address for their `type=gha` cache.
+The action's own address is not changed, so its artifact calls still go to
+GitHub. A `docker buildx build` typed into a `run:` step is not started by an
+action and is not reached.
+
+It is separate, and off, because it can fail a build where the redirect above
+cannot. A cache export the service refuses fails a build that does not say
+`ignore-error=true`, where the toolkit only warns. The builder also reaches the
+service from inside the sidecar's own network, which an action's calls never
+cross, so the host's firewall has to let that traffic through too. It has been
+checked against BuildKit's own cache client (save, restore by key, ranged reads
+of a large layer, a miss) and against the preload under a real Node. It has not
+been run against a live BuildKit builder, so turn it on for one pool, run an
+image build twice and look for the second one importing layers from the cache.
 
 #### Filling the tool cache
 

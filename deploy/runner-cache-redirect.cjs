@@ -80,6 +80,46 @@ if (target) {
     }
   }
 
+  // Docker builds. docker/build-push-action runs `docker buildx build` as a child
+  // process, and buildx takes the address of the type=gha cache from
+  // ACTIONS_RESULTS_URL in its own environment, so the one place to send it to
+  // the host is that child's environment. This process's own copy is left alone,
+  // which is what keeps the artifact calls it makes going to GitHub.
+  //
+  // Off unless ZOOMIES_CACHE_SERVICE_BUILDX is set. A rejected cache export
+  // fails a build that does not say ignore-error, where the toolkit only warns,
+  // and the builder reaches the service from inside the sidecar's own network,
+  // which the toolkit's calls never cross. A pool opts in once it has seen that
+  // path work.
+  if (/^(1|true|yes|on)$/i.test(process.env.ZOOMIES_CACHE_SERVICE_BUILDX || '')) {
+    const cp = require('child_process');
+    const service = target.href.replace(/\/$/, '');
+    const isDocker = (file) => String(file).split(/[\\/]/).pop().replace(/\.exe$/i, '') === 'docker';
+    for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {
+      const original = cp[name];
+      cp[name] = function (file, ...rest) {
+        try {
+          if (isDocker(file)) {
+            // The options are the one plain object among the arguments; the
+            // arguments are an array and the callback a function.
+            const at = rest.findIndex((x) => x !== null && typeof x === 'object' && !Array.isArray(x));
+            const options = { ...(at >= 0 ? rest[at] : {}) };
+            options.env = { ...(options.env || process.env), ACTIONS_RESULTS_URL: service };
+            if (at >= 0) {
+              rest[at] = options;
+            } else {
+              const cb = rest.findIndex((x) => typeof x === 'function');
+              rest.splice(cb >= 0 ? cb : rest.length, 0, options);
+            }
+          }
+        } catch (_) {
+          // Run the command as it was asked.
+        }
+        return original.call(this, file, ...rest);
+      };
+    }
+  }
+
   if (typeof globalThis.fetch === 'function') {
     const original = globalThis.fetch;
     globalThis.fetch = function (input, init) {

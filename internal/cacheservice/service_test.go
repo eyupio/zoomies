@@ -95,7 +95,7 @@ func (h *harness) save(tok, key, version string, data []byte) bool {
 	if status != http.StatusOK {
 		return false
 	}
-	if st := h.put(out["signedUploadUrl"].(string), data); st != http.StatusCreated {
+	if st := h.put(out["signed_upload_url"].(string), data); st != http.StatusCreated {
 		h.t.Fatalf("upload answered %d", st)
 	}
 	_, fin := h.call(tok, "FinalizeCacheEntryUpload", map[string]string{
@@ -111,13 +111,13 @@ func (h *harness) restore(tok, key, version string, restoreKeys ...string) (stri
 	if out["ok"] != true {
 		return "", nil
 	}
-	resp, err := http.Get(out["signedDownloadUrl"].(string))
+	resp, err := http.Get(out["signed_download_url"].(string))
 	if err != nil {
 		h.t.Fatal(err)
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
-	return out["matchedKey"].(string), b
+	return out["matched_key"].(string), b
 }
 
 func TestASavedEntryIsRestoredByItsKey(t *testing.T) {
@@ -189,7 +189,7 @@ func TestAKeyBeingSavedCannotBeReservedByAnotherJob(t *testing.T) {
 func TestALargeArchiveIsStagedInBlocksAndCommittedInOrder(t *testing.T) {
 	h := newHarness(t, Options{})
 	_, out := h.call(mainToken, "CreateCacheEntry", map[string]string{"key": "big", "version": "v"})
-	url := out["signedUploadUrl"].(string)
+	url := out["signed_upload_url"].(string)
 	b64 := base64.StdEncoding.EncodeToString
 	ids := []string{b64([]byte("block-0001")), b64([]byte("block-0002")), b64([]byte("block-0003"))}
 	// Staged out of order, as concurrent uploads arrive.
@@ -219,7 +219,7 @@ func TestALargeArchiveIsStagedInBlocksAndCommittedInOrder(t *testing.T) {
 func TestAFinaliseCallWithTheWrongSizeSavesNothing(t *testing.T) {
 	h := newHarness(t, Options{})
 	_, out := h.call(mainToken, "CreateCacheEntry", map[string]string{"key": "k", "version": "v"})
-	h.put(out["signedUploadUrl"].(string), []byte("12345"))
+	h.put(out["signed_upload_url"].(string), []byte("12345"))
 	_, fin := h.call(mainToken, "FinalizeCacheEntryUpload", map[string]string{"key": "k", "version": "v", "sizeBytes": "99"})
 	if fin["ok"] == true {
 		t.Fatal("an archive of the wrong size was kept")
@@ -236,7 +236,7 @@ func TestAFinaliseCallWithTheWrongSizeSavesNothing(t *testing.T) {
 func TestAnUnfinishedUploadIsNotRestorable(t *testing.T) {
 	h := newHarness(t, Options{})
 	_, out := h.call(mainToken, "CreateCacheEntry", map[string]string{"key": "k", "version": "v"})
-	h.put(out["signedUploadUrl"].(string), []byte("data"))
+	h.put(out["signed_upload_url"].(string), []byte("data"))
 	if key, _ := h.restore(mainToken, "k", "v"); key != "" {
 		t.Fatal("an entry that was never finalised was restored")
 	}
@@ -246,7 +246,7 @@ func TestARangedReadReturnsOnlyThoseBytes(t *testing.T) {
 	h := newHarness(t, Options{})
 	h.save(mainToken, "k", "v", []byte("0123456789"))
 	_, out := h.call(mainToken, "GetCacheEntryDownloadURL", map[string]any{"key": "k", "version": "v"})
-	r, _ := http.NewRequest(http.MethodGet, out["signedDownloadUrl"].(string), nil)
+	r, _ := http.NewRequest(http.MethodGet, out["signed_download_url"].(string), nil)
 	r.Header.Set("Range", "bytes=2-5")
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
@@ -257,7 +257,7 @@ func TestARangedReadReturnsOnlyThoseBytes(t *testing.T) {
 	if resp.StatusCode != http.StatusPartialContent || string(got) != "2345" {
 		t.Fatalf("answered %d with %q", resp.StatusCode, got)
 	}
-	head, _ := http.NewRequest(http.MethodHead, out["signedDownloadUrl"].(string), nil)
+	head, _ := http.NewRequest(http.MethodHead, out["signed_download_url"].(string), nil)
 	hr, err := http.DefaultClient.Do(head)
 	if err != nil {
 		t.Fatal(err)
@@ -265,6 +265,68 @@ func TestARangedReadReturnsOnlyThoseBytes(t *testing.T) {
 	hr.Body.Close()
 	if hr.ContentLength != 10 {
 		t.Fatalf("HEAD reported %d bytes, the toolkit sizes its parts from this", hr.ContentLength)
+	}
+}
+
+// BuildKit reads a layer from the middle with Azure's x-ms-range header, which
+// the Go client sends as the only range header it knows. A service that serves
+// the whole blob from byte 0 instead hands it a layer that fails its digest.
+func TestAnAzureRangeHeaderIsHonouredLikeARangeHeader(t *testing.T) {
+	h := newHarness(t, Options{})
+	h.save(mainToken, "k", "v", []byte("0123456789"))
+	_, out := h.call(mainToken, "GetCacheEntryDownloadURL", map[string]any{"key": "k", "version": "v"})
+	r, _ := http.NewRequest(http.MethodGet, out["signed_download_url"].(string), nil)
+	r.Header.Set("x-ms-range", "bytes=6-")
+	resp, err := http.DefaultClient.Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	got, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusPartialContent || string(got) != "6789" || resp.Header.Get("ETag") == "" {
+		t.Fatalf("answered %d with %q and ETag %q", resp.StatusCode, got, resp.Header.Get("ETag"))
+	}
+}
+
+// The reply carries the protobuf field names, which is the only spelling
+// BuildKit's client reads.
+func TestResponsesUseTheProtobufFieldNames(t *testing.T) {
+	h := newHarness(t, Options{})
+	_, out := h.call(mainToken, "CreateCacheEntry", map[string]any{"key": "k", "version": "v"})
+	if _, ok := out["signed_upload_url"].(string); !ok || out["signedUploadUrl"] != nil {
+		t.Fatalf("create replied %v", out)
+	}
+}
+
+// BuildKit's Go client sends size_bytes as a JSON number; the toolkit sends the
+// same field as a string. A service that took only one of them would work for
+// one client and refuse every save from the other.
+func TestTheSizeIsAcceptedAsANumberAsWellAsAString(t *testing.T) {
+	h := newHarness(t, Options{})
+	for name, size := range map[string]any{"number": 5, "string": "5"} {
+		_, out := h.call(mainToken, "CreateCacheEntry", map[string]string{"key": name, "version": "v"})
+		h.put(out["signed_upload_url"].(string), []byte("12345"))
+		status, fin := h.call(mainToken, "FinalizeCacheEntryUpload", map[string]any{"key": name, "version": "v", "size_bytes": size})
+		if status != http.StatusOK || fin["ok"] != true {
+			t.Fatalf("a size sent as a %s was refused: %d %v", name, status, fin)
+		}
+	}
+}
+
+// Azure's Go SDK reads x-ms-request-id from an upload's reply without checking
+// it is there, and BuildKit's cache client dereferences the result. Without the
+// header the builder panics on its first save instead of failing the save.
+func TestBlobRepliesCarryAnAzureRequestID(t *testing.T) {
+	h := newHarness(t, Options{})
+	_, out := h.call(mainToken, "CreateCacheEntry", map[string]string{"key": "k", "version": "v"})
+	r, _ := http.NewRequest(http.MethodPut, out["signed_upload_url"].(string), bytes.NewReader([]byte("x")))
+	resp, err := http.DefaultClient.Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.Header.Get("x-ms-request-id") == "" {
+		t.Fatal("an upload reply has no x-ms-request-id")
 	}
 }
 
@@ -432,7 +494,7 @@ func TestOnlyAReservedUploadCanBeWritten(t *testing.T) {
 func TestAnUploadIsRefusedPastTheServiceCeiling(t *testing.T) {
 	h := newHarness(t, Options{MaxBytes: 8})
 	_, out := h.call(mainToken, "CreateCacheEntry", map[string]string{"key": "k", "version": "v"})
-	if st := h.put(out["signedUploadUrl"].(string), bytes.Repeat([]byte("x"), 100)); st == http.StatusCreated {
+	if st := h.put(out["signed_upload_url"].(string), bytes.Repeat([]byte("x"), 100)); st == http.StatusCreated {
 		t.Fatal("an upload past the ceiling was accepted")
 	}
 	if !h.save(mainToken, "k", "v", []byte("ok")) {
@@ -451,12 +513,12 @@ func TestTheProtobufFieldNamesTheToolkitSendsAreUnderstood(t *testing.T) {
 	// them. The camelCase spelling is accepted too, and the other tests use it.
 	h := newHarness(t, Options{})
 	_, out := h.call(mainToken, "CreateCacheEntry", map[string]string{"key": "go-1", "version": "v"})
-	h.put(out["signedUploadUrl"].(string), []byte("12345"))
+	h.put(out["signed_upload_url"].(string), []byte("12345"))
 	if _, fin := h.call(mainToken, "FinalizeCacheEntryUpload", map[string]string{"key": "go-1", "version": "v", "size_bytes": "5"}); fin["ok"] != true {
 		t.Fatalf("size_bytes was not understood: %v", fin)
 	}
 	_, got := h.call(mainToken, "GetCacheEntryDownloadURL", map[string]any{"key": "go-9", "restore_keys": []string{"go-"}, "version": "v"})
-	if got["ok"] != true || got["matchedKey"] != "go-1" {
+	if got["ok"] != true || got["matched_key"] != "go-1" {
 		t.Fatalf("restore_keys was not understood: %v", got)
 	}
 }
@@ -465,9 +527,9 @@ func TestTheEntryIdIsADecimalInteger(t *testing.T) {
 	// The toolkit parses it as a BigInt and fails the save on anything else.
 	h := newHarness(t, Options{})
 	_, out := h.call(mainToken, "CreateCacheEntry", map[string]string{"key": "k", "version": "v"})
-	h.put(out["signedUploadUrl"].(string), []byte("x"))
+	h.put(out["signed_upload_url"].(string), []byte("x"))
 	_, fin := h.call(mainToken, "FinalizeCacheEntryUpload", map[string]string{"key": "k", "version": "v", "sizeBytes": "1"})
-	id, _ := fin["entryId"].(string)
+	id, _ := fin["entry_id"].(string)
 	if n, err := strconv.ParseInt(id, 10, 64); err != nil || n < 0 {
 		t.Fatalf("entryId %q is not a non-negative int64", id)
 	}

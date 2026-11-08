@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 // The toolkit's four calls are Twirp over JSON: a POST of a JSON body to
@@ -47,9 +48,13 @@ type createRequest struct {
 	Version string `json:"version"`
 }
 
+// Responses use the protobuf field names (signed_upload_url, entry_id), which is
+// what GitHub's own service sends. The toolkit's reader takes either spelling;
+// BuildKit's Go client takes only these, and reads a missing address as an
+// empty one, so a camelCase reply would make every Buildx cache call fail.
 type createResponse struct {
 	OK              bool   `json:"ok"`
-	SignedUploadURL string `json:"signedUploadUrl"`
+	SignedUploadURL string `json:"signed_upload_url"`
 }
 
 // The toolkit sends protobuf field names (size_bytes, restore_keys), not the
@@ -57,22 +62,39 @@ type createResponse struct {
 // the camelCase JSON names. Both are accepted, because a restore key read as
 // absent would make every prefix lookup a silent miss.
 type finalizeRequest struct {
-	Key            string `json:"key"`
-	Version        string `json:"version"`
-	SizeBytes      string `json:"sizeBytes"`
-	SizeBytesProto string `json:"size_bytes"`
+	Key            string  `json:"key"`
+	Version        string  `json:"version"`
+	SizeBytes      flexInt `json:"sizeBytes"`
+	SizeBytesProto flexInt `json:"size_bytes"`
 }
 
 func (r finalizeRequest) size() string {
 	if r.SizeBytesProto != "" {
-		return r.SizeBytesProto
+		return string(r.SizeBytesProto)
 	}
-	return r.SizeBytes
+	return string(r.SizeBytes)
+}
+
+// flexInt is an int64 sent either way the protocol's JSON can carry one: the
+// toolkit sends it as a string, as protobuf's JSON mapping says an int64 is, and
+// BuildKit's Go client sends a plain number. Both end up as the digits.
+type flexInt string
+
+func (f *flexInt) UnmarshalJSON(b []byte) error {
+	t := strings.TrimSpace(string(b))
+	if t == "null" {
+		return nil
+	}
+	if len(t) >= 2 && t[0] == '"' && t[len(t)-1] == '"' {
+		t = t[1 : len(t)-1]
+	}
+	*f = flexInt(t)
+	return nil
 }
 
 type finalizeResponse struct {
 	OK      bool   `json:"ok"`
-	EntryID string `json:"entryId"`
+	EntryID string `json:"entry_id"`
 }
 
 type downloadRequest struct {
@@ -88,8 +110,8 @@ func (r downloadRequest) restoreKeys() []string {
 
 type downloadResponse struct {
 	OK                bool   `json:"ok"`
-	SignedDownloadURL string `json:"signedDownloadUrl"`
-	MatchedKey        string `json:"matchedKey"`
+	SignedDownloadURL string `json:"signed_download_url"`
+	MatchedKey        string `json:"matched_key"`
 }
 
 // maxJSONBody bounds a call's body. The largest legitimate one is a key of 512

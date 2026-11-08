@@ -1,6 +1,7 @@
 package cacheservice
 
 import (
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/xml"
 	"io"
@@ -19,6 +20,15 @@ const maxEntryBytes = 10 << 30
 // one, stages blocks and then commits their list; it restores with plain GETs,
 // ranged for a large archive. Only those few shapes are answered.
 func (s *Service) blob(w http.ResponseWriter, r *http.Request, rest string) {
+	// Azure puts these on every reply, and its Go SDK reads them without a
+	// nil check: BuildKit's cache client dereferences the request id after an
+	// upload, so a reply without one panics the builder instead of failing
+	// the save.
+	var rid [16]byte
+	_, _ = rand.Read(rid[:])
+	h := w.Header()
+	h.Set("x-ms-request-id", hex.EncodeToString(rid[:]))
+	h.Set("x-ms-version", "2021-08-06")
 	id, _, _ := strings.Cut(rest, "/")
 	if id == "" || strings.ContainsAny(id, `./\`) {
 		http.NotFound(w, r)
@@ -53,11 +63,20 @@ func (s *Service) getBlob(w http.ResponseWriter, r *http.Request, id string) {
 		http.NotFound(w, r)
 		return
 	}
+	// Azure's clients name the byte range x-ms-range, not Range, and BuildKit's
+	// asks for the middle of a layer that way. http.ServeContent only knows Range,
+	// so without this a read from the middle of a blob is answered with the
+	// whole of it, and the layer comes out wrong.
+	if ms := r.Header.Get("x-ms-range"); ms != "" && r.Header.Get("Range") == "" {
+		r.Header.Set("Range", ms)
+	}
 	if r.Method == http.MethodGet && r.Header.Get("Range") == "" {
 		s.touch(e.ID)
 	}
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("x-ms-blob-type", "BlockBlob")
+	h := w.Header()
+	h.Set("Content-Type", "application/octet-stream")
+	h.Set("x-ms-blob-type", "BlockBlob")
+	h.Set("ETag", `"0x`+e.ID+`"`)
 	http.ServeContent(w, r, "", fi.ModTime(), f)
 }
 

@@ -132,9 +132,11 @@ cannot run it leaves the runner on GitHub's cache.
 
 It does not reach a plain `run:` step: `go build`, `npm ci` and `docker build`
 without a cache flag never ask the Actions cache for anything. Nor does it reach
-Buildx's `type=gha` layer cache, which BuildKit reads for itself, so the
-registry and local recipes below are still how an image build is kept warm. Those still need
-the recipes below, or a workflow that restores through an action.
+Buildx's `type=gha` layer cache by default, which BuildKit reads for itself; an
+experimental setting
+[sends it to the host too](configuration.md#serving-the-actions-cache-from-the-host).
+The registry and local recipes below are still how an image build is kept warm
+everywhere else, or a workflow that restores through an action.
 
 ## Using the pool cache from a workflow
 

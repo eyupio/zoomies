@@ -33,13 +33,21 @@ artifact service, so the address cannot simply be replaced (see "Redirecting the
 runner"). A lost cache must only make a build slower: every call is a miss on
 failure.
 
-**Not covered: Buildx's `type=gha` layer cache.** BuildKit is a Go program that
-reads the results address for itself, which a preload inside node does not
-reach. An image build is still kept warm by the registry and local recipes in
-[persistent-caches.md](../docs/persistent-caches.md). Covering it would mean
-setting the address in the environment of the `docker` processes an action
-starts, which is safe (BuildKit only uses the cache API) and is a follow-up that
-needs a Docker daemon to test.
+**Buildx's `type=gha` layer cache: opt-in, experimental.** BuildKit is a Go
+program that reads the results address for itself, which a preload inside node
+does not reach. buildx takes that address from `ACTIONS_RESULTS_URL` in its own
+environment (`build/opt.go`, `addGithubToken`), and `docker/build-push-action`
+starts it as a child of the node action, so the preload can set the address in
+the environment of those `docker` children alone, leaving its own copy for the
+artifact calls. That is `ZOOMIES_CACHE_SERVICE_BUILDX`, off unless a pool sets it:
+a refused cache export fails a build that does not say `ignore-error=true`, and
+the builder reaches the host from inside the sidecar's network, which nothing here
+has run. BuildKit's own client library (`tonistiigi/go-actions-cache`) found three
+faults the toolkit does not: the replies must use the protobuf field names
+(`signed_upload_url`, `entry_id`), `size_bytes` arrives as a number as well as a
+string, and the Azure SDK dereferences `x-ms-request-id` on an upload's reply, so
+a service without it panics the builder; ranged reads also arrive as
+`x-ms-range`, not `Range`. All four are fixed and held by tests.
 
 This is the third layer of
 [candidates-from-hosted-services.md](candidates-from-hosted-services.md); it
@@ -93,8 +101,10 @@ it changed the design.
    wrapper now leaves the address alone and loads
    `deploy/runner-cache-redirect.cjs`, which rewrites a request only when it is
    addressed to the cache service by name.
-2. **BuildKit's `type=gha,version=2` against this service.** Not covered by this
-   design (see "The approach"); it needs the follow-up above and a Docker daemon.
+2. **BuildKit's `type=gha,version=2` against this service.** Checked with
+   BuildKit's own cache client library, not with a builder: a live run needs a
+   Docker daemon, and the sidecar-to-host path in particular has not been
+   exercised. Opt-in for that reason (see above).
 3. **The token's `ac` claim.** The branch rule reads the `ac` claim of the job's
    runtime token. Its shape (a JSON string holding `{Scope, Permission}` with
    bits 1 for read and 2 for write) is from memory and is not verified; the
@@ -187,7 +197,7 @@ Not done, and why it matters:
 * **A restart changes the port.** Persisting it would keep running runners
   connected across a restart.
 * **Docker actions keep GitHub's cache**, and BuildKit's `type=gha` against the
-  service is still unrun.
+  service is opt-in and has not been run against a live builder.
 
 ## Design for the slices that follow
 
@@ -204,7 +214,7 @@ Not done, and why it matters:
   see or has to change, and with the variable unset, or an image without the
   preload, the wrapper is a pass-through, so the failure mode is GitHub's cache
   as today. The costs are real: it covers Node actions only (a Docker action keeps
-  GitHub's URL), and Buildx's `type=gha` too; it covers only the stock images (an
+  GitHub's URL), and Buildx's `type=gha` too unless a pool opts in; it covers only the stock images (an
   image of the operator's own is left alone, as it is for the Docker client); the
   wrapper has to be rebuilt against each runner release's layout; the preload
   patches Node's `http`, `https` and `fetch`, so a cache client that used another
