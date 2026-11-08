@@ -92,6 +92,33 @@ func TestListWorkflows(t *testing.T) {
 // Most repositories in a large organisation have no workflows at all. That is
 // an ordinary answer, not a broken installation, and it has its own error so a
 // caller can tell the two apart.
+func TestReadFileReturnsOneFileFromTheDefaultBranch(t *testing.T) {
+	f, c := migrationFake(t)
+	f.AddFile("acme/widgets", ".github/actions/setup-go/action.yml", "runs:\n  using: composite\n")
+
+	got, err := c.ReadFile(context.Background(), "acme/widgets", ".github/actions/setup-go/action.yml")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if got != "runs:\n  using: composite\n" {
+		t.Errorf("content = %q", got)
+	}
+}
+
+// A file a workflow refers to and that is not there is the ordinary case, not a
+// failure, so it is the sentinel a caller can test for.
+func TestReadFileSaysWhenThereIsNoSuchFile(t *testing.T) {
+	_, c := migrationFake(t)
+	_, err := c.ReadFile(context.Background(), "acme/widgets", ".github/actions/none/action.yml")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+	_, err = c.ReadFile(context.Background(), "acme/widgets", ".github/workflows")
+	if err == nil || errors.Is(err, ErrNotFound) {
+		t.Fatalf("a directory read as a file gave %v, want an error that is not ErrNotFound", err)
+	}
+}
+
 func TestListWorkflowsWithoutAny(t *testing.T) {
 	_, c := migrationFake(t)
 	_, err := c.ListWorkflows(context.Background(), "acme/site")

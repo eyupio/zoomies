@@ -927,8 +927,22 @@ Read the result with `GET /api/v1/toolchains`, and start a scan by hand with
 with the reason: `go-version-file: go.mod` reads a file this does not fetch, and
 `${{ inputs.python }}` is only known when the run starts. A matrix is expanded
 the way GitHub expands it, so `python-version: ${{ matrix.python }}` over
-`["3.12", "3.13"]` is two versions. Jobs on GitHub-hosted labels, or labels no
-pool carries, are listed as unmatched rather than guessed onto a pool.
+`["3.12", "3.13"]` is two versions.
+
+A version written once and passed along is followed, in the two ways workflows
+usually do it. A value from `env` is read from the workflow, job or step that
+sets it, so `node-version: ${{ env.NODE_VERSION }}` is the version
+`NODE_VERSION` holds. A step that calls a **local composite action**, such as
+`uses: ./.github/actions/setup-go`, is followed into that action's
+`action.yml`, which the scan reads from the repository's default branch (the
+inputs the step passes, and the action's defaults, are filled in); a version
+pinned inside it counts for every job that calls it. Local actions are followed
+up to three deep, each is read once per repository, and no more than sixteen
+files are fetched for one repository in a scan. A local action that is not
+there, or is not a composite action, is left alone and is not reported.
+
+Jobs on GitHub-hosted labels, or labels no pool carries, are listed as
+unmatched rather than guessed onto a pool.
 
 It needs the App's **Contents: read** permission, which the migration wizard
 already asks for. GitHub answers an App without it exactly as it answers a

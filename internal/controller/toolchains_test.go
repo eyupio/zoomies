@@ -3,8 +3,10 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,6 +112,86 @@ jobs:
 	}
 	if scan.StartedAt == nil || scan.FinishedAt == nil {
 		t.Error("a finished scan says when it ran")
+	}
+}
+
+// A version pinned once, inside a local composite action every job calls, is
+// the ordinary way to keep a repository's toolchains in step, and it is
+// invisible to a scan that reads only the workflows. Node's version is written
+// in the workflow's env for the same reason.
+func TestToolchainScanSeesAVersionPinnedInALocalActionAndInEnv(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64", "zoomies-linux-x64")
+	h.gh.AddWorkflow("acme/widgets", ".github/workflows/ci.yml", `
+env:
+  NODE_VERSION: "22"
+jobs:
+  test:
+    runs-on: zoomies-linux-x64
+    steps:
+      - uses: ./.github/actions/setup-go
+  vet:
+    runs-on: zoomies-linux-x64
+    steps:
+      - uses: ./.github/actions/setup-go
+  web:
+    runs-on: zoomies-linux-x64
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+  other:
+    runs-on: zoomies-linux-x64
+    steps:
+      - uses: ./.github/actions/not-there
+`)
+	h.gh.AddFile("acme/widgets", ".github/actions/setup-go/action.yml", `
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v6
+      with:
+        go-version: "1.27.3"
+`)
+
+	scan := h.c.scanToolchains(h.ctx)
+
+	want := []string{"go 1.27.3 x2", "node 22 x1"}
+	if got := demandBrief(scan.Pools[pool.ID]); !reflect.DeepEqual(got, want) {
+		t.Errorf("pool demand: got %q, want %q (two jobs use the local action, and an action that is not there is not a complaint)", got, want)
+	}
+}
+
+// A local action that names a path outside the repository is never fetched, and
+// a repository with a great many of them costs a bounded number of requests.
+func TestToolchainScanBoundsWhatItSpendsOnLocalActions(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64", "zoomies-linux-x64")
+	var wf strings.Builder
+	wf.WriteString("jobs:\n  many:\n    runs-on: zoomies-linux-x64\n    steps:\n")
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&wf, "      - uses: ./.github/actions/a%d\n", i)
+	}
+	h.gh.AddWorkflow("acme/widgets", ".github/workflows/ci.yml", wf.String())
+	for i := 0; i < 40; i++ {
+		h.gh.AddFile("acme/widgets", fmt.Sprintf(".github/actions/a%d/action.yml", i), "runs:\n  using: composite\n  steps:\n    - uses: actions/setup-go@v6\n      with:\n        go-version: \"1.27\"\n")
+	}
+
+	before := len(h.gh.Requests())
+	scan := h.c.scanToolchains(h.ctx)
+	spent := len(h.gh.Requests()) - before
+
+	if got := demandBrief(scan.Pools[pool.ID]); len(got) != 1 {
+		t.Errorf("pool demand = %q", got)
+	}
+	// The scan's own requests (the App, its repositories, the workflow listing)
+	// are six; forty local actions unbounded would make forty-six. The number is
+	// written out here and not read from the constant, so that loosening the
+	// bound has to be done on purpose in two places.
+	if spent > 6+16 {
+		t.Errorf("a repository with 40 local actions cost %d requests, want the local ones bounded at 16", spent)
 	}
 }
 
