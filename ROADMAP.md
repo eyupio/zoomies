@@ -1905,8 +1905,9 @@ identity and tells the runner where it is; a pool turns it on with
 reads its base branch's entries and writes only its own.
 
 Slice 1, the protocol core in `internal/cacheservice`, is tested against
-GitHub's own `@actions/cache` client, and slice 2, the node wrapper in the runner
-image, against the pinned runner release's own node. The runner overwrites
+GitHub's own `@actions/cache` client, slice 2, the node wrapper in the runner
+image, against the pinned runner release's own node, and slice 3, the
+`cache.service` pool setting, the host listener and the runner's environment. The runner overwrites
 `ACTIONS_RESULTS_URL` for every action, so the redirect is made in the runner
 image (a wrapper around the bundled node), not by setting the variable; the
 rest is gated on a whole job on a real runner and on BuildKit's own client

@@ -2433,6 +2433,57 @@ own tool cache already. A host whose shared folder cannot be created starts the
 pool's runners without the kept tool cache and says so in its log, rather than
 not starting them.
 
+#### Serving the Actions cache from the host
+
+`cache.service` runs a cache service on each host for the pool's runners, so
+the Actions cache is kept on the host instead of in GitHub's service. That is
+`actions/cache`, the caches the `setup-*` actions keep, and Buildx's
+`type=gha`, **with no change to any workflow**. It is a setting of the pool,
+stored with it (the **Serve the Actions cache from the host** box in the pool
+editor's **Speed-ups** section, or `zoomies pools edit --cache-service`), and it
+is off unless you ask for it.
+
+```yaml
+cache:
+  enabled: true
+  scope: pool          # or: repository
+  service: true
+```
+
+The runner sets the address of GitHub's cache service for every JavaScript
+action itself, after the step's own environment, so nothing a pool or a workflow
+sets can change it. The runner image therefore wraps the `node` the runner
+starts actions with: when the agent has given the runner the address of its
+host's service, in `ZOOMIES_CACHE_SERVICE_URL`, the wrapper passes it on, and
+with the variable unset it changes nothing. That is why this needs one of the
+Zoomies runner images; a pool with an image of its own keeps GitHub's cache.
+
+The service listens on the host's address on the network the runners are
+attached to, and on nothing else, on a port of its own for each pool (and each
+repository, for a repository-scoped cache), so it is shared with exactly the
+runners the pool cache is. It keeps its entries in the host's
+[shared folder](#the-shared-folder), under `cache/service`, within the cache's
+`size_limit` or 10 GiB where there is none, evicting the least recently used
+first. An agent restart starts a new service on a new port, and runners that
+were already running keep the old address, so their cache calls miss until they
+finish; a miss is a slower build and never a failed one.
+
+Everything it cannot do is a runner on GitHub's cache, as before, and the host's
+log says why once for the pool: no shared folder, an agent that runs in a
+container, no address for the host on the runners' network, or a firewall that
+does not let the runners' network reach it. Whether the host's own firewall
+allows a container to reach the host on that port is yours to check.
+
+It shares more than a build cache does. What an action saves here, a later job
+restores, and a pull request reads its base branch's entries and writes only its
+own, as GitHub's cache does. That rule reads the job's token and does not check
+it, so it guards against a workflow doing the wrong thing and not against code
+that is trying to. The boundary is the pool: keep untrusted pull requests on a
+pool of their own, as [Security](security.md) says for any self-hosted runner.
+
+It needs the cache on and a container backend, and only JavaScript actions are
+redirected, so a Docker action keeps GitHub's cache.
+
 #### Filling the tool cache
 
 A kept tool cache starts empty, and each host's copy fills one job at a time.

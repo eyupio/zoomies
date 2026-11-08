@@ -1,7 +1,8 @@
 # A cache service on every host (ZF-245)
 
-Status: slice 1 built (the protocol core, `internal/cacheservice`); the rest is
-not started. This note is the design the later slices are held to. Its first
+Status: slices 1 to 3 built (the protocol core, the runner image's node wrapper,
+and the listener and wiring); the findings, a real-daemon check and the rest are
+not. This note is the design the later slices are held to. Its first
 open risk was checked on 8 November 2026 and the original plan did not survive
 it; see "What is not proven".
 
@@ -108,6 +109,59 @@ Still not run: a whole job on a real runner, which needs GitHub to dispatch one.
 That the runner starts node with the environment it built is read from its source
 (`NodeScriptActionHandler` passes `Environment` to `StepHost.ExecuteAsync`), not
 observed. `test/runner-image/check.sh` checks the built image once CI builds one.
+
+## What slice 3 builds: the listener and the wiring
+
+A pool's `cache.service` (a field of `store.CacheConfig`, so no migration; the
+API refuses it without `cache.enabled` and on the `process` backend; the pool
+editor and `zoomies pools edit --cache-service` set it) now reaches a runner:
+
+* `DockerBackend` owns the services (`internal/backend/cacheservice.go`),
+  because it already holds the shared folder, the network, the create path and
+  the runner's environment. One service per cache identity, started on the
+  first create that needs it, listening on the host's address on the network
+  the runners are attached to (`APIClient.NetworkGateway`) on a port of its own,
+  keeping its entries under `<shared>/cache/service/<identity>` within the
+  pool's `size_limit`, or 10 GiB where there is none.
+* The runner's environment gets `ZOOMIES_CACHE_SERVICE_URL` after the pool's own
+  variables, so a pool cannot send its runners elsewhere, and the name is
+  reserved in `runners.env` and in a pool's `env`.
+* `Registry.Close` stops the services when the agent stops. Runners outlive the
+  agent, so a restart leaves them with an address that no longer answers until
+  they finish; their cache calls miss.
+* Every reason a host cannot offer a service is a runner on GitHub's cache, with
+  the reason logged once per pool: no shared folder, an agent running in a
+  container, no address for the host on the runners' network, an address that
+  cannot be listened on. Nothing in it can fail a create.
+
+Tested with fakes for the host's address (loopback) and not with a daemon:
+the service is reachable and speaks the protocol; one service per pool and per
+repository, never shared across them (checked by breaking it); the variable is
+last in the environment (checked by breaking it); and each way of being unable
+to offer a service. The CLI work also fixed `pools edit`, which rebuilt the
+whole `cache` object from flag defaults and so turned the cache off, and the
+tool cache with it, whenever an edit named one cache flag.
+
+Not done, and why it matters:
+
+* **No run against a real daemon.** Whether a container on the bridge, and a
+  runner under `dind` that shares its sidecar's network namespace, can reach the
+  host's address on that port depends on the host's firewall (`ufw` and some
+  `firewalld` zones drop container-to-host traffic by default). This is the next
+  thing to try, and the likeliest cause of a pool that quietly stays on GitHub's
+  cache.
+* **No feature flag for an older agent.** An agent that predates the setting
+  ignores it, so the pool stays on GitHub's cache without saying so.
+* **No findings.** `cache.service_shared` (the service on for a pool-scoped
+  cache whose installation spans an organisation) and `cache.service_degraded`
+  are in the design and not built; the only signal today is the agent's log.
+* **The agent in a container is unsupported**, which includes the controller's
+  embedded agent in the compose deployment. Rootless Podman has no host address
+  on its networks and will stay on GitHub's cache.
+* **A restart changes the port.** Persisting it would keep running runners
+  connected across a restart.
+* **Docker actions keep GitHub's cache**, and BuildKit's `type=gha` against the
+  service is still unrun.
 
 ## Design for the slices that follow
 

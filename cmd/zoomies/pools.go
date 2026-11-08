@@ -432,6 +432,11 @@ type poolSpec struct {
 	cacheSize    *int64
 	cacheSource  *string
 	cacheRepo    *string
+	cacheService *bool
+	// currentCache is the cache the pool has now, so that an edit naming one of
+	// its settings carries the others forward. The API replaces the object
+	// whole, and this CLI's own defaults would otherwise turn the cache off.
+	currentCache poolCache
 	// The runner timings this pool overrides of the fleet's. Empty means the
 	// pool follows the fleet, and on an edit an empty string clears an
 	// override rather than setting one -- which is the only way to say "stop
@@ -504,6 +509,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.cacheSize = fs.Int64("cache-size", 0, "cache limit in bytes, enforced by eviction; needs an absolute cache-source (0 is unlimited)")
 	spec.cacheSource = fs.String("cache-source", "", "absolute host path or named-volume prefix")
 	spec.cacheRepo = fs.String("cache-repository", "", "owner/name for a repository-scoped cache under an organisation installation")
+	spec.cacheService = fs.Bool("cache-service", false, "run a cache service on each host for this pool's runners, so the Actions cache (actions/cache, setup-*, Buildx type=gha) is kept on the host with no workflow change; needs --cache and a container backend")
 	spec.provisionTimeout = fs.String("provision-timeout", "", "override scheduler.provision_timeout for this pool, e.g. 30m (empty follows the fleet; 0 never gives up)")
 	spec.drainTimeout = fs.String("drain-timeout", "", "override scheduler.drain_timeout for this pool (empty follows the fleet; 0 leaves a drain unbounded)")
 	spec.maxRunnerLifetime = fs.String("max-runner-lifetime", "", "override scheduler.max_runner_lifetime for this pool (empty follows the fleet; 0 is no limit)")
@@ -553,12 +559,33 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	// alone": `--size-from-host=false` is how an edit hands a pool back to the
 	// share of its host, and has to reach the controller to do it.
 	put("size-from-host", "size_from_profile", *spec.sizeFromHost)
-	if !onlyChanged || fs.changed("cache") || fs.changed("cache-scope") || fs.changed("cache-size") ||
-		fs.changed("cache-source") || fs.changed("cache-repository") {
-		body["cache"] = map[string]any{
+	if !onlyChanged || spec.cacheChanged(fs) {
+		cache := map[string]any{
 			"enabled": *spec.cacheEnabled, "scope": *spec.cacheScope, "size_limit": *spec.cacheSize,
-			"source": *spec.cacheSource, "repository": *spec.cacheRepo,
+			"source": *spec.cacheSource, "repository": *spec.cacheRepo, "service": *spec.cacheService,
 		}
+		if onlyChanged {
+			// The API replaces the cache whole, so a setting the edit did not
+			// name is written back as it stands. The tool cache has no flag
+			// here and is only ever carried.
+			cur := spec.currentCache
+			if cur.Scope == "" {
+				cur.Scope = "pool"
+			}
+			keep := func(flagName, key string, current any) {
+				if !fs.changed(flagName) {
+					cache[key] = current
+				}
+			}
+			keep("cache", "enabled", cur.Enabled)
+			keep("cache-scope", "scope", cur.Scope)
+			keep("cache-size", "size_limit", cur.SizeLimit)
+			keep("cache-source", "source", cur.Source)
+			keep("cache-repository", "repository", cur.Repository)
+			keep("cache-service", "service", cur.Service)
+			cache["tools"] = cur.Tools
+		}
+		body["cache"] = cache
 	}
 	if fs.changed("image") {
 		body["image"] = *spec.image
@@ -723,6 +750,12 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 }
 
 // tmpfsChanged is whether any in-memory folder flag was typed.
+// cacheChanged is whether the edit names any of the pool's cache settings.
+func (spec *poolSpec) cacheChanged(fs *flagSet) bool {
+	return fs.changed("cache") || fs.changed("cache-scope") || fs.changed("cache-size") ||
+		fs.changed("cache-source") || fs.changed("cache-repository") || fs.changed("cache-service")
+}
+
 func (spec *poolSpec) tmpfsChanged(fs *flagSet) bool {
 	return fs.changed("tmpfs-work") || fs.changed("tmpfs-work-size") ||
 		fs.changed("tmpfs-tmp") || fs.changed("tmpfs-tmp-size") ||
@@ -1002,15 +1035,16 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 		fs.changed("size-from-host") ||
 		fs.changed("cpu-burst") || fs.changed("cpu-burst-max") || fs.changed("cpu-burst-size-builds") ||
 		fs.changed("memory-burst") || fs.changed("memory-burst-max") || fs.changed("memory-burst-spill") ||
-		spec.tmpfsChanged(fs) {
+		spec.tmpfsChanged(fs) || spec.cacheChanged(fs) {
 		var existing poolItem
 		if _, err := client.get(ctx, "/pools/"+url.PathEscape(id), nil, &existing); err != nil {
-			return fmt.Errorf("reading the pool as it stands, which an edit to part of its size, elastic CPU policy or in-memory folders has to keep: %w", err)
+			return fmt.Errorf("reading the pool as it stands, which an edit to part of its size, elastic CPU policy, in-memory folders or cache has to keep: %w", err)
 		}
 		spec.current = existing.Resources
 		spec.currentBurst = existing.CPUBurst
 		spec.currentMemoryBurst = existing.MemoryBurst
 		spec.currentTmpfs = existing.Tmpfs
+		spec.currentCache = existing.Cache
 	}
 
 	body := spec.body(fs, true)

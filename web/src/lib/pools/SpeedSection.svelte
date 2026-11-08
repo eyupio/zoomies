@@ -376,6 +376,16 @@
         description="What setup-python, setup-node, setup-go and setup-java download is kept in the host's shared folder for the next runner, within the same boundary. A job that can write to it can replace a tool the next job runs."
         onchange={() => touch('cache.tools')}
       />
+      <!--
+        What an action saves, a later job restores, so this one says that too.
+        It needs no change to a workflow, which is the point of it.
+      -->
+      <Checkbox
+        bind:checked={draft.cache_service}
+        label="Serve the Actions cache from the host"
+        description="actions/cache, the setup-* actions' own caches and Buildx's type=gha are kept on the host instead of in GitHub's service, with no change to any workflow. A job that can write to it can plant an entry the next job restores, so keep untrusted pull requests on a pool of their own. A host that cannot run it leaves the runner on GitHub's cache."
+        onchange={() => touch('cache.service')}
+      />
     {/if}
     <div class="pair">
       <Field

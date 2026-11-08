@@ -189,6 +189,15 @@ func TestPoolValidationNamesTheField(t *testing.T) {
 			b["backend"] = "process"
 			b["cache"] = map[string]any{"enabled": true, "scope": "pool", "tools": true}
 		}, "cache.tools", "container runners"},
+		// The cache service keeps the Actions cache under the pool cache's scope,
+		// and listens on a container network a process runner is not on.
+		{"cache service without the cache", func(b map[string]any) {
+			b["cache"] = map[string]any{"enabled": false, "scope": "pool", "service": true}
+		}, "cache.service", "turn the cache on"},
+		{"cache service on a process runner", func(b map[string]any) {
+			b["backend"] = "process"
+			b["cache"] = map[string]any{"enabled": true, "scope": "pool", "service": true}
+		}, "cache.service", "container runners"},
 		// In-memory folders are a mount on a container, and a tmpfs is charged
 		// to the runner's memory limit: a size that cannot work is refused where
 		// it is typed, naming the folder, rather than becoming a runner that is
