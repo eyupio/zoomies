@@ -960,6 +960,10 @@ restart_hint() {
 # the caller can put it under its own message rather than letting curl print
 # `curl: (22) The requested URL returned error: 404` above it -- unbranded,
 # outside the gutter, and the first thing the operator's eye lands on.
+#
+# A file of a release that the download host would not give up is asked for again
+# through the release API (fetch_api). When both fail, the first failure is the
+# one left in FETCH_ERROR, because it is the one the operator can look up.
 FETCH_ERROR=""
 fetch() {
     FETCH_ERROR=""
@@ -972,16 +976,141 @@ fetch() {
         die "neither curl nor wget is installed." \
             "Install one of them, then run this again."
     fi
-    return 1
+    host_said_missing && return 1
+    fetch_api "$1" "$2"
 }
 
+# fetch_stdout <url> is fetch for the small files that are read as text, such as
+# checksums.txt and the signature over it. The first attempt writes to standard
+# output exactly as it always did: whatever stands in for curl in a mirror, a
+# wrapper or a test answers those requests by URL and is relied on to keep
+# working, and the bytes are never touched, because the signature is over them.
+# Only when that fails is anything else asked of anyone. The files are a few
+# hundred bytes, so a transfer that fails after some of it was written is not a
+# case to design for; if it happened the signature would not match, and the
+# install would be refused rather than go ahead on a doubled file.
 fetch_stdout() {
     if have curl; then
         # shellcheck disable=SC2086 # as above
-        curl -fsSL $CURL_PROTO --retry 3 --retry-delay 1 "$1"
+        curl -fsSL $CURL_PROTO --retry 3 --retry-delay 1 "$1" && return 0
     else
-        wget -qO- "$1"
+        wget -qO- "$1" && return 0
     fi
+    fetch_api "$1"
+}
+
+# host_said_missing is whether the last failure, in FETCH_ERROR, was a 404. That
+# is the host saying the file is not there, which the API would say too, after a
+# second request out of a rate limit of sixty an hour per address, so it is not
+# gone round. curl and wget word it differently; a wget run quietly may say
+# nothing at all, which reads as "did not answer" and costs one request.
+host_said_missing() {
+    case "$FETCH_ERROR" in
+        *"error: 404"*|*"ERROR 404"*) return 0 ;;
+    esac
+    return 1
+}
+
+# The URL the release API serves one of a release's files from: the same bytes
+# as releases/download/<tag>/<asset>, through a different front door. GitHub's
+# download host has answered 504 at its edge while api.github.com answered
+# normally, and an installer that knows only the first cannot install anything
+# until it recovers.
+#
+# The asset is found without a JSON tool, which the host may not have: braces,
+# brackets and commas become line ends first, so the response reads the same
+# whether it comes with a key to a line, as GitHub sends it, or all on one line
+# from something in between, and an asset's "url" always comes before its "name".
+# The name must be the whole name, because a release can carry a file whose name
+# only begins like the one asked for. Prints nothing when the file is not in it.
+release_asset_url() {
+    # release_asset_url <asset>, with the release as the API describes it on
+    # standard input.
+    # shellcheck disable=SC2020 # five line ends for five characters, deliberately: how tr pads a shorter second set differs between platforms
+    tr '{}[],' '\n\n\n\n\n' |
+        awk -v want="$1" '
+            /"url": *"https:\/\/api\.github\.com\/repos\/[^"]*\/releases\/assets\/[0-9]+"/ {
+                match($0, /https:[^"]*/); url = substr($0, RSTART, RLENGTH); next
+            }
+            /"name": *"/ {
+                name = $0; sub(/^.*"name": *"/, "", name); sub(/".*$/, "", name)
+                if (name == want && url != "") { print url; exit }
+                url = ""
+            }'
+}
+
+# api_get <asset url> [dest] downloads one asset from the release API, to dest or
+# to standard output. Asking for application/octet-stream is what makes the asset
+# URL answer with the file and not a description of it; it redirects to storage,
+# and CURL_PROTO keeps that redirect on https like every other transfer here.
+api_get() {
+    if have curl; then
+        if [ -n "${2:-}" ]; then
+            # shellcheck disable=SC2086 # as above
+            curl -fsSL $CURL_PROTO --retry 3 --retry-delay 1 -H 'Accept: application/octet-stream' -o "$2" "$1" >/dev/null 2>&1
+        else
+            # shellcheck disable=SC2086 # as above
+            curl -fsSL $CURL_PROTO --retry 3 --retry-delay 1 -H 'Accept: application/octet-stream' "$1" 2>/dev/null
+        fi
+    elif [ -n "${2:-}" ]; then
+        wget -qO "$2" --header='Accept: application/octet-stream' "$1" >/dev/null 2>&1
+    else
+        wget -qO- --header='Accept: application/octet-stream' "$1" 2>/dev/null
+    fi
+}
+
+# fetch_api <download url> [dest] is the way round the download host: the file the
+# URL names, from the release API, to dest or to standard output. It does nothing
+# for a URL that is not a file of a release on the real github.com, which is the
+# only place with this API's shape (as newest_release_tag says), so a mirror, or
+# the API itself, is never sent anywhere new. Where the file comes from changes
+# nothing about how it is held to account: the checksum, and the signature over
+# it, are checked the same whichever door it came through.
+#
+# The release is looked up once, not once for each of its files: an install goes
+# round the host for the binary, its checksums and the signature over them, and
+# the API allows an unauthenticated address sixty requests an hour. A release that
+# lacks the file is forgotten again, because the likeliest reason is that its
+# binaries are still uploading. API_ASSETS collects what came this way, for
+# note_via_api to say once the loader is out of the way.
+API_RELEASE_TAG=""
+API_RELEASE_BODY=""
+API_ASSETS=""
+API_NOTED=0
+fetch_api() {
+    [ "$BASE_URL" = "https://github.com/${REPO}/releases" ] || return 1
+    case "$1" in
+        "$BASE_URL"/download/*/*) ;;
+        *) return 1 ;;
+    esac
+    _rest=${1#"$BASE_URL"/download/}
+    _tag=${_rest%%/*}
+    _asset=${_rest#*/}
+    if [ "$API_RELEASE_TAG" != "$_tag" ]; then
+        API_RELEASE_BODY=$(fetch_stdout "https://api.github.com/repos/${REPO}/releases/tags/$_tag" 2>/dev/null) || return 1
+        API_RELEASE_TAG="$_tag"
+    fi
+    _api=$(printf '%s\n' "$API_RELEASE_BODY" | release_asset_url "$_asset")
+    if [ -z "$_api" ]; then
+        API_RELEASE_TAG=""
+        return 1
+    fi
+    api_get "$_api" "${2:-}" || return 1
+    API_ASSETS="${API_ASSETS:+$API_ASSETS, }$_asset"
+}
+
+# note_via_api says that what has been fetched since it last spoke went round the
+# download host, and what the host said. It is for after load_stop, because the
+# loader owns the line while a transfer runs. curl repeats its message for each
+# retry, so only the first line of it is shown, and only once.
+note_via_api() {
+    [ -n "$API_ASSETS" ] || return 0
+    note "$BASE_URL did not answer, so $API_ASSETS came through the release API."
+    if [ "$API_NOTED" -eq 0 ] && [ -n "$FETCH_ERROR" ]; then
+        note "$(printf '%s\n' "$FETCH_ERROR" | sed -n 1p)"
+    fi
+    API_ASSETS=""
+    API_NOTED=1
 }
 
 # A tag becomes the target of the /releases/latest redirect the moment it is
@@ -1174,6 +1303,7 @@ download_binary() {
         _dl_ok=0
     fi
     load_stop
+    note_via_api
     if [ "$_dl_ok" -eq 0 ]; then
         wait_for_asset "$url" "$tmp/zoomies" ||
             die "could not download $asset $tag." \
@@ -1201,11 +1331,13 @@ download_binary() {
         sums=$(cat "$tmp/sums" 2>/dev/null)
     fi
     load_stop
+    note_via_api
     unverified=""
     if [ -n "$sums" ]; then
         # The signature, when it can be checked, is what says the checksums are
         # the project's rather than whatever the transport carried.
         verify_signature "$tag" "$tmp/sums" "$tmp"
+        note_via_api
         want=$(printf '%s\n' "$sums" | awk -v a="$asset" '$2 == a || $2 == "*"a {print $1; exit}')
         got=$(sha256_of "$tmp/zoomies")
         if [ -z "$want" ]; then

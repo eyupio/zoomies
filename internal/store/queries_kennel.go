@@ -226,7 +226,91 @@ var kennelSortCols = map[string]string{
 	"severity":     "(open_errors * 1000000 + open_warnings * 1000 + open_infos)",
 }
 
-func kennelWhere(f KennelFilter) (string, []any) {
+// kennelServedByRepositorySQL is the repositories the fleet had a hand in a job
+// for since a moment, lower-cased, as a JSON array of names, with the moment as
+// its one parameter.
+//
+// It does not read every job in the window. It walks the distinct spellings of a
+// repository through idx_jobs_repo, which costs an index entry for each
+// repository and not for each job, and asks of each whether the index holds a job
+// of the fleet's in the window, which stops at the first it finds. Left to itself,
+// as a subquery of the list, SQLite reads every job in the window, a whole row
+// each, and read them twice: once for the total and again for the page.
+//
+// What it pays for is a repository's spelling, not a job, and for every spelling
+// the table has ever named, whether or not the window reaches it. So it gains the
+// most when the jobs name far fewer repositories than there are jobs, which is
+// what a fleet's history looks like, and the least when every job names a
+// repository of its own. It loses to reading the window when the window is a
+// small part of the table: kennelServedQuery chooses between them. A test holds
+// it to the index, because a plan that falls back to reading the table is just as
+// correct and several times slower.
+var kennelServedByRepositorySQL = `WITH RECURSIVE spelling(repo) AS (
+		SELECT MIN(repo) FROM jobs WHERE repo <> ''
+		UNION ALL
+		SELECT (SELECT MIN(repo) FROM jobs WHERE repo > spelling.repo) FROM spelling WHERE spelling.repo IS NOT NULL
+	)
+	SELECT json_group_array(name) FROM (
+		SELECT DISTINCT LOWER(repo) AS name FROM spelling
+		WHERE repo IS NOT NULL AND EXISTS (
+			SELECT 1 FROM jobs WHERE jobs.repo = spelling.repo
+				AND queued_at >= ? AND installation_id <> '' AND ` + managedJobSQL("jobs") + `))`
+
+// kennelServedByWindowSQL finds the same names the plain way: it reads every job
+// in the window, through the index on when it was queued, and keeps the
+// repositories of the fleet's. It costs about a microsecond and a bit for each
+// job the window holds and nothing for the rest of the table, which is what
+// makes it the better of the two when the window is small.
+var kennelServedByWindowSQL = `SELECT json_group_array(name) FROM (
+		SELECT DISTINCT LOWER(repo) AS name FROM jobs
+		WHERE queued_at >= ? AND repo <> '' AND installation_id <> '' AND ` + managedJobSQL("jobs") + `)`
+
+// kennelServedScanBelow is how many jobs a window can hold and still be read
+// whole. Reading is the cheaper of the two ways up to about here, whatever else
+// the table holds, and it costs a few milliseconds at the most: six hundred jobs
+// in a window of a hundred thousand jobs over twenty thousand repositories took
+// three milliseconds to read and fifty to find by walking the repositories. Past
+// it the window is big enough for the walk to win, or at worst to cost about what
+// reading would, and that cost grows with the window and not with the number of
+// repositories.
+const kennelServedScanBelow = 5000
+
+// kennelServedProbeSQL counts the jobs in a window, and stops counting at the
+// limit it is given, so it reads no more of the index than a decision needs.
+const kennelServedProbeSQL = `SELECT COUNT(*) FROM (SELECT 1 FROM jobs WHERE queued_at >= ? LIMIT ?)`
+
+// kennelServedQuery chooses how to ask for the served names. It counts the jobs in
+// the window up to kennelServedScanBelow and no further, so what the question
+// costs is bounded by the threshold however large the window is.
+func (s *Store) kennelServedQuery(ctx context.Context, since time.Time) (string, error) {
+	var inWindow int
+	if err := s.read.QueryRowContext(ctx, kennelServedProbeSQL, ms(since), kennelServedScanBelow).Scan(&inWindow); err != nil {
+		return "", err
+	}
+	if inWindow < kennelServedScanBelow {
+		return kennelServedByWindowSQL, nil
+	}
+	return kennelServedByRepositorySQL, nil
+}
+
+// kennelServedNames runs whichever of the two queries kennelServedQuery chooses.
+// The array is handed back to SQLite as it came out of it, so the names are the
+// ones the comparison will see and no encoding stands between the two.
+func (s *Store) kennelServedNames(ctx context.Context, since time.Time) (string, error) {
+	query, err := s.kennelServedQuery(ctx, since)
+	if err != nil {
+		return "", err
+	}
+	var names string
+	if err := s.read.QueryRowContext(ctx, query, ms(since)).Scan(&names); err != nil {
+		return "", err
+	}
+	return names, nil
+}
+
+// kennelWhere is the WHERE clause for a filter. served is the array
+// kennelServedNames returned, and is read only if the filter asks about it.
+func kennelWhere(f KennelFilter, served string) (string, []any) {
 	var cond []string
 	var args []any
 	if f.Q != "" {
@@ -251,9 +335,8 @@ func kennelWhere(f KennelFilter) (string, []any) {
 		if !*f.Served {
 			in = "NOT IN"
 		}
-		cond = append(cond, `LOWER(full_name) `+in+` (SELECT LOWER(repo) FROM jobs
-			WHERE queued_at >= ? AND repo <> '' AND installation_id <> '' AND `+managedJobSQL("jobs")+`)`)
-		args = append(args, ms(f.ServedSince))
+		cond = append(cond, `LOWER(full_name) `+in+` (SELECT value FROM json_each(?))`)
+		args = append(args, served)
 	}
 	if f.Tracked != nil {
 		if *f.Tracked {
@@ -295,7 +378,16 @@ func kennelWhere(f KennelFilter) (string, []any) {
 // default order puts the repository with the most errors first, then warnings,
 // then notes, then by name, which is the order an operator wants to read it in.
 func (s *Store) ListKennelRepositories(ctx context.Context, f KennelFilter, p Page) ([]*KennelRepository, int, error) {
-	where, args := kennelWhere(f)
+	// Asked once, for the total and the page together: it is the dear part of the
+	// list when the filter is on, and the two statements must agree on it.
+	served := ""
+	if f.Served != nil {
+		var err error
+		if served, err = s.kennelServedNames(ctx, f.ServedSince); err != nil {
+			return nil, 0, err
+		}
+	}
+	where, args := kennelWhere(f, served)
 	var total int
 	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM kennel_repositories
 		LEFT JOIN kennel_untracked ON repository_pk = kennel_repositories.id `+where, args...).Scan(&total); err != nil {
