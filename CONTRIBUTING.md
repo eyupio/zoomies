@@ -14,6 +14,11 @@ By participating, you agree to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 - For a substantial feature, architectural change, new dependency, or breaking
   configuration change, open an issue first so the approach can be agreed
   before a lot of work is done.
+- To list a hosting provider, a platform or service that deploys a controller or
+  hosts runners, open a [provider proposal](https://github.com/eyupio/zoomies/issues/new?template=provider.yml)
+  first. Once the approach is agreed, open the pull request with the provider
+  template by adding `template=provider.md` to the compare URL; the form says
+  how. A provider is a third party, so a guide page is not an endorsement.
 - Report vulnerabilities privately as described in
   [SECURITY.md](SECURITY.md). Do not open a public issue for a security problem.
 
