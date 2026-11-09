@@ -28,6 +28,23 @@ const MARKDOWN_TYPE = "text/markdown";
 // the source tree it is generated from.
 const OPENAPI_URL = "https://raw.githubusercontent.com/eyupio/zoomies/main/api/openapi.yaml";
 
+// Addresses that once answered and now belong elsewhere. A page that is
+// renamed or folded into another leaves its old address in search indexes and
+// in other people's links, where it reports "not found" until a crawler gives
+// up on it. A permanent redirect hands the old address's standing to the page
+// that replaced it. Keys are pathnames without the trailing slash.
+export const REDIRECTS = new Map([
+  ["/ai-context-implementation-plan", "/ai-context/"],
+]);
+
+// The redirect for a pathname, or null when it has none. A trailing slash is
+// ignored on the way in because the site is served both ways, and the target
+// always carries the slash the built pages use.
+export function redirectFor(pathname) {
+  const key = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  return REDIRECTS.get(key) ?? null;
+}
+
 export function discoveryLinks() {
   return [
     '</.well-known/api-catalog>; rel="api-catalog"',
@@ -242,6 +259,12 @@ async function route(request, env) {
       if (catalog !== null) {
         return request.method === "HEAD" ? new Response(null, catalog) : catalog;
       }
+    }
+    const moved = redirectFor(url.pathname);
+    if (moved !== null) {
+      const target = new URL(moved, url);
+      target.search = url.search;
+      return new Response(null, { status: 301, headers: { location: target.href } });
     }
     if (wantsMarkdown(request.headers.get("accept"))) {
       const markdown = await markdownResponse(request, url, env);

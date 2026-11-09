@@ -241,6 +241,7 @@ nav:
           - Metrics: metrics.md
           - Runner startup stability: runner-startup-stability.md
           - Runtime compatibility: runtime-compatibility.md
+          - Recovering a published image: development/image-recovery.md
           - Provider contract: providers.md
           - Automation contract: automation.md
           - Capacity-demand receiver: capacity-demand-receiver.md
