@@ -103,6 +103,7 @@ These change nothing. Run them as the question needs.
 * `zoomies providers list`, `zoomies providers kinds`, `zoomies providers check`, `zoomies providers machines`, `zoomies providers orphans`
 * `zoomies installations list`
 * `zoomies audit list`
+* `zoomies storage` (what is in the controller's state directory and how big each entry is; it changes nothing, and needs a token that may read backups)
 * `zoomies users list`, `zoomies tokens list`, `zoomies mcp-clients list`
 * `zoomies config check`, `zoomies config print`, `zoomies config list`, `zoomies config get`
 * `zoomies transfer status`

@@ -13666,7 +13666,7 @@ components:
             The report's own shape number. It moves when a field is removed or
             renamed, not when one is added, so a reader can refuse a shape it does
             not know.
-        directory: { type: string, description: The state directory, which is the one the database is in. }
+        directory: { type: string, description: "The state directory, which is the one the database is in." }
         backup_directory:
           type: string
           description: >-
@@ -13692,7 +13692,7 @@ components:
       type: object
       required: [path, bytes, class]
       properties:
-        path: { type: string, description: Relative to the state directory, with forward slashes. }
+        path: { type: string, description: "Relative to the state directory, with forward slashes." }
         bytes: { type: integer, format: int64, description: The size of the regular files under it. }
         class:
           type: string

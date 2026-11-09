@@ -9333,7 +9333,7 @@ export interface components {
         StorageReport: {
             /** @description The report's own shape number. It moves when a field is removed or renamed, not when one is added, so a reader can refuse a shape it does not know. */
             version: number;
-            /** @description The state directory */
+            /** @description The state directory, which is the one the database is in. */
             directory: string;
             /** @description Where scheduled and manual backups go. When it is not directly inside `directory`, its copies are not listed, because a copy of the state directory does not carry them either. */
             backup_directory: string;
@@ -9360,7 +9360,7 @@ export interface components {
             disk_free_bytes: number | null;
         };
         StorageEntry: {
-            /** @description Relative to the state directory */
+            /** @description Relative to the state directory, with forward slashes. */
             path: string;
             /**
              * Format: int64
