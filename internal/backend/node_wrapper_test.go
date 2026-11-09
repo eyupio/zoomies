@@ -2,6 +2,7 @@ package backend
 
 import (
 	"bytes"
+	"debug/elf"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,12 +14,36 @@ import (
 // The runner overwrites ACTIONS_RESULTS_URL for every JavaScript action, so the
 // only place left to redirect the cache is the node it starts. These tests hold
 // the wrapper that does that, and the script that puts it there, to what they
-// promise. The wrapper is shell, so they run the real scripts.
+// promise. The wrapper is a small Go program the image build compiles, and the
+// tests compile the same file and run the result, so what they hold is what the
+// image carries.
 
 const (
-	wrapperScript = "../../deploy/runner-node-wrapper.sh"
+	wrapperSource = "../../deploy/node-wrapper.go"
 	wrapScript    = "../../deploy/runner-node-wrap.sh"
 )
+
+// buildWrapper compiles deploy/node-wrapper.go as the image build does, for the
+// host when goos is empty and for that system otherwise, and says where it put
+// it. It is built without cgo and with -trimpath so the same source gives the
+// same bytes wherever it is built.
+func buildWrapper(t *testing.T, goos, goarch string) string {
+	t.Helper()
+	goTool, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("the wrapper tests compile the wrapper and found no go on the path: %v", err)
+	}
+	out := filepath.Join(t.TempDir(), "runner-node-wrapper")
+	cmd := exec.Command(goTool, "build", "-trimpath", "-ldflags=-s -w", "-o", out, wrapperSource)
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if goos != "" {
+		cmd.Env = append(cmd.Env, "GOOS="+goos, "GOARCH="+goarch)
+	}
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("building the wrapper: %v\n%s", err, b)
+	}
+	return out
+}
 
 // fakeRunner lays out the part of a runner the installer looks at: a glibc and
 // an Alpine node for each of two releases, each a script that reports what it
@@ -47,7 +72,7 @@ func fakeRunner(t *testing.T) string {
 
 func wrap(t *testing.T, runner string) ([]byte, error) {
 	t.Helper()
-	cmd := exec.Command("sh", wrapScript, runner, wrapperScript)
+	cmd := exec.Command("sh", wrapScript, runner, buildWrapper(t, "", ""))
 	return cmd.CombinedOutput()
 }
 
@@ -170,6 +195,52 @@ func TestTheWrapperRunsTheRealNodeWithItsArgumentsIntact(t *testing.T) {
 	}
 }
 
+func TestTheWrapperKeepsEnvironmentVariablesWhoseNamesAreNotShellNames(t *testing.T) {
+	// The runner hands every JavaScript action its inputs as INPUT_<NAME> with
+	// the name's hyphens kept, so setup-go reads INPUT_GO-VERSION-FILE. That is
+	// not a name a POSIX shell can hold, and dash, which is /bin/sh on Debian and
+	// Ubuntu, drops such a variable on the way through a script. This wrapper was
+	// a /bin/sh script once, and every action with a hyphenated input then ran in
+	// a job in which the input was never given: setup-go and setup-python failed
+	// outright, and checkout quietly fell back to its defaults. It is a program
+	// now, which has no such limit, and this holds it there.
+	//
+	// The real node here is a copy of env, not a script, so nothing between the
+	// wrapper and the check is a shell that could drop the name by itself.
+	envBinary, err := exec.LookPath("env")
+	if err != nil {
+		t.Skip("no env to stand in for node: " + err.Error())
+	}
+	inputs := []string{"INPUT_GO-VERSION-FILE=go.mod", "INPUT_PYTHON-VERSION=3.12", "INPUT_TOKEN=x"}
+	redirect := preload(t)
+	for name, extra := range map[string][]string{
+		"without the cache service": nil,
+		"with the cache service": {EnvCacheServiceURL + "=http://172.17.0.1:41234/",
+			"ZOOMIES_CACHE_REDIRECT_FILE=" + redirect, "ACTIONS_CACHE_SERVICE_V2=true"},
+	} {
+		runner := fakeRunner(t)
+		body, err := os.ReadFile(envBinary)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(runner, "externals", "node20", "bin", "node"), body, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := wrap(t, runner); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		out, err := runNode(t, runner, append(append([]string{}, inputs...), extra...))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for _, want := range inputs {
+			if !strings.Contains("\n"+out, "\n"+want+"\n") {
+				t.Errorf("%s: the real node's environment was:\n%s\nwant it to contain %q", name, out, want)
+			}
+		}
+	}
+}
+
 func TestTheWrapperPassesOnTheExitCodeAndStandardInput(t *testing.T) {
 	// The runner reads node's exit code as the step's, and a few actions read
 	// their input from stdin, so neither may be lost to the extra process.
@@ -198,7 +269,10 @@ func TestTheInstallerWrapsTheGlibcNodesAndLeavesTheAlpineOnesAlone(t *testing.T)
 	if out, err := wrap(t, runner); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	want, _ := os.ReadFile(wrapperScript)
+	want, err := os.ReadFile(buildWrapper(t, "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, d := range []string{"node20", "node24"} {
 		bin := filepath.Join(runner, "externals", d, "bin")
 		got, _ := os.ReadFile(filepath.Join(bin, "node"))
@@ -237,18 +311,108 @@ func TestTheInstallerIsSafeToRunTwiceAndFailsWhenThereIsNoNode(t *testing.T) {
 	}
 }
 
+func TestTheWrapperIsAStaticProgramSoAJobImageNeedsNoShellOrLibc(t *testing.T) {
+	// A `container:` job mounts the runner's externals, this wrapper included,
+	// into whatever image the workflow chose and starts node from there. That
+	// image may have no bash, no sh, or a libc this was not built against, so the
+	// wrapper depends on none of them: it is statically linked and starts no
+	// shell. Both architectures the image ships are held to it.
+	for _, arch := range []string{"amd64", "arm64"} {
+		f, err := elf.Open(buildWrapper(t, "linux", arch))
+		if err != nil {
+			t.Fatalf("%s: %v", arch, err)
+		}
+		for _, p := range f.Progs {
+			if p.Type == elf.PT_INTERP {
+				t.Errorf("%s: the wrapper asks for a dynamic loader, so it needs a libc in the job's image", arch)
+			}
+		}
+		if libs, err := f.ImportedLibraries(); err != nil || len(libs) > 0 {
+			t.Errorf("%s: the wrapper links %v (%v); it must link nothing", arch, libs, err)
+		}
+		f.Close()
+	}
+}
+
+func TestTheWrapperFindsTheRealNodeWhenItIsStartedByABareName(t *testing.T) {
+	// A step in a job container can start node by the name it finds on its
+	// PATH, so the first argument is "node" and not where it is. The real node is
+	// beside the wrapper, wherever that is, and not beside wherever it was named.
+	runner := fakeRunner(t)
+	if out, err := wrap(t, runner); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	cmd := exec.Command(filepath.Join(runner, "externals", "node20", "bin", "node"), "main.js")
+	cmd.Args[0] = "node"
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	out, err := cmd.Output()
+	if err != nil || !strings.Contains(string(out), "args=[main.js]") {
+		t.Fatalf("started as %q the wrapper gave %q (%v)", "node", out, err)
+	}
+}
+
+func TestTheWrapperSaysWhichNodeItCouldNotFind(t *testing.T) {
+	// A runner image whose real node was lost fails every action, and the first
+	// place anybody looks is the output of the step that failed.
+	runner := fakeRunner(t)
+	if out, err := wrap(t, runner); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	real := filepath.Join(runner, "externals", "node20", "bin", "node.real")
+	if err := os.Remove(real); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(filepath.Join(runner, "externals", "node20", "bin", "node"), "main.js")
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	out, err := cmd.CombinedOutput()
+	ee, ok := err.(*exec.ExitError)
+	if !ok || ee.ExitCode() != 127 {
+		t.Fatalf("exit = %v, want 127, the status a shell gives a command it cannot find", err)
+	}
+	// By name and not by full path: where a temporary directory really is can
+	// differ from where it was made on some systems.
+	if !strings.Contains(string(out), filepath.Base(real)) {
+		t.Fatalf("the wrapper did not say which file was missing:\n%s", out)
+	}
+}
+
 func TestTheWrapperAndTheBackendAgreeOnTheVariable(t *testing.T) {
-	body, err := os.ReadFile(wrapperScript)
+	body, err := os.ReadFile(wrapperSource)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(body), EnvCacheServiceURL) {
-		t.Fatalf("deploy/runner-node-wrapper.sh does not read %s, the name the backend sets", EnvCacheServiceURL)
+		t.Fatalf("deploy/node-wrapper.go does not read %s, the name the backend sets", EnvCacheServiceURL)
+	}
+}
+
+func TestTheImageBuildsTheWrapperStaticallyAndInstallsItWhereTheInstallerLooks(t *testing.T) {
+	dockerfile, err := os.ReadFile("../../deploy/Dockerfile.runner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	df := string(dockerfile)
+	for _, want := range []string{
+		"deploy/node-wrapper.go",
+		"CGO_ENABLED=0",
+		"--from=nodewrap",
+		"/usr/local/lib/zoomies/runner-node-wrapper",
+	} {
+		if !strings.Contains(df, want) {
+			t.Errorf("deploy/Dockerfile.runner does not contain %q: the wrapper must be built without cgo and put where runner-node-wrap.sh looks for it", want)
+		}
+	}
+	installer, err := os.ReadFile(wrapScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(installer), `/runner-node-wrapper}`) {
+		t.Error("deploy/runner-node-wrap.sh does not default to runner-node-wrapper beside it")
 	}
 }
 
 func TestTheImageCarriesTheRedirectWhereTheWrapperLooksForIt(t *testing.T) {
-	wrapper, err := os.ReadFile(wrapperScript)
+	wrapper, err := os.ReadFile(wrapperSource)
 	if err != nil {
 		t.Fatal(err)
 	}

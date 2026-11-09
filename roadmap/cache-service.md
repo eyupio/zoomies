@@ -121,7 +121,10 @@ it changed the design.
 
 ## What slice 2 proves: the node wrapper
 
-`deploy/runner-node-wrapper.sh`, `deploy/runner-node-wrap.sh` and
+`deploy/runner-node-wrapper.sh` (since replaced by the program
+`deploy/node-wrapper.go`, which the image build compiles: a shell script lost an
+action's hyphenated inputs, and needed a shell in a job container's image),
+`deploy/runner-node-wrap.sh` and
 `deploy/runner-cache-redirect.cjs` are built, and the runner image installs them
 (the wrap in the RUN that unpacks the runner, because a later RUN would copy two
 hundred megabytes of node into a new layer). They were tested against the real

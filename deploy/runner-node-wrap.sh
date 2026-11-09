@@ -1,7 +1,10 @@
 #!/bin/sh
-# Puts runner-node-wrapper.sh in front of the node the runner ships.
+# Puts runner-node-wrapper in front of the node the runner ships.
 #
 #   runner-node-wrap.sh <runner directory> [wrapper]
+#
+# The wrapper is the program the image build compiles from deploy/node-wrapper.go,
+# and it is not a script on purpose: see the comment there for why.
 #
 # Each externals/node*/bin/node becomes the wrapper, and the binary it replaced
 # is kept beside it as node.real, which the wrapper runs. Only the glibc builds
@@ -16,7 +19,7 @@
 set -eu
 
 dir=${1:?usage: runner-node-wrap.sh <runner directory> [wrapper]}
-wrapper=${2:-$(dirname "$0")/runner-node-wrapper.sh}
+wrapper=${2:-$(dirname "$0")/runner-node-wrapper}
 [ -f "$wrapper" ] || { echo "runner-node-wrap: $wrapper is not a file" >&2; exit 1; }
 
 found=0

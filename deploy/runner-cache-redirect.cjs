@@ -1,7 +1,7 @@
 'use strict';
 // Sends the Actions cache's calls to the host's cache service, and nothing else.
 //
-// deploy/runner-node-wrapper.sh loads this into every JavaScript action when the
+// deploy/node-wrapper.go loads this into every JavaScript action when the
 // agent has given the runner the address of its host's cache service
 // (ZOOMIES_CACHE_SERVICE_URL). It cannot do that by changing
 // ACTIONS_RESULTS_URL, which is the obvious thing: the same address is where
