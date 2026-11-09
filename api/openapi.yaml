@@ -7896,9 +7896,40 @@ paths:
   # ==========================================================================
   # Backups
   # ==========================================================================
-  # Every route here is admin, and a backup is the whole database: every
+  # Every route here needs the platform role, and a backup is the whole database: every
   # account's password hash and every sealed credential. The upload is bounded
   # by its own handler rather than the API's ordinary body limit.
+  /storage:
+    get:
+      operationId: getStorage
+      tags: [backups]
+      summary: What is in the state directory, and what a controller could make again
+      description: >-
+        Every top-level entry of the state directory (the directory the database is
+        in), with its size in bytes and what it is to an operator: `essential` (the
+        controller cannot start without it, or must not be started without it),
+        `kept` (somebody's own and never deleted: an uploaded or fetched backup, or
+        the live database a restore set aside), `regenerable` (the controller does
+        not need it to start and leaving it behind loses nothing of anybody's: a
+        cache, a backup the controller took of itself, a note about a restore; a
+        pre-migration copy is in this class but is the rollback for the last upgrade
+        and cannot be taken again) or `unknown` (this report does not class it, so
+        treat it as essential). The directories of backups and of pre-migration
+        copies, and the shared folder, are opened one level, so each copy is an
+        entry of its own and only `shared/cache` is regenerable. A symbolic link
+        counts as nothing and is never followed. The report also says how big the
+        database file is, how much of it is free pages that a delete left behind,
+        and how much room is left on the disk. The encryption key is listed only
+        when it lives in this directory; by default it is in the configuration
+        directory, which this does not read.
+      x-zoomies-role: platform
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StorageReport" }
+
   /backups:
     get:
       operationId: listBackups
@@ -7909,7 +7940,7 @@ paths:
         migrating, newest first, each with what its manifest says and whether a
         restore of it would be refused; the schedule and its last outcome; the
         restore waiting for a restart, if any; and what became of the last one.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "200":
           description: OK
@@ -7925,7 +7956,7 @@ paths:
         with `PRAGMA integrity_check`, and written with its manifest into
         `backup.directory`. Retention (`backup.keep`) runs afterwards. Refused with
         409 while another backup is being taken.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "201":
           description: Taken
@@ -8159,7 +8190,7 @@ paths:
         would verify it, and then listed under the name its manifest gives it,
         with its source recorded as uploaded. An upload is never counted or
         removed by retention.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       requestBody:
         required: true
         content:
@@ -8185,7 +8216,7 @@ paths:
       tags: [backups]
       summary: Cancel the staged restore
       description: Forgets the restore waiting for a restart. Cancelling when none is staged succeeds.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "204": { description: Cancelled }
 
@@ -8202,7 +8233,7 @@ paths:
         process comes back is up to whatever started it; a systemd unit and a
         container with a restart policy both bring it back, and a controller run
         by hand needs starting by hand.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "202":
           description: Stopping
@@ -8216,7 +8247,7 @@ paths:
       operationId: dismissRestoreOutcome
       tags: [backups]
       summary: Dismiss what became of the last restore
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "204": { description: Dismissed }
 
@@ -8233,7 +8264,7 @@ paths:
         way to run it now, which is what an operator who has just fixed a credential
         wants. A destination that refuses is reported in `error` while the others
         still go. Refused with 409 while a pass is already running.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "200":
           description: The pass ran
@@ -8257,7 +8288,7 @@ paths:
         never removed. The answer lists what went, per destination, and a bucket
         that refused is reported against its own name while the others are still
         pruned. Refused with 409 while a backup or an offsite pass is running.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "200":
           description: Retention was applied
@@ -8279,7 +8310,7 @@ paths:
         it can act on. A destination `backup.remotes` in `zoomies.yaml` already
         names is refused: the file has the last word, and two rows that disagree
         would be worse than one that cannot be added.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       requestBody:
         required: true
         content:
@@ -8305,7 +8336,7 @@ paths:
         which is how a saved destination is re-tested after its bucket or prefix
         is changed. A destination that refuses is a `200` with `ok: false` and
         the service's own words.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       requestBody:
         required: true
         content:
@@ -8337,7 +8368,7 @@ paths:
         removed from a destination that should send the plain archive. A
         destination described in `zoomies.yaml` answers `409`: it is changed in
         the file.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       requestBody:
         required: true
         content:
@@ -8360,7 +8391,7 @@ paths:
         Forgets the destination. What its bucket holds is left alone: forgetting
         where the copies are is not the same as deciding they should not exist,
         and each one can be deleted from the listing first.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "204": { description: Removed }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -8383,7 +8414,7 @@ paths:
         answers is whether the offsite copy is actually there, and a remembered
         yes is worth nothing. Anything under the prefix that this fleet did not
         write is ignored: a bucket may be shared.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "200":
           description: OK
@@ -8409,7 +8440,7 @@ paths:
         signature is accepted, the bucket exists and the policy allows reading it.
         A remote that refuses is a 200 with `ok: false` and the service's own
         refusal in `error` -- the check ran, and what it found is the result.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "200":
           description: The check ran
@@ -8437,7 +8468,7 @@ paths:
         Deletes the archive from the bucket. Audited like deleting a local backup,
         and for a stronger reason: the offsite copy is the one that exists because
         the local ones might not.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "204": { description: Removed }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -8465,7 +8496,7 @@ paths:
         the same staging as any other. There is deliberately no "restore from the
         bucket": a restore swaps the database this fleet runs on, and the copy it
         swaps in should be one somebody has seen land and verified first.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       requestBody:
         required: false
         content:
@@ -8494,7 +8525,7 @@ paths:
       operationId: getBackup
       tags: [backups]
       summary: One backup
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "200":
           description: OK
@@ -8507,7 +8538,7 @@ paths:
       tags: [backups]
       summary: Delete a backup
       description: Refused with 409 while the backup is staged to be restored.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "204": { description: Deleted }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -8527,7 +8558,7 @@ paths:
         Compares the database's digest with the one the manifest recorded, opens it,
         runs `PRAGMA integrity_check`, and says whether this build could restore it.
         A POST because it reads the whole file.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "200":
           description: OK
@@ -8550,7 +8581,7 @@ paths:
         A `<id>.zip` holding `<id>.sealed` and `<id>.json`: the encrypted
         payload and the manifest that describes it. Audited: it is the whole
         database leaving the machine.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       responses:
         "200": { description: The zip, content: { application/zip: { schema: { type: string, format: binary } } } }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -8563,7 +8594,7 @@ paths:
         it is run through argon2id and the archive through AES-256-GCM in
         chunks, so a file cut short or altered does not open as a shorter
         backup. The upload route takes the same passphrase to bring it back.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       requestBody:
         required: true
         content:
@@ -8597,7 +8628,7 @@ paths:
         is the restart that does it. The restored fleet comes back fenced, with
         every session ended and every unredeemed join token removed; the two options
         go further, as `zoomies restore`'s flags do.
-      x-zoomies-role: admin
+      x-zoomies-role: platform
       requestBody:
         content:
           application/json:
@@ -13629,6 +13660,63 @@ components:
             - $ref: "#/components/schemas/RestoreOutcome"
             - type: "null"
         restarting: { type: boolean, description: This process has been asked to stop, so wait for the next one. }
+
+    StorageReport:
+      type: object
+      required: [version, directory, backup_directory, entries, database_bytes, database_free_bytes, total_bytes, disk_free_bytes]
+      properties:
+        version:
+          type: integer
+          description: >-
+            The report's own shape number. It moves when a field is removed or
+            renamed, not when one is added, so a reader can refuse a shape it does
+            not know.
+        directory: { type: string, description: "The state directory, which is the one the database is in." }
+        backup_directory:
+          type: string
+          description: >-
+            Where scheduled and manual backups go. Its copies are listed one by one
+            when it is a direct child of `directory`, or `directory` itself. Nested
+            deeper it is counted whole under its top-level entry as `unknown`. Outside
+            `directory` it is not walked, because a copy of the state directory does
+            not carry it either.
+        entries: { type: array, items: { $ref: "#/components/schemas/StorageEntry" } }
+        database_bytes: { type: integer, format: int64, description: The database file's size. }
+        database_free_bytes:
+          type: integer
+          format: int64
+          description: >-
+            The part of the database file that holds no data: the free pages times
+            the page size. A delete leaves these in the file, and nothing returns
+            them to the disk.
+        total_bytes: { type: integer, format: int64, description: Every entry added up. }
+        disk_free_bytes:
+          type: [integer, "null"]
+          format: int64
+          description: Room left on the filesystem the directory is on, when the platform can say.
+
+    StorageEntry:
+      type: object
+      required: [path, bytes, class]
+      properties:
+        path: { type: string, description: "Relative to the state directory, with forward slashes." }
+        bytes: { type: integer, format: int64, description: The size of the regular files under it. }
+        class:
+          type: string
+          enum: [essential, kept, regenerable, unknown]
+          description: >-
+            `essential`: the controller cannot start without it, or must not be
+            started without it. `kept`: somebody's own and never deleted, an
+            uploaded or fetched backup or the live database a restore set aside.
+            `regenerable`: the controller does not need it to start and leaving it
+            behind loses nothing of anybody's; a pre-migration copy is the rollback
+            for the last upgrade and cannot be taken again. `unknown`: this report
+            does not class it, and a reader must treat it as essential.
+        optional:
+          type: boolean
+          description: >-
+            Its absence is normal and is not damage. A clean stop leaves no
+            write-ahead files. Omitted when false.
 
     BackupRemote:
       type: object

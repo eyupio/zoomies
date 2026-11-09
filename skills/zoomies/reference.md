@@ -2608,6 +2608,30 @@ Examples:
   zoomies diagnostics --stdout
 ```
 
+### zoomies storage
+
+What is in the controller's state directory, and what it could make again
+
+```text
+Say what is in the controller's state directory, how big each entry is, and which of it
+a move would have to carry and which the controller could make again.
+
+Usage:
+  zoomies storage
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --output=table             table, json or yaml
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies storage
+  zoomies storage --output json
+```
+
 ### zoomies users
 
 User accounts

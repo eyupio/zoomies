@@ -5068,6 +5068,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/storage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What is in the state directory, and what a controller could make again
+         * @description Every top-level entry of the state directory (the directory the database is in), with its size in bytes and what it is to an operator: `essential` (the controller cannot start without it, or must not be started without it), `kept` (somebody's own and never deleted: an uploaded or fetched backup, or the live database a restore set aside), `regenerable` (the controller does not need it to start and leaving it behind loses nothing of anybody's: a cache, a backup the controller took of itself, a note about a restore; a pre-migration copy is in this class but is the rollback for the last upgrade and cannot be taken again) or `unknown` (this report does not class it, so treat it as essential). The directories of backups and of pre-migration copies, and the shared folder, are opened one level, so each copy is an entry of its own and only `shared/cache` is regenerable. A symbolic link counts as nothing and is never followed. The report also says how big the database file is, how much of it is free pages that a delete left behind, and how much room is left on the disk. The encryption key is listed only when it lives in this directory; by default it is in the configuration directory, which this does not read.
+         */
+        get: operations["getStorage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/backups": {
         parameters: {
             query?: never;
@@ -9309,6 +9329,51 @@ export interface components {
             last_restore: components["schemas"]["RestoreOutcome"] | null;
             /** @description This process has been asked to stop */
             restarting: boolean;
+        };
+        StorageReport: {
+            /** @description The report's own shape number. It moves when a field is removed or renamed, not when one is added, so a reader can refuse a shape it does not know. */
+            version: number;
+            /** @description The state directory, which is the one the database is in. */
+            directory: string;
+            /** @description Where scheduled and manual backups go. Its copies are listed one by one when it is a direct child of `directory`, or `directory` itself. Nested deeper it is counted whole under its top-level entry as `unknown`. Outside `directory` it is not walked, because a copy of the state directory does not carry it either. */
+            backup_directory: string;
+            entries: components["schemas"]["StorageEntry"][];
+            /**
+             * Format: int64
+             * @description The database file's size.
+             */
+            database_bytes: number;
+            /**
+             * Format: int64
+             * @description The part of the database file that holds no data: the free pages times the page size. A delete leaves these in the file, and nothing returns them to the disk.
+             */
+            database_free_bytes: number;
+            /**
+             * Format: int64
+             * @description Every entry added up.
+             */
+            total_bytes: number;
+            /**
+             * Format: int64
+             * @description Room left on the filesystem the directory is on, when the platform can say.
+             */
+            disk_free_bytes: number | null;
+        };
+        StorageEntry: {
+            /** @description Relative to the state directory, with forward slashes. */
+            path: string;
+            /**
+             * Format: int64
+             * @description The size of the regular files under it.
+             */
+            bytes: number;
+            /**
+             * @description `essential`: the controller cannot start without it, or must not be started without it. `kept`: somebody's own and never deleted, an uploaded or fetched backup or the live database a restore set aside. `regenerable`: the controller does not need it to start and leaving it behind loses nothing of anybody's; a pre-migration copy is the rollback for the last upgrade and cannot be taken again. `unknown`: this report does not class it, and a reader must treat it as essential.
+             * @enum {string}
+             */
+            class: "essential" | "kept" | "regenerable" | "unknown";
+            /** @description Its absence is normal and is not damage. A clean stop leaves no write-ahead files. Omitted when false. */
+            optional?: boolean;
         };
         BackupRemote: {
             /** @description What this destination is called */
@@ -22737,6 +22802,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Recovery"];
+                };
+            };
+        };
+    };
+    getStorage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageReport"];
                 };
             };
         };

@@ -116,6 +116,7 @@ func commands() []*command {
 		{"import", groupFleet, "Write an exported installation onto this instance", runImport},
 		{"audit", groupFleet, "Who did what", runAudit},
 		{"diagnostics", groupFleet, "Collect a support bundle for a bug report", runDiagnostics},
+		{"storage", groupFleet, "What is in the controller's state directory, and what it could make again", runStorage},
 		{"users", groupFleet, "User accounts", runUsers},
 		{"tokens", groupFleet, "API tokens", runTokens},
 		{"mcp", groupFleet, "Serve this fleet to a coding agent over the Model Context Protocol", runMCP},
