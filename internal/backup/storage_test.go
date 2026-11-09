@@ -56,15 +56,32 @@ func stateDirectory(t *testing.T) (*config.Config, *store.Store) {
 	}
 	t.Cleanup(func() { _ = release() })
 
-	pools := filepath.Join(config.SharedDir(), "cache", "pools")
-	if err := os.MkdirAll(pools, 0o755); err != nil {
+	// The folders an agent creates when it starts come from the function that
+	// creates them, so a purpose added to config.SharedLayout fails the
+	// classification test until somebody says what it is.
+	if err := config.EnsureSharedDir(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pools, "entry"), make([]byte, 1000), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(config.SharedDir(), "cache", "pools", "entry"), make([]byte, 1000), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(config.SharedDir(), "marker"), make([]byte, 24), 0o600); err != nil {
-		t.Fatal(err)
+
+	// What a restore and a transfer leave beside the database, under the names
+	// the code that writes them uses: the live database a restore set aside, the
+	// notes about a restore, and a transfer's staging directory.
+	live := cfg.Database.Path
+	for path, size := range map[string]int{
+		live + ".before-restore-20260101-000000":              300,
+		stagedPath(live):                                      40,
+		outcomePath(live):                                     50,
+		filepath.Join(dir, ".transfer-export-123", "archive"): 60,
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, make([]byte, size), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return cfg, st
 }
@@ -143,11 +160,40 @@ func TestTheStorageReportOfARealStateDirectory(t *testing.T) {
 				t.Errorf("%s = %+v, want essential and optional", name, e)
 			}
 		}
-		if e := entryAt(t, report, "zoomies.db.lock"); e.Class != ClassRegenerable {
-			t.Errorf("the lock file is made again at the next start, so it is regenerable: %+v", e)
+		// Deleting the lock under a running controller lets a second one start
+		// on the same database, so it is not something to drop to save space.
+		if e := entryAt(t, report, "zoomies.db.lock"); e.Class != ClassEssential || !e.Optional {
+			t.Errorf("the lock = %+v, want essential and optional: it exists while a controller runs, and removing it defeats it", e)
 		}
-		if e := entryAt(t, report, "shared"); e.Class != ClassRegenerable || e.Bytes != 1024 {
-			t.Errorf("shared = %+v, want regenerable and 1024 bytes (the caches under it, counted all the way down)", e)
+	})
+
+	// Only the caches under shared are rebuilt by the controller. The update
+	// helper's folder is made by the installer and the host health report needs
+	// a directory owned by root, so neither comes back by itself.
+	t.Run("only the caches under shared are regenerable", func(t *testing.T) {
+		report := storageOf(t, cfg, st)
+		if e := entryAt(t, report, "shared/cache"); e.Class != ClassRegenerable || e.Bytes != 1000 {
+			t.Errorf("shared/cache = %+v, want regenerable and 1000 bytes (counted all the way down)", e)
+		}
+		for _, e := range report.Entries {
+			if e.Path == "shared" {
+				t.Errorf("shared is listed whole as %s: it holds things the controller does not rebuild, so it is opened one level", e.Class)
+			}
+		}
+	})
+
+	t.Run("what a restore and a transfer leave behind is classed for what it is", func(t *testing.T) {
+		report := storageOf(t, cfg, st)
+		for path, want := range map[string]string{
+			// The old live database, which nothing deletes: somebody decides.
+			"zoomies.db.before-restore-20260101-000000": ClassKept,
+			"restore-staged.json":                       ClassRegenerable,
+			"restore-outcome.json":                      ClassRegenerable,
+			".transfer-export-123":                      ClassRegenerable,
+		} {
+			if got := entryAt(t, report, path).Class; got != want {
+				t.Errorf("%s is %s, want %s", path, got, want)
+			}
 		}
 	})
 
@@ -278,6 +324,28 @@ func TestWhatNobodyCanNameIsUnknownAndStillCounted(t *testing.T) {
 		"backups/" + DirPrefix + "00000000-000000": 0,
 		"somebody-elses.txt":                       7,
 	}
+	// Things in shared that the controller does not rebuild.
+	for _, path := range []string{"update/request", "host-health/report.json"} {
+		full := filepath.Join(config.SharedDir(), filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, make([]byte, 5), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want["shared/update"] = 5
+	want["shared/host-health"] = 5
+	// A backup whose database cannot be read. A link to itself fails with an
+	// error that is not "not found", which is what a permission failure looks
+	// like and, unlike a mode, stops a test that runs as root.
+	broken := filepath.Join(root, DirPrefix+"20260101-000001")
+	if err := os.MkdirAll(broken, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(DBName, filepath.Join(broken, DBName)); err == nil {
+		want["backups/"+DirPrefix+"20260101-000001"] = 0
+	}
 	elsewhere := filepath.Join(t.TempDir(), "big")
 	if err := os.WriteFile(elsewhere, make([]byte, 1<<20), 0o600); err != nil {
 		t.Fatal(err)
@@ -286,6 +354,8 @@ func TestWhatNobodyCanNameIsUnknownAndStillCounted(t *testing.T) {
 		want["link"] = 0
 	}
 
+	// One backup that cannot be read must not make the report unanswerable: it
+	// is the tool an operator reaches for when the disk is full.
 	report := storageOf(t, cfg, st)
 	for path, bytes := range want {
 		e := entryAt(t, report, path)
@@ -339,5 +409,24 @@ func TestAReportForACallerWhoHasGoneIsNotBuilt(t *testing.T) {
 
 	if report, err := Storage(ctx, cfg, pages); !errors.Is(err, context.Canceled) || report != nil {
 		t.Errorf("Storage = %v, %v, want no report and the context's error", report, err)
+	}
+}
+
+// backup.directory can be the state directory itself, and nothing refuses it.
+// The copies are then top-level entries, and an uploaded one must still be kept
+// and a scheduled one regenerable, as they are in a directory of their own.
+func TestBackupsKeptInTheStateDirectoryItselfAreStillClassed(t *testing.T) {
+	cfg, st := stateDirectory(t)
+	dir := filepath.Dir(cfg.Database.Path)
+	cfg.Backup.Directory = dir
+	scheduled := take(t, cfg, st, TakeOptions{Source: SourceScheduled, Now: func() time.Time { return time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC) }})
+	uploaded := take(t, cfg, st, TakeOptions{Source: SourceUploaded, Now: func() time.Time { return time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC) }})
+
+	report := storageOf(t, cfg, st)
+	if got := entryAt(t, report, scheduled.ID).Class; got != ClassRegenerable {
+		t.Errorf("a scheduled backup in the state directory is %s, want regenerable", got)
+	}
+	if got := entryAt(t, report, uploaded.ID).Class; got != ClassKept {
+		t.Errorf("an uploaded backup in the state directory is %s, want kept: retention never deletes it", got)
 	}
 }

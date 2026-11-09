@@ -801,12 +801,15 @@ It needs an admin token, because the document contains the settings section.
 
 Says what is in the controller's state directory and how big each entry is,
 biggest first, with what each one is to an operator: `essential` (the
-controller cannot start without it), `kept` (an uploaded or fetched backup,
-which retention never deletes), `regenerable` (a copy the controller took of
-itself, its lock file, or a cache it rebuilds) or `unknown` (this release
-cannot name it, so carry it). Under the table it adds up what a move would
-carry and what the controller could make again, how much of the database file
-is free pages that a delete left behind, and the room left on the disk.
+controller cannot start without it), `kept` (somebody's own and never deleted,
+an uploaded or fetched backup or the live database a restore set aside),
+`regenerable` (the controller does not need it, and leaving it behind loses
+nothing of yours) or `unknown` (this report does not class it, so carry it).
+Under the table it adds up what a move would carry and what can be left behind,
+says so when a pre-migration copy is among the latter, since that one is the
+rollback for the last upgrade and cannot be taken again, and gives how much of
+the database file is free pages that a delete left behind and the room left on
+the disk.
 `--output json` prints the report as the controller sent it.
 
 It asks the controller, so it reports the directory the running controller

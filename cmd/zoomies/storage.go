@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // storageReport is GET /api/v1/storage, as much of it as the table needs.
@@ -106,7 +107,7 @@ func runStorage(ctx context.Context, e *env, args []string) error {
 		{"directory", out.Directory},
 		{"total", sizeLabel(out.TotalBytes)},
 		{"carry when moving", sizeLabel(carry) + "  essential, kept and unknown"},
-		{"could be made again", sizeLabel(regenerable) + "  regenerable"},
+		{"can be left behind", sizeLabel(regenerable) + "  regenerable"},
 		{"database", database},
 		{"backups go to", out.BackupDirectory},
 	}
@@ -116,6 +117,14 @@ func runStorage(ctx context.Context, e *env, args []string) error {
 	p.note("")
 	p.keyValues(summary)
 	p.note("")
+	// The one entry in that class that cannot be made again, said where somebody
+	// about to delete things for space will read it.
+	for _, entry := range out.Entries {
+		if strings.HasPrefix(entry.Path, "pre-migration/") {
+			p.note("A pre-migration copy is the rollback for the last upgrade, and cannot be taken again once the upgrade has run.")
+			break
+		}
+	}
 	p.note("The encryption key is listed only when it lives in this directory. By default it is in the")
 	p.note("configuration directory, which this does not read, and a move needs it as well.")
 	return nil

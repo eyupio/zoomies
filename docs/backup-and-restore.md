@@ -32,26 +32,32 @@ A container deployment keeps all of it in the `zoomies-data` volume.
 ### What is in the state directory
 
 The state directory holds more than the database. Beside it the controller
-keeps the copies of the database it takes of itself, and every backup somebody
-uploads or fetches back from a remote lands in the same place, so a directory
-that holds one database can hold ten of them. `zoomies storage` (or
-`GET /api/v1/storage`) says what is there:
+keeps the copies of the database it takes of itself, every backup somebody
+uploads or fetches back from a remote lands in the same place, and a restore sets
+the old live database aside there, so a directory that holds one database can
+hold ten of them. `zoomies storage` (or `GET /api/v1/storage`) says what is
+there:
 
 ```text
-PATH                             CLASS                 SIZE
-work                             unknown               2.0 GB
-backups/zoomies-20261101-000000  kept                  1.1 GB
-backups/zoomies-20261109-040000  regenerable           1.1 GB
-zoomies.db                       essential             1.1 GB
-zoomies.db-wal                   essential (optional)  4.0 MB
+PATH                                   CLASS                 SIZE
+work                                   unknown               2.0 GB
+backups/zoomies-20261101-000000        kept                  1.1 GB
+backups/zoomies-20261109-040000        regenerable           1.1 GB
+zoomies.db                             essential             1.1 GB
+zoomies.db-wal                         essential (optional)  4.0 MB
+pre-migration/zoomies-20261105-100000  regenerable           1.0 MB
 
-directory            /var/lib/zoomies
-total                5.3 GB
-carry when moving    4.2 GB  essential, kept and unknown
-could be made again  1.1 GB  regenerable
-database             1.1 GB, of which 256.0 MB is free pages a delete left in the file
-backups go to        /var/lib/zoomies/backups
-disk free            42.0 GB
+directory           /var/lib/zoomies
+total               5.3 GB
+carry when moving   4.2 GB  essential, kept and unknown
+can be left behind  1.1 GB  regenerable
+database            1.1 GB, of which 256.0 MB is free pages a delete left in the file
+backups go to       /var/lib/zoomies/backups
+disk free           42.0 GB
+
+A pre-migration copy is the rollback for the last upgrade, and cannot be taken again once the upgrade has run.
+The encryption key is listed only when it lives in this directory. By default it is in the
+configuration directory, which this does not read, and a move needs it as well.
 ```
 
 Each entry has one of four classes, and the class is what to read when you are
@@ -59,10 +65,10 @@ about to copy the directory to another machine, size a disk or lower retention.
 
 | Class | What it is | Moving to another machine |
 | --- | --- | --- |
-| `essential` | The database, its write-ahead files while it is open (`optional`, because a clean stop leaves none), and the encryption key when it lives in this directory. | Carry it. |
-| `kept` | An uploaded or fetched backup. Retention never deletes one, because somebody put it there on purpose. | Carry it if you want it. |
-| `regenerable` | A backup the controller took of itself (scheduled, manual, from the command line or by an upgrade), a copy taken before a migration, the database lock, and the caches under `shared`. The controller makes them again. | Leave it. |
-| `unknown` | Something this release cannot name. | Carry it: the safe mistake is to carry too much. |
+| `essential` | The database, its write-ahead files and its lock while it is open (`optional`, because a clean stop leaves none of them), and the encryption key when it lives in this directory. | Carry it. |
+| `kept` | Something that is somebody's own and that nothing deletes: an uploaded or fetched backup, and the live database a restore set aside (`zoomies.db.before-restore-…`), which is the way back from that restore. | Carry it if you want it. |
+| `regenerable` | Something the controller does not need to start and that you lose nothing of yours by leaving behind: a backup the controller took of itself (scheduled, manual, from the command line or by an upgrade), the caches under `shared/cache`, the notes about a restore, and a transfer's staging directory. A copy taken before a migration is in this class too, with one difference: it is the rollback for the last upgrade, and once the upgrade has run nothing can take it again. | Leave it, but think before you delete a pre-migration copy you might need to roll back to. |
+| `unknown` | Something this report does not class, so treat it as essential: the rest of `shared` (the update helper's folder and the host health report, which the installer makes and the controller does not rebuild), the agent's `work`, a self-signed certificate's `tls`, and anything somebody else put there. | Carry it: the safe mistake is to carry too much. |
 
 So a move needs the `essential` and `kept` entries, plus whatever is `unknown`,
 and not the rest. The encryption key is listed only when it lives in this
@@ -72,11 +78,22 @@ credentials beside scratch space, and a controller with a self-signed
 certificate keeps it in `tls`, so both are reported as `unknown` rather than
 guessed at; the size is there for when you want to know where the space went.
 
-Two limits are worth knowing. A backup directory set with `backup.directory` to
-somewhere that is not directly inside the state directory is not listed, because
-a copy of the state directory does not carry it either; `backups go to` says
-where it is. And sizes are those of the regular files: a symbolic link counts as
-nothing and is never followed.
+A few things are worth knowing about what the report reads:
+
+* A backup directory set with `backup.directory` to somewhere outside the state
+  directory is not walked, because a copy of the state directory does not carry
+  it either; `backups go to` says where it is. One nested deeper inside the state
+  directory is counted whole under its top-level entry as `unknown`, and one that
+  is the state directory itself has its copies listed one by one.
+* Sizes are those of the regular files. A symbolic link counts as nothing and is
+  never followed, so a `backups` directory that is a link to another volume
+  shows as empty.
+* One thing the report cannot read does not stop it. A backup whose database
+  nobody can open is listed as `unknown`, and a directory it cannot list is one
+  entry of its own, because this is the report to reach for when the disk is
+  full.
+* It reads every file, so a very large cache makes it slow. A request that is
+  given up on stops the walk at the next file.
 
 The database's own size matters twice. Deleting rows moves pages to a free
 list inside the file and the file does not get shorter, so `database` also says

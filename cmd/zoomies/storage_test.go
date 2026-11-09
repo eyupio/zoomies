@@ -18,11 +18,12 @@ const storageFixture = `{
 		{"path": "zoomies.db-wal", "bytes": 4194304, "class": "essential", "optional": true},
 		{"path": "backups/zoomies-20261109-040000", "bytes": 1181116006, "class": "regenerable"},
 		{"path": "backups/zoomies-20261101-000000", "bytes": 1181116006, "class": "kept"},
+		{"path": "pre-migration/zoomies-20261105-100000", "bytes": 1048576, "class": "regenerable"},
 		{"path": "work", "bytes": 2147483648, "class": "unknown"}
 	],
 	"database_bytes": 1181116006,
 	"database_free_bytes": 268435456,
-	"total_bytes": 5695025970,
+	"total_bytes": 5696074546,
 	"disk_free_bytes": 45097156608
 }`
 
@@ -42,7 +43,7 @@ func TestStorageListsTheBiggestEntryFirstAndSaysWhatToCarry(t *testing.T) {
 		"zoomies.db-wal", "4.0 MB", "optional",
 		"5.3 GB",   // the total
 		"4.2 GB",   // essential, kept and unknown: what a move carries
-		"1.1 GB",   // what could be made again
+		"1.1 GB",   // what can be left behind
 		"256.0 MB", // free pages inside the database file
 		"42.0 GB",  // room left on the disk
 	} {
@@ -55,6 +56,11 @@ func TestStorageListsTheBiggestEntryFirstAndSaysWhatToCarry(t *testing.T) {
 	}
 	if !strings.Contains(out, "carry") {
 		t.Errorf("storage must say what moving the controller carries:\n%s", out)
+	}
+	// A pre-migration copy is in the class of things to leave behind and is the
+	// one the controller cannot take again, so somebody deleting for space is told.
+	if !strings.Contains(out, "rollback for the last upgrade") {
+		t.Errorf("storage must warn that a pre-migration copy cannot be taken again:\n%s", out)
 	}
 	// The key is in the configuration directory unless it was put here, and a
 	// move that forgets it leaves every sealed secret unreadable.

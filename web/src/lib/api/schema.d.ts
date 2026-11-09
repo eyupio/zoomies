@@ -5077,7 +5077,7 @@ export interface paths {
         };
         /**
          * What is in the state directory, and what a controller could make again
-         * @description Every top-level entry of the state directory (the directory the database is in), with its size in bytes and what it is to an operator: `essential` (the controller cannot start without it), `kept` (an uploaded or fetched backup, which retention never deletes), `regenerable` (a copy the controller took of itself, its lock file, or a cache it rebuilds on demand) or `unknown` (this release does not know what it is, so treat it as essential). The directories of backups and of pre-migration copies are opened one level, so each copy is an entry of its own. A symbolic link counts as nothing and is never followed. The report also says how big the database file is, how much of it is free pages that a delete left behind, and how much room is left on the disk. The encryption key is listed only when it lives in this directory; by default it is in the configuration directory, which this does not read.
+         * @description Every top-level entry of the state directory (the directory the database is in), with its size in bytes and what it is to an operator: `essential` (the controller cannot start without it, or must not be started without it), `kept` (somebody's own and never deleted: an uploaded or fetched backup, or the live database a restore set aside), `regenerable` (the controller does not need it to start and leaving it behind loses nothing of anybody's: a cache, a backup the controller took of itself, a note about a restore; a pre-migration copy is in this class but is the rollback for the last upgrade and cannot be taken again) or `unknown` (this report does not class it, so treat it as essential). The directories of backups and of pre-migration copies, and the shared folder, are opened one level, so each copy is an entry of its own and only `shared/cache` is regenerable. A symbolic link counts as nothing and is never followed. The report also says how big the database file is, how much of it is free pages that a delete left behind, and how much room is left on the disk. The encryption key is listed only when it lives in this directory; by default it is in the configuration directory, which this does not read.
          */
         get: operations["getStorage"];
         put?: never;
@@ -9335,7 +9335,7 @@ export interface components {
             version: number;
             /** @description The state directory, which is the one the database is in. */
             directory: string;
-            /** @description Where scheduled and manual backups go. When it is not directly inside `directory`, its copies are not listed, because a copy of the state directory does not carry them either. */
+            /** @description Where scheduled and manual backups go. Its copies are listed one by one when it is a direct child of `directory`, or `directory` itself. Nested deeper it is counted whole under its top-level entry as `unknown`. Outside `directory` it is not walked, because a copy of the state directory does not carry it either. */
             backup_directory: string;
             entries: components["schemas"]["StorageEntry"][];
             /**
@@ -9368,7 +9368,7 @@ export interface components {
              */
             bytes: number;
             /**
-             * @description `essential`: the controller cannot start without it. `kept`: an uploaded or fetched backup, which retention never deletes. `regenerable`: the controller could make it again. `unknown`: this release does not know what it is, and a reader must treat it as essential.
+             * @description `essential`: the controller cannot start without it, or must not be started without it. `kept`: somebody's own and never deleted, an uploaded or fetched backup or the live database a restore set aside. `regenerable`: the controller does not need it to start and leaving it behind loses nothing of anybody's; a pre-migration copy is the rollback for the last upgrade and cannot be taken again. `unknown`: this report does not class it, and a reader must treat it as essential.
              * @enum {string}
              */
             class: "essential" | "kept" | "regenerable" | "unknown";
