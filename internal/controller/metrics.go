@@ -79,6 +79,7 @@ type metrics struct {
 	runtimeFailures                                *prometheus.CounterVec
 	imagePullFailures                              *prometheus.CounterVec
 	imagePrewarms                                  *prometheus.CounterVec
+	toolCacheFills                                 *prometheus.CounterVec
 	imagePrewarmDuration                           *prometheus.HistogramVec
 	elasticCPUDecisions                            *prometheus.CounterVec
 	elasticCPUFactor                               *prometheus.HistogramVec
@@ -363,6 +364,13 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_image_prewarms_total",
 			Help: "Background image preparations by pool, backend and outcome: prepared, cache_hit, failed or unknown for a successful older agent.",
 		}, []string{"pool", "backend", "outcome"}),
+		// Counted here, as each fill's answer arrives, and not taken from an
+		// agent's totals: a fill is a task the controller sent and hears the
+		// result of, so there is nothing for a restart to reset.
+		toolCacheFills: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_tool_cache_fills_total",
+			Help: "Toolchain versions a tool cache fill was asked for, by pool and outcome: installed, present (already there), skipped (not one a fill can serve), failed, or unknown for an outcome this controller does not recognise.",
+		}, []string{"pool", "outcome"}),
 		imagePrewarmDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "zoomies_image_prewarm_duration_seconds",
 			Help:    "Time an agent spent satisfying background image preparation, including local metadata cache hits.",
@@ -412,7 +420,7 @@ func newMetrics(c *Controller) *metrics {
 		m.registrationsDeferred,
 		m.webhookDeliveries, m.githubRequests, m.kennelRequests, m.kennelOpened, m.kennelClosed, m.kennelWaived, m.kennelHolds, m.reconcileDuration, m.storeWriteWait, m.storeWriteHeld, m.reconcileErrors, m.cleanups, m.pollsShed, m.agentLimited, m.logRelayDropped, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,
-		m.imagePrewarms, m.imagePrewarmDuration, m.runtimeFailures, m.imagePullFailures,
+		m.imagePrewarms, m.toolCacheFills, m.imagePrewarmDuration, m.runtimeFailures, m.imagePullFailures,
 		m.elasticCPUDecisions, m.elasticCPUFactor,
 		m.elasticMemoryDecisions, m.elasticMemoryNearLimit,
 		m.updateAttempts,
@@ -551,6 +559,23 @@ var (
 	descUpdateAvailable = prometheus.NewDesc("zoomies_update_available",
 		"1 while the release updates.mode would take is newer than the build this controller is running, whether or not it may be taken yet, 0 otherwise. Always 0 while updates.mode is off, until the release list has been read, and for a build that is not from a release.",
 		nil, nil)
+	// What a host's cache services have done, from the totals each agent sends on
+	// its heartbeat. They are counters the agent keeps, not ones this process
+	// increments, so they are written as constant metrics at scrape time and carry
+	// the host: an agent restart starts its totals again, and only a series of its
+	// own lets rate() read that as a reset.
+	descCacheRestores = prometheus.NewDesc("zoomies_cache_restores_total",
+		"Cache restore lookups the host's cache services answered, by pool, host and result: hit (an exact key or a restore-key prefix matched) or miss. Totals for the agent process; a restart starts them again.",
+		[]string{"pool", "host", "result"}, nil)
+	descCachePuts = prometheus.NewDesc("zoomies_cache_puts_total",
+		"Cache saves by pool, host and outcome: started (a reservation was taken), finalised (it became an entry), duplicate (the key was already stored or being saved) and failed (an upload that was lost, the wrong size, or never finished). Totals for the agent process.",
+		[]string{"pool", "host", "outcome"}, nil)
+	descCacheEvictions = prometheus.NewDesc("zoomies_cache_evictions_total",
+		"Cache entries removed to keep a pool's cache service under its size limit, by pool and host. Totals for the agent process.",
+		[]string{"pool", "host"}, nil)
+	descCacheStoredBytes = prometheus.NewDesc("zoomies_cache_stored_bytes",
+		"Bytes of finished entries a host's cache services hold for a pool, as the agent last reported them.",
+		[]string{"pool", "host"}, nil)
 )
 
 // fleetCollector reads the fleet's shape from the database on each scrape.
@@ -589,6 +614,10 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descHostRebootPending
 	ch <- descHostHealthReportAge
 	ch <- descUpdateAvailable
+	ch <- descCacheRestores
+	ch <- descCachePuts
+	ch <- descCacheEvictions
+	ch <- descCacheStoredBytes
 }
 
 func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
@@ -640,6 +669,10 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 
 	gauge := func(d *prometheus.Desc, v float64, labels ...string) {
 		ch <- prometheus.MustNewConstMetric(d, prometheus.GaugeValue, v, labels...)
+	}
+
+	counter := func(d *prometheus.Desc, v float64, labels ...string) {
+		ch <- prometheus.MustNewConstMetric(d, prometheus.CounterValue, v, labels...)
 	}
 
 	for _, p := range pools {
@@ -777,6 +810,7 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 	f.collectMachines(ctx, gauge)
 	f.collectHostHealth(hosts, now, gauge)
 	f.collectUpdates(ctx, gauge)
+	f.collectCaches(hosts, pools, gauge, counter)
 
 	gauge(descHosts, float64(healthy), "healthy")
 	gauge(descHosts, float64(unhealthy), "unhealthy")

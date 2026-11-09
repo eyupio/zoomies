@@ -189,7 +189,7 @@ func (s *Service) setSize(id string) {
 func (s *Service) failUpload(w http.ResponseWriter, id string, err error) {
 	s.log.Warn("a cache upload failed and was dropped", "error", err)
 	s.mu.Lock()
-	s.dropPendingLocked(id)
+	s.abandonPendingLocked(id)
 	s.mu.Unlock()
 	http.Error(w, "the upload could not be stored", http.StatusInternalServerError)
 }

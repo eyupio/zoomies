@@ -174,9 +174,11 @@ func (s *Service) twirp(w http.ResponseWriter, r *http.Request, method string) {
 		}
 		e := s.find(sc, req.Key, req.restoreKeys(), req.Version)
 		if e == nil {
+			s.count.misses.Add(1)
 			writeJSON(w, http.StatusOK, downloadResponse{OK: false})
 			return
 		}
+		s.count.hits.Add(1)
 		writeJSON(w, http.StatusOK, downloadResponse{OK: true, SignedDownloadURL: blobURL(r, e.ID), MatchedKey: e.Key})
 	default:
 		writeTwirpError(w, "bad_route", "no such method")

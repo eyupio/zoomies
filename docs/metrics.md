@@ -153,6 +153,11 @@ will not fire when the numbers stop arriving altogether.
 | `zoomies_elastic_memory_decisions_total` | counter | `pool`, `mode`, `outcome` | What the [memory valve](elastic-memory.md) reported of each runner it watches, once per heartbeat. `outcome` is `healthy`, `raised`, `spilled`, `at_ceiling` (a runner held all it may, and wanted more), `pool_empty` or `host_floor` (the host had nothing it could lend), `unmeasured` (the host's memory could not be read, so nothing is lent), `unsupported` (the container runtime cannot raise a live limit), `failed`, or `unreported` for a runner that was not heard from. Observe mode counts what the valve would have done. |
 | `zoomies_elastic_memory_near_limit_total` | counter | `pool`, `mode` | Runners that came within a tenth of a memory limit, counted once per runner. It is the evidence of whether a pool's jobs would use the valve at all: a pool that never moves it has no use for the valve. |
 | `zoomies_update_attempts_total` | counter | `kind`, `result` | Update attempts that have ended, by what was updated (`controller`, or `host`) and how: `succeeded`, `failed` (the request could not be written to the update folder, the helper refused it, or the upgrade failed; `GET /updates` carries the sentence) or `timed_out` (no answer and no new version in 90 minutes). Counted as an attempt ends, so one in flight is not here; `GET /updates` names it. An attempt cancelled because its host was deleted is closed with the host and not counted. |
+| `zoomies_cache_restores_total` | counter | `pool`, `host`, `result` | Cache restore lookups the host's [cache service](persistent-caches.md) answered, as `hit` (the key matched exactly, or a restore key matched as a prefix) or `miss`. Both results are reported for every pool and host that has a service, so a hit ratio needs no `or vector(0)`. Read `hit / (hit + miss)` by pool to see whether a cache is being used. |
+| `zoomies_cache_puts_total` | counter | `pool`, `host`, `outcome` | Cache saves by outcome: `started` (the service agreed to take the save), `finalised` (it became an entry), `duplicate` (the same key and version was already stored or being saved, which is what a warm cache answers and is not a fault) and `failed` (the upload was lost, the archive was not the size the job said, or nobody finished the save before it expired). Each started save ends as exactly one of `finalised` or `failed`, so what is left of `started` is saves in flight. |
+| `zoomies_cache_evictions_total` | counter | `pool`, `host` | Entries removed to keep the service under the pool's cache size limit. Evictions keeping pace with `finalised` saves say the pool's cache is too small for what it keeps. |
+| `zoomies_cache_stored_bytes` | gauge | `pool`, `host` | Bytes of finished entries the host's cache services hold for the pool, as the agent last reported them. A pool with several repository-scoped caches is summed. |
+| `zoomies_tool_cache_fills_total` | counter | `pool`, `outcome` | Toolchain versions a [tool cache fill](persistent-caches.md) was asked for, by what became of each: `installed`, `present` (already in the cache), `skipped` (not one a fill can serve) or `failed`; `unknown` is an outcome this controller does not recognise, from a newer agent. A fill that fails as a whole counts every version it was sent as `failed`. Counted by the controller as each answer arrives, so it has no `host` label and a restart of an agent does not reset it. |
 
 Every `pool` label is the pool's **name**, so a query can join these against
 the gauges above on `pool`. Work no pool claims is counted under the literal
@@ -165,6 +170,17 @@ another on `host`. The OS health series are counts and nothing else: no check's
 name is ever a label or a value, because a check such as Docker log rotation
 says which setting a host has not changed. With `metrics.public` on, these
 counts are readable by anyone who can reach the endpoint.
+
+The `zoomies_cache_` series are the totals each host's agent keeps for its cache
+services and sends on its heartbeat, so they carry the host: an agent restart
+starts its totals again at zero, and `rate()` and `increase()` read that as a
+counter reset only because the series is the host's own. Sum over `host` after
+taking the rate, never before. The controller holds the latest report in memory
+for the scrape and nowhere else (it is not in the host's API view or the live
+event stream, where it would change with every cache request), so a controller
+restart leaves the series absent until each host's next heartbeat. A pool the
+controller does not have, and a host that has been deleted, are not reported.
+Hosts whose pools do not use the cache service report none of these series.
 
 `zoomies_image_prewarm_duration_seconds` is the matching histogram, with the
 same `pool`, `backend` and `outcome` labels. It measures the complete agent-side

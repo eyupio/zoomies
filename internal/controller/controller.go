@@ -373,6 +373,14 @@ type Controller struct {
 	// rewrites it.
 	memoryMu    sync.Mutex
 	memoryHosts map[string]*memoryHostState
+	// cacheHosts is what each host's cache services last said they had done,
+	// for the metrics endpoint alone. It is kept apart from the host row and the
+	// views on purpose: the counters move with every cache request, so writing
+	// them anywhere that is saved or published would be a write per heartbeat
+	// for a figure nobody reads between scrapes. Memory only, and a restart
+	// forgets it until the next heartbeat repeats it.
+	cacheMu    sync.Mutex
+	cacheHosts map[string][]backend.CacheStats
 	// pairs is what each docker-in-docker pool's runners have recently used of
 	// the two halves of their slot -- see pairWindow. Memory only, on purpose:
 	// it is evidence for advice, and forgetting it on a restart costs the advice

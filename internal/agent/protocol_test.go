@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/eyupio/zoomies/internal/backend"
+	"github.com/eyupio/zoomies/internal/cacheservice"
 )
 
 func updateTask(id, updateID, tag string) Task {
@@ -110,6 +113,56 @@ func TestAnUpdateReportRoundTripsOnAHeartbeat(t *testing.T) {
 	if strings.Contains(string(raw), `"to"`) {
 		t.Errorf("an empty To is on the wire: %s", raw)
 	}
+}
+
+// The cache block is additive: a heartbeat from a host with no cache service
+// must be byte for byte what an agent without the block sent, a heartbeat from
+// an older agent must decode to no block, and one with figures must come out as
+// it went in, or the controller would draw a graph of something else.
+func TestACacheReportRoundTripsOnAHeartbeatAndAnOldOneStillDecodes(t *testing.T) {
+	t.Run("a host with no cache service sends no key", func(t *testing.T) {
+		raw, err := json.Marshal(HeartbeatRequest{ProtocolVersion: ProtocolVersion, Version: "1.3.5"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), `"caches"`) {
+			t.Errorf("a heartbeat with nothing to report carries the key: %s", raw)
+		}
+	})
+
+	t.Run("a heartbeat from an agent that predates the block decodes with none", func(t *testing.T) {
+		const old = `{"protocol_version":1,"capacity":2,"version":"1.3.4","runners":[]}`
+		var got HeartbeatRequest
+		if err := json.Unmarshal([]byte(old), &got); err != nil {
+			t.Fatalf("an older heartbeat no longer decodes: %v", err)
+		}
+		if got.Caches != nil || got.ProtocolVersion != 1 || got.Capacity != 2 {
+			t.Errorf("decoded %+v", got)
+		}
+	})
+
+	t.Run("a heartbeat with the block is read back as it was sent", func(t *testing.T) {
+		in := HeartbeatRequest{ProtocolVersion: ProtocolVersion, Caches: []backend.CacheStats{{
+			PoolID: "pool_1",
+			Stats: cacheservice.Stats{RestoreHits: 7, RestoreMisses: 3, PutsStarted: 5, PutsFinalised: 4,
+				PutsFailed: 1, PutsDuplicate: 2, Evictions: 6, EvictedBytes: 600, Entries: 9, StoredBytes: 1 << 20},
+		}}}
+		raw, err := json.Marshal(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The embedded figures sit beside the pool, not under a key of their own.
+		if !strings.Contains(string(raw), `"pool_id":"pool_1","restore_hits":7`) {
+			t.Errorf("the block is not flat on the wire: %s", raw)
+		}
+		var out HeartbeatRequest
+		if err := json.Unmarshal(raw, &out); err != nil {
+			t.Fatal(err)
+		}
+		if len(out.Caches) != 1 || out.Caches[0] != in.Caches[0] {
+			t.Errorf("caches = %+v, want %+v", out.Caches, in.Caches)
+		}
+	})
 }
 
 func TestAMergeTaskNeedsItsAttemptImageAndPins(t *testing.T) {

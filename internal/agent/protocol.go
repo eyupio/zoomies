@@ -207,6 +207,13 @@ type HeartbeatRequest struct {
 	// old to say, all of which the controller reads alike: as a helper not yet
 	// installed. A word, never a sentence, because every role reads the card.
 	UpdateUnsupported string `json:"update_unsupported,omitempty"`
+	// Caches is what this host's cache services have done, one entry for each
+	// pool that has had one: cumulative for this agent process, so a reader
+	// takes differences and reads a fall as a restart, plus the bytes held now.
+	// It is telemetry and nothing acts on it. Absent when the host runs no
+	// service and from an agent too old to send it, which the controller reads
+	// alike; an older controller ignores it, so ProtocolVersion does not move.
+	Caches []backend.CacheStats `json:"caches,omitempty"`
 }
 
 // UpdateStuck is what an agent found when the update helper on its host was not
