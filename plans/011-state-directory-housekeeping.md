@@ -57,7 +57,10 @@ frees, each behind a setting.
   only `VACUUM INTO`, in `internal/store/backup.go:78`).
 - `internal/store/backup.go:37`: `preMigrationKeep = 2`, a constant.
   `backupBeforeMigrate` (`:160-190`) writes the copy with `s.Backup` and prunes
-  to the constant. It runs inside `Open`, before settings can be read.
+  to the constant. It runs inside `Open`, before settings can be read, so the
+  constant is the only number it can prune to. That is why Part 2 moves the
+  pruning out of `Open`: a later pass can lower a count but cannot bring back a
+  copy `Open` has already deleted.
 - `internal/config/settings.go:939-951`: `backup.directory`, `backup.interval`
   and `backup.keep`; defaults `Interval: 24h, Keep: 7` at
   `internal/config/config.go:1351`; retention defaults at `:1308-1313`.
@@ -159,7 +162,7 @@ own copies to the configured counts and, in Part 3, compacts. Settings (rows in
 | Key | Kind | Default | Meaning |
 |---|---|---|---|
 | `backup.pre_migration_keep` | int | 2 | Copies kept in `pre-migration`. Floor 1. |
-| `maintenance.interval` | duration | 24h | How often the pass runs. 0 switches it off. Floor one minute, as `backup.interval`. |
+| `maintenance.interval` | duration | 24h | How often the scheduled pass runs. 0 switches the scheduled pass off, and not the prune of pre-migration copies at start (see the notes). Floor one minute, as `backup.interval`. |
 
 `backup.keep` already exists and the pass applies it with `backup.Prune`. A pass
 that deletes anything says what it removed in the controller log and in the
@@ -167,9 +170,24 @@ report's last-pass block.
 
 **Notes that matter.**
 
-- `Open` takes the first pre-migration copy before settings can be read, so it
-  keeps using the compiled default of 2. The pass prunes to the configured count
-  once the controller is up. Do not try to read a setting inside `Open`.
+- `Open` takes the pre-migration copy and prunes nothing. It runs before settings
+  can be read, so the only number it could prune to is the compiled 2, and that
+  would delete copies an operator's higher `backup.pre_migration_keep` was meant
+  to keep: a later pass can only lower a count, never restore a copy that is
+  gone. Remove the `pruneDirs` call from `backupBeforeMigrate`, and give the
+  store a `PrunePreMigration(dbPath, keep)` that the controller calls. Do not try
+  to read a setting inside `Open`.
+- The controller prunes pre-migration copies once at start, as soon as the
+  effective configuration is loaded, and again in every pass. The prune at start
+  does not wait for `maintenance.interval` and is not switched off by `0`:
+  otherwise an operator who turned the scheduled pass off would have copies that
+  nothing ever removes. If the configuration cannot be loaded, nothing is pruned.
+  Keeping too many copies is the safe direction.
+- A one-off command that opens the database and migrates it (the upgrade's
+  migrate step, `zoomies config import-env`) now leaves its copy and prunes
+  nothing, so the directory can briefly hold more than the configured count until
+  the controller next starts. The bound is deliberate: a copy taken before a
+  migration is the one rollback there is.
 - Put the pass in its own loop in `internal/controller`, as `backupLoop` is, so a
   slow pass never delays housekeeping. Nudge it from `POST /backups/prune` so an
   operator who lowers a count sees it take effect.
@@ -182,8 +200,14 @@ report's last-pass block.
 - With `pre_migration_keep: 1` and three copies present, a pass leaves the newest.
 - With `backup.keep: 2`, a pass removes older scheduled copies and leaves an
   uploaded one.
-- `maintenance.interval: 0` runs nothing; a pass that fails on one directory still
-  tries the other and reports both.
+- `Open` on a database with pending migrations takes a copy and removes none,
+  with three older copies already there. This fails today, because `pruneDirs`
+  leaves two.
+- With `pre_migration_keep: 5` and four older copies, a migration followed by the
+  controller's prune at start leaves all five. With `2` it leaves the newest two.
+- `maintenance.interval: 0` runs no scheduled pass, and the prune of pre-migration
+  copies at start still happens; a pass that fails on one directory still tries
+  the other and reports both.
 - A new setting without a `docs/configuration.md` row fails `internal/docs`.
 
 ## Part 3: compaction
@@ -244,6 +268,9 @@ pause, using SQLite's incremental auto-vacuum.
   it back without changing restore behaviour.
 - The classification test finds an `unknown` entry that nobody can explain.
 - Any change would add a second writer or read a setting inside `Open`.
+- A path is found that migrates a database and never starts a controller, so
+  copies would grow with nothing to prune them. Report it; do not put the compiled
+  2 back into `Open`.
 - A docs test demands a row not listed here for a reason you cannot see.
 
 ## Rules this plan keeps
