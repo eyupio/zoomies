@@ -12,7 +12,7 @@
 # base-image bump that nothing else moved with it, so the image shipped a build
 # on a Node that no check ran. Changing the major is a deliberate change of all
 # of them together, which is why dependabot.yml leaves node's majors alone.
-FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS ui
+FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202 AS ui
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json* ./
 # No `|| npm install` fallback: that turns a lockfile CI would reject into an
@@ -28,7 +28,7 @@ RUN npm run build
 # it should be the one CI and the release binaries are built with (the version in
 # .github/actions/setup-go): it was left on 1.27.1 while they moved to 1.27.2, so
 # the images were built with a different compiler from the binaries.
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18 AS build
 WORKDIR /src
 RUN apk add --no-cache git ca-certificates
 COPY go.mod go.sum ./
