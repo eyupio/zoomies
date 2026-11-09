@@ -202,6 +202,8 @@ Not done, and why it matters:
 * **Docker actions keep GitHub's cache**, and BuildKit's `type=gha` against the
   service is opt-in and has not been run against a live builder.
 
+**A defect found after merge.** The wrapper stands in for node on every JavaScript action, cache service or not, so anything it does to the environment it does to every job. It was `#!/bin/sh`; on Ubuntu and Debian that is dash, which drops environment variables whose names are not shell identifiers, and the runner passes every action input as `INPUT_<NAME>` with the hyphens the action wrote (`INPUT_GO-VERSION`). Every such input arrived empty. The earlier tests passed because they checked the variables the wrapper cares about and a fake node that was itself a `/bin/sh` script, which loses the variables a second time. A job in a `container:` block runs the node at `/__e` inside the job's own image, and the externals volume that gives it that node was a copy of the wrapped tree, so the wrapper's bash had to exist in the job image; the volume's fill now puts the real node back, so a job image never runs the wrapper (an agent that predates the fill still hands it the wrapper). The wrapper is now a small static program (`deploy/node-wrapper.go`, compiled by the image build), which keeps every name and needs no shell anywhere; the unit test uses a copy of env as the real node, because a `/bin/sh` script loses the variables itself; and `test/runner-image/check.sh` asks the image's own wrapped node for a hyphenated variable.
+
 ## Design for the slices that follow
 
 * **Redirecting the runner (built and tested; see above).** The runner starts

@@ -24,8 +24,12 @@
 // speaks. With the variable unset the job reaches GitHub exactly as it would
 // without this file. The token and every other variable are left alone.
 //
-// A step inside a job container reaches this through /__e and does not have the
-// variable, so it passes straight through there too.
+// A step inside a job container reaches the node through /__e, and the agent
+// fills the volume it mounts there with the real node and not this program
+// (externalsFillScript in internal/backend/docker.go), because there is nothing
+// for this to do: the variable is not set and the preload is not mounted. A
+// volume filled before that change, or by an agent that predates it, hands the
+// job container this program, which passes straight through.
 //
 // It is a program and not a script because of what is in that environment. An
 // action's inputs arrive as INPUT_<NAME> with the hyphens of the name kept, as
@@ -33,8 +37,8 @@
 // which is /bin/sh on Debian and Ubuntu, drops such a variable on its way
 // through a script. A wrapper written as one made every action with a hyphenated
 // input run as if the input had never been given, so setup-go and setup-python
-// failed outright and checkout quietly took its defaults. A job container is also
-// whatever image the workflow chose, and the wrapper runs in it: a program
+// failed outright and checkout quietly took its defaults. Where this does run in
+// a job container's image, which is whatever image the workflow chose, a program
 // linked statically needs no shell and no libc there, where a script needs the
 // one it names. The image build compiles this with CGO_ENABLED=0.
 package main
