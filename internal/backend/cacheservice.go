@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -43,18 +44,49 @@ type cacheServices struct {
 	mu      sync.Mutex
 	running map[string]*runningCacheService
 	warned  map[string]bool
+	// retired is what services that stopped on their own had counted, by pool,
+	// so a service that is started again does not take the pool's totals back
+	// to zero. A counter that falls is read downstream as the agent restarting,
+	// and a stopped listener is not that.
+	retired map[string]cacheservice.Stats
 }
 
 type runningCacheService struct {
 	srv *http.Server
 	ln  net.Listener
 	url string
+	svc *cacheservice.Service
+	// poolID and identity say whose service this is, so its figures can be
+	// reported under the pool and its folder is counted once.
+	poolID, identity string
+}
+
+// CacheStats is what a pool's cache services have done on this host and what
+// they hold, summed over the services the pool has (one for each cache
+// identity, so a repository-scoped pool has several). It is what an agent puts
+// in its heartbeat, so the controller can say whether a cache is earning its
+// disk.
+//
+// The counters are cumulative for the agent process and the two gauges are the
+// folders as they are now. Nothing here is a setting or a decision: it is the
+// service's own account of what it did.
+type CacheStats struct {
+	PoolID string `json:"pool_id"`
+	cacheservice.Stats
+}
+
+// CacheStatser is implemented by a backend that runs cache services. It is
+// optional, like the other capabilities in this package, so a backend with
+// nothing to report is simply absent from the heartbeat.
+type CacheStatser interface {
+	CacheStats() []CacheStats
 }
 
 func newCacheServices(sharedDir, sharedProblem string, log *slog.Logger, gateway func(context.Context, string) (string, error)) *cacheServices {
 	return &cacheServices{
 		sharedDir: sharedDir, sharedProblem: sharedProblem, log: log, gateway: gateway,
 		running: map[string]*runningCacheService{}, warned: map[string]bool{},
+		retired: map[string]cacheservice.Stats{},
 	}
 }
 
@@ -126,6 +158,7 @@ func (c *cacheServices) urlFor(ctx context.Context, spec Spec, network string) s
 			IdleTimeout:       2 * time.Minute,
 		},
 		url: "http://" + ln.Addr().String() + "/",
+		svc: svc, poolID: spec.PoolID, identity: identity,
 	}
 	c.running[key] = r
 	c.log.Info("started a cache service for a pool's runners",
@@ -136,11 +169,77 @@ func (c *cacheServices) urlFor(ctx context.Context, spec Spec, network string) s
 			c.mu.Lock()
 			if c.running[key] == r {
 				delete(c.running, key)
+				c.retireLocked(r)
 			}
 			c.mu.Unlock()
 		}
 	}()
 	return r.url
+}
+
+// retireLocked keeps a stopped service's counters. Its gauges go with it: the
+// next service started on the same folder reads what is there.
+func (c *cacheServices) retireLocked(r *runningCacheService) {
+	st := r.svc.Stats()
+	st.Entries, st.StoredBytes = 0, 0
+	c.retired[r.poolID] = addCounters(c.retired[r.poolID], st)
+}
+
+// addCounters adds b's counters to a. The gauges are not summed here, because
+// two services over one folder describe the same bytes.
+func addCounters(a, b cacheservice.Stats) cacheservice.Stats {
+	a.RestoreHits += b.RestoreHits
+	a.RestoreMisses += b.RestoreMisses
+	a.PutsStarted += b.PutsStarted
+	a.PutsFinalised += b.PutsFinalised
+	a.PutsFailed += b.PutsFailed
+	a.PutsDuplicate += b.PutsDuplicate
+	a.Evictions += b.Evictions
+	a.EvictedBytes += b.EvictedBytes
+	return a
+}
+
+// stats reports every pool that has had a service on this host, ordered by pool
+// so two reads of an unchanged host are equal.
+//
+// Counters are summed over a pool's services. Gauges are summed over its cache
+// identities, but not over the services of one identity: the same identity
+// listens on a second address when runners are attached to a second network,
+// and both services keep the one folder, so adding their figures would count
+// every byte twice. The larger of the two is taken, since each only knows what
+// it saw written.
+func (c *cacheServices) stats() []CacheStats {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	byPool := map[string]cacheservice.Stats{}
+	for pool, st := range c.retired {
+		byPool[pool] = st
+	}
+	type held struct{ entries, bytes int64 }
+	byIdentity := map[string]map[string]held{} // pool, then identity
+	for _, r := range c.running {
+		st := r.svc.Stats()
+		byPool[r.poolID] = addCounters(byPool[r.poolID], st)
+		if byIdentity[r.poolID] == nil {
+			byIdentity[r.poolID] = map[string]held{}
+		}
+		g := byIdentity[r.poolID][r.identity]
+		g.entries, g.bytes = max(g.entries, st.Entries), max(g.bytes, st.StoredBytes)
+		byIdentity[r.poolID][r.identity] = g
+	}
+	out := make([]CacheStats, 0, len(byPool))
+	for pool, st := range byPool {
+		for _, g := range byIdentity[pool] {
+			st.Entries += g.entries
+			st.StoredBytes += g.bytes
+		}
+		out = append(out, CacheStats{PoolID: pool, Stats: st})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PoolID < out[j].PoolID })
+	return out
 }
 
 func (c *cacheServices) warnOnce(spec Spec, reason string, err error) {

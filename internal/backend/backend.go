@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -598,6 +599,24 @@ func (r *Registry) Close() {
 			c.Close()
 		}
 	}
+}
+
+// CacheStats reports what the backends' cache services have done, by pool. A
+// backend that runs none contributes nothing, and a host that runs none returns
+// nil, which a heartbeat leaves out. A pool is on one backend, so rows are not
+// merged; if one were on two, the controller sums them.
+func (r *Registry) CacheStats() []CacheStats {
+	if r == nil {
+		return nil
+	}
+	var out []CacheStats
+	for _, b := range r.backends {
+		if cs, ok := b.(CacheStatser); ok {
+			out = append(out, cs.CacheStats()...)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PoolID < out[j].PoolID })
+	return out
 }
 
 // Kinds returns the registered backend kinds.

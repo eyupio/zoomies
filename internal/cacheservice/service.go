@@ -44,6 +44,8 @@ type Service struct {
 	log  *slog.Logger
 	now  func() time.Time
 
+	count counters
+
 	mu      sync.Mutex
 	entries map[string]*entry   // finished entries by id
 	pending map[string]*pending // reservations by id

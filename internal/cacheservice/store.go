@@ -91,6 +91,18 @@ func (s *Service) dropPendingLocked(id string) {
 	delete(s.pending, id)
 	_ = os.RemoveAll(s.pendingPath(id))
 }
+
+// abandonPendingLocked gives up a reservation that did not become an entry and
+// counts it. It is separate from dropPendingLocked, which a save that worked
+// also calls to tidy its scratch folder, so that every started save is
+// counted as finished or abandoned exactly once. A reservation already gone
+// (an upload that failed and was dropped, then finalised) is not counted twice.
+func (s *Service) abandonPendingLocked(id string) {
+	if _, ok := s.pending[id]; ok {
+		s.count.failed.Add(1)
+	}
+	s.dropPendingLocked(id)
+}
 func sameSlot(a, b string, c, d string) bool { return a == c && b == d }
 
 // reserve starts a save. It refuses a key that is already stored, or already
@@ -102,16 +114,18 @@ func (s *Service) reserve(sc scope, key, version string) (*pending, bool) {
 	defer s.mu.Unlock()
 	for id, p := range s.pending {
 		if s.pendingExpired(p) {
-			s.dropPendingLocked(id)
+			s.abandonPendingLocked(id)
 		}
 	}
 	for _, e := range s.entries {
 		if e.Scope == sc.write && sameSlot(e.Key, e.Version, key, version) {
+			s.count.dupes.Add(1)
 			return nil, false
 		}
 	}
 	for _, p := range s.pending {
 		if p.Scope == sc.write && sameSlot(p.Key, p.Version, key, version) {
+			s.count.dupes.Add(1)
 			return nil, false
 		}
 	}
@@ -120,6 +134,7 @@ func (s *Service) reserve(sc scope, key, version string) (*pending, bool) {
 		return nil, false
 	}
 	s.pending[p.ID] = p
+	s.count.started.Add(1)
 	return p, true
 }
 
@@ -180,22 +195,23 @@ func (s *Service) finalise(sc scope, key, version string, size int64) (*entry, b
 	}
 	if p == nil || p.Size < 0 || p.Size != size {
 		if p != nil {
-			s.dropPendingLocked(p.ID)
+			s.abandonPendingLocked(p.ID)
 		}
 		return nil, false
 	}
 	if err := os.Rename(s.pendingData(p.ID), s.blobPath(p.ID)); err != nil {
-		s.dropPendingLocked(p.ID)
+		s.abandonPendingLocked(p.ID)
 		return nil, false
 	}
 	e := &entry{ID: p.ID, Key: key, Version: version, Scope: p.Scope, Size: size, Created: s.now()}
 	raw, _ := json.Marshal(e)
 	if err := os.WriteFile(s.indexPath(e.ID), raw, 0o640); err != nil {
 		_ = os.Remove(s.blobPath(e.ID))
-		s.dropPendingLocked(p.ID)
+		s.abandonPendingLocked(p.ID)
 		return nil, false
 	}
 	s.dropPendingLocked(p.ID)
+	s.count.finalised.Add(1)
 	s.entries[e.ID] = e
 	s.evictLocked(e.ID)
 	return e, true
@@ -242,6 +258,8 @@ func (s *Service) evictLocked(keep string) {
 		_ = os.Remove(s.blobPath(u.e.ID))
 		_ = os.Remove(s.indexPath(u.e.ID))
 		delete(s.entries, u.e.ID)
+		s.count.evictions.Add(1)
+		s.count.evictedBytes.Add(uint64(max(u.e.Size, 0)))
 		total -= u.e.Size
 	}
 	s.log.Info("evicted cache entries to stay under the cache service's size limit", "limit_bytes", limit)

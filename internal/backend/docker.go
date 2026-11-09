@@ -406,6 +406,13 @@ var (
 	_ MemoryUpdater = (*PodmanBackend)(nil)
 )
 
+// The heartbeat reports cache service figures through this, found by the same
+// kind of assertion, so a method that drifted would drop the block silently.
+var (
+	_ CacheStatser = (*DockerBackend)(nil)
+	_ CacheStatser = (*PodmanBackend)(nil)
+)
+
 // NewDocker builds a Docker backend. It does not contact the daemon: a host
 // where Docker is not running must still be able to start an agent and report
 // the backend as unavailable, which is what Probe is for.
@@ -464,6 +471,9 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 // Close stops what this backend runs on the host for its runners, which is the
 // cache services. It does not touch a runner: those outlive the agent by design.
 func (b *DockerBackend) Close() { b.cacheSvcs.close() }
+
+// CacheStats is what this backend's cache services have done, by pool.
+func (b *DockerBackend) CacheStats() []CacheStats { return b.cacheSvcs.stats() }
 
 // Kind identifies the implementation.
 func (b *DockerBackend) Kind() store.BackendKind { return b.fl.kind }

@@ -179,8 +179,34 @@ func (c *Controller) recordToolFill(hostID string, task agent.Task, res agent.Ta
 	}
 	f.FinishedAt = &done
 	c.noteToolFill(task.PoolID, f)
+	c.countToolFills(task, res)
 	if !res.OK {
 		c.log.Warn("a host could not fill a pool's tool cache", "host", hostID, "pool", task.PoolID, "error", res.Error)
+	}
+}
+
+// countToolFills adds a fill's answer to zoomies_tool_cache_fills_total, one for
+// each version it was asked for.
+//
+// The outcome is a label an agent supplies, so only the four words a fill can
+// report are passed through; anything else (a newer agent's new word) is counted
+// as unknown rather than minting a series. A fill that failed as a whole, before
+// it could answer any version, counts every version it was sent as failed: the
+// operator's question is how many of the toolchains they wanted are now warm,
+// and none of those are.
+func (c *Controller) countToolFills(task agent.Task, res agent.TaskResult) {
+	pool := c.poolLabel(task.PoolID)
+	for _, t := range res.ToolFills {
+		outcome := t.Outcome
+		switch outcome {
+		case backend.ToolInstalled, backend.ToolPresent, backend.ToolSkipped, backend.ToolFailed:
+		default:
+			outcome = "unknown"
+		}
+		c.metrics.toolCacheFills.WithLabelValues(pool, outcome).Inc()
+	}
+	if !res.OK && len(res.ToolFills) == 0 && len(task.Tools) > 0 {
+		c.metrics.toolCacheFills.WithLabelValues(pool, backend.ToolFailed).Add(float64(len(task.Tools)))
 	}
 }
 

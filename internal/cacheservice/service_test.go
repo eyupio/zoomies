@@ -120,6 +120,17 @@ func (h *harness) restore(tok, key, version string, restoreKeys ...string) (stri
 	return out["matched_key"].(string), b
 }
 
+// ageEntries makes every finished entry look last used at when, which is how
+// the eviction order is steered without sleeping.
+func (h *harness) ageEntries(when time.Time) {
+	h.t.Helper()
+	h.svc.mu.Lock()
+	defer h.svc.mu.Unlock()
+	for _, e := range h.svc.entries {
+		_ = os.Chtimes(h.svc.blobPath(e.ID), when, when)
+	}
+}
+
 func TestASavedEntryIsRestoredByItsKey(t *testing.T) {
 	h := newHarness(t, Options{})
 	if !h.save(mainToken, "go-abc", "v1", []byte("the build cache")) {
