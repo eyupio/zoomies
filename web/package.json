@@ -19,7 +19,7 @@
     "test:unit": "node --import ./unit/register.mjs --test unit/*.test.ts"
   },
   "dependencies": {
-    "@lucide/svelte": "^1.65.0",
+    "@lucide/svelte": "^1.70.0",
     "@tanstack/svelte-table": "^9.3.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
@@ -30,22 +30,22 @@
     "@eslint/js": "^10.0.1",
     "@fontsource-variable/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
-    "@playwright/test": "^1.64.1",
+    "@playwright/test": "^1.65.0",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
-    "@tailwindcss/vite": "^4.3.3",
+    "@tailwindcss/vite": "^4.3.4",
     "@types/node": "^26.6.6",
-    "eslint": "^10.13.0",
-    "eslint-plugin-svelte": "^3.23.1",
-    "globals": "^17.13.0",
+    "eslint": "^10.14.0",
+    "eslint-plugin-svelte": "^3.24.0",
+    "globals": "^17.14.0",
     "openapi-typescript": "^7.13.0",
     "prettier": "^3.9.10",
     "prettier-plugin-svelte": "^4.1.1",
     "svelte": "^5.57.3",
-    "svelte-check": "^4.7.7",
+    "svelte-check": "^4.7.8",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.72.1",
-    "vite": "^8.3.5"
+    "vite": "^8.3.6"
   },
   "overrides": {
     "js-yaml": "^4.3.2"
