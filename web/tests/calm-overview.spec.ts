@@ -1,5 +1,18 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { goto } from './support/fixtures';
+
+/**
+ * What the Overview has recorded of a disclosure the operator opened or shut.
+ *
+ * The page writes it from the element's `toggle` event, which the browser fires in
+ * a task of its own after the click, not during it. A spec that reloads straight
+ * after the click can therefore reload before the choice is written, and the page
+ * then comes back as it was before the click; it did so in about one run in twenty.
+ * A person cannot reload that fast, so the spec waits for the record instead.
+ */
+async function recordedChoice(page: Page, id: string): Promise<string | null> {
+  return page.evaluate((key) => localStorage.getItem(key), `zoomies.overview.${id}.open`);
+}
 
 for (const style of ['classic', 'mission-control']) {
   for (const mode of ['light', 'dark']) {
@@ -102,6 +115,7 @@ test('jump links reveal history, retain its range and remember explicit disclosu
     .click();
   await history.locator('summary').click();
   await expect(history).not.toHaveAttribute('open');
+  await expect.poll(() => recordedChoice(page, 'history')).toBe('false');
   // Clear the fragment: following it on reload intentionally opens its target.
   await page.evaluate(() => window.history.replaceState(null, '', '/'));
   await page.reload();
@@ -110,6 +124,7 @@ test('jump links reveal history, retain its range and remember explicit disclosu
   await expect(
     history.getByRole('button', { name: 'The last 7 days, by the hour' }),
   ).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => recordedChoice(page, 'history')).toBe('true');
   await page.reload();
   await expect(history).toHaveAttribute('open');
 });
