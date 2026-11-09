@@ -31,8 +31,12 @@
 # speaks. With the variable unset the job reaches GitHub exactly as it would
 # without this file. The token and every other variable are left alone.
 #
-# A step inside a job container reaches this through /__e and does not have the
-# variable, so it passes straight through there too.
+# A step inside a job container reaches the node through /__e, and there it is
+# not this script: the agent fills the volume it mounts there with the real node
+# (externalsFillScript in internal/backend/docker.go), because the shell this
+# needs may not exist in the job's image and the preload is not mounted in it. An
+# agent that predates that fill hands the job container this script, which then
+# needs bash in that image.
 if [ -n "${ZOOMIES_CACHE_SERVICE_URL:-}" ] && [ -n "${ACTIONS_CACHE_SERVICE_V2:-}" ]; then
 	redirect=${ZOOMIES_CACHE_REDIRECT_FILE:-/usr/local/lib/zoomies/runner-cache-redirect.cjs}
 	# Only if it is there: an image built without it must still run its actions.

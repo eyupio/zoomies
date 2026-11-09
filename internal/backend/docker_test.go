@@ -1711,6 +1711,62 @@ func TestTheExternalsFillScriptWritesTheMarkerOnlyAfterACompleteCopy(t *testing.
 	}
 }
 
+// A job in a container: block runs the node it finds at /__e inside the job's
+// own image. The runner image's node is a wrapper script for the cache
+// redirect, which needs a shell, here bash, that a minimal glibc job image may
+// not have, and which only means something inside the runner container, where
+// the preload it loads exists. So the volume the jobs get holds the real node
+// where the wrapper was, and the wrapper never runs in a job image.
+func TestTheExternalsFillGivesJobContainersTheRealNodeNotTheWrapper(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fill script runs in a Linux container")
+	}
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	image, vol := t.TempDir(), t.TempDir()
+	write := func(path, content string) {
+		t.Helper()
+		full := filepath.Join(image, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// What runner-node-wrap.sh leaves: the wrapper where node was, the real
+	// binary beside it, and the Alpine nodes untouched.
+	for _, d := range []string{"node20", "node24"} {
+		write(d+"/bin/node", "wrapper")
+		write(d+"/bin/node.real", "real "+d)
+	}
+	write("node20_alpine/bin/node", "alpine")
+	script := strings.ReplaceAll(strings.ReplaceAll(externalsFillScript, RunnerExternalsMount, image), externalsFillMount, vol)
+	if out, err := exec.Command("sh", "-c", script).CombinedOutput(); err != nil {
+		t.Fatalf("fill: %v\n%s", err, out)
+	}
+	for _, d := range []string{"node20", "node24"} {
+		got, err := os.ReadFile(filepath.Join(vol, d, "bin", "node"))
+		if err != nil || string(got) != "real "+d {
+			t.Errorf("%s/bin/node in the volume = %q (%v), want the real node", d, got, err)
+		}
+		if _, err := os.Stat(filepath.Join(vol, d, "bin", "node.real")); !os.IsNotExist(err) {
+			t.Errorf("%s/bin/node.real was left in the volume: %v", d, err)
+		}
+	}
+	if got, _ := os.ReadFile(filepath.Join(vol, "node20_alpine", "bin", "node")); string(got) != "alpine" {
+		t.Errorf("the Alpine node was changed: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(vol, externalsMarker)); err != nil {
+		t.Errorf("a complete fill has no marker: %v", err)
+	}
+	// The runner's own copy, in the image, is untouched: only the volume changes.
+	if got, _ := os.ReadFile(filepath.Join(image, "node20", "bin", "node")); string(got) != "wrapper" {
+		t.Errorf("the image's own node was changed: %q", got)
+	}
+}
+
 // A runtime that answers an existing volume's name with a conflict, rather
 // than with the volume as Docker does, still has the volume: the fill goes on
 // instead of caching a failure after every agent restart.

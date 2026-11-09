@@ -2412,11 +2412,22 @@ const externalsFillMount = "/zoomies-externals"
 // externalsFillScript copies the image's externals into the volume and writes
 // the marker last. A volume that already has the marker is left as it is; one
 // without it, from a fill that was cut short, is emptied and copied again.
+//
+// The copy puts the real node back where the runner image's wrapper stands
+// (runner-node-wrap.sh keeps it beside the wrapper as node.real). The volume is
+// what a job in a container: block runs its actions with, inside the job's own
+// image, and there the wrapper's shell may not exist and the preload it exists to
+// load is not mounted, so it could only break the job. The image's own copy is
+// not touched.
 var externalsFillScript = `set -e
 [ -f ` + externalsFillMount + `/` + externalsMarker + ` ] && exit 0
 [ -n "$(ls -A ` + RunnerExternalsMount + `)" ] || { echo "` + RunnerExternalsMount + ` is empty in the image" >&2; exit 3; }
 find ` + externalsFillMount + ` -mindepth 1 -delete
 cp -a ` + RunnerExternalsMount + `/. ` + externalsFillMount + `/
+for real in ` + externalsFillMount + `/node*/bin/node.real; do
+  [ -f "$real" ] || continue
+  mv -f "$real" "${real%.real}"
+done
 touch ` + externalsFillMount + `/` + externalsMarker
 
 // externalsVolumeName is the volume for one image: its digest when there is
