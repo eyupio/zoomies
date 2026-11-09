@@ -797,6 +797,23 @@ and the route that fetches each, so you choose what leaves the fleet.
 
 It needs an admin token, because the document contains the settings section.
 
+### `zoomies storage`
+
+Says what is in the controller's state directory and how big each entry is,
+biggest first, with what each one is to an operator: `essential` (the
+controller cannot start without it), `kept` (an uploaded or fetched backup,
+which retention never deletes), `regenerable` (a copy the controller took of
+itself, its lock file, or a cache it rebuilds) or `unknown` (this release
+cannot name it, so carry it). Under the table it adds up what a move would
+carry and what the controller could make again, how much of the database file
+is free pages that a delete left behind, and the room left on the disk.
+`--output json` prints the report as the controller sent it.
+
+It asks the controller, so it reports the directory the running controller
+uses, and it needs the permission the backups list needs, the platform role or a
+token scoped `backups:read`. See
+[what is in the state directory](backup-and-restore.md#what-is-in-the-state-directory).
+
 ### `zoomies users` and `zoomies tokens`
 
 | Command | What it does |

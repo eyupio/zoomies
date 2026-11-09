@@ -911,6 +911,9 @@ func routeTable(ids fixtureIDs) []route {
 
 		{method: "GET", path: "/api/v1/backups", role: store.RolePlatform, action: auth.ActionBackupsRead},
 		{method: "POST", path: "/api/v1/backups", role: store.RolePlatform, action: auth.ActionBackupsWrite},
+		// What is in the state directory is read with the backups list's own
+		// permission: the names of the copies in it are what that list shows.
+		{method: "GET", path: "/api/v1/storage", role: store.RolePlatform, action: auth.ActionBackupsRead},
 		{method: "GET", path: "/api/v1/transfers/preparation", role: store.Roles()[len(store.Roles())-1], action: auth.ActionBackupsRead},
 		{method: "POST", path: "/api/v1/transfers/preparation", role: store.Roles()[len(store.Roles())-1], action: auth.ActionBackupsRestore},
 		{method: "DELETE", path: "/api/v1/transfers/preparation", role: store.Roles()[len(store.Roles())-1], action: auth.ActionBackupsRestore},

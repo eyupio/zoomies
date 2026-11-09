@@ -649,9 +649,16 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionBackupsRestore)).Post("/transfers/preparation", s.handlePrepareTransfer)
 		r.With(s.require(auth.ActionBackupsRestore)).Delete("/transfers/preparation", s.handleCancelTransfer)
 
+		// What is in the state directory. It lists the copies of the database
+		// that sit beside it by name, which is what the backups list shows, so
+		// it is read with that list's permission and no other.
+		r.With(s.require(auth.ActionBackupsRead)).Get("/storage", s.handleGetStorage)
+
 		// Backups. Reading one is reading the whole database, and restoring
-		// one replaces the fleet, so every route here is admin and the two
-		// halves are separate actions. The upload is mounted on the root
+		// one replaces the fleet, so every route here needs the platform role
+		// (a backup is the database under the key this host holds, which is
+		// the process operator's and not the fleet administrator's) and the
+		// two halves are separate actions. The upload is mounted on the root
 		// router, above, because it needs a body limit of its own.
 		r.Route("/backups", func(r chi.Router) {
 			r.With(s.require(auth.ActionBackupsRead)).Get("/", s.handleListBackups)

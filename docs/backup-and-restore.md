@@ -29,6 +29,62 @@ actually are on this host.
 
 A container deployment keeps all of it in the `zoomies-data` volume.
 
+### What is in the state directory
+
+The state directory holds more than the database. Beside it the controller
+keeps the copies of the database it takes of itself, and every backup somebody
+uploads or fetches back from a remote lands in the same place, so a directory
+that holds one database can hold ten of them. `zoomies storage` (or
+`GET /api/v1/storage`) says what is there:
+
+```text
+PATH                             CLASS                 SIZE
+work                             unknown               2.0 GB
+backups/zoomies-20261101-000000  kept                  1.1 GB
+backups/zoomies-20261109-040000  regenerable           1.1 GB
+zoomies.db                       essential             1.1 GB
+zoomies.db-wal                   essential (optional)  4.0 MB
+
+directory            /var/lib/zoomies
+total                5.3 GB
+carry when moving    4.2 GB  essential, kept and unknown
+could be made again  1.1 GB  regenerable
+database             1.1 GB, of which 256.0 MB is free pages a delete left in the file
+backups go to        /var/lib/zoomies/backups
+disk free            42.0 GB
+```
+
+Each entry has one of four classes, and the class is what to read when you are
+about to copy the directory to another machine, size a disk or lower retention.
+
+| Class | What it is | Moving to another machine |
+| --- | --- | --- |
+| `essential` | The database, its write-ahead files while it is open (`optional`, because a clean stop leaves none), and the encryption key when it lives in this directory. | Carry it. |
+| `kept` | An uploaded or fetched backup. Retention never deletes one, because somebody put it there on purpose. | Carry it if you want it. |
+| `regenerable` | A backup the controller took of itself (scheduled, manual, from the command line or by an upgrade), a copy taken before a migration, the database lock, and the caches under `shared`. The controller makes them again. | Leave it. |
+| `unknown` | Something this release cannot name. | Carry it: the safe mistake is to carry too much. |
+
+So a move needs the `essential` and `kept` entries, plus whatever is `unknown`,
+and not the rest. The encryption key is listed only when it lives in this
+directory; by default it is in the configuration directory, which the report does
+not read, and a move needs it as well. The agent's `work` directory holds its
+credentials beside scratch space, and a controller with a self-signed
+certificate keeps it in `tls`, so both are reported as `unknown` rather than
+guessed at; the size is there for when you want to know where the space went.
+
+Two limits are worth knowing. A backup directory set with `backup.directory` to
+somewhere that is not directly inside the state directory is not listed, because
+a copy of the state directory does not carry it either; `backups go to` says
+where it is. And sizes are those of the regular files: a symbolic link counts as
+nothing and is never followed.
+
+The database's own size matters twice. Deleting rows moves pages to a free
+list inside the file and the file does not get shorter, so `database` also says
+how much of it is free pages. At present nothing returns that space to the disk:
+a database that was once large stays at its high-water mark, and
+`zoomies backup` writes a compact copy of the live data, which is why a backup can
+be much smaller than the file it came from.
+
 ## Taking a backup
 
 There are three ways, and they write the same thing: a timestamped directory,
@@ -44,9 +100,9 @@ by any of them is restorable by any of the others.
   every fifteen minutes.
 * **Settings → Backups** takes one on demand, lists every copy in the
   directory with what its manifest says, verifies, downloads, uploads and
-  deletes them, and stages a restore. It needs the administrator role, because
-  a backup is the whole database. The rest of this page says what each button
-  does.
+  deletes them, and stages a restore. It needs the platform role, the one that
+  belongs to whoever runs the controller, because a backup is the whole
+  database. The rest of this page says what each button does.
 * **`zoomies backup`** on the command line:
 
 ```sh

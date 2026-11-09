@@ -20,7 +20,7 @@ was not audited) is in [improve.md](improve.md).
 | [008](008-tailscale-channel-policy.md) | Record the tailscale.com pin's channel policy, where the pin is defended | P3 | S | none | DONE (merged, PR #1210) |
 | [009](009-controller-package-split.md) | Extract the Kennel Club loop from the controller package, as the first seam | P3 | L | after 004, 005 | OPEN (not executed: the one large refactor, and the owner's call) |
 | [010](010-sse-identity-tick.md) | Resolve the stream's narrowing identity per heartbeat, not per frame | P3 | S | after 005 (same file) | DONE (merged, PR #1208) |
-| [011](011-state-directory-housekeeping.md) | Let the state directory look after itself: a storage report, pruning and compaction | P2 | L | none | TODO (written 2026-11-09 against `1da1792`; three independent parts) |
+| [011](011-state-directory-housekeeping.md) | Let the state directory look after itself: a storage report, pruning and compaction | P2 | L | none | IN PROGRESS (written 2026-11-09 against `1da1792`; three independent parts; Part 1, the storage report, is built; Parts 2 and 3 are not started) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale).
