@@ -260,3 +260,21 @@ func TestAnImageReferenceThatCouldBeMoreThanOneArgumentIsNotOfferedAsACommandArg
 		})
 	}
 }
+
+// A variant's toolchain image is the same tag on the other repository, so a
+// pool can move between the two by changing the repository alone, and only the
+// variants the catalogue marks Full have one.
+func TestFullRefIsTheSameTagOnTheFullRepositoryAndOnlyWhereMarked(t *testing.T) {
+	for _, img := range Images() {
+		got := img.FullRef()
+		if !img.Full {
+			if got != "" {
+				t.Errorf("%s has no full image but FullRef = %q", img.Tag(), got)
+			}
+			continue
+		}
+		if want := RunnerFullImageRepo + ":" + img.Tag(); got != want {
+			t.Errorf("%s: FullRef = %q, want %q", img.Tag(), got, want)
+		}
+	}
+}

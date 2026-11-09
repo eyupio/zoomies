@@ -11,17 +11,25 @@
   reference does not change with it: every variant is published as a manifest
   covering both, so a host pulls its own.
 
+  Which image comes next. The three published images are a dropdown with the
+  words for each beside it, because a choice nobody can read the contents of is
+  a choice nobody makes: the full toolchain image existed for some time that
+  only a person who had read the configuration reference knew to type in. An
+  image of your own is the last option and keeps its free-text field, shown only
+  when it is chosen. The Docker variant is not an option; see images.ts.
+
   The two dangerous answers on the whole page also live here, so both are
   spelled out in the consequence rather than in a footnote, and the host-socket
-  option cannot be left selected without a deliberate confirmation. An image of
-  your own and a pinned runner version are the least-used controls and are
-  kept behind a disclosure of their own.
+  option cannot be left selected without a deliberate confirmation. A pinned
+  runner version is the least-used control and is kept behind a disclosure of
+  its own.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
   import { ServerOff, ShieldAlert } from '@lucide/svelte';
   import type { BackendKind, DockerMode, Host, PoolPlatform } from '$lib/api/types';
   import { pluralise } from '$lib/format';
+  import { RUNNER_FULL_IMAGE_URL } from '$lib/links';
   import Button from '$lib/components/Button.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
@@ -30,6 +38,8 @@
   import RadioGroup from '$lib/components/RadioGroup.svelte';
   import PoolMore from './PoolMore.svelte';
   import Select from '$lib/components/Select.svelte';
+  import { FLAVOURS, flavourCopy, flavourOf, fullImageOf, platformForImage } from './images';
+  import type { ImageFlavour } from './images';
   import {
     BACKENDS,
     DOCKER_MODES,
@@ -127,10 +137,9 @@
   let moreOpen = $state(
     untrack(
       () =>
-        draft.image.trim() !== '' ||
         draft.runner_version.trim() !== '' ||
         draft.dind_image.trim() !== '' ||
-        Boolean(errors['image'] || errors['runner_version'] || errors['dind_image']),
+        Boolean(errors['runner_version'] || errors['dind_image']),
     ),
   );
 
@@ -180,11 +189,67 @@
     }).length,
   );
 
+  /* Image: the published choices, or one of your own. */
+
+  // The platform an image choice is about: the one picked, or the default when
+  // the pool says "any", which is the operating system an empty image boots.
+  const imagePlatform = $derived(platformForImage(platforms, chosen));
+  const fullImage = $derived(fullImageOf(imagePlatform));
+
+  // Custom picked with the field still empty is not something the image string
+  // can say, so it is remembered here. Anything typed is Custom without it.
+  let customPicked = $state(false);
+  const flavour = $derived(flavourOf(draft.image, imagePlatform, customPicked));
+  const copy = $derived(flavourCopy(flavour));
+
+  // What was typed under Custom, so leaving it for a moment is not losing it.
+  let typedCustom = $state('');
+  // Set when changing the operating system took the toolchain image away, so
+  // the change is said rather than discovered.
+  let fullDropped = $state(false);
+
+  const imageOptions = $derived(
+    FLAVOURS.map((entry) => ({
+      value: entry.value,
+      label:
+        entry.value === 'full' && fullImage === ''
+          ? `${entry.label} (Ubuntu only)`
+          : entry.value === 'standard'
+            ? `${entry.label} (default)`
+            : entry.label,
+      disabled: entry.value === 'full' && fullImage === '' && flavour !== 'full',
+    })),
+  );
+
+  function chooseFlavour(value: string): void {
+    const next = value as ImageFlavour;
+    if (flavour === 'custom' && draft.image.trim() !== '') typedCustom = draft.image;
+    fullDropped = false;
+    customPicked = next === 'custom';
+    if (next === 'standard') draft.image = '';
+    else if (next === 'full') draft.image = fullImage;
+    else if (draft.image.trim() === '' || draft.image.trim() === fullImage) {
+      // Start from what was typed last, or from the image just left, so the
+      // field is never an empty box with no idea what belongs in it.
+      draft.image = typedCustom || draft.image;
+    }
+    touch('image');
+  }
+
   function chooseOS(value: string): void {
+    const wasFull = flavour === 'full';
     const found = platforms.find((p) => platformKey(p.os, p.os_version) === value);
     draft.platform_os = found?.os ?? '';
     draft.platform_os_version = found?.os_version ?? '';
     touch('platform.os');
+    if (wasFull) {
+      // The toolchain image is per operating system: follow the pool to the new
+      // one, or back to Standard where there is none.
+      const next = fullImageOf(platformForImage(platforms, found));
+      draft.image = next;
+      fullDropped = next === '';
+      touch('image');
+    }
   }
 
   // A pool's docker_mode gives its jobs a daemon; the image has to bring the
@@ -274,6 +339,77 @@
         : ` ${pluralise(matchingHosts, 'connected host')} match.`}
     {/if}
   </p>
+
+  <Field
+    label="Runner image"
+    error={flavour === 'custom' ? undefined : errors['image']}
+    hint="What is installed in the runner your jobs start in. The words below change with the choice."
+    notice={fullDropped
+      ? 'The toolchain image is published for Ubuntu only, so this pool is back on the standard image.'
+      : undefined}
+  >
+    {#snippet children({ id, describedBy, invalid })}
+      <Select
+        value={flavour}
+        options={imageOptions}
+        {id}
+        {describedBy}
+        {invalid}
+        onchange={chooseFlavour}
+      />
+    {/snippet}
+  </Field>
+
+  <section class="flavour" aria-label="About the {copy.label} image">
+    <p class="flavour-summary">{copy.summary}</p>
+    <dl class="flavour-facts">
+      <dt>What is in it</dt>
+      <dd>{copy.contains}</dd>
+      <dt>Choose it when</dt>
+      <dd>{copy.chooseWhen}</dd>
+      <dt>Keep in mind</dt>
+      <dd>{copy.keepInMind}</dd>
+    </dl>
+    {#if flavour === 'full'}
+      <p class="flavour-link">
+        <a href={RUNNER_FULL_IMAGE_URL} target="_blank" rel="noreferrer"
+          >The full list of toolchains</a
+        >
+      </p>
+    {/if}
+  </section>
+
+  {#if flavour === 'custom'}
+    <Field
+      label="Image"
+      error={errors['image']}
+      hint="The image reference to boot, with a tag or a digest. Leave it empty to follow the operating system above."
+      notice={imageNotice}
+    >
+      {#snippet children({ id, describedBy, invalid })}
+        <Input
+          bind:value={draft.image}
+          {id}
+          {describedBy}
+          {invalid}
+          mono
+          placeholder={chosen?.image ?? 'ghcr.io/eyupio/zoomies-runner:latest'}
+          autocomplete="off"
+          onblur={() => touch('image')}
+        />
+      {/snippet}
+    </Field>
+  {/if}
+
+  <details class="compare">
+    <summary>Compare the three</summary>
+    <dl>
+      {#each FLAVOURS as entry (entry.value)}
+        <dt>{entry.label}</dt>
+        <dd>{entry.summary}</dd>
+      {/each}
+    </dl>
+  </details>
 {/if}
 
 <RadioGroup
@@ -352,36 +488,13 @@
 />
 
 <PoolMore
-  title="Your own image, or a pinned runner version"
-  note={draft.image.trim() !== '' ||
-  draft.runner_version.trim() !== '' ||
+  title="A pinned runner version or Docker-in-Docker image"
+  note={draft.runner_version.trim() !== '' ||
   (draft.docker_mode === 'dind' && draft.dind_image.trim() !== '')
     ? 'in use'
     : 'the defaults follow the platform and the latest runner'}
   bind:open={moreOpen}
 >
-  {#if usesImage}
-    <Field
-      label="Image"
-      error={errors['image']}
-      hint="Override the image the operating system above selects. Leave it empty unless you build your own."
-      notice={imageNotice}
-    >
-      {#snippet children({ id, describedBy, invalid })}
-        <Input
-          bind:value={draft.image}
-          {id}
-          {describedBy}
-          {invalid}
-          mono
-          placeholder={chosen?.image ?? 'ghcr.io/eyupio/zoomies-runner:latest'}
-          autocomplete="off"
-          onblur={() => touch('image')}
-        />
-      {/snippet}
-    </Field>
-  {/if}
-
   {#if draft.docker_mode === 'dind'}
     <Field
       label="Docker-in-Docker image"
@@ -431,6 +544,64 @@
   }
   .platform-note code {
     font-family: var(--z-font-mono);
+  }
+  .flavour {
+    padding: var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-raised, var(--z-surface));
+  }
+  .flavour-summary {
+    margin: 0;
+    max-width: 70ch;
+    font-size: var(--z-text-base);
+    line-height: var(--z-leading-base);
+    color: var(--z-text);
+  }
+  .flavour-facts {
+    display: grid;
+    gap: var(--z-space-1) var(--z-space-4);
+    margin: var(--z-space-3) 0 0;
+    max-width: 70ch;
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+  }
+  .flavour-facts dt {
+    margin-top: var(--z-space-2);
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
+  }
+  .flavour-facts dd {
+    margin: 0;
+    color: var(--z-text-muted);
+  }
+  .flavour-link {
+    margin: var(--z-space-3) 0 0;
+    font-size: var(--z-text-sm);
+  }
+  .flavour-link a {
+    color: var(--z-accent);
+  }
+  .compare {
+    font-size: var(--z-text-sm);
+    color: var(--z-text-muted);
+  }
+  .compare summary {
+    cursor: pointer;
+  }
+  .compare dl {
+    display: grid;
+    gap: var(--z-space-1);
+    margin: var(--z-space-2) 0 0;
+    max-width: 70ch;
+  }
+  .compare dt {
+    margin-top: var(--z-space-2);
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
+  }
+  .compare dd {
+    margin: 0;
   }
   .unrunnable {
     margin-top: var(--z-space-4);

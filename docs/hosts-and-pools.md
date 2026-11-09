@@ -412,8 +412,8 @@ it is confirmed deliberately.
 
 A `dind` pool starts a sidecar from the host's image (`agent.dind_image`,
 which is `docker:27-dind` until a host says otherwise). A pool that needs a
-different one names it in **Runner**, under *Your own image, or a pinned runner
-version*, as the Docker-in-Docker image; the field appears only when the pool
+different one names it in **Runner**, under *A pinned runner version or
+Docker-in-Docker image*, as the Docker-in-Docker image; the field appears only when the pool
 is `dind`, and empty follows the host. The sidecar runs privileged, so the field
 chooses which image gets that access. See
 [`agent.dind_image`](configuration.md#agentdind_image-your-own-docker-in-docker-sidecar)

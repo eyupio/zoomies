@@ -25,6 +25,8 @@ export const DOCS_URL = `${SITE_URL}/`;
 /** Individual pages, as the site publishes them. */
 export const QUICKSTART_URL = `${SITE_URL}/quickstart/`;
 export const CONFIGURATION_URL = `${SITE_URL}/configuration/`;
+/** What the full runner image carries, and what it costs a host. */
+export const RUNNER_FULL_IMAGE_URL = `${CONFIGURATION_URL}#the-full-image`;
 export const API_SURFACE_URL = `${SITE_URL}/api-surface/`;
 export const SECURITY_URL = `${SITE_URL}/security/`;
 /** What is qualified on which platform, and what moves a row. */

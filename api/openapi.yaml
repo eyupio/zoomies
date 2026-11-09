@@ -12383,6 +12383,13 @@ components:
         os_version: { type: string, examples: ["24.04"] }
         label: { type: string, examples: ["Ubuntu 24.04"] }
         image: { type: string, examples: ["ghcr.io/eyupio/zoomies-runner:ubuntu-2404"] }
+        full_image:
+          type: string
+          description: >-
+            The same operating system with the language toolchains the setup-*
+            actions would download already installed, or absent when none is
+            published for it. Naming it as a pool's image selects it.
+          examples: ["ghcr.io/eyupio/zoomies-runner-full:ubuntu-2404"]
         arches: { type: array, items: { type: string }, examples: [[amd64, arm64]] }
         default: { type: boolean, description: True for the variant :latest points at. }
 
