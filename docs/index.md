@@ -331,6 +331,7 @@ capacity, patching, network access and recovery.
 | You already operate Kubernetes and want runners in that cluster | [Compared with ARC](actions-runner-controller.md) |
 | You want CI capacity without maintaining machines | [Compared with runner services](hosted-runner-services.md) |
 | You are choosing among VM-based controllers | [Alternatives](alternatives/index.md) |
+| You are weighing a move away from GitHub Actions itself | [GitHub Actions alternatives: change the runner](github-actions-alternatives.md) |
 | You are unsure the savings justify the work | [Should you self-host?](should-i-self-host.md) and [costs](costs.md) |
 
 Zoomies charges no platform fee. Machines, storage, electricity and operator

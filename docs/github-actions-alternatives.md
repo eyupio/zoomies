@@ -55,8 +55,8 @@ There are three kinds of answer, and they differ in who looks after the
 machines.
 
 **A hosted runner service.** Blacksmith, WarpBuild and Depot run your jobs on
-their machines and charge by the minute; RunsOn and WarpBuild's bring-your-own
-cloud option run them in your cloud account. You do not look after hosts. You do
+their machines and charge by the minute; RunsOn, WarpBuild's bring-your-own
+cloud option and Depot's AWS option run them in your cloud account. You do not look after hosts. You do
 pay per minute or per licence, and you depend on the service.
 [Zoomies and the runner services](hosted-runner-services.md) puts them side by
 side with their prices and says when each is the better choice.
@@ -75,8 +75,8 @@ need Kubernetes.
 ## What Zoomies is, and what it is not
 
 Zoomies is free software under the AGPL-3.0, one binary with SQLite for its
-state and a web UI. It starts an ephemeral runner for each queued job, in a fresh
-container, and destroys it when the job ends. It has no per-minute fee and no
+state and a web UI. It starts an ephemeral runner for each queued job and destroys it
+when the job ends. It has no per-minute fee and no
 licence, so you pay only for the machines.
 
 It is the wrong choice in some cases, and it is better to know before you try:
@@ -104,8 +104,8 @@ repository.
 2. Change `runs-on` on one workflow to the labels of your new pool.
 3. Compare the run against the same job on GitHub's runners.
 
-When you want to move more, the [migration wizard](migration.md) reads GitHub,
-Blacksmith and WarpBuild labels, proposes a pool for each, shows you the diff and
+When you want to move more, the [migration wizard](migration.md) reads the labels of GitHub's
+own runners and of vendors such as Blacksmith and WarpBuild, proposes a pool for each, shows you the diff and
 opens one pull request per repository. Moving a workflow back is the same one-line
 change.
 

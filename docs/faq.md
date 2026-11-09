@@ -229,6 +229,23 @@ Sometimes. [Should you self-host GitHub Actions runners?](should-i-self-host.md)
 lists what a runner fleet has to do, which parts Zoomies handles and which it
 leaves to you, and when renting runners is the better choice.
 
+## What are self-hosted runners on GitHub?
+
+A self-hosted runner is a machine you provide, such as a cloud VM, an office server or a
+spare box at home, that runs GitHub Actions jobs instead of GitHub's own virtual
+machines. GitHub gives a job to an idle runner that carries every label the job's
+`runs-on` line asks for. The workflow file stays the same; only where it runs
+changes. [What self-hosted runners are](what-are-self-hosted-runners.md) explains
+persistent and ephemeral runners, autoscaling and the security trade-offs.
+
+## How do I set up a self-hosted runner on GitHub?
+
+With Zoomies there is no registration token to copy by hand. Run the installer on a
+Linux host, connect GitHub with an App, create a pool, and point a workflow's
+`runs-on` at that pool's labels. Zoomies registers a short-lived runner for each
+queued job and removes it when the job ends. The [quick start](quickstart.md)
+takes a fresh host to a running job in about five minutes.
+
 ## Are GitHub self-hosted runners still free?
 
 Yes. GitHub charges nothing for minutes on self-hosted runners. In December 2025 it
@@ -423,6 +440,22 @@ modified or not, asks nothing of you. The full text is in
       "acceptedAnswer": {
         "@type": "Answer",
         "text": "The Zoomies software is free and open source under the GNU Affero General Public License (AGPL-3.0). You pay for your machines and the time to look after them. Zoomies Cloud is an optional paid service that hosts the controller and handles its updates and backups; you still supply the runner machines. Current Cloud pricing is at https://cloud.zoomies.sh/pricing."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What are self-hosted runners on GitHub?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "A self-hosted runner is a machine you provide, such as a cloud VM, an office server or a spare box at home, that runs GitHub Actions jobs instead of GitHub's own virtual machines. GitHub gives a job to an idle runner that carries every label the job's runs-on line asks for. The workflow file stays the same; only where it runs changes. Persistent and ephemeral runners, autoscaling and the security trade-offs are explained on the what-are-self-hosted-runners page."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I set up a self-hosted runner on GitHub?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "With Zoomies there is no registration token to copy by hand. Run the installer on a Linux host, connect GitHub with an App, create a pool, and point a workflow's runs-on at that pool's labels. Zoomies registers a short-lived runner for each queued job and removes it when the job ends. The quick start takes a fresh host to a running job in about five minutes."
       }
     },
     {

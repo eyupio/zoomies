@@ -12,7 +12,9 @@ description: >-
 This page compares ways to run GitHub Actions jobs on runners other than GitHub's
 own. If you are looking for an alternative to GitHub Actions itself, such as
 GitLab CI or Buildkite, this is not that comparison: here your workflows stay as
-they are and only the machines that run them change.
+they are and only the machines that run them change. If you are not sure which
+problem you have, [GitHub Actions alternatives: change the
+runner](../github-actions-alternatives.md) sorts it out.
 
 There are several good ways to run GitHub Actions jobs somewhere other than
 GitHub's own runners, and most people arrive here looking for an alternative to

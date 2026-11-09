@@ -59,6 +59,14 @@ you press Ctrl-C.
 [API](https://zoomies.sh/api-surface/) ·
 [FAQ](https://zoomies.sh/faq/)
 
+Which page do I want? [Costs](https://zoomies.sh/costs/) ·
+[Compared with ARC](https://zoomies.sh/actions-runner-controller/) ·
+[Compared with runner services](https://zoomies.sh/hosted-runner-services/) ·
+[Runners in Docker](https://zoomies.sh/docker/) ·
+[Home lab](https://zoomies.sh/home-lab/) ·
+[Many repositories](https://zoomies.sh/many-repositories/) ·
+[GitHub Actions alternatives](https://zoomies.sh/github-actions-alternatives/)
+
 <br>
 
 <picture>
