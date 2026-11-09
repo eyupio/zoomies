@@ -177,6 +177,16 @@ case "$untouched" in
   *" https://github.invalid/") pass "the wrapped node loads nothing by default" ;;
   *) fail "the wrapped node gave '$untouched' with no cache service set, want GitHub's address unchanged" ;;
 esac
+# An action's inputs reach it as INPUT_<NAME> with the hyphens of the name kept,
+# which a POSIX shell cannot hold. A wrapper that is not bash drops them, so
+# setup-go sees no go-version-file at all: the job fails or, for checkout, quietly
+# takes its defaults. The cache service is on here because that is the longer path
+# through the wrapper.
+kept=$(env 'INPUT_GO-VERSION-FILE=go.mod' ZOOMIES_CACHE_SERVICE_URL=http://host.invalid:1/ ACTIONS_CACHE_SERVICE_V2=true "$node" -p 'String(process.env["INPUT_GO-VERSION-FILE"])' 2>&1) || kept="failed: $kept"
+case "$kept" in
+  go.mod) pass "the wrapped node passes an action's hyphenated inputs on" ;;
+  *) fail "the wrapped node gave '$kept' for INPUT_GO-VERSION-FILE, want go.mod: a wrapper that is not bash drops inputs with a hyphen in the name" ;;
+esac
 
 # The runner release the Dockerfile pinned, asked of the binary itself rather
 # than of a label that could have been stamped without it. The image sets

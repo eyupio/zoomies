@@ -170,6 +170,51 @@ func TestTheWrapperRunsTheRealNodeWithItsArgumentsIntact(t *testing.T) {
 	}
 }
 
+func TestTheWrapperKeepsEnvironmentVariablesWhoseNamesAreNotShellNames(t *testing.T) {
+	// The runner hands every JavaScript action its inputs as INPUT_<NAME> with
+	// the name's hyphens kept, so setup-go reads INPUT_GO-VERSION-FILE. That is
+	// not a name a POSIX shell can hold, and dash, which is /bin/sh on Debian and
+	// Ubuntu, drops such a variable on the way through a script. A wrapper that
+	// runs under it hands every action with a hyphenated input a job in which the
+	// input was never given: setup-go and setup-python failed outright, and
+	// checkout quietly fell back to its defaults.
+	//
+	// The real node here is a copy of env, not a script, so nothing between the
+	// wrapper and the check is a shell that could drop the name by itself.
+	envBinary, err := exec.LookPath("env")
+	if err != nil {
+		t.Skip("no env to stand in for node: " + err.Error())
+	}
+	inputs := []string{"INPUT_GO-VERSION-FILE=go.mod", "INPUT_PYTHON-VERSION=3.12", "INPUT_TOKEN=x"}
+	redirect := preload(t)
+	for name, extra := range map[string][]string{
+		"without the cache service": nil,
+		"with the cache service": {EnvCacheServiceURL + "=http://172.17.0.1:41234/",
+			"ZOOMIES_CACHE_REDIRECT_FILE=" + redirect, "ACTIONS_CACHE_SERVICE_V2=true"},
+	} {
+		runner := fakeRunner(t)
+		body, err := os.ReadFile(envBinary)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(runner, "externals", "node20", "bin", "node"), body, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := wrap(t, runner); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		out, err := runNode(t, runner, append(append([]string{}, inputs...), extra...))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for _, want := range inputs {
+			if !strings.Contains("\n"+out, "\n"+want+"\n") {
+				t.Errorf("%s: the real node's environment was:\n%s\nwant it to contain %q", name, out, want)
+			}
+		}
+	}
+}
+
 func TestTheWrapperPassesOnTheExitCodeAndStandardInput(t *testing.T) {
 	// The runner reads node's exit code as the step's, and a few actions read
 	// their input from stdin, so neither may be lost to the extra process.
@@ -234,6 +279,36 @@ func TestTheInstallerIsSafeToRunTwiceAndFailsWhenThereIsNoNode(t *testing.T) {
 	// an image without the cache service.
 	if out, err := wrap(t, t.TempDir()); err == nil {
 		t.Fatalf("an empty runner directory was accepted:\n%s", out)
+	}
+}
+
+func TestTheInstallerRefusesAnImageThatHasNoBashForTheWrapper(t *testing.T) {
+	// The wrapper is bash (see its first comment). An image built from a custom
+	// base without one would have every JavaScript action fail to start, which
+	// is found out by a job and not by the build, so the build is where it stops.
+	runner := fakeRunner(t)
+	tools := t.TempDir()
+	for _, name := range []string{"mv", "cp", "chmod", "dirname"} {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			t.Skipf("no %s to give the installer: %v", name, err)
+		}
+		if err := os.Symlink(path, filepath.Join(tools, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("sh", wrapScript, runner, wrapperScript)
+	cmd.Env = []string{"PATH=" + tools}
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("an image with no bash was accepted:\n%s", out)
+	}
+	if !strings.Contains(string(out), "bash") {
+		t.Errorf("the refusal does not say what is missing:\n%s", out)
+	}
+	// It stops before it changes anything, so a retry on a fixed image starts clean.
+	if _, err := os.Stat(filepath.Join(runner, "externals", "node20", "bin", "node.real")); err == nil {
+		t.Error("node was wrapped before the missing bash was noticed")
 	}
 }
 

@@ -1,6 +1,15 @@
-#!/bin/sh
+#!/bin/bash
 # Stands in for the node the runner ships, and loads one preload script before
 # running the real one when the host has a cache service for this runner.
+#
+# It is bash and not sh because of what the runner puts in the environment: an
+# action's inputs arrive as INPUT_<NAME> with the hyphens of the name kept, as
+# in INPUT_GO-VERSION-FILE, and that is not a name a POSIX shell can hold. dash,
+# which is /bin/sh on Debian and Ubuntu, drops such a variable on its way
+# through a script, so under it every action with a hyphenated input ran as if
+# the input had never been given: setup-go and setup-python failed outright and
+# checkout fell back to its defaults without saying so. bash passes them on.
+# runner-node-wrap.sh refuses to build an image that has no bash for this.
 #
 # The runner hands every JavaScript action ACTIONS_RESULTS_URL, the address of
 # GitHub's results service, and it sets it itself, after the step's own
