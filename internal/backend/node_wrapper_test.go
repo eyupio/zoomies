@@ -157,6 +157,37 @@ func TestTheWrapperStillRunsTheActionWhenTheImageLacksThePreload(t *testing.T) {
 	}
 }
 
+// The runner hands every action its inputs as INPUT_<NAME> variables with the
+// name as the action wrote it, hyphens included: INPUT_GO-VERSION,
+// INPUT_FETCH-DEPTH, INPUT_INCLUDE-HIDDEN-FILES. A POSIX shell cannot import a
+// variable named like that, and dash, which is /bin/sh on Ubuntu and Debian,
+// drops it. A wrapper run by dash therefore stripped every hyphenated input
+// before the real node started, so setup-go saw no go-version and
+// upload-artifact rejected an empty include-hidden-files, on every job. The fake
+// node here is bash for the same reason: a fake run by dash would lose the
+// variables itself and the test could not tell.
+func TestTheWrapperKeepsVariablesWhoseNamesAreNotShellIdentifiers(t *testing.T) {
+	runner := fakeRunner(t)
+	if out, err := wrap(t, runner); err != nil {
+		t.Fatalf("installer: %v\n%s", err, out)
+	}
+	for _, d := range []string{"node20", "node24"} {
+		real := filepath.Join(runner, "externals", d, "bin", "node.real")
+		if err := os.WriteFile(real, []byte("#!/bin/bash\nexec env\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := runNode(t, runner, []string{"INPUT_GO-VERSION=1.27.3", "INPUT_FETCH-DEPTH=0", "PLAIN=kept"})
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, out)
+	}
+	for _, want := range []string{"INPUT_GO-VERSION=1.27.3", "INPUT_FETCH-DEPTH=0", "PLAIN=kept"} {
+		if !strings.Contains(out, want+"\n") {
+			t.Errorf("the real node was not given %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestTheWrapperRunsTheRealNodeWithItsArgumentsIntact(t *testing.T) {
 	runner := fakeRunner(t)
 	wrap(t, runner)

@@ -1,6 +1,15 @@
-#!/bin/sh
+#!/bin/bash
 # Stands in for the node the runner ships, and loads one preload script before
 # running the real one when the host has a cache service for this runner.
+#
+# This is bash and must stay bash. The runner gives every action its inputs as
+# INPUT_<NAME> variables named as the action wrote them, hyphens included
+# (INPUT_GO-VERSION, INPUT_FETCH-DEPTH), and a POSIX shell cannot import a
+# variable with a name like that: dash, which is /bin/sh on Ubuntu and Debian,
+# drops it, so a wrapper run by /bin/sh handed every action empty inputs.
+# Bash passes such variables on to what it executes. The wrapper runs for every
+# JavaScript action whether or not a cache service is configured, so this is not
+# a detail of the cache.
 #
 # The runner hands every JavaScript action ACTIONS_RESULTS_URL, the address of
 # GitHub's results service, and it sets it itself, after the step's own

@@ -178,6 +178,14 @@ case "$untouched" in
   *) fail "the wrapped node gave '$untouched' with no cache service set, want GitHub's address unchanged" ;;
 esac
 
+# The runner gives an action its inputs as INPUT_<NAME> variables named as the
+# action wrote them, hyphens included. A wrapper run by dash, which is /bin/sh on
+# Ubuntu and Debian, dropped every one of them, so setup-go saw no go-version on
+# every job. This is asked of the image's own wrapper, in the image's own shell
+# setup, because only there does it show.
+kept=$(env 'INPUT_GO-VERSION=1.27.3' "$node" -p 'process.env["INPUT_GO-VERSION"]' 2>&1) || kept="failed: $kept"
+[ "$kept" = "1.27.3" ] && pass "the wrapped node keeps a variable whose name has a hyphen, as every action input does" || fail "the wrapped node lost INPUT_GO-VERSION and gave '$kept'; the wrapper must run under bash, not a POSIX sh"
+
 # The runner release the Dockerfile pinned, asked of the binary itself rather
 # than of a label that could have been stamped without it. The image sets
 # ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT so a runner's log reaches the container's,
