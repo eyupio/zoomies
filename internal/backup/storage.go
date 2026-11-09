@@ -82,6 +82,10 @@ type StorageReport struct {
 	// which a delete leaves in the file.
 	DatabaseBytes     int64 `json:"database_bytes"`
 	DatabaseFreeBytes int64 `json:"database_free_bytes"`
+	// DatabaseAutoVacuum is the mode the database file was made in: "incremental"
+	// can give its free pages back to the disk, and "none" cannot until
+	// maintenance.compact is convert and a pass has rewritten it.
+	DatabaseAutoVacuum string `json:"database_auto_vacuum"`
 	// TotalBytes is every entry added up, so what the report lists and what it
 	// says the directory holds cannot differ.
 	TotalBytes int64 `json:"total_bytes"`
@@ -150,11 +154,12 @@ func Storage(ctx context.Context, cfg *config.Config, pages store.PageStats) (*S
 	}
 
 	report := &StorageReport{
-		Version:           StorageVersion,
-		Directory:         dir,
-		BackupDirectory:   backupDir,
-		Entries:           []StorageEntry{},
-		DatabaseFreeBytes: pages.FreeBytes(),
+		Version:            StorageVersion,
+		Directory:          dir,
+		BackupDirectory:    backupDir,
+		Entries:            []StorageEntry{},
+		DatabaseFreeBytes:  pages.FreeBytes(),
+		DatabaseAutoVacuum: pages.AutoVacuumName(),
 	}
 	if info, err := os.Stat(dbPath); err == nil {
 		report.DatabaseBytes = info.Size()

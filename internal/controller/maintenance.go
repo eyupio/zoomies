@@ -2,10 +2,12 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/backup"
+	"github.com/eyupio/zoomies/internal/config"
 )
 
 // maintenanceTick is how often the loop asks whether a pass is due. A minute is
@@ -29,6 +31,13 @@ type maintenanceState struct {
 	// owed says a pass was asked for, or came due, while a backup was being taken,
 	// and has not run yet.
 	owed bool
+	// notCompacted is the last scheduled pass's compaction when it was refused or
+	// failed, and is nil as soon as a pass finds nothing to complain of. It is what
+	// the problems list is made from, so a refusal stays on the list for as long as
+	// it stands and goes when it is put right.
+	notCompacted *backup.CompactionResult
+	// notCompactedAt is when that pass ran.
+	notCompactedAt time.Time
 }
 
 // maintenanceLoop tidies the controller's own state directory.
@@ -97,7 +106,66 @@ func (c *Controller) maintenancePass(ctx context.Context, asked bool) {
 		return
 	}
 	defer c.endBackup()
-	c.recordMaintenance(backup.Maintain(cfg, now), true)
+	result := backup.Maintain(cfg, now)
+	// Only the scheduled pass compacts. The button on the Backups page waits for
+	// its answer, and a conversion can hold the writer for minutes: nobody asked
+	// for that by asking for old copies to be removed.
+	if !asked {
+		result.Compaction = c.compact(ctx, cfg, now)
+	}
+	c.recordMaintenance(result, true)
+}
+
+// compact gives the database file's free pages back, if the configuration says to,
+// and remembers a refusal or a failure for the problems list.
+func (c *Controller) compact(ctx context.Context, cfg *config.Config, now time.Time) *backup.CompactionResult {
+	result := backup.Compact(ctx, c.st, cfg, now)
+	if result != nil && ctx.Err() != nil {
+		// A controller that is stopping interrupts a pass, and that is not a fault
+		// anybody can act on. What was given back before it stopped still counts.
+		result.Error = ""
+		if result.FreedBytes == 0 && !result.Converted && result.Skipped == "" {
+			result = nil
+		}
+	}
+	c.maintenance.mu.Lock()
+	defer c.maintenance.mu.Unlock()
+	if result != nil && (result.Skipped != "" || result.Error != "") {
+		c.maintenance.notCompacted, c.maintenance.notCompactedAt = result, now
+	} else {
+		c.maintenance.notCompacted = nil
+	}
+	return result
+}
+
+// compactionProblems says why the database file was not compacted, while that is
+// still so. The conversion is the one thing here an operator opted into and can be
+// refused, so the entry names the reason the pass gave and what to change.
+func (c *Controller) compactionProblems() []Problem {
+	c.maintenance.mu.Lock()
+	result, at := c.maintenance.notCompacted, c.maintenance.notCompactedAt
+	c.maintenance.mu.Unlock()
+	// A setting changed since the pass ran has already answered it: the entry goes
+	// when the operator asks for something else, and not a day later.
+	if result == nil || strings.ToLower(strings.TrimSpace(c.cfg().Maintenance.Compact)) != result.Mode {
+		return nil
+	}
+	p := Problem{
+		Code:     "maintenance.compact_skipped",
+		Severity: config.SeverityWarning,
+		Setting:  "maintenance.compact",
+		Since:    &at,
+	}
+	if result.Skipped != "" {
+		p.Title = "the database was not converted to give back its free space"
+		p.Detail = "maintenance.compact is convert, and the last maintenance pass refused to rewrite the database: " + result.Skipped + ". Nothing was changed."
+		p.Fix = "put right what that says and the next maintenance pass converts the database, or set maintenance.compact to incremental to stop asking."
+	} else {
+		p.Title = "giving back the database's free space failed"
+		p.Detail = "the last maintenance pass could not give the database file's free pages back: " + result.Error + ". The database was not damaged: a rewrite that fails leaves the original file as it was."
+		p.Fix = "read the error and put right what it names; the next maintenance pass tries again. Set maintenance.compact to off to stop it trying."
+	}
+	return []Problem{p}
 }
 
 // maintenanceDue says whether the schedule, or a pass owed from earlier, wants a
@@ -123,7 +191,7 @@ func (c *Controller) recordMaintenance(r *backup.MaintenanceResult, wholePass bo
 		c.maintenance.lastPassAt = r.At
 		c.maintenance.owed = false
 	}
-	if len(r.Backups) > 0 || len(r.PreMigration) > 0 || len(r.Errors) > 0 {
+	if len(r.Backups) > 0 || len(r.PreMigration) > 0 || len(r.Errors) > 0 || r.Compaction != nil {
 		c.maintenance.last = r
 	}
 	c.maintenance.mu.Unlock()
@@ -137,6 +205,18 @@ func (c *Controller) recordMaintenance(r *backup.MaintenanceResult, wholePass bo
 	}
 	for _, e := range r.Errors {
 		c.log.Warn("could not tidy the state directory", "error", e)
+	}
+	if k := r.Compaction; k != nil {
+		switch {
+		case k.Error != "":
+			c.log.Warn("could not give the database's free space back", "mode", k.Mode, "error", k.Error)
+		case k.Skipped != "":
+			c.log.Warn("did not convert the database to give back its free space", "reason", k.Skipped)
+		case k.Converted:
+			c.log.Info("converted the database to incremental auto-vacuum", "freed_bytes", k.FreedBytes)
+		default:
+			c.log.Info("gave the database's free space back to the disk", "freed_bytes", k.FreedBytes)
+		}
 	}
 }
 

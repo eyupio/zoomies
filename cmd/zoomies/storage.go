@@ -21,8 +21,12 @@ type storageReport struct {
 	Entries           []storageEntry `json:"entries"`
 	DatabaseBytes     int64          `json:"database_bytes"`
 	DatabaseFreeBytes int64          `json:"database_free_bytes"`
-	TotalBytes        int64          `json:"total_bytes"`
-	DiskFreeBytes     *int64         `json:"disk_free_bytes"`
+	// DatabaseAutoVacuum is "incremental" for a database that can give free pages
+	// back, and "none" for one that cannot until it is converted. A controller
+	// that does not say leaves it empty, and the command then says nothing of it.
+	DatabaseAutoVacuum string `json:"database_auto_vacuum"`
+	TotalBytes         int64  `json:"total_bytes"`
+	DiskFreeBytes      *int64 `json:"disk_free_bytes"`
 	// LastMaintenance is what the last tidy of the directory removed, and is
 	// absent until there has been one.
 	LastMaintenance *storageTidy `json:"last_maintenance"`
@@ -34,6 +38,18 @@ type storageTidy struct {
 	Backups      []string  `json:"backups"`
 	PreMigration []string  `json:"pre_migration"`
 	Errors       []string  `json:"errors"`
+	// Compaction is what the pass did to the database file, and is absent when it
+	// did nothing.
+	Compaction *storageCompaction `json:"compaction"`
+}
+
+// storageCompaction is what the scheduled pass did to the database file.
+type storageCompaction struct {
+	Mode       string `json:"mode"`
+	Converted  bool   `json:"converted"`
+	FreedBytes int64  `json:"freed_bytes"`
+	Skipped    string `json:"skipped"`
+	Error      string `json:"error"`
 }
 
 type storageEntry struct {
@@ -115,6 +131,14 @@ func runStorage(ctx context.Context, e *env, args []string) error {
 	if out.DatabaseFreeBytes > 0 {
 		database += ", of which " + sizeLabel(out.DatabaseFreeBytes) + " is free pages a delete left in the file"
 	}
+	switch out.DatabaseAutoVacuum {
+	case "incremental":
+		database += " (incremental auto-vacuum: the maintenance pass gives free pages back)"
+	case "none":
+		// What an operator with a large file wants to know next is how to get the
+		// space back, and the answer is a setting they may never have heard of.
+		database += " (made without auto-vacuum: set maintenance.compact to convert to give free pages back)"
+	}
 	summary := [][2]string{
 		{"directory", out.Directory},
 		{"total", sizeLabel(out.TotalBytes)},
@@ -131,9 +155,17 @@ func runStorage(ctx context.Context, e *env, args []string) error {
 	}
 	p.note("")
 	p.keyValues(summary)
-	if out.LastMaintenance != nil {
-		for _, e := range out.LastMaintenance.Errors {
+	if t := out.LastMaintenance; t != nil {
+		for _, e := range t.Errors {
 			p.note("could not tidy: %s", e)
+		}
+		if k := t.Compaction; k != nil {
+			if k.Skipped != "" {
+				p.note("did not compact the database: %s", k.Skipped)
+			}
+			if k.Error != "" {
+				p.note("could not compact the database: %s", k.Error)
+			}
 		}
 	}
 	p.note("")
@@ -150,8 +182,9 @@ func runStorage(ctx context.Context, e *env, args []string) error {
 	return nil
 }
 
-// tidySentence says what a maintenance pass removed, in the units an operator
-// counts: backups and the copies taken before a migration.
+// tidySentence says what a maintenance pass did, in the units an operator counts:
+// backups, the copies taken before a migration, and the space given back from the
+// database file.
 func tidySentence(t *storageTidy) string {
 	var parts []string
 	if n := len(t.Backups); n > 0 {
@@ -160,10 +193,21 @@ func tidySentence(t *storageTidy) string {
 	if n := len(t.PreMigration); n > 0 {
 		parts = append(parts, countedAs(n, "pre-migration copy", "pre-migration copies"))
 	}
+	if len(parts) > 0 {
+		parts = []string{"removed " + strings.Join(parts, " and ")}
+	}
+	if k := t.Compaction; k != nil {
+		switch {
+		case k.Converted:
+			parts = append(parts, "converted the database to incremental auto-vacuum")
+		case k.FreedBytes > 0:
+			parts = append(parts, "gave "+sizeLabel(k.FreedBytes)+" of the database file back to the disk")
+		}
+	}
 	if len(parts) == 0 {
 		return "removed nothing"
 	}
-	return "removed " + strings.Join(parts, " and ")
+	return strings.Join(parts, ", ")
 }
 
 func countedAs(n int, one, many string) string {

@@ -275,6 +275,17 @@ type Maintenance struct {
 	// starts, whatever this says, so that switching the pass off cannot leave
 	// copies that nothing ever removes.
 	Interval time.Duration `yaml:"interval"`
+	// Compact says whether the pass gives the database file's free pages back to
+	// the disk, and for which databases: "off", "incremental" (a database that was
+	// made in incremental auto-vacuum mode, which every database created by this
+	// release is) or "convert" (also rewrite an older database into that mode,
+	// once). Rewriting holds the writer for as long as it takes, so it is never
+	// done unless somebody chose it.
+	Compact string `yaml:"compact"`
+	// CompactFreePercent is the share of the database file that has to be free
+	// pages before the pass acts, and the share it stops at. It also acts only on
+	// a file with a good deal of free space, whatever the share.
+	CompactFreePercent int `yaml:"compact_free_percent"`
 }
 
 // BackupRemote is one S3-compatible destination: a bucket somebody else's disk
@@ -1372,7 +1383,7 @@ func Default() *Config {
 		// per release on the disk the fleet also needs. Tidied once a day, which
 		// is as often as the backups they sit beside are taken.
 		Backup:         Backup{Interval: 24 * time.Hour, Keep: 7, PreMigrationKeep: 2},
-		Maintenance:    Maintenance{Interval: 24 * time.Hour},
+		Maintenance:    Maintenance{Interval: 24 * time.Hour, Compact: "incremental", CompactFreePercent: 20},
 		CapacityDemand: CapacityDemand{Cooldown: 10 * time.Minute, Timeout: 10 * time.Second},
 		// Off. Once a day for what has to be read from GitHub, because the
 		// facts it asks about (a repository's visibility, how a run was

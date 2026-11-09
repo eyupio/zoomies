@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"slices"
@@ -227,4 +228,160 @@ func TestApplyingRetentionOnDemandAlsoTidiesThePreMigrationCopies(t *testing.T) 
 	if last := h.c.LastMaintenance(); last == nil || !slices.Equal(last.PreMigration, all[:1]) {
 		t.Errorf("last maintenance = %+v, want it to say the oldest copy was removed", last)
 	}
+}
+
+// fileStore swaps the harness's in-memory store for one in the file the
+// configuration names, because compaction is about the file: a database in memory
+// has no length to give back. older writes the database the way a release before
+// incremental vacuum left one, a file that exists before the store opens it.
+func (h *harness) fileStore(older bool) {
+	h.t.Helper()
+	path := h.cfg.Database.Path
+	if older {
+		db, err := sql.Open("sqlite", "file:"+path)
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		if _, err := db.Exec(`CREATE TABLE older_marker (id INTEGER)`); err != nil {
+			h.t.Fatal(err)
+		}
+		db.Close()
+	}
+	st, err := store.Open(h.ctx, store.Options{Path: path})
+	if err != nil {
+		h.t.Fatalf("store.Open: %v", err)
+	}
+	h.t.Cleanup(func() { st.Close() })
+	h.c.st = st
+	h.st = st
+}
+
+// churn leaves the database file about 48 MiB long with nine tenths of it free,
+// as a busy week followed by retention does, through a connection of its own.
+func (h *harness) churn() {
+	h.t.Helper()
+	db, err := sql.Open("sqlite", "file:"+h.cfg.Database.Path+"?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)")
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer db.Close()
+	for _, q := range []string{
+		`CREATE TABLE IF NOT EXISTS compaction_scratch (id INTEGER PRIMARY KEY, body BLOB)`,
+		`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 12000) INSERT INTO compaction_scratch (body) SELECT zeroblob(4000) FROM n`,
+		`DELETE FROM compaction_scratch WHERE id % 10 <> 0`,
+		`PRAGMA wal_checkpoint(TRUNCATE)`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			h.t.Fatalf("%s: %v", q, err)
+		}
+	}
+}
+
+func (h *harness) databaseBytes() int64 {
+	h.t.Helper()
+	info, err := os.Stat(h.cfg.Database.Path)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return info.Size()
+}
+
+// The reason for the whole change: a database that has had a lot deleted from it is
+// as long as it was, and a controller that never gives that back carries it to the
+// next disk. The scheduled pass does, and says how much.
+func TestTheScheduledPassGivesTheDatabasesFreeSpaceBackAndSaysSo(t *testing.T) {
+	h := newHarness(t)
+	h.fileStore(false)
+	h.c.UpdateConfig(func(c *config.Config) { c.Maintenance.Interval = time.Hour })
+	h.churn()
+	before := h.databaseBytes()
+
+	h.c.maintenancePass(h.ctx, false)
+
+	last := h.c.LastMaintenance()
+	if last == nil || last.Compaction == nil || last.Compaction.FreedBytes < before/2 {
+		t.Fatalf("last maintenance = %+v, want a compaction that gave back most of the %d bytes", last, before)
+	}
+	if after := h.databaseBytes(); after > before/2 {
+		t.Errorf("the file is %d bytes after the pass, from %d", after, before)
+	}
+}
+
+// What a person asks for with a button is what the button says. Pruning copies on
+// the Backups page returns when it is done, and a conversion can hold the writer
+// for minutes, so only the schedule compacts.
+func TestAnAskedForPassPrunesAndDoesNotCompact(t *testing.T) {
+	h := newHarness(t)
+	h.fileStore(false)
+	h.churn()
+	before := h.databaseBytes()
+
+	h.c.maintenancePass(h.ctx, true)
+
+	if after := h.databaseBytes(); after != before {
+		t.Errorf("the file went from %d to %d bytes under a pass somebody asked for", before, after)
+	}
+	if last := h.c.LastMaintenance(); last != nil && last.Compaction != nil {
+		t.Errorf("an asked-for pass reported a compaction: %+v", last.Compaction)
+	}
+}
+
+// A conversion is something an operator opted into, so being refused is something
+// they are told, and told for as long as it stands. It goes when what it names is
+// put right, and a setting changed since the pass ran has already answered it.
+func TestARefusedConversionIsOnTheProblemsListUntilItIsPutRight(t *testing.T) {
+	h := newHarness(t)
+	h.fileStore(true)
+	h.c.UpdateConfig(func(c *config.Config) {
+		c.Maintenance.Interval = time.Hour
+		c.Maintenance.Compact = "convert"
+		c.Backup.Interval = time.Hour
+	})
+
+	// No backup of this database from the last day: the rewrite is refused.
+	h.c.maintenancePass(h.ctx, false)
+	if codes := h.problemCodes(); !slices.Contains(codes, "maintenance.compact_skipped") {
+		t.Fatalf("problems = %v, want maintenance.compact_skipped after a refused conversion", codes)
+	}
+	if mode := h.autoVacuumMode(); mode == store.AutoVacuumIncremental {
+		t.Fatal("the database was converted without a backup to go back to")
+	}
+
+	// Asking for something else answers it at once, without waiting for a pass.
+	h.c.UpdateConfig(func(c *config.Config) { c.Maintenance.Compact = "incremental" })
+	if codes := h.problemCodes(); slices.Contains(codes, "maintenance.compact_skipped") {
+		t.Errorf("problems = %v: the setting was changed away from convert and the entry stayed", codes)
+	}
+	h.c.UpdateConfig(func(c *config.Config) { c.Maintenance.Compact = "convert" })
+	if codes := h.problemCodes(); !slices.Contains(codes, "maintenance.compact_skipped") {
+		t.Fatalf("problems = %v, want the refusal back while it still stands", codes)
+	}
+
+	// A backup is taken, and the next pass converts and clears it.
+	if _, err := backup.Take(h.ctx, h.c.Store(), backup.TakeOptions{
+		Config: h.c.Config(), Source: backup.SourceScheduled, Now: h.c.Now,
+	}); err != nil {
+		t.Fatalf("Take: %v", err)
+	}
+	h.offset.Add(int64(2 * time.Hour))
+	h.c.maintenancePass(h.ctx, false)
+
+	if mode := h.autoVacuumMode(); mode != store.AutoVacuumIncremental {
+		t.Errorf("auto_vacuum = %d after the pass, want the database converted now that a backup exists", mode)
+	}
+	if codes := h.problemCodes(); slices.Contains(codes, "maintenance.compact_skipped") {
+		t.Errorf("problems = %v, want the entry gone once the database was converted", codes)
+	}
+	if last := h.c.LastMaintenance(); last == nil || last.Compaction == nil || !last.Compaction.Converted {
+		t.Errorf("last maintenance = %+v, want it to say the database was converted", last)
+	}
+}
+
+func (h *harness) autoVacuumMode() int64 {
+	h.t.Helper()
+	stats, err := h.c.Store().PageStats(h.ctx)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return stats.AutoVacuum
 }
