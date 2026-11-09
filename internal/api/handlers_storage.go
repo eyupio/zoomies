@@ -20,8 +20,13 @@ func (s *Server) handleGetStorage(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "reading how full the database file is", err)
 		return
 	}
-	report, err := backup.Storage(s.ctrl.Config(), pages)
-	if err != nil {
+	report, err := backup.Storage(r.Context(), s.ctrl.Config(), pages)
+	switch {
+	case r.Context().Err() != nil:
+		// The client left, and the walk stopped with it. There is nobody to
+		// answer.
+		return
+	case err != nil:
 		s.internal(w, r, "reading what is in the state directory", err)
 		return
 	}

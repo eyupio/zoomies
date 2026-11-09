@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -74,7 +75,7 @@ func storageOf(t *testing.T, cfg *config.Config, st *store.Store) *StorageReport
 	if err != nil {
 		t.Fatalf("PageStats: %v", err)
 	}
-	report, err := Storage(cfg, pages)
+	report, err := Storage(context.Background(), cfg, pages)
 	if err != nil {
 		t.Fatalf("Storage: %v", err)
 	}
@@ -178,7 +179,7 @@ func TestTheStorageReportOfARealStateDirectory(t *testing.T) {
 	})
 
 	t.Run("the report says how much of the database and the disk is free", func(t *testing.T) {
-		report, err := Storage(cfg, store.PageStats{PageSize: 4096, PageCount: 10, FreelistCount: 3})
+		report, err := Storage(context.Background(), cfg, store.PageStats{PageSize: 4096, PageCount: 10, FreelistCount: 3})
 		if err != nil {
 			t.Fatalf("Storage: %v", err)
 		}
@@ -297,5 +298,46 @@ func TestWhatNobodyCanNameIsUnknownAndStillCounted(t *testing.T) {
 	}
 	if removed, _ := Prune(root, 1); slices.Contains(removed, damaged.ID) {
 		t.Errorf("retention removed %s, so the report was wrong to call it unknown", damaged.ID)
+	}
+}
+
+// A state directory can hold a cache with a great many files in it, and the
+// report reads every one. A caller who has gone away, or a request that has been
+// given up on, must not leave the walk running: the controller would spend its
+// disk on an answer nobody is waiting for. The mechanism is the check inside the
+// walk, so that is what is held, and then that the report passes it on.
+func TestTheWalkStopsWhenTheCallerHasGone(t *testing.T) {
+	dir := t.TempDir()
+	for i := range 20 {
+		if err := os.WriteFile(filepath.Join(dir, "f"+string(rune('a'+i))), make([]byte, 100), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	total, err := sizeOf(ctx, dir)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("sizeOf = %d, %v, want the context's own error: it kept walking", total, err)
+	}
+	if total != 0 {
+		t.Errorf("sizeOf counted %d bytes after the caller had gone, want none", total)
+	}
+	if total, err := sizeOf(context.Background(), dir); err != nil || total != 2000 {
+		t.Errorf("sizeOf with a live context = %d, %v, want 2000 and no error", total, err)
+	}
+}
+
+func TestAReportForACallerWhoHasGoneIsNotBuilt(t *testing.T) {
+	cfg, st := stateDirectory(t)
+	pages, err := st.PageStats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if report, err := Storage(ctx, cfg, pages); !errors.Is(err, context.Canceled) || report != nil {
+		t.Errorf("Storage = %v, %v, want no report and the context's error", report, err)
 	}
 }

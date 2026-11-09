@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -84,12 +85,16 @@ type StorageReport struct {
 // is in. pages is what the database says about its own file, which only the
 // store can ask.
 //
+// It reads every file under the directory, and a cache can hold a great many, so
+// it stops with the context's own error as soon as the caller has gone: the
+// controller should not spend its disk on an answer nobody is waiting for.
+//
 // Every top-level entry is classified by a table in this function and not
 // guessed from its name, so that a test can hold the table to what a
 // controller really leaves there (see TestEveryEntryAControllerLeavesBehindIsClassified).
 // The two directories of copies are opened one level, because "backups" is not
 // one thing: an uploaded backup in it is kept and a scheduled one is not.
-func Storage(cfg *config.Config, pages store.PageStats) (*StorageReport, error) {
+func Storage(ctx context.Context, cfg *config.Config, pages store.PageStats) (*StorageReport, error) {
 	dbPath := cfg.Database.Path
 	dir := filepath.Dir(dbPath)
 	top, err := os.ReadDir(dir)
@@ -119,11 +124,11 @@ func Storage(cfg *config.Config, pages store.PageStats) (*StorageReport, error) 
 		name := e.Name()
 		switch {
 		case e.IsDir() && name == backupsHere:
-			if err := listCopies(report, name, backupDir, false); err != nil {
+			if err := listCopies(ctx, report, name, backupDir, false); err != nil {
 				return nil, err
 			}
 		case e.IsDir() && name == store.PreMigrationDir:
-			if err := listCopies(report, name, PreMigrationDir(dbPath), true); err != nil {
+			if err := listCopies(ctx, report, name, PreMigrationDir(dbPath), true); err != nil {
 				return nil, err
 			}
 		default:
@@ -131,7 +136,11 @@ func Storage(cfg *config.Config, pages store.PageStats) (*StorageReport, error) 
 			if k, ok := known[name]; ok {
 				class, optional = k.class, k.optional
 			}
-			report.add(name, class, optional, sizeOf(filepath.Join(dir, name)))
+			bytes, err := sizeOf(ctx, filepath.Join(dir, name))
+			if err != nil {
+				return nil, err
+			}
+			report.add(name, class, optional, bytes)
 		}
 	}
 
@@ -189,7 +198,7 @@ func knownEntries(cfg *config.Config, dir string) map[string]classed {
 // listCopies adds one entry for each copy in a directory of backups, and one
 // unknown entry for anything in there that is not a backup, so the directory is
 // accounted for whole.
-func listCopies(report *StorageReport, prefix, root string, preMigration bool) error {
+func listCopies(ctx context.Context, report *StorageReport, prefix, root string, preMigration bool) error {
 	copies, err := List(root)
 	if err != nil {
 		return err
@@ -208,7 +217,11 @@ func listCopies(report *StorageReport, prefix, root string, preMigration bool) e
 		if isCopy {
 			class = classifyCopy(c, preMigration)
 		}
-		report.add(path.Join(prefix, n.Name()), class, false, sizeOf(filepath.Join(root, n.Name())))
+		bytes, err := sizeOf(ctx, filepath.Join(root, n.Name()))
+		if err != nil {
+			return err
+		}
+		report.add(path.Join(prefix, n.Name()), class, false, bytes)
 	}
 	return nil
 }
@@ -235,10 +248,15 @@ func classifyCopy(e Entry, preMigration bool) string {
 // sizeOf adds up the regular files under p, which may be one file. What cannot
 // be read counts as nothing: a file that vanishes while the walk is under way is
 // a backup being pruned, and a report that failed on it could not be asked for
-// on the day the disk is full.
-func sizeOf(p string) int64 {
+// on the day the disk is full. The one thing that stops it is the context, which
+// is checked at every entry, so a caller who has gone ends the walk at the next
+// file and not at the end of a cache.
+func sizeOf(ctx context.Context, p string) (int64, error) {
 	var total int64
-	_ = filepath.WalkDir(p, func(_ string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(p, func(_ string, d fs.DirEntry, err error) error {
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
 		if err != nil {
 			if d != nil && d.IsDir() {
 				return fs.SkipDir
@@ -252,7 +270,10 @@ func sizeOf(p string) int64 {
 		}
 		return nil
 	})
-	return total
+	if err != nil {
+		return 0, err
+	}
+	return total, nil
 }
 
 // sameDir says two paths are one directory, compared as absolute paths. It does
