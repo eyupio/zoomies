@@ -34,6 +34,7 @@ export const SECTION_TITLES: Record<string, string> = {
   retention: 'Retention',
   limits: 'Fleet limits',
   backup: 'Backups',
+  maintenance: 'Maintenance',
   images: 'Images',
   updates: 'Updates',
   capacity_demand: 'Capacity demand',
@@ -70,6 +71,8 @@ export const SECTION_BLURB: Record<string, string> = {
     'The most hosts, pools, runners, join tokens and live-update streams this instance will hold. 0 is unlimited.',
   backup:
     'Copies of this database the controller takes of its own accord. The Backups page is where they are configured, listed, restored and downloaded.',
+  maintenance:
+    'How often the controller removes the copies of its own database it no longer needs to keep: its backups beyond how many you keep, and the copies it took before a migration.',
   images: 'Keeping the images your pools run up to date.',
   updates:
     'Whether Zoomies asks github.com which release is current, and what it would do about a newer one: nothing, offer an Update button, or update on its own after a wait.',

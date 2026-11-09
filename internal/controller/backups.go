@@ -191,6 +191,10 @@ func (c *Controller) PruneBackups(ctx context.Context) (BackupPruning, error) {
 	} else if len(removed) > 0 {
 		c.log.Info("removed old backups", "removed", len(removed), "keep", cfg.Backup.Keep)
 	}
+	// The same pass the schedule runs, because the person who pressed the button
+	// has just lowered a count and asked for it to take effect: the copies taken
+	// before a migration go now as well, whatever maintenance.interval says.
+	c.maintenancePass(ctx, true)
 
 	// And then the buckets, under the offsite pass's own lock: a prune that
 	// ran beside an upload could delete the copy being sent.

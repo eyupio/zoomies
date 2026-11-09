@@ -419,11 +419,12 @@ func TestAnOpenWithNothingPendingTakesNoCopy(t *testing.T) {
 	}
 }
 
-// Two is what is worth keeping: the upgrade that just happened, and the one
-// before it -- which is the one an operator reaches for when the first went
-// unnoticed. More would be a copy of the whole database per release, kept
-// forever, on the disk the fleet also needs.
-func TestOnlyTheLastTwoCopiesAreKept(t *testing.T) {
+// Open takes the copy and prunes nothing. It runs before any setting can be read,
+// so the only number it could prune to is one compiled in, and that would delete
+// copies an operator's higher backup.pre_migration_keep was meant to keep: a
+// later pass can lower a count, but cannot bring back a copy that is gone. The
+// controller prunes once its configuration is loaded (PrunePreMigration).
+func TestOpenTakesACopyBeforeMigratingAndRemovesNone(t *testing.T) {
 	ctx := context.Background()
 	path := atSchema(t, 1)
 	root := filepath.Join(filepath.Dir(path), PreMigrationDir)
@@ -446,16 +447,16 @@ func TestOnlyTheLastTwoCopiesAreKept(t *testing.T) {
 	}
 	defer s.Close()
 
+	// The three that were there, and the one this open just took.
 	copies := preMigrationCopies(t, path)
-	// The newest two: the one this open just took, and 20260101.
-	if len(copies) != preMigrationKeep {
-		t.Fatalf("kept %v, want %d", copies, preMigrationKeep)
+	if len(copies) != 4 {
+		t.Fatalf("copies after Open = %v, want the three older ones and the new one", copies)
 	}
-	if contains(copies, BackupDirPrefix+"20240101-000000") {
-		t.Errorf("the oldest copy survived: %v", copies)
+	if !contains(copies, BackupDirPrefix+"20240101-000000") {
+		t.Errorf("Open removed the oldest copy, which only the controller may do once it knows the setting: %v", copies)
 	}
 	if _, err := os.Stat(stranger); err != nil {
-		t.Errorf("retention removed a directory this package did not name: %v", err)
+		t.Errorf("a directory this package did not name was removed: %v", err)
 	}
 }
 

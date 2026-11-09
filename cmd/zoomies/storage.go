@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // storageReport is GET /api/v1/storage, as much of it as the table needs.
@@ -22,6 +23,17 @@ type storageReport struct {
 	DatabaseFreeBytes int64          `json:"database_free_bytes"`
 	TotalBytes        int64          `json:"total_bytes"`
 	DiskFreeBytes     *int64         `json:"disk_free_bytes"`
+	// LastMaintenance is what the last tidy of the directory removed, and is
+	// absent until there has been one.
+	LastMaintenance *storageTidy `json:"last_maintenance"`
+}
+
+// storageTidy is one maintenance pass: what it removed and what it could not.
+type storageTidy struct {
+	At           time.Time `json:"at"`
+	Backups      []string  `json:"backups"`
+	PreMigration []string  `json:"pre_migration"`
+	Errors       []string  `json:"errors"`
 }
 
 type storageEntry struct {
@@ -114,8 +126,16 @@ func runStorage(ctx context.Context, e *env, args []string) error {
 	if out.DiskFreeBytes != nil {
 		summary = append(summary, [2]string{"disk free", sizeLabel(*out.DiskFreeBytes)})
 	}
+	if t := out.LastMaintenance; t != nil {
+		summary = append(summary, [2]string{"last tidy", p.relTime(t.At) + ", " + tidySentence(t)})
+	}
 	p.note("")
 	p.keyValues(summary)
+	if out.LastMaintenance != nil {
+		for _, e := range out.LastMaintenance.Errors {
+			p.note("could not tidy: %s", e)
+		}
+	}
 	p.note("")
 	// The one entry in that class that cannot be made again, said where somebody
 	// about to delete things for space will read it.
@@ -128,6 +148,29 @@ func runStorage(ctx context.Context, e *env, args []string) error {
 	p.note("The encryption key is listed only when it lives in this directory. By default it is in the")
 	p.note("configuration directory, which this does not read, and a move needs it as well.")
 	return nil
+}
+
+// tidySentence says what a maintenance pass removed, in the units an operator
+// counts: backups and the copies taken before a migration.
+func tidySentence(t *storageTidy) string {
+	var parts []string
+	if n := len(t.Backups); n > 0 {
+		parts = append(parts, countedAs(n, "backup", "backups"))
+	}
+	if n := len(t.PreMigration); n > 0 {
+		parts = append(parts, countedAs(n, "pre-migration copy", "pre-migration copies"))
+	}
+	if len(parts) == 0 {
+		return "removed nothing"
+	}
+	return "removed " + strings.Join(parts, " and ")
+}
+
+func countedAs(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }
 
 // storageClass is an entry's class as the table shows it: an entry whose

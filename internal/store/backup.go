@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,12 +28,6 @@ const (
 	// shared. A rule that kept "the last two" in there would eventually take
 	// one of theirs.
 	PreMigrationDir = "pre-migration"
-	// preMigrationKeep is how many of these are worth having. One is the
-	// upgrade that just happened; two covers the upgrade before it, which is
-	// the one an operator reaches for when the first went unnoticed. More
-	// would be a copy of the whole database per release, kept forever, on the
-	// disk the fleet also needs.
-	preMigrationKeep = 2
 )
 
 // Backup writes a consistent copy of the database to dest.
@@ -183,11 +176,12 @@ func (s *Store) backupBeforeMigrate(ctx context.Context, pending []string) (stri
 	if err := s.Backup(ctx, filepath.Join(dest, BackupDBName)); err != nil {
 		return "", err
 	}
-	// Pruning after rather than before: a failure to tidy up must not stop an
-	// upgrade, and the copy that matters most is the one just taken.
-	if err := pruneDirs(root, preMigrationKeep); err != nil {
-		slog.Warn("could not prune old pre-migration copies", "dir", root, "error", err)
-	}
+	// Nothing is pruned here. This runs inside Open, before any setting can be
+	// read, so the only number it could prune to is one compiled in, and that
+	// would delete copies an operator's higher backup.pre_migration_keep was
+	// meant to keep: a later pass can lower a count but cannot bring back a copy
+	// that is gone. The controller prunes once its configuration is loaded, and
+	// again in every maintenance pass (PrunePreMigration).
 	return dest, nil
 }
 
@@ -220,15 +214,41 @@ func NewestPreMigrationName(dbPath string) string {
 	return newest
 }
 
-// pruneDirs keeps the newest keep directories under root and removes the rest.
+// PrunePreMigration keeps the newest keep copies this package took before a
+// migration, for the database at dbPath, and removes the rest. It returns the
+// names it removed, oldest first, so the caller can say what went.
+//
+// It is the controller's to call, once it has read backup.pre_migration_keep,
+// and not Open's: see backupBeforeMigrate. A keep below one removes nothing. A
+// copy taken before a migration is the one rollback there is, so a setting that
+// says "none" is a mistake to refuse, not an instruction to obey; the settings
+// refuse it too, and this is the second line. A database with no such directory
+// has nothing to prune, which is the ordinary case and not a fault.
+func PrunePreMigration(dbPath string, keep int) ([]string, error) {
+	if keep < 1 {
+		return nil, nil
+	}
+	abs, err := filepath.Abs(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	removed, err := pruneDirs(filepath.Join(filepath.Dir(abs), PreMigrationDir), keep)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return removed, err
+}
+
+// pruneDirs keeps the newest keep directories under root and removes the rest,
+// returning the names it removed, oldest first.
 //
 // It only considers directories this package names, and sorts by that name:
 // the timestamp is in it, so the order does not depend on a modification time
 // that copying between machines rewrites.
-func pruneDirs(root string, keep int) error {
+func pruneDirs(root string, keep int) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var ours []string
 	for _, e := range entries {
@@ -238,13 +258,16 @@ func pruneDirs(root string, keep int) error {
 	}
 	sort.Strings(ours)
 	if len(ours) <= keep {
-		return nil
+		return nil, nil
 	}
+	var removed []string
 	var errs []error
 	for _, name := range ours[:len(ours)-keep] {
 		if err := os.RemoveAll(filepath.Join(root, name)); err != nil {
 			errs = append(errs, err)
+			continue
 		}
+		removed = append(removed, name)
 	}
-	return errors.Join(errs...)
+	return removed, errors.Join(errs...)
 }

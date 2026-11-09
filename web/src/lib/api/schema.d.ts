@@ -5077,7 +5077,7 @@ export interface paths {
         };
         /**
          * What is in the state directory, and what a controller could make again
-         * @description Every top-level entry of the state directory (the directory the database is in), with its size in bytes and what it is to an operator: `essential` (the controller cannot start without it, or must not be started without it), `kept` (somebody's own and never deleted: an uploaded or fetched backup, or the live database a restore set aside), `regenerable` (the controller does not need it to start and leaving it behind loses nothing of anybody's: a cache, a backup the controller took of itself, a note about a restore; a pre-migration copy is in this class but is the rollback for the last upgrade and cannot be taken again) or `unknown` (this report does not class it, so treat it as essential). The directories of backups and of pre-migration copies, and the shared folder, are opened one level, so each copy is an entry of its own and only `shared/cache` is regenerable. A symbolic link counts as nothing and is never followed. The report also says how big the database file is, how much of it is free pages that a delete left behind, and how much room is left on the disk. The encryption key is listed only when it lives in this directory; by default it is in the configuration directory, which this does not read.
+         * @description Every top-level entry of the state directory (the directory the database is in), with its size in bytes and what it is to an operator: `essential` (the controller cannot start without it, or must not be started without it), `kept` (somebody's own and never deleted: an uploaded or fetched backup, or the live database a restore set aside), `regenerable` (the controller does not need it to start and leaving it behind loses nothing of anybody's: a cache, a backup the controller took of itself, a note about a restore; a pre-migration copy is in this class but is the rollback for the last upgrade and cannot be taken again) or `unknown` (this report does not class it, so treat it as essential). The directories of backups and of pre-migration copies, and the shared folder, are opened one level, so each copy is an entry of its own and only `shared/cache` is regenerable. A symbolic link counts as nothing and is never followed. The report also says how big the database file is, how much of it is free pages that a delete left behind, how much room is left on the disk, and what the last tidy removed. The encryption key is listed only when it lives in this directory; by default it is in the configuration directory, which this does not read.
          */
         get: operations["getStorage"];
         put?: never;
@@ -5372,7 +5372,7 @@ export interface paths {
         put?: never;
         /**
          * Apply retention now
-         * @description Deletes the copies beyond `backup.keep` from the backup directory, and the ones beyond each destination's own `keep` from its bucket. Retention otherwise runs as part of taking a backup, which leaves a fleet that has just lowered `backup.keep` holding the old number until the next one, and on a fleet with `backup.interval` off, holding it forever. A copy that was uploaded here or fetched back out of a bucket is never counted and never removed. The answer lists what went, per destination, and a bucket that refused is reported against its own name while the others are still pruned. Refused with 409 while a backup or an offsite pass is running.
+         * @description Deletes the copies beyond `backup.keep` from the backup directory, and the ones beyond each destination's own `keep` from its bucket. Retention otherwise runs as part of taking a backup, which leaves a fleet that has just lowered `backup.keep` holding the old number until the next one, and on a fleet with `backup.interval` off, holding it forever. A copy that was uploaded here or fetched back out of a bucket is never counted and never removed. It also runs the controller's maintenance pass at once, whatever `maintenance.interval` says, which removes the copies taken before a migration beyond `backup.pre_migration_keep`; what that removed is in `last_maintenance` on `GET /storage`. The answer lists what went, per destination, and a bucket that refused is reported against its own name while the others are still pruned. Refused with 409 while a backup or an offsite pass is running.
          */
         post: operations["pruneBackups"];
         delete?: never;
@@ -9358,6 +9358,21 @@ export interface components {
              * @description Room left on the filesystem the directory is on, when the platform can say.
              */
             disk_free_bytes: number | null;
+            last_maintenance?: components["schemas"]["MaintenanceResult"];
+        };
+        /** @description What the last tidy of the state directory removed, or could not. It is left out of the report until there has been one that removed something or failed, so a quiet pass every day does not overwrite the one that did. */
+        MaintenanceResult: {
+            /**
+             * Format: date-time
+             * @description When the pass ran.
+             */
+            at: string;
+            /** @description The controller's own backups removed because there were more than `backup.keep`, oldest first. An uploaded or fetched backup is never one. */
+            backups: string[];
+            /** @description The copies taken before a migration that were removed because there were more than `backup.pre_migration_keep`, oldest first. */
+            pre_migration: string[];
+            /** @description What could not be done, one sentence each. A directory that failed does not stop the other being tidied. */
+            errors: string[];
         };
         StorageEntry: {
             /** @description Relative to the state directory, with forward slashes. */

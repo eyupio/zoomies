@@ -30,5 +30,8 @@ func (s *Server) handleGetStorage(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "reading what is in the state directory", err)
 		return
 	}
+	// What the last tidy removed is the controller's memory and not on the disk,
+	// so it is put on here and not read by Storage.
+	report.LastMaintenance = s.ctrl.LastMaintenance()
 	writeJSON(w, http.StatusOK, report)
 }

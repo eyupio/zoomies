@@ -359,6 +359,18 @@ func (c *Config) validateChoicesAndBounds(add func(Finding)) {
 		add(Finding{Code: "scheduler.registration_concurrency", Severity: SeverityError, Setting: "scheduler.registration_concurrency", Title: "registration concurrency is outside its supported range", Detail: "Unbounded credential requests amplify GitHub outages and rate limits.", Fix: "set scheduler.registration_concurrency between 1 and 16; the default is 1."})
 	}
 
+	// A copy taken before a migration is the one way back from an upgrade, and
+	// nothing can take it again once the upgrade has run, so keeping none is not
+	// a setting: it is the controller deleting the rollback it has just made.
+	if c.Backup.PreMigrationKeep < 1 {
+		add(Finding{
+			Code: "backup.pre_migration_keep", Severity: SeverityError, Setting: "backup.pre_migration_keep",
+			Title:  "backup.pre_migration_keep must be at least 1",
+			Detail: "the copy taken before a migration is the one way back from an upgrade, and it cannot be taken again once the upgrade has run.",
+			Fix:    "set backup.pre_migration_keep to 1 or more; the default is 2.",
+		})
+	}
+
 	if c.Agent.PrewarmTimeout < time.Second || c.Agent.PrewarmTimeout > 15*time.Minute {
 		add(Finding{Code: "agent.prewarm_timeout", Severity: SeverityError, Setting: "agent.prewarm_timeout", Title: "background preparation timeout is outside its supported range", Detail: "Background image preparation needs a bounded budget independent of foreground creates.", Fix: "set agent.prewarm_timeout between 1s and 15m; the default is 5m."})
 	}

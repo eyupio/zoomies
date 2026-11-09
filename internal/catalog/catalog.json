@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "11c3f5b6e",
+  "generated_from": "87e5e89",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -558,6 +558,20 @@
       "fix": "Backups are taken on a schedule and nothing in `zoomies.yaml` says where a copy goes. That is a backup against a mistake, not against the disk, the machine or the datacentre. Add a destination on the Backups page or under `backup.remotes`, or keep shipping the directory yourself; the point of the entry is that one of the three is somebody's job. It is raised from the file, so the Configuration page drops it once the fleet has a destination stored from the Backups page, which the validator cannot see.",
       "verify": null,
       "setting": "backup.remotes",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "backup.pre_migration_keep",
+      "kind": "problem",
+      "title": "backup.pre_migration_keep",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Must be at least 1. The copy taken before a migration is the one way back from an upgrade, and once the upgrade has run nothing can take it again, so keeping none is the controller deleting the rollback it has just made. Set it to 1 or more; the default is 2.",
+      "fix": "Must be at least 1. The copy taken before a migration is the one way back from an upgrade, and once the upgrade has run nothing can take it again, so keeping none is the controller deleting the rollback it has just made. Set it to 1 or more; the default is 2.",
+      "verify": null,
+      "setting": "backup.pre_migration_keep",
       "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
     },

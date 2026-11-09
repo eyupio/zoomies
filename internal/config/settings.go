@@ -949,6 +949,19 @@ var registry = buildRegistry([]Setting{
 		Key: "backup.keep", Label: "Backups to keep", Env: "ZOOMIES_BACKUP_KEEP", Kind: KindInt, Scope: ScopePlatform, Live: true,
 		Summary: "How many of the controller's own backups are kept; the oldest beyond it go after each new one. 0 keeps every one. Backups somebody uploaded are never counted and never deleted by this.",
 	},
+	{
+		Key: "backup.pre_migration_keep", Label: "Pre-migration copies to keep", Env: "ZOOMIES_BACKUP_PRE_MIGRATION_KEEP", Kind: KindInt, Scope: ScopePlatform, Live: true,
+		Summary: "How many of the copies the controller takes of its database before a migration are kept, newest first. At least 1: a copy taken before an upgrade is the one way back from it, and once the upgrade has run nothing can take it again.",
+	},
+
+	// ---------------------------------------------------------------------
+	// maintenance: the controller tidying its own state directory.
+	// ---------------------------------------------------------------------
+	{
+		Key: "maintenance.interval", Label: "Maintenance interval", Env: "ZOOMIES_MAINTENANCE_INTERVAL", Kind: KindDuration, Scope: ScopePlatform, Live: true,
+		Summary: "How often the controller removes its own backups beyond backup.keep and its pre-migration copies beyond backup.pre_migration_keep. 0 switches the scheduled pass off. The pre-migration copies are also pruned once when the controller starts, whatever this says, so that switching it off cannot leave copies nothing ever removes.",
+		Floor:   time.Minute,
+	},
 
 	// ---------------------------------------------------------------------
 	// capacity_demand -- publishing a request for more hosts to a provisioner.
@@ -1203,7 +1216,7 @@ func StoredSettings() []Setting {
 // through the system, rather than alphabetical.
 var SectionOrder = []string{
 	"server", "database", "security", "github", "agent", "runners", "scheduler",
-	"log", "oidc", "metrics", "status", "retention", "limits", "backup", "images", "updates", "capacity_demand",
+	"log", "oidc", "metrics", "status", "retention", "limits", "backup", "maintenance", "images", "updates", "capacity_demand",
 	"provider", "kennel", "optimisation", "ui", "assistant",
 }
 
