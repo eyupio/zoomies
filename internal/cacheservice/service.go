@@ -1,6 +1,6 @@
 // Package cacheservice is the host-local half of the Actions cache.
 //
-// A runner whose node is wrapped to reach it (deploy/runner-node-wrapper.sh)
+// A runner whose node is wrapped to reach it (deploy/node-wrapper.go)
 // restores and saves what actions/cache and the setup-* actions keep, here and
 // not in GitHub's service, so a workflow changes nothing and a fresh runner no
 // longer starts cold. It speaks the toolkit's v2 protocol: four

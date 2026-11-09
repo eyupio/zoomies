@@ -149,7 +149,7 @@ done
 [ -w /home/runner ] && pass "/home/runner is writable (config.sh writes .runner there)" || fail "/home/runner is not writable by the runner"
 
 # The node the runner starts every JavaScript action with is a wrapper
-# (deploy/runner-node-wrapper.sh) that loads a preload sending the Actions cache's
+# (deploy/node-wrapper.go) that loads a preload sending the Actions cache's
 # calls to the host's cache service when the agent says to, and only then. The
 # runner overwrites ACTIONS_RESULTS_URL itself and the artifact actions share it,
 # so the address is left alone and only the cache's calls are rewritten.

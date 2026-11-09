@@ -78,6 +78,21 @@ ARG RUNNER_SHA256_ARM64=670adb2f268fe21dcbb58b3db0e0aa9d5b3bddfe2c651481336e561f
 ARG BASE=ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
 # zoomies:catalogue-end
 
+# The node wrapper, compiled here and copied into the runner below. It is a
+# program and not a script so that it needs no shell and no libc in the image of
+# a job container, where it also runs, and so that it cannot lose an action's
+# hyphenated inputs the way a /bin/sh script does; deploy/node-wrapper.go says
+# why. It is built for the platform the image is for and without cgo, which is
+# what makes it static. The golang digest is the one deploy/Dockerfile builds
+# the controller with.
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS nodewrap
+ARG TARGETOS
+ARG TARGETARCH
+WORKDIR /src
+COPY deploy/node-wrapper.go ./
+RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
+    go build -trimpath -ldflags="-s -w" -o /out/runner-node-wrapper node-wrapper.go
+
 FROM ${BASE} AS runner-base
 # Re-declared after FROM: an ARG from before it is out of scope in the build
 # stage, and the labels below would otherwise record empty strings.
@@ -204,9 +219,10 @@ ENV AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache
 # The runner's node is wrapped as it is unpacked, below, so that a pool whose
 # cache service is on can send the cache's address to the host. The wrapper does
 # nothing unless the agent sets ZOOMIES_CACHE_SERVICE_URL; see
-# deploy/runner-node-wrapper.sh for why it has to be done here, and
+# deploy/node-wrapper.go for why it has to be done here, and
 # deploy/runner-cache-redirect.cjs for what it redirects.
-COPY --chmod=0755 deploy/runner-node-wrap.sh deploy/runner-node-wrapper.sh /usr/local/lib/zoomies/
+COPY --chmod=0755 deploy/runner-node-wrap.sh /usr/local/lib/zoomies/
+COPY --from=nodewrap --chmod=0755 /out/runner-node-wrapper /usr/local/lib/zoomies/runner-node-wrapper
 COPY --chmod=0644 deploy/runner-cache-redirect.cjs /usr/local/lib/zoomies/
 WORKDIR /home/runner
 RUN set -eux; \

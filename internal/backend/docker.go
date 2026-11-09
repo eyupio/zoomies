@@ -68,7 +68,7 @@ const (
 	// host has agent.extra_ca_file.
 	EnvExtraCAFile = "ZOOMIES_EXTRA_CA_FILE"
 	// EnvCacheServiceURL is the address, inside the runner, of the host's cache
-	// service. The runner image's node wrapper (deploy/runner-node-wrapper.sh)
+	// service. The runner image's node wrapper (deploy/node-wrapper.go)
 	// is what reads it, so the name is a contract with that script and a test
 	// holds the two together. It is set only for a pool that turned its cache
 	// service on, and only when this host started one.

@@ -134,7 +134,15 @@ func TestTheRunnersOwnNodeSendsOnlyTheCacheToTheService(t *testing.T) {
 		in.Close()
 		out.Close()
 	}
-	if out, err := exec.Command("sh", wrap, tree).CombinedOutput(); err != nil {
+	// The wrapper is a program the image build compiles from deploy/node-wrapper.go;
+	// build the same file and hand it to the installer as the image build does.
+	wrapper := filepath.Join(t.TempDir(), "runner-node-wrapper")
+	build := exec.Command("go", "build", "-trimpath", "-o", wrapper, abs("..", "..", "deploy", "node-wrapper.go"))
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("building the wrapper: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("sh", wrap, tree, wrapper).CombinedOutput(); err != nil {
 		t.Fatalf("the installer failed: %v\n%s", err, out)
 	}
 
