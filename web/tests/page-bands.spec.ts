@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { FIXTURE, goto } from './support/fixtures';
 
 // A band is the dark stage at the top of a page that says its answer in a sentence. Each
@@ -768,6 +768,34 @@ test('the Pools, Queue and Usage bands draw their pictures, and each agrees with
 });
 
 /**
+ * The moment just after the newest job in the fixture finished.
+ *
+ * The Jobs band draws today by the hour, and the demo fleet's jobs finished in
+ * the six hours before the controller started, the newest twenty minutes before
+ * it. Whether the browser's "today" holds any of them therefore depends on when
+ * the suite is run, not on what is being tested: a run that starts in the last
+ * twenty minutes of the day, or that crosses midnight, asks a calendar day with
+ * none of them in it, and the picture is correctly empty. Both projects of a run
+ * that started at 23:57 UTC failed this spec on the same line, and it passed
+ * when run again after midnight.
+ *
+ * Only the browser's clock is moved, and only for the spec that reads today's
+ * row. Timers keep running, the controller's own clock is not touched, and the
+ * second is added so that the newest job is inside the window rather than on its
+ * edge.
+ */
+async function newestFinish(page: Page): Promise<Date> {
+  const response = await page.request.get('/api/v1/jobs?state=completed&limit=100');
+  expect(response.ok()).toBe(true);
+  const body = (await response.json()) as { items?: { completed_at?: string | null }[] };
+  const finished = (body.items ?? [])
+    .map((job) => (job.completed_at ? Date.parse(job.completed_at) : NaN))
+    .filter((at) => Number.isFinite(at));
+  expect(finished.length, 'the fixture has finished jobs').toBeGreaterThan(0);
+  return new Date(Math.max(...finished) + 1000);
+}
+
+/**
  * The last five bands: Jobs, Workflows, Providers, Installations and Kennel
  * Club. What this protects: each picture agrees with its band's sentence, the
  * Jobs hour row narrows the list when pressed, and Appearance offers every
@@ -776,6 +804,9 @@ test('the Pools, Queue and Usage bands draw their pictures, and each agrees with
 test('the Jobs, Workflows, Providers, Installations and Kennel Club bands draw their pictures', async ({
   page,
 }) => {
+  // The browser's clock is put where the fixture's jobs are before the page is
+  // opened. See newestFinish for why the real one cannot be relied on.
+  await page.clock.setFixedTime(await newestFinish(page));
   await goto(page, '/jobs', 'Jobs');
   const today = page.getByTestId('band-jobs').getByTestId('fleet-punch-card');
   await expect(today).toBeVisible();
