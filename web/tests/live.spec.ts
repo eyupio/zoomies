@@ -40,6 +40,29 @@ function bell(page: Page): Locator {
   return page.getByRole('button', { name: /^Problems\./ });
 }
 
+/**
+ * Whether the bell tells the truth about the pool's risk, against what the
+ * controller itself lists at the same moment.
+ *
+ * It is not compared with a count taken before the edit. The seeded fleet's own
+ * problems come and go while a run goes on (a pool whose runners will not start
+ * raises and clears its errors every few minutes, and the lost-runner job leaves
+ * the hour the list looks back over forty minutes after the controller starts), so
+ * "the count before, plus one" is wrong whenever one of them changes in between.
+ * What the edit adds is the pool's own entry, so that is what is looked for, and the
+ * bell has to agree with the list that holds it.
+ */
+async function bellShows(page: Page, pool: Named, runsAsRoot: boolean): Promise<boolean> {
+  const body = (await page.request.get('/api/v1/problems').then((r) => r.json())) as {
+    items: { code: string; title: string }[];
+  };
+  const listed = body.items.some(
+    (p) => p.code === 'pool.dangerous' && p.title.includes(pool.name) && /as root/.test(p.title),
+  );
+  const counted = countIn(await bell(page).getAttribute('aria-label'));
+  return listed === runsAsRoot && counted === body.items.length;
+}
+
 /** "1 error and 2 warnings need your attention." -> 3 */
 function countIn(label: string | null): number {
   let total = 0;
@@ -157,7 +180,6 @@ test('a new risk on a pool reaches the problems bell on whatever page is open', 
   // follows the operator everywhere.
   await goto(page, '/jobs', 'Jobs');
   await expect(bell(page)).toBeVisible();
-  const before = countIn(await bell(page).getAttribute('aria-label'));
   await plantMarker(page);
 
   try {
@@ -166,19 +188,17 @@ test('a new risk on a pool reaches the problems bell on whatever page is open', 
     });
     expect(response.ok()).toBeTruthy();
     await expect
-      .poll(async () => countIn(await bell(page).getAttribute('aria-label')), {
-        message: 'the bell counts the new warning',
-      })
-      .toBe(before + 1);
+      .poll(() => bellShows(page, pool, true), { message: 'the bell counts the new warning' })
+      .toBe(true);
     await expectNoReload(page);
   } finally {
     await page.request.patch(`/api/v1/pools/${pool.id}`, { data: { run_as_root: false } });
   }
   await expect
-    .poll(async () => countIn(await bell(page).getAttribute('aria-label')), {
+    .poll(() => bellShows(page, pool, false), {
       message: 'the bell forgets the warning once the setting is undone',
     })
-    .toBe(before);
+    .toBe(true);
 });
 
 test('a dropped stream says so, and the page catches up by itself when it returns', async ({

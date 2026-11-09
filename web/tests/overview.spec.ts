@@ -9,7 +9,7 @@
  * about it is that it is never load-bearing: the numbers arrive on their own,
  * and pressing it changes nothing about what the page says.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { FIXTURE, goto, readThrough, reload, useClassic } from './support/fixtures';
 
 test.beforeEach(async ({ page }) => {
@@ -200,6 +200,22 @@ async function openProblems(page: import('@playwright/test').Page) {
   return drawer;
 }
 
+/**
+ * A problem that was put away is among the active ones again: its own row offers to
+ * put it away once more, and nothing is left in the drawer to restore.
+ *
+ * The drawer's length cannot say this. The seeded fleet's own problems come and go
+ * while a run goes on (a pool whose runners will not start raises and clears its
+ * errors every few minutes, and the lost-runner job leaves the hour the drawer
+ * looks back over forty minutes after the controller starts), so the count read
+ * before a click is not the count after it, and a spec that compares the two fails
+ * whenever a change lands between them.
+ */
+async function expectBackAmongTheActive(problems: Locator, entry: Locator): Promise<void> {
+  await expect(entry.getByRole('button', { name: /^Dismiss or snooze:/ })).toBeVisible();
+  await expect(problems.getByRole('button', { name: /^Restore:/ })).toHaveCount(0);
+}
+
 test('the Overview says what needs a person in three rows at most, and the rest is one click away', async ({
   page,
 }) => {
@@ -306,14 +322,13 @@ test('the problems drawer names the seeded faults, with a fix for each', async (
 
 test('a dismissed problem stops asking, and can be brought back', async ({ page }) => {
   const problems = await openProblems(page);
-  const before = await problems.getByRole('listitem').count();
 
   const entry = problems.getByRole('listitem').filter({ hasText: 'authentication is disabled' });
   await entry.getByRole('button', { name: /^Dismiss or snooze:/ }).click();
   await page.getByRole('menuitem', { name: 'Dismiss until resolved' }).click();
 
   // Gone from the list, and off the count in the top bar.
-  await expect(problems.getByRole('listitem')).toHaveCount(before - 1);
+  await expect(entry).toHaveCount(0);
   await expect(problems).not.toContainText('authentication is disabled');
 
   // Never deleted, though: a dismissal is a decision, and a decision can be
@@ -324,7 +339,7 @@ test('a dismissed problem stops asking, and can be brought back', async ({ page 
     .filter({ hasText: 'authentication is disabled' });
   await expect(dismissed).toContainText('dismissed');
   await dismissed.getByRole('button', { name: /^Restore:/ }).click();
-  await expect(problems.getByRole('listitem')).toHaveCount(before);
+  await expectBackAmongTheActive(problems, entry);
 
   // The controller is untouched by any of this: what an operator has read belongs
   // to their account, never to the fleet, so an alerting rule still sees it.
@@ -339,7 +354,6 @@ test('a problem can be snoozed for a fixed while instead of dismissed outright',
   page,
 }) => {
   const problems = await openProblems(page);
-  const before = await problems.getByRole('listitem').count();
 
   const entry = problems.getByRole('listitem').filter({ hasText: 'authentication is disabled' });
   await entry.getByRole('button', { name: /^Dismiss or snooze:/ }).click();
@@ -351,7 +365,7 @@ test('a problem can be snoozed for a fixed while instead of dismissed outright',
   await page.getByRole('menuitem', { name: 'Snooze for 24 hours' }).click();
 
   // Gone from the active list, same as an outright dismissal.
-  await expect(problems.getByRole('listitem')).toHaveCount(before - 1);
+  await expect(entry).toHaveCount(0);
   await expect(problems).not.toContainText('authentication is disabled');
 
   // Filed under dismissed, but it says when it comes back rather than just
@@ -362,12 +376,11 @@ test('a problem can be snoozed for a fixed while instead of dismissed outright',
   await expect(snoozed).toContainText(/back in/i);
 
   await snoozed.getByRole('button', { name: /^Restore:/ }).click();
-  await expect(problems.getByRole('listitem')).toHaveCount(before);
+  await expectBackAmongTheActive(problems, entry);
 });
 
 test('a snooze can cover every problem of the same kind, not just the one', async ({ page }) => {
   const problems = await openProblems(page);
-  const before = await problems.getByRole('listitem').count();
 
   const entry = problems.getByRole('listitem').filter({ hasText: 'authentication is disabled' });
   await entry.getByRole('button', { name: /^Dismiss or snooze:/ }).click();
@@ -376,14 +389,14 @@ test('a snooze can cover every problem of the same kind, not just the one', asyn
   await expect(page.getByRole('menuitem', { name: 'Snooze for 1 hour' })).toBeVisible();
   await page.getByRole('menuitem', { name: 'Snooze all like this for 1 hour' }).click();
 
-  await expect(problems.getByRole('listitem')).toHaveCount(before - 1);
+  await expect(entry).toHaveCount(0);
   await problems.getByRole('button', { name: /Show 1 dismissed problem/ }).click();
   const snoozed = problems.getByRole('listitem').filter({ hasText: 'authentication is disabled' });
   await expect(snoozed).toContainText('snoozed with all like it');
   await expect(snoozed).toContainText(/back in/i);
 
   await snoozed.getByRole('button', { name: /^Restore:/ }).click();
-  await expect(problems.getByRole('listitem')).toHaveCount(before);
+  await expectBackAmongTheActive(problems, entry);
 });
 
 test('dismissing the last problem closes the drawer', async ({ page }) => {
