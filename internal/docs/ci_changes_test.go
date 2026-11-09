@@ -147,7 +147,7 @@ func TestCIRunsOnlyWhatAChangeCanAffect(t *testing.T) {
 	}
 }
 
-// runnerImageScript is the shell the images job runs to decide whether to build
+// runnerImageScript is the shell the image-plan job runs to decide whether to build
 // the runner images, taken out of ci.yml like the filter above. GitHub fills in
 // ${{ github.event_name }} before a shell sees the script, so it is filled in
 // here as a pull request.
@@ -164,12 +164,12 @@ func runnerImageScript(t *testing.T) string {
 	if err := yaml.Unmarshal([]byte(workflowFiles(t)["ci.yml"]), &wf); err != nil {
 		t.Fatalf("parsing ci.yml: %v", err)
 	}
-	for _, step := range wf.Jobs["images"].Steps {
+	for _, step := range wf.Jobs["image-plan"].Steps {
 		if step.ID == "changed" {
 			return strings.ReplaceAll(step.Run, "${{ github.event_name }}", "pull_request")
 		}
 	}
-	t.Fatal("ci.yml's images job has no step with the id changed")
+	t.Fatal("ci.yml's image-plan job has no step with the id changed")
 	return ""
 }
 
@@ -486,5 +486,87 @@ func TestTheFilterIsGivenTheBaseThatStepNames(t *testing.T) {
 	}
 	if _, perms := changesJob(t); perms["actions"] != "read" {
 		t.Errorf("the changes job asks for %v; listing a workflow's runs needs actions: read", perms)
+	}
+}
+
+// ciNeeds reads each ci.yml job's needs, which GitHub lets be a single name or
+// a list.
+func ciNeeds(t *testing.T) map[string][]string {
+	t.Helper()
+	var wf struct {
+		Jobs map[string]struct {
+			Needs any `yaml:"needs"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(workflowFiles(t)["ci.yml"]), &wf); err != nil {
+		t.Fatalf("parsing ci.yml: %v", err)
+	}
+	out := map[string][]string{}
+	for name, job := range wf.Jobs {
+		switch n := job.Needs.(type) {
+		case string:
+			out[name] = []string{n}
+		case []any:
+			for _, v := range n {
+				if s, ok := v.(string); ok {
+					out[name] = append(out[name], s)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// reaches reports whether job is waited on, directly or through other jobs, by
+// from.
+func reaches(needs map[string][]string, from, job string) bool {
+	seen := map[string]bool{}
+	var walk func(string) bool
+	walk = func(n string) bool {
+		for _, dep := range needs[n] {
+			if dep == job {
+				return true
+			}
+			if !seen[dep] {
+				seen[dep] = true
+				if walk(dep) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return walk(from)
+}
+
+// A host upgrades itself when the dev binaries change, and `zoomies upgrade`
+// pulls the runner images it already holds as it does. With the binaries
+// published first, a host could finish upgrading in the minutes before the
+// runner image was rebuilt, pull the one about to be replaced, and keep it:
+// that is how a pool moved back onto :dev started a runner two builds old. So
+// the order is the runner images, then the controller, agent and Git worker
+// images, then the binaries, and each step has to wait for the one before it.
+func TestTheDevChannelPublishesRunnerImagesThenImagesThenBinaries(t *testing.T) {
+	needs := ciNeeds(t)
+	for _, tc := range []struct{ later, earlier string }{
+		{"runner-manifests", "runner-images"},
+		{"images", "runner-manifests"},
+		{"images", "runner-images"},
+		{"dev-binaries", "images"},
+		{"dev-binaries", "runner-manifests"},
+	} {
+		if !reaches(needs, tc.later, tc.earlier) {
+			t.Errorf("ci.yml's %s does not wait for %s, so the dev channel is not published in the order that keeps a host from pulling a runner image that is about to be replaced", tc.later, tc.earlier)
+		}
+	}
+	// The other way round would be a cycle GitHub refuses, or the old order.
+	for _, tc := range []struct{ earlier, later string }{
+		{"runner-images", "dev-binaries"},
+		{"runner-images", "images"},
+		{"runner-manifests", "images"},
+	} {
+		if reaches(needs, tc.earlier, tc.later) {
+			t.Errorf("ci.yml's %s waits for %s, which is the order the dev channel moved away from", tc.earlier, tc.later)
+		}
 	}
 }
