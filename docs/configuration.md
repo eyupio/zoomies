@@ -2058,7 +2058,11 @@ as the host lived.
 
 This setting is what re-runs the prewarm. Every interval, each pool's image is
 prewarmed again on every healthy host that can run the pool, which pulls only
-when the tag has actually moved.
+when the tag has actually moved. A preparation asks the registry about a tag
+whatever the pool's pull policy is, so a host that already has `:dev` still
+catches up; an image named by digest is left alone, since a digest cannot move.
+The same applies when you create or edit a pool, or prewarm it by hand, which is
+what makes moving a pool back onto a tag bring its hosts up to date.
 
 It is deliberately not the same thing as a pool's **pull policy**:
 
