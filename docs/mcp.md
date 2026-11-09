@@ -1,6 +1,6 @@
 ---
 icon: material/robot-outline
-title: "Zoomies MCP: diagnose jobs and optimise workflows with your assistant"
+title: "Zoomies MCP: diagnose jobs with your AI assistant"
 description: >-
   Connect an MCP client to live job diagnostics, runner sizing, usage and
   verified repository source. Start read-only and grant operator actions when needed.
