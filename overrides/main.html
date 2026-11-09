@@ -171,9 +171,10 @@
     every page of its documentation is how a site ends up with fifteen
     competing answers to "what is this".
 
-    The WebSite entry beside it describes the site's own search for consumers
-    of the markup. Material reads ?q= on load, so the URL runs the query.
-    Google retired the sitelinks search box; this does not enable one in Search.
+    The WebSite entry beside it names the site. It deliberately carries no
+    SearchAction: Google retired the sitelinks search box, and advertising a
+    ?q= template made crawlers fetch one address per page with a query on the
+    end, which Search Console then reports as alternates of the page.
   #}
   {% if page and page.is_homepage %}
   <script type="application/ld+json">
@@ -228,15 +229,7 @@
           "name": "{{ config.site_name }}",
           "description": {{ description | striptags | trim | tojson }},
           "inLanguage": "en-GB",
-          "about": { "@id": "{{ config.site_url }}#software" },
-          "potentialAction": {
-            "@type": "SearchAction",
-            "target": {
-              "@type": "EntryPoint",
-              "urlTemplate": "{{ config.site_url }}?q={search_term_string}"
-            },
-            "query-input": "required name=search_term_string"
-          }
+          "about": { "@id": "{{ config.site_url }}#software" }
         }
       ]
     }

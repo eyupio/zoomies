@@ -12,6 +12,8 @@ import worker, {
   CSP_HEADER,
   discoveryLinks,
   markdownPath,
+  REDIRECTS,
+  redirectFor,
   securityHeaders,
   tokenEstimate,
   wantsMarkdown,
@@ -573,4 +575,29 @@ test("a header the origin set deliberately is not overwritten", async () => {
 
   assert.equal(response.headers.get("x-frame-options"), "SAMEORIGIN");
   assert.equal(response.headers.get(CSP_HEADER), CONTENT_SECURITY_POLICY);
+});
+
+test("a page that moved answers with a permanent redirect to its replacement", async () => {
+  for (const path of ["/ai-context-implementation-plan/", "/ai-context-implementation-plan"]) {
+    const response = await handle(`https://zoomies.sh${path}`, new Map());
+    assert.equal(response.status, 301);
+    assert.equal(response.headers.get("location"), "https://zoomies.sh/ai-context/");
+  }
+});
+
+test("a redirect keeps the query and is never taken for a page that exists", async () => {
+  const response = await handle(
+    "https://zoomies.sh/ai-context-implementation-plan/?ref=x",
+    new Map(),
+  );
+  assert.equal(response.headers.get("location"), "https://zoomies.sh/ai-context/?ref=x");
+  assert.equal(redirectFor("/ai-context/"), null);
+  assert.equal(redirectFor("/"), null);
+});
+
+test("every redirect lands on a page address with a trailing slash", () => {
+  for (const [from, to] of REDIRECTS) {
+    assert.ok(!from.endsWith("/"), `${from} is keyed without a trailing slash`);
+    assert.ok(to.startsWith("/") && to.endsWith("/"), `${to} is an absolute page address`);
+  }
 });
