@@ -1155,6 +1155,13 @@ jobs:
   # carry the same main-sha-* stamp, and the rolling prerelease gives
   # install.sh --version dev a stable URL whose bytes are replaced on every
   # successful push to main.
+  #
+  # Published last, after every image. Hosts upgrade themselves when these
+  # binaries change, and `zoomies upgrade` pulls the runner images a host holds,
+  # so the images have to be in place before the binaries say there is
+  # something to upgrade to. A failed image build therefore leaves the binaries
+  # where they were, which is the right way round: a host that does not upgrade
+  # keeps a working release, and one that did would have pulled a stale image.
   dev-binaries:
     name: Publish dev binaries
     # Only a commit on main that changes what ships (see changes). The jobs it
@@ -1162,7 +1169,7 @@ jobs:
     # is not a failed one, so the condition says "none failed" rather than
     # leaving GitHub to skip this one because a job it waits on did not run.
     if: ${{ !cancelled() && github.event.action != 'closed' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) && needs.changes.outputs.publish == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
-    needs: [changes, go, ui, installer]
+    needs: [changes, go, ui, installer, images, runner-images, runner-manifests]
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     timeout-minutes: 60 # the longest successful run seen was 21 minutes
     permissions:
@@ -1369,32 +1376,29 @@ jobs:
           # Run under dash as well as sh, since that is what most hosts have.
           TEST_SH=dash test/install/install-check.sh install.sh
 
-  images:
-    name: Images
+  # What the image jobs below decide, made once and early.
+  #
+  # The dev channel is published in an order, and the order is the point: the
+  # runner images, then the controller, agent and Git worker images, then the
+  # binaries last. A host upgrades itself when the dev binaries change, and
+  # `zoomies upgrade` pulls the runner images it already holds as it goes. When
+  # the binaries came first, a host could finish its upgrade in the minutes
+  # before the runner image was rebuilt, pull the one that was about to be
+  # replaced, and keep it. Published last, the binaries are the signal that
+  # everything they upgrade to is already there.
+  #
+  # The decisions used to be steps of the controller image job, which now runs
+  # after the runner images and so cannot hand them over. They need nothing but
+  # the event and the git history, so they run beside the tests and are ready
+  # before anything waits for them.
+  image-plan:
+    name: Image plan
+    needs: [changes]
+    if: ${{ github.event.action != 'closed' && (needs.changes.outputs.deploy == 'true' || needs.changes.outputs.publish == 'true') }}
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
-    timeout-minutes: 90 # the longest successful run seen was 37 minutes
-    needs: [changes, dev-binaries]
-    # Main pushes and manual recovery publish matching binaries before images.
-    # Pull requests and checks on other branches do not publish dev binaries,
-    # and only build the images when something that goes into them changed:
-    # the binary and the UI inside are built and tested by their own jobs.
-    # A pull request builds the images when their inputs change. Main builds
-    # them whenever it publishes binaries, whatever changed: a Go-only commit
-    # still changes the binary inside the controller image, and the dev
-    # channel's binaries and images must name the same commit.
-    if: ${{ !cancelled() && github.event.action != 'closed' && (github.event_name == 'pull_request' || github.ref != 'refs/heads/main' || needs.dev-binaries.result == 'success') && (needs.changes.outputs.deploy == 'true' || needs.changes.outputs.publish == 'true') }}
-    # Publishing needs to write packages; everything else here only reads.
+    timeout-minutes: 15 # three shell steps and a checkout
     permissions:
       contents: read
-      packages: write
-    env:
-      CONTROLLER_IMAGE: ghcr.io/eyupio/zoomies
-      AGENT_IMAGE: ghcr.io/eyupio/zoomies-agent
-      GIT_WORKER_IMAGE: ghcr.io/eyupio/zoomies-git
-      RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner
-      RUNNER_DOCKER_IMAGE: ghcr.io/eyupio/zoomies-runner-docker
-    # The runner-images job below repeats none of these decisions; it reads them
-    # from here, so a change to what publishes only has to be made once.
     outputs:
       publish: ${{ steps.publish.outputs.value }}
       runner: ${{ steps.changed.outputs.runner }}
@@ -1441,40 +1445,11 @@ jobs:
           echo "version=main-sha-$short" >> "$GITHUB_OUTPUT"
           echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-      - if: steps.publish.outputs.value == 'true'
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          # github.token rather than secrets.GITHUB_TOKEN: the same value, but
-          # GitHub reserves the GITHUB_ prefix for secret names, so referring to
-          # it this way keeps the workflow clear of that namespace entirely.
-          password: ${{ github.token }}
-
-      # Pull requests build amd64; main publishes both architectures. The
-      # controller and agent cross-compile natively, so neither needs an arm64
-      # machine; the runner images, which install packages, build each
-      # architecture on its own kind of machine in runner-images below.
-      - id: platforms
-        name: Decide the platforms
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "list=linux/amd64" >> "$GITHUB_OUTPUT"
-          else
-            echo "list=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
       # Pull requests only need to prove a changed runner Dockerfile still
       # builds. Every push to main rebuilds every runner variant even when its
       # inputs did not change, because :dev is a build channel: its labels and
       # embedded build stamp must identify the same commit as the controller,
       # agent image and binary.
-      #
-      # Runs after the builder is set up, because deciding needs a registry
-      # lookup.
       - id: changed
         name: Work out what changed
         env:
@@ -1509,6 +1484,67 @@ jobs:
             echo "runner=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # The controller, agent and Git worker images. They are published after the
+  # runner images and before the binaries: see image-plan above for why. On main
+  # it waits on the runner images and their manifests, and a failure in either
+  # leaves the controller, agent and Git worker :dev tags where they were.
+  images:
+    name: Images
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
+    timeout-minutes: 90 # the longest successful run seen was 37 minutes
+    needs: [changes, image-plan, runner-images, runner-manifests]
+    # Pull requests and checks on other branches do not publish, and only build
+    # the images when something that goes into them changed: the binary and the
+    # UI inside are built and tested by their own jobs. A pull request builds
+    # the images when their inputs change. Main builds them whenever it
+    # publishes, whatever changed: a Go-only commit still changes the binary
+    # inside the controller image, and the dev channel's binaries and images
+    # must name the same commit. A skipped job is not a failed one, so the
+    # runner images being skipped (nothing under them changed, on a pull
+    # request) does not stop this.
+    if: ${{ !cancelled() && github.event.action != 'closed' && (github.event_name == 'pull_request' || github.ref != 'refs/heads/main' || (needs.changes.outputs.publish == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled'))) && (needs.changes.outputs.deploy == 'true' || needs.changes.outputs.publish == 'true') }}
+    # Publishing needs to write packages; everything else here only reads.
+    permissions:
+      contents: read
+      packages: write
+    env:
+      CONTROLLER_IMAGE: ghcr.io/eyupio/zoomies
+      AGENT_IMAGE: ghcr.io/eyupio/zoomies-agent
+      GIT_WORKER_IMAGE: ghcr.io/eyupio/zoomies-git
+      RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner
+      RUNNER_DOCKER_IMAGE: ghcr.io/eyupio/zoomies-runner-docker
+    steps:
+      # Full history, as this job has always had: the decisions that needed it
+      # moved to image-plan, but nothing here has been shown not to want it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0 }
+
+      - if: needs.image-plan.outputs.publish == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # github.token rather than secrets.GITHUB_TOKEN: the same value, but
+          # GitHub reserves the GITHUB_ prefix for secret names, so referring to
+          # it this way keeps the workflow clear of that namespace entirely.
+          password: ${{ github.token }}
+
+      # Pull requests build amd64; main publishes both architectures. The
+      # controller and agent cross-compile natively, so neither needs an arm64
+      # machine; the runner images, which install packages, build each
+      # architecture on its own kind of machine in runner-images below.
+      - id: platforms
+        name: Decide the platforms
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "list=linux/amd64" >> "$GITHUB_OUTPUT"
+          else
+            echo "list=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
       - name: Build the controller image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -1516,26 +1552,26 @@ jobs:
           file: deploy/Dockerfile
           target: controller
           platforms: ${{ steps.platforms.outputs.list }}
-          push: ${{ steps.publish.outputs.value }}
+          push: ${{ needs.image-plan.outputs.publish }}
           # Export intermediate layers for the next ephemeral builder on main,
           # where the next run is another commit whose layers can be reused.
           # A pull request reads the cache and does not write it: its entries
           # are scoped to a merge ref nothing else reads, and exporting them
           # spends the same five minutes and disk the build is waiting on.
           cache-from: type=gha,version=2,scope=ci-controller
-          cache-to: ${{ steps.publish.outputs.value == 'true' && 'type=gha,version=2,scope=ci-controller,mode=max,timeout=5m,ignore-error=true' || '' }}
+          cache-to: ${{ needs.image-plan.outputs.publish == 'true' && 'type=gha,version=2,scope=ci-controller,mode=max,timeout=5m,ignore-error=true' || '' }}
           # Without these, `zoomies version` inside a published image reports
           # the Dockerfile's "dev" default, and nothing in the image says which
           # commit it came from.
           build-args: |
             RUNNER_IMAGE_TAG=dev
-            VERSION=${{ steps.tags.outputs.version }}
+            VERSION=${{ needs.image-plan.outputs.version }}
             COMMIT=${{ github.sha }}
-            DATE=${{ steps.tags.outputs.date }}
+            DATE=${{ needs.image-plan.outputs.date }}
           tags: |
             ${{ env.CONTROLLER_IMAGE }}:dev
             ${{ env.CONTROLLER_IMAGE }}:main
-            ${{ env.CONTROLLER_IMAGE }}:${{ steps.tags.outputs.sha }}
+            ${{ env.CONTROLLER_IMAGE }}:${{ needs.image-plan.outputs.sha }}
 
       # The agent image, which nothing built until now.
       #
@@ -1550,18 +1586,18 @@ jobs:
           file: deploy/Dockerfile
           target: agent
           platforms: ${{ steps.platforms.outputs.list }}
-          push: ${{ steps.publish.outputs.value }}
+          push: ${{ needs.image-plan.outputs.publish }}
           cache-from: type=gha,version=2,scope=ci-agent
-          cache-to: ${{ steps.publish.outputs.value == 'true' && 'type=gha,version=2,scope=ci-agent,mode=max,timeout=5m,ignore-error=true' || '' }}
+          cache-to: ${{ needs.image-plan.outputs.publish == 'true' && 'type=gha,version=2,scope=ci-agent,mode=max,timeout=5m,ignore-error=true' || '' }}
           build-args: |
             RUNNER_IMAGE_TAG=dev
-            VERSION=${{ steps.tags.outputs.version }}
+            VERSION=${{ needs.image-plan.outputs.version }}
             COMMIT=${{ github.sha }}
-            DATE=${{ steps.tags.outputs.date }}
+            DATE=${{ needs.image-plan.outputs.date }}
           tags: |
             ${{ env.AGENT_IMAGE }}:dev
             ${{ env.AGENT_IMAGE }}:main
-            ${{ env.AGENT_IMAGE }}:${{ steps.tags.outputs.sha }}
+            ${{ env.AGENT_IMAGE }}:${{ needs.image-plan.outputs.sha }}
 
       - name: Build the Git worker image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -1570,23 +1606,23 @@ jobs:
           file: deploy/Dockerfile
           target: gitworker
           platforms: ${{ steps.platforms.outputs.list }}
-          push: ${{ steps.publish.outputs.value }}
+          push: ${{ needs.image-plan.outputs.publish }}
           cache-from: type=gha,version=2,scope=ci-gitworker
-          cache-to: ${{ steps.publish.outputs.value == 'true' && 'type=gha,version=2,scope=ci-gitworker,mode=max,timeout=5m,ignore-error=true' || '' }}
+          cache-to: ${{ needs.image-plan.outputs.publish == 'true' && 'type=gha,version=2,scope=ci-gitworker,mode=max,timeout=5m,ignore-error=true' || '' }}
           build-args: |
-            VERSION=${{ steps.tags.outputs.version }}
+            VERSION=${{ needs.image-plan.outputs.version }}
             COMMIT=${{ github.sha }}
-            DATE=${{ steps.tags.outputs.date }}
+            DATE=${{ needs.image-plan.outputs.date }}
           tags: |
             ${{ env.GIT_WORKER_IMAGE }}:dev
             ${{ env.GIT_WORKER_IMAGE }}:main
-            ${{ env.GIT_WORKER_IMAGE }}:${{ steps.tags.outputs.sha }}
+            ${{ env.GIT_WORKER_IMAGE }}:${{ needs.image-plan.outputs.sha }}
 
       - name: Say what happened
         env:
-          PUBLISH: ${{ steps.publish.outputs.value }}
-          RUNNER_BUILT: ${{ steps.changed.outputs.runner }}
-          SHA_TAG: ${{ steps.tags.outputs.sha }}
+          PUBLISH: ${{ needs.image-plan.outputs.publish }}
+          RUNNER_BUILT: ${{ needs.image-plan.outputs.runner }}
+          SHA_TAG: ${{ needs.image-plan.outputs.sha }}
         run: |
           set -eu
           {
@@ -1634,8 +1670,12 @@ jobs:
     name: Runner image (${{ matrix.tag }}, ${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || (((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64') }}
     timeout-minutes: 60 # the longest successful run seen was 25 minutes (rocky-9 on arm64)
-    needs: [images]
-    if: github.event.action != 'closed' && needs.images.outputs.runner == 'true'
+    # It waits for the plan and for nothing else, so that a pull request builds
+    # these beside the tests, as it always has. On main the tests gate the
+    # publish that moves hosts: the dev binaries come last and wait for every
+    # test and every image, so a red commit never reaches a host's upgrade.
+    needs: [image-plan]
+    if: github.event.action != 'closed' && needs.image-plan.outputs.runner == 'true'
     permissions:
       contents: read
       packages: write
@@ -1643,7 +1683,7 @@ jobs:
       RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner
       RUNNER_DOCKER_IMAGE: ghcr.io/eyupio/zoomies-runner-docker
       RUNNER_FULL_IMAGE: ghcr.io/eyupio/zoomies-runner-full
-      PUBLISH: ${{ needs.images.outputs.publish }}
+      PUBLISH: ${{ needs.image-plan.outputs.publish }}
     strategy:
       fail-fast: false
       matrix:
@@ -1669,7 +1709,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - if: needs.images.outputs.publish == 'true'
+      - if: needs.image-plan.outputs.publish == 'true'
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
@@ -1696,7 +1736,7 @@ jobs:
           TAG: ${{ matrix.tag }}
           ARCH: ${{ matrix.arch }}
           PLATFORMS: ${{ matrix.platforms }}
-          SHA_TAG: ${{ needs.images.outputs.sha }}
+          SHA_TAG: ${{ needs.image-plan.outputs.sha }}
         run: |
           set -eu
           out="$RUNNER_TEMP/digests/$TAG"
@@ -1741,9 +1781,9 @@ jobs:
             OS_FAMILY=${{ matrix.family }}
             OS_ID=${{ matrix.os }}
             OS_VERSION=${{ matrix.version }}
-            VERSION=${{ needs.images.outputs.version }}
+            VERSION=${{ needs.image-plan.outputs.version }}
             COMMIT=${{ github.sha }}
-            DATE=${{ needs.images.outputs.date }}
+            DATE=${{ needs.image-plan.outputs.date }}
 
       # The variant with a Docker CLI, for pools whose docker_mode gives jobs a
       # daemon. Everything below the client is a layer the step above just
@@ -1763,9 +1803,9 @@ jobs:
             OS_FAMILY=${{ matrix.family }}
             OS_ID=${{ matrix.os }}
             OS_VERSION=${{ matrix.version }}
-            VERSION=${{ needs.images.outputs.version }}
+            VERSION=${{ needs.image-plan.outputs.version }}
             COMMIT=${{ github.sha }}
-            DATE=${{ needs.images.outputs.date }}
+            DATE=${{ needs.image-plan.outputs.date }}
 
       # The language toolchains on top of runner-docker, for the Ubuntu rows.
       # Its layers are several gigabytes of downloads, so they are not written
@@ -1787,9 +1827,9 @@ jobs:
             OS_FAMILY=${{ matrix.family }}
             OS_ID=${{ matrix.os }}
             OS_VERSION=${{ matrix.version }}
-            VERSION=${{ needs.images.outputs.version }}
+            VERSION=${{ needs.image-plan.outputs.version }}
             COMMIT=${{ github.sha }}
-            DATE=${{ needs.images.outputs.date }}
+            DATE=${{ needs.image-plan.outputs.date }}
 
       # Check each finished image holds what the rest of Zoomies assumes of it:
       # the runner user's uid, the files the entrypoint execs, the pinned
@@ -1820,9 +1860,9 @@ jobs:
             OS_FAMILY=${{ matrix.family }}
             OS_ID=${{ matrix.os }}
             OS_VERSION=${{ matrix.version }}
-            VERSION=${{ needs.images.outputs.version }}
+            VERSION=${{ needs.image-plan.outputs.version }}
             COMMIT=${{ github.sha }}
-            DATE=${{ needs.images.outputs.date }}
+            DATE=${{ needs.image-plan.outputs.date }}
           tags: zoomies-runner-check:${{ matrix.tag }}
 
       - name: The runner image has what Zoomies relies on
@@ -1843,9 +1883,9 @@ jobs:
             OS_FAMILY=${{ matrix.family }}
             OS_ID=${{ matrix.os }}
             OS_VERSION=${{ matrix.version }}
-            VERSION=${{ needs.images.outputs.version }}
+            VERSION=${{ needs.image-plan.outputs.version }}
             COMMIT=${{ github.sha }}
-            DATE=${{ needs.images.outputs.date }}
+            DATE=${{ needs.image-plan.outputs.date }}
           tags: zoomies-runner-docker-check:${{ matrix.tag }}
 
       - name: The runner-docker image has what Zoomies relies on
@@ -1931,9 +1971,9 @@ jobs:
             OS_FAMILY=${{ matrix.family }}
             OS_ID=${{ matrix.os }}
             OS_VERSION=${{ matrix.version }}
-            VERSION=${{ needs.images.outputs.version }}
+            VERSION=${{ needs.image-plan.outputs.version }}
             COMMIT=${{ github.sha }}
-            DATE=${{ needs.images.outputs.date }}
+            DATE=${{ needs.image-plan.outputs.date }}
           tags: zoomies-runner-full-check:${{ matrix.tag }}
 
       - name: The runner-full image has what Zoomies relies on
@@ -1943,7 +1983,7 @@ jobs:
       # Only a matrix leg that passed every image check may hand its pushed
       # digests to the manifest publisher. A failed validation must not move a
       # user-facing image tag.
-      - if: needs.images.outputs.publish == 'true'
+      - if: needs.image-plan.outputs.publish == 'true'
         name: Record the digests
         env:
           TAG: ${{ matrix.tag }}
@@ -1962,7 +2002,7 @@ jobs:
             echo "$RUNNER_FULL_DIGEST" > "$RUNNER_TEMP/digests/$TAG/$ARCH-zoomies-runner-full.digest"
           fi
 
-      - if: needs.images.outputs.publish == 'true'
+      - if: needs.image-plan.outputs.publish == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runner-digests-${{ matrix.tag }}-${{ matrix.arch }}
@@ -1980,8 +2020,8 @@ jobs:
     name: Runner image manifests
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     timeout-minutes: 15 # the longest successful run seen was 1 minute
-    needs: [images, runner-images]
-    if: ${{ !cancelled() && github.event.action != 'closed' && needs.images.outputs.publish == 'true' && needs.images.outputs.runner == 'true' && needs.runner-images.result != 'skipped' }}
+    needs: [image-plan, runner-images]
+    if: ${{ !cancelled() && github.event.action != 'closed' && needs.image-plan.outputs.publish == 'true' && needs.image-plan.outputs.runner == 'true' && needs.runner-images.result != 'skipped' }}
     permissions:
       contents: read
       packages: write
@@ -2068,6 +2108,7 @@ jobs:
       - build-matrix
       - dev-binaries
       - installer
+      - image-plan
       - images
       - runner-images
       - runner-manifests

@@ -542,11 +542,36 @@ func (c *Controller) PrewarmPool(ctx context.Context, p *store.Pool) (int, error
 			continue
 		}
 		_ = c.st.SetPoolPrewarm(ctx, p.ID, h.ID, image, "pending", "", "")
-		if c.enqueue(h.ID, agent.Task{Kind: agent.TaskPrewarmImage, PoolID: p.ID, Backend: p.Backend, Image: image, PullPolicy: p.PullPolicy, Spec: &backend.Spec{DockerMode: p.DockerMode}, IssuedAt: c.Now()}) {
+		if c.enqueue(h.ID, agent.Task{Kind: agent.TaskPrewarmImage, PoolID: p.ID, Backend: p.Backend, Image: image, PullPolicy: prewarmPullPolicy(p.PullPolicy, image), Spec: &backend.Spec{DockerMode: p.DockerMode}, IssuedAt: c.Now()}) {
 			n++
 		}
 	}
 	return n, nil
+}
+
+// prewarmPullPolicy is the policy a background preparation applies, which is
+// not always the pool's own.
+//
+// The pool's policy decides what happens when a runner is created, where the
+// default if-not-present is right: a registry round trip in front of a job is
+// the queue wait ephemeral runners exist to avoid. A preparation is nobody's
+// critical path, and its whole purpose is to catch a moving tag up. Applied
+// literally, if-not-present makes it do nothing on exactly the hosts that need
+// it, because a host that pulled :dev once already has a :dev and never looks
+// again. That is how a host came to keep a runner image two builds old after
+// the pool was moved back onto the tag.
+//
+// So a tag is pulled, which costs the registry a manifest check when nothing has
+// moved, and a digest keeps the pool's policy, since a digest cannot move.
+// always and pinned-only already say what they mean.
+func prewarmPullPolicy(policy store.PullPolicy, image string) store.PullPolicy {
+	if policy != store.PullIfNotPresent {
+		return policy
+	}
+	if _, _, digest := naming.SplitImage(image); digest != "" {
+		return policy
+	}
+	return store.PullAlways
 }
 
 // ---------------------------------------------------------------------------
