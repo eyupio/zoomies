@@ -1,0 +1,50 @@
+name: Propose a hosting provider
+description: Suggest a platform or service that deploys a Zoomies controller or hosts runners.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A provider is a third party. Listing one is a guide page in the
+        documentation that says what the route installs, who operates it and
+        what to do afterwards; it is not an endorsement. Open this issue before
+        you write the page, so the approach can be agreed first.
+
+        When it is agreed, open the pull request with the provider template by
+        adding `template=provider.md` to the compare URL, for example
+        `https://github.com/eyupio/zoomies/compare/main...your-branch?expand=1&template=provider.md`.
+        CONTRIBUTING.md says more.
+  - type: input
+    id: provider
+    attributes:
+      label: Provider name and link
+    validations:
+      required: true
+  - type: dropdown
+    id: installs
+    attributes:
+      label: What the route installs
+      description: Zoomies stays bring-your-own-infrastructure, so say which half the provider gives you.
+      options:
+        - A controller
+        - A runner host
+        - Both
+        - Not sure yet
+    validations:
+      required: true
+  - type: textarea
+    id: relationship
+    attributes:
+      label: Your relationship to the provider
+      description: None, a customer, an employee, the template's maintainer, or a referral or affiliate arrangement. Say so even when the answer is none.
+    validations:
+      required: true
+  - type: textarea
+    id: listing
+    attributes:
+      label: The template or listing
+      description: A link to it, and what you know about the image it deploys, whether that is pinned to a release, and who keeps it current.
+  - type: textarea
+    id: operator
+    attributes:
+      label: Who operates the instance
+      description: Who runs the machine the controller ends up on, and where their privacy notice and terms are.
