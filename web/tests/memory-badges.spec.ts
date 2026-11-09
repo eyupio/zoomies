@@ -10,7 +10,7 @@
  * runner, and a runner with nothing to say is not given a pill to say it with.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { goto, grid, readThrough, waitForRows } from './support/fixtures';
+import { goto, grid, readThrough, waitForRows, withoutTheStream } from './support/fixtures';
 
 const lent = {
   state: 'lent',
@@ -92,16 +92,19 @@ const folders = {
 type Row = Record<string, unknown>;
 
 /**
- * The page's own event stream says nothing for the length of a test. The demo
- * fleet tells its runners' stories live, and a frame about a runner replaces what
- * the page was handed for it, so a test that hands the page a story has to be the
- * only one telling it.
+ * The page's own event stream is taken away for the length of a test, not
+ * answered with an empty one. The demo fleet tells its runners' stories live, and
+ * a frame about a runner replaces what the page was handed for it, so a test that
+ * hands the page a story has to be the only one telling it.
+ *
+ * A stream answered with a body that ends is a stream that dropped: the browser
+ * reconnects after about three seconds, every reconnect makes the fleet cache
+ * fetch everything again and replace its rows, and the grid is rebuilt under a
+ * card that is open, which closes it. A spec that finishes quickly never meets
+ * that, and one on a loaded runner, whose steps take hundreds of milliseconds,
+ * meets it half the time.
  */
-async function quietEvents(page: Page): Promise<void> {
-  await page.route('**/api/v1/events*', (route) =>
-    route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' }),
-  );
-}
+const quietEvents = withoutTheStream;
 
 /**
  * Give the first rows of the grid the states a test is about, in order, and leave
