@@ -2,9 +2,7 @@
 icon: material/eye-outline
 title: Public view
 description: >-
-  Let anyone read a Zoomies fleet without signing in, for a public demo or a
-  project that shows its CI fleet on purpose. Every change still needs an
-  account, and nothing about the people who run it is shown.
+  Let anyone read a Zoomies fleet without signing in, for a public demo or an open CI fleet. Every change still needs an account; no operator details are shown.
 ---
 
 # Public view

@@ -2,9 +2,7 @@
 icon: material/shield-account-outline
 title: "Zoomies privacy: the website and self-hosted software"
 description: >-
-  What the Zoomies website and software collect. The software has no telemetry
-  or account; the website counts page views without cookies; the only non-fleet
-  request is a daily release check you can stop.
+  What the Zoomies website and software collect: no telemetry or account, cookie-free page counts, and one daily release check you can switch off.
 ---
 
 # Privacy

@@ -2,9 +2,7 @@
 icon: material/memory
 title: Elastic memory for GitHub Actions runners
 description: >-
-  Use spare host memory to raise a runner's limit, with swap as a last resort.
-  Learn the observation mode, resource boundaries and limits of protection
-  against out-of-memory failures.
+  Use spare host memory to raise a runner's limit, with swap as a last resort. What observation mode, resource boundaries and OOM protection do and do not do.
 ---
 
 # Elastic memory

@@ -1,6 +1,6 @@
 ---
 icon: material/alert-circle-outline
-title: Troubleshoot Zoomies and GitHub Actions jobs with Eli and MCP
+title: "Troubleshoot Zoomies and failed GitHub Actions jobs"
 description: >-
   Diagnose fleet problems and failed or slow workflow jobs with Eli, MCP and
   the CLI. Follow the evidence into fixes, PR repairs and measured optimisation.

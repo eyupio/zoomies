@@ -2,9 +2,7 @@
 icon: material/cube-outline
 title: Deploying on InstaPods
 description: >-
-  Run a Zoomies controller and a runner host on InstaPods: two pods, a release
-  binary each, and the GitHub Actions jobs running as processes on a pod with
-  no public address.
+  Run a Zoomies controller and a runner host on InstaPods: two pods, a release binary each, with jobs running as processes on a pod with no public address.
 ---
 
 # Deploying on InstaPods

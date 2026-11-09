@@ -3,9 +3,7 @@ layout: hub
 icon: material/book-open-page-variant-outline
 title: "Zoomies documentation: choose your starting point"
 description: >-
-  Learn the basics, run your first GitHub Actions job, operate a runner fleet
-  and use Eli or MCP to diagnose builds. Find advanced configuration, CLI,
-  API and monitoring references.
+  Learn the basics, run your first GitHub Actions job, operate a runner fleet and diagnose builds with Eli or MCP, plus advanced configuration and references.
 ---
 
 # Start here

@@ -2,9 +2,7 @@
 icon: material/cloud-check-outline
 title: "Zoomies vs Blacksmith, WarpBuild, RunsOn and Depot"
 description: >-
-  How running your own runners with Zoomies compares with Blacksmith, WarpBuild,
-  RunsOn and Depot: where jobs run, what each costs, and when each is the better
-  choice.
+  Zoomies compared with Blacksmith, WarpBuild, RunsOn and Depot: where jobs run, what each costs, and when each is the better choice for your runners.
 ---
 
 # Zoomies and the runner services
