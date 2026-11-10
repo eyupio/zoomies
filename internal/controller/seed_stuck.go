@@ -209,16 +209,17 @@ func (c *Controller) seedHeldJob(ctx context.Context, now time.Time) error {
 // It is throttled for its load average rather than for a CPU hold, because
 // that is the signal the ladder was added for: a machine whose CPU pinned at
 // 100% and stopped saying anything, while the runnable queue kept growing.
-// The measurements are the shape of that machine -- CPU at 60% because the
-// throttle has already halved every runner's quota, load still at thirty on
-// eight cores because the work is still there -- and the demo heartbeat keeps
-// the sample fresh so the card can keep explaining itself. Housekeeping leaves
-// the demo's hosts alone, so the rung does not climb or lift on its own.
+// The measurements are the shape of that machine -- CPU still at 92% behind a
+// load of thirty on eight cores, because the work is still there -- because
+// the load line counts only while the CPU is busy behind it. The demo
+// heartbeat keeps the sample fresh so the card can keep explaining itself.
+// Housekeeping leaves the demo's hosts alone, so the rung does not climb or
+// lift on its own.
 func (c *Controller) seedThrottledHost(ctx context.Context, now time.Time) error {
 	if _, err := c.st.GetHost(ctx, stuckThrottledHostID); err == nil {
 		return nil
 	}
-	cpu, load, memory := 60.0, 30.0, int64(4096)
+	cpu, load, memory := 92.0, 30.0, int64(4096)
 	since := now.Add(-7 * time.Minute)
 	changed := now.Add(-3 * time.Minute)
 	h := &store.Host{
@@ -251,7 +252,7 @@ func (c *Controller) seedThrottledHost(ctx context.Context, now time.Time) error
 			Level:     2,
 			Since:     &since,
 			ChangedAt: &changed,
-			Reason:    "the 1-minute load average is 30.0, at least twice the host's 8 CPUs",
+			Reason:    "the 1-minute load average is 30.0, at least twice the host's 8 CPUs, while CPU is at 92%",
 		},
 		Version:         version.Version,
 		ProtocolVersion: agent.ProtocolVersion,

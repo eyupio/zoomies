@@ -96,7 +96,7 @@ func TestEachPressureSignalNamesItself(t *testing.T) {
 		want string
 	}{
 		{"the CPU hold, with a runner no limit binds", pressed(now, 99, true, 1, 8192), "CPU has been at or above 95% for 30 s with 1 runner here that no CPU limit binds"},
-		{"a load average past twice the cores", pressed(now, 60, false, 17, 8192), "load average is 17.0, at least twice the host's 8 CPUs"},
+		{"a load average past twice the cores with the CPU busy", pressed(now, 90, false, 17, 8192), "load average is 17.0, at least twice the host's 8 CPUs, while CPU is at 90%"},
 		{"memory at the reserve", pressed(now, 60, false, 1, store.MinHostReserveMemoryMB), "available memory is at or below the host's reserve"},
 	}
 	for _, tc := range cases {
@@ -109,6 +109,40 @@ func TestEachPressureSignalNamesItself(t *testing.T) {
 	// per core and memory to spare is a host doing its job.
 	if got := NextThrottle(pressed(now, 90, false, 8, 8192), now); got.Active() {
 		t.Errorf("a busy host was throttled: %+v", got)
+	}
+}
+
+// A load average counts tasks the kernel cannot run, including those asleep in
+// an uninterruptible wait on a disk or a network filesystem. It can therefore
+// run far past twice the cores while the CPU is a quarter busy and the memory
+// is free, and stepping that host down would take slots from jobs that were
+// running fine to relieve a wait no throttle can touch. The load line counts
+// only with the CPU busy behind it, and the same sample is calm, so a host
+// already on a rung can climb back down.
+func TestALoadSpikeWithAnIdleCPUIsNeitherPressureNorAWayOutOfTheRung(t *testing.T) {
+	now := time.Date(2026, 11, 10, 6, 53, 0, 0, time.UTC)
+	// The shape a real host reported: 12 CPUs, load 41.4, CPU 28%, 22 GB of
+	// 30 GB still available.
+	h := sized("host_a", 5, 12, 30*1024, 500*1024)
+	h.ActiveRunners, h.UnlimitedRunners = 5, 0
+	cpu, load, memory := 28.0, 41.4, int64(22*1024)
+	h.Usage = store.HostUsage{CPUPercent: &cpu, LoadAverage1: &load, MemoryAvailableMB: &memory, SampledAt: now}
+
+	if got := NextThrottle(h, now); got.Active() {
+		t.Fatalf("a host with a load of 41.4 but CPU at 28%% was throttled: %+v", got)
+	}
+	// The same sample on a host already on a rung is calm: the load it sees
+	// is not the pressure that put it there.
+	at := now.Add(-ThrottleStep)
+	h.Throttle = store.HostThrottle{Level: 2, Since: &at, ChangedAt: &at, Reason: "an earlier spike"}
+	if got := NextThrottle(h, now); got.Level != 2 || got.CalmSince == nil || !got.CalmSince.Equal(now) {
+		t.Fatalf("a throttled host with an idle CPU and a high load was not calm: %+v", got)
+	}
+	// With the CPU actually behind the load, the same figures are pressure.
+	cpu = 90
+	h.Throttle = store.HostThrottle{}
+	if got := NextThrottle(h, now); got.Level != 1 || !strings.Contains(got.Reason, "while CPU is at 90%") {
+		t.Fatalf("a load past twice the cores with CPU at 90%% was not throttled: %+v", got)
 	}
 }
 

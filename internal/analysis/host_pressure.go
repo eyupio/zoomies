@@ -66,14 +66,14 @@ type HostJob struct {
 	StartupSeconds *int64
 }
 
-// PressureThresholds is the scheduler's own test for an overwhelmed host,
-// as far as a minute's sample can show it: the load per core at which
-// internal/scheduler's throttle climbs a rung, and the host's memory reserve.
-// CPU occupancy is deliberately absent. A host whose runners are all inside
-// their CPU quotas sits near 100% all day and is healthy, so a CPU line would
-// make every busy host's failures "cluster in its busy minutes"; the throttle
-// counts CPU only while an unlimited runner is present, which no sample
-// records.
+// PressureThresholds is how a minute is judged pressured here: the load per
+// core at which internal/scheduler's throttle can climb a rung, and the host's
+// memory reserve. CPU occupancy is deliberately absent as a line of its own. A
+// host whose runners are all inside their CPU quotas sits near 100% all day
+// and is healthy, so a CPU line would make every busy host's failures "cluster
+// in its busy minutes"; the throttle counts CPU alone only while an unlimited
+// runner is present, which no sample records, and counts it beside a high load
+// rather than on its own.
 type PressureThresholds struct {
 	LoadPerCPU float64 `json:"load_per_cpu"`
 	// MemoryReserveMB is the host's own reserve (store.Host.MemoryReserve):

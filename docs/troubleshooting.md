@@ -300,17 +300,19 @@ room is kept free by placing less there, and nothing stops a job that runs away
 from taking it) and the memory reserve is itself the line pressure is judged
 against: a host counts as overwhelmed when available memory falls *to* it, so
 holding more back means being throttled sooner rather than later. When the
-reason names the **load average** instead, look for work no quota binds: the
-kernel counts a task waiting on disk towards the load average while it keeps a
-container that has spent its CPU quota off the run queue, so a host can sit at
-40% CPU with a load past twice its cores and a daemon too busy to answer a
-`create`. `docker_mode: dind` is the usual multiplier, since each of its slots
-is two containers; a typed pool gives both the same limits, and a pool sized
-by its host still splits one slot between them. Either way a slot too thin to
-give both a comfortable share (or, for a pool with a minimum, the minimum
-each) is refused the host outright, before it can
-produce this symptom at all; [`host.overprovisioned`](problem-codes.md) is the
-warning for a host that is still too finely sliced even where it is not.
+reason names the **load average** as well, the CPU behind it is at least 85%
+busy, so look for work no quota binds: the load keeps counting what is queued
+behind the cores after CPU occupancy has pinned. A load average past twice the
+cores with the CPU under that bar is tasks asleep in an uninterruptible wait
+on a disk or a network filesystem, not CPU pressure; it does not throttle the
+host, and `host_pressure` and the host's **I/O wait** are where to see it.
+`docker_mode: dind` is the usual multiplier, since each of its slots is two
+containers; a typed pool gives both the same limits, and a pool sized by its
+host still splits one slot between them. Either way a slot too thin to give
+both a comfortable share (or, for a pool with a minimum, the minimum each) is
+refused the host outright, before it can produce this symptom at all;
+[`host.overprovisioned`](problem-codes.md) is the warning for a host that is
+still too finely sliced even where it is not.
 
 At 85% CPU usage, Zoomies starts one runner at a time. Sustained usage of at
 least 95% holds new starts until it falls below 85%. A host at its memory
@@ -327,7 +329,8 @@ that the controller has stepped it down a rung (to three quarters, half or a
 quarter of its slots) and lowered the CPU quota of every runner on it that has
 one, never below half. The card's sentence, and `zoomies hosts list`, say which
 measurement did it: CPU pinned at 95% with a runner no limit binds, a load
-average past twice the host's CPUs, or memory at the reserve. Running jobs
+average past twice the host's CPUs while its CPU is at least 85% busy, or
+memory at the reserve. Running jobs
 continue, slower; nothing is failed. It lifts itself one rung after five
 minutes of calm, and a host that keeps climbing back up has too many slots
 for its machine or pools whose limits let a job take more than a slot's worth
