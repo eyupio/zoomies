@@ -570,6 +570,58 @@ one runner and the next, so a limit above the free space is not a limit at all:
 the disk fills first, and a host at or below its disk reserve takes no runner
 of any pool.
 
+### Sizing from what the fleet measured
+
+A host's slots are its machine, less the reserve, divided by what one runner
+asks, and for a pool that leaves its size to its host that ask is the fleet's
+default, `runners.default_cpus` and `runners.default_memory_mb` (two cores and
+four gigabytes out of the box). The figure was chosen for nobody in particular.
+A fleet whose runners use a fraction of it queues jobs for want of a slot while
+its processors idle, and the way out is a smaller ask, which gives the same
+hosts more slots.
+
+`GET /api/v1/pools/performance` (and the `pool_performance` MCP tool) works out
+whether that is happening here, from three measurements the controller already
+keeps:
+
+* the CPU one working runner used: each host's CPU in use, divided by its
+  runners at work, over the last day of minute samples;
+* the memory the pool's jobs peaked at: the ninetieth percentile over the last
+  week, with a fifth more, as [job-history sizing](#sizing-from-job-history)
+  does it;
+* how much of the time jobs waited was spent with no room for another runner,
+  which is the pool at its maximum or every host full.
+
+If at least an hour of load has been measured, jobs did wait for room (a third
+or more of their waiting), and no job was killed for memory, the answer is
+`raise`: a share of one and a half times the measured CPU use, rounded up to a
+quarter of a core, and the memory figure the jobs need, never below the fleet's
+`runners.minimum_cpus` and `runners.minimum_memory_mb`. It says how many slots
+each host would have, what limited it, and the pool maximum that leaves room for
+them. Otherwise it says `keep`, with the reason (the wait was somewhere else, or
+memory is the limit), or `unknown` where too little has been measured.
+
+Three things keep it from doing harm. It never takes a host down: a host with
+more slots than the new ask would give keeps them. It never fills a disk: a host
+stops at the runners its free disk holds, and says so. And it names the other
+pools that follow the fleet default, because changing it resizes theirs too; a
+pool that types its own size is told that the default would change nothing for
+it, since the largest ask across the pools decides how many runners a host
+holds.
+
+It reads and changes nothing. In the pool editor, the **Size** section shows it
+for a pool whose runners are one share of each host: a card saying how many
+runners the hosts could hold, host by host, with what to know before applying
+it. Nothing is shown when there is nothing to recommend. **Apply this size**
+writes the two fleet settings, so it is for an administrator, and where other
+pools follow the default it names them and waits for a tick. The pool's
+maximum is set in the form, never saved behind your back: save the pool to keep
+it. Over the API or MCP, applying a `raise` is writing the two fleet settings and
+the pool's maximum. A runner keeps the size it was created with,
+so the new slots fill as the runners now running finish their jobs, usually
+within the length of your longest job. A host whose disk is nearly full is the
+one to watch; free some space there before going further.
+
 ### Runner profiles: how big a runner is on one host
 
 A fleet of identical machines needs nothing beyond the share above. A fleet with

@@ -28,12 +28,12 @@ const RunnerDiskMB int64 = 10 * 1024
 // RunnerAsk is what one runner asks of a machine: the largest ask across the
 // enabled pools, or the fleet's default where none has said.
 type RunnerAsk struct {
-	CPUs     float64
-	MemoryMB int64
+	CPUs     float64 `json:"cpus"`
+	MemoryMB int64   `json:"memory_mb"`
 	// Pool names the pool whose figures won, empty for the default.
-	Pool string
+	Pool string `json:"pool,omitempty"`
 	// Pair is whether the ask was doubled because a slot is a pair.
-	Pair bool
+	Pair bool `json:"pair,omitempty"`
 }
 
 // DefaultRunnerAsk is the ask where neither a pool nor the fleet has said.

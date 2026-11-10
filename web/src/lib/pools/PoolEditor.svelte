@@ -756,7 +756,7 @@
       problems={problems.size}
       edited={edited.has('size')}
     >
-      <SizeSection {draft} {errors} {touch} {defaults} {verdict} {validating} />
+      <SizeSection {draft} {errors} {touch} {defaults} {verdict} {validating} poolId={pool?.id} />
     </PoolSection>
 
     <PoolSection

@@ -398,6 +398,14 @@ export const getPoolDefaults = (signal?: AbortSignal) =>
   api.get<Result<'getPoolDefaults'>>('/pools/defaults', { signal });
 
 /**
+ * Whether the runner size could be smaller, to give the hosts more slots, read
+ * from what the fleet measured of itself. Leave the pool out for one that does
+ * not exist yet.
+ */
+export const getPoolPerformance = (query: Query<'getPoolPerformance'>, signal?: AbortSignal) =>
+  api.get<Result<'getPoolPerformance'>>('/pools/performance', { query, signal });
+
+/**
  * The operating systems a pool may ask for. Served rather than hard-coded so
  * the wizard cannot offer one no runner image is published for.
  */
