@@ -64,6 +64,20 @@ func TestElasticCPUControllerLendsOnlyOnAFreshCalmCapableHost(t *testing.T) {
 	}, now); len(got) != 0 {
 		t.Fatalf("busy host received elastic CPU: %+v", got)
 	}
+
+	// A load average counts tasks asleep in an uninterruptible wait, so it can
+	// run past twice the cores while the CPUs are idle. That is not a host too
+	// busy to lend: the runner asking for CPU has spare cores to use, and
+	// withholding the boost would not help whatever is blocked on the disk.
+	cpu = 20
+	load := 1000.0
+	host.Usage = store.HostUsage{CPUPercent: &cpu, LoadAverage1: &load, SampledAt: now}
+	if got := h.c.elasticCPUTargets(h.ctx, host, agent.HeartbeatRequest{
+		Features: []string{agent.FeatureElasticCPU},
+		Runners:  []agent.RunnerReport{{RunnerID: runner.ID, Stats: backend.Stats{SampledAt: &sampled, CPUPercent: 400}}},
+	}, now); len(got) != 1 || got[0].TargetCPUs <= got[0].BaseCPUs {
+		t.Fatalf("a host with idle CPUs and a high load was not lent CPU: %+v", got)
+	}
 }
 
 func TestCPUResourceStatusSaysWhatTheNumbersMean(t *testing.T) {

@@ -34,13 +34,13 @@ const (
 	StaleThrottleReset = 10 * time.Minute
 
 	// LoadPerCPUOverwhelmed is the one-minute load average per CPU at which a
-	// host counts as overwhelmed: twice as many runnable tasks as there are
+	// host can count as overwhelmed: twice as many runnable tasks as there are
 	// cores to run them, which is the shape a machine takes when its CPU
-	// occupancy has already pinned at 100% and stopped saying anything.
-	// LoadPerCPUCalm is where it is calm again -- one runnable task per core,
-	// where nothing is queued behind anything.
+	// occupancy has already pinned at 100% and stopped saying anything. It is
+	// only a candidate: the load line counts while the CPU is busy behind it
+	// (see loadOverwhelmed), because the average also counts tasks blocked on
+	// a disk or a network filesystem, which no throttle can relieve.
 	LoadPerCPUOverwhelmed = 2.0
-	LoadPerCPUCalm        = 1.0
 	// cpuCalmPercent is the CPU occupancy below which a host is calm, and it
 	// is the same figure that releases the admission hold, so the two never
 	// disagree about whether a host has recovered.
@@ -143,13 +143,36 @@ func hostOverwhelmed(h *store.Host) (bool, string) {
 		return true, fmt.Sprintf("CPU has been at or above 95%% for 30 s with %s here that no CPU limit binds",
 			plural(h.UnlimitedRunners, "runner"))
 	}
-	if u.LoadAverage1 != nil && h.CPUs > 0 && *u.LoadAverage1 >= LoadPerCPUOverwhelmed*float64(h.CPUs) {
-		return true, fmt.Sprintf("the 1-minute load average is %.1f, at least twice the host's %d CPUs", *u.LoadAverage1, h.CPUs)
+	if loadOverwhelmed(h) {
+		return true, fmt.Sprintf("the 1-minute load average is %.1f, at least twice the host's %d CPUs, while CPU is at %.0f%%",
+			*u.LoadAverage1, h.CPUs, *u.UnlentCPUPercent())
 	}
 	if v := u.MemoryAvailableMB; v != nil && *v <= h.MemoryReserve() {
 		return true, "available memory is at or below the host's reserve"
 	}
 	return false, ""
+}
+
+// loadOverwhelmed reports whether the one-minute load average is past twice the
+// host's cores and the host is using its CPUs behind it.
+//
+// A load average counts every task the kernel cannot run, including the ones
+// asleep in an uninterruptible wait on a disk or a network filesystem. A host
+// can therefore show a load far past its cores while its CPU sits at a quarter
+// and its memory is free; stepping down its slots and lowering its runners'
+// quotas would take capacity from jobs that were running fine and do nothing
+// about the task that was actually blocked. So the load line counts only while
+// the host's own CPU -- not what runners were lent, which the plan chose -- is
+// at or above the calm line. Without CPU behind it, a high load is reported by
+// host_pressure and host I/O wait, both of which say what to look at, and is
+// not a throttle.
+func loadOverwhelmed(h *store.Host) bool {
+	u := h.Usage
+	if u.LoadAverage1 == nil || h.CPUs <= 0 || *u.LoadAverage1 < LoadPerCPUOverwhelmed*float64(h.CPUs) {
+		return false
+	}
+	v := u.UnlentCPUPercent()
+	return v != nil && *v >= cpuCalmPercent
 }
 
 // hostCalm reports whether every fresh measurement says the host has room
@@ -171,7 +194,12 @@ func hostCalm(h *store.Host) bool {
 	if v := u.UnlentCPUPercent(); v != nil && *v >= cpuCalmPercent {
 		return false
 	}
-	if u.LoadAverage1 != nil && h.CPUs > 0 && *u.LoadAverage1 >= LoadPerCPUCalm*float64(h.CPUs) {
+	// The load average is not a calm test of its own. A load past one per
+	// core with the CPU under the bar is tasks blocked on I/O, which never
+	// put the host on its rung; holding it there for that would keep a host
+	// throttled for a measurement the ladder does not act on. A load with
+	// the CPU busy is already refused by the CPU line above.
+	if loadOverwhelmed(h) {
 		return false
 	}
 	if v := u.MemoryAvailableMB; v != nil && *v <= h.MemoryReserve() {

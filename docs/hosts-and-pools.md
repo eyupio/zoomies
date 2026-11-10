@@ -1265,10 +1265,10 @@ because that figure is what its jobs need.
 | CPU at least 95% for 30 seconds across fresh samples | Hold new starts until CPU falls below 85%. |
 | Available memory at or below the host reserve | Hold new starts until memory becomes available. A pool whose next runner would not fit waits too. |
 | Usage missing, older than 90 seconds, or inconsistent with the reported host size | Use configured capacity and reservations; show usage as unavailable. |
-| **Overwhelmed** on a fresh sample: CPU at or above 95% for 30 seconds while a runner with no CPU limit is on the host, the one-minute load average at least twice the host's CPUs, or available memory at or below the reserve | **Throttle, step 1 of 3.** The host is stepped down to three quarters of its slots, and every runner on it that has a CPU limit is left 75% of it. The host card says so, `host.throttled` is raised, and the step is audited as `host.throttle`. |
+| **Overwhelmed** on a fresh sample: CPU at or above 95% for 30 seconds while a runner with no CPU limit is on the host, the one-minute load average at least twice the host's CPUs **while its CPU is at or above 85%**, or available memory at or below the reserve | **Throttle, step 1 of 3.** The host is stepped down to three quarters of its slots, and every runner on it that has a CPU limit is left 75% of it. The host card says so, `host.throttled` is raised, and the step is audited as `host.throttle`. |
 | Still overwhelmed two minutes after the last step | **Step 2:** half the slots, and running jobs at half their CPU allocation. |
 | Still overwhelmed two minutes after that | **Step 3:** a quarter of the slots. Running jobs stay at half; the top rung takes slots and nothing else. |
-| **Calm**: CPU below 85%, load average under one per CPU, memory above the reserve, for five minutes without a break | **One step back down**, audited as `host.throttle_lift`. The streak starts again, and the throttle is gone once the last step is taken. |
+| **Calm**: CPU below 85% and memory above the reserve, for five minutes without a break. A load average is not a calm test of its own: a load past one per core with the CPU idle is tasks blocked on I/O, which the ladder never acted on going up. | **One step back down**, audited as `host.throttle_lift`. The streak starts again, and the throttle is gone once the last step is taken. |
 | Neither, 90% CPU, say | The rung is kept and the calm streak is broken. Not overwhelmed, and not a host to give slots back to either. |
 | Usage stale for ten minutes while throttled | The throttle is lifted anyway. A host nobody can measure is placed by its configured capacity, exactly as the holds fall back. |
 
@@ -1310,9 +1310,12 @@ agent: a host that offers only the `process` backend has no container to
 update, so its throttle is slots only, and its reason says so.
 
 **How a throttle ends.** Five minutes of calm (every fresh sample under 85%
-CPU, under one runnable task per core and above the memory reserve) lifts one
-rung, and the streak starts again for the next; a sample that is neither calm
-nor overwhelmed breaks the streak without moving the rung. Recovery is longer
+CPU and above the memory reserve) lifts one rung, and the streak starts again
+for the next; a sample that is neither calm nor overwhelmed breaks the streak
+without moving the rung. A high load average with the CPU under the bar is not
+pressure: the kernel counts tasks blocked on a disk or a network filesystem in
+it, and no throttle can relieve those, so it neither climbs the ladder nor
+holds a host on it. Recovery is longer
 than a step up on purpose: a host that recovered in a minute and was pushed
 straight back over would otherwise oscillate with the ladder rather than settle
 on it. If the samples stop (an agent downgraded to a build that does not send

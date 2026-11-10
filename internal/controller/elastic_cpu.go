@@ -286,7 +286,7 @@ func (c *Controller) lentCPUPercent(ctx context.Context, h *store.Host, reports 
 }
 
 // elasticHostBusy reports whether the host is too busy to lend CPU: throttled,
-// high on CPU or load, or at its memory reserve.
+// high on CPU, or at its memory reserve.
 //
 // lent is the CPU this plan has already lent and the runners are using, and
 // the CPU test is made without it. A boost is lent from the host's spare CPU,
@@ -302,13 +302,19 @@ func (c *Controller) lentCPUPercent(ctx context.Context, h *store.Host, reports 
 // The same is why the sustained-CPU hold is not consulted here: it is decided
 // on the raw figure, and a host held only because of what it was lent is the
 // same flap a heartbeat later.
+//
+// The load average is not consulted. The kernel counts tasks asleep in an
+// uninterruptible wait on a disk or a network filesystem in it, so it can run
+// past twice the cores while the CPUs are idle; withholding a boost for that
+// takes CPU from a runner that could have used it and does nothing about the
+// task that was blocked. A load with CPU behind it is already refused by the
+// CPU line above.
 func elasticHostBusy(h *store.Host, lent float64) bool {
 	cpu := *h.Usage.CPUPercent
 	if h.CPUs > 0 {
 		cpu = max(cpu-lent/float64(h.CPUs)*100, 0)
 	}
 	return h.Throttle.Active() || cpu >= 85 ||
-		h.Usage.LoadAverage1 != nil && h.CPUs > 0 && *h.Usage.LoadAverage1 >= 2*float64(h.CPUs) ||
 		h.Usage.MemoryAvailableMB != nil && *h.Usage.MemoryAvailableMB <= h.MemoryReserve()
 }
 
