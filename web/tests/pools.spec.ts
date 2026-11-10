@@ -1751,3 +1751,107 @@ test('the configuration columns are a click away rather than on by default', asy
   await expect(arm).toContainText('Docker in Docker');
   await expect(dataRows(pools).filter({ hasText: FIXTURE.linuxPool })).toContainText('One job');
 });
+
+/**
+ * The performance step in the Size section. The fixture fleet has no load
+ * history, so its own answer is "not enough measured" and the card stays away;
+ * these specs hand the page the answer a measured fleet would give, because what
+ * they protect is what the card does with it: say what changes, ask before it
+ * resizes other pools, write only the two fleet settings, and put the pool's
+ * maximum in the form rather than saving the pool behind anyone's back.
+ */
+const PERFORMANCE_RAISE = {
+  verdict: 'raise',
+  reason:
+    'Jobs spent 93% of their waiting for room for another runner, while a runner used about 0.9 cores.',
+  current: { cpus: 2, memory_mb: 4096 },
+  recommended: { cpus: 1.5, memory_mb: 3072 },
+  hosts: [
+    { host_id: 'host_a', host_name: 'big-box', before: 5, after: 7, limited_by: 'cpu' },
+    { host_id: 'host_b', host_name: 'small-box', before: 3, after: 4, limited_by: 'disk' },
+  ],
+  slots_before: 8,
+  slots_after: 11,
+  max_runners: 24,
+  measured: {
+    samples: 400,
+    cpu_per_runner: 0.9,
+    jobs: 300,
+    ceiling_share: 0.93,
+    waited_seconds: 1000,
+    oom_killed_jobs: 0,
+  },
+  cautions: [
+    'A runner keeps the size it was created with, so the new slots fill as the runners now running finish their jobs, not at once.',
+  ],
+  since: '2026-11-09T00:00:00Z',
+  until: '2026-11-10T00:00:00Z',
+  jobs_since: '2026-11-03T00:00:00Z',
+};
+
+test('the size section says how many more runners the hosts could hold, and applies it on a tick and a click', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/pools/performance*', (route) =>
+    route.fulfill({
+      json: { ...PERFORMANCE_RAISE, followers: ['bare-metal'] },
+    }),
+  );
+  let written: Record<string, unknown> | null = null;
+  await page.route('**/api/v1/settings', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    written = route.request().postDataJSON() as Record<string, unknown>;
+    return route.fulfill({ json: {} });
+  });
+  await goto(page, '/pools/new', 'Create a pool');
+  await nameField(page).fill('e2e-performance');
+  await addLabel(page, 'perf');
+  await openSection(page, 'size');
+
+  const card = page.getByRole('region', { name: 'Performance recommendation' });
+  await expect(card).toContainText('Your hosts could hold 11 runners, not 8');
+  await expect(card).toContainText('93% of their waiting');
+  await expect(card.getByRole('row', { name: /big-box 5 7/ })).toBeVisible();
+  await expect(card.getByRole('row', { name: /small-box 3 4/ })).toContainText('limited by disk');
+
+  // Other pools follow the fleet default, so nothing is written until that is
+  // agreed to: the button cannot be pressed past it.
+  const apply = card.getByRole('button', { name: 'Apply this size' });
+  await expect(apply).toBeDisabled();
+  await card.getByRole('checkbox', { name: /Resize 1 other pool too/ }).check();
+  await apply.click();
+
+  await expect(card).toContainText("The pool's maximum is now 24 in this form");
+  // Only the two fleet settings were written: the pool is saved by the form.
+  expect(written).toEqual({
+    'runners.default_cpus': 1.5,
+    'runners.default_memory_mb': 3072,
+  });
+  await openSection(page, 'scaling');
+  await expect(
+    section(page, 'scaling').getByRole('spinbutton', { name: 'Maximum runners' }),
+  ).toHaveValue('24');
+});
+
+test('the performance card is not shown where the fleet has nothing to recommend', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/pools/performance*', (route) =>
+    route.fulfill({
+      json: {
+        ...PERFORMANCE_RAISE,
+        verdict: 'keep',
+        reason: 'Only 4% of the time jobs waited was for want of room.',
+        hosts: [],
+        recommended: PERFORMANCE_RAISE.current,
+        slots_after: PERFORMANCE_RAISE.slots_before,
+      },
+    }),
+  );
+  await goto(page, '/pools/new', 'Create a pool');
+  await nameField(page).fill('e2e-quiet');
+  await addLabel(page, 'quiet');
+  await openSection(page, 'size');
+  await expect(page.getByRole('radio', { name: 'One share of each host' })).toBeChecked();
+  await expect(page.getByRole('region', { name: 'Performance recommendation' })).toHaveCount(0);
+});

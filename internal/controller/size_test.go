@@ -640,7 +640,12 @@ func TestCPUThrottlingIsRecordedAgainstTheJobWhenSizeRoutingIsWatchingOrOn(t *te
 		t.Run(tc.mode, func(t *testing.T) {
 			h := newHarness(t)
 			_, pool, host := h.fleet()
-			h.c.UpdateConfig(func(cfg *config.Config) { cfg.Scheduler.SizeRouting = tc.mode })
+			// The per-job elastic CPU history reads the same counters, so it is
+			// switched off here to leave size routing as the only reader.
+			h.c.UpdateConfig(func(cfg *config.Config) {
+				cfg.Scheduler.SizeRouting = tc.mode
+				cfg.Scheduler.ElasticCPUHistory = scheduler.SizeOff
+			})
 			_, r := startJobOnRunner(t, h, host.ID, 7801, pool.Labels)
 			at := h.c.Now()
 			if err := h.c.ReportRunners(h.ctx, host.ID, []agent.RunnerReport{{
@@ -652,6 +657,35 @@ func TestCPUThrottlingIsRecordedAgainstTheJobWhenSizeRoutingIsWatchingOrOn(t *te
 			got := h.jobByGitHubID(7801)
 			if got.CPUPeriods != tc.want || (tc.want > 0 && got.CPUThrottledPeriods != 400) {
 				t.Fatalf("the job has %d/%d throttled periods, want %d periods", got.CPUThrottledPeriods, got.CPUPeriods, tc.want)
+			}
+		})
+	}
+}
+
+// The per-job elastic CPU ceiling reads the same counters, so they are kept for
+// it too, even where size routing is off, which is how this fleet runs.
+func TestCPUThrottlingIsRecordedForElasticCPUHistoryWhenSizeRoutingIsOff(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		want int64
+	}{{scheduler.SizeOff, 0}, {scheduler.SizeShadow, 1000}, {scheduler.SizeOn, 1000}} {
+		t.Run(tc.mode, func(t *testing.T) {
+			h := newHarness(t)
+			_, pool, host := h.fleet()
+			h.c.UpdateConfig(func(cfg *config.Config) {
+				cfg.Scheduler.SizeRouting = scheduler.SizeOff
+				cfg.Scheduler.ElasticCPUHistory = tc.mode
+			})
+			_, r := startJobOnRunner(t, h, host.ID, 7802, pool.Labels)
+			at := h.c.Now()
+			if err := h.c.ReportRunners(h.ctx, host.ID, []agent.RunnerReport{{
+				RunnerID: r.ID, Stats: backend.Stats{SampledAt: &at, CPUPercent: 190, MemoryBytes: 1000 << 20,
+					CPUThrottling: &backend.CPUThrottling{Periods: 1000, ThrottledPeriods: 400}},
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			if got := h.jobByGitHubID(7802); got.CPUPeriods != tc.want {
+				t.Fatalf("the job has %d periods recorded, want %d", got.CPUPeriods, tc.want)
 			}
 		})
 	}

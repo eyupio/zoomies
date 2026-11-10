@@ -13,6 +13,11 @@ type ElasticCPUWorkload struct {
 	BaseCPUs  float64
 	MaxCPUs   float64
 	Demanding bool
+	// Weight is the workload's share of the spare CPU relative to the other
+	// demanding workloads, so a job known to scale is given more of what is not
+	// enough for everyone. Zero, the value of a workload nothing is known about,
+	// weighs one, which shares equally exactly as a plan without weights does.
+	Weight float64
 	// Idle is a live runner waiting for a job. Idle runners are charged
 	// together only the largest single guarantee among them, not the sum: at
 	// most one of them can be handed the next job before the following plan,
@@ -21,7 +26,8 @@ type ElasticCPUWorkload struct {
 }
 
 // ElasticCPUPlan lends a host's genuinely unpromised CPU to demanding
-// workloads with max-min fairness.
+// workloads with weighted max-min fairness: equal shares unless a workload
+// carries a Weight.
 //
 // total is the host's allocatable CPU after its operator reserve. startReserve
 // protects an imminent runner when compatible work is queued. A workload with
@@ -64,13 +70,18 @@ func ElasticCPUPlan(total, startReserve float64, workloads []ElasticCPUWorkload)
 
 	// Water-fill rather than divide once: a runner with a low ceiling gives
 	// what it cannot use back to the remaining runners instead of stranding it.
+	// Each round divides what is left in proportion to the weights, so a runner
+	// whose share is more than its room is filled and the rest is divided again.
 	for spare > cpuEpsilon && len(active) > 0 {
-		share := spare / float64(len(active))
+		weights := 0.0
+		for _, w := range active {
+			weights += weightOf(w)
+		}
 		next := active[:0]
 		used := 0.0
 		for _, w := range active {
 			room := w.MaxCPUs - targets[w.ID]
-			give := min(share, room)
+			give := min(spare*weightOf(w)/weights, room)
 			if give > 0 {
 				targets[w.ID] += give
 				used += give
@@ -92,4 +103,12 @@ func ElasticCPUPlan(total, startReserve float64, workloads []ElasticCPUWorkload)
 		targets[id] = math.Floor((target+cpuEpsilon)*100) / 100
 	}
 	return targets
+}
+
+// weightOf is a workload's weight, one when it has none.
+func weightOf(w ElasticCPUWorkload) float64 {
+	if w.Weight > 0 {
+		return w.Weight
+	}
+	return 1
 }

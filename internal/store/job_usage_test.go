@@ -142,6 +142,35 @@ func TestJobUsageHistoryIsEachPoolsRecentMeasuredRuns(t *testing.T) {
 	}
 }
 
+// A run's CPU throttling is kept beside its peak, because "never held back by
+// its quota" is what says a job does not want more cores, and a peak alone
+// cannot: a job pinned at its ceiling and a job that merely used that much look
+// the same without it.
+func TestJobUsageHistoryCarriesEachRunsCPUThrottling(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	usageJob(t, s, 1, "Go (controller)", "pool_a", "run_1", JobInProgress, versionsEpoch)
+	if err := s.RecordJobUsage(ctx, "run_1", 2.5, 900); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordJobThrottle(ctx, "run_1", 1000, 120); err != nil {
+		t.Fatal(err)
+	}
+	done := versionsEpoch.Add(time.Hour)
+	if _, _, err := s.ApplyJob(ctx, &Job{GitHubJobID: 5001, State: JobCompleted, Conclusion: "success",
+		Repo: "eyupio/zoomies", Workflow: "CI", JobName: "Go (controller)", StartedAt: &versionsEpoch, CompletedAt: &done}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.JobUsageHistory(ctx, []JobUsageKey{{Repo: "eyupio/zoomies", Workflow: "CI", JobName: "Go (controller)"}})
+	if err != nil {
+		t.Fatalf("JobUsageHistory: %v", err)
+	}
+	runs := got[JobUsageKey{Repo: "eyupio/zoomies", Workflow: "CI", JobName: "Go (controller)", PoolID: "pool_a"}]
+	if len(runs) != 1 || runs[0].Periods != 1000 || runs[0].ThrottledPeriods != 120 {
+		t.Fatalf("history = %+v, want one run with 120 of 1000 periods throttled", runs)
+	}
+}
+
 // The history is read for every distinct queued job on every pass, so it must
 // seek its index rather than walk a jobs table that grows without bound.
 func TestJobUsageHistorySeeksItsIndex(t *testing.T) {
@@ -354,5 +383,85 @@ func TestAJobKeepsTheFullestEachInMemoryFolderGot(t *testing.T) {
 	}
 	if _, _, ok := (ScratchPeaks{}).Fullest(); ok {
 		t.Fatal("no folders is no fullest folder")
+	}
+}
+
+// A pool's performance recommendation reads what its recent jobs used, from the
+// pool's own rows or, for a pool not yet made, from every pool's. A job that
+// was never measured says nothing about size and is left out, and so is one
+// from before the window.
+func TestPoolJobPeaksAreOnePoolsMeasuredJobsSinceAMoment(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	n := 0
+	record := func(pool string, mb int64, at time.Time) {
+		n++
+		runner := "run_" + strings.Repeat("y", n)
+		usageJob(t, s, n, "Go (api)", pool, runner, JobInProgress, at)
+		if mb > 0 {
+			if err := s.RecordJobUsage(ctx, runner, 1.5, mb); err != nil {
+				t.Fatal(err)
+			}
+		}
+		done := at.Add(time.Hour)
+		if _, _, err := s.ApplyJob(ctx, &Job{GitHubJobID: int64(5000 + n), State: JobCompleted, Conclusion: "success",
+			Repo: "eyupio/zoomies", Workflow: "CI", JobName: "Go (api)", StartedAt: &at, CompletedAt: &done}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record("pool_a", 900, versionsEpoch)
+	record("pool_a", 1100, versionsEpoch.Add(time.Hour))
+	record("pool_a", 0, versionsEpoch.Add(2*time.Hour))      // never measured
+	record("pool_a", 5000, versionsEpoch.Add(-48*time.Hour)) // before the window
+	record("pool_b", 2000, versionsEpoch.Add(30*time.Minute))
+	since := versionsEpoch.Add(-time.Hour)
+
+	a, err := s.PoolJobPeaks(ctx, "pool_a", since)
+	if err != nil {
+		t.Fatalf("PoolJobPeaks: %v", err)
+	}
+	if len(a) != 2 || a[0].MemoryMB != 1100 || a[1].MemoryMB != 900 {
+		t.Fatalf("pool_a = %+v, want its two measured jobs in the window, newest first", a)
+	}
+	all, err := s.PoolJobPeaks(ctx, "", since)
+	if err != nil {
+		t.Fatalf("PoolJobPeaks of every pool: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("every pool = %d jobs, want 3", len(all))
+	}
+}
+
+// Both statements are read on demand over a table that grows without bound, so
+// each must be served by an index and not walk it.
+func TestPoolJobPeaksSeekAnIndex(t *testing.T) {
+	s := newTestStore(t)
+	for name, tc := range map[string]struct {
+		sql  string
+		args []any
+		want string
+	}{
+		"one pool":   {poolJobPeaksSQL, []any{"pool_a", 0, 10}, "idx_jobs_pool"},
+		"every pool": {allPoolJobPeaksSQL, []any{0, 10}, "idx_jobs_completed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rows, err := s.read.QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+tc.sql, tc.args...)
+			if err != nil {
+				t.Fatalf("EXPLAIN QUERY PLAN: %v", err)
+			}
+			defer rows.Close()
+			var plan []string
+			for rows.Next() {
+				var id, parent, notused int
+				var detail string
+				if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+					t.Fatal(err)
+				}
+				plan = append(plan, detail)
+			}
+			if joined := strings.Join(plan, "\n"); !strings.Contains(joined, tc.want) {
+				t.Fatalf("the lookup does not use %s:\n%s", tc.want, joined)
+			}
+		})
 	}
 }

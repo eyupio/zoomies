@@ -84,6 +84,28 @@ func TargetTag(running string) (string, bool) {
 // --version" already takes for that channel.
 const DevTag = "dev"
 
+// ChannelBuildPrefix opens the line in the dev release's notes that names the
+// build its binaries came from. CI writes the line once every file is uploaded,
+// so a release that names a build is a release that holds it.
+const ChannelBuildPrefix = "Build: "
+
+// channelBuildPattern is the whole of that line. Notes are text anybody with
+// write access to the release can edit, and the build read from them decides
+// whether a host is sent to download it, so one strict shape is matched whole.
+var channelBuildPattern = regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(ChannelBuildPrefix) + `(main-sha-[0-9a-f]{7,40})[ \t\r]*$`)
+
+// ChannelBuild is the build from main that the dev release's notes say it holds,
+// or empty when they say none. Empty is "not known" and never "not published": a
+// release made before CI wrote the line, or notes that were edited by hand, must
+// not stop every host from updating.
+func ChannelBuild(notes string) string {
+	m := channelBuildPattern.FindStringSubmatch(notes)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
 // ValidWireTag says whether tag may travel in a task or a request: a release
 // tag, or the rolling dev channel. The helper runs as root, so this is still a
 // closed set and never a pattern.

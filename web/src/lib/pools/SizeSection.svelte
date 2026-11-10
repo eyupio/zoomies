@@ -45,6 +45,7 @@
   import ElasticMemory from './ElasticMemory.svelte';
   import PoolFit from './PoolFit.svelte';
   import PoolMore from './PoolMore.svelte';
+  import PoolPerformance from './PoolPerformance.svelte';
   import PoolRoom from './PoolRoom.svelte';
   import PoolSplit from './PoolSplit.svelte';
   import {
@@ -68,9 +69,11 @@
     /** What the controller makes of the size, asked as the sliders move. */
     verdict: Result<'validatePool'> | null;
     validating: boolean;
+    /** The pool being edited; left out for one that does not exist yet. */
+    poolId?: string;
   }
 
-  let { draft, errors, touch, defaults, verdict, validating }: Props = $props();
+  let { draft, errors, touch, defaults, verdict, validating, poolId }: Props = $props();
 
   // Open already when the pool has a minimum of its own, or one is refused: a
   // setting that is in use is never hidden behind a closed row.
@@ -358,6 +361,10 @@
       touch('resources.memory_mb');
     }}
   />
+
+  {#if automaticSize && containerBackend}
+    <PoolPerformance {draft} {poolId} />
+  {/if}
 
   {#if hostSized}
     {#if profileSize}

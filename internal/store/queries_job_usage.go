@@ -29,6 +29,14 @@ type JobPeak struct {
 	// spike between two samples can read well under the limit it hit, and the
 	// limit is the one figure that is known to have been too little.
 	GrantedMemoryMB int64 `json:"granted_memory_mb,omitempty"`
+	// GrantedCPUs is the guarantee the run's runner started with, and Periods and
+	// ThrottledPeriods are how many CPU enforcement periods it had and in how many
+	// its quota held it back: their ratio is how much of the time the job wanted
+	// more CPU than it had. Zero Periods is "never sampled", which says nothing
+	// either way.
+	GrantedCPUs      float64 `json:"granted_cpus,omitempty"`
+	Periods          int64   `json:"periods,omitempty"`
+	ThrottledPeriods int64   `json:"throttled_periods,omitempty"`
 }
 
 // JobUsageHistoryLimit is how many recent runs of one job a profile is taken
@@ -135,7 +143,8 @@ func (s *Store) JobUsageHistory(ctx context.Context, keys []JobUsageKey) (map[Jo
 // jobUsageHistorySQL is a const so a query-plan test can pin the statement
 // that ships: it must seek idx_jobs_usage_profile, not scan the table, because
 // it runs for every distinct queued job on every scheduling pass.
-const jobUsageHistorySQL = `SELECT pool_id, peak_cpus, peak_memory_mb, oom_killed, granted_memory_mb FROM jobs
+const jobUsageHistorySQL = `SELECT pool_id, peak_cpus, peak_memory_mb, oom_killed, granted_memory_mb,
+	granted_cpus, cpu_periods, cpu_throttled_periods FROM jobs
 	WHERE repo = ? AND workflow = ? AND job_name = ? AND state = 'completed'
 	AND (peak_memory_mb > 0 OR peak_cpus > 0 OR oom_killed = 1)
 	ORDER BY completed_at DESC LIMIT ?`
@@ -152,7 +161,7 @@ func (s *Store) jobUsageHistory(ctx context.Context, repo, workflow, job string,
 		var p JobPeak
 		var pool string
 		var oom int
-		if err := rows.Scan(&pool, &p.CPUs, &p.MemoryMB, &oom, &p.GrantedMemoryMB); err != nil {
+		if err := rows.Scan(&pool, &p.CPUs, &p.MemoryMB, &oom, &p.GrantedMemoryMB, &p.GrantedCPUs, &p.Periods, &p.ThrottledPeriods); err != nil {
 			return err
 		}
 		p.OOMKilled = oom == 1
@@ -162,6 +171,54 @@ func (s *Store) jobUsageHistory(ctx context.Context, repo, workflow, job string,
 		}
 	}
 	return rows.Err()
+}
+
+// PoolJobPeaksLimit bounds how many completed jobs PoolJobPeaks reads. A few
+// thousand is a week of a busy pool, plenty for a ninetieth percentile, and the
+// read is on demand, not on a scheduling pass.
+const PoolJobPeaksLimit = 5000
+
+// The two statements of PoolJobPeaks are constants so a query-plan test can pin
+// them: a pool is read by its own index, and every pool by the completion time.
+// One statement with "? = ” OR pool_id = ?" would let neither index serve it.
+const (
+	poolJobPeaksSQL = `SELECT peak_cpus, peak_memory_mb, oom_killed, granted_memory_mb FROM jobs
+	WHERE pool_id = ? AND state = 'completed' AND queued_at >= ?
+	AND (peak_memory_mb > 0 OR peak_cpus > 0 OR oom_killed = 1)
+	ORDER BY queued_at DESC LIMIT ?`
+	allPoolJobPeaksSQL = `SELECT peak_cpus, peak_memory_mb, oom_killed, granted_memory_mb FROM jobs
+	WHERE state = 'completed' AND completed_at >= ?
+	AND (peak_memory_mb > 0 OR peak_cpus > 0 OR oom_killed = 1)
+	ORDER BY completed_at DESC LIMIT ?`
+)
+
+// PoolJobPeaks returns what the completed jobs of one pool, or of every pool
+// when poolID is empty, were measured to use since a moment, newest first and
+// capped at PoolJobPeaksLimit. A job with nothing measured is left out, as it is
+// from a job's own history: it says nothing about size.
+func (s *Store) PoolJobPeaks(ctx context.Context, poolID string, since time.Time) ([]JobPeak, error) {
+	var rows *sql.Rows
+	var err error
+	if poolID == "" {
+		rows, err = s.read.QueryContext(ctx, allPoolJobPeaksSQL, ms(since), PoolJobPeaksLimit)
+	} else {
+		rows, err = s.read.QueryContext(ctx, poolJobPeaksSQL, poolID, ms(since), PoolJobPeaksLimit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []JobPeak
+	for rows.Next() {
+		var p JobPeak
+		var oom int
+		if err := rows.Scan(&p.CPUs, &p.MemoryMB, &oom, &p.GrantedMemoryMB); err != nil {
+			return nil, err
+		}
+		p.OOMKilled = oom == 1
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // OutputTailLines and OutputTailRunes bound what a job keeps of its runner's

@@ -427,6 +427,14 @@ type Controller struct {
 	// moving dev channel. Release checks deliberately cannot order that build,
 	// so it needs its own comparison.
 	development *developmentState
+	// channel is what the last read of the dev release's notes said it holds, and
+	// channelAsked when that read was last made, which paces the next one.
+	channel      *channelState
+	channelAsked time.Time
+	// cpuDemand is what each busy runner's job was last read to need, so elastic
+	// CPU reads a job's history once for the job and not at every heartbeat.
+	cpuDemand   map[string]cpuDemandEntry
+	cpuDemandMu sync.Mutex
 	embedded    *agent.Agent
 	// embeddedCancel stops the in-process agent, which may have been started
 	// with a context the controller does not otherwise control.
