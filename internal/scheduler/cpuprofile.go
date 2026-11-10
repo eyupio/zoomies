@@ -43,6 +43,17 @@ const (
 	// and the ceiling lifts.
 	CPUCeilingMargin = 1.25
 	cpuCeilingStep   = 0.25
+	// CPUScalesEarlyShare is the share of its guarantee a runner whose job is
+	// known to scale must be using to be lent CPU, where an unknown job must be
+	// using 80%. A job that was held back by its quota in a quarter of its runs
+	// will want the cores, so waiting for it to fill its guarantee only delays a
+	// loan the history says it will use. It is still a use test, not a promise:
+	// a loan that goes unused is taken back and backed off as any other.
+	CPUScalesEarlyShare = 0.5
+	// CPUMaxWeight is the weight of a job that was CPU-bound in every one of its
+	// runs. A job that was never held back has a weight of one, the same as a job
+	// nothing is known about, so a fleet without history shares exactly as before.
+	CPUMaxWeight = 2.0
 )
 
 // Verdicts of a CPUDemand.
@@ -51,7 +62,9 @@ const (
 	// lending changes for the job.
 	CPUDemandUnknown = "unknown"
 	// CPUDemandScales says the job was held back by its quota often enough that it
-	// has something to gain from a loan. Nothing about lending changes for it.
+	// has something to gain from a loan. It is lent to on less evidence of use
+	// than an unknown job (CPUScalesEarlyShare), and weighs more when spare CPU
+	// is shared out (Weight).
 	CPUDemandScales = "scales"
 	// CPUDemandCapped says the job was not CPU-bound in enough of its runs to be
 	// taken to scale: it has a Ceiling, and a loan above it is cores wasted.
@@ -68,6 +81,18 @@ type CPUDemand struct {
 	// of those were CPU-bound.
 	Runs  int `json:"runs"`
 	Bound int `json:"bound"`
+}
+
+// Weight is how much of the spare CPU a runner of this job takes in proportion
+// to another's when the host has less than every demanding runner would use. A
+// job that scales weighs between 1.25 and CPUMaxWeight by the share of its runs
+// that were CPU-bound; every other verdict weighs one, so a job nothing is known
+// about is never worth less than it was.
+func (d CPUDemand) Weight() float64 {
+	if d.Verdict != CPUDemandScales || d.Runs <= 0 {
+		return 1
+	}
+	return 1 + min(float64(d.Bound)/float64(d.Runs), 1)*(CPUMaxWeight-1)
 }
 
 // ProfileCPU works out a job's CPU demand from its recent runs.

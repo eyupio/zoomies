@@ -399,6 +399,9 @@ func TestNoMetricDeclaresAnUnboundedLabel(t *testing.T) {
 		// never become the job it was worked out for, which is what the job's
 		// page is for.
 		"verdict": true,
+		// "action" is what a job's history changed in a plan: ceiling, early or
+		// weighted, three constants in the controller, never the job itself.
+		"action": true,
 	}
 
 	descs := make(chan *prometheus.Desc, 256)

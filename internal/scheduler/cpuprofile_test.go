@@ -89,3 +89,23 @@ func TestProfileCPUCeilingIsTheNinetiethPercentileOfOrdinaryRuns(t *testing.T) {
 		t.Fatalf("demand = %+v, want capped at 2.25", d)
 	}
 }
+
+// Only a job taken to scale weighs more than one, and by how often it was held
+// back, so a job nothing is known about is never worth less than it was.
+func TestCPUDemandWeightFollowsHowOftenAJobWasHeldBack(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		d    CPUDemand
+		want float64
+	}{
+		{"unknown", CPUDemand{Verdict: CPUDemandUnknown, Runs: 3, Bound: 3}, 1},
+		{"capped", CPUDemand{Verdict: CPUDemandCapped, Runs: 8, Bound: 1}, 1},
+		{"scales in a quarter of its runs", CPUDemand{Verdict: CPUDemandScales, Runs: 8, Bound: 2}, 1.25},
+		{"scales in every run", CPUDemand{Verdict: CPUDemandScales, Runs: 8, Bound: 8}, 2},
+		{"scales with no bound run", CPUDemand{Verdict: CPUDemandScales, Runs: 6}, 1},
+	} {
+		if got := tc.d.Weight(); got != tc.want {
+			t.Errorf("%s: weight = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

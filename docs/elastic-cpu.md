@@ -287,23 +287,40 @@ The job's profile is read from its last twenty measured runs (at least five,
 each with a few hundred periods, or it says nothing):
 
 * **Scales** when a quarter or more of the runs were throttled in at least a
-  tenth of their periods. More cores help it, so nothing changes.
+  tenth of their periods. More cores help it: it is lent to sooner and takes a
+  larger share of what is short, below.
 * **Capped** when fewer were. Its ceiling is a quarter above the ninetieth
   percentile of its unthrottled peaks, rounded up to a quarter of a core, and
   never below the runner's guarantee.
 * **Unknown** when there is too little to go on. Nothing changes.
 
-`scheduler.elastic_cpu_history` chooses what is done with it. `shadow`, the
-default, records the counters and counts the verdicts in
-`zoomies_elastic_cpu_job_history_total` without changing a quota, so the setting
-can be read on a fleet first. `on` lowers a capped job's ceiling for the
-runner running it, and only ever lowers it: a job that starts to scale shows up
-as throttled in its next runs and its profile follows within a few of them.
-`off` stops recording the counters too, unless `scheduler.size_routing` needs
-them.
+`scheduler.elastic_cpu_history` chooses what is done with it, and it does three
+things with a runner whose job has a profile:
+
+* **Capped jobs have a lower ceiling.** A loan above it is cores nobody uses. It
+  is only ever lowered, never below the guarantee, and a job that starts to
+  scale shows up as throttled in its next runs, so its profile follows within a
+  few of them.
+* **Jobs that scale are lent to sooner.** A job nothing is known about is lent
+  CPU once it uses four fifths of its guarantee. One whose history says it
+  scales is lent at half. It is still a test of use, not a promise: a loan that
+  goes unused is taken back and backed off like any other, so a job that
+  idles through its checkout does not keep cores it is not using.
+* **Jobs that scale take more of what is short.** When the host has less spare
+  CPU than every demanding runner would use, the spare is shared in proportion to
+  a weight rather than equally. A job that scales weighs between 1.25 and 2, by
+  how often it was held back; every other job weighs one, so a pool with no
+  history shares exactly as it did.
+
+`shadow`, the default, records the counters and counts what each of the three
+would have done in `zoomies_elastic_cpu_job_actions_total` (and the verdicts in
+`zoomies_elastic_cpu_job_history_total`) without changing a quota, so the setting
+can be read on a fleet first. `on` does all three. `off` stops recording the
+counters too, unless `scheduler.size_routing` needs them.
 
 The runner is matched to its job once the job has started, so the first
-heartbeats of a runner are planned with the pool's ceiling alone.
+heartbeats of a runner are planned with the pool's ceiling and equal shares
+alone.
 
 ## Turning it on
 
