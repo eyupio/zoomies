@@ -25,6 +25,12 @@ func modeOf(v string) string {
 // they are sent anywhere on the strength of it.
 func (c *Controller) sizeMode() string { return modeOf(c.cfg().Scheduler.SizeRouting) }
 
+// cpuHistoryMode is scheduler.elastic_cpu_history: whether elastic CPU reads a
+// job's history to stop lending it CPU it never used.
+func (c *Controller) cpuHistoryMode() string {
+	return modeOf(c.cfg().Scheduler.ElasticCPUHistory)
+}
+
 // autoMode is scheduler.auto_pools.
 func (c *Controller) autoMode() string { return modeOf(c.cfg().Scheduler.AutoPools) }
 

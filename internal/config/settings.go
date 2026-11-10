@@ -639,6 +639,11 @@ var registry = buildRegistry([]Setting{
 		Summary: "Place a runner only on a host with room for what the jobs waiting on its pool used on their recent runs, and size it up to that where the pool leaves its size to the host. Shadow works it out and records where it would have placed differently without changing anything; off ignores job history. GitHub picks which waiting job a runner takes, so the runner is placed for the largest of them.",
 	},
 	{
+		Key: "scheduler.elastic_cpu_history", Label: "Elastic CPU from job history", Env: "ZOOMIES_ELASTIC_CPU_HISTORY", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Choices: []string{"off", "shadow", "on"},
+		Summary: "Stop lending CPU to a job whose recent runs were never held back by their quota. The runner's cgroup counts the periods its quota held it back, and a job held back in one run in four wants more CPU than it has, so a loan is not withheld from it; a job that never was has a ceiling a little above its heaviest ordinary run, and a loan above that is cores nobody uses. Shadow works out the ceiling and records it without applying it, and is the default; on applies it. It needs a pool with elastic CPU on automatic, and a job with enough measured runs.",
+	},
+	{
 		Key: "scheduler.size_routing", Label: "Route jobs by size class", Env: "ZOOMIES_SIZE_ROUTING", Kind: KindEnum, Scope: ScopeInstance, Live: true,
 		Choices: []string{"off", "shadow", "on"},
 		Summary: "Class each job small, medium or large from what its recent runs used, and send it to the pool for that class, so light jobs land on small hosts and heavy ones on large hosts. A workflow that writes zoomies-large in runs-on is always honoured and never moved; a job that writes only zoomies is routed best effort, because GitHub, not Zoomies, decides which waiting job a runner takes. Shadow records each job's class and where it ran, and sends nothing anywhere; off classes nothing. Changing it puts the jobs already waiting through the new mode.",

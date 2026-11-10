@@ -62,6 +62,7 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		}
 	}
 	c.sweepLoans(h.ID, busy)
+	c.forgetCPUDemand(h.ID, busy)
 	// This runs on every heartbeat of every host, so it stops as soon as there
 	// is nothing to decide: before the fleet-wide pool read when the host runs
 	// nothing, and before any plan or record when nothing here is elastic.
@@ -120,6 +121,15 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		a := w
 		if eligible && base > 0 {
 			w.MaxCPUs = elasticCeiling(p, h, alloc.CPUs)
+			// What the job's own history says it can use. A job that was never held
+			// back by its quota has a ceiling a little above its heaviest ordinary
+			// run, and a loan above that is cores nobody uses. Only ever lowers the
+			// ceiling, and never below the guarantee, which a loan cannot touch.
+			if mode := c.cpuHistoryMode(); mode != scheduler.SizeOff {
+				if d, ok := c.jobCPUDemand(ctx, r, p, mode, now); ok && mode == scheduler.SizeOn && d.Verdict == scheduler.CPUDemandCapped && d.Ceiling > 0 {
+					w.MaxCPUs = max(base, min(w.MaxCPUs, d.Ceiling))
+				}
+			}
 			if rep, ok := reports[r.ID]; ok {
 				w.Demanding = elasticCPUDemanding(r, rep.Stats, base, now)
 				if p.CPUBurst.Enforces() && supported {

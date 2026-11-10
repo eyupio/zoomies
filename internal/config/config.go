@@ -836,6 +836,11 @@ type Scheduler struct {
 	// to need from their recent runs. Shadow, the default, works it out and
 	// records where it would have differed without changing placement.
 	HistorySizing string `yaml:"history_sizing"`
+	// ElasticCPUHistory is off, shadow or on: whether elastic CPU stops lending to
+	// a job whose recent runs were never held back by their quota, from the
+	// throttling counters their runners reported. Shadow, the default, works out
+	// what the ceiling would have been and records it without applying it.
+	ElasticCPUHistory string `yaml:"elastic_cpu_history"`
 	// SizeRouting is off, shadow or on: whether jobs are classed small, medium
 	// or large from what their runs used, and sent to a pool for that class.
 	// Shadow works the class out and records it, and where the job ran, without
@@ -1302,6 +1307,7 @@ func Default() *Config {
 			PlacementMode:           "headroom",
 			HostOrder:               "headroom",
 			HistorySizing:           "shadow",
+			ElasticCPUHistory:       "shadow",
 			HostThrottling:          true,
 			HostAutoAdjust:          true,
 			AutoRerunLimit:          1,

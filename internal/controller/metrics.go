@@ -82,6 +82,7 @@ type metrics struct {
 	toolCacheFills                                 *prometheus.CounterVec
 	imagePrewarmDuration                           *prometheus.HistogramVec
 	elasticCPUDecisions                            *prometheus.CounterVec
+	elasticCPUJobHistory                           *prometheus.CounterVec
 	elasticCPUFactor                               *prometheus.HistogramVec
 	elasticMemoryDecisions, elasticMemoryNearLimit *prometheus.CounterVec
 	updateAttempts                                 *prometheus.CounterVec
@@ -380,6 +381,10 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_elastic_cpu_decisions_total",
 			Help: "Elastic CPU decisions by pool, policy mode and outcome. Observe mode records the same plan without changing quotas.",
 		}, []string{"pool", "mode", "outcome"}),
+		elasticCPUJobHistory: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_elastic_cpu_job_history_total",
+			Help: "What a job's recent runs said about its CPU when its runner first took it, by pool, mode and verdict: unknown (too few measured runs), scales (held back by its quota often enough to have something to gain from a loan) or capped (never, so a ceiling applies). One per job, not per heartbeat.",
+		}, []string{"pool", "mode", "verdict"}),
 		elasticCPUFactor: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "zoomies_elastic_cpu_target_factor",
 			Help:    "Planned CPU target divided by the runner's guaranteed CPU, by pool and policy mode.",
@@ -421,7 +426,7 @@ func newMetrics(c *Controller) *metrics {
 		m.webhookDeliveries, m.githubRequests, m.kennelRequests, m.kennelOpened, m.kennelClosed, m.kennelWaived, m.kennelHolds, m.reconcileDuration, m.storeWriteWait, m.storeWriteHeld, m.reconcileErrors, m.cleanups, m.pollsShed, m.agentLimited, m.logRelayDropped, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,
 		m.imagePrewarms, m.toolCacheFills, m.imagePrewarmDuration, m.runtimeFailures, m.imagePullFailures,
-		m.elasticCPUDecisions, m.elasticCPUFactor,
+		m.elasticCPUDecisions, m.elasticCPUJobHistory, m.elasticCPUFactor,
 		m.elasticMemoryDecisions, m.elasticMemoryNearLimit,
 		m.updateAttempts,
 		m.startupWait, m.dindReady, m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,

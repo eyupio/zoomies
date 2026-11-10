@@ -142,6 +142,35 @@ func TestJobUsageHistoryIsEachPoolsRecentMeasuredRuns(t *testing.T) {
 	}
 }
 
+// A run's CPU throttling is kept beside its peak, because "never held back by
+// its quota" is what says a job does not want more cores, and a peak alone
+// cannot: a job pinned at its ceiling and a job that merely used that much look
+// the same without it.
+func TestJobUsageHistoryCarriesEachRunsCPUThrottling(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	usageJob(t, s, 1, "Go (controller)", "pool_a", "run_1", JobInProgress, versionsEpoch)
+	if err := s.RecordJobUsage(ctx, "run_1", 2.5, 900); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordJobThrottle(ctx, "run_1", 1000, 120); err != nil {
+		t.Fatal(err)
+	}
+	done := versionsEpoch.Add(time.Hour)
+	if _, _, err := s.ApplyJob(ctx, &Job{GitHubJobID: 5001, State: JobCompleted, Conclusion: "success",
+		Repo: "eyupio/zoomies", Workflow: "CI", JobName: "Go (controller)", StartedAt: &versionsEpoch, CompletedAt: &done}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.JobUsageHistory(ctx, []JobUsageKey{{Repo: "eyupio/zoomies", Workflow: "CI", JobName: "Go (controller)"}})
+	if err != nil {
+		t.Fatalf("JobUsageHistory: %v", err)
+	}
+	runs := got[JobUsageKey{Repo: "eyupio/zoomies", Workflow: "CI", JobName: "Go (controller)", PoolID: "pool_a"}]
+	if len(runs) != 1 || runs[0].Periods != 1000 || runs[0].ThrottledPeriods != 120 {
+		t.Fatalf("history = %+v, want one run with 120 of 1000 periods throttled", runs)
+	}
+}
+
 // The history is read for every distinct queued job on every pass, so it must
 // seek its index rather than walk a jobs table that grows without bound.
 func TestJobUsageHistorySeeksItsIndex(t *testing.T) {
