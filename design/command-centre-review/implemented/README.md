@@ -55,7 +55,14 @@ specifications that touch the page, navigation and shortcuts passed 272 tests
 with none failed, against the real built controller; the captures above were
 taken from that controller in both styles and both colour modes at both widths.
 
-Full browser suite: (to be completed with the result at the current head)
+Full browser suite: at commit 7507c54 the whole suite ran once, on both
+projects: 2531 passed, 104 skipped and 18 failed. One failure was this change's
+(the page had no Refresh, which every page in the navigation owes) and is
+fixed in ce64af1, with its own tests. The rest were shown to fail the same way
+on the base commit: one host specification whose clean-up left a host behind,
+the specifications that then counted one host too many, and three that depend
+on the order or timing of a fifty-minute run. The whole suite has not been run
+again since.
 
 Not validated: no usability study was done, and nobody has watched the page on
 a wall display over hours. The captures verify layout, not real infrastructure or the
