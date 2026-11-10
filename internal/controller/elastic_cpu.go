@@ -121,17 +121,42 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		a := w
 		if eligible && base > 0 {
 			w.MaxCPUs = elasticCeiling(p, h, alloc.CPUs)
-			// What the job's own history says it can use. A job that was never held
-			// back by its quota has a ceiling a little above its heaviest ordinary
-			// run, and a loan above that is cores nobody uses. Only ever lowers the
-			// ceiling, and never below the guarantee, which a loan cannot touch.
-			if mode := c.cpuHistoryMode(); mode != scheduler.SizeOff {
-				if d, ok := c.jobCPUDemand(ctx, r, p, mode, now); ok && mode == scheduler.SizeOn && d.Verdict == scheduler.CPUDemandCapped && d.Ceiling > 0 {
-					w.MaxCPUs = max(base, min(w.MaxCPUs, d.Ceiling))
+			// What the job's own history says about its CPU, read once per job. It
+			// does three things, each by itself only where scheduler.elastic_cpu_history
+			// is on (shadow counts what it would have done and moves nothing):
+			// a job never held back by its quota has its ceiling lowered to a little
+			// above its heaviest ordinary run, because a loan above that is cores
+			// nobody uses; a job that was held back is lent CPU on less use than an
+			// unknown one; and it weighs more when there is not enough for everyone.
+			// The ceiling is only ever lowered, and never below the guarantee.
+			mode := c.cpuHistoryMode()
+			var demand scheduler.CPUDemand
+			var known bool
+			if mode != scheduler.SizeOff {
+				demand, known = c.jobCPUDemand(ctx, r, p, mode, now)
+			}
+			on := mode == scheduler.SizeOn
+			if known && demand.Verdict == scheduler.CPUDemandCapped && demand.Ceiling > 0 {
+				if lowered := max(base, min(w.MaxCPUs, demand.Ceiling)); lowered < w.MaxCPUs-0.01 {
+					c.metrics.elasticCPUJobActions.WithLabelValues(p.Name, mode, "ceiling").Inc()
+					if on {
+						w.MaxCPUs = lowered
+					}
+				}
+			}
+			if known && demand.Weight() > 1 {
+				c.metrics.elasticCPUJobActions.WithLabelValues(p.Name, mode, "weighted").Inc()
+				if on {
+					w.Weight = demand.Weight()
 				}
 			}
 			if rep, ok := reports[r.ID]; ok {
 				w.Demanding = elasticCPUDemanding(r, rep.Stats, base, now)
+				if known && !w.Demanding && demand.Verdict == scheduler.CPUDemandScales &&
+					elasticCPUDemandingAt(r, rep.Stats, base, scheduler.CPUScalesEarlyShare*100, now) {
+					c.metrics.elasticCPUJobActions.WithLabelValues(p.Name, mode, "early").Inc()
+					w.Demanding = on
+				}
 				if p.CPUBurst.Enforces() && supported {
 					// Only a runner that can really be lent CPU has a loan to
 					// waste; an observing one keeps the plain demand test.
@@ -342,17 +367,24 @@ func lentInUse(st backend.Stats, base float64, now time.Time) float64 {
 }
 
 func elasticCPUDemanding(r *store.Runner, current backend.Stats, base float64, now time.Time) bool {
+	return elasticCPUDemandingAt(r, current, base, elasticDemandPercent, now)
+}
+
+// elasticCPUDemandingAt is the demand test with the share of its guarantee a
+// runner must be using set by the caller: 80% for a job nothing is known about,
+// and less for one whose history says it scales.
+func elasticCPUDemandingAt(r *store.Runner, current backend.Stats, base, percent float64, now time.Time) bool {
 	if current.SampledAt == nil || current.SampledAt.After(now) || now.Sub(*current.SampledAt) > store.HostUsageMaxAge {
 		return false
 	}
-	if current.CPUPercent >= base*elasticDemandPercent {
+	if current.CPUPercent >= base*percent {
 		return true
 	}
 	// A docker-in-docker pair is judged by its busier half as well. The build
 	// runs in the daemon, which saturates its own half of the slot while the
 	// pair together reads barely half busy -- judged on the sum alone, a
 	// build waited most of its run before it was lent anything.
-	if current.BusiestHalfPercent >= elasticDemandPercent {
+	if current.BusiestHalfPercent >= percent {
 		return true
 	}
 	return throttlingRose(r, current)

@@ -98,3 +98,38 @@ func TestLentCPUInUseIsNotHostPressure(t *testing.T) {
 		t.Error("a host at 97% with nothing lent was not judged under pressure")
 	}
 }
+
+// A job known to scale is given more of what is not enough for everyone, in
+// proportion to its weight, and what a runner cannot use goes back to the others.
+func TestElasticCPUPlanSharesInProportionToWeight(t *testing.T) {
+	work := []ElasticCPUWorkload{
+		{ID: "a", BaseCPUs: 1, MaxCPUs: 8, Demanding: true, Weight: 2},
+		{ID: "b", BaseCPUs: 1, MaxCPUs: 8, Demanding: true},
+	}
+	got := ElasticCPUPlan(8, 0, work)
+	if got["a"] != 5 || got["b"] != 3 {
+		t.Fatalf("targets = %v, want the 6 spare CPUs split two to one: a=5 and b=3", got)
+	}
+
+	capped := []ElasticCPUWorkload{
+		{ID: "a", BaseCPUs: 1, MaxCPUs: 2, Demanding: true, Weight: 2},
+		{ID: "b", BaseCPUs: 1, MaxCPUs: 8, Demanding: true},
+	}
+	got = ElasticCPUPlan(8, 0, capped)
+	if got["a"] != 2 || got["b"] != 6 {
+		t.Fatalf("targets = %v, want a held to its ceiling of 2 and the rest to b", got)
+	}
+}
+
+// Without weights the plan is the equal split it always was, and a weight of
+// zero is a weight of one, so nothing that does not set one can change.
+func TestElasticCPUPlanWithoutWeightsSharesEqually(t *testing.T) {
+	work := []ElasticCPUWorkload{
+		{ID: "a", BaseCPUs: 1, MaxCPUs: 8, Demanding: true},
+		{ID: "b", BaseCPUs: 1, MaxCPUs: 8, Demanding: true, Weight: 1},
+	}
+	got := ElasticCPUPlan(8, 0, work)
+	if got["a"] != 4 || got["b"] != 4 {
+		t.Fatalf("targets = %v, want an equal split", got)
+	}
+}
