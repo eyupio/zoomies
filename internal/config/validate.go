@@ -349,6 +349,16 @@ func (c *Config) Validate() Findings {
 // prewarm limits.
 func (c *Config) validateChoicesAndBounds(add func(Finding)) {
 	c.refuseUnknownChoice(add, Finding{Code: "scheduler.history_sizing", Severity: SeverityError, Setting: "scheduler.history_sizing", Title: "unknown history sizing mode"}, c.Scheduler.HistorySizing)
+	if v := c.Scheduler.HistoryPercentile; v != 0 && (v < 1 || v > 100) {
+		add(Finding{Code: "scheduler.history_percentile", Severity: SeverityError, Setting: "scheduler.history_percentile",
+			Title: fmt.Sprintf("scheduler.history_percentile is %d, which is not between 1 and 100", v),
+			Fix:   "use a percentile from 1 to 100; 75 is the default and 100 sizes for the heaviest job waiting."})
+	}
+	if v := c.Scheduler.HistoryMaxMultiple; v != 0 && (v < 1 || v > 8) {
+		add(Finding{Code: "scheduler.history_max_multiple", Severity: SeverityError, Setting: "scheduler.history_max_multiple",
+			Title: fmt.Sprintf("scheduler.history_max_multiple is %d, which is not between 1 and 8", v),
+			Fix:   "use a multiple from 1 to 8; 2 is the default and 1 never raises a runner above its share."})
+	}
 	// Read as the runtime reads it, trimmed and in lower case (Security.AutoApplyMode).
 	c.refuseUnknownChoice(add, Finding{Code: "security.auto_apply_remedies", Severity: SeverityError, Setting: "security.auto_apply_remedies", Title: "unknown automatic-apply mode"},
 		strings.ToLower(strings.TrimSpace(c.Security.AutoApplyRemedies)))

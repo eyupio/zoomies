@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"slices"
@@ -23,6 +24,20 @@ const (
 	// HistoryOn places and sizes the runner for the largest known need among
 	// the jobs waiting on its pool.
 	HistoryOn = "on"
+)
+
+const (
+	// HistoryDefaultPercentile is which of the waiting jobs' memory needs a runner
+	// is sized for when scheduler.history_percentile is unset: the seventy-fifth,
+	// so the heaviest quarter of the queue leans on elastic memory and the
+	// memory valve instead of sizing every runner for itself.
+	HistoryDefaultPercentile = 75
+	// HistoryDefaultMaxMultiple is how many times its slot's share of a host's
+	// memory a runner sized from history may be given when
+	// scheduler.history_max_multiple is unset. Twice: enough for a job that wants
+	// half as much again as an ordinary one, and a bound on how few runners a
+	// host holds once the queue holds a heavy job.
+	HistoryDefaultMaxMultiple = 2
 )
 
 const (
@@ -173,10 +188,20 @@ func (t *tick) requirementFor(p *store.Pool, j *store.Job) Requirement {
 
 // poolNeed is the requirement a runner created for p's queue is placed for.
 //
+// Memory only. A job is killed for want of memory and merely slowed for want of
+// CPU, and elastic CPU lends a build the cores a host has idle, so a CPU figure
+// is no reason to hold a runner back or to make it bigger. It was one: a build
+// uses every core it is given, so a job's CPU peak is whatever it was given, and
+// sizing every runner for the heaviest waiting job's cores left a handful of
+// runners holding a whole host.
+//
 // GitHub, not Zoomies, decides which of the jobs waiting an idle runner takes,
-// so a runner created for this queue may be handed any of them. It is placed
-// for the largest of them: the heavy job the runner might be given is the one
-// a small host kills.
+// so a runner created for this queue may be handed any of them. It is not sized
+// for the heaviest: that job is rare, and a runner for every one of its kind
+// holds the fleet to a few. It is sized for the HistoryPercentile of the waiting
+// jobs' needs, counting each job once, so the heavy tail leans on the memory
+// valve, and no runner is given more than HistoryMaxMultiple times its slot's
+// share for it.
 //
 // A job no host that could run this pool has the allocatable room for is left
 // out, and said so in the second value: holding every runner back for it
@@ -186,7 +211,7 @@ func (t *tick) poolNeed(p *store.Pool, queued []*store.Job) (Requirement, string
 	var fitting []Requirement
 	var unfit Requirement
 	for _, j := range queued {
-		r := t.requirementFor(p, j)
+		r := t.requirementFor(p, j).memoryOnly()
 		if !r.Known() {
 			continue
 		}
@@ -194,7 +219,7 @@ func (t *tick) poolNeed(p *store.Pool, queued []*store.Job) (Requirement, string
 			fitting = append(fitting, r)
 			continue
 		}
-		if r.MemoryMB > unfit.MemoryMB || (r.MemoryMB == unfit.MemoryMB && r.CPUs > unfit.CPUs) {
+		if r.MemoryMB > unfit.MemoryMB {
 			unfit = r
 		}
 	}
@@ -205,30 +230,55 @@ func (t *tick) poolNeed(p *store.Pool, queued []*store.Job) (Requirement, string
 	if len(fitting) == 0 {
 		return Requirement{}, note
 	}
-	need := Requirement{}
+	slices.SortFunc(fitting, func(a, b Requirement) int { return cmp.Compare(a.MemoryMB, b.MemoryMB) })
+	need := fitting[percentileRank(len(fitting), historyPercentile(t.historyPercentile))]
+	need.Samples, need.OOMKilled = 0, 0
 	for _, r := range fitting {
-		need.CPUs, need.MemoryMB = max(need.CPUs, r.CPUs), max(need.MemoryMB, r.MemoryMB)
 		need.Samples += r.Samples
 		need.OOMKilled += r.OOMKilled
 	}
-	if t.hosts.anyCouldHold(p, need) {
-		return need, note
+	return need, note
+}
+
+// memoryOnly is the requirement placement acts on: the memory, and no CPU.
+func (r Requirement) memoryOnly() Requirement {
+	r.CPUs = 0
+	return r
+}
+
+// historyPercentile reads scheduler.history_percentile, with zero and anything
+// outside 1 to 100 meaning the default.
+func historyPercentile(v int) int {
+	if v < 1 || v > 100 {
+		return HistoryDefaultPercentile
 	}
-	// The heaviest by memory and the heaviest by CPU are different jobs, and
-	// no one host has both. The one that is killed for want of it is memory.
-	slices.SortFunc(fitting, func(a, b Requirement) int {
-		if a.MemoryMB != b.MemoryMB {
-			return int(b.MemoryMB - a.MemoryMB)
-		}
-		switch {
-		case a.CPUs > b.CPUs:
-			return -1
-		case a.CPUs < b.CPUs:
-			return 1
-		}
+	return v
+}
+
+// historyMaxMultiple reads scheduler.history_max_multiple the same way, one to
+// eight.
+func historyMaxMultiple(v int) int {
+	if v < 1 || v > 8 {
+		return HistoryDefaultMaxMultiple
+	}
+	return v
+}
+
+// percentileRank is the index of the nearest-rank percentile in n sorted
+// values: the smallest value that at least that share of them are at or under.
+func percentileRank(n, percent int) int {
+	return min(n-1, max(0, (n*percent+99)/100-1))
+}
+
+// historyCapMB is the most memory a runner sized from history may be given on h:
+// HistoryMaxMultiple times its slot's share of the host's allocatable memory, or
+// no cap where the host has not said how much it has or has no slots.
+func (hs *hostSet) historyCapMB(h *store.Host) int64 {
+	a := hs.alloc[h.ID]
+	if !a.MemoryKnown || h.Capacity <= 0 || hs.maxMultiple <= 0 {
 		return 0
-	})
-	return fitting[0], note
+	}
+	return a.MemoryMB / int64(h.Capacity) * int64(hs.maxMultiple)
 }
 
 // anyCouldHold reports whether any host that could run p has the allocatable
@@ -251,14 +301,17 @@ func (hs *hostSet) anyCouldHold(p *store.Pool, r Requirement) bool {
 }
 
 // shortOf says what h cannot give a runner of p that needs r, or "" when it
-// can. Memory is asked first: it is what a job is killed for.
+// can. Only memory is asked, and never more of it than a runner may be given
+// here (historyCapMB): a host is held off for a runner it could not carry at the
+// size the history would give it, not for one bigger than that.
 func (hs *hostSet) shortOf(h *store.Host, p *store.Pool, r Requirement) string {
 	left, a := hs.leftFor(h, p), hs.alloc[h.ID]
-	if a.MemoryKnown && r.MemoryMB > 0 && left.MemoryMB < r.MemoryMB {
-		return fmt.Sprintf("held off %s: jobs waiting need ~%s, it has %s", hostName(h), formatMB(r.MemoryMB), formatMB(max(left.MemoryMB, 0)))
+	want := r.MemoryMB
+	if c := hs.historyCapMB(h); c > 0 {
+		want = min(want, c)
 	}
-	if a.CPUsKnown && r.CPUs > 0 && left.CPUs+cpuEpsilon < r.CPUs {
-		return fmt.Sprintf("held off %s: jobs waiting need ~%s CPU, it has %s", hostName(h), formatCPUs(r.CPUs), formatCPUs(max(left.CPUs, 0)))
+	if a.MemoryKnown && want > 0 && left.MemoryMB < want {
+		return fmt.Sprintf("held off %s: jobs waiting need ~%s, it has %s", hostName(h), formatMB(want), formatMB(max(left.MemoryMB, 0)))
 	}
 	return ""
 }
@@ -289,22 +342,21 @@ func (hs *hostSet) sortedPhrases(m map[string]string) string {
 	return strings.Join(out, "; ")
 }
 
-// sizeForNeed raises the charge of a runner placed for a known need, on each
-// field the pool leaves to the host, and returns the size to create it at, or
-// the size it already had when nothing moved. A field the pool states is left
-// alone: the operator wrote that limit, and a runner is never given more than
-// it -- the need then only decides the host.
-func sizeForNeed(p *store.Pool, res Reservation, size *store.Resources, need Requirement) (Reservation, *store.Resources) {
-	raised := false
-	if p.Resources.CPUs <= 0 && need.CPUs > res.CPUs+cpuEpsilon {
-		res.CPUs, raised = need.CPUs, true
+// sizeForNeed raises the charge of a runner placed for a known need, in memory
+// where the pool leaves it to the host, and returns the size to create it at, or
+// the size it already had when nothing moved. The need is held to capMB, what a runner
+// may be given on its host, and a field the pool states is left alone: the operator wrote that limit,
+// and a runner is never given more than it -- the need then only decides the host.
+// CPU is never raised: see poolNeed.
+func sizeForNeed(p *store.Pool, res Reservation, size *store.Resources, need Requirement, capMB int64) (Reservation, *store.Resources) {
+	want := need.MemoryMB
+	if capMB > 0 {
+		want = min(want, capMB)
 	}
-	if p.Resources.MemoryMB <= 0 && need.MemoryMB > res.MemoryMB {
-		res.MemoryMB, raised = need.MemoryMB, true
-	}
-	if !raised {
+	if p.Resources.MemoryMB > 0 || want <= res.MemoryMB {
 		return res, size
 	}
+	res.MemoryMB = want
 	grant := p.Resources
 	grant.MinCPUs, grant.MinMemoryMB = 0, 0
 	grant.CPUs = res.CPUs / fieldFactor(p, p.Resources.CPUs > 0)

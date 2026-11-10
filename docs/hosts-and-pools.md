@@ -1719,11 +1719,11 @@ room. Both show on the job's page, in
 A job's **requirement** is the ninetieth percentile of the peaks of its last
 twenty measured runs, keyed by repository, workflow, job name and pool, with
 a fifth more memory. A run that was OOM-killed counts as having needed half
-as much memory again as its peak, because its peak is the limit it hit. CPU
-gets no margin: a build uses every core it is given, and a margin would ratchet
-the requirement up run after run. The requirement is never below the pool's
-minimum, and the history is the job rows themselves, so it rolls forward and is
-pruned with `retention.jobs`.
+as much memory again as its peak, because its peak is the limit it hit. The
+requirement is never below the pool's minimum, and the history is the job rows
+themselves, so it rolls forward and is pruned with `retention.jobs`. The job's
+page and `job_stats` still show its CPU peak, but the CPU is never placed for:
+see below.
 
 `scheduler.history_sizing` decides what the requirement does:
 
@@ -1731,16 +1731,30 @@ pruned with `retention.jobs`.
 | --- | --- |
 | `off` | Nothing. Placement is the pool's size and the host's room. |
 | `shadow` (default) | The requirement is worked out, and where a runner went to a host short of it, a waiting job's explanation (`GET /api/v1/jobs/{id}/explanation`, and `get_job`) says so, and so does the controller's debug log. Placement is unchanged. |
-| `on` | A runner created for the pool's queue goes only to a host whose unpromised and measured-free CPU and memory hold the largest requirement among the jobs waiting, and a field the pool leaves to the host is sized up to it (allocation source `history`). A field the pool states is never raised: the requirement then only chooses the host. |
+| `on` | A runner created for the pool's queue goes only to a host whose unpromised memory holds what the jobs waiting need, and where the pool leaves its memory to the host the runner is sized up to it (allocation source `history`). A field the pool states is never raised: the requirement then only chooses the host. |
 
-The constraint is GitHub's: GitHub, not Zoomies, hands a queued job to an
-idle runner, so the fleet cannot put a particular job on a particular runner.
-It places and sizes each runner for the **largest** requirement among the jobs
-waiting on that pool, because any of them may be the one it is given. A light
-job may therefore run on a runner sized for a heavy one beside it, and a
-runner that was already idle before the heavy job queued may take it anyway.
-Pools with distinct labels for heavy jobs are still the way to guarantee a
-size.
+**Memory only.** A job is killed for want of memory and merely slowed for want
+of CPU, and elastic CPU lends a build the cores a host has idle, so a CPU figure
+is no reason to hold a runner back or make it bigger. It used to be one, and it
+went wrong: a build uses every core it is given, so a job's CPU peak is just the
+cores it was handed, and sizing every runner for the heaviest waiting job's
+cores left a handful of runners holding a whole host (seven runners and fifty
+jobs queued, on hosts that were mostly idle).
+
+**Not the heaviest job.** GitHub, not Zoomies, hands a queued job to an idle
+runner, so the fleet cannot put a particular job on a particular runner, and a
+runner created for a queue may be given any job in it. It is sized for the
+`scheduler.history_percentile` of the memory the waiting jobs need (the
+seventy-fifth by default, each job counted once), not for the heaviest, so a few
+heavy jobs do not size every runner and the heaviest quarter lean on the memory
+valve instead. `100` is the old behaviour, sized for the heaviest.
+
+**A bound.** No runner is given more than `scheduler.history_max_multiple`
+times its slot's share of its host's memory (twice by default), however much a
+job wants, and a host is held off only for what a runner could be given there.
+A multiple of `1` never raises a runner above its share and leaves history to
+choose the host alone. Pools with distinct labels for heavy jobs are still the
+way to guarantee a size.
 
 A host short of the requirement gets no runner for it, and the reason says
 why:
