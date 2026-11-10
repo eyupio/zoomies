@@ -94,3 +94,41 @@ func TestStorageCanBePrintedAsTheRawReport(t *testing.T) {
 		t.Errorf("--output json should print the report as the controller sent it:\n%s", out)
 	}
 }
+
+// An operator who has lowered a count wants to see it take effect, and one who
+// has not wants to know why the directory is still large. The report carries what
+// the last tidy removed and what it could not, and the command says both where the
+// totals are.
+func TestStorageSaysWhatTheLastTidyRemovedAndWhatItCouldNot(t *testing.T) {
+	body := strings.Replace(storageFixture, `"disk_free_bytes": 45097156608`, `"disk_free_bytes": 45097156608,
+		"last_maintenance": {
+			"at": "2026-11-09T18:00:00Z",
+			"backups": ["zoomies-20261101-000000", "zoomies-20261102-000000"],
+			"pre_migration": ["zoomies-20260101-000000"],
+			"errors": ["tidying the backups in /mnt/backups: permission denied"]
+		}`, 1)
+	srv := jsonRoutes(t, map[string]string{"/api/v1/storage": body})
+
+	out, _ := runCLI(t, "storage", "--url", srv.URL)
+
+	for _, want := range []string{
+		"last tidy",
+		"2 backups",
+		"1 pre-migration copy",
+		"permission denied",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("storage must show %q:\n%s", want, out)
+		}
+	}
+}
+
+// With nothing tidied yet there is nothing to say, and the line is not there to be
+// misread as "tidied, and nothing was removed".
+func TestStorageHasNoLastTidyLineBeforeThereHasBeenOne(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{"/api/v1/storage": storageFixture})
+	out, _ := runCLI(t, "storage", "--url", srv.URL)
+	if strings.Contains(out, "last tidy") {
+		t.Errorf("storage invented a last tidy:\n%s", out)
+	}
+}

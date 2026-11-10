@@ -88,6 +88,10 @@ type StorageReport struct {
 	// DiskFreeBytes is the room left on the filesystem the directory is on,
 	// and null where the platform cannot say.
 	DiskFreeBytes *int64 `json:"disk_free_bytes"`
+	// LastMaintenance is what the last tidy of this directory removed, or could
+	// not, and is left out until there has been one. It is added by whoever knows
+	// the controller's memory; Storage reads the disk and nothing else.
+	LastMaintenance *MaintenanceResult `json:"last_maintenance,omitempty"`
 }
 
 // Storage reports what is in the state directory the configuration's database

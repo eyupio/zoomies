@@ -50,6 +50,7 @@ type Config struct {
 	Kennel         Kennel         `yaml:"kennel"`
 	UI             UI             `yaml:"ui"`
 	Backup         Backup         `yaml:"backup"`
+	Maintenance    Maintenance    `yaml:"maintenance"`
 	Assistant      Assistant      `yaml:"assistant"`
 	Optimisation   Optimisation   `yaml:"optimisation"`
 
@@ -247,6 +248,11 @@ type Backup struct {
 	// beyond it are deleted after each new one. Zero keeps every one. Copies
 	// an operator uploaded are never counted and never deleted by this.
 	Keep int `yaml:"keep"`
+	// PreMigrationKeep is how many of the copies the store takes of the
+	// database before a migration are kept, newest first. At least one: a copy
+	// taken before an upgrade is the one way back from it, and once the upgrade
+	// has run nothing can take it again.
+	PreMigrationKeep int `yaml:"pre_migration_keep"`
 	// Remotes are the S3-compatible buckets every new backup is copied to.
 	// Empty is the old behaviour and still the default: nothing leaves the
 	// host unless somebody says where it goes.
@@ -258,6 +264,17 @@ type Backup struct {
 	// zoomies.yaml in front of it. Keep the file mode 0600 and prefer
 	// ZOOMIES_BACKUP_REMOTE_SECRET_ACCESS_KEY for the secret.
 	Remotes []BackupRemote `yaml:"remotes"`
+}
+
+// Maintenance is how the controller tidies its own state directory.
+type Maintenance struct {
+	// Interval is how often the scheduled pass runs. The pass removes the
+	// controller's own backups beyond backup.keep and the copies it took before a
+	// migration beyond backup.pre_migration_keep. Zero switches the scheduled pass
+	// off. The pre-migration copies are also pruned once when the controller
+	// starts, whatever this says, so that switching the pass off cannot leave
+	// copies that nothing ever removes.
+	Interval time.Duration `yaml:"interval"`
 }
 
 // BackupRemote is one S3-compatible destination: a bucket somebody else's disk
@@ -1348,7 +1365,14 @@ func Default() *Config {
 		// minute, so a day is the right grain; seven copies bounds the disk
 		// on a fleet whose database is large, and covers the week it takes
 		// to notice a mistake made on Monday.
-		Backup:         Backup{Interval: 24 * time.Hour, Keep: 7},
+		//
+		// Two copies from before a migration: the upgrade that just happened,
+		// and the one before it, which is the one an operator reaches for when
+		// the first went unnoticed. More would be a copy of the whole database
+		// per release on the disk the fleet also needs. Tidied once a day, which
+		// is as often as the backups they sit beside are taken.
+		Backup:         Backup{Interval: 24 * time.Hour, Keep: 7, PreMigrationKeep: 2},
+		Maintenance:    Maintenance{Interval: 24 * time.Hour},
 		CapacityDemand: CapacityDemand{Cooldown: 10 * time.Minute, Timeout: 10 * time.Second},
 		// Off. Once a day for what has to be read from GitHub, because the
 		// facts it asks about (a repository's visibility, how a run was

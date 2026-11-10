@@ -444,8 +444,9 @@ settings page reports rather than refusing the edit.
 
 ### `backup`
 
-These three are edited on **Settings → Backups**, beside the copies they
-produce, rather than in the Configuration list. They are ordinary settings
+The first three are edited on **Settings → Backups**, beside the copies they
+produce, rather than in the Configuration list; `backup.pre_migration_keep` is in
+the Configuration list with the rest. They are ordinary settings
 otherwise: the same keys, the same environment overrides, the same export.
 
 | Key | Environment | Takes effect | What it is |
@@ -453,6 +454,7 @@ otherwise: the same keys, the same environment overrides, the same export.
 | `backup.directory` | `ZOOMIES_BACKUP_DIRECTORY` | at once | Backup directory: Where backups are kept. Empty is a `backups` directory beside the database, which on a container deployment is the mounted volume. A relative path is relative to the database's directory. |
 | `backup.interval` | `ZOOMIES_BACKUP_INTERVAL` | at once | Scheduled backup interval: How often the controller takes a copy of its own database. 0 switches scheduled backups off; one can still be taken on demand from the Backups tab or with `zoomies backup`. |
 | `backup.keep` | `ZOOMIES_BACKUP_KEEP` | at once | Backups to keep: How many of the controller's own backups are kept; the oldest beyond it go after each new one. 0 keeps every one. Backups somebody uploaded or fetched back from a remote are never counted and never deleted by this. |
+| `backup.pre_migration_keep` | `ZOOMIES_BACKUP_PRE_MIGRATION_KEEP` | at once | Pre-migration copies to keep: How many of the copies the controller takes of its database before a migration are kept, newest first. At least 1: a copy taken before an upgrade is the one way back from it, and once the upgrade has run nothing can take it again. |
 
 #### `backup.remotes`
 
@@ -500,6 +502,33 @@ The permissions a remote needs on its bucket and prefix are `s3:PutObject`,
 `s3:GetObject`, `s3:DeleteObject` and `s3:ListBucket`; the last two only for
 retention and for the Backups tab's listing, so a write-only credential works
 if you set `keep: 0` and never expect the page to say what is there.
+
+### `maintenance`
+
+The controller tidies its own state directory: it removes the backups it took
+of itself beyond `backup.keep`, and the copies it took before a migration beyond
+`backup.pre_migration_keep`. Backups somebody uploaded or fetched back from a
+remote, and the live database a restore set aside, are never touched by it.
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `maintenance.interval` | `ZOOMIES_MAINTENANCE_INTERVAL` | at once | Maintenance interval: How often the controller removes its own backups beyond backup.keep and its pre-migration copies beyond backup.pre_migration_keep. 0 switches the scheduled pass off. The pre-migration copies are also pruned once when the controller starts, whatever this says, so that switching it off cannot leave copies nothing ever removes. |
+
+The first pass runs about a minute after the controller starts and then once
+every interval, so a controller that is restarted more often than its interval is
+still tidied. A pass waits for a backup that is being taken rather than running
+beside it. Pressing **apply retention** on the Backups page (`POST
+/api/v1/backups/prune`) runs the same pass at once, whatever the interval says, so
+that lowering a count and pressing the button shows its effect. `zoomies storage`
+says what the last pass removed.
+
+The copies taken before a migration are pruned by the controller and not by the
+database layer that takes them, because that layer runs before any setting can be
+read. The consequence is that a command which migrates a database without
+starting a controller (`zoomies config import-env`, `zoomies config set`) leaves
+its copy until the controller next starts, so the directory can briefly hold more
+than `backup.pre_migration_keep`. That is deliberate: a copy taken before a
+migration is the only way back from it.
 
 ### `capacity_demand`
 

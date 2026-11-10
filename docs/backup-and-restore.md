@@ -487,14 +487,23 @@ beside the database, so restoring an old backup does not consume it.
 
 Whenever a controller starts and finds migrations pending on an existing
 database, it copies it to `pre-migration/zoomies-<timestamp>/` before applying
-anything, and keeps the last two. Migrations are one-way and the release that
-wrote a database will refuse to open it once a newer one has moved it on, so
-this is the rollback for an upgrade nobody planned to roll back, and it is the
-same layout `zoomies restore` takes, so putting one back is one command.
+anything. Migrations are one-way and the release that wrote a database will
+refuse to open it once a newer one has moved it on, so this is the rollback for
+an upgrade nobody planned to roll back, and it is the same layout `zoomies
+restore` takes, so putting one back is one command.
 
-It is a copy of the whole database each time, so the two are worth checking on
-the disk budget of a very large fleet. A first start takes none: there is
-nothing there to lose.
+The controller keeps the newest `backup.pre_migration_keep` of them, two by
+default, and removes the rest when it starts and again in every
+[maintenance pass](configuration.md#maintenance). The copy is taken before any
+setting can be read, so taking it never removes anything; the pruning happens as
+soon as the controller has its configuration. A command that migrates a database
+without starting a controller leaves its copy until the controller next starts.
+`backup.pre_migration_keep` cannot be set below 1: once an upgrade has run, nothing
+can take its copy again.
+
+It is a copy of the whole database each time, so the number you keep is worth
+checking on the disk budget of a very large fleet. A first start takes none:
+there is nothing there to lose.
 
 ### And what the controller checks when it starts
 

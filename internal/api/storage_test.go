@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/backup"
+	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 // The storage report is the answer to "what is in this controller's state
@@ -65,5 +67,55 @@ func TestTheStorageReportSaysWhatTheRunningControllerHasInItsStateDirectory(t *t
 	}
 	if report.DatabaseFreeBytes < 0 {
 		t.Errorf("free bytes = %d", report.DatabaseFreeBytes)
+	}
+}
+
+// The report says what the last tidy of the state directory removed, so an
+// operator who lowered a count can see it take effect, and one who did not can see
+// why the directory is still large. Pressing "apply retention" runs the same pass
+// the schedule does, and the next read of the report has its answer.
+func TestTheStorageReportSaysWhatTheLastTidyRemoved(t *testing.T) {
+	h := newHarness(t)
+	cookie := h.platform()
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Backup.PreMigrationKeep = 1 })
+	dir := filepath.Dir(h.ctrl.DatabasePath())
+	var planted []string
+	for _, stamp := range []string{"20250101-000000", "20260101-000000"} {
+		name := store.BackupDirPrefix + stamp
+		if err := os.MkdirAll(filepath.Join(dir, store.PreMigrationDir, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		planted = append(planted, name)
+	}
+
+	// Before anything has been tidied there is nothing to say.
+	before := h.do(request{method: http.MethodGet, path: "/api/v1/storage", cookie: cookie})
+	before.mustStatus(t, http.StatusOK, "read the storage report")
+	var first backup.StorageReport
+	before.into(t, &first)
+	if first.LastMaintenance != nil {
+		t.Fatalf("last_maintenance = %+v before any tidy, want none", first.LastMaintenance)
+	}
+
+	h.do(request{method: http.MethodPost, path: "/api/v1/backups/prune", cookie: cookie}).mustStatus(t, http.StatusOK, "apply retention")
+
+	after := h.do(request{method: http.MethodGet, path: "/api/v1/storage", cookie: cookie})
+	after.mustStatus(t, http.StatusOK, "read the storage report")
+	var report backup.StorageReport
+	after.into(t, &report)
+	if report.LastMaintenance == nil {
+		t.Fatal("the report does not say anything was tidied")
+	}
+	if got := report.LastMaintenance.PreMigration; len(got) != 1 || got[0] != planted[0] {
+		t.Errorf("last_maintenance.pre_migration = %v, want the older copy %q", got, planted[0])
+	}
+	if report.LastMaintenance.At.IsZero() {
+		t.Error("last_maintenance.at is not set")
+	}
+	// The copy that was kept is still an entry, and the one removed is not.
+	for _, e := range report.Entries {
+		if e.Path == "pre-migration/"+planted[0] {
+			t.Errorf("%s is still listed after it was removed", e.Path)
+		}
 	}
 }

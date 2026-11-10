@@ -289,6 +289,8 @@ type Controller struct {
 
 	// backups is the scheduled-backup loop's own state; see backups.go.
 	backups backupState
+	// maintenance is the loop that tidies the controller's own state directory.
+	maintenance maintenanceState
 	// restart is closed by RequestRestart, once, and restartReason says why.
 	// The command that runs the controller waits on it: a staged restore is
 	// applied by the next process to start, and this is how the page asks for
@@ -704,6 +706,10 @@ func (c *Controller) Start(ctx context.Context) error {
 	// Its own loop, because a copy of a large database takes as long as it
 	// takes and the housekeeping pass should not wait for it.
 	c.spawn("backups", loopCtx, c.backupLoop)
+	// Its own loop for the same reason: a pass over a large directory should
+	// never delay housekeeping. It also prunes the copies taken before a
+	// migration once, here, as soon as the configuration is loaded.
+	c.spawn("maintenance", loopCtx, c.maintenanceLoop)
 	// Its own loop, not a step of the reconcile pass. A clone takes minutes
 	// and reconcileMu is held for a whole scheduling pass, so a machine step
 	// inside it would stop the fleet placing runners for as long as a
