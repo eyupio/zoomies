@@ -1,7 +1,8 @@
 # Command centre design
 
 10 November 2026. Design specification, written before any application change.
-Nothing described here is implemented yet.
+Nothing described here is implemented yet. The implementation plan is
+[`roadmap/plans/2026-11-10-command-centre.md`](../../roadmap/plans/2026-11-10-command-centre.md).
 
 ## What it is for
 
@@ -176,12 +177,15 @@ job is done on the page a click leads to, where the confirmation lives.
 
 ## Getting there and leaving
 
-* A route, `/command`, titled "Command centre". It is a `bare` route: no
-  sidebar and no top bar, because the page is its own chrome.
+* A route, `/command`, titled "Command centre". It is an immersive route: no
+  sidebar, top bar or footer, because the page is its own chrome. It is not a
+  `bare` route, which would also lose the problems drawer, the command palette
+  and the shortcut sheet, and the page needs all three.
 * An entry in the navigation directly after Overview and, like Overview,
   above the groups and in none of them: the two answer the same question at
   different distances, so they sit together. It is second in `SECTIONS`, takes
-  the chord `g c`, and has an entry in the command palette. The phone's bottom
+  the chord `g d` (`c` already goes to AI Context), and has an entry in the
+  command palette. The phone's bottom
   bar keeps its four; the entry is in the menu it opens.
 * A control in the page's bar asks the browser for full screen. A browser only
   grants that to a press, so the page never enters it by itself. Where the
