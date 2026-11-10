@@ -92,6 +92,22 @@ func configTools() []*tool {
 			call:        updatePool,
 		},
 		{
+			Name:  "prewarm_pool",
+			Title: "Pull a pool's image onto its hosts now",
+			Description: "Queue the pool's runner image to be pulled on every healthy host that can run the pool, so a tag that has moved " +
+				"(such as :dev) reaches them before the next job, not at the next hourly refresh. A tag is asked about at the registry whatever " +
+				"the pool's pull policy is, and a digest is left alone because it cannot move. Runners already running keep the image they " +
+				"started with; the next runner each host creates uses the new one. It pulls the pool's own image and changes nothing else, so it " +
+				"is safe to repeat. A pool on the process backend has no image to pull and is refused. The answer says how many hosts were asked " +
+				"and each host's state, which list_pools does not carry.",
+			InputSchema: object([]string{"pool_id"}, map[string]any{
+				"pool_id": str("the pool's ID, starting pool_"),
+			}),
+			Annotations: annotations{Idempotent: true},
+			action:      true,
+			call:        prewarmPool,
+		},
+		{
 			Name:  "update_host",
 			Title: "Change a host's capacity and runner sizes",
 			Description: "Change a host's capacity, what it keeps back for itself, or the runner sizes it gives pools that take their size " +
@@ -116,6 +132,30 @@ func configTools() []*tool {
 			call:        updateHost,
 		},
 	}
+}
+
+func prewarmPool(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
+	var a struct {
+		PoolID string `json:"pool_id"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
+	if err := requireID("pool_id", a.PoolID); err != nil {
+		return nil, err
+	}
+	bc, ok := c.(BodyCaller)
+	if !ok {
+		return nil, fmt.Errorf("this transport cannot prewarm a pool")
+	}
+	body, err := bc.CallBody(ctx, http.MethodPost, "/pools/"+url.PathEscape(a.PoolID)+"/prewarm", nil, []byte(`{}`))
+	if err != nil {
+		if notFound(err) {
+			return nil, fmt.Errorf("there is no pool %q; list_pools lists them", a.PoolID)
+		}
+		return nil, err
+	}
+	return jsonContent(body), nil
 }
 
 // change is one field's before and after, as the tool reports it. Before is
@@ -417,7 +457,7 @@ func expectSchema(kind, lister string) map[string]any {
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": true,
-		"description": "for every setting you are changing, the value you read for it in " + lister + " -- 0, null or the key left out where it followed the fleet's. " +
+		"description": "for every setting you are changing, the value you read for it in " + lister + " (0, null or the key left out where it followed the fleet's). " +
 			"Required, like remedy_id on apply_remedy: this tool writes absolute values, so an agent that read a setting an hour ago and sets another figure over " +
 			"it would put back what a person has since changed. If the " + kind + " no longer holds what you expected, nothing is changed and the answer says what it holds now.",
 	}

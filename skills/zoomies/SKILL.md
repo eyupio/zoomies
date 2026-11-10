@@ -145,9 +145,9 @@ minutes.
 * `zoomies tune`
 
 Some MCP tools are not offered until the controller has been told to offer
-them. `apply_remedy`, `update_pool`, `update_host`, `rerun_job` and
+them. `apply_remedy`, `prewarm_pool`, `update_pool`, `update_host`, `rerun_job` and
 `drain_runner` change the fleet, `context_publish` publishes a note about a
-repository, and `edit_host`, `clear_host_throttle`, `get_settings` and
+repository, and `edit_pool`, `edit_host`, `clear_host_throttle`, `get_settings` and
 `update_settings` are the administrator's. Hold every one of them to the rule
 above: say what it will do, and call it only after the user agrees. The rest of
 the MCP tools read.

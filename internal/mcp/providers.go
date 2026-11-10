@@ -82,10 +82,14 @@ func providerTools() []*tool {
 				"A deleted machine is left out unless state is deleted. " +
 				"A full page carries a total, and a machine exists only because demand asked for one, so an empty list on a fleet with a full pool means nothing has been bought.",
 			InputSchema: object(nil, map[string]any{
-				"provider_id": str("only machines of this provider"),
-				"pool_id":     str("only machines bought for this pool, starting pool_"),
-				"state":       enum("only machines in this state", machineStates...),
-				"limit":       integer("how many to return (default 50)", 1, 200),
+				"provider_id":     str("only machines of this provider"),
+				"pool_id":         str("only machines bought for this pool, starting pool_"),
+				"state":           enum("only machines in this state", machineStates...),
+				"host_id":         str("only the machine whose enrolled host this is, starting host_"),
+				"query":           str("a fragment of a machine's name, address or id"),
+				"include_deleted": boolean("also list machines whose resource is confirmed gone, which are left out by default"),
+				"limit":           integer("how many to return (default 50)", 1, 200),
+				"offset":          integer("how many to skip, to read the next page when the answer carries a larger total", 0, 100000),
 			}),
 			Annotations: readOnly,
 			call:        listMachines,
@@ -191,19 +195,32 @@ func providerPairings(ctx context.Context, c API, raw json.RawMessage) ([]Conten
 
 func listMachines(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
 	var a struct {
-		ProviderID string `json:"provider_id"`
-		PoolID     string `json:"pool_id"`
-		State      string `json:"state"`
-		Limit      int    `json:"limit"`
+		ProviderID     string `json:"provider_id"`
+		PoolID         string `json:"pool_id"`
+		State          string `json:"state"`
+		HostID         string `json:"host_id"`
+		Query          string `json:"query"`
+		IncludeDeleted bool   `json:"include_deleted"`
+		Limit          int    `json:"limit"`
+		Offset         int    `json:"offset"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return nil, err
 	}
+	if a.Offset < 0 {
+		return nil, fmt.Errorf("offset is not negative")
+	}
 	q := url.Values{}
-	for key, v := range map[string]string{"provider": a.ProviderID, "pool": a.PoolID, "state": a.State} {
+	for key, v := range map[string]string{"provider": a.ProviderID, "pool": a.PoolID, "state": a.State, "host": a.HostID, "q": a.Query} {
 		if v != "" {
 			q.Set(key, v)
 		}
+	}
+	if a.IncludeDeleted {
+		q.Set("include_deleted", "true")
+	}
+	if a.Offset > 0 {
+		q.Set("offset", strconv.Itoa(a.Offset))
 	}
 	q.Set("limit", strconv.Itoa(clamp(a.Limit, 50, 200)))
 	return getJSON(ctx, c, "/machines", q)

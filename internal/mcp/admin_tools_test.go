@@ -177,3 +177,95 @@ func TestAnAllowlistEntryWithoutATrailingDotNamesOneKey(t *testing.T) {
 		t.Errorf("the refusal reads as though every entry were a prefix: %v", err)
 	}
 }
+
+// A pool's cache is replaced whole by the API, so a change to one flag of it
+// must carry the rest, the folder it is kept in included, and send nothing the
+// call did not name.
+func TestEditPoolChangesOneCacheFlagAndKeepsTheRestOfTheCache(t *testing.T) {
+	r := &recorder{object: `{"name":"p","image":"ghcr.io/x/runner:dev","pull_policy":"if-not-present","cache":{"enabled":true,"scope":"pool","size_limit":10737418240,"source":"/var/lib/zoomies/shared/cache/pools","tools":true,"service":false,"future_field":3}}`}
+	out, err := call(t, "edit_pool", r, `{"pool_id":"pool_1","cache_service":true,"expect":{"cache_service":false}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.paths) != 1 || r.paths[0] != "PATCH /pools/pool_1" {
+		t.Fatalf("requests = %v", r.paths)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal([]byte(r.sent[0]), &sent); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 1 {
+		t.Errorf("the body named %d settings, want only cache: %s", len(sent), r.sent[0])
+	}
+	cache, _ := sent["cache"].(map[string]any)
+	if cache["service"] != true || cache["enabled"] != true || cache["tools"] != true || cache["source"] != "/var/lib/zoomies/shared/cache/pools" || cache["future_field"] != float64(3) {
+		t.Errorf("cache = %v; want service on and everything else carried forward", cache)
+	}
+	if !strings.Contains(out, `"cache_service"`) || strings.Contains(r.sent[0], "confirm") {
+		t.Errorf("reply %s, body %s", out, r.sent[0])
+	}
+}
+
+func TestEditPoolSendsAnImageAndAPullPolicyAndNothingElse(t *testing.T) {
+	r := &recorder{object: `{"name":"p","image":"","pull_policy":"if-not-present","cache":{"enabled":true}}`}
+	if _, err := call(t, "edit_pool", r, `{"pool_id":"pool_1","image":"ghcr.io/eyupio/zoomies-runner-docker@sha256:a0cb","pull_policy":"pinned-only","expect":{"image":"","pull_policy":"if-not-present"}}`); err != nil {
+		t.Fatal(err)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal([]byte(r.sent[0]), &sent); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 2 || sent["image"] != "ghcr.io/eyupio/zoomies-runner-docker@sha256:a0cb" || sent["pull_policy"] != "pinned-only" {
+		t.Errorf("body = %s; want the image and the policy and nothing else", r.sent[0])
+	}
+}
+
+// What an agent read an hour ago is not what a person may have changed since,
+// and a flag the pool never set is off, so a model that read false is right.
+func TestEditPoolRefusesAStaleOrMissingExpectation(t *testing.T) {
+	r := &recorder{object: `{"name":"p","image":"ghcr.io/x/runner:v1","cache":{"enabled":true,"service":true}}`}
+	for _, tc := range []struct{ args, want string }{
+		{`{"pool_id":"pool_1","image":"ghcr.io/x/runner:v2"}`, "say what you read"},
+		{`{"pool_id":"pool_1","image":"ghcr.io/x/runner:v2","expect":{"image":"ghcr.io/x/runner:v0"}}`, "was changed since you read it"},
+	} {
+		if _, err := call(t, "edit_pool", r, tc.args); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: error = %v, want %q", tc.args, err, tc.want)
+		}
+	}
+	if len(r.sent) != 0 {
+		t.Errorf("a refused call sent %v", r.sent)
+	}
+	bare := &recorder{object: `{"name":"p","cache":{"enabled":true}}`}
+	if _, err := call(t, "edit_pool", bare, `{"pool_id":"pool_1","cache_service":true,"expect":{"cache_service":false}}`); err != nil {
+		t.Errorf("a flag the pool never set reads as false, so this is not stale: %v", err)
+	}
+}
+
+func TestEditPoolRefusesWhatCannotBeRight(t *testing.T) {
+	r := &recorder{object: `{"name":"p","image":"x"}`}
+	for _, tc := range []struct{ args, want string }{
+		{`{"pool_id":"pool_1","expect":{}}`, "at least one setting"},
+		{`{"pool_id":"pool_1","image":"a b","expect":{"image":"x"}}`, "whitespace"},
+		{`{"pool_id":"pool_1","pull_policy":"sometimes","expect":{}}`, "pull_policy"},
+		{`{"pool_id":"pool_1","cache_scope":"world","expect":{}}`, "cache_scope"},
+		{`{"pool_id":"pool_1","cache_size_limit":-1,"expect":{}}`, "negative"},
+	} {
+		if _, err := call(t, "edit_pool", r, tc.args); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: error = %v, want %q", tc.args, err, tc.want)
+		}
+	}
+	if len(r.sent) != 0 {
+		t.Errorf("a refused call sent %v", r.sent)
+	}
+}
+
+// The tool that can change what code runs on the fleet is behind the same
+// switch as the rest of the administrator's tools, and not offered by default.
+func TestEditPoolIsAnAdministratorTool(t *testing.T) {
+	if !IsAdminTool("edit_pool") {
+		t.Error("edit_pool must be governed by security.mcp_admin_tools")
+	}
+	if IsAdminTool("prewarm_pool") || IsAdminTool("update_pool") {
+		t.Error("prewarming and sizing a pool are an operator's, not an administrator's")
+	}
+}
