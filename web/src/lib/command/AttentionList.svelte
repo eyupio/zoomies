@@ -1,0 +1,70 @@
+<!--
+  The rail's Needs attention section: the open problems, most severe first,
+  each with its title, a line of detail and the page that fixes it.
+
+  The route leaves this out altogether when nothing is open. An empty "Needs
+  attention" heading on a wall reads as something wrong with nothing said
+  about it, which is worse than no heading at all.
+-->
+<script lang="ts">
+  import type { Problem } from '$lib/api/types';
+  import { problemKey } from '$lib/problems/identity';
+  import { notifications } from '$lib/state/notifications.svelte';
+  import { severityStatus } from '$lib/status';
+  import { PROBLEMS_SHOWN } from './jobs-merge';
+  import { problemHref } from './links';
+
+  interface Props {
+    problems: readonly Problem[];
+  }
+  let { problems }: Props = $props();
+
+  const shown = $derived(problems.slice(0, PROBLEMS_SHOWN));
+  const more = $derived(problems.length - shown.length);
+
+  function openDrawer(): void {
+    notifications.open = true;
+  }
+</script>
+
+<section class="rail-section" aria-labelledby="command-attention">
+  <h2 id="command-attention">
+    Needs attention <span class="count">{problems.length}</span>
+  </h2>
+  <ul>
+    {#each shown as problem (problemKey(problem))}
+      {@const href = problemHref(problem)}
+      <li>
+        {#snippet body()}
+          {@const status = severityStatus(problem.severity)}
+          <span class="mark" style:color={status.colour} role="img" aria-label={status.label}>
+            <status.icon size={16} aria-hidden="true" />
+          </span>
+          <span class="what">
+            <span class="name">{problem.title}</span>
+            {#if problem.detail}<span class="detail">{problem.detail}</span>{/if}
+          </span>
+        {/snippet}
+        {#if href}
+          <a class="row" {href}>{@render body()}</a>
+        {:else}
+          <button type="button" class="row" onclick={openDrawer}>{@render body()}</button>
+        {/if}
+      </li>
+    {/each}
+  </ul>
+  {#if more > 0}
+    <button type="button" class="more" onclick={openDrawer}>and {more} more</button>
+  {/if}
+</section>
+
+<style>
+  .detail {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+</style>

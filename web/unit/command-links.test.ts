@@ -6,6 +6,7 @@ import {
   QUEUE_HREF,
   RUNNING_HREF,
   RUNNERS_HREF,
+  completedSinceHref,
   finishedSinceHref,
   hostHref,
   problemHref,
@@ -38,6 +39,15 @@ test('finished jobs since an instant are the completed jobs from that instant on
   assert.equal(url.pathname, '/jobs');
   assert.equal(url.searchParams.get('state'), 'completed');
   assert.equal(url.searchParams.get('since'), '2026-11-10T13:04:00.000Z');
+});
+
+test('jobs finished since an instant are read by when they ended, not when they queued', () => {
+  const since = new Date(Date.UTC(2026, 10, 10, 13, 50));
+  const url = new URL(completedSinceHref(since), 'http://x');
+  assert.equal(url.pathname, '/jobs');
+  assert.equal(url.searchParams.get('state'), 'completed');
+  assert.equal(url.searchParams.get('completed_since'), '2026-11-10T13:50:00.000Z');
+  assert.equal(url.searchParams.get('since'), null);
 });
 
 test('each kind of problem target opens the page that holds the thing', () => {

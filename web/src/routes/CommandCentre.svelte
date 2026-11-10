@@ -9,18 +9,26 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Maximize, Minimize, X } from '@lucide/svelte';
-  import type { Problem } from '$lib/api/types';
+  import { events } from '$lib/api/sse';
+  import type { Job, Problem } from '$lib/api/types';
   import Button from '$lib/components/Button.svelte';
   import Logo from '$lib/components/Logo.svelte';
+  import AttentionList from '$lib/command/AttentionList.svelte';
+  import FinishedList from '$lib/command/FinishedList.svelte';
   import Hero from '$lib/command/Hero.svelte';
   import HostLane from '$lib/command/HostLane.svelte';
+  import WaitingList from '$lib/command/WaitingList.svelte';
   import { clock } from '$lib/command/clock.svelte';
   import { fullscreen } from '$lib/command/fullscreen.svelte';
+  import { commandJobs } from '$lib/command/jobs.svelte';
+  import { FINISHED_WINDOW_MS, waitingSummary } from '$lib/command/jobs-merge';
   import { lanes } from '$lib/command/lanes';
+  import { completedSinceHref } from '$lib/command/links';
   import { verdict, type VerdictInput } from '$lib/command/verdict';
   import { onClockTick } from '$lib/format';
   import { layers } from '$lib/keys';
   import { router } from '$lib/router';
+  import JobDrawer from '$lib/jobs/JobDrawer.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
   import { notifications } from '$lib/state/notifications.svelte';
 
@@ -36,13 +44,33 @@
 
   const live = $derived(fleet.connection === 'live');
 
+  // The rail's jobs live as long as the page: nothing else wants a window of
+  // ten minutes, and a wall display is the page that asks for it.
+  onMount(() => {
+    commandJobs.start();
+    return () => commandJobs.stop();
+  });
+
+  // One drawer for both lists. The open job is replaced when a frame for it
+  // lands, as on the Jobs page, so a job that starts while it is open says so.
+  let openJob = $state.raw<Job | null>(null);
+  let drawerOpen = $state(false);
+  function showJob(job: Job): void {
+    openJob = job;
+    drawerOpen = true;
+  }
+  onMount(() =>
+    events.subscribe('job.updated', (job) => {
+      if (openJob && job.id === openJob.id) openJob = job;
+    }),
+  );
+  const finishedSince = $derived(completedSinceHref(new Date(clock.now - FINISHED_WINDOW_MS)));
+
   /*
     The deck and the hero are read from one snapshot, so the ring, the verdict
     and the lanes can never disagree about how many slots are working.
-    Task 7 brings the queued-jobs list; until then the lanes are given none,
-    and no lane says that jobs wait for it.
   */
-  const deck = $derived(lanes(fleet.hosts, fleet.runners, []));
+  const deck = $derived(lanes(fleet.hosts, fleet.runners, commandJobs.waiting));
   const cells = $derived(deck.flatMap((lane) => lane.cells));
   const slots = $derived(cells.length);
   const busy = $derived(cells.filter((c) => c.runner?.state === 'busy').length);
@@ -57,6 +85,8 @@
     return null;
   }
 
+  const waitingNow = $derived(waitingSummary(commandJobs.waiting, fleet.runners, free, clock.now));
+
   const verdictInput = $derived.by((): VerdictInput => {
     const waiting = fleet.stats?.fleet?.queued_jobs ?? fleet.stats?.queued_jobs ?? 0;
     const problems = notifications.active;
@@ -70,12 +100,9 @@
       busy,
       starting,
       waiting,
-      // Task 7 replaces these three with the queued-jobs list. From the stats
-      // alone the best that can be said is that jobs wait and no slot on any
-      // host is free; how long and for which pool needs the jobs themselves.
-      waitingWithoutSlot: free === 0 ? waiting : 0,
-      longestWaitMs: 0,
-      waitingPool: null,
+      waitingWithoutSlot: waitingNow.withoutSlot,
+      longestWaitMs: waitingNow.longestWaitMs,
+      waitingPool: waitingNow.pool,
       problems: problems.length,
       firstProblemTarget: targetName(problems[0]),
     };
@@ -167,16 +194,43 @@
   </header>
   <div class="stage">
     <Hero verdict={said} stats={fleet.stats} running={busy} {busy} {slots} {live} now={clock.now} />
-    {#if deck.length > 0}
-      <section class="deck" aria-labelledby="command-hosts">
-        <h2 id="command-hosts" class="sr-only">Hosts</h2>
-        {#each deck as lane (lane.host.id)}
-          <HostLane {lane} />
-        {/each}
-      </section>
-    {/if}
+    <div class="board">
+      {#if deck.length > 0}
+        <section class="deck" aria-labelledby="command-hosts">
+          <h2 id="command-hosts" class="sr-only">Hosts</h2>
+          {#each deck as lane (lane.host.id)}
+            <HostLane {lane} />
+          {/each}
+        </section>
+      {/if}
+      <div class="rail waiting">
+        <WaitingList
+          jobs={commandJobs.waiting}
+          error={commandJobs.error}
+          onopen={showJob}
+          onretry={() => void commandJobs.retry()}
+        />
+      </div>
+      {#if notifications.active.length > 0}
+        <div class="rail attention">
+          <AttentionList problems={notifications.active} />
+        </div>
+      {/if}
+      <div class="rail finished">
+        <FinishedList
+          jobs={commandJobs.finished}
+          count={commandJobs.finishedCount}
+          moreHref={finishedSince}
+          error={commandJobs.error}
+          onopen={showJob}
+          onretry={() => void commandJobs.retry()}
+        />
+      </div>
+    </div>
   </div>
 </div>
+
+<JobDrawer bind:open={drawerOpen} job={openJob} onclose={() => (openJob = null)} />
 
 <style>
   .command {
@@ -254,22 +308,174 @@
   .stage {
     flex: 1;
   }
+  /* The lanes on the left, the rail on the right. On a phone they stack in
+     the order a glance wants: what waits and what is wrong before the hosts,
+     and what finished after them. */
+  .board {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 20rem);
+    grid-template-areas:
+      'deck waiting'
+      'deck attention'
+      'deck finished';
+    grid-template-rows: auto auto 1fr;
+    align-items: start;
+    gap: var(--z-space-4) var(--z-space-6);
+    padding: var(--z-space-6);
+  }
   /* Two small hosts share a row; a lane with more slots than one row draws
      spans both, so the deck grows downwards as the fleet does. */
   .deck {
+    grid-area: deck;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
     gap: var(--z-space-4);
-    padding: var(--z-space-6);
+  }
+  .rail.waiting {
+    grid-area: waiting;
+  }
+  .rail.attention {
+    grid-area: attention;
+  }
+  .rail.finished {
+    grid-area: finished;
+  }
+  /* The rail's three lists share one look; each owns only what is its own. */
+  .rail :global(.rail-section) {
+    display: grid;
+    gap: var(--z-space-2);
+    min-width: 0;
+  }
+  .rail :global(.rail-section > h2) {
+    display: flex;
+    align-items: baseline;
+    gap: var(--z-space-2);
+    margin: 0;
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
+  }
+  .rail :global(.count) {
+    color: var(--z-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .rail :global(.rail-section > ul) {
+    display: grid;
+    gap: var(--z-space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .rail :global(.row) {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    padding: var(--z-space-2);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-raised);
+    color: var(--z-text);
+    font: inherit;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+    animation: rail-arrive var(--z-motion-base) var(--z-ease);
+    transition: border-color var(--z-motion-fast) var(--z-ease);
+  }
+  .rail :global(.row:hover),
+  .rail :global(.row:focus-visible) {
+    border-color: var(--z-accent);
+  }
+  .rail :global(.row:focus-visible),
+  .rail :global(.more:focus-visible) {
+    outline: none;
+    box-shadow: var(--z-focus-ring);
+  }
+  .rail :global(.mark) {
+    display: inline-flex;
+    flex: none;
+  }
+  .rail :global(.what) {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+  }
+  /* Names are somebody else's text: cut, never allowed to widen the rail. */
+  .rail :global(.name),
+  .rail :global(.where) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rail :global(.name) {
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-medium);
+  }
+  .rail :global(.where) {
+    font-family: var(--z-font-mono);
+    font-size: var(--z-text-2xs);
+    color: var(--z-text-muted);
+  }
+  .rail :global(.side) {
+    display: grid;
+    flex: none;
+    justify-items: end;
+    font-size: var(--z-text-xs);
+  }
+  .rail :global(.empty) {
+    margin: 0;
+    font-size: var(--z-text-sm);
+    color: var(--z-text-muted);
+  }
+  .rail :global(.more) {
+    justify-self: start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--z-accent);
+    font: inherit;
+    font-size: var(--z-text-sm);
+    text-decoration: underline;
+    text-underline-offset: var(--z-underline-offset);
+    cursor: pointer;
+  }
+  @keyframes rail-arrive {
+    from {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rail :global(.row) {
+      animation: none;
+    }
+  }
+  @media (pointer: coarse) {
+    .rail :global(.row) {
+      min-height: var(--z-control-touch);
+    }
   }
   @media (max-width: 768px) {
     .bar {
       padding: var(--z-space-2) var(--z-space-4);
     }
+    .board {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        'waiting'
+        'attention'
+        'deck'
+        'finished';
+      grid-template-rows: none;
+      padding: var(--z-space-4);
+    }
     .deck {
       grid-template-columns: minmax(0, 1fr);
-      padding: var(--z-space-4);
     }
   }
 </style>

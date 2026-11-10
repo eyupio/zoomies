@@ -1,0 +1,133 @@
+/**
+ * The jobs the command centre's rail shows: what waits, and what finished in
+ * the last ten minutes. One fetch each, then kept current by `job.updated`.
+ *
+ * It is the command centre's own, and lives only while the page does: no
+ * other page wants a ten-minute window, and a store left running behind a
+ * closed page would keep a wall display's worth of jobs in every tab.
+ */
+import { ApiError, listJobs, listProvisioning } from '../api/client';
+import { events } from '../api/sse';
+import type { Job } from '../api/types';
+import { QUEUE_DEFAULT_QUERY } from '../queue/default-query';
+import { clock } from './clock.svelte';
+import { FINISHED_WINDOW_MS, mergeFinished, mergeWaiting, pruneFinished } from './jobs-merge';
+
+// The most a request may ask for. A queue longer than this is a fleet with a
+// bigger problem than a count that stops at five hundred.
+const WAITING_LIMIT = 500;
+const FINISHED_LIMIT = 50;
+
+let waiting = $state.raw<Job[]>([]);
+let finished = $state.raw<Job[]>([]);
+/**
+ * Jobs in the window the first fetch did not return. They are the oldest of
+ * the window, because the fetch is newest first, so the moment any job it did
+ * return ages out they have all gone too, and this goes to zero.
+ */
+let unfetched = $state(0);
+let error = $state.raw<ApiError | null>(null);
+let started = false;
+let pending: AbortController | null = null;
+let stopFrames: (() => void) | null = null;
+let stopPruning: (() => void) | null = null;
+
+function prune(now: number): void {
+  const kept = pruneFinished(finished, now);
+  if (kept.length === finished.length) return;
+  finished = kept;
+  unfetched = 0;
+}
+
+async function load(): Promise<void> {
+  pending?.abort();
+  const abort = new AbortController();
+  pending = abort;
+  const since = new Date(Date.now() - FINISHED_WINDOW_MS).toISOString();
+  try {
+    const [queue, done] = await Promise.all([
+      listProvisioning(
+        { ...QUEUE_DEFAULT_QUERY, sort: 'queued_at', order: 'asc', limit: WAITING_LIMIT },
+        abort.signal,
+      ),
+      listJobs(
+        {
+          state: ['completed'],
+          completed_since: since,
+          managed: true,
+          // Full jobs, not `include_steps=false`: that returns summaries, which
+          // carry neither the runner nor the claim the drawer and the merge read,
+          // and a row opened from the list would be a different job from the
+          // same row once a frame replaced it. Fifty jobs' steps is the price.
+          sort: 'completed_at',
+          order: 'desc',
+          limit: FINISHED_LIMIT,
+        },
+        abort.signal,
+      ),
+    ]);
+    if (pending !== abort) return;
+    // Built through the merges, so a fetched row obeys the same rules as a frame.
+    waiting = (queue.items ?? []).reduce<Job[]>(mergeWaiting, []);
+    const now = Date.now();
+    const items = done.items ?? [];
+    finished = items.reduce<Job[]>((list, job) => mergeFinished(list, job, now), []);
+    unfetched = Math.max(0, (done.total ?? 0) - items.length);
+    error = null;
+  } catch (e) {
+    if (abort.signal.aborted || pending !== abort) return;
+    error =
+      e instanceof ApiError
+        ? e
+        : new ApiError({ status: 0, code: 'internal', message: 'Could not load the jobs.' });
+  }
+}
+
+export const commandJobs = {
+  get waiting(): Job[] {
+    return waiting;
+  },
+  get finished(): Job[] {
+    return finished;
+  },
+  get finishedCount(): number {
+    return finished.length + unfetched;
+  },
+  get error(): ApiError | null {
+    return error;
+  },
+  start(): void {
+    if (started) return;
+    started = true;
+    stopFrames = events.subscribe('job.updated', (job) => {
+      waiting = mergeWaiting(waiting, job);
+      finished = mergeFinished(finished, job, Date.now());
+    });
+    // Pruned on the page's own clock, once a minute: the clock stops while
+    // the stream is down, and so does the window, with everything else.
+    let minute = -1;
+    stopPruning = $effect.root(() => {
+      $effect(() => {
+        const now = clock.now;
+        const next = Math.floor(now / 60_000);
+        if (next === minute) return;
+        minute = next;
+        prune(now);
+      });
+    });
+    void load();
+  },
+  stop(): void {
+    if (!started) return;
+    started = false;
+    stopFrames?.();
+    stopPruning?.();
+    stopFrames = stopPruning = null;
+    pending?.abort();
+    pending = null;
+  },
+  /** Fetch both lists afresh: after a failure, or when the stream returns from a gap. */
+  retry(): Promise<void> {
+    return load();
+  },
+};

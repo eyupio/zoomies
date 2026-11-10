@@ -23,6 +23,15 @@ export function finishedSinceHref(since: Date): string {
   return `/jobs?state=completed&since=${encodeURIComponent(since.toISOString())}`;
 }
 
+/**
+ * Jobs that finished since an instant: what Just finished counts. It reads
+ * when a job ended, where `finishedSinceHref` reads when it was queued, so a
+ * job queued an hour ago that ended a minute ago is in this list and not that.
+ */
+export function completedSinceHref(since: Date): string {
+  return `/jobs?state=completed&completed_since=${encodeURIComponent(since.toISOString())}`;
+}
+
 // Ids come from the API but a link is a URL: encode so one with a slash or a
 // space cannot name a different page.
 export function hostHref(id: string): string {

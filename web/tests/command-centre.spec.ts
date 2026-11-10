@@ -16,6 +16,7 @@ import {
   navEntry,
   openSection,
   pageHeading,
+  readThrough,
 } from './support/fixtures';
 
 function exitLink(page: Page) {
@@ -165,4 +166,63 @@ test('the success share names its window and opens the jobs finished in it', asy
   const figure = page.getByRole('link', { name: /^Succeeded, last / });
   await expect(figure).toHaveAttribute('href', /^\/jobs\?state=completed&since=/);
   await expect(page.getByText(/today/i)).toHaveCount(0);
+});
+
+function rail(page: Page, name: string) {
+  return page.getByRole('region', { name: new RegExp(`^${name}`) });
+}
+
+test('a waiting job opens the job drawer in place', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  // The fixture keeps jobs queued for its pools, so the list has rows.
+  const row = rail(page, 'Waiting').getByRole('button').first();
+  await expect(row).toBeVisible();
+  await row.click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page).toHaveURL(/\/command$/);
+});
+
+test('a finished job opens the job drawer in place, and its outcome is named', async ({ page }) => {
+  // The fixture's jobs finished long before the ten-minute window, so one of
+  // them is moved into it. The stream goes first, or a frame could replace it.
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  const finishedRead = (url: URL) =>
+    url.pathname === '/api/v1/jobs' && url.searchParams.has('completed_since');
+  await page.route(finishedRead, async (route) => {
+    const url = new URL(route.request().url());
+    url.searchParams.delete('completed_since');
+    const read = await readThrough<{ items?: Record<string, unknown>[]; total?: number }>(route, {
+      url: url.toString(),
+    });
+    if (!read) return;
+    const job = {
+      ...read.body.items![0]!,
+      conclusion: 'success',
+      completed_at: new Date().toISOString(),
+    };
+    return route.fulfill({
+      response: read.response,
+      json: { ...read.body, items: [job], total: 1 },
+    });
+  });
+  await goto(page, '/command', 'Command centre');
+  const section = rail(page, 'Just finished');
+  const row = section.getByRole('button').first();
+  await expect(row).toBeVisible();
+  await expect(row.getByRole('img', { name: 'Succeeded' })).toBeVisible();
+  await row.click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page).toHaveURL(/\/command$/);
+});
+
+test('Needs attention is absent, not empty, when no problem is open', async ({ page }) => {
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  await page.route('**/api/v1/problems', async (route) => {
+    const read = await readThrough<{ items?: unknown[] }>(route);
+    if (!read) return;
+    return route.fulfill({ response: read.response, json: { ...read.body, items: [] } });
+  });
+  await goto(page, '/command', 'Command centre');
+  await expect(rail(page, 'Waiting')).toBeVisible();
+  await expect(rail(page, 'Needs attention')).toHaveCount(0);
 });
