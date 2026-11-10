@@ -65,7 +65,13 @@
 
     <div class="verdict" data-verdict={verdict.kind}>
       <h2 id="command-verdict">{verdict.headline}</h2>
-      <p class="sentence" aria-live="polite">
+      <!-- Announced when the headline changes, and only then: the sentence
+           carries waits counted by the second, which a live region would
+           read aloud every second. -->
+      <p class="sr-only" aria-live="polite" data-testid="verdict-announcer">
+        {verdict.headline}
+      </p>
+      <p class="sentence">
         {#each verdict.parts as part, i (i)}
           {#if part.href}
             <a class="part {part.tone ?? ''}" href={part.href}>

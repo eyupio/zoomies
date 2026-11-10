@@ -15,13 +15,29 @@ const supported = typeof document !== 'undefined' && document.fullscreenEnabled 
 
 let active = $state(typeof document !== 'undefined' && document.fullscreenElement !== null);
 let lock: WakeLockSentinel | null = null;
+/**
+ * The request in flight. `fullscreenchange` and `visibilitychange` can both
+ * fire before it answers, and a second request would leave a sentinel that
+ * nothing ever releases, holding the screen awake after full screen ends.
+ */
+let requesting: Promise<void> | null = null;
 
-async function holdLock(): Promise<void> {
-  if (lock || typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
+function holdLock(): Promise<void> {
+  if (lock || typeof navigator === 'undefined' || !('wakeLock' in navigator)) {
+    return Promise.resolve();
+  }
+  requesting ??= requestLock().finally(() => {
+    requesting = null;
+  });
+  return requesting;
+}
+
+async function requestLock(): Promise<void> {
   try {
     const sentinel = await navigator.wakeLock.request('screen');
-    // Full screen may have ended while the request was in flight.
-    if (!active) {
+    // Full screen may have ended while the request was in flight, or a lock
+    // may already be held.
+    if (!active || lock) {
       void sentinel.release();
       return;
     }

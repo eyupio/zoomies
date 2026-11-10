@@ -142,6 +142,28 @@ test('the verdict is a heading of its own, with its sentence beside it', async (
   await expect(verdict).toBeVisible();
 });
 
+// The sentence carries waits counted by the second and, when the stream is
+// down, how long ago the page last heard. A live region over it would have a
+// screen reader read the verdict aloud every second; only the headline, which
+// changes when the fleet's state does, is announced.
+test('the verdict announces its headline only, never the sentence that counts by the second', async ({
+  page,
+}) => {
+  await goto(page, '/command', 'Command centre');
+  const hero = page.locator('section[aria-labelledby="command-verdict"]');
+  const regions = hero.locator('[aria-live]');
+  const headline = hero.getByRole('heading', { level: 2 });
+  await expect(regions).toHaveCount(1);
+  await expect(regions).toHaveText((await headline.textContent()) ?? '');
+  await expect(hero.locator('.sentence[aria-live]')).toHaveCount(0);
+
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await expect(headline).toHaveText('Not live.');
+  await expect(regions).toHaveCount(1);
+  await expect(regions).toHaveText('Not live.');
+});
+
 test('a host lane is named by its host, and its header opens that host', async ({ page }) => {
   await goto(page, '/command', 'Command centre');
   const lane = page.getByRole('region', { name: FIXTURE.busyRunnerHost, exact: true });

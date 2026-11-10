@@ -74,6 +74,28 @@ export function mergeFinished(list: readonly Job[], frame: Job, now: number): Jo
   return pruneFinished([...rest, frame].sort(newestFirst), now);
 }
 
+export interface RailLists {
+  waiting: Job[];
+  finished: Job[];
+}
+
+/**
+ * The fetched lists with the frames that landed while the fetch ran laid over
+ * them. Those frames are newer than anything the fetch returns: after a
+ * reconnect the stream's replay arrives while the lists are being fetched
+ * again, and a fetch laid down last would put back a job that started in the
+ * gap.
+ */
+export function replayFrames(fetched: RailLists, frames: readonly Job[], now: number): RailLists {
+  let waiting = fetched.waiting;
+  let finished = fetched.finished;
+  for (const frame of frames) {
+    waiting = mergeWaiting(waiting, frame);
+    finished = mergeFinished(finished, frame, now);
+  }
+  return { waiting, finished };
+}
+
 const FAILED = new Set(['failure', 'timed_out', 'startup_failure']);
 const NEUTRAL_LABELS: Record<string, string> = { cancelled: 'Cancelled', skipped: 'Skipped' };
 
@@ -128,8 +150,10 @@ export function waitingSummary(
   let pool: string | null = null;
   let longestWaitMs = 0;
   for (const job of [...waiting].sort(longestFirst)) {
+    // A paused job waits because an operator held it, which is no queue.
+    if (job.provisioning === 'paused') continue;
     longestWaitMs = Math.max(longestWaitMs, elapsedMs(job.queued_at, now) ?? 0);
-    if (job.cancel_requested_at || job.provisioning === 'paused') continue;
+    if (job.cancel_requested_at) continue;
     const left = job.pool_id ? (cover.get(job.pool_id) ?? 0) : 0;
     if (job.pool_id && left > 0) {
       cover.set(job.pool_id, left - 1);

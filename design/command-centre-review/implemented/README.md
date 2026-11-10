@@ -50,12 +50,13 @@ checks, not axe.
 ## Verification
 
 Validated: the production UI and Go binary build; `npm run check`, `npm run
-lint` and `npm run test:unit` pass; seven browser specifications that touch the
-page, navigation and shortcuts passed 272 tests with none failed, against the
-real built controller; the captures above were taken from that controller in
-both styles and both colour modes at both widths.
+lint` and `npm run test:unit` pass; at commit 7125d4c, seven browser
+specifications that touch the page, navigation and shortcuts passed 272 tests
+with none failed, against the real built controller; the captures above were
+taken from that controller in both styles and both colour modes at both widths.
 
-Not validated: the full `make test-ui` suite has not been run for this change.
-No usability study was done, and nobody has watched the page on a wall display
-over hours. The captures verify layout, not real infrastructure or the
+Full browser suite: (to be completed with the result at the current head)
+
+Not validated: no usability study was done, and nobody has watched the page on
+a wall display over hours. The captures verify layout, not real infrastructure or the
 behaviour of a browser's full-screen and wake-lock controls.

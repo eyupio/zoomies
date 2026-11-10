@@ -150,6 +150,13 @@ is full screen it also keeps the display from dimming where the browser can.
 was opened directly. `Esc` leaves full screen first, then closes whatever is
 open over the page, and then exits.
 
+On a wide screen the host lanes fill the left and the rail sits to their
+right, but in reading and Tab order **Waiting** and **Needs attention** come
+before the host lanes at every width. They are what someone at the page acts
+on, so a screen reader or the keyboard reaches them without passing every slot
+of every host first, and one source order serves both the phone, where the
+page is a single stacked column, and the keyboard on a desktop.
+
 ![The command centre in the Classic style: a bar with the wordmark, the clock, Full screen and Exit; a ring of slots in use beside the verdict and three figures; host lanes with a tile for each slot; and a rail of waiting jobs and problems](screenshots/command-dark.webp#only-dark){ .zoomies-shot }
 ![The command centre in the Classic style: a bar with the wordmark, the clock, Full screen and Exit; a ring of slots in use beside the verdict and three figures; host lanes with a tile for each slot; and a rail of waiting jobs and problems](screenshots/command-light.webp#only-light){ .zoomies-shot }
 

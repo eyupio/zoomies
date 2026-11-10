@@ -61,6 +61,9 @@
 
   let lastHeardAt = $state<number | null>(null);
   let wasLive = false;
+  // Set when the page goes, so a refetch that answers after it cannot start
+  // a clock nothing will ever stop.
+  let disposed = false;
   $effect(() => {
     if (live) {
       const returning = lastHeardAt !== null;
@@ -70,7 +73,7 @@
         return;
       }
       void Promise.allSettled([fleet.reconcile(), commandJobs.retry()]).then(() => {
-        if (fleet.connection === 'live') clock.start();
+        if (!disposed && fleet.connection === 'live') clock.start();
       });
       return;
     }
@@ -78,7 +81,10 @@
     if (wasLive) lastHeardAt = Date.now();
     wasLive = false;
   });
-  onMount(() => () => clock.stop());
+  onMount(() => () => {
+    disposed = true;
+    clock.stop();
+  });
 
   // The rail's jobs live as long as the page: nothing else wants a window of
   // ten minutes, and a wall display is the page that asks for it.
@@ -124,7 +130,12 @@
   const waitingNow = $derived(waitingSummary(commandJobs.waiting, fleet.runners, free, clock.now));
 
   const verdictInput = $derived.by((): VerdictInput => {
-    const waiting = fleet.stats?.fleet?.queued_jobs ?? fleet.stats?.queued_jobs ?? 0;
+    // The same count the Waiting heading shows once the list has answered, so
+    // the two never disagree; the stats figure stands in only until then.
+    const listed = commandJobs.loaded && !commandJobs.error;
+    const waiting = listed
+      ? commandJobs.waiting.length
+      : (fleet.stats?.fleet?.queued_jobs ?? fleet.stats?.queued_jobs ?? 0);
     const problems = notifications.active;
     return {
       live,

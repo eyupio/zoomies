@@ -11,7 +11,13 @@ import { events } from '../api/sse';
 import type { Job } from '../api/types';
 import { QUEUE_DEFAULT_QUERY } from '../queue/default-query';
 import { clock } from './clock.svelte';
-import { FINISHED_WINDOW_MS, mergeFinished, mergeWaiting, pruneFinished } from './jobs-merge';
+import {
+  FINISHED_WINDOW_MS,
+  mergeFinished,
+  mergeWaiting,
+  pruneFinished,
+  replayFrames,
+} from './jobs-merge';
 
 // The most a request may ask for. A queue longer than this is a fleet with a
 // bigger problem than a count that stops at five hundred.
@@ -35,6 +41,12 @@ let error = $state.raw<ApiError | null>(null);
 let loaded = $state(false);
 let started = false;
 let pending: AbortController | null = null;
+/**
+ * Frames that landed while a fetch was in flight. They are drawn at once, on
+ * the lists the page holds, and laid again over the fetched lists when the
+ * fetch answers, because they are newer than anything it returns.
+ */
+let held: Job[] = [];
 let stopFrames: (() => void) | null = null;
 let stopPruning: (() => void) | null = null;
 
@@ -49,6 +61,7 @@ async function load(): Promise<void> {
   pending?.abort();
   const abort = new AbortController();
   pending = abort;
+  held = [];
   const since = new Date(Date.now() - FINISHED_WINDOW_MS).toISOString();
   try {
     const [queue, done] = await Promise.all([
@@ -74,15 +87,25 @@ async function load(): Promise<void> {
     ]);
     if (pending !== abort) return;
     // Built through the merges, so a fetched row obeys the same rules as a frame.
-    waiting = (queue.items ?? []).reduce<Job[]>(mergeWaiting, []);
+    const fetchedWaiting = (queue.items ?? []).reduce<Job[]>(mergeWaiting, []);
     const now = Date.now();
     const items = done.items ?? [];
-    finished = items.reduce<Job[]>((list, job) => mergeFinished(list, job, now), []);
+    const fetchedFinished = items.reduce<Job[]>((list, job) => mergeFinished(list, job, now), []);
+    ({ waiting, finished } = replayFrames(
+      { waiting: fetchedWaiting, finished: fetchedFinished },
+      held,
+      now,
+    ));
+    held = [];
+    pending = null;
     unfetched = Math.max(0, (done.total ?? 0) - items.length);
     error = null;
     loaded = true;
   } catch (e) {
     if (abort.signal.aborted || pending !== abort) return;
+    // The held frames are already on the lists the page keeps showing.
+    held = [];
+    pending = null;
     error =
       e instanceof ApiError
         ? e
@@ -111,6 +134,7 @@ export const commandJobs = {
     if (started) return;
     started = true;
     stopFrames = events.subscribe('job.updated', (job) => {
+      if (pending) held.push(job);
       waiting = mergeWaiting(waiting, job);
       finished = mergeFinished(finished, job, Date.now());
     });
@@ -136,6 +160,14 @@ export const commandJobs = {
     stopFrames = stopPruning = null;
     pending?.abort();
     pending = null;
+    held = [];
+    // A return visit starts from the skeleton, not from the last visit's
+    // lists, which nothing has kept current since.
+    waiting = [];
+    finished = [];
+    unfetched = 0;
+    error = null;
+    loaded = false;
   },
   /** Fetch both lists afresh: after a failure, or when the stream returns from a gap. */
   retry(): Promise<void> {

@@ -10,6 +10,7 @@ import {
   mergeFinished,
   mergeWaiting,
   pruneFinished,
+  replayFrames,
   waitingSummary,
 } from '../src/lib/command/jobs-merge.ts';
 
@@ -169,8 +170,18 @@ test('a paused or cancelling job raises no demand, so it waits for no slot', () 
   ];
   const summary = waitingSummary(jobs, [], 0, now);
   assert.equal(summary.withoutSlot, 0);
-  // It is still the longest wait on the list, which is what the sentence says.
-  assert.equal(summary.longestWaitMs, 60_000);
+  // The cancelling job is still waiting on the list; the paused one is held
+  // on purpose, and is the next test's subject.
+  assert.equal(summary.longestWaitMs, 30_000);
+});
+
+// A paused job waits because an operator said so. Counting its wait would
+// have the verdict report a long queue that nobody but the operator made.
+test('a paused job is not the longest wait', () => {
+  const jobs = [queued('a', 600_000, { provisioning: 'paused' }), queued('b', 20_000)];
+  assert.equal(waitingSummary(jobs, [], 0, now).longestWaitMs, 20_000);
+  const onlyPaused = [queued('a', 600_000, { provisioning: 'paused' })];
+  assert.equal(waitingSummary(onlyPaused, [], 0, now).longestWaitMs, 0);
 });
 
 test('nothing waiting is no wait at all', () => {
@@ -179,4 +190,29 @@ test('nothing waiting is no wait at all', () => {
     longestWaitMs: 0,
     pool: null,
   });
+});
+
+// After a reconnect the lists are fetched again, and the stream's replay
+// lands while that fetch is in flight. The fetch answers from before those
+// frames, so laying it down last would put a job that started in the gap back
+// on the waiting list.
+test('a frame received during a fetch wins over the fetched row for the same job', () => {
+  const fetched = {
+    waiting: [queued('a', 60_000), queued('b', 30_000)],
+    finished: [finished('c', 120_000)],
+  };
+  const startedA: Job = { ...queued('a', 60_000), state: 'in_progress', started_at: ago(1_000) };
+  const doneB = finished('b', 2_000, { queued_at: ago(30_000) });
+  const failedC = finished('c', 120_000, { conclusion: 'failure' });
+  const out = replayFrames(fetched, [startedA, doneB, failedC], now);
+  assert.deepEqual(ids(out.waiting), []);
+  assert.deepEqual(ids(out.finished), ['b', 'c']);
+  assert.equal(out.finished[1]!.conclusion, 'failure');
+});
+
+test('with no frames held, the fetched lists stand as they are', () => {
+  const fetched = { waiting: [queued('a', 60_000)], finished: [finished('c', 1_000)] };
+  const out = replayFrames(fetched, [], now);
+  assert.deepEqual(ids(out.waiting), ['a']);
+  assert.deepEqual(ids(out.finished), ['c']);
 });
