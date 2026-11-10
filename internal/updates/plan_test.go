@@ -375,6 +375,58 @@ func TestDecideStartsARolloutInAutoWhenAHostIsBehindAControllerBuiltFromMain(t *
 	wantSentence(t, p, "main-sha-abc1234", "1 host is behind")
 }
 
+// The dev channel cannot be asked for a commit, so a host sent to it before CI
+// has published the controller's build restarts onto the old binary and the
+// attempt fails and counts. Waiting costs nothing, so the planner waits, and
+// says what it is waiting for.
+func TestDecideWaitsForTheDevChannelToHoldTheControllersBuild(t *testing.T) {
+	tests := map[string]struct {
+		running, channel string
+		release          bool
+		wantStart        bool
+	}{
+		"the channel holds an older build":         {running: "main-sha-d49e8bf4", channel: "main-sha-315d2dac"},
+		"the channel is ahead of the controller":   {running: "main-sha-315d2dac", channel: "main-sha-d49e8bf4"},
+		"the channel holds the controller's build": {running: "main-sha-d49e8bf4", channel: "main-sha-d49e8bf4", wantStart: true},
+		"the channel's build is not known":         {running: "main-sha-d49e8bf4", channel: "", wantStart: true},
+		"a release is named by its tag":            {running: "1.3.5", channel: "main-sha-315d2dac", release: true, wantStart: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			s := planSnapshot()
+			s.Running, s.DevBuild = tt.running, tt.channel
+			behind := "main-sha-1c5b8378"
+			if tt.release {
+				behind = "1.3.4"
+			}
+			s.Hosts = []HostFacts{planHost("h1", "runner-1", behind, 0)}
+			p := decide(t, s)
+			if tt.wantStart {
+				wantKinds(t, p, ActionStartRollout)
+				return
+			}
+			wantKinds(t, p)
+			wantSentence(t, p, tt.channel, tt.running, "once the channel has it")
+		})
+	}
+}
+
+// A rollout that is already open waits the same way, and a host that is waiting
+// has not failed: it is asked once the channel has the build, with every attempt
+// it had.
+func TestDecideHoldsAnOpenRolloutUntilTheDevChannelHoldsTheBuild(t *testing.T) {
+	s := planSnapshot()
+	s.Running, s.DevBuild = "main-sha-d49e8bf4", "main-sha-315d2dac"
+	s.Rollout = runningRollout("main-sha-d49e8bf4")
+	s.Hosts = []HostFacts{planHost("h1", "runner-1", "main-sha-315d2dac", 0)}
+	p := decide(t, s)
+	wantKinds(t, p)
+	wantSentence(t, p, "The rollout to main-sha-d49e8bf4 is waiting", "main-sha-315d2dac")
+
+	s.DevBuild = "main-sha-d49e8bf4"
+	wantKinds(t, decide(t, s), ActionUpdateHost)
+}
+
 // A local build of the controller has no release or main build to name, so
 // there is nothing a host could be taken to that the helper would accept.
 func TestDecideStartsARolloutInAutoNotWhenTheControllerHasNoTarget(t *testing.T) {

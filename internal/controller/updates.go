@@ -41,6 +41,14 @@ const (
 	// sign in.
 	releaseListURL = "https://api.github.com/repos/eyupio/zoomies/releases?per_page=10"
 	mainCommitURL  = "https://api.github.com/repos/eyupio/zoomies/commits/main"
+	// devReleaseURL is the rolling release a build from main takes its binaries
+	// from. It is asked for by tag: it was made long ago, so it is not among the
+	// ten most recent releases.
+	devReleaseURL = "https://api.github.com/repos/eyupio/zoomies/releases/tags/dev"
+	// devChannelRetry is the least time between two reads of it while it does not
+	// yet hold the controller's build. The request carries no credentials, so the
+	// limit it spends is shared, and a build is published within the hour.
+	devChannelRetry = 5 * time.Minute
 	// updateCheckTimeout bounds the request. Nothing waits on this, so it can
 	// afford to be patient, but not to hold a housekeeping pass open.
 	updateCheckTimeout = 15 * time.Second
@@ -83,6 +91,13 @@ type developmentState struct {
 	SHA string
 	URL string
 	At  time.Time
+}
+
+// channelState is what the last successful read of the dev release learned.
+type channelState struct {
+	// Build is the main build its notes say it holds, or empty when they name none.
+	Build string
+	At    time.Time
 }
 
 // developmentCommit returns the commit stamped into a published main build.
@@ -151,6 +166,9 @@ func (c *Controller) checkForRelease(ctx context.Context) error {
 	defer cancel()
 	if _, ok := developmentCommit(version.Version); ok {
 		c.checkForMain(ctx)
+		if c.updateMode() != updates.ModeOff {
+			c.checkForDevChannel(ctx)
+		}
 		// The list too once updates are on, because a build from main can now be
 		// moved onto the newest release by hand.
 		if c.updateMode() != updates.ModeOff {
@@ -361,6 +379,80 @@ func (c *Controller) checkForMain(ctx context.Context) {
 	c.mu.Lock()
 	c.development = &developmentState{SHA: body.SHA, URL: body.HTMLURL, At: c.Now()}
 	c.mu.Unlock()
+}
+
+// checkForDevChannel reads which build from main the dev release holds.
+//
+// The binaries a host downloads are whatever the channel holds, and the download
+// cannot name a commit, so a host asked to update to the controller's build
+// before CI has published it comes back on the old one. The planner holds hosts
+// back until the notes CI writes after the last upload name the controller's
+// build; this is how it learns that. A failed read keeps the previous answer and
+// is logged at debug, as the other checks are, and a release whose notes name no
+// build is recorded as naming none, which holds nothing back.
+func (c *Controller) checkForDevChannel(ctx context.Context) {
+	c.mu.Lock()
+	c.channelAsked = c.Now()
+	c.mu.Unlock()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, devReleaseURL, nil)
+	if err != nil {
+		c.log.Debug("could not build the dev channel request", "error", err)
+		return
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", version.UserAgent())
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.log.Debug("could not ask GitHub which build the dev channel holds", "error", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		c.log.Debug("the dev channel check was refused", "status", resp.StatusCode)
+		return
+	}
+	var body struct {
+		Body  string `json:"body"`
+		Draft bool   `json:"draft"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, releaseListMaxBytes)).Decode(&body); err != nil {
+		c.log.Debug("could not read the dev channel answer", "error", err)
+		return
+	}
+	state := &channelState{At: c.Now()}
+	if !body.Draft {
+		state.Build = updates.ChannelBuild(body.Body)
+	}
+	c.mu.Lock()
+	c.channel = state
+	c.mu.Unlock()
+}
+
+// devChannelDue says whether the dev channel should be read again now: this is a
+// build from main, updating is on, and the channel has not yet been seen holding
+// this build. Once it has, the answer stays until the controller moves on, and
+// nothing is asked.
+func (c *Controller) devChannelDue() bool {
+	if _, ok := developmentCommit(version.Version); !ok || c.updateMode() == updates.ModeOff {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.channel != nil && c.channel.Build == strings.TrimSpace(version.Version) {
+		return false
+	}
+	return c.Now().Sub(c.channelAsked) >= devChannelRetry
+}
+
+// devChannelBuild is the build the last read of the dev channel found in its
+// notes, and empty when it has not been read or the notes name none.
+func (c *Controller) devChannelBuild() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.channel == nil {
+		return ""
+	}
+	return c.channel.Build
 }
 
 // latestRelease returns what the last check learned, or nil.

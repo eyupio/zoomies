@@ -427,7 +427,11 @@ type Controller struct {
 	// moving dev channel. Release checks deliberately cannot order that build,
 	// so it needs its own comparison.
 	development *developmentState
-	embedded    *agent.Agent
+	// channel is what the last read of the dev release's notes said it holds, and
+	// channelAsked when that read was last made, which paces the next one.
+	channel      *channelState
+	channelAsked time.Time
+	embedded     *agent.Agent
 	// embeddedCancel stops the in-process agent, which may have been started
 	// with a context the controller does not otherwise control.
 	embeddedCancel context.CancelFunc
