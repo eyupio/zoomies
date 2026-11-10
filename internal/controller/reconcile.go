@@ -254,8 +254,10 @@ func (c *Controller) snapshot(ctx context.Context) (scheduler.Snapshot, error) {
 	}
 	return scheduler.Snapshot{
 		JobHistory: history, HistorySizing: mode,
-		HostOrder: c.cfg().Scheduler.HostOrder,
-		Readiness: readiness, PreferReadiness: c.cfg().Scheduler.PlacementMode == "readiness",
+		HistoryPercentile:  c.cfg().Scheduler.HistoryPercentile,
+		HistoryMaxMultiple: c.cfg().Scheduler.HistoryMaxMultiple,
+		HostOrder:          c.cfg().Scheduler.HostOrder,
+		Readiness:          readiness, PreferReadiness: c.cfg().Scheduler.PlacementMode == "readiness",
 		LastProvisioned:    lastProvisioned,
 		Now:                now,
 		HeldInstallations:  c.heldInstallations(now),

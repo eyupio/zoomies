@@ -639,6 +639,14 @@ var registry = buildRegistry([]Setting{
 		Summary: "Place a runner only on a host with room for what the jobs waiting on its pool used on their recent runs, and size it up to that where the pool leaves its size to the host. Shadow works it out and records where it would have placed differently without changing anything; off ignores job history. GitHub picks which waiting job a runner takes, so the runner is placed for the largest of them.",
 	},
 	{
+		Key: "scheduler.history_percentile", Label: "History sizing: percentile of the queue", Env: "ZOOMIES_HISTORY_PERCENTILE", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "Which of the memory needs of the jobs waiting on a pool a runner is sized for under history sizing, from 1 to 100: the nearest-rank percentile of them, each job counted once. The default, 75, sizes a runner for what three jobs in four need and lets the heaviest quarter lean on elastic memory, so a few heavy jobs do not make every runner big and hold the fleet to a handful of them. 100 sizes for the heaviest, which is how history sizing worked before this setting.",
+	},
+	{
+		Key: "scheduler.history_max_multiple", Label: "History sizing: most of a slot's share", Env: "ZOOMIES_HISTORY_MAX_MULTIPLE", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "How many times its slot's share of its host's memory a runner sized from history may be given, from 1 to 8. The default, 2, lets a job that wants half as much again as an ordinary one have it and stops a single enormous one making every runner that big. 1 never raises a runner above its share and leaves history to choose the host alone.",
+	},
+	{
 		Key: "scheduler.size_routing", Label: "Route jobs by size class", Env: "ZOOMIES_SIZE_ROUTING", Kind: KindEnum, Scope: ScopeInstance, Live: true,
 		Choices: []string{"off", "shadow", "on"},
 		Summary: "Class each job small, medium or large from what its recent runs used, and send it to the pool for that class, so light jobs land on small hosts and heavy ones on large hosts. A workflow that writes zoomies-large in runs-on is always honoured and never moved; a job that writes only zoomies is routed best effort, because GitHub, not Zoomies, decides which waiting job a runner takes. Shadow records each job's class and where it ran, and sends nothing anywhere; off classes nothing. Changing it puts the jobs already waiting through the new mode.",

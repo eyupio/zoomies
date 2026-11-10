@@ -80,6 +80,13 @@ type Snapshot struct {
 	// here. An empty mode is off.
 	JobHistory    map[store.JobUsageKey][]store.JobPeak
 	HistorySizing string
+	// HistoryPercentile and HistoryMaxMultiple are scheduler.history_percentile
+	// and scheduler.history_max_multiple: which of the waiting jobs' memory needs
+	// a runner is sized for, and how many times its slot's share of the host it
+	// may be given for it. Zero is the default of each (HistoryDefaultPercentile
+	// and HistoryDefaultMaxMultiple).
+	HistoryPercentile  int
+	HistoryMaxMultiple int
 	// HostOrder is scheduler.host_order: the order placement prefers hosts that
 	// can all take a runner in -- see HostOrderHeadroom and the constants
 	// beside it. An empty value is headroom, which is what every fleet had
@@ -383,7 +390,9 @@ func Decide(s Snapshot) Plan {
 		stillRunning:       runnersWithAJob(s),
 		history:            s.JobHistory,
 		historySizing:      s.HistorySizing,
+		historyPercentile:  s.HistoryPercentile,
 	}
+	t.hosts.maxMultiple = historyMaxMultiple(s.HistoryMaxMultiple)
 	t.hosts.readiness, t.hosts.preferReadiness = s.Readiness, s.PreferReadiness
 	t.hosts.order = s.HostOrder
 	if t.budget <= 0 {
@@ -450,6 +459,8 @@ type tick struct {
 	// history and historySizing are Snapshot.JobHistory and HistorySizing.
 	history       map[store.JobUsageKey][]store.JobPeak
 	historySizing string
+	// historyPercentile is Snapshot.HistoryPercentile.
+	historyPercentile int
 }
 
 // assign maps every queued job onto the pool that will run it, and collects the
@@ -1310,6 +1321,9 @@ type hostSet struct {
 	// under scheduler.history_sizing=on: a host that cannot hold it is not
 	// eligible, and the runner is sized up to it where its pool allows.
 	need *Requirement
+	// maxMultiple is how many times its slot's share of memory a runner sized from
+	// history may be given; see Snapshot.HistoryMaxMultiple.
+	maxMultiple int
 }
 
 // newHostSet seeds each host with its allocatable resources less what the
@@ -1453,7 +1467,7 @@ func (hs *hostSet) placeAvoiding(p *store.Pool, n int, avoid map[string]bool) []
 		raised := false
 		if hs.need != nil {
 			before := size
-			res, size = sizeForNeed(p, res, size, *hs.need)
+			res, size = sizeForNeed(p, res, size, *hs.need, hs.historyCapMB(h))
 			raised = size != before
 		}
 		hs.free[h.ID]--
