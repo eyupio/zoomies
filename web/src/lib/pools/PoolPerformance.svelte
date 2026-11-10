@@ -206,7 +206,7 @@
   .hosts td {
     padding: var(--z-space-1) var(--z-space-3) var(--z-space-1) 0;
     text-align: left;
-    font-weight: var(--z-weight-regular);
+    font-weight: var(--z-weight-normal);
     color: var(--z-text);
   }
   .hosts thead th {
