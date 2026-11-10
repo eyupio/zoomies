@@ -8,6 +8,7 @@
   give one job two explanations.
 -->
 <script lang="ts">
+  import RailSkeleton from './RailSkeleton.svelte';
   import type { Job } from '$lib/api/types';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import OffStatusIcon from '$lib/components/OffStatusIcon.svelte';
@@ -22,11 +23,13 @@
 
   interface Props {
     jobs: readonly Job[];
+    /** True until the first read has answered: the rows' shapes, not an empty list. */
+    loading: boolean;
     error: unknown;
     onopen: (job: Job) => void;
     onretry: () => void;
   }
-  let { jobs, error, onopen, onretry }: Props = $props();
+  let { jobs, loading, error, onopen, onretry }: Props = $props();
 
   const shown = $derived(jobs.slice(0, WAITING_SHOWN));
   const more = $derived(jobs.length - shown.length);
@@ -37,11 +40,13 @@
   }
 </script>
 
-<section class="rail-section" aria-labelledby="command-waiting">
+<section class="rail-section" aria-labelledby="command-waiting" aria-busy={loading}>
   <h2 id="command-waiting">
-    Waiting <span class="count">{jobs.length}</span>
+    Waiting {#if !loading && !error}<span class="count">{jobs.length}</span>{/if}
   </h2>
-  {#if error}
+  {#if loading}
+    <RailSkeleton />
+  {:else if error}
     <ErrorState compact {error} title="The waiting jobs did not load." {onretry} />
   {:else if jobs.length === 0}
     <p class="empty">Nothing is waiting.</p>

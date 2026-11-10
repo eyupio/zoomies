@@ -159,13 +159,43 @@ test('a runner tile opens its runner', async ({ page }) => {
   await expect(tile).toHaveAttribute('data-state', 'busy');
   await tile.click();
   await expect(page).toHaveURL(new RegExp(`/runners/${FIXTURE.busyRunnerId}$`));
+
+  // A wall display is visited, not left: Back puts it where it was.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/command$/);
+  await expect(pageHeading(page, 'Command centre')).toBeVisible();
+});
+
+test('a free cell opens its host', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  const cell = page.getByTestId('command-free').first();
+  await expect(cell).toHaveAttribute('href', /^\/hosts\/[^/]+$/);
+  await expect(cell).toHaveAccessibleName(/^Free slot on /);
+  await cell.click();
+  await expect(page).toHaveURL(/\/hosts\/[^/]+$/);
+});
+
+test('the wait and start figures open the queue and the runners', async ({ page }) => {
+  for (const [label, path] of [
+    ['Median wait', '/queue'],
+    ['Runner start', '/runners'],
+  ] as const) {
+    await goto(page, '/command', 'Command centre');
+    const figure = page.getByRole('link', { name: new RegExp(`^${label}`) });
+    await expect(figure).toHaveAttribute('href', path);
+    await figure.click();
+    await expect(page, `${label} leads to ${path}`).toHaveURL(new RegExp(`${path}$`));
+  }
 });
 
 test('the success share names its window and opens the jobs finished in it', async ({ page }) => {
   await goto(page, '/command', 'Command centre');
   const figure = page.getByRole('link', { name: /^Succeeded, last / });
   await expect(figure).toHaveAttribute('href', /^\/jobs\?state=completed&since=/);
-  await expect(page.getByText(/today/i)).toHaveCount(0);
+  // The share is over the stats window, which is not a calendar day, so the
+  // figure never calls it one. Scoped to the figure: a job or a feed entry
+  // elsewhere on the page may say "today" about something else entirely.
+  await expect(figure).not.toContainText(/today/i);
 });
 
 function rail(page: Page, name: string) {
@@ -180,6 +210,20 @@ test('a waiting job opens the job drawer in place', async ({ page }) => {
   await row.click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page).toHaveURL(/\/command$/);
+});
+
+test('Esc closes an open job drawer and stays, and a second Esc leaves', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  await rail(page, 'Waiting').getByRole('button').first().click();
+  const drawer = page.getByRole('dialog');
+  await expect(drawer).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
+  await expect(page).toHaveURL(/\/command$/);
+
+  await page.keyboard.press('Escape');
+  await expect(pageHeading(page, 'Overview')).toBeVisible();
 });
 
 test('a finished job opens the job drawer in place, and its outcome is named', async ({ page }) => {
@@ -257,6 +301,175 @@ test('the page says it is not live when the stream goes away', async ({ page }) 
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await expect(page.getByRole('heading', { name: 'Not live.' })).toBeVisible();
   await expect(page.getByText('Reconnecting')).toBeVisible();
-  // Nothing on the page goes on moving as if the work were still vouched for.
+  // Nothing on the page goes on moving as if the work were still vouched for,
+  // the ticker included: its events have stopped arriving too.
   await expect(page.locator('[data-live="false"]')).toHaveCount(1);
+  await page.mouse.move(0, 0);
+  const track = page.getByRole('region', { name: 'Recent events' }).locator('.track');
+  await expect(track).toHaveCount(1);
+  expect(await track.evaluate((el) => getComputedStyle(el).animationPlayState)).toBe('paused');
+});
+
+test('while the jobs are still loading the rail shows their shape and the deck is drawn', async ({
+  page,
+}) => {
+  // Held, never answered: the page has to stand on what it has.
+  await page.route('**/api/v1/jobs*', () => undefined);
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByTestId('command-lane').first()).toBeVisible();
+  await expect(page.getByTestId('command-rail-skeleton')).toHaveCount(2);
+  await expect(rail(page, 'Waiting')).toHaveAttribute('aria-busy', 'true');
+  // A list nobody has read yet is not an empty one.
+  await expect(page.getByText('Nothing is waiting.')).toHaveCount(0);
+});
+
+test('while the fleet is still loading the hero and the deck show their shape, not a verdict', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  await page.route('**/api/v1/hosts*', () => undefined);
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByTestId('command-deck')).toHaveAttribute('aria-busy', 'true');
+  await expect(page.getByTestId('command-lane')).toHaveCount(0);
+  // "No hosts yet." about a fleet nobody has read would be a claim.
+  await expect(page.getByRole('heading', { level: 2, name: 'Loading the fleet.' })).toBeAttached();
+  await expect(page.getByRole('heading', { name: 'No hosts yet.' })).toHaveCount(0);
+});
+
+test('a fleet that does not load says so where the hosts go, and tries again', async ({ page }) => {
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  let failing = true;
+  await page.route('**/api/v1/hosts*', (route) =>
+    failing
+      ? route.fulfill({
+          status: 500,
+          json: { error: { code: 'internal', message: 'the database is locked' } },
+        })
+      : route.fallback(),
+  );
+  await goto(page, '/command', 'Command centre');
+  const deck = page.getByTestId('command-deck');
+  await expect(deck.getByText('The hosts did not load.')).toBeVisible();
+  // The rail reads the jobs, which answered.
+  await expect(rail(page, 'Waiting').getByRole('button').first()).toBeVisible();
+
+  failing = false;
+  await deck.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByTestId('command-lane').first()).toBeVisible();
+});
+
+test('a read that fails says so in its band, offers to try again, and leaves the rest', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  let failing = true;
+  await page.route('**/api/v1/jobs*', (route) =>
+    failing
+      ? route.fulfill({
+          status: 500,
+          json: { error: { code: 'internal', message: 'the database is locked' } },
+        })
+      : route.fallback(),
+  );
+  await goto(page, '/command', 'Command centre');
+  const waiting = rail(page, 'Waiting');
+  await expect(waiting.getByRole('alert')).toBeVisible();
+  const retry = waiting.getByRole('button', { name: 'Try again' });
+  await expect(retry).toBeVisible();
+  // The hero and the deck read the fleet, which answered.
+  await expect(page.getByRole('heading', { level: 2, name: /\.$/ }).first()).toBeVisible();
+  await expect(page.getByTestId('command-lane').first()).toBeVisible();
+
+  failing = false;
+  await retry.click();
+  await expect(waiting.getByRole('alert')).toHaveCount(0);
+  await expect(waiting.getByRole('button').first()).toBeVisible();
+});
+
+test('forty hosts are forty lanes, and the page grows to hold them', async ({ page }) => {
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  await page.route('**/api/v1/hosts*', async (route) => {
+    const read = await readThrough<{ items?: Record<string, unknown>[] }>(route);
+    if (!read) return;
+    const template = read.body.items![0]!;
+    const items = Array.from({ length: 40 }, (_, i) => ({
+      ...template,
+      id: `hst_crowd${String(i).padStart(2, '0')}`,
+      name: `crowd-${String(i).padStart(2, '0')}`,
+      slots: 5,
+      capacity: 5,
+      healthy: true,
+      retired: false,
+      cordoned: false,
+    }));
+    return route.fulfill({ response: read.response, json: { ...read.body, items } });
+  });
+  await page.route('**/api/v1/runners*', async (route) => {
+    const read = await readThrough<{ items?: unknown[] }>(route);
+    if (!read) return;
+    return route.fulfill({
+      response: read.response,
+      json: { ...read.body, items: [], total: 0 },
+    });
+  });
+  await goto(page, '/command', 'Command centre');
+  const lanes = page.getByTestId('command-lane');
+  await expect(lanes).toHaveCount(40);
+  await expect(page.getByTestId('command-free')).toHaveCount(200);
+  const sizes = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollHeight,
+    viewport: innerHeight,
+    flat: Array.from(document.querySelectorAll('[data-testid="command-lane"]')).filter(
+      (lane) => lane.getBoundingClientRect().height === 0,
+    ).length,
+  }));
+  expect(sizes.scroll, 'the deck grows downwards rather than being cut off').toBeGreaterThan(
+    sizes.viewport,
+  );
+  expect(sizes.flat, 'a lane drawn with no height').toBe(0);
+});
+
+for (const style of ['classic', 'mission-control']) {
+  for (const mode of ['light', 'dark']) {
+    test(`${style} ${mode} draws the page with no error`, async ({ page }) => {
+      await page.addInitScript(
+        ({ style, mode }) => {
+          localStorage.setItem('zoomies.ui-style', style);
+          localStorage.setItem('zoomies.theme', mode);
+        },
+        { style, mode },
+      );
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await goto(page, '/command', 'Command centre');
+      await expect(page.getByTestId('command-ring')).toBeVisible();
+      await expect(page.getByTestId('command-lane').first()).toBeVisible();
+      await expect(rail(page, 'Waiting')).toHaveAttribute('aria-busy', 'false');
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
+test("a public view's visitor is told what the page is, without the shell's notice", async ({
+  page,
+}) => {
+  await page.route('**/api/v1/meta', async (route) => {
+    const read = await readThrough(route);
+    if (!read) return;
+    read.body.auth_disabled = false;
+    read.body.bootstrap_required = false;
+    read.body.public_view = true;
+    await route.fulfill({ response: read.response, json: read.body });
+  });
+  await page.route('**/api/v1/auth/session', async (route) => {
+    const read = await readThrough(route);
+    if (!read) return;
+    read.body.role = 'viewer';
+    read.body.kind = 'public';
+    await route.fulfill({ response: read.response, json: read.body });
+  });
+  await goto(page, '/command', 'Command centre');
+  const note = page.getByRole('note');
+  await expect(note).toContainText('Public, read-only view');
+  await expect(note.getByRole('button', { name: 'Sign in' })).toBeVisible();
 });

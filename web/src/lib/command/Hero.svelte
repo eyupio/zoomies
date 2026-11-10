@@ -11,6 +11,7 @@
 <script lang="ts">
   import { TriangleAlert, Clock } from '@lucide/svelte';
   import type { Stats } from '$lib/api/types';
+  import Skeleton from '$lib/components/Skeleton.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { notifications } from '$lib/state/notifications.svelte';
   import HourChart from './HourChart.svelte';
@@ -25,8 +26,13 @@
     busy: number;
     slots: number;
     now: number;
+    /**
+     * The fleet's first read has not answered. The verdict is not drawn until
+     * it has: "No hosts yet." about a fleet nobody has looked at is a claim.
+     */
+    loading?: boolean;
   }
-  let { verdict, stats, running, busy, slots, now }: Props = $props();
+  let { verdict, stats, running, busy, slots, now, loading = false }: Props = $props();
 
   const figures = $derived(heroFigures(stats, now));
 
@@ -35,48 +41,68 @@
   }
 </script>
 
-<section class="hero" aria-labelledby="command-verdict">
-  <Ring {running} {busy} {slots} />
-
-  <div class="verdict" data-verdict={verdict.kind}>
-    <h2 id="command-verdict">{verdict.headline}</h2>
-    <p class="sentence" aria-live="polite">
-      {#each verdict.parts as part, i (i)}
-        {#if part.href}
-          <a class="part {part.tone ?? ''}" href={part.href}>
-            {#if part.tone === 'pending'}<Clock size={14} aria-hidden="true" />{/if}
-            {#if part.tone === 'danger'}<TriangleAlert size={14} aria-hidden="true" />{/if}
-            {part.text}
-          </a>
-        {:else if part.opens === 'problems'}
-          <button type="button" class="part {part.tone ?? ''}" onclick={openProblems}>
-            {#if part.tone === 'pending'}<Clock size={14} aria-hidden="true" />{/if}
-            {#if part.tone === 'danger'}<TriangleAlert size={14} aria-hidden="true" />{/if}
-            {part.text}
-          </button>
-        {:else}{part.text}{/if}
+{#if loading}
+  <section class="hero" aria-labelledby="command-verdict" aria-busy="true">
+    <span class="ring-skeleton"><Skeleton width="100%" height="100%" radius="full" /></span>
+    <div class="verdict">
+      <h2 id="command-verdict" class="sr-only">Loading the fleet.</h2>
+      <Skeleton width="60%" height="var(--z-text-2xl)" />
+      <Skeleton lines={2} height="var(--z-text-base)" />
+    </div>
+    <ul class="figures" aria-hidden="true">
+      {#each [0, 1, 2] as figure (figure)}
+        <li class="figure"><Skeleton lines={3} height="var(--z-text-xs)" /></li>
       {/each}
-    </p>
-  </div>
+    </ul>
+    <div class="chart chart-skeleton">
+      <Skeleton width="50%" height="var(--z-text-xs)" />
+      <Skeleton height="var(--z-space-16)" radius="md" />
+    </div>
+  </section>
+{:else}
+  <section class="hero" aria-labelledby="command-verdict">
+    <Ring {running} {busy} {slots} />
 
-  <ul class="figures">
-    {#each figures as figure (figure.label)}
-      <li>
-        <Tooltip bare text={figure.help}>
-          <a class="figure" href={figure.href}>
-            <span class="label">{figure.label}</span>
-            <b class="value">{figure.value}</b>
-            <span class="note">{figure.note}</span>
-          </a>
-        </Tooltip>
-      </li>
-    {/each}
-  </ul>
+    <div class="verdict" data-verdict={verdict.kind}>
+      <h2 id="command-verdict">{verdict.headline}</h2>
+      <p class="sentence" aria-live="polite">
+        {#each verdict.parts as part, i (i)}
+          {#if part.href}
+            <a class="part {part.tone ?? ''}" href={part.href}>
+              {#if part.tone === 'pending'}<Clock size={14} aria-hidden="true" />{/if}
+              {#if part.tone === 'danger'}<TriangleAlert size={14} aria-hidden="true" />{/if}
+              {part.text}
+            </a>
+          {:else if part.opens === 'problems'}
+            <button type="button" class="part {part.tone ?? ''}" onclick={openProblems}>
+              {#if part.tone === 'pending'}<Clock size={14} aria-hidden="true" />{/if}
+              {#if part.tone === 'danger'}<TriangleAlert size={14} aria-hidden="true" />{/if}
+              {part.text}
+            </button>
+          {:else}{part.text}{/if}
+        {/each}
+      </p>
+    </div>
 
-  <div class="chart">
-    <HourChart {slots} />
-  </div>
-</section>
+    <ul class="figures">
+      {#each figures as figure (figure.label)}
+        <li>
+          <Tooltip bare text={figure.help}>
+            <a class="figure" href={figure.href}>
+              <span class="label">{figure.label}</span>
+              <b class="value">{figure.value}</b>
+              <span class="note">{figure.note}</span>
+            </a>
+          </Tooltip>
+        </li>
+      {/each}
+    </ul>
+
+    <div class="chart">
+      <HourChart {slots} />
+    </div>
+  </section>
+{/if}
 
 <style>
   .hero {
@@ -86,6 +112,16 @@
     gap: var(--z-space-6);
     padding: var(--z-space-6);
     border-bottom: var(--z-border-width) solid var(--z-border);
+  }
+  /* The ring's own box, so the verdict beside it does not move when it lands. */
+  .ring-skeleton {
+    display: block;
+    width: var(--z-command-ring);
+    height: var(--z-command-ring);
+  }
+  .chart-skeleton {
+    display: grid;
+    gap: var(--z-space-2);
   }
   .verdict {
     display: grid;
@@ -196,6 +232,15 @@
     }
   }
   @media (max-width: 768px) {
+    /* A phrase in the sentence is still a whole fingertip tall to press. */
+    .part {
+      display: inline-flex;
+      align-items: center;
+    }
+    .ring-skeleton {
+      width: var(--z-command-ring-phone);
+      height: var(--z-command-ring-phone);
+    }
     .hero {
       gap: var(--z-space-4);
       padding: var(--z-space-4);

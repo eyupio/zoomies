@@ -550,7 +550,8 @@ actually put in one; a confirmation, a form, a table:
 
 The command centre has measures of its own, each used by more than one rule.
 `--z-command-ring` (9.25rem) is the hero ring's diameter, sized to be read from
-across a room and drawn at three fifths of that on a phone;
+across a room. `--z-command-ring-phone` is three quarters of it, the ring
+below the phone breakpoint and the loading shape that stands in its place;
 `--z-command-ring-stroke` (0.625rem) is the width of its arc and its track.
 `--z-command-tile-height` (3.5rem) is every runner tile and free cell in a host
 lane, whatever it holds, so a lane's grid keeps its shape when a runner comes or

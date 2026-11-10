@@ -27,6 +27,12 @@ let finished = $state.raw<Job[]>([]);
  */
 let unfetched = $state(0);
 let error = $state.raw<ApiError | null>(null);
+/**
+ * True once a fetch has answered, either way. Until then the rail draws its
+ * rows' shapes: an empty list read before anything arrived would say "nothing
+ * is waiting" about a queue nobody has looked at yet.
+ */
+let loaded = $state(false);
 let started = false;
 let pending: AbortController | null = null;
 let stopFrames: (() => void) | null = null;
@@ -74,12 +80,14 @@ async function load(): Promise<void> {
     finished = items.reduce<Job[]>((list, job) => mergeFinished(list, job, now), []);
     unfetched = Math.max(0, (done.total ?? 0) - items.length);
     error = null;
+    loaded = true;
   } catch (e) {
     if (abort.signal.aborted || pending !== abort) return;
     error =
       e instanceof ApiError
         ? e
         : new ApiError({ status: 0, code: 'internal', message: 'Could not load the jobs.' });
+    loaded = true;
   }
 }
 
@@ -95,6 +103,9 @@ export const commandJobs = {
   },
   get error(): ApiError | null {
     return error;
+  },
+  get loaded(): boolean {
+    return loaded;
   },
   start(): void {
     if (started) return;

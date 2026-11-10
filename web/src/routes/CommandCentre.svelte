@@ -9,11 +9,13 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Maximize, Minimize, X } from '@lucide/svelte';
+  import { Eye, Maximize, Minimize, X } from '@lucide/svelte';
   import { events } from '$lib/api/sse';
   import type { Job, Problem } from '$lib/api/types';
   import Button from '$lib/components/Button.svelte';
+  import ErrorState from '$lib/components/ErrorState.svelte';
   import Logo from '$lib/components/Logo.svelte';
+  import Skeleton from '$lib/components/Skeleton.svelte';
   import AttentionList from '$lib/command/AttentionList.svelte';
   import FinishedList from '$lib/command/FinishedList.svelte';
   import Hero from '$lib/command/Hero.svelte';
@@ -36,6 +38,8 @@
   import { jobStatus } from '$lib/status';
   import { feed } from '$lib/state/feed.svelte';
   import { notifications } from '$lib/state/notifications.svelte';
+  import { session } from '$lib/state/session.svelte';
+  import { signIn } from '$lib/shell/signout';
 
   let now = $state(Date.now());
   onMount(() => onClockTick((at) => (now = at)));
@@ -209,6 +213,16 @@
       >
       {live ? 'Live' : 'Reconnecting'}
     </p>
+    <!-- The shell's visitor notice is chrome this page does without, but what
+         it says is not: a visitor is told the view is public and only reads,
+         and is given the one thing they can do about it. -->
+    {#if session.visitor}
+      <p class="visitor" role="note">
+        <Eye size={14} aria-hidden="true" />
+        <span>Public, read-only view</span>
+        <button type="button" class="signin" onclick={signIn}>Sign in</button>
+      </p>
+    {/if}
     <span class="spacer"></span>
     <time class="clock" datetime={new Date(now).toISOString()}>
       <span class="time">{time}</span>
@@ -233,19 +247,26 @@
     </a>
   </header>
   <div class="stage">
-    <Hero verdict={said} stats={fleet.stats} running={busy} {busy} {slots} now={clock.now} />
+    {#if fleet.loaded || !fleet.error}
+      <Hero
+        verdict={said}
+        stats={fleet.stats}
+        running={busy}
+        {busy}
+        {slots}
+        now={clock.now}
+        loading={!fleet.loaded}
+      />
+    {/if}
+    <!-- In the order a phone stacks them, which is also the order a screen
+         reader and Tab meet them: what waits and what is wrong before the
+         hosts, and what finished after them. The grid puts the deck on the
+         left at desktop width. -->
     <div class="board">
-      {#if deck.length > 0}
-        <section class="deck" aria-labelledby="command-hosts">
-          <h2 id="command-hosts" class="sr-only">Hosts</h2>
-          {#each deck as lane (lane.host.id)}
-            <HostLane {lane} />
-          {/each}
-        </section>
-      {/if}
       <div class="rail waiting">
         <WaitingList
           jobs={commandJobs.waiting}
+          loading={!commandJobs.loaded}
           error={commandJobs.error}
           onopen={showJob}
           onretry={() => void commandJobs.retry()}
@@ -256,11 +277,49 @@
           <AttentionList problems={notifications.active} />
         </div>
       {/if}
+      {#if !fleet.loaded}
+        <section
+          class="deck"
+          aria-labelledby="command-hosts"
+          aria-busy={!fleet.error}
+          data-testid="command-deck"
+        >
+          <h2 id="command-hosts" class="sr-only">Hosts</h2>
+          {#if fleet.error}
+            <div class="deck-error">
+              <ErrorState
+                compact
+                error={fleet.error}
+                title="The hosts did not load."
+                onretry={() => void fleet.reconcile()}
+              />
+            </div>
+          {:else}
+            {#each [0, 1, 2, 3] as lane (lane)}
+              <div class="lane-skeleton" aria-hidden="true">
+                <Skeleton width="40%" height="var(--z-text-sm)" />
+                <div class="cells-skeleton">
+                  <Skeleton height="var(--z-command-tile-height)" radius="md" />
+                  <Skeleton height="var(--z-command-tile-height)" radius="md" />
+                </div>
+              </div>
+            {/each}
+          {/if}
+        </section>
+      {:else if deck.length > 0}
+        <section class="deck" aria-labelledby="command-hosts" data-testid="command-deck">
+          <h2 id="command-hosts" class="sr-only">Hosts</h2>
+          {#each deck as lane (lane.host.id)}
+            <HostLane {lane} />
+          {/each}
+        </section>
+      {/if}
       <div class="rail finished">
         <FinishedList
           jobs={commandJobs.finished}
           count={commandJobs.finishedCount}
           moreHref={finishedSince}
+          loading={!commandJobs.loaded}
           error={commandJobs.error}
           onopen={showJob}
           onretry={() => void commandJobs.retry()}
@@ -336,6 +395,43 @@
   .spacer {
     flex: 1;
   }
+  /* Information about the view, not about the fleet: the accent, as the
+     shell's own visitor notice uses it. */
+  .visitor {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    margin: 0;
+    padding: var(--z-space-1) var(--z-space-3);
+    border: var(--z-border-width) solid var(--z-accent-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-accent-subtle);
+    color: var(--z-text);
+    font-size: var(--z-text-sm);
+  }
+  .visitor :global(svg) {
+    flex: none;
+    color: var(--z-accent);
+  }
+  .signin {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--z-accent);
+    font: inherit;
+    font-weight: var(--z-weight-medium);
+    text-decoration: underline;
+    text-underline-offset: var(--z-underline-offset);
+    cursor: pointer;
+  }
+  .signin:hover {
+    color: var(--z-accent-hover);
+  }
+  .signin:focus-visible {
+    outline: none;
+    border-radius: var(--z-radius-sm);
+    box-shadow: var(--z-focus-ring);
+  }
   .clock {
     display: inline-flex;
     align-items: baseline;
@@ -401,6 +497,24 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
     gap: var(--z-space-4);
+  }
+  /* The loading shape of a lane: its header and a row of tiles at the tiles'
+     own height, so the deck does not jump when the hosts arrive. */
+  .lane-skeleton {
+    display: grid;
+    gap: var(--z-space-2);
+    padding: var(--z-space-3);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-lg);
+    background: var(--z-surface);
+  }
+  .cells-skeleton {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--z-space-2);
+  }
+  .deck-error {
+    grid-column: 1 / -1;
   }
   .rail.waiting {
     grid-area: waiting;
@@ -533,6 +647,12 @@
   @media (max-width: 768px) {
     .bar {
       padding: var(--z-space-2) var(--z-space-4);
+    }
+    /* A phone is pressed with a finger, whatever pointer it reports: every
+       link and button on the page is a whole fingertip tall. */
+    .command :global(a[href]),
+    .command :global(button) {
+      min-height: var(--z-control-touch);
     }
     .board {
       grid-template-columns: minmax(0, 1fr);

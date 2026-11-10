@@ -133,8 +133,8 @@
      verdict beside it needs the width more. */
   @media (max-width: 768px) {
     .ring {
-      width: calc(var(--z-command-ring) * 0.6);
-      height: calc(var(--z-command-ring) * 0.6);
+      width: var(--z-command-ring-phone);
+      height: var(--z-command-ring-phone);
     }
     b {
       font-size: var(--z-text-xl);

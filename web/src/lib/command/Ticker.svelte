@@ -4,10 +4,11 @@
 
   Content that moves for more than five seconds has to be stoppable, so it
   stops while the pointer is over it, while focus is inside it, and for as
-  long as the Pause button is pressed. The strip's speed is the same whatever
-  it holds: its duration is worked out from its width, so twenty long entries
-  do not race past and three short ones do not crawl. Under reduced motion it
-  is the latest three entries, still.
+  long as the Pause button is pressed, and while the page is not live, since a
+  feed that has stopped arriving should not look as if it were still moving.
+  The strip's speed is the same whatever it holds: its duration is worked out
+  from its width, so twenty long entries do not race past and three short ones
+  do not crawl. Under reduced motion it is the latest three entries, still.
 -->
 <script lang="ts">
   import { Pause } from '@lucide/svelte';
@@ -30,6 +31,31 @@
   let paused = $state(false);
   let width = $state(0);
   const beats = $derived(Math.max(1, Math.round(width / STRIDE)));
+  /*
+    The duration the strip is drawn with. A browser places a running animation
+    by the time since it began over its duration, so changing the duration
+    mid-lap moves the strip to wherever the new duration says it should be: a
+    jump every time an entry arrives. The new duration is taken only at the end
+    of a lap, where the strip is back at its start, and the lap is begun again
+    there so it starts from nought rather than from the elapsed time.
+  */
+  let drawn = $state<number | null>(null);
+  $effect(() => {
+    if (drawn === null && width > 0) drawn = beats;
+  });
+  function onLap(event: AnimationEvent): void {
+    if (drawn === beats) return;
+    drawn = beats;
+    const track = event.currentTarget as HTMLElement;
+    // Set here as well as by the template, which would only set it after the
+    // lap below had already begun with the old duration.
+    track.style.setProperty('--ticker-beats', String(beats));
+    track.style.animation = 'none';
+    // Reading a layout value makes the browser drop the old animation before
+    // the next line starts a new one.
+    void track.offsetWidth;
+    track.style.animation = '';
+  }
 
   // One copy's width is one lap of the loop; the copy behind it is the same.
   function measure(copy: boolean, w: number): void {
@@ -83,7 +109,7 @@
       </Button>
     </span>
     <div class="viewport">
-      <div class="track" style:--ticker-beats={beats}>
+      <div class="track" style:--ticker-beats={drawn ?? beats} onanimationiteration={onLap}>
         {@render list(false)}
         <!-- A second copy follows the first, so the strip loops without a gap.
              It is decoration: hidden from assistive technology and from Tab. -->
@@ -118,7 +144,8 @@
   }
   .viewport:hover .track,
   .viewport:focus-within .track,
-  [data-paused='true'] .track {
+  [data-paused='true'] .track,
+  :global([data-live='false']) .track {
     animation-play-state: paused;
   }
   @keyframes ticker {

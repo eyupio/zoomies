@@ -350,6 +350,7 @@
      height whatever it holds, so a lane's grid never reflows when a runner
      comes or goes: two lines, a bar and their padding. */
   --z-command-ring: 9.25rem;
+  --z-command-ring-phone: calc(var(--z-command-ring) * 0.75);
   --z-command-ring-stroke: 0.625rem;
   --z-command-tile-height: 3.5rem;
 

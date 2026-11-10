@@ -9,6 +9,7 @@
   drawn.
 -->
 <script lang="ts">
+  import RailSkeleton from './RailSkeleton.svelte';
   import { CircleCheck, Square, TriangleAlert } from '@lucide/svelte';
   import type { Job } from '$lib/api/types';
   import ErrorState from '$lib/components/ErrorState.svelte';
@@ -21,21 +22,25 @@
     count: number;
     /** Where "and N more" leads: the Jobs page over the same window. */
     moreHref: string;
+    /** True until the first read has answered: the rows' shapes, not an empty list. */
+    loading: boolean;
     error: unknown;
     onopen: (job: Job) => void;
     onretry: () => void;
   }
-  let { jobs, count, moreHref, error, onopen, onretry }: Props = $props();
+  let { jobs, loading, count, moreHref, error, onopen, onretry }: Props = $props();
 
   const shown = $derived(jobs.slice(0, FINISHED_SHOWN));
   const more = $derived(count - shown.length);
 </script>
 
-<section class="rail-section" aria-labelledby="command-finished">
+<section class="rail-section" aria-labelledby="command-finished" aria-busy={loading}>
   <h2 id="command-finished">
-    Just finished <span class="count">{count}</span>
+    Just finished {#if !loading && !error}<span class="count">{count}</span>{/if}
   </h2>
-  {#if error}
+  {#if loading}
+    <RailSkeleton />
+  {:else if error}
     <ErrorState compact {error} title="The finished jobs did not load." {onretry} />
   {:else if jobs.length === 0}
     <p class="empty">Nothing has finished in the last ten minutes.</p>
