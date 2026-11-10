@@ -13,6 +13,7 @@
   import Button from '$lib/components/Button.svelte';
   import Logo from '$lib/components/Logo.svelte';
   import Hero from '$lib/command/Hero.svelte';
+  import HostLane from '$lib/command/HostLane.svelte';
   import { clock } from '$lib/command/clock.svelte';
   import { fullscreen } from '$lib/command/fullscreen.svelte';
   import { lanes } from '$lib/command/lanes';
@@ -166,6 +167,14 @@
   </header>
   <div class="stage">
     <Hero verdict={said} stats={fleet.stats} running={busy} {busy} {slots} {live} now={clock.now} />
+    {#if deck.length > 0}
+      <section class="deck" aria-labelledby="command-hosts">
+        <h2 id="command-hosts" class="sr-only">Hosts</h2>
+        {#each deck as lane (lane.host.id)}
+          <HostLane {lane} />
+        {/each}
+      </section>
+    {/if}
   </div>
 </div>
 
@@ -245,9 +254,22 @@
   .stage {
     flex: 1;
   }
+  /* Two small hosts share a row; a lane with more slots than one row draws
+     spans both, so the deck grows downwards as the fleet does. */
+  .deck {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: var(--z-space-4);
+    padding: var(--z-space-6);
+  }
   @media (max-width: 768px) {
     .bar {
       padding: var(--z-space-2) var(--z-space-4);
+    }
+    .deck {
+      grid-template-columns: minmax(0, 1fr);
+      padding: var(--z-space-4);
     }
   }
 </style>

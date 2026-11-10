@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { areaPath, linePath, ringFraction } from '../src/lib/command/chart.ts';
+import { areaPath, cpuShare, linePath, ringFraction } from '../src/lib/command/chart.ts';
 
 test('a line runs from the left edge to the right edge', () => {
   assert.equal(linePath([0, 10], 100, 50, 10), 'M0 50 L100 0');
@@ -38,4 +38,17 @@ test('the ring is empty with no slots and never past full', () => {
 test('the ring is the share of slots in use, and never below empty', () => {
   assert.equal(ringFraction(3, 6), 0.5);
   assert.equal(ringFraction(-1, 6), 0);
+});
+
+// cpu_percent counts a whole CPU as 100, as the container runtime reports it,
+// so a runner allocated two CPUs and using both is at 200 and full.
+test("a runner's CPU bar is its use over the CPUs it was given, and never past full", () => {
+  assert.equal(cpuShare({ cpu_percent: 100, allocated_cpus: 2 }), 0.5);
+  assert.equal(cpuShare({ cpu_percent: 350, allocated_cpus: 2 }), 1);
+  assert.equal(cpuShare({ cpu_percent: 50 }), 0.5);
+});
+
+test('a runner that has not reported its CPU has no bar to draw', () => {
+  assert.equal(cpuShare({ allocated_cpus: 2 }), null);
+  assert.equal(cpuShare({ cpu_percent: -5, allocated_cpus: 2 }), 0);
 });

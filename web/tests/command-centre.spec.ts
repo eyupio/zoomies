@@ -8,7 +8,15 @@
  * the page was reached, including when it was the first page the tab opened.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { goto, isFocused, nav, navEntry, openSection, pageHeading } from './support/fixtures';
+import {
+  FIXTURE,
+  goto,
+  isFocused,
+  nav,
+  navEntry,
+  openSection,
+  pageHeading,
+} from './support/fixtures';
 
 function exitLink(page: Page) {
   return page.getByRole('link', { name: 'Exit', exact: true });
@@ -114,4 +122,40 @@ test('Ctrl+K opens the command palette on the page, and it lists the page', asyn
   const palette = page.getByRole('dialog', { name: 'Command palette' });
   await expect(palette).toBeVisible();
   await expect(palette.getByRole('option', { name: /Command centre/ })).toBeVisible();
+});
+
+test('the ring says what is running and opens the running jobs', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  const ring = page.getByRole('link', { name: /jobs? running, \d+ of \d+ slots? in use/ });
+  await expect(ring).toHaveAttribute('href', '/jobs?state=in_progress');
+  await ring.click();
+  await expect(page).toHaveURL(/\/jobs\?state=in_progress$/);
+});
+
+test('the verdict is a heading of its own, with its sentence beside it', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  const verdict = page.getByRole('heading', {
+    level: 2,
+    name: /^(Not live|No hosts yet|Needs a look|Busy, with a queue|Busy and healthy|Quiet)\.$/,
+  });
+  await expect(verdict).toBeVisible();
+});
+
+test('a host lane is named by its host, and its header opens that host', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  const lane = page.getByRole('region', { name: FIXTURE.busyRunnerHost, exact: true });
+  await expect(lane).toBeVisible();
+  const head = lane.getByRole('link', { name: new RegExp(`^${FIXTURE.busyRunnerHost}`) });
+  await expect(head).toHaveAttribute('href', /^\/hosts\/[^/]+$/);
+  await head.click();
+  await expect(page).toHaveURL(/\/hosts\/[^/]+$/);
+});
+
+test('a runner tile opens its runner', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  const tile = page.locator(`a[href="/runners/${FIXTURE.busyRunnerId}"]`);
+  await expect(tile).toHaveCount(1);
+  await expect(tile).toHaveAttribute('data-state', 'busy');
+  await tile.click();
+  await expect(page).toHaveURL(new RegExp(`/runners/${FIXTURE.busyRunnerId}$`));
 });

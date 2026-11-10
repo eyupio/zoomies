@@ -346,9 +346,12 @@
 
   /* The command centre. The ring is the one thing on the page read from
      across a room, so it is sized for that and shrinks on a phone; its stroke
-     is thick enough to read as an arc at that distance. */
+     is thick enough to read as an arc at that distance. A runner tile is one
+     height whatever it holds, so a lane's grid never reflows when a runner
+     comes or goes: two lines, a bar and their padding. */
   --z-command-ring: 9.25rem;
   --z-command-ring-stroke: 0.625rem;
+  --z-command-tile-height: 3.5rem;
 
   /* The window, which on a phone is not the same thing as 100%. A mobile
      browser answers a page that overflows sideways by laying the whole thing

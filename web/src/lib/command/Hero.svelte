@@ -73,12 +73,13 @@
       {
         label: 'Succeeded',
         value: completed > 0 ? `${Math.round((succeeded / completed) * 100)}%` : NO_VALUE,
-        note:
-          completed > 0
-            ? `${succeeded} of ${completed}${window ? ` in ${window}` : ''}`
-            : 'nothing finished',
+        note: completed > 0 ? `${succeeded} of ${completed} finished` : 'nothing finished',
         href: finishedTodayHref(new Date(now)),
-        help: "Open today's finished jobs.",
+        // The share is over the controller's stats window, which is not
+        // always today, so the help says which.
+        help: window
+          ? `Of the jobs finished in the last ${window}. Open today's finished jobs.`
+          : "Open today's finished jobs.",
       },
     ];
   });
@@ -178,7 +179,10 @@
     text-underline-offset: var(--z-underline-offset);
     cursor: pointer;
   }
+  /* The tone's shape sits in the line, before the words it marks. */
   .part :global(svg) {
+    display: inline-block;
+    margin-right: var(--z-space-1);
     vertical-align: -0.125em;
   }
   .part.pending {

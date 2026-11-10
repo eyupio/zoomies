@@ -64,3 +64,17 @@ export function ringFraction(busy: number, slots: number): number {
   if (slots <= 0) return 0;
   return Math.min(1, Math.max(0, busy / slots));
 }
+
+/**
+ * How full a runner's CPU bar is: what it is using over the CPUs it was given.
+ * The container runtime counts a whole CPU as 100, so two allocated CPUs fill
+ * at 200. A runner with no quota is read against one CPU, and elastic CPU can
+ * take a runner past its allocation, so the bar stops at full rather than
+ * drawing outside its track. Null when nothing has been reported, which is a
+ * bar with no fill rather than an empty one that claims an idle runner.
+ */
+export function cpuShare(runner: { cpu_percent?: number; allocated_cpus?: number }): number | null {
+  if (runner.cpu_percent === undefined) return null;
+  const cpus = runner.allocated_cpus && runner.allocated_cpus > 0 ? runner.allocated_cpus : 1;
+  return Math.min(1, Math.max(0, runner.cpu_percent / (cpus * 100)));
+}

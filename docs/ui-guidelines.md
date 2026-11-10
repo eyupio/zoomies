@@ -549,6 +549,9 @@ The command centre has measures of its own, each used by more than one rule.
 `--z-command-ring` (9.25rem) is the hero ring's diameter, sized to be read from
 across a room and drawn at three fifths of that on a phone;
 `--z-command-ring-stroke` (0.625rem) is the width of its arc and its track.
+`--z-command-tile-height` (3.5rem) is every runner tile and free cell in a host
+lane, whatever it holds, so a lane's grid keeps its shape when a runner comes or
+goes and only the tile's colour and mark change.
 
 ### 1.5 Elevation
 
