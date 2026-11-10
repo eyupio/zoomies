@@ -12,7 +12,6 @@
 -->
 <script lang="ts">
   import { listSamples } from '$lib/api/client';
-  import { events } from '$lib/api/sse';
   import type { FleetSample, Stats } from '$lib/api/types';
   import { trendPoints, withNow, type TrendPoint } from '$lib/bands/trend';
   import Button from '$lib/components/Button.svelte';
@@ -70,10 +69,11 @@
     previous = status;
   });
 
+  // Every stats frame lands in the fleet cache, so reading it here is the one
+  // path; a subscription of its own as well would take each frame twice.
   $effect(() => {
     if (fleet.stats) latest = pointOf(fleet.stats);
   });
-  $effect(() => events.subscribe('stats', (stats: Stats) => (latest = pointOf(stats))));
 
   const points = $derived.by(() => {
     const at = latest?.at ?? Date.now();

@@ -213,6 +213,15 @@
       opacity: 0;
     }
   }
+  /* A page that has stopped hearing from the controller cannot vouch for any
+     of this work, so nothing on the tile moves as if it could: the sweep goes
+     and the status mark holds its pose. The page's root says when. */
+  :global([data-live='false']) .bar.sweep::after {
+    display: none;
+  }
+  :global([data-live='false']) .line :global(*) {
+    animation: none;
+  }
   @media (prefers-reduced-motion: reduce) {
     .tile {
       animation: none;

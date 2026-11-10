@@ -17,6 +17,7 @@
   import FinishedList from '$lib/command/FinishedList.svelte';
   import Hero from '$lib/command/Hero.svelte';
   import HostLane from '$lib/command/HostLane.svelte';
+  import Ticker from '$lib/command/Ticker.svelte';
   import WaitingList from '$lib/command/WaitingList.svelte';
   import { clock } from '$lib/command/clock.svelte';
   import { fullscreen } from '$lib/command/fullscreen.svelte';
@@ -30,19 +31,50 @@
   import { router } from '$lib/router';
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
+  import StatusDot from '$lib/components/StatusDot.svelte';
+  import { jobStatus } from '$lib/status';
+  import { feed } from '$lib/state/feed.svelte';
   import { notifications } from '$lib/state/notifications.svelte';
 
   let now = $state(Date.now());
   onMount(() => onClockTick((at) => (now = at)));
 
-  // One second-by-second clock for every running age on the page, and none
-  // once the page has gone: a wall display is the only reader that needs it.
-  onMount(() => {
-    clock.start();
-    return () => clock.stop();
-  });
-
   const live = $derived(fleet.connection === 'live');
+
+  /*
+    A wall display that has quietly stopped updating is the one failure this
+    page must not have. While the stream is down the second-by-second clock
+    stops, so no age or wait goes on counting from numbers nobody can vouch
+    for, and the page remembers when it last heard anything. When the stream
+    returns, everything the page holds is fetched again (the replay buffer is
+    finite and may not cover the gap) before the clock is let go. The clock
+    exists for this page alone, so it stops with it.
+  */
+  // The shapes the indicator borrows: busy and filled while live, pending and
+  // dashed while not, so the change reads without colour.
+  const LIVE = jobStatus('in_progress');
+  const RECONNECTING = jobStatus('queued');
+
+  let lastHeardAt = $state<number | null>(null);
+  let wasLive = false;
+  $effect(() => {
+    if (live) {
+      const returning = lastHeardAt !== null;
+      wasLive = true;
+      if (!returning) {
+        clock.start();
+        return;
+      }
+      void Promise.allSettled([fleet.reconcile(), commandJobs.retry()]).then(() => {
+        if (fleet.connection === 'live') clock.start();
+      });
+      return;
+    }
+    clock.stop();
+    if (wasLive) lastHeardAt = Date.now();
+    wasLive = false;
+  });
+  onMount(() => () => clock.stop());
 
   // The rail's jobs live as long as the page: nothing else wants a window of
   // ten minutes, and a wall display is the page that asks for it.
@@ -92,9 +124,10 @@
     const problems = notifications.active;
     return {
       live,
-      // Task 8 records when the stream last delivered anything.
-      lastHeardAt: null,
-      now: clock.now,
+      lastHeardAt,
+      // The page's own clock is frozen while the stream is down, so how long
+      // ago the page last heard is counted on the ten-second one.
+      now: live ? clock.now : now,
       hosts: deck.length,
       slots,
       busy,
@@ -165,10 +198,16 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="command">
+<div class="command" data-live={live}>
   <header class="bar">
     <span class="brand"><Logo variant="full" size={28} label="" /></span>
     <h1 id="page-heading" tabindex="-1">Command centre</h1>
+    <p class="live" data-state={live ? 'live' : 'reconnecting'} role="status">
+      <span class="live-dot" aria-hidden="true"
+        ><StatusDot status={live ? LIVE : RECONNECTING} size="sm" tip={false} /></span
+      >
+      {live ? 'Live' : 'Reconnecting'}
+    </p>
     <span class="spacer"></span>
     <time class="clock" datetime={new Date(now).toISOString()}>
       <span class="time">{time}</span>
@@ -193,7 +232,7 @@
     </a>
   </header>
   <div class="stage">
-    <Hero verdict={said} stats={fleet.stats} running={busy} {busy} {slots} {live} now={clock.now} />
+    <Hero verdict={said} stats={fleet.stats} running={busy} {busy} {slots} now={clock.now} />
     <div class="board">
       {#if deck.length > 0}
         <section class="deck" aria-labelledby="command-hosts">
@@ -228,6 +267,7 @@
       </div>
     </div>
   </div>
+  <Ticker entries={feed.entries} />
 </div>
 
 <JobDrawer bind:open={drawerOpen} job={openJob} onclose={() => (openJob = null)} />
@@ -262,6 +302,35 @@
   }
   h1:focus {
     outline: none;
+  }
+  .live {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    margin: 0;
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-medium);
+    color: var(--z-busy);
+  }
+  .live-dot {
+    display: inline-flex;
+  }
+  .live[data-state='reconnecting'] {
+    color: var(--z-pending);
+  }
+  /* The dot breathes while the stream is up: the proof the page is live. */
+  .live[data-state='live'] :global(svg) {
+    animation: breathe calc(var(--z-motion-slow) * 8) var(--z-ease) infinite alternate;
+  }
+  @keyframes breathe {
+    to {
+      opacity: 0.4;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live[data-state='live'] :global(svg) {
+      animation: none;
+    }
   }
   .spacer {
     flex: 1;

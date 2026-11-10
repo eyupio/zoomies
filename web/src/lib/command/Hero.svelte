@@ -24,10 +24,9 @@
     running: number;
     busy: number;
     slots: number;
-    live: boolean;
     now: number;
   }
-  let { verdict, stats, running, busy, slots, live, now }: Props = $props();
+  let { verdict, stats, running, busy, slots, now }: Props = $props();
 
   const figures = $derived(heroFigures(stats, now));
 
@@ -37,7 +36,7 @@
 </script>
 
 <section class="hero" aria-labelledby="command-verdict">
-  <Ring {running} {busy} {slots} {live} />
+  <Ring {running} {busy} {slots} />
 
   <div class="verdict" data-verdict={verdict.kind}>
     <h2 id="command-verdict">{verdict.headline}</h2>

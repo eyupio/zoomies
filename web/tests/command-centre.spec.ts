@@ -226,3 +226,37 @@ test('Needs attention is absent, not empty, when no problem is open', async ({ p
   await expect(rail(page, 'Waiting')).toBeVisible();
   await expect(rail(page, 'Needs attention')).toHaveCount(0);
 });
+
+test('the ticker’s Pause button holds the events still', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  const ticker = page.getByRole('region', { name: 'Recent events' });
+  const pause = ticker.getByRole('button', { name: 'Pause' });
+  await expect(pause).toHaveAttribute('aria-pressed', 'false');
+  const track = ticker.locator('.track');
+  const playState = () => track.evaluate((el) => getComputedStyle(el).animationPlayState);
+  // The pointer is moved off the strip first: hovering it pauses it too, and
+  // this is about the button.
+  await page.mouse.move(0, 0);
+  expect(await playState()).toBe('running');
+
+  await pause.click();
+  await page.mouse.move(0, 0);
+  await expect(pause).toHaveAttribute('aria-pressed', 'true');
+  expect(await playState()).toBe('paused');
+
+  await pause.click();
+  await page.mouse.move(0, 0);
+  await expect(pause).toHaveAttribute('aria-pressed', 'false');
+  expect(await playState()).toBe('running');
+});
+
+test('the page says it is not live when the stream goes away', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByText('Live', { exact: true })).toBeVisible();
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await expect(page.getByRole('heading', { name: 'Not live.' })).toBeVisible();
+  await expect(page.getByText('Reconnecting')).toBeVisible();
+  // Nothing on the page goes on moving as if the work were still vouched for.
+  await expect(page.locator('[data-live="false"]')).toHaveCount(1);
+});

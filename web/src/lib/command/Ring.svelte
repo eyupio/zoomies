@@ -3,10 +3,10 @@
   running jobs inside it. It is the page's signature and the first thing read
   from across a room, so it says one number large and the rest in its name.
 
-  The two halos pulse only while something runs and the stream is live. A
-  pulse on a page that has stopped hearing from the controller would be a
-  picture of work nobody can vouch for, which is the failure a wall display
-  must not have.
+  The two halos pulse only while something runs, and the page turns them off
+  while the stream is down (`data-live="false"` on its root). A pulse on a
+  page that has stopped hearing from the controller would be a picture of work
+  nobody can vouch for, which is the failure a wall display must not have.
 -->
 <script lang="ts">
   import Tooltip from '$lib/components/Tooltip.svelte';
@@ -18,13 +18,12 @@
     running: number;
     busy: number;
     slots: number;
-    live: boolean;
   }
-  let { running, busy, slots, live }: Props = $props();
+  let { running, busy, slots }: Props = $props();
 
   // pathLength="100" makes the arc a percentage, whatever the ring's size.
   const arc = $derived(ringFraction(busy, slots) * 100);
-  const pulsing = $derived(live && busy > 0);
+  const pulsing = $derived(busy > 0);
   const name = $derived(
     `${pluralise(running, 'job')} running, ${busy} of ${pluralise(slots, 'slot')} in use`,
   );
@@ -140,6 +139,9 @@
     b {
       font-size: var(--z-text-xl);
     }
+  }
+  :global([data-live='false']) .halo {
+    display: none;
   }
   @media (prefers-reduced-motion: reduce) {
     .halo {
