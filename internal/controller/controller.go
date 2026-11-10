@@ -431,7 +431,11 @@ type Controller struct {
 	// channelAsked when that read was last made, which paces the next one.
 	channel      *channelState
 	channelAsked time.Time
-	embedded     *agent.Agent
+	// cpuDemand is what each busy runner's job was last read to need, so elastic
+	// CPU reads a job's history once for the job and not at every heartbeat.
+	cpuDemand   map[string]cpuDemandEntry
+	cpuDemandMu sync.Mutex
+	embedded    *agent.Agent
 	// embeddedCancel stops the in-process agent, which may have been started
 	// with a context the controller does not otherwise control.
 	embeddedCancel context.CancelFunc

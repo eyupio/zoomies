@@ -359,6 +359,7 @@ func (c *Config) validateChoicesAndBounds(add func(Finding)) {
 			Title: fmt.Sprintf("scheduler.history_max_multiple is %d, which is not between 1 and 8", v),
 			Fix:   "use a multiple from 1 to 8; 2 is the default and 1 never raises a runner above its share."})
 	}
+	c.refuseUnknownChoice(add, Finding{Code: "scheduler.elastic_cpu_history", Severity: SeverityError, Setting: "scheduler.elastic_cpu_history", Title: "unknown elastic CPU history mode"}, c.Scheduler.ElasticCPUHistory)
 	// Read as the runtime reads it, trimmed and in lower case (Security.AutoApplyMode).
 	c.refuseUnknownChoice(add, Finding{Code: "security.auto_apply_remedies", Severity: SeverityError, Setting: "security.auto_apply_remedies", Title: "unknown automatic-apply mode"},
 		strings.ToLower(strings.TrimSpace(c.Security.AutoApplyRemedies)))

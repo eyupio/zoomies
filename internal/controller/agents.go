@@ -1759,8 +1759,10 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 				}
 				// How often the runner was held back by its CPU quota, which is
 				// what tells a job that wants more CPU from one that is merely
-				// busy. An agent that sends no counters leaves the job as it was.
-				if t := rep.Stats.CPUThrottling; t != nil && c.sizeMode() != scheduler.SizeOff {
+				// busy. Kept for size routing and for elastic CPU's job history, which
+				// is how a job that never wanted more is told from one that did. An
+				// agent that sends no counters leaves the job as it was.
+				if t := rep.Stats.CPUThrottling; t != nil && (c.sizeMode() != scheduler.SizeOff || c.cpuHistoryMode() != scheduler.SizeOff) {
 					if err := c.st.RecordJobThrottle(ctx, r.ID, int64(t.Periods), int64(t.ThrottledPeriods)); err != nil {
 						c.log.Debug("could not record a job's CPU throttling", "runner", r.ID, "error", err)
 					}
