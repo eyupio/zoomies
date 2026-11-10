@@ -16,12 +16,11 @@ export const RUNNERS_HREF = '/runners';
 export const HISTORY_HREF = '/#history';
 
 /**
- * Jobs finished since local midnight. The operator's today is the one on their
- * wall clock, not UTC's, so the boundary is built from the local date parts.
+ * Jobs finished since an instant: the records behind a figure measured over a
+ * window, so the list a figure opens is the set it was worked out from.
  */
-export function finishedTodayHref(now: Date): string {
-  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return `/jobs?state=completed&since=${encodeURIComponent(midnight.toISOString())}`;
+export function finishedSinceHref(since: Date): string {
+  return `/jobs?state=completed&since=${encodeURIComponent(since.toISOString())}`;
 }
 
 // Ids come from the API but a link is a URL: encode so one with a slash or a

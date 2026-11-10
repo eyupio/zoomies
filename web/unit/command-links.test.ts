@@ -6,7 +6,7 @@ import {
   QUEUE_HREF,
   RUNNING_HREF,
   RUNNERS_HREF,
-  finishedTodayHref,
+  finishedSinceHref,
   hostHref,
   problemHref,
   runnerHref,
@@ -32,11 +32,12 @@ test('the fixed destinations are the pages the figures count', () => {
   assert.equal(HISTORY_HREF, '/#history');
 });
 
-test('today starts at local midnight', () => {
-  const href = finishedTodayHref(new Date(2026, 10, 10, 14, 4));
-  const url = new URL(href, 'http://x');
+test('finished jobs since an instant are the completed jobs from that instant on', () => {
+  const since = new Date(Date.UTC(2026, 10, 10, 13, 4));
+  const url = new URL(finishedSinceHref(since), 'http://x');
+  assert.equal(url.pathname, '/jobs');
   assert.equal(url.searchParams.get('state'), 'completed');
-  assert.equal(url.searchParams.get('since'), new Date(2026, 10, 10).toISOString());
+  assert.equal(url.searchParams.get('since'), '2026-11-10T13:04:00.000Z');
 });
 
 test('each kind of problem target opens the page that holds the thing', () => {

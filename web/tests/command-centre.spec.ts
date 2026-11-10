@@ -159,3 +159,10 @@ test('a runner tile opens its runner', async ({ page }) => {
   await tile.click();
   await expect(page).toHaveURL(new RegExp(`/runners/${FIXTURE.busyRunnerId}$`));
 });
+
+test('the success share names its window and opens the jobs finished in it', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  const figure = page.getByRole('link', { name: /^Succeeded, last / });
+  await expect(figure).toHaveAttribute('href', /^\/jobs\?state=completed&since=/);
+  await expect(page.getByText(/today/i)).toHaveCount(0);
+});

@@ -9,7 +9,7 @@ description: >-
 
 The Zoomies web UI is meant to be left open on a second monitor all day. That is
 the bar every decision below is measured against: it should be calm when nothing
-is happening, unmistakable when something is wrong, and never _need_ the
+is happening, unmistakable when something is wrong, and never *need* the
 operator to click refresh.
 
 This document is the contract. If you are adding a component, take the tokens
@@ -22,6 +22,7 @@ from here rather than inventing values.
 ### Visual style and colour mode
 
 ![Mission Control visual-style selection](screenshots/mission-control/appearance-dark.webp)
+
 
 Settings, Appearance offers **Classic** and **Mission Control** (the default).
 Classic retains the compact neutral palette. Mission Control uses navy surfaces
@@ -77,6 +78,7 @@ by itself; a quiet History does too, because then it is the content. A browser's
 explicit open or closed choice is remembered, and the phone keeps the last two
 destinations behind **More**.
 
+
 Mission Control colour values live in the `--z-mission-*` tokens. Preview cards
 use those same tokens, so their light/dark previews agree with the selected
 style. Normal and secondary text, accent text and filled-button text meet
@@ -111,6 +113,7 @@ refreshed with `make screenshots-gallery`; `web/tests/gallery.spec.ts` checks
 all four combinations, the refusal reasons, focus rings, live status contrast
 and the phone width.
 
+
 Logo backdrops are chosen in Settings, Appearance and saved in this browser.
 Orbital haze is the default for new, missing or unrecognised preferences.
 Starlight, Pearl veil, White square and White circle are the other choices. Every
@@ -125,11 +128,11 @@ Backdrops are lossless WebP files; the original black logo remains a separate SV
 Runner, workflow and queue status share `ZoomiesStatusIcon`. Settings →
 Appearance → **Zoomies vocabulary** offers three choices:
 
-| Choice        | Status words                | Illustration                                                                     |
-| ------------- | --------------------------- | -------------------------------------------------------------------------------- |
-| Off (default) | Plain state names           | Standard Lucide status icon                                                      |
-| Cute          | Zoomies dog-park vocabulary | Original animated avatar                                                         |
-| Standard      | Zoomies dog-park vocabulary | The dog icon and paw prints, with a gesture and a persistent cue glyph per state |
+| Choice | Status words | Illustration |
+| --- | --- | --- |
+| Off (default) | Plain state names | Standard Lucide status icon |
+| Cute | Zoomies dog-park vocabulary | Original animated avatar |
+| Standard | Zoomies dog-park vocabulary | The dog icon and paw prints, with a gesture and a persistent cue glyph per state |
 
 The choice stays in this browser. A browser that has never chosen (a new
 install, or one whose saved preferences were cleared) starts on Off. Existing
@@ -160,22 +163,22 @@ Re-run a turning arrow, and the Runners page's Drain the slashed circle, so a
 status drawn with one of them beside those buttons reads as something to press.
 One glyph also means one thing wherever it appears:
 
-| Icon                                | Means                                 | Used for                                                       |
-| ----------------------------------- | ------------------------------------- | -------------------------------------------------------------- |
-| `LoaderCircle`                      | being set up                          | provisioning runner; machine creating, starting, bootstrapping |
-| `Handshake`                         | being accepted                        | registering runner; enrolling machine                          |
-| `CircleDot`                         | ready, waiting for work               | idle runner; ready machine                                     |
-| `Activity`                          | work executing                        | busy runner; running job or step; machine with runners         |
-| `Hourglass`                         | finishing, then leaving               | draining runner                                                |
-| `CircleX`                           | failed                                | failed runner; failed job                                      |
-| `CircleMinus`                       | gone                                  | removed runner; job removed from the queue                     |
-| `Clock`                             | queued                                | queued or waiting job; a Ready queue row                       |
-| `ChevronsUp`                        | prioritised                           | a job somebody pressed Run now on                              |
-| `OctagonPause`                      | held by an operator                   | a paused job                                                   |
-| `CircleSlash`                       | stopped taking work                   | cancelling job or run; cordoned host; disabled pool            |
-| `TimerOff`                          | ran out of time                       | timed-out job                                                  |
-| `IterationCcw`                      | another attempt asked for             | a re-run requested on a job's timeline                         |
-| `Zap`, `TrendingUp`, `TrendingDown` | CPU lent at maximum, lent, taken back | elastic CPU on a busy or idle runner                           |
+| Icon | Means | Used for |
+| --- | --- | --- |
+| `LoaderCircle` | being set up | provisioning runner; machine creating, starting, bootstrapping |
+| `Handshake` | being accepted | registering runner; enrolling machine |
+| `CircleDot` | ready, waiting for work | idle runner; ready machine |
+| `Activity` | work executing | busy runner; running job or step; machine with runners |
+| `Hourglass` | finishing, then leaving | draining runner |
+| `CircleX` | failed | failed runner; failed job |
+| `CircleMinus` | gone | removed runner; job removed from the queue |
+| `Clock` | queued | queued or waiting job; a Ready queue row |
+| `ChevronsUp` | prioritised | a job somebody pressed Run now on |
+| `OctagonPause` | held by an operator | a paused job |
+| `CircleSlash` | stopped taking work | cancelling job or run; cordoned host; disabled pool |
+| `TimerOff` | ran out of time | timed-out job |
+| `IterationCcw` | another attempt asked for | a re-run requested on a job's timeline |
+| `Zap`, `TrendingUp`, `TrendingDown` | CPU lent at maximum, lent, taken back | elastic CPU on a busy or idle runner |
 
 Standard is the Lucide dog face, two `PawPrint` marks under it and the state's
 cue glyph in the corner, in one SVG per runner, moved by CSS alone: each
@@ -225,15 +228,15 @@ switch thumb were all raw in several dozen files before they were tokens.
 
 Three things are still raw, and each is raw for a reason worth knowing:
 
-- **Media query widths.** `@media (max-width: var(--z-bp-md))` is not valid CSS
+* **Media query widths.** `@media (max-width: var(--z-bp-md))` is not valid CSS
   (a media query is evaluated before custom properties exist) so the two
   thresholds are written out. `--z-bp-md` and `--z-bp-lg` are declared anyway,
   so the number has one home and JavaScript can read it rather than repeat it.
-- **A one-off content measure.** The width a filter row stops growing at, the
+* **A one-off content measure.** The width a filter row stops growing at, the
   column count a card grid wraps at: these are that component's own layout,
   answer to nothing else, and naming them would only add a lookup. The moment a
   second component wants the same measure it becomes a token.
-- **One hex, in the log viewer.** xterm.js takes its theme as JavaScript values
+* **One hex, in the log viewer.** xterm.js takes its theme as JavaScript values
   and insists on `#rrggbb`, so the bridge in `LogViewer.svelte` resolves every
   token through a probe element and converts the result. The single literal
   there is the fallback for a colour that failed to parse, which is a
@@ -252,15 +255,15 @@ Every pairing below has been measured; the numbers are real, not aspirational.
 
 Fixed by the identity, available as `--z-brand-*` and unchanged between themes.
 
-| Token                   | Value     |
-| ----------------------- | --------- |
-| `--z-brand-black`       | `#080808` |
-| `--z-brand-white`       | `#FFFFFF` |
-| `--z-brand-cool-grey`   | `#B9BCC2` |
-| `--z-brand-mid-grey`    | `#666A73` |
+| Token | Value |
+| --- | --- |
+| `--z-brand-black` | `#080808` |
+| `--z-brand-white` | `#FFFFFF` |
+| `--z-brand-cool-grey` | `#B9BCC2` |
+| `--z-brand-mid-grey` | `#666A73` |
 | `--z-brand-runner-blue` | `#2F80ED` |
-| `--z-brand-fast-cyan`   | `#22D3EE` |
-| `--z-brand-paw-black`   | `#000000` |
+| `--z-brand-fast-cyan` | `#22D3EE` |
+| `--z-brand-paw-black` | `#000000` |
 
 Two of these are the record rather than a value a rule reads. Mid Grey is the
 brand's light-theme secondary text, but `--z-text-muted` darkens it to `#5B6069`
@@ -270,17 +273,17 @@ is the favicon artwork, which is a PNG rather than a colour any rule sets.
 
 #### Neutrals
 
-| Token                | Light     | Dark      | Use                               |
-| -------------------- | --------- | --------- | --------------------------------- |
-| `--z-bg`             | `#F6F7F9` | `#0A0B0D` | Page background                   |
-| `--z-surface`        | `#FFFFFF` | `#131519` | Cards, panels, table body         |
-| `--z-surface-raised` | `#FFFFFF` | `#1B1E23` | Popovers, dialogs, dropdowns      |
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--z-bg` | `#F6F7F9` | `#0A0B0D` | Page background |
+| `--z-surface` | `#FFFFFF` | `#131519` | Cards, panels, table body |
+| `--z-surface-raised` | `#FFFFFF` | `#1B1E23` | Popovers, dialogs, dropdowns |
 | `--z-surface-sunken` | `#EEF0F3` | `#050607` | Wells, code blocks, table headers |
-| `--z-border`         | `#E2E5EA` | `#262A31` | Default hairlines                 |
-| `--z-border-strong`  | `#C7CBD3` | `#363B44` | Inputs, focused containers        |
-| `--z-text`           | `#0B0C0E` | `#F4F5F7` | Primary text                      |
-| `--z-text-muted`     | `#5B6069` | `#B9BCC2` | Secondary text, labels            |
-| `--z-text-subtle`    | `#666B74` | `#868B94` | Timestamps, placeholders          |
+| `--z-border` | `#E2E5EA` | `#262A31` | Default hairlines |
+| `--z-border-strong` | `#C7CBD3` | `#363B44` | Inputs, focused containers |
+| `--z-text` | `#0B0C0E` | `#F4F5F7` | Primary text |
+| `--z-text-muted` | `#5B6069` | `#B9BCC2` | Secondary text, labels |
+| `--z-text-subtle` | `#666B74` | `#868B94` | Timestamps, placeholders |
 
 Primary text is 18:1 in both themes. Muted is 5.9:1 light and 10.3:1 dark, on the
 page ground. Subtle -- the weakest text in the product -- is 5.0:1 light and
@@ -292,12 +295,12 @@ holds it there.
 
 #### Brand accent
 
-| Token                 | Light     | Dark      | Use                                       |
-| --------------------- | --------- | --------- | ----------------------------------------- |
-| `--z-accent`          | `#1A63D8` | `#78B4FF` | Primary buttons, links, active nav, focus |
-| `--z-accent-hover`    | `#154FB0` | `#9BC9FF` | Hover                                     |
-| `--z-accent-subtle`   | `#E8F0FD` | `#10203A` | Selected rows, badge backgrounds          |
-| `--z-accent-contrast` | `#FFFFFF` | `#08131F` | Text on an accent fill                    |
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--z-accent` | `#1A63D8` | `#78B4FF` | Primary buttons, links, active nav, focus |
+| `--z-accent-hover` | `#154FB0` | `#9BC9FF` | Hover |
+| `--z-accent-subtle` | `#E8F0FD` | `#10203A` | Selected rows, badge backgrounds |
+| `--z-accent-contrast` | `#FFFFFF` | `#08131F` | Text on an accent fill |
 
 5.13:1 and 9.16:1 against their backgrounds; the text on an accent fill is
 5.5:1 light and 8.7:1 dark. Full-strength Runner Blue (`--z-brand-runner-blue`) is
@@ -308,14 +311,14 @@ available for illustrative fills, where the bar is 3:1.
 Runner and job states get their own hue. The mapping is fixed -- do not use
 these colours for anything else, because operators learn them.
 
-| State                                                                  | Token          | Light     | Dark      |
-| ---------------------------------------------------------------------- | -------------- | --------- | --------- |
-| idle / healthy / success                                               | `--z-idle`     | `#0F7A3D` | `#5FD68C` |
-| **busy / running**                                                     | `--z-busy`     | `#00757F` | `#3BD6E8` |
-| provisioning / registering / pending / throttled / warning             | `--z-pending`  | `#9A6100` | `#F2B246` |
+| State | Token | Light | Dark |
+| --- | --- | --- | --- |
+| idle / healthy / success | `--z-idle` | `#0F7A3D` | `#5FD68C` |
+| **busy / running** | `--z-busy` | `#00757F` | `#3BD6E8` |
+| provisioning / registering / pending / throttled / warning | `--z-pending` | `#9A6100` | `#F2B246` |
 | draining / cordoned / paused / waiting on a step an operator asked for | `--z-draining` | `#4D3F5C` | `#D0BEE0` |
-| failed / error / destructive                                           | `--z-danger`   | `#BD2018` | `#FF8D84` |
-| removed / neutral                                                      | `--z-neutral`  | `#686D76` | `#7F858E` |
+| failed / error / destructive | `--z-danger` | `#BD2018` | `#FF8D84` |
+| removed / neutral | `--z-neutral` | `#686D76` | `#7F858E` |
 
 Two meanings that are not states of the fleet are written into the table
 rather than left to be inferred, because each had quietly grown a colour of its
@@ -343,7 +346,7 @@ is kept for the host's OS report, so the two pills on one card never use a word
 for two different things. The mapping above does not move: only the label did.
 
 Busy is the Fast Cyan family: the brand asks for the accent to be used
-sparingly, and _this runner is executing a job right now_ is the single most
+sparingly, and *this runner is executing a job right now* is the single most
 valuable "look here" signal on the page.
 
 **The six are separated in lightness and chroma, not only in hue**, because a
@@ -403,15 +406,15 @@ the theme: the light theme's muted grey is 3.2:1 on black. These are declared
 once, never overridden per theme, and read on a panel alone. Measured on
 `#080808`:
 
-| Token                   | Value                    | Use                                         | Contrast   |
-| ----------------------- | ------------------------ | ------------------------------------------- | ---------- |
-| `--z-panel-bg`          | `--z-brand-black`        | The panel                                   | -          |
-| `--z-panel-text`        | `--z-brand-white`        | The tagline, fact titles, the credit's name | 20.0:1     |
-| `--z-panel-text-muted`  | `--z-brand-cool-grey`    | The lede and the links                      | 10.5:1     |
-| `--z-panel-text-subtle` | `#868B94`                | The facts' detail, "Developed by"           | 5.9:1      |
-| `--z-panel-border`      | `#262A31`                | The fact icons' edge                        | decorative |
-| `--z-panel-raised`      | `#121418`                | The fact icons' ground                      | decorative |
-| `--z-panel-ring`        | `rgb(255 255 255 / .07)` | The motion-path rings                       | decorative |
+| Token | Value | Use | Contrast |
+| --- | --- | --- | --- |
+| `--z-panel-bg` | `--z-brand-black` | The panel | - |
+| `--z-panel-text` | `--z-brand-white` | The tagline, fact titles, the credit's name | 20.0:1 |
+| `--z-panel-text-muted` | `--z-brand-cool-grey` | The lede and the links | 10.5:1 |
+| `--z-panel-text-subtle` | `#868B94` | The facts' detail, "Developed by" | 5.9:1 |
+| `--z-panel-border` | `#262A31` | The fact icons' edge | decorative |
+| `--z-panel-raised` | `#121418` | The fact icons' ground | decorative |
+| `--z-panel-ring` | `rgb(255 255 255 / .07)` | The motion-path rings | decorative |
 
 The subtle and border values are the dark theme's `--z-text-subtle` and
 `--z-border`, repeated because the light theme has no name for them. The one
@@ -425,9 +428,9 @@ control's indicator needs.
 Two faces, both self-hosted as woff2 so an air-gapped install has no network
 dependency and no third-party font request:
 
-- **Inter Variable**: UI. `--z-font-sans`. Geist and `system-ui` are the
+* **Inter Variable**: UI. `--z-font-sans`. Geist and `system-ui` are the
   brand's sanctioned alternatives and sit in the fallback stack.
-- **JetBrains Mono**: logs, IDs, labels, durations, anything monospaced.
+* **JetBrains Mono**: logs, IDs, labels, durations, anything monospaced.
   `--z-font-mono`.
 
 The wordmark in the logo artwork is custom-rendered and is not Inter. Do not
@@ -435,16 +438,16 @@ try to set it in type.
 
 Both declare a full system fallback stack so the first paint is never blank.
 
-| Token           | Size / line-height | Weight                | Use                                                                                |
-| --------------- | ------------------ | --------------------- | ---------------------------------------------------------------------------------- |
-| `--z-text-2xs`  | 11px / 16px        | `--z-weight-medium`   | Table micro-labels, badge text                                                     |
-| `--z-text-xs`   | 12px / 18px        | `--z-weight-normal`   | Metadata, timestamps                                                               |
-| `--z-text-sm`   | 13px / 20px        | `--z-weight-normal`   | **Default table and body text**                                                    |
-| `--z-text-base` | 14px / 22px        | `--z-weight-normal`   | Form controls, prose                                                               |
-| `--z-text-lg`   | 16px / 24px        | `--z-weight-semibold` | Card titles                                                                        |
-| `--z-text-xl`   | 20px / 28px        | `--z-weight-semibold` | Page titles                                                                        |
-| `--z-text-2xl`  | 28px / 34px        | `--z-weight-bold`     | Overview metrics; at `--z-weight-semibold`, the sign-in page's heading and tagline |
-| `--z-text-3xl`  | 36px / 42px        | `--z-weight-bold`     | Hero numbers                                                                       |
+| Token | Size / line-height | Weight | Use |
+| --- | --- | --- | --- |
+| `--z-text-2xs` | 11px / 16px | `--z-weight-medium` | Table micro-labels, badge text |
+| `--z-text-xs` | 12px / 18px | `--z-weight-normal` | Metadata, timestamps |
+| `--z-text-sm` | 13px / 20px | `--z-weight-normal` | **Default table and body text** |
+| `--z-text-base` | 14px / 22px | `--z-weight-normal` | Form controls, prose |
+| `--z-text-lg` | 16px / 24px | `--z-weight-semibold` | Card titles |
+| `--z-text-xl` | 20px / 28px | `--z-weight-semibold` | Page titles |
+| `--z-text-2xl` | 28px / 34px | `--z-weight-bold` | Overview metrics; at `--z-weight-semibold`, the sign-in page's heading and tagline |
+| `--z-text-3xl` | 36px / 42px | `--z-weight-bold` | Hero numbers |
 
 Four weights exist and the table names them rather than numbers, because the
 numbers are Inter Variable's axis positions and are not round: `--z-weight-normal`
@@ -486,12 +489,12 @@ width and ran the card off both edges, once per field. Control height comes
 from the space scale, so nothing reflows; only the glyphs grow.
 
 **A validation error takes the hint's place; it never appears beside it.**
-`Field` renders one message row, because an error rendered _in addition_ to the
+`Field` renders one message row, because an error rendered *in addition* to the
 hint adds a line and moves everything below it, including the submit button,
 out from under a pointer already on its way down, so the click lands on whatever
 takes its place and the operator experiences a button that does nothing. A field
 on a form worth clicking therefore carries a hint, so the row is occupied before
-an error needs it. Anything a field must say _alongside_ an error goes in
+an error needs it. Anything a field must say *alongside* an error goes in
 `notice`, which is rendered independently, is `aria-live="polite"`, and is what
 the caps-lock warning uses.
 
@@ -523,11 +526,11 @@ rather than a boundary.
 
 Below the 4px spacing grid there are three optical nudges, `--z-nudge-1` to
 `--z-nudge-3`. They exist because a checkbox aligned to the grid sits visibly
-low against a 13px line. Anything that _can_ sit on the spacing scale does.
+low against a 13px line. Anything that *can* sit on the spacing scale does.
 
 The drawn controls have their own sizes, for the same reason: `--z-control-box`
 (15px, the checkbox and radio box), `--z-control-thumb` (14px, the switch), and
-`--z-control-icon` (14px, the icon inside a button). Field and button _heights_
+`--z-control-icon` (14px, the icon inside a button). Field and button *heights*
 are on the spacing scale and stay there: `sm` is `--z-space-6`, `md` is
 `--z-space-8`, and `lg` (which only the sign-in form uses, because it is the one
 form that is the whole page) is `--z-space-10`. The one exception is `--z-control-touch`
@@ -558,10 +561,10 @@ goes and only the tile's colour and mark change.
 Shadows are cool-tinted, to match the near-black spine, and very restrained; in
 dark mode elevation is carried mostly by surface colour, not shadow.
 
-| Token           | Light                                 | Dark                               |
-| --------------- | ------------------------------------- | ---------------------------------- |
-| `--z-shadow-sm` | `0 1px 2px rgb(8 12 20 / .06)`        | `0 1px 2px rgb(0 0 0 / .5)`        |
-| `--z-shadow-md` | `0 4px 12px -2px rgb(8 12 20 / .10)`  | `0 4px 12px -2px rgb(0 0 0 / .6)`  |
+| Token | Light | Dark |
+| --- | --- | --- |
+| `--z-shadow-sm` | `0 1px 2px rgb(8 12 20 / .06)` | `0 1px 2px rgb(0 0 0 / .5)` |
+| `--z-shadow-md` | `0 4px 12px -2px rgb(8 12 20 / .10)` | `0 4px 12px -2px rgb(0 0 0 / .6)` |
 | `--z-shadow-lg` | `0 16px 40px -8px rgb(8 12 20 / .16)` | `0 16px 40px -8px rgb(0 0 0 / .7)` |
 
 Every modal sits on the same veil, `--z-scrim` with `--z-scrim-blur`; the page's
@@ -585,19 +588,19 @@ somewhere to be drawn.
 
 The ring is never removed. Removing it and replacing it with a colour change
 does not count: a border that goes from grey to blue is invisible to anyone who
-cannot see the difference, and is exactly the change a focused _and_ invalid
+cannot see the difference, and is exactly the change a focused *and* invalid
 field cannot make.
 
 ### 1.7 Motion
 
-| Token             | Value                      | Use                               |
-| ----------------- | -------------------------- | --------------------------------- |
-| `--z-motion-fast` | 120ms                      | Hover, focus, colour change       |
-| `--z-motion-base` | 200ms                      | Panels, dropdowns, row insert     |
-| `--z-motion-slow` | 320ms                      | Dialogs, drawer, route transition |
-| `--z-ease`        | `cubic-bezier(.2,.8,.2,1)` | Everything                        |
+| Token | Value | Use |
+| --- | --- | --- |
+| `--z-motion-fast` | 120ms | Hover, focus, colour change |
+| `--z-motion-base` | 200ms | Panels, dropdowns, row insert |
+| `--z-motion-slow` | 320ms | Dialogs, drawer, route transition |
+| `--z-ease` | `cubic-bezier(.2,.8,.2,1)` | Everything |
 
-State changes animate the _colour and the dot_, never layout; a table that
+State changes animate the *colour and the dot*, never layout; a table that
 reflows while you are reading it is worse than one that does not animate at all.
 Everything inside `@media (prefers-reduced-motion: reduce)` collapses to `1ms`.
 
@@ -616,14 +619,14 @@ The scrollbar is the one control the browser draws for us, and the one that is
 easiest to leave too faint to find. It is styled so that it belongs to the theme
 and, more to the point, so that an operator can see it and take hold of it.
 
-| Token                        | Light                | Dark                     | Use                                          |
-| ---------------------------- | -------------------- | ------------------------ | -------------------------------------------- |
-| `--z-scrollbar-size`         | `14px`               | `14px`                   | The column, which is the whole hit target    |
-| `--z-scrollbar-inset`        | `3px`                | `3px`                    | Gap between thumb and column edge, each side |
-| `--z-scrollbar-thumb`        | `--z-text-subtle`    | `--z-text-subtle`        | Resting                                      |
-| `--z-scrollbar-thumb-hover`  | `--z-text-muted`     | `--z-text-muted`         | Under the pointer                            |
-| `--z-scrollbar-thumb-active` | `--z-text`           | `--z-text`               | While it is held                             |
-| `--z-scrollbar-track`        | `rgb(8 12 20 / .06)` | `rgb(255 255 255 / .07)` | Behind the thumb                             |
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--z-scrollbar-size` | `14px` | `14px` | The column, which is the whole hit target |
+| `--z-scrollbar-inset` | `3px` | `3px` | Gap between thumb and column edge, each side |
+| `--z-scrollbar-thumb` | `--z-text-subtle` | `--z-text-subtle` | Resting |
+| `--z-scrollbar-thumb-hover` | `--z-text-muted` | `--z-text-muted` | Under the pointer |
+| `--z-scrollbar-thumb-active` | `--z-text` | `--z-text` | While it is held |
+| `--z-scrollbar-track` | `rgb(8 12 20 / .06)` | `rgb(255 255 255 / .07)` | Behind the thumb |
 
 The thumb borrows the weakest text colour, so its ratios are the ones already
 measured above: against every surface it can sit on it is never below 4.1:1 in
@@ -635,12 +638,12 @@ the whole 14px column responds to the pointer.
 Two rules keep it working, and both are written into `app.css` beside the
 rules themselves:
 
-- **Pointer only.** The styling sits inside `@media (pointer: fine)`. On a
+* **Pointer only.** The styling sits inside `@media (pointer: fine)`. On a
   touchscreen a finger scrolls the content, never the bar, and the browser's
   overlay scrollbar -- which takes no space and fades when idle -- is the right
   control there. Styling it would pin a permanent column down the edge of a
   phone.
-- **One mechanism per browser.** Chromium and WebKit draw from the
+* **One mechanism per browser.** Chromium and WebKit draw from the
   `::-webkit-scrollbar` pseudo-elements, which are the only way to get a thumb
   that is inset and rounded. The standard `scrollbar-width` and
   `scrollbar-color` properties are set only where those pseudo-elements are
@@ -756,14 +759,14 @@ fixed, because muscle memory is the point:
     one repair at `/repairs/<id>` and setup at `/repairs/setup`. The entry is lit
     on all four.
 12. **Migrate repositories**: move repositories off GitHub's runners onto this
-    fleet. The navigation shortens it to _Migrate_, because a nav label has to
+    fleet. The navigation shortens it to *Migrate*, because a nav label has to
     fit beside an icon in a 232px column; every other place that names the page
     (its heading, the palette, the shortcut sheet, the browser title) uses the
     full name.
 13. **Kennel Club**: which repositories could hurt the fleet or stop its CI
     ([Kennel Club](kennel-club.md)). It is a section of pages, like Settings:
-    _Standards_ (the Overview and the list of Repositories, and each
-    repository's own page) and, under _For assistants_, **AI Context**,
+    *Standards* (the Overview and the list of Repositories, and each
+    repository's own page) and, under *For assistants*, **AI Context**,
     preparing repositories for AI coding assistants, where explicit source access
     is separate from fleet permissions. AI Context has no section of its own, and
     `/ai-context` still reaches it.
@@ -776,8 +779,8 @@ fixed, because muscle memory is the point:
     the section's name at its head and the signed-in identity at its foot; on
     a phone the list leads with that identity as the card that opens Account.
 
-The sidebar reads the same order under four headings (_Fleet_, _Infrastructure_,
-_GitHub_ and _Administration_, with the Overview and the command centre standing
+The sidebar reads the same order under four headings (*Fleet*, *Infrastructure*,
+*GitHub* and *Administration*, with the Overview and the command centre standing
 alone at the top and
 Administration pinned to the foot) so an entry is found by its neighbourhood
 rather than read for from the top. Collapsed, the headings become hairlines
@@ -788,7 +791,7 @@ Every page is shown, in both themes, in [The UI](ui.md).
 
 The navigation is headed by the mark, the wordmark and the descriptor, and every
 page ends in a hairline footer carrying the mark, the name, the running version,
-a link to the docs and the credit _Developed by EyUp.io_, so a signed-in
+a link to the docs and the credit *Developed by EyUp.io*, so a signed-in
 screenshot says which product and which build it came from, and who makes it,
 without anyone having to open Settings. On a phone the navigation moves to the
 bottom edge and loses its masthead, so the mark appears in the top bar instead,
@@ -817,7 +820,7 @@ the top bar.
 
 The one page that has to earn the second monitor.
 
-- **The activity matrix**, first: today by the hour, and up to a year of the
+* **The activity matrix**, first: today by the hour, and up to a year of the
   fleet's days as one band of squares, a column per week and a row per
   weekday, coloured by what finished,
   greener as more jobs finish, red the moment any fail, darker red the
@@ -852,13 +855,13 @@ The one page that has to earn the second monitor.
   The band's punch card is this grid's 7d range drawn small beside the hero's
   sentence; an hour pressed there lands here, on that hour, so the two are one
   view at two sizes rather than two views.
-- **Four live figures in the band**: queued jobs, running jobs, live runners and
+* **Four live figures in the band**: queued jobs, running jobs, live runners and
   median queue wait. Running jobs is this fleet's busy runners, the rows the
   Runners page counts and the link opens; with other runners in scope it counts
   every job GitHub reports, and opens the Jobs page instead. Each figure is a
   way into the records it counts, as every band's figures are; the wait carries
   its p95 and the live figure the slots it fills.
-- **The body is a list of panels.** Under the band, the page is one grid drawn
+* **The body is a list of panels.** Under the band, the page is one grid drawn
   from `web/src/lib/overview/panels.ts` in its order: the problems, the pools,
   the failures, the running jobs beside the events, then History and the
   diagnostics. A full panel spans both columns; a main panel and the side panel
@@ -879,19 +882,19 @@ The one page that has to earn the second monitor.
   lists the same panels as switches under **Overview panels**, with Reset
   layout; the order is changed on the page itself, where the cards can be seen
   moving.
-- **A card per pool**, as the mock draws it: the name, the floor and ceiling,
+* **A card per pool**, as the mock draws it: the name, the floor and ceiling,
   the state as a pill, Runners and Waiting as a pair of facts, and the busy
   bar with the pool's min and max marked. A pool at its ceiling with work
   waiting is marked three ways still: the card's pending edge, the badge, and
   the waiting figure saying "and nowhere to run". Six cards at most; the rest
   are "and N more pools", a link to the Pools page, so a large fleet's Overview
   stays one screen.
-- **Recent events**, a reverse-chronological list of what has happened to the
+* **Recent events**, a reverse-chronological list of what has happened to the
   fleet, whatever kind of thing it was: the scheduler's decisions in its own
-  words (_"scaled `linux-x64` 2 → 4: 3 jobs queued > 30s"_), how each job
+  words (*"scaled `linux-x64` 2 → 4: 3 jobs queued > 30s"*), how each job
   ended, a runner that failed and a runner that came up ready, a runner lent
-  spare CPU or slowed by the host it is on (_"Squirrel spotted, maximum
-  zoomies"_, in the same words the runner's own page uses), a host that went
+  spare CPU or slowed by the host it is on (*"Squirrel spotted, maximum
+  zoomies"*, in the same words the runner's own page uses), a host that went
   quiet, was throttled or is holding new runners off under pressure, a machine
   a provider is renting, a pool somebody changed, the GitHub connection,
   problems as they are raised, and the audit trail. **What goes right is a
@@ -905,10 +908,10 @@ The one page that has to earn the second monitor.
   under it says so: that failure is the fleet's, not the workflow's, and this
   page is where the two are told apart. The hour's failures and how many of
   them were the fleet's own are a badge in the panel's header, because nothing
-  else answers that, GitHub records both as _failure_.
+  else answers that, GitHub records both as *failure*.
 
   **Which kinds it carries is the operator's choice**, one switch per category
-  on _Settings → Events_, grouped under four headings and kept in the browser
+  on *Settings → Events*, grouped under four headings and kept in the browser
   like the theme. Two rules make
   that safe: the panel says how many kinds are switched off rather than
   quietly omitting them, and a category never reports a frame that carries no
@@ -922,20 +925,19 @@ The one page that has to earn the second monitor.
   It is the one panel whose length says nothing about the fleet, so it never
   decides the height of the page: a fleet with one pool does not get a screen
   of blank space under it because the scheduler has been busy.
-
-- **Active jobs**, under the pools: what is running this moment, newest
+* **Active jobs**, under the pools: what is running this moment, newest
   first. How the last jobs ended was a second panel across the bottom of the
   page and is now part of the feed: two reverse-chronological lists on one
   page, each with its own idea of what belonged on it, was one list too many.
-- **Needs attention**: a section shut by default whose header says what it
+* **Needs attention**: a section shut by default whose header says what it
   holds (how many of each severity, worst first, and the worst problem by
   name, cut short at the line with the whole sentence in a tooltip), so the
   page says what is wrong before anything is opened. Open, it is the worst
   three problems as rows, each with its severity pill, the controller's fix,
-  an _Open_ button to the thing it is about and the drawer's own dismiss menu
+  an *Open* button to the thing it is about and the drawer's own dismiss menu
   (snooze for a while, snooze every problem of this kind, dismiss until
   resolved), so a decision made here means what it means in the drawer and is
-  listed there as dismissed. The header also carries _Dismiss all_, the same
+  listed there as dismissed. The header also carries *Dismiss all*, the same
   menu as the drawer's header (snooze everything listed for 15 minutes, 1, 4
   or 24 hours, or dismiss it all until resolved), whether the card is shut or
   open; pressing it does not toggle the card. The card's own line ("and N more", or "Open the
@@ -943,9 +945,9 @@ The one page that has to earn the second monitor.
   the drawer's. Whether the section is open is remembered like the other
   sections' choices. **When everything is fine it is a single quiet line, not an
   empty box and not a green celebration.** A phone keeps the one-line summary
-  with its _Review_ button, as before, under the slim band that carries the
+  with its *Review* button, as before, under the slim band that carries the
   week.
-- **Recent failures**: unresolved failures nobody has acknowledged, newest first, with the
+* **Recent failures**: unresolved failures nobody has acknowledged, newest first, with the
   count in the panel's header and each row naming the repository, the workflow,
   the job and the step or fault it stopped at. A row opens the job's own drawer,
   and its **Mark as known** button takes the failure off the list, with the
@@ -965,7 +967,7 @@ The one page that has to earn the second monitor.
 ### The problems drawer
 
 Reachable from the count in the top bar on every page, from the Overview's
-_Review_, and from the command palette. It holds the list itself (unhealthy
+*Review*, and from the command palette. It holds the list itself (unhealthy
 hosts, failed registrations, webhook delivery failures, unmatched queued jobs,
 jobs whose runner stopped under them in the last hour, and every dangerous
 configuration setting the validator flagged) worst first,
@@ -982,11 +984,11 @@ everything. An identity with no account behind it, such as an auth-disabled
 instance, keeps them in `localStorage` instead. Three rules stop a dismissal
 from hiding a real fault:
 
-- a plain dismissal is forgotten the moment the controller stops reporting that
+* a plain dismissal is forgotten the moment the controller stops reporting that
   problem, so the same fault happening again is news again;
-- a snooze is not: it ends when its own clock does, so a problem that clears for
+* a snooze is not: it ends when its own clock does, so a problem that clears for
   one pass and comes back inside the window stays put away; and
-- it only covers the severity it was made at, so a warning that becomes an
+* it only covers the severity it was made at, so a warning that becomes an
   error comes back.
 
 Dismissed entries stay listed at the bottom of the drawer, dated, and can be
@@ -1004,7 +1006,7 @@ parameter the filter always had, so a pasted address and a band figure's link
 land where they did; their counts are the fleet's, so a pool or host filter
 takes them away rather than let them disagree with the rows. Everything that
 is context rather than the list (the Runners page's scope line, lifecycle and
-last day's activity) is folded under the card in one _Fleet context_
+last day's activity) is folded under the card in one *Fleet context*
 disclosure, as the Overview folds its History, and a wide column the mock
 leaves out (Age and CPU on Runners, Labels on Queue, the Backend, Platform,
 Idle timeout, Lifetime and Docker settings on Pools) is hidden by default and
@@ -1050,55 +1052,55 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 
 ### Primitives
 
-| Component                                                         | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Button`                                                          | every variant uses the medium radius; `primary` is Runner Blue under Zoomies Black (7.3:1), so the darkened accent is kept for links, the active entry and focus; variants: `primary`, `secondary`, `ghost`, `danger`; sizes `sm`, `md`, and `lg` for the sign-in form alone; `loading` swaps the label for a spinner without changing width. `help` is a sentence in the shared tooltip; `reason`, with `disabled`, says why it cannot be used and keeps it reachable (see _Help_)                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `IconButton`                                                      | uses the medium radius, always has an `aria-label`, which is also the heading of its tooltip. `help`, `keys` and `reason` add a sentence, the keys that do the same and why it is unavailable                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `Input`, `Textarea`, `Select`, `Switch`, `Checkbox`, `RadioGroup` | all support `error` and `hint`; the error is announced with `aria-describedby`. `Input` has the same three sizes as `Button`; a text field, a select and a textarea share the medium radius with their buttons                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `Field`                                                           | label + control + hint + error; the only way form controls are laid out                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `Badge`                                                           | status badge with the small radius: colour **and** shape from the state map                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `StatusDot`                                                       | the shape half of the state encoding, reusable inline                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `Tooltip`                                                         | the one hover and focus help, on one bubble (`TooltipBubble`) and one set of timing rules (`lib/tooltip.ts`); never the only place information lives. Plain help is a `title` heading, a `text` sentence, a `reason` and the `keys` that do the same thing; `text` is also what assistive technology gets, linked to the control with `aria-describedby`. An optional `content` snippet draws a richer card for sighted readers, with `text` as its one-sentence copy. What it wraps has to be something a keyboard reaches, or focus opens nothing; a card that carries figures also opens on a tap, which has no hover. See _Help_                                                                                                                                                                                                                                                                     |
-| `Segmented`                                                       | one choice among a few as one control, `aria-pressed` on the one in force: the activity matrix's ranges, the fleet trend's windows, the usage chart's two measures                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `Dialog`                                                          | focus trap, restores focus on close unless something else has taken focus meanwhile, `Esc` closes, backdrop click closes only non-destructive dialogs, and never one that is showing a secret exactly once. A dialog with text fields is a `<form>` whose footer button is `type="submit" form="…"`, so `Enter` submits it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `Drawer`                                                          | right-hand detail panel; same focus rules. On a phone it runs the full height but not the full width: a strip of the page stays visible down its left, under the scrim, so it reads as a panel over the page rather than a new page, and a tap on the strip closes it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `NavMenu`                                                         | the phone's menu: a sheet that rises from the bottom edge, where the thumb that pressed More is, carrying every section named and in order, plus the account, the theme and sign out; same focus rules, closes when a section is chosen                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `DropdownMenu`                                                    | roving tabindex, type-ahead; the list opens in the browser's top layer, placed against its trigger and flipped above where there is no room below, so a menu on a grid's last row is not cut off by the frame that scrolls. It closes when its trigger scrolls out of that frame. A `header` snippet names who the menu is about, and items sharing a `choice` are one segmented row of radio items with the one in force checked                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `Tabs`                                                            | `aria-selected` and arrow-key navigation; `aria-controls` only when the component renders the panel, because a caller that draws what the tabs switch between elsewhere leaves it none to point at, and an `aria-controls` naming an id that is not on the page is an error                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `Toast`                                                           | bottom-right, `aria-live="polite"` (`assertive` for errors), auto-dismiss except on error                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `Skeleton`                                                        | **the only loading affordance for content.** Spinners are for in-flight _actions_ only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `EmptyState`                                                      | icon + one sentence of what this is + the action that fills it; a `visual` snippet replaces the icon disc where artwork is wanted, as the not-found page does with the mark                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `CopyButton`                                                      | wraps any ID; announces "copied" to screen readers; uses the medium radius even when it is the icon alone                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `Terminal`                                                        | a command the operator runs somewhere else, in the window they will run it in: a bar with a title, the command in the mono face on the dark stage, a `facts` slot the full width of the command beneath it, then the copy control and a line of fine print; a long command wraps inside it. `AddHostFlow`, `HostDoctorCommand` and `RunsOnPreview` draw it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `Facts`                                                           | a block of facts about one thing on the dark stage: a definition list in two columns, one on a phone, with a value in the mono face or with its status pill after it. The version selected for a new host is the first to use it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `RelativeTime`                                                    | "4m ago", the exact local time and the ISO timestamp in the tooltip, updates itself                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `Duration`                                                        | humanised, tabular numerals                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `Sparkline`                                                       | inline SVG, no chart library, `role="img"` with a text summary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `Slider`                                                          | the browser's own range control between notches, with the recommended notch ringed and words at the ones worth naming; a second row when two would collide. `aria-valuetext` says the value in the same words the readout shows                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `QuantityField`                                                   | **every size and CPU figure**; a runner's limits, a host's reserve, a machine's shape, and every numeric or duration setting on the Configuration page. A `Slider` for choosing beside a field that reads what people write (`4gb`, `4096mb`, `4g`, `4 GiB`, `1.5`, `1500m`) and, on Enter or blur, writes it back in the largest unit that says it exactly: `4096mb` becomes “4 GB”, `1536` becomes “1.5 GB”, and `3000 MB` stays as it is rather than turning into a rounded, different limit. A gigabyte is 1024 MB, as it is everywhere else on the page. A length of time reads Go's spelling and the one people say (`168h`, `7d`, `2 weeks`, `1h30m`, `90 seconds`) is shown as “7d” or “1h 30m”, and is sent to the controller in Go's spelling, which has no day. What cannot be read is said beside the field and changes nothing. Never a bare `type="number"` box with the unit in its label |
-| `UtilisationBar`                                                  | busy/live with min and max ticks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `ConfirmDialog`                                                   | destructive confirmation that **names the thing** ("Delete pool `linux-x64`? 3 runners will be drained.") and requires typing the name for anything irreversible; `Enter` in that field confirms only once the name matches                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Component | Notes |
+| --- | --- |
+| `Button` | every variant uses the medium radius; `primary` is Runner Blue under Zoomies Black (7.3:1), so the darkened accent is kept for links, the active entry and focus; variants: `primary`, `secondary`, `ghost`, `danger`; sizes `sm`, `md`, and `lg` for the sign-in form alone; `loading` swaps the label for a spinner without changing width. `help` is a sentence in the shared tooltip; `reason`, with `disabled`, says why it cannot be used and keeps it reachable (see *Help*) |
+| `IconButton` | uses the medium radius, always has an `aria-label`, which is also the heading of its tooltip. `help`, `keys` and `reason` add a sentence, the keys that do the same and why it is unavailable |
+| `Input`, `Textarea`, `Select`, `Switch`, `Checkbox`, `RadioGroup` | all support `error` and `hint`; the error is announced with `aria-describedby`. `Input` has the same three sizes as `Button`; a text field, a select and a textarea share the medium radius with their buttons |
+| `Field` | label + control + hint + error; the only way form controls are laid out |
+| `Badge` | status badge with the small radius: colour **and** shape from the state map |
+| `StatusDot` | the shape half of the state encoding, reusable inline |
+| `Tooltip` | the one hover and focus help, on one bubble (`TooltipBubble`) and one set of timing rules (`lib/tooltip.ts`); never the only place information lives. Plain help is a `title` heading, a `text` sentence, a `reason` and the `keys` that do the same thing; `text` is also what assistive technology gets, linked to the control with `aria-describedby`. An optional `content` snippet draws a richer card for sighted readers, with `text` as its one-sentence copy. What it wraps has to be something a keyboard reaches, or focus opens nothing; a card that carries figures also opens on a tap, which has no hover. See *Help* |
+| `Segmented` | one choice among a few as one control, `aria-pressed` on the one in force: the activity matrix's ranges, the fleet trend's windows, the usage chart's two measures |
+| `Dialog` | focus trap, restores focus on close unless something else has taken focus meanwhile, `Esc` closes, backdrop click closes only non-destructive dialogs, and never one that is showing a secret exactly once. A dialog with text fields is a `<form>` whose footer button is `type="submit" form="…"`, so `Enter` submits it |
+| `Drawer` | right-hand detail panel; same focus rules. On a phone it runs the full height but not the full width: a strip of the page stays visible down its left, under the scrim, so it reads as a panel over the page rather than a new page, and a tap on the strip closes it |
+| `NavMenu` | the phone's menu: a sheet that rises from the bottom edge, where the thumb that pressed More is, carrying every section named and in order, plus the account, the theme and sign out; same focus rules, closes when a section is chosen |
+| `DropdownMenu` | roving tabindex, type-ahead; the list opens in the browser's top layer, placed against its trigger and flipped above where there is no room below, so a menu on a grid's last row is not cut off by the frame that scrolls. It closes when its trigger scrolls out of that frame. A `header` snippet names who the menu is about, and items sharing a `choice` are one segmented row of radio items with the one in force checked |
+| `Tabs` | `aria-selected` and arrow-key navigation; `aria-controls` only when the component renders the panel, because a caller that draws what the tabs switch between elsewhere leaves it none to point at, and an `aria-controls` naming an id that is not on the page is an error |
+| `Toast` | bottom-right, `aria-live="polite"` (`assertive` for errors), auto-dismiss except on error |
+| `Skeleton` | **the only loading affordance for content.** Spinners are for in-flight *actions* only |
+| `EmptyState` | icon + one sentence of what this is + the action that fills it; a `visual` snippet replaces the icon disc where artwork is wanted, as the not-found page does with the mark |
+| `CopyButton` | wraps any ID; announces "copied" to screen readers; uses the medium radius even when it is the icon alone |
+| `Terminal` | a command the operator runs somewhere else, in the window they will run it in: a bar with a title, the command in the mono face on the dark stage, a `facts` slot the full width of the command beneath it, then the copy control and a line of fine print; a long command wraps inside it. `AddHostFlow`, `HostDoctorCommand` and `RunsOnPreview` draw it |
+| `Facts` | a block of facts about one thing on the dark stage: a definition list in two columns, one on a phone, with a value in the mono face or with its status pill after it. The version selected for a new host is the first to use it |
+| `RelativeTime` | "4m ago", the exact local time and the ISO timestamp in the tooltip, updates itself |
+| `Duration` | humanised, tabular numerals |
+| `Sparkline` | inline SVG, no chart library, `role="img"` with a text summary |
+| `Slider` | the browser's own range control between notches, with the recommended notch ringed and words at the ones worth naming; a second row when two would collide. `aria-valuetext` says the value in the same words the readout shows |
+| `QuantityField` | **every size and CPU figure**; a runner's limits, a host's reserve, a machine's shape, and every numeric or duration setting on the Configuration page. A `Slider` for choosing beside a field that reads what people write (`4gb`, `4096mb`, `4g`, `4 GiB`, `1.5`, `1500m`) and, on Enter or blur, writes it back in the largest unit that says it exactly: `4096mb` becomes “4 GB”, `1536` becomes “1.5 GB”, and `3000 MB` stays as it is rather than turning into a rounded, different limit. A gigabyte is 1024 MB, as it is everywhere else on the page. A length of time reads Go's spelling and the one people say (`168h`, `7d`, `2 weeks`, `1h30m`, `90 seconds`) is shown as “7d” or “1h 30m”, and is sent to the controller in Go's spelling, which has no day. What cannot be read is said beside the field and changes nothing. Never a bare `type="number"` box with the unit in its label |
+| `UtilisationBar` | busy/live with min and max ticks |
+| `ConfirmDialog` | destructive confirmation that **names the thing** ("Delete pool `linux-x64`? 3 runners will be drained.") and requires typing the name for anything irreversible; `Enter` in that field confirms only once the name matches |
 
 ### Composites
 
-| Component                                               | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DataGrid`                                              | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame, see _Tables use the space they need_. `bare` drops its own border, radius and background for a grid drawn inside a `Panel`, so a list card is one frame                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `RowActions`                                            | a row's actions as buttons rather than a menu, as an ARIA toolbar: one tab stop per row, `← →` along it, and every button's name carries what it acts on                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `FilterBar`                                             | chips for active filters, each individually removable, plus a clear-all                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `FilterChips`                                           | a list's primary filter as a row of compact chips: All, then one per value with its count when the count is true of the rows under it; more than one in force at once, each saying so with `aria-pressed`, a tick and the weight of its words, never by colour alone; a chip may carry a `hint` in the shared tooltip, a row may be drawn with nothing pressed (`none`) when the filter in force is one no chip can say, and on a phone may be one line that scrolls (`scroll`) where a page's rule is records first. The Runners page's states are the first                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `Panel`                                                 | a titled card: a heading, an optional `icon` in a tinted tile, an optional `eyebrow` in small capitals above the heading (a count or a scope), a `description` under it, `actions` opposite, an optional `toolbar` row between the head and the body for a list's filter chips, and `flush` for a body that draws its own rows. The Overview's cards and the list card are all this                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `PageHeader`                                            | title, subtitle, breadcrumb, primary action, and the refresh button where the page passes `onrefresh`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `RefreshButton`                                         | the one refresh: registers the page's handler so the button, `R` and the palette all run it; turning icon while it works                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `MetricTile`                                            | number, label, delta, sparkline                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `LogViewer`                                             | `lib/logs/`. xterm.js with search, follow/pause, wrap toggle, download, and a line counter                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `MemoryBadgePill`, `MemoryBadgeCard`                    | `lib/runners/`. A small pill and the card it opens, for what the memory valve has done for a runner and which of its folders are kept in memory. The model is `memory-badges.ts`, free of components so a unit test reads it: a badge names a tone (`accent` for something to notice, `pending` for something to look at, `neutral` for a fact, `danger` for a refusal) and an icon by meaning, and the components resolve both from tokens. A pill is as wide as its words -- a short column wraps its pills, it never squeezes one to a glyph -- a dashed one is something that has not happened, and a dot on one means the runner wants more and cannot have it. The card is a `Tooltip` `content` with the `wide` size, and the same markup is drawn open in the runner page's panel, so what an operator reads in the tooltip is what the page says. A pill is for reading, never for navigating: its click stops at it                                                                                                                                                                                                                                                                                                                                                                         |
-| `HostMemoryPool`                                        | `lib/hosts/`. The memory a host may lend, as a figure and a bar drawn against the whole machine, so segments compare between hosts of different sizes; the ledger it was worked out from, line by line, is the card behind it. The figure and bar are one button, so the ledger opens on focus and a tap as well as on hover                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `HostCard`                                              | `lib/hosts/`. One host, closed unless asked. It opens on what the Hosts page exists to answer: the host's state, what kind of host it is, why it is not taking work if it is not, the slot bar and three utilisation bars, then a **Details** disclosure that opens the rest beneath it. The rule it keeps is that a fold may hide detail and never a reason: every sentence that explains why a host takes no work, and the Backends block for a host with nothing to run a job in, stay on the closed card. The page that holds the cards owns which are open, because a filter that takes a card off the screen must not close it; the choice is remembered per browser, written when it is made and never on sight. The open part is not mounted while closed. A card is a subgrid of the page's grid and its sections are rows of it, so the cards in a row are one height and the same section sits at the same height in each (a notice on one card leaves the space for it on the others, and opening one makes the whole row as tall as that card needs), with the page's row gap at zero so that it does not also open up the rows inside every card                                                                                                                                        |
-| `HostVitals`                                            | `lib/hosts/`. CPU, memory and disk as a share of the whole machine: three rows of one grid, so the bars align across a card and, by the columns' least widths, across a row of cards, each with the figures it is a share of. The arithmetic is the capacity map's (`hostSeries.ts`) and the lines are the product's own, one for each: amber from the scheduler's 85% for CPU, counted without the CPU it has lent to runners; at or below the host reserve for memory, where the scheduler holds new starts; and by the doctor's low-disk rule for the disk, with a warning triangle and a sentence in the row's label so colour is never the only cue. A figure that is not measured is the absent-value mark, and a host that has stopped sending heartbeats shows none as current                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `MemoryBar`                                             | `lib/runners/`. A runner's memory as one bar: guaranteed, lent, swap (hatched, so it cannot be mistaken for the solid fill where colour is lost) and a tick at the ceiling. `aria-hidden`: the figures beside it carry the meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `RunnerTimeline`                                        | `lib/runners/`. One row per state with how long the runner stayed there, reconstructed from the four timestamps a runner row carries -- and it says so, rather than letting an operator read it as an audit trail                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `Wizard`                                                | a flow of steps that is genuinely a sequence; the AI Context setup, the provider form, the migration; on a phone its footer stays pinned above the bottom bar. The provider form also sets `jumpable`, so each stage in the list but the current one is a button that goes straight to it; the current stage is plain text with `aria-current` on its list item, because a button that did nothing would be a dead tab stop. A pool is not one: see [the pool editor](#the-pool-editor)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Component | Notes |
+| --- | --- |
+| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need*. `bare` drops its own border, radius and background for a grid drawn inside a `Panel`, so a list card is one frame |
+| `RowActions` | a row's actions as buttons rather than a menu, as an ARIA toolbar: one tab stop per row, `← →` along it, and every button's name carries what it acts on |
+| `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
+| `FilterChips` | a list's primary filter as a row of compact chips: All, then one per value with its count when the count is true of the rows under it; more than one in force at once, each saying so with `aria-pressed`, a tick and the weight of its words, never by colour alone; a chip may carry a `hint` in the shared tooltip, a row may be drawn with nothing pressed (`none`) when the filter in force is one no chip can say, and on a phone may be one line that scrolls (`scroll`) where a page's rule is records first. The Runners page's states are the first |
+| `Panel` | a titled card: a heading, an optional `icon` in a tinted tile, an optional `eyebrow` in small capitals above the heading (a count or a scope), a `description` under it, `actions` opposite, an optional `toolbar` row between the head and the body for a list's filter chips, and `flush` for a body that draws its own rows. The Overview's cards and the list card are all this |
+| `PageHeader` | title, subtitle, breadcrumb, primary action, and the refresh button where the page passes `onrefresh` |
+| `RefreshButton` | the one refresh: registers the page's handler so the button, `R` and the palette all run it; turning icon while it works |
+| `MetricTile` | number, label, delta, sparkline |
+| `LogViewer` | `lib/logs/`. xterm.js with search, follow/pause, wrap toggle, download, and a line counter |
+| `MemoryBadgePill`, `MemoryBadgeCard` | `lib/runners/`. A small pill and the card it opens, for what the memory valve has done for a runner and which of its folders are kept in memory. The model is `memory-badges.ts`, free of components so a unit test reads it: a badge names a tone (`accent` for something to notice, `pending` for something to look at, `neutral` for a fact, `danger` for a refusal) and an icon by meaning, and the components resolve both from tokens. A pill is as wide as its words -- a short column wraps its pills, it never squeezes one to a glyph -- a dashed one is something that has not happened, and a dot on one means the runner wants more and cannot have it. The card is a `Tooltip` `content` with the `wide` size, and the same markup is drawn open in the runner page's panel, so what an operator reads in the tooltip is what the page says. A pill is for reading, never for navigating: its click stops at it |
+| `HostMemoryPool` | `lib/hosts/`. The memory a host may lend, as a figure and a bar drawn against the whole machine, so segments compare between hosts of different sizes; the ledger it was worked out from, line by line, is the card behind it. The figure and bar are one button, so the ledger opens on focus and a tap as well as on hover |
+| `HostCard` | `lib/hosts/`. One host, closed unless asked. It opens on what the Hosts page exists to answer: the host's state, what kind of host it is, why it is not taking work if it is not, the slot bar and three utilisation bars, then a **Details** disclosure that opens the rest beneath it. The rule it keeps is that a fold may hide detail and never a reason: every sentence that explains why a host takes no work, and the Backends block for a host with nothing to run a job in, stay on the closed card. The page that holds the cards owns which are open, because a filter that takes a card off the screen must not close it; the choice is remembered per browser, written when it is made and never on sight. The open part is not mounted while closed. A card is a subgrid of the page's grid and its sections are rows of it, so the cards in a row are one height and the same section sits at the same height in each (a notice on one card leaves the space for it on the others, and opening one makes the whole row as tall as that card needs), with the page's row gap at zero so that it does not also open up the rows inside every card |
+| `HostVitals` | `lib/hosts/`. CPU, memory and disk as a share of the whole machine: three rows of one grid, so the bars align across a card and, by the columns' least widths, across a row of cards, each with the figures it is a share of. The arithmetic is the capacity map's (`hostSeries.ts`) and the lines are the product's own, one for each: amber from the scheduler's 85% for CPU, counted without the CPU it has lent to runners; at or below the host reserve for memory, where the scheduler holds new starts; and by the doctor's low-disk rule for the disk, with a warning triangle and a sentence in the row's label so colour is never the only cue. A figure that is not measured is the absent-value mark, and a host that has stopped sending heartbeats shows none as current |
+| `MemoryBar` | `lib/runners/`. A runner's memory as one bar: guaranteed, lent, swap (hatched, so it cannot be mistaken for the solid fill where colour is lost) and a tick at the ceiling. `aria-hidden`: the figures beside it carry the meaning |
+| `RunnerTimeline` | `lib/runners/`. One row per state with how long the runner stayed there, reconstructed from the four timestamps a runner row carries -- and it says so, rather than letting an operator read it as an audit trail |
+| `Wizard` | a flow of steps that is genuinely a sequence; the AI Context setup, the provider form, the migration; on a phone its footer stays pinned above the bottom bar. The provider form also sets `jumpable`, so each stage in the list but the current one is a button that goes straight to it; the current stage is plain text with `aria-current` on its list item, because a button that did nothing would be a dead tab stop. A pool is not one: see [the pool editor](#the-pool-editor) |
 | `PublicFrame`, `SplitPage`, `BrandStage`, `ThemeSwitch` | `lib/public/`. The frame every page before sign in shares. `PublicFrame` is the header (paw and wordmark, with the appearance switch drawn at the right but read after the page, so a person who came to sign in is on the first field), the page, and a Zoomies Black footer panel with the build, the links and the credit, all on `--z-width-public`. `SplitPage` is the stage beside the column a person acts in, and a strip above it on a phone. `BrandStage` is the rounded panel holding the dog, an eyebrow, a headline (a string or its lines, optionally with a line in the runner blue), a blue rule and a sentence; `wide` makes it a band with its headline as the page's h1, as on the status page. A band makes its dog a control with `artAction`, which opens the panel that resizes or removes it; the stage itself still has no opinion about what that panel does. `ThemeSwitch` is the three-way appearance choice as icons in a control with the medium radius, with a native `title` and not the shared tooltip, because the status page that uses it is held to a few kilobytes. None of them imports the preference store or the API client, so the status page can; the dog is drawn by `LogoArt`, which is told its backdrop, where `Logo` asks the operator's preference |
 
 ### The log viewer
@@ -1120,11 +1122,11 @@ still apply, and output is unavailable after the container is removed.
 100k lines without jank is a hard requirement. xterm.js with the canvas/WebGL
 addon handles the rendering; the constraints on our side are:
 
-- a bounded scrollback (`scrollback: 100000`): beyond that the oldest lines go;
-- writes are **batched on `requestAnimationFrame`**, never once per SSE frame;
-- `fit` is debounced and only runs on real size changes;
-- search uses the search addon, not a DOM scan;
-- "follow" is a mode, not a scroll position: leaving the bottom turns it off,
+* a bounded scrollback (`scrollback: 100000`): beyond that the oldest lines go;
+* writes are **batched on `requestAnimationFrame`**, never once per SSE frame;
+* `fit` is debounced and only runs on real size changes;
+* search uses the search addon, not a DOM scan;
+* "follow" is a mode, not a scroll position: leaving the bottom turns it off,
   and a floating "jump to latest" button turns it back on.
 
 ---
@@ -1141,13 +1143,13 @@ held and applied on top of its result, because they are newer than it. The
 connection state is visible in the top bar: a quiet dot when live, an explicit
 "reconnecting…" when not, never a silent stall.
 
-A grid that fetches its rows from the server refetches on the cache's _shape_
+A grid that fetches its rows from the server refetches on the cache's *shape*
 (a runner appearing, changing state, pool, host or job) not on every frame,
 so a heartbeat that only moves a runner's CPU and memory costs no round trip;
 and it refreshes at most about once a second however fast the shape moves, so
 a fleet in trouble is still readable while it is in trouble.
 
-The one page that asks rather than listens is _Add a host_: while it waits for
+The one page that asks rather than listens is *Add a host*: while it waits for
 the new machine it fetches its own join token every few seconds, because
 credentials are deliberately not on the stream. Even there the stream is the
 fast path (a host's first frame is the cue to ask at once) and the page says
@@ -1161,20 +1163,20 @@ arrive over the stream: join tokens, users, API tokens, and the configuration.
 
 So the control is one control, in one place, everywhere it means anything:
 
-- `PageHeader` renders it, first in the actions row, ahead of the page's own
+* `PageHeader` renders it, first in the actions row, ahead of the page's own
   actions. It is a `secondary` button, never the primary one; the primary
   action changes the fleet, not the view of it.
-- A page declares what refreshing means for it by passing `onrefresh`, and
+* A page declares what refreshing means for it by passing `onrefresh`, and
   `RefreshButton` registers that with `lib/state/refresh.svelte.ts`, which is
   also what the `R` shortcut and the palette entry run. The button and the key
   cannot drift apart, because there is only one handler.
-- A page with nothing to fetch (a wizard mid-flight, the not-found page)
+* A page with nothing to fetch (a wizard mid-flight, the not-found page)
   passes nothing and shows no button. A control that succeeds at nothing is
   worse than no control.
-- One at a time: a second press joins the refresh in flight rather than starting
+* One at a time: a second press joins the refresh in flight rather than starting
   another, so a page that fans out to five requests cannot be made to send
   fifteen.
-- The icon turns while the fetch runs and for a beat after it, because a refresh
+* The icon turns while the fetch runs and for a beat after it, because a refresh
   answered out of a warm cache in twenty milliseconds otherwise looks like
   nothing happened. The label does not move; `aria-busy` and one polite
   announcement say the same thing without the animation.
@@ -1208,7 +1210,7 @@ Validation rules come from the same source as the API's, generated into
 `web/src/lib/api/schema.d.ts` from the OpenAPI document. Errors appear inline on
 blur and again on submit; the first invalid field receives focus. Defaults are
 filled in from the host's detected capabilities, so a first pool is a name and
-a press of _Create pool_.
+a press of *Create pool*.
 
 A form that is a document of settings rather than a procedure is one page of
 sections, not a wizard. A wizard asks the questions in an order; a pool's
@@ -1220,37 +1222,37 @@ pattern.
 ### The pool editor
 
 Creating a pool and editing one are the same page, made of sections that are
-each a _decision_ (who the pool is for, which hosts, what a runner is, how big,
+each a *decision* (who the pool is for, which hosts, what a runner is, how big,
 how many, what makes it faster) rather than a screen of the code that handles
 it.
 
-- **Every section is a row that says its answer.** A heading holding a
+* **Every section is a row that says its answer.** A heading holding a
   disclosure button, with the current answer in a line beneath it (`One share
-of each host · elastic CPU observing`), so the whole pool reads down the page
+  of each host · elastic CPU observing`), so the whole pool reads down the page
   without opening anything. The whole row is the target, and the summary is the
   button's description rather than its name. A closed section is not mounted:
   the draft is one object, so nothing typed is lost by closing it.
-- **A new pool opens on one section** and leaves the rest at their defaults,
-  under _Fine-tune (optional)_. **An existing pool opens on none**, because an
+* **A new pool opens on one section** and leaves the rest at their defaults,
+  under *Fine-tune (optional)*. **An existing pool opens on none**, because an
   operator who came to change one setting is better served by six lines they
   can read than by a form to scroll. A link to a section opens it: `#size`.
-- **The rows are the navigation.** From `--z-bp-lg` up a rail beside the page
+* **The rows are the navigation.** From `--z-bp-lg` up a rail beside the page
   lists the same sections, marks the ones that are edited or have something to
   fix, and jumps, opening, scrolling to and focusing the section, and writing
   `#size` into the address as a replacement rather than an entry. Below it there
   is no rail: a second copy of the list above the form is one more thing to
   scroll past on a phone.
-- **One sticky bar, and the button is never disabled for validation.** It says
+* **One sticky bar, and the button is never disabled for validation.** It says
   what the controller makes of the pool so far, and on a phone says nothing
-  unless there is something to act on. Pressing _Create pool_ while something is
+  unless there is something to act on. Pressing *Create pool* while something is
   wrong opens the first section with a problem and puts the cursor in it; a
   disabled button cannot explain itself. It is disabled only for an edit that
   has changed nothing.
-- **The exception is behind a row of its own.** A section is the answer to one
+* **The exception is behind a row of its own.** A section is the answer to one
   question, and the controls that refine it are in a native disclosure with a
   line saying whether any are in use. One or two to a section, and open already
   when one is, never a setting in use hidden behind a closed row.
-- **The form vocabulary is shared.** `.group`, `.hint`, `.echo`, `.pair`,
+* **The form vocabulary is shared.** `.group`, `.hint`, `.echo`, `.pair`,
   `.proposal` and `.callout` are laid out once, by the section that holds them, so
   six bodies do not carry six copies of the same eight rules; a `.pair` stacks
   at `--z-bp-md`, and anything that can be one long word (an image reference, a
@@ -1268,12 +1270,12 @@ explicitly. Irreversible actions require typing the resource name.
 Never a blank table. Each says what the thing is and what to do next, with the
 action inline:
 
-- Pools: _"No pools yet. A pool decides what labels your runners answer to and
-  how many of them exist."_ + **Create a pool**
-- Runners: _"No runners right now. That is normal when nothing is queued,
-  runners are created on demand."_
-- Jobs: _"Nothing is running right now. No runner here is working on a job at
-  this moment, which on a quiet fleet is the ordinary state."_ + **Show every
+* Pools: *"No pools yet. A pool decides what labels your runners answer to and
+  how many of them exist."* + **Create a pool**
+* Runners: *"No runners right now. That is normal when nothing is queued,
+  runners are created on demand."*
+* Jobs: *"Nothing is running right now. No runner here is working on a job at
+  this moment, which on a quiet fleet is the ordinary state."* + **Show every
   status**; the page opens on what is running, so that is the empty grid an
   operator meets first
 
@@ -1328,11 +1330,11 @@ meaning in its own right, on an `<abbr>` (the expansion of an abbreviation), an
 
 There are three kinds of content, and one bubble under all of them:
 
-| Kind       | What it is                                                                                | Used by                                                                                                                                      |
-| ---------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Plain help | an optional heading, one sentence, an optional reason and the keys that do the same thing | the sidebar, icon buttons, row actions and menu items, `Badge`, `RelativeTime`, truncated values, grid headings                              |
-| Rich card  | a `content` snippet with a layout of its own; `text` stays its one-sentence copy          | the runner state card, the memory badges, the host memory ledger, the lifecycle flow, pool risks, field help, setting sources, backup badges |
-| Data card  | a rich card that is not interactive and opens with no wait                                | the activity matrix                                                                                                                          |
+| Kind | What it is | Used by |
+| --- | --- | --- |
+| Plain help | an optional heading, one sentence, an optional reason and the keys that do the same thing | the sidebar, icon buttons, row actions and menu items, `Badge`, `RelativeTime`, truncated values, grid headings |
+| Rich card | a `content` snippet with a layout of its own; `text` stays its one-sentence copy | the runner state card, the memory badges, the host memory ledger, the lifecycle flow, pool risks, field help, setting sources, backup badges |
+| Data card | a rich card that is not interactive and opens with no wait | the activity matrix |
 
 The heading is shown only for a control that does not show its own name: an icon
 button's label, a collapsed sidebar entry's page. When there is a heading the
@@ -1358,16 +1360,16 @@ over `--z-motion-fast`, which collapses to `1ms` under reduced motion.
 The timing is one controller, `lib/tooltip.ts`, shared by every bubble, so only
 one is ever open:
 
-| Rule                                                                  | Value                                                                                                                                                  |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| The first bubble waits                                                | 250ms (`OPEN_DELAY`), counted from the pointer's first move over the trigger and not from the browser reporting that it entered (see below)            |
-| After one has shown, and while one is open, a neighbour opens at once | for 300ms (`WARM`), which is what makes a sweep down the sidebar feel instant                                                                          |
-| Leaving closes after a grace, and entering the bubble cancels it      | 100ms (`GRACE`)                                                                                                                                        |
-| Keyboard focus (`:focus-visible`)                                     | opens at once; blur closes                                                                                                                             |
-| `Esc`                                                                 | closes the bubble first, in the capture phase, without moving focus and without closing the menu underneath; it is stopped only when a bubble was open |
-| A press on the trigger or the bubble                                  | hides it                                                                                                                                               |
-| A touch                                                               | does not open on hover; the sentence is still the description                                                                                          |
-| `wait="none"`                                                         | opens at once, for things people scrub across                                                                                                          |
+| Rule | Value |
+| --- | --- |
+| The first bubble waits | 250ms (`OPEN_DELAY`), counted from the pointer's first move over the trigger and not from the browser reporting that it entered (see below) |
+| After one has shown, and while one is open, a neighbour opens at once | for 300ms (`WARM`), which is what makes a sweep down the sidebar feel instant |
+| Leaving closes after a grace, and entering the bubble cancels it | 100ms (`GRACE`) |
+| Keyboard focus (`:focus-visible`) | opens at once; blur closes |
+| `Esc` | closes the bubble first, in the capture phase, without moving focus and without closing the menu underneath; it is stopped only when a bubble was open |
+| A press on the trigger or the bubble | hides it |
+| A touch | does not open on hover; the sentence is still the description |
+| `wait="none"` | opens at once, for things people scrub across |
 
 Rich cards take the shared 250ms wait. They used to open the instant the pointer
 touched them; `RICH_CARD_WAIT` in `lib/tooltip.ts` is the one place to give that
@@ -1395,7 +1397,7 @@ be hovered or focused, and the reason is the point. `Button`, `IconButton`,
 Two thresholds, `--z-bp-md` (768px) and `--z-bp-lg` (1180px), and so three
 ranges:
 
-- `< 768px` (**phone.** The navigation becomes a bar along the bottom edge
+* `< 768px` (**phone.** The navigation becomes a bar along the bottom edge
   carrying the four sections a fleet is watched with) Overview, Pools, Runners,
   Workflows; each under its own word, plus a **More** button opening a sheet from
   the bottom edge that lists all fourteen, with the account, the theme and sign
@@ -1406,7 +1408,7 @@ ranges:
   it. Settings has no room for its rail here, so `/settings` is the list of its
   pages and each page carries a way back to it; between 768 and 1180px the rail
   is a strip of the same pages above the one being read.
-  Collapsing is a _desktop_ idea and the phone must never inherit it; a bar
+  Collapsing is a *desktop* idea and the phone must never inherit it; a bar
   along the bottom has nothing to collapse, and `.nav.collapsed` outranking the
   phone's own rules is what once made that bar 56px wide with every entry piled
   into the corner. Metric tiles stack, every table's rows become cards (read
@@ -1414,12 +1416,12 @@ ranges:
   controls step up to `--z-control-font-touch` so iOS does not zoom, and every
   control stays usable: the Playwright suite's mobile project runs the whole
   suite at this width, drains and the pool editor included.
-- `768–1180px`: **tablet.** The nav starts collapsed to icons unless the
+* `768–1180px`: **tablet.** The nav starts collapsed to icons unless the
   operator has chosen otherwise. That default is bounded at both ends, in
   `prefs.svelte.ts` and in the inline script in `index.html` that applies it
   before first paint: a phone is not a narrow desktop and has no sidebar to
   collapse.
-- `> 1180px`: **full.**
+* `> 1180px`: **full.**
 
 One page also answers to the window's height. On a desktop the sign-in page's
 brand panel drops its three facts when the window is under 720px tall (a laptop
@@ -1468,21 +1470,21 @@ scrollbar. `web/tests/tables.spec.ts` checks the page itself at 1440, 1180,
 
 Five things make it fit, in this order:
 
-- **Defaults fit before they scroll.** The table is `table-layout: fixed`, and
+* **Defaults fit before they scroll.** The table is `table-layout: fixed`, and
   `DataGrid` works out each column's width from the frame it measures rather
   than from its content. A declared `width` is the useful measure when all the
   useful measures fit, and a share of the frame when they do not. A cell too
   small for its content truncates and keeps the whole value in a tooltip, which
   opens only on a cell that is actually cut off.
-- **A deliberate layout stays deliberate.** Every heading has a drag handle and
+* **A deliberate layout stays deliberate.** Every heading has a drag handle and
   a resize edge. The handle also moves with left/right arrow keys and the edge
   resizes in eight-pixel keyboard steps; double-clicking an edge restores that
   column and the chooser can restore the whole layout. A layout wider than the
-  frame scrolls _inside the grid_, because shrinking other columns behind the
+  frame scrolls *inside the grid*, because shrinking other columns behind the
   operator's back would make the resize handle lie. Widths and order are saved
   under stable column ids to the signed-in account, with local storage as the
   immediate and offline fallback. New columns append to a saved order.
-- **Both gestures answer a finger.** They are pointer gestures rather than
+* **Both gestures answer a finger.** They are pointer gestures rather than
   HTML5 drag-and-drop, which a browser raises from a finger only after a long
   press on Android and never on iOS, so the order was once a preference a
   phone could read and not write, on the Rows layout that exists to give a
@@ -1494,19 +1496,19 @@ Five things make it fit, in this order:
   is the one implementation, shared with the tables that are not grids, and
   `web/tests/column-layout.spec.ts` holds it true under both a cursor and a
   touchscreen.
-- **A narrow desktop shows fewer columns.** Twelve columns in the 660 pixels a
+* **A narrow desktop shows fewer columns.** Twelve columns in the 660 pixels a
   768px window leaves is 55 pixels each, which fits and says nothing. Between
   `--z-bp-md` and `--z-bp-lg`, columns marked `priority: 'wide'` wait for a
   window with the room to show them properly. Which ones those are is each
   page's judgement: the columns that answer the page's own question stay.
-- **In Classic a phone keeps the table, and the frame takes the scroll.** A grid
+* **In Classic a phone keeps the table, and the frame takes the scroll.** A grid
   is the same shape at every width unless it is told otherwise: below
   `--z-bp-md` the columns take the widths they declare rather than dividing a
   frame they cannot meaningfully divide, and the grid's own frame scrolls
   sideways to reach the ones past the edge. Like a deliberately widened desktop
   layout, the scroll belongs to the table's frame rather than the page, so it
   buys a page an operator already knows without moving the application itself.
-- **A phone reads down in Mission Control, and in Classic when the operator says
+* **A phone reads down in Mission Control, and in Classic when the operator says
   so.** Ten columns in 412 pixels each say very little, so each grid carries a
   Cards/Rows toggle above its rows and Settings → Appearance holds the default
   every grid that has not chosen follows (Cards in Mission Control, Rows in
@@ -1538,24 +1540,24 @@ any of them belongs to.
 
 ## 5. Performance budget
 
-| Budget                                      | Limit                                  |
-| ------------------------------------------- | -------------------------------------- |
-| App shell (JS + CSS, gzipped)               | **< 200 KB**                           |
-| Route chunk                                 | < 80 KB gzipped, with named exceptions |
-| Status page (`/status`, all of it, gzipped) | **< 30 KB**                            |
-| First contentful paint on a warm cache      | < 400 ms                               |
-| Interaction to next paint                   | < 200 ms                               |
+| Budget | Limit |
+| --- | --- |
+| App shell (JS + CSS, gzipped) | **< 200 KB** |
+| Route chunk | < 80 KB gzipped, with named exceptions |
+| Status page (`/status`, all of it, gzipped) | **< 30 KB** |
+| First contentful paint on a warm cache | < 400 ms |
+| Interaction to next paint | < 200 ms |
 
 How it is kept:
 
-- route-level code splitting; xterm.js and TanStack Table load only on the
+* route-level code splitting; xterm.js and TanStack Table load only on the
   routes that use them;
-- no chart library: sparklines and bars are hand-written SVG;
-- Lucide icons imported individually so tree-shaking works;
-- fonts declared by hand as four Latin faces with `font-display: swap`,
+* no chart library: sparklines and bars are hand-written SVG;
+* Lucide icons imported individually so tree-shaking works;
+* fonts declared by hand as four Latin faces with `font-display: swap`,
   rather than @fontsource's own stylesheets, which pull in Cyrillic, Greek and
   Vietnamese in both woff and woff2;
-- the SSE cache is a plain `Map`, not a reactive deep-proxy over thousands of
+* the SSE cache is a plain `Map`, not a reactive deep-proxy over thousands of
   rows.
 
 `npm run build` prints every chunk's gzipped size and **fails** if the shell or
