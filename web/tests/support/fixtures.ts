@@ -732,8 +732,14 @@ export async function openEventsFeed(page: Page): Promise<Locator> {
   const feed = page.getByRole('region', { name: 'Recent events', exact: true });
   await expect(feed).toBeVisible();
   const expand = feed.getByRole('button', { name: 'Expand events' });
-  if (await expand.isVisible().catch(() => false)) await expand.click();
-  await expect(feed.getByRole('button', { name: 'Show fewer events' })).toBeVisible();
+  const fewer = feed.getByRole('button', { name: 'Show fewer events' });
+  // The feed draws neither button until it has filled. Looking for "Expand
+  // events" once, straight away, found nothing on a slow run, clicked nothing,
+  // and then waited for "Show fewer events" on a feed nobody had opened. So
+  // wait for whichever of the two the feed settles on before deciding.
+  await expect(expand.or(fewer)).toBeVisible();
+  if (await expand.isVisible()) await expand.click();
+  await expect(fewer).toBeVisible();
   return feed;
 }
 
