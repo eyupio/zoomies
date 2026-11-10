@@ -18,10 +18,32 @@ description: >-
 # compromised intermediate certificate. The Proxmox setup verifies a
 # certificate, so the standard library the build and the tests run on is the
 # one that matters here.
+#
+# Where the runner has the pool's shared cache folder, the modules and the build
+# output go there and the action's own cache is switched off. That cache is
+# about 830 MB, and a runner on this fleet restored it from GitHub at about
+# 1 MB/s: eleven minutes, then an expired-signature failure on the download, and
+# the 15-minute limit on the planning job cancelled the run before any test
+# started. The pool's folder is on the host's own disk, is safe to share between
+# concurrent jobs (the Go toolchain locks and verifies both caches), and is
+# empty only on the first run. A GitHub-hosted runner has no such folder and
+# keeps the action's cache, as does a runner whose folder is not writable.
 runs:
   using: composite
   steps:
+    - id: pool
+      shell: bash
+      run: |
+        use=false
+        d=/opt/zoomies-cache/go
+        if [ "$RUNNER_OS" = Linux ] && [ -d /opt/zoomies-cache ] \
+          && mkdir -p "$d/mod" "$d/build" 2>/dev/null && [ -w "$d/mod" ] && [ -w "$d/build" ]; then
+          use=true
+          echo "GOMODCACHE=$d/mod" >> "$GITHUB_ENV"
+          echo "GOCACHE=$d/build" >> "$GITHUB_ENV"
+        fi
+        echo "use=$use" >> "$GITHUB_OUTPUT"
     - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: "1.27.3"
-        cache: true
+        cache: ${{ steps.pool.outputs.use != 'true' }}
