@@ -332,3 +332,48 @@ test('a repository, provider and model named with markup read as text on the aut
 
   expect(dialogs, 'a dialog opened, so something an installation wrote ran').toHaveLength(0);
 });
+
+/*
+ * A wall display shows every running job's name, and anyone who can push a
+ * workflow chooses one. Markup in it stays text, and a name of four hundred
+ * characters is cut inside its tile rather than widening the lane, the deck
+ * and the page around it.
+ */
+test('a job name with markup, or with four hundred characters, stays text inside its tile on the command centre', async ({
+  page,
+}) => {
+  const dialogs = watchForDialogs(page);
+  const markup = '<img src=x onerror=window.__x=1>';
+  const long = `build ${'and test the whole matrix again '.repeat(13)}`.slice(0, 400);
+  expect(long).toHaveLength(400);
+
+  // The stream goes first: a runner frame would put the real names back.
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  await page.route('**/api/v1/runners*', async (route) => {
+    const read = await readThrough<{ items?: { current_job?: { job_name?: string } }[] }>(route);
+    if (!read) return;
+    const working = (read.body.items ?? []).filter((runner) => runner.current_job);
+    working.forEach((runner, i) => (runner.current_job!.job_name = i % 2 === 0 ? markup : long));
+    await route.fulfill({ response: read.response, json: read.body });
+  });
+
+  await goto(page, '/command', 'Command centre');
+  const tiles = page.getByTestId('command-tile');
+  const marked = tiles.filter({ hasText: markup });
+  const lengthy = tiles.filter({ hasText: long });
+  // Both arrived, as text: an assertion about what did not run is worth nothing otherwise.
+  await expect(marked.first()).toBeVisible();
+  await expect(lengthy.first()).toBeVisible();
+  await expect(page.locator('img[src="x"]')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as { __x?: unknown }).__x)).toBeUndefined();
+
+  for (const tile of [marked.first(), lengthy.first()]) {
+    const { scrollWidth, clientWidth } = await tile.evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }));
+    expect(scrollWidth, 'the name widened its tile').toBeLessThanOrEqual(clientWidth);
+  }
+  await expectNoSidewaysScroll(page, 'the command centre');
+  expect(dialogs).toHaveLength(0);
+});

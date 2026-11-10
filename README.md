@@ -107,7 +107,7 @@ flowchart LR
     q --> w --> d --> s --> a --> e
 ```
 
-* **A live web UI.** Fourteen pages, one job each, all updating in place from the
+* **A live web UI.** Fifteen pages, one job each, all updating in place from the
   controller's event stream; you never have to press refresh, though there is a
   button where you want to be sure. Light and dark, a command palette, and a log
   viewer built for a hundred thousand lines.
@@ -368,9 +368,10 @@ See [docs/migration.md](docs/migration.md).
 
 ## The UI
 
-Fourteen pages, one job each: **Overview** (fleet health, queue depth, scaling
+Fifteen pages, one job each: **Overview** (fleet health, queue depth, scaling
 decisions in plain words, and a problems panel that is quiet when nothing is
-wrong), **Pools**, **Runners**, **Queue**, **Workflows** (one row per
+wrong), **Command centre** (the whole fleet on one screen, for a second
+monitor or a wall), **Pools**, **Runners**, **Queue**, **Workflows** (one row per
 workflow run, opening to the jobs inside it), **Usage**, **Hosts**,
 **Providers**, **Installations**, **Eli repairs**, **Migrate**, **Kennel Club** (the repositories this fleet
 serves, checked against what affects CI, with **AI Context** inside it), **Audit**, **Settings**. It is

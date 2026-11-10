@@ -36,6 +36,14 @@ export interface RouteDef {
    * mid-task, and the one decision in front of them is the whole page.
    */
   bare?: boolean;
+  /**
+   * Render the page as its own chrome: no navigation, top bar or footer, but
+   * the command palette, the problems drawer and the shortcut sheet stay. The
+   * command centre is one: it is watched from across a room, where a sidebar
+   * is space taken from the fleet, yet an operator who walks up to it still
+   * reaches for Ctrl+K and the problems it links to.
+   */
+  immersive?: boolean;
   load?: () => Promise<{ default: Component<Record<string, never>> }>;
 }
 
@@ -73,6 +81,13 @@ export const ROUTES: readonly RouteDef[] = [
     path: '/',
     title: 'Overview',
     load: () => import('../routes/Overview.svelte'),
+  },
+  {
+    name: 'command',
+    path: '/command',
+    title: 'Command centre',
+    immersive: true,
+    load: () => import('../routes/CommandCentre.svelte'),
   },
   { name: 'queue', path: '/queue', title: 'Queue', load: () => import('../routes/Queue.svelte') },
   { name: 'pools', path: '/pools', title: 'Pools', load: () => import('../routes/Pools.svelte') },

@@ -16,6 +16,7 @@
     HardDrive,
     LayoutDashboard,
     ListChecks,
+    MonitorPlay,
     Moon,
     PawPrint,
     Plug,
@@ -92,6 +93,13 @@
         label: 'Overview',
         icon: LayoutDashboard,
         run: () => router.navigate('/'),
+      },
+      {
+        id: 'go-command',
+        group: 'Go to',
+        label: 'Command centre',
+        icon: MonitorPlay,
+        run: () => router.navigate('/command'),
       },
       {
         id: 'go-pools',

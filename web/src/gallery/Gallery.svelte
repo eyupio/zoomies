@@ -19,6 +19,7 @@
   import { resolveUIStyle, UI_STYLE_OPTIONS } from '$lib/state/ui-style';
   import { visualStyle } from '$lib/state/ui-style.svelte';
   import BandPicturesSection from './sections/BandPictures.svelte';
+  import CommandCentreSection from './sections/CommandCentre.svelte';
   import ControlsSection from './sections/Controls.svelte';
   import DataSection from './sections/Data.svelte';
   import EliRepairsSection from './sections/EliRepairs.svelte';
@@ -93,6 +94,7 @@
     <EliRepairsSection />
     <PublicSection />
     <BandPicturesSection />
+    <CommandCentreSection />
   </div>
 </main>
 

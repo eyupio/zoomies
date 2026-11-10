@@ -218,6 +218,7 @@ export function isTypingTarget(target: EventTarget | null): boolean {
 /** The `g` then letter jumps, in the order the navigation lists them. */
 export const GO_KEYS: ReadonlyArray<{ key: string; path: string; label: string }> = [
   { key: 'o', path: '/', label: 'Overview' },
+  { key: 'd', path: '/command', label: 'Command centre' },
   { key: 'p', path: '/pools', label: 'Pools' },
   { key: 'r', path: '/runners', label: 'Runners' },
   { key: 'q', path: '/queue', label: 'Queue' },

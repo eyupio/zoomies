@@ -42,6 +42,7 @@ const SECTIONS = [
   'Public pages',
   'Terminal and facts',
   'Band pictures',
+  'Command centre',
 ];
 
 function open(page: Page, style: string, mode: string): Promise<unknown> {

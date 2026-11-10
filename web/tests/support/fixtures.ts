@@ -54,10 +54,12 @@ export const browserOverride = process.env.PLAYWRIGHT_CHROMIUM
  * does not. `lands` is where the address ends up when it is not the entry's
  * own path: Settings is a section of pages, so on a desktop `/settings` goes
  * straight to the first of them, while a phone shows the list of pages under
- * the section's own name.
+ * the section's own name. `immersive` marks a page that is its own chrome:
+ * it has no navigation to mark it current or to leave it by, only its Exit.
  */
 export const SECTIONS = [
   { path: '/', label: 'Overview' },
+  { path: '/command', label: 'Command centre', immersive: true },
   { path: '/pools', label: 'Pools' },
   { path: '/runners', label: 'Runners' },
   { path: '/workflows', label: 'Workflows' },

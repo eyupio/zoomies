@@ -147,7 +147,7 @@ fleet or repository.
 <span id="a-live-web-ui"></span>
 <span id="actually-observable"></span>
 
-Fourteen pages, one job each: live jobs, runner logs, host health, queue waits
+Fifteen pages, one job each: live jobs, runner logs, host health, queue waits
 and scheduler reasons. [Tour the UI](ui.md) or [diagnose a queued job](queued-job.md).
 </div>
 

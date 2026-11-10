@@ -548,6 +548,15 @@ actually put in one; a confirmation, a form, a table:
 (360/520/760). A public page, before anybody has signed in, is cut to
 `--z-width-public` (1120px), which its header, its stage and its footer share.
 
+The command centre has measures of its own, each used by more than one rule.
+`--z-command-ring` (9.25rem) is the hero ring's diameter, sized to be read from
+across a room. `--z-command-ring-phone` is three quarters of it, the ring
+below the phone breakpoint and the loading shape that stands in its place;
+`--z-command-ring-stroke` (0.625rem) is the width of its arc and its track.
+`--z-command-tile-height` (3.5rem) is every runner tile and free cell in a host
+lane, whatever it holds, so a lane's grid keeps its shape when a runner comes or
+goes and only the tile's colour and mark change.
+
 ### 1.5 Elevation
 
 Shadows are cool-tinted, to match the near-black spine, and very restrained; in
@@ -726,36 +735,44 @@ Persistent left navigation, collapsible to icons only (persisted). Order is
 fixed, because muscle memory is the point:
 
 1. **Overview**: fleet health at a glance
-2. **Pools**: what runners to make
-3. **Runners**: what runners exist right now
-4. **Queue**: what is waiting for a runner, and why
-5. **Workflows**: what has run, one row per workflow run, each opening to the
+2. **Command centre**: the whole fleet on one screen, live, for a second
+   monitor or a wall. It is an immersive page at `/command`: it draws its own
+   bar (the wordmark, its name, the clock, Refresh, Full screen and Exit) in place of the
+   navigation, the top bar and the footer, and keeps the palette, the problems
+   drawer, the shortcut sheet and every shortcut. Exit returns to the page it
+   was opened from, or the Overview; `Esc` leaves full screen, then closes an
+   open overlay, then exits. It is not on the phone's bottom bar, only in the
+   menu More opens.
+3. **Pools**: what runners to make
+4. **Runners**: what runners exist right now
+5. **Queue**: what is waiting for a runner, and why
+6. **Workflows**: what has run, one row per workflow run, each opening to the
    jobs inside it. The job-level list is one step down, at `/jobs`: it is not
    in the navigation, but every link that names a job (the problems drawer's,
    the Overview's) lands there, and the two pages share their filters.
-6. **Usage**: runner-hours and job activity by pool, repository or workflow
-7. **Hosts**: where runners can go
-8. **Providers**: the infrastructure that machines are rented from
-9. **Installations**: GitHub App connections
-10. **Eli repairs**: review failed PR offers, follow what is running and what
+7. **Usage**: runner-hours and job activity by pool, repository or workflow
+8. **Hosts**: where runners can go
+9. **Providers**: the infrastructure that machines are rented from
+10. **Installations**: GitHub App connections
+11. **Eli repairs**: review failed PR offers, follow what is running and what
     happened, and set up the accounts and repositories behind them. It is one
     entry for four pages under `/repairs`: the hub, a failure at `/repairs/new`,
     one repair at `/repairs/<id>` and setup at `/repairs/setup`. The entry is lit
     on all four.
-11. **Migrate repositories**: move repositories off GitHub's runners onto this
+12. **Migrate repositories**: move repositories off GitHub's runners onto this
     fleet. The navigation shortens it to *Migrate*, because a nav label has to
     fit beside an icon in a 232px column; every other place that names the page
     (its heading, the palette, the shortcut sheet, the browser title) uses the
     full name.
-12. **Kennel Club**: which repositories could hurt the fleet or stop its CI
+13. **Kennel Club**: which repositories could hurt the fleet or stop its CI
     ([Kennel Club](kennel-club.md)). It is a section of pages, like Settings:
     *Standards* (the Overview and the list of Repositories, and each
     repository's own page) and, under *For assistants*, **AI Context**,
     preparing repositories for AI coding assistants, where explicit source access
     is separate from fleet permissions. AI Context has no section of its own, and
     `/ai-context` still reaches it.
-13. **Audit**: who did what
-14. **Settings**: a section of pages rather than one page: your account and
+14. **Audit**: who did what
+15. **Settings**: a section of pages rather than one page: your account and
     appearance; users and API tokens; the configuration, backups, updates and about.
     Each has an address of its own (`/settings/users`), the section's own rail
     lists them beside the page, and `/settings` alone goes to the first of
@@ -764,7 +781,8 @@ fixed, because muscle memory is the point:
     a phone the list leads with that identity as the card that opens Account.
 
 The sidebar reads the same order under four headings (*Fleet*, *Infrastructure*,
-*GitHub* and *Administration*, with the Overview standing alone at the top and
+*GitHub* and *Administration*, with the Overview and the command centre standing
+alone at the top and
 Administration pinned to the foot) so an entry is found by its neighbourhood
 rather than read for from the top. Collapsed, the headings become hairlines
 and nothing moves. The headings change nothing about the order or the `g`
@@ -1294,8 +1312,9 @@ total is zero.
 
 Everything reachable, in a sensible order, with a visible focus ring
 (`2px` `--z-accent`, `2px` offset, never removed). `Cmd/Ctrl+K` palette,
-`g` then `o/p/r/q/w/j/u/h/v/i/m/k/a/s` to jump between sections (`j` is the Jobs
-list, one step down from Workflows), `/` focuses the current page's search, `R` refreshes it, `?` opens the shortcut sheet, `Esc` closes the
+`g` then `o/d/p/r/q/w/j/u/h/v/i/m/k/c/a/s` to jump between sections (`d` is the
+command centre, `j` is the Jobs list, one step down from Workflows, and `c` is
+AI Context), `/` focuses the current page's search, `R` refreshes it, `?` opens the shortcut sheet, `Esc` closes the
 topmost layer, and a tooltip is the first thing it closes. While a dialog, drawer, menu or the palette is open, `Esc` is
 the only one of these the shell answers; the rest belong to the overlay, so a
 `g r` typed into a confirmation cannot navigate away from the thing being
@@ -1652,7 +1671,8 @@ never from a design file or a retouched page. `make screenshots` builds, boots
 a controller with the demo fleet (`ZOOMIES_SEED_DEMO`) and authentication on,
 signs in as a freshly bootstrapped administrator, and photographs every page in
 both themes at 1440×900 on a 2× display, plus the sign-in page from a browser
-that was never given the session, and the Overview on a phone. The
+that was never given the session, and the Overview and the command centre on a
+phone. The
 files are lossless WebP. The script is `web/tests/support/screenshots.mjs`,
 and it needs Pillow (`pip install pillow`) to encode them.
 

@@ -27,6 +27,7 @@
   import { toasts } from '$lib/state/toasts.svelte';
   import ActivityStatus from '$lib/jobs/ActivityStatus.svelte';
   import { queuedActivity } from '$lib/jobs/activity-status';
+  import { QUEUE_DEFAULT_QUERY } from '$lib/queue/default-query';
   import { prefs } from '$lib/state/prefs.svelte';
   import { visualStyle } from '$lib/state/ui-style.svelte';
   import { viewport } from '$lib/state/viewport.svelte';
@@ -106,7 +107,7 @@
       ? router
           .paramList('provisioning')
           .filter((s): s is Status => statuses.some((v) => v.value === s))
-      : (['ready', 'expedited', 'paused'] as Status[]),
+      : [...QUEUE_DEFAULT_QUERY.provisioning],
   );
   const branch = $derived(router.param('branch'));
   const query = $derived<Query<'listProvisioning'>>({
