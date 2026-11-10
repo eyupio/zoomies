@@ -164,6 +164,54 @@ func (s *Store) jobUsageHistory(ctx context.Context, repo, workflow, job string,
 	return rows.Err()
 }
 
+// PoolJobPeaksLimit bounds how many completed jobs PoolJobPeaks reads. A few
+// thousand is a week of a busy pool, plenty for a ninetieth percentile, and the
+// read is on demand, not on a scheduling pass.
+const PoolJobPeaksLimit = 5000
+
+// The two statements of PoolJobPeaks are constants so a query-plan test can pin
+// them: a pool is read by its own index, and every pool by the completion time.
+// One statement with "? = ” OR pool_id = ?" would let neither index serve it.
+const (
+	poolJobPeaksSQL = `SELECT peak_cpus, peak_memory_mb, oom_killed, granted_memory_mb FROM jobs
+	WHERE pool_id = ? AND state = 'completed' AND queued_at >= ?
+	AND (peak_memory_mb > 0 OR peak_cpus > 0 OR oom_killed = 1)
+	ORDER BY queued_at DESC LIMIT ?`
+	allPoolJobPeaksSQL = `SELECT peak_cpus, peak_memory_mb, oom_killed, granted_memory_mb FROM jobs
+	WHERE state = 'completed' AND completed_at >= ?
+	AND (peak_memory_mb > 0 OR peak_cpus > 0 OR oom_killed = 1)
+	ORDER BY completed_at DESC LIMIT ?`
+)
+
+// PoolJobPeaks returns what the completed jobs of one pool, or of every pool
+// when poolID is empty, were measured to use since a moment, newest first and
+// capped at PoolJobPeaksLimit. A job with nothing measured is left out, as it is
+// from a job's own history: it says nothing about size.
+func (s *Store) PoolJobPeaks(ctx context.Context, poolID string, since time.Time) ([]JobPeak, error) {
+	var rows *sql.Rows
+	var err error
+	if poolID == "" {
+		rows, err = s.read.QueryContext(ctx, allPoolJobPeaksSQL, ms(since), PoolJobPeaksLimit)
+	} else {
+		rows, err = s.read.QueryContext(ctx, poolJobPeaksSQL, poolID, ms(since), PoolJobPeaksLimit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []JobPeak
+	for rows.Next() {
+		var p JobPeak
+		var oom int
+		if err := rows.Scan(&p.CPUs, &p.MemoryMB, &oom, &p.GrantedMemoryMB); err != nil {
+			return nil, err
+		}
+		p.OOMKilled = oom == 1
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // OutputTailLines and OutputTailRunes bound what a job keeps of its runner's
 // last output: enough to show what killed it, little enough to keep for every
 // failed job, and never one enormous line.

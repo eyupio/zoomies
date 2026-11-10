@@ -120,6 +120,7 @@ var routesOffered = map[string]string{
 	"GET /machines/{id}":                         "list_machines",
 	"GET /meta":                                  "support_bundle",
 	"GET /pools":                                 "list_pools",
+	"GET /pools/performance":                     "pool_performance",
 	"GET /problems":                              "list_problems",
 	"GET /providers":                             "list_providers",
 	"GET /providers/pairings":                    "provider_pairings",
