@@ -737,7 +737,7 @@ fixed, because muscle memory is the point:
 1. **Overview**: fleet health at a glance
 2. **Command centre**: the whole fleet on one screen, live, for a second
    monitor or a wall. It is an immersive page at `/command`: it draws its own
-   bar (the wordmark, its name, the clock, Full screen and Exit) in place of the
+   bar (the wordmark, its name, the clock, Refresh, Full screen and Exit) in place of the
    navigation, the top bar and the footer, and keeps the palette, the problems
    drawer, the shortcut sheet and every shortcut. Exit returns to the page it
    was opened from, or the Overview; `Esc` leaves full screen, then closes an

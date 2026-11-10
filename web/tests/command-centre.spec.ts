@@ -117,6 +117,57 @@ test('a browser that can go full screen is offered the control', async ({ page }
   await expect(control).toHaveAttribute('aria-pressed', 'false');
 });
 
+/**
+ * The reads a refresh of this page must send again: the fleet (its hosts are
+ * the lanes), the two lists in the rail, and the chart's hour of samples.
+ */
+const COMMAND_READS = ['/api/v1/hosts', '/api/v1/provisioning', '/api/v1/jobs', '/api/v1/samples'];
+
+function readsSeen(page: Page): Set<string> {
+  const seen = new Set<string>();
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (COMMAND_READS.includes(path)) seen.add(path);
+  });
+  return seen;
+}
+
+test('Refresh in the bar fetches the fleet, both lists and the chart again, and the page stays', async ({
+  page,
+}) => {
+  // A wall display is the page most likely to have been left open through a
+  // laptop lid or a controller restart, so it owes an operator the same way to
+  // settle whether it is current as every other page, in the same words.
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByTestId('command-lane').first()).toBeVisible();
+  const refresh = page.getByRole('button', { name: 'Refresh', exact: true });
+  await expect(refresh).toHaveCount(1);
+  await expect(refresh).toBeVisible();
+
+  // Ahead of the page's own controls, as PageHeader puts it everywhere else.
+  const first = await refresh.evaluate(
+    (el, exit) => Boolean(el.compareDocumentPosition(exit!) & Node.DOCUMENT_POSITION_FOLLOWING),
+    await exitLink(page).elementHandle(),
+  );
+  expect(first, 'refresh comes before Exit').toBe(true);
+
+  const seen = readsSeen(page);
+  await refresh.click();
+  await expect.poll(() => [...seen].sort()).toEqual([...COMMAND_READS].sort());
+  await expect(refresh).not.toHaveAttribute('aria-busy', 'true');
+  await expect(pageHeading(page, 'Command centre')).toBeVisible();
+  await expect(page.getByTestId('command-lane').first()).toBeVisible();
+});
+
+test('R refreshes the page as the button does', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByTestId('command-lane').first()).toBeVisible();
+  const seen = readsSeen(page);
+  await page.keyboard.press('r');
+  await expect.poll(() => [...seen].sort()).toEqual([...COMMAND_READS].sort());
+  await expect(page).toHaveURL(/\/command$/);
+});
+
 test('Ctrl+K opens the command palette on the page, and it lists the page', async ({ page }) => {
   await goto(page, '/command', 'Command centre');
   await page.keyboard.press('Control+k');

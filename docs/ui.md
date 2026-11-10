@@ -142,8 +142,10 @@ under the Overview in the navigation, `g d` reaches it from anywhere, and the
 command palette lists it; on a phone it is in the menu More opens.
 
 It is its own chrome. There is no navigation, top bar or footer, only a bar
-with the wordmark, the page's name, the clock, **Full screen** and **Exit**.
-The command palette, the shortcut sheet and every shortcut still work.
+with the wordmark, the page's name, the clock, **Refresh**, **Full screen** and
+**Exit**. The command palette, the shortcut sheet and every shortcut still work.
+**Refresh** (or `R`) fetches the hosts, both lists and the chart again, as it
+does on every other page.
 **Full screen** is offered only where the browser allows it, and while the page
 is full screen it also keeps the display from dimming where the browser can.
 **Exit** returns to the page you came from, or to the Overview when the page

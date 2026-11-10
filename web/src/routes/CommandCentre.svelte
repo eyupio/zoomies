@@ -15,6 +15,7 @@
   import Button from '$lib/components/Button.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Logo from '$lib/components/Logo.svelte';
+  import RefreshButton from '$lib/components/RefreshButton.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import AttentionList from '$lib/command/AttentionList.svelte';
   import FinishedList from '$lib/command/FinishedList.svelte';
@@ -209,6 +210,22 @@
   function toggleFullscreen(): void {
     void fullscreen.toggle(document.documentElement);
   }
+
+  /*
+    The stream keeps this page current, but a wall display is the page most
+    likely to have sat through a closed lid or a controller restart, so it
+    owes the same way to settle that as every other page: everything it reads,
+    read again. The lists and the chart report their own failures in place,
+    so one that fails does not hold the others up.
+  */
+  let hero = $state<ReturnType<typeof Hero>>();
+  async function refreshPage(): Promise<void> {
+    await Promise.allSettled([
+      fleet.reconcile(),
+      commandJobs.retry(),
+      hero?.reloadChart() ?? Promise.resolve(),
+    ]);
+  }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -238,6 +255,8 @@
       <span class="time">{time}</span>
       <span class="date">{date}</span>
     </time>
+    <!-- First of the bar's controls, as PageHeader puts it on every other page. -->
+    <RefreshButton onrefresh={refreshPage} />
     {#if fullscreen.supported}
       <Button
         variant="secondary"
@@ -259,6 +278,7 @@
   <div class="stage">
     {#if fleet.loaded || !fleet.error}
       <Hero
+        bind:this={hero}
         verdict={said}
         stats={fleet.stats}
         running={busy}

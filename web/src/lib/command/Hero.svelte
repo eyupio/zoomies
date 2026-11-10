@@ -36,6 +36,17 @@
 
   const figures = $derived(heroFigures(stats, now));
 
+  let chart = $state<ReturnType<typeof HourChart>>();
+
+  /**
+   * The page's refresh reaches the chart through here: its samples are its
+   * own read, which no fleet reconcile repeats. While the fleet is loading no
+   * chart is drawn, and the one that mounts fetches for itself.
+   */
+  export function reloadChart(): Promise<void> {
+    return chart?.reload() ?? Promise.resolve();
+  }
+
   function openProblems(): void {
     notifications.open = true;
   }
@@ -105,7 +116,7 @@
     </ul>
 
     <div class="chart">
-      <HourChart {slots} />
+      <HourChart bind:this={chart} {slots} />
     </div>
   </section>
 {/if}

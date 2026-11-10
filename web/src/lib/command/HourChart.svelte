@@ -42,7 +42,8 @@
     return { at: Date.now(), queued: own.queued_jobs ?? 0, running: own.running_jobs ?? 0 };
   }
 
-  async function reload(): Promise<void> {
+  /** Fetch the hour again. The page's refresh calls it as well as a reconnect. */
+  export async function reload(): Promise<void> {
     pending?.abort();
     const controller = new AbortController();
     pending = controller;
