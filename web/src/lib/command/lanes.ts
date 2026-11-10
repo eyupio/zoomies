@@ -33,6 +33,10 @@ export interface Lane {
   tone: 'pending' | 'danger' | 'draining' | null;
   /** '5 of 6 slots', 'full, 2 jobs wait', 'throttled', 'not answering', 'cordoned'. */
   note: string;
+  /**
+   * Queued jobs for the pools running here. The same job can count towards
+   * more than one lane (a pool spans hosts), so never sum this across lanes.
+   */
   waiting: number;
   /** More slots than a lane draws in one tidy row, so the cells wrap. */
   wide: boolean;

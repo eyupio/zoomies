@@ -90,8 +90,8 @@ function problemParts(i: VerdictInput): VerdictPart[] {
 /** The sentence is built with a trailing space after each clause; the last has none. */
 function trimmed(parts: VerdictPart[]): VerdictPart[] {
   const last = parts[parts.length - 1];
-  if (last && !last.href && !last.opens) last.text = last.text.trimEnd();
-  return parts;
+  if (!last || last.href || last.opens) return parts;
+  return [...parts.slice(0, -1), { ...last, text: last.text.trimEnd() }];
 }
 
 export function verdict(i: VerdictInput): Verdict {
@@ -109,9 +109,8 @@ export function verdict(i: VerdictInput): Verdict {
       kind: 'empty',
       headline: 'No hosts yet.',
       parts: [
-        plain('Add a host to give the '),
-        { text: 'fleet somewhere to run', href: '/hosts/new' },
-        plain('.'),
+        { text: 'Add a host', href: '/hosts/new' },
+        plain(' to give the fleet somewhere to run.'),
       ],
     };
   }

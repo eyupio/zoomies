@@ -121,7 +121,9 @@ test('an empty fleet points at adding a host', () => {
     v.parts.map((p) => p.text).join(''),
     'Add a host to give the fleet somewhere to run.',
   );
-  assert.equal(v.parts.find((p) => p.href)?.href, '/hosts/new');
+  const link = v.parts.find((p) => p.href);
+  assert.equal(link?.text, 'Add a host');
+  assert.equal(link?.href, '/hosts/new');
 });
 
 test('runners that are starting are said, and a busy fleet that has nothing running says so', () => {
