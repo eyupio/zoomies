@@ -1669,7 +1669,12 @@ jobs:
   runner-images:
     name: Runner image (${{ matrix.tag }}, ${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || (((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64') }}
-    timeout-minutes: 60 # the longest successful run seen was 25 minutes (rocky-9 on arm64)
+    # A leg whose layer cache missed rebuilds the toolchains and writes them
+    # back to the cache, and on the pool's slowest host that alone is 35
+    # minutes before runner-full starts: ubuntu-2604 on amd64 was cancelled at
+    # 60 minutes while pulling the image it had already pushed, with every
+    # check before that passed, and the variant went unpublished for it.
+    timeout-minutes: 90 # the longest successful run seen was 34 minutes (ubuntu-2404 on amd64, nothing cached)
     # It waits for the plan and for nothing else, so that a pull request builds
     # these beside the tests, as it always has. On main the tests gate the
     # publish that moves hosts: the dev binaries come last and wait for every
