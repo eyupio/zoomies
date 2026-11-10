@@ -457,7 +457,9 @@ jobs:
     name: Runner image (${{ matrix.tag }}, ${{ matrix.arch }})
     needs: setup
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || needs.setup.outputs.runs-on }}
-    timeout-minutes: 60 # the longest successful run seen was 22 minutes
+    # ci.yml's copy of this job needed 63 minutes for one leg with nothing
+    # cached on the pool's slowest host; a release builds the same layers.
+    timeout-minutes: 90 # the longest successful run seen was 22 minutes
     permissions:
       contents: read
       packages: write
