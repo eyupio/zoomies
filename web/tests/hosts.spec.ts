@@ -380,12 +380,17 @@ test('a host under sustained pressure is throttled, says why, and an operator ca
     await keepCapacity(page, hostId, 4);
     // A load average of twenty on eight CPUs is a runnable queue the machine
     // is not draining, and it steps the throttle up on the first beat: memory
-    // is left healthy so the sentence names the load and nothing else.
+    // is left healthy so the sentence names the load and nothing else. The CPU
+    // has to be busy behind it, at or above the 85% the scheduler calls calm,
+    // because a load with the CPU idle is tasks blocked on a disk or a network
+    // filesystem and is not a throttle. At 60% the host was never throttled, the
+    // spec timed out, and the host it had joined was left on the shared
+    // controller for every spec after it to count.
     const beat = await page.request.post('/api/v1/agent/heartbeat', {
       headers: { Authorization: `Bearer ${credentials.agent_token}` },
       data: {
         protocol_version: 1,
-        usage: { cpu_percent: 60, memory_available_mb: 8192, load_average_1m: 20 },
+        usage: { cpu_percent: 90, memory_available_mb: 8192, load_average_1m: 20 },
       },
     });
     expect(beat.ok()).toBeTruthy();
