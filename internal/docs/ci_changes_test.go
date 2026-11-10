@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/eyupio/zoomies/internal/updates"
 )
 
 // changesScript is the shell that decides what CI runs for a change, taken
@@ -569,4 +571,68 @@ func TestTheDevChannelPublishesRunnerImagesThenImagesThenBinaries(t *testing.T) 
 			t.Errorf("ci.yml's %s waits for %s, which is the order the dev channel moved away from", tc.earlier, tc.later)
 		}
 	}
+}
+
+// A controller on a build from main sends its hosts to the dev channel, which
+// cannot be asked for a commit, so the controller holds them until the release's
+// notes name its build. That line is the word that the build is complete, so it
+// is written after every file is up and verified, and an existing release keeps
+// the line it has until then: a line written first would name a build whose
+// binaries are still being replaced.
+func TestTheDevReleaseNamesItsBuildOnlyAfterEveryFileIsUp(t *testing.T) {
+	var wf struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string            `yaml:"name"`
+				Env  map[string]string `yaml:"env"`
+				Run  string            `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(workflowFiles(t)["ci.yml"]), &wf); err != nil {
+		t.Fatalf("parsing ci.yml: %v", err)
+	}
+	var run string
+	var env map[string]string
+	for _, step := range wf.Jobs["dev-binaries"].Steps {
+		if step.Name == "Publish the dev release" {
+			run, env = step.Run, step.Env
+		}
+	}
+	if run == "" {
+		t.Fatal("ci.yml's dev-binaries has no step named Publish the dev release")
+	}
+	if got := env["BUILD"]; got != "${{ steps.build.outputs.version }}" {
+		t.Errorf("BUILD = %q, want the version the binaries were stamped with", got)
+	}
+
+	line := updates.ChannelBuildPrefix + "%s"
+	named := strings.Index(run, line)
+	verified := strings.Index(run, "the dev release is missing")
+	if named < 0 {
+		t.Fatalf("the publish step never writes a %q line into the notes, so the controller never learns the channel holds its build", line)
+	}
+	if verified < 0 || named < verified {
+		t.Errorf("the notes name the build before the files are verified, so a controller could send hosts to a channel still being replaced")
+	}
+	if got := ciNotesNaming(run); got != 1 {
+		t.Errorf("%d commands write the notes, want 1: the early edit of an existing release must leave them alone", got)
+	}
+	// What CI writes is what the controller reads.
+	notes := fmt.Sprintf("Rolling development build.\n\n%s\n", line)
+	notes = strings.Replace(notes, "%s", "main-sha-d49e8bf4", 1)
+	if got := updates.ChannelBuild(notes); got != "main-sha-d49e8bf4" {
+		t.Errorf("the controller reads %q from the notes CI writes, want main-sha-d49e8bf4", got)
+	}
+}
+
+// ciNotesNaming counts the commands that edit an existing release's notes.
+func ciNotesNaming(run string) int {
+	n := 0
+	for _, l := range strings.Split(run, "\n") {
+		if strings.Contains(l, "gh release edit") && strings.Contains(l, "--notes") {
+			n++
+		}
+	}
+	return n
 }

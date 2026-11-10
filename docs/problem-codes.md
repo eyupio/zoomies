@@ -162,6 +162,9 @@ than about what any one setting says.
 | Code | Severity | Setting | What to do |
 | --- | --- | --- | --- |
 | `scheduler.history_sizing` | error | `scheduler.history_sizing` | Use `off`, `shadow` or `on`. |
+| `scheduler.history_percentile` | error | `scheduler.history_percentile` | Use a percentile from 1 to 100; 75 is the default and 100 sizes for the heaviest job waiting. |
+| `scheduler.history_max_multiple` | error | `scheduler.history_max_multiple` | Use a multiple from 1 to 8; 2 is the default and 1 never raises a runner above its share. |
+| `scheduler.elastic_cpu_history` | error | `scheduler.elastic_cpu_history` | Use `off`, `shadow` or `on`. |
 | `security.auto_apply_remedies` | error | `security.auto_apply_remedies` | Use `off`, `shadow` or `on` (`false` and `true` are still read as `off` and `on`). |
 | `scheduler.host_order` | error | `scheduler.host_order` | Use `headroom`, `largest_standard` or `best_fit`. |
 | `scheduler.placement_mode` | error | `scheduler.placement_mode` | Use `headroom`, `shadow` or `readiness`. |

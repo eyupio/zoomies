@@ -912,6 +912,15 @@ jobs:
     if: github.event.action != 'closed' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true')
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     timeout-minutes: 25 # the longest successful run seen was 3 minutes before it built the binary
+    env:
+      # svelte-check on the whole UI needs more than a gigabyte of heap. Node
+      # sizes its own limit from the memory the container is given, which on a
+      # self-hosted runner a host shares among its slots is about a third of it:
+      # a runner with 2.9 GB hit "JavaScript heap out of memory" at 970 MB with
+      # the container using 1.4 GB of its 2.9. A hosted runner never noticed,
+      # because its memory is several times that. Two gigabytes of heap leaves
+      # the rest of the container what it used.
+      NODE_OPTIONS: --max-old-space-size=2048
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-go
@@ -1232,6 +1241,7 @@ jobs:
       - name: Publish the dev release
         env:
           GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ steps.build.outputs.version }}
           NOTES: |
             Rolling development build from `main`. Assets and the `dev` tag move on every successful push.
 
@@ -1243,8 +1253,13 @@ jobs:
             test -f "$f" || { echo "::error::make dist did not produce $f"; exit 1; }
           done
 
+          # The notes name the build the release holds (see the end of this step),
+          # and an existing release keeps the line it has until every file of
+          # this build is up: a controller on this build waits for that line, and
+          # a line written now would send its hosts to download a channel that is
+          # still being replaced.
           if gh release view dev >/dev/null 2>&1; then
-            gh release edit dev --title "Development build" --notes "$NOTES" --prerelease --latest=false
+            gh release edit dev --title "Development build" --prerelease --latest=false
           else
             gh release create dev --title "Development build" --notes "$NOTES" --prerelease --latest=false
           fi
@@ -1284,6 +1299,11 @@ jobs:
             echo "::error::the dev release is missing:$missing"
             exit 1
           fi
+
+          # Last, because the line is the word that this build is complete: the
+          # controller asks its hosts to update only once the notes name the
+          # build it runs, and the download cannot name a commit itself.
+          gh release edit dev --notes "$(printf '%s\n\nBuild: %s\n' "$NOTES" "$BUILD")"
 
   installer:
     name: install.sh

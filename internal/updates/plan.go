@@ -141,6 +141,13 @@ type Snapshot struct {
 	Running      string
 	GOOS, GOARCH string
 	Releases     []Release
+	// DevBuild is the build from main that the dev channel's release says it holds
+	// (see ChannelBuild), and empty when that is not known: never read, or a
+	// release whose notes name none. A controller on a build from main sends its
+	// hosts to the channel, which cannot be asked for a commit, so while the
+	// channel holds another build than the controller's a host that went would
+	// restart onto the old binary and fail. Empty holds nothing back.
+	DevBuild string
 	// Helper is the update helper beside the controller. HelperWhyNot is, for
 	// an unsupported one, why it can never be installed, as the middle of a
 	// sentence that names no path.
@@ -715,6 +722,10 @@ func (p *planner) assess(h HostFacts) (standing, string) {
 		return standSkipped, name + " cannot be updated from here."
 	case !p.carriesBinaryFor(h):
 		return standSkipped, fmt.Sprintf("%s carries no binary for the system %s runs on, so it is left alone.", p.target, name)
+	case p.unpublished():
+		// Pending and not skipped, so the sentence reads as a wait that ends by
+		// itself, and ahead of the failure count, so that waiting spends no attempt.
+		return standPending, fmt.Sprintf("the dev channel holds %s and not %s, which this controller runs, so %s is updated once the channel has it.", p.s.DevBuild, p.target, name)
 	}
 	n, lastFailed := failures(h.Ended, p.target, func(a Attempt) bool { return a.Scope == scopeHost && a.HostID == h.ID })
 	switch {
@@ -729,6 +740,16 @@ func (p *planner) assess(h HostFacts) (standing, string) {
 		return standPending, fmt.Sprintf("%s's last update did not succeed; it is tried again in %s.", name, p.retryIn(lastFailed))
 	}
 	return standReady, ""
+}
+
+// unpublished says whether the build the controller runs is not the one the dev
+// channel holds. A host is told to take "dev" and the download cannot name a
+// commit, so before CI has published this build the helper would restart the
+// agent, pull images and come back on the old one, and that failure counts
+// against the host. Only a build from main has the question; a release is named
+// by its tag, and an unknown channel is the old behaviour.
+func (p *planner) unpublished() bool {
+	return version.IsMainBuild(p.target) && p.s.DevBuild != "" && p.s.DevBuild != p.target
 }
 
 // carriesBinaryFor says whether the controller's release, as the list has it,

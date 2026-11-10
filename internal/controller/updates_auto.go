@@ -55,6 +55,7 @@ func (c *Controller) updatesSnapshot(ctx context.Context, cfg config.Updates, he
 	if state := c.latestRelease(); state != nil {
 		s.Releases = state.Releases
 	}
+	s.DevBuild = c.devChannelBuild()
 	switch {
 	case helper.ready:
 		s.Helper = updates.HelperStateReady
@@ -214,6 +215,14 @@ func attemptFacts(a store.UpdateAttempt) updates.Attempt {
 func (c *Controller) runUpdatePlan(ctx context.Context) bool {
 	if !c.mayAct() {
 		return false
+	}
+	// Before the snapshot, so that the pass that sees a build published is the
+	// pass that asks for it. The read is bounded, and the pass holds nothing a
+	// scheduling pass waits on.
+	if c.devChannelDue() {
+		readCtx, cancel := context.WithTimeout(ctx, updateCheckTimeout)
+		c.checkForDevChannel(readCtx)
+		cancel()
 	}
 	pic, err := c.updatesSnapshot(ctx, c.cfg().Updates, c.probeUpdateHelper())
 	if err != nil {

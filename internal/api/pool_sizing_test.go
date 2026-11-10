@@ -464,3 +464,48 @@ func TestAnAutomaticPoolKeepsItsMinimum(t *testing.T) {
 		t.Fatalf("resources = %+v, want the minimum kept", got.Resources)
 	}
 }
+
+// The wizard's performance step asks for a recommendation before the pool
+// exists, and the pool's own page asks about the pool. Both are reads, and a
+// pool that is not there is a 404, not an empty answer.
+func TestThePerformanceRecommendationIsAReadForAPoolOrForOneNotYetMade(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	// Not yet made: no hosts and no samples, so it says it cannot say, in the
+	// shape the contract gives.
+	draft := h.do(request{method: http.MethodGet, path: "/api/v1/pools/performance", cookie: cookie})
+	draft.mustStatus(t, http.StatusOK, "performance of a pool not yet made")
+	var view struct {
+		Verdict string `json:"verdict"`
+		Reason  string `json:"reason"`
+		PoolID  string `json:"pool_id"`
+		Current struct {
+			CPUs     float64 `json:"cpus"`
+			MemoryMB int64   `json:"memory_mb"`
+		} `json:"current"`
+	}
+	draft.into(t, &view)
+	if view.Verdict != "unknown" || view.Reason == "" || view.PoolID != "" {
+		t.Fatalf("draft = %+v, want an unknown verdict with a reason and no pool", view)
+	}
+	if view.Current.CPUs <= 0 || view.Current.MemoryMB <= 0 {
+		t.Errorf("current ask = %+v, want the fleet's default size", view.Current)
+	}
+
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: poolBody(inst.ID)})
+	created.mustStatus(t, http.StatusCreated, "create")
+	var pool controller.PoolView
+	created.into(t, &pool)
+	made := h.do(request{method: http.MethodGet, path: "/api/v1/pools/performance?pool_id=" + pool.ID, cookie: cookie})
+	made.mustStatus(t, http.StatusOK, "performance of a pool")
+	made.into(t, &view)
+	if view.PoolID != pool.ID {
+		t.Errorf("pool_id = %q, want %q", view.PoolID, pool.ID)
+	}
+
+	missing := h.do(request{method: http.MethodGet, path: "/api/v1/pools/performance?pool_id=pool_missing", cookie: cookie})
+	missing.mustStatus(t, http.StatusNotFound, "performance of a pool that is not there")
+}

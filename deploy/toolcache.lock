@@ -61,7 +61,7 @@ dotnet 8.0.427 - arm64 sha512:2b851de08e94922b382d1d2754df112cd167f6e9b6f3d15d2c
 dotnet 10.0.403 - amd64 sha512:b7b3d8461cf98b07d2552ce9199702fa3ad010ac2671a5f8cd5136f7534e50f6855ba7bbb02b11494563f1d04156276a31cda1103b900e5eecd0d9473dc7b9c5 https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.403/dotnet-sdk-10.0.403-linux-x64.tar.gz
 dotnet 10.0.403 - arm64 sha512:0966aa2b70f4677b8319be9df447a78a0dcd6164836425b55a68fd714f4023feb87b4cac21b9a996b79472ad54487cd0adcd2a9dfd570e2b2a1d26423a2baa9b https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.403/dotnet-sdk-10.0.403-linux-arm64.tar.gz
 maven 3.10.0 - - sha512:908b1501bfb420bf7c8affb855534a9c407fd6099367bfb9f2f2dcb8e9799102bffb84518cde74c679bd76870247c6528683abdd620581bffa90f95d92d175aa https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.10.0/apache-maven-3.10.0-bin.tar.gz
-gradle 9.8.2 - - sha256:21bd5da2de49b642904077f38c0efdc7778e92b3ed0889392dca61b97e389607 https://services.gradle.org/distributions/gradle-9.8.2-bin.zip
+gradle 9.9.0 - - sha256:0b00b0ffe07c4d4789c12d4935a44a7057d55774b7540bd4a3f76f336deb177a https://services.gradle.org/distributions/gradle-9.9.0-bin.zip
 rustup 1.29.3 - amd64 sha256:b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55 https://static.rust-lang.org/rustup/archive/1.29.3/x86_64-unknown-linux-gnu/rustup-init
 rustup 1.29.3 - arm64 sha256:9f608c142e0e38a78957d0661ba1dfaf0b6fb37184cfaa4b9a0aa57af6184282 https://static.rust-lang.org/rustup/archive/1.29.3/aarch64-unknown-linux-gnu/rustup-init
 rust 1.99.1 - - - -

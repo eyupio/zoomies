@@ -473,6 +473,17 @@ held to the ten minutes alone, because two updates through it are two updates
 and not two failures; a host that follows a controller built from `main` is
 taken through it each time that controller moves.
 
+The channel cannot be asked for a commit, so a host sent to it before CI has
+published the controller's build would restart onto the build the channel still
+holds, and the attempt would fail. The controller therefore waits. CI writes a
+`Build: main-sha-...` line into the dev release's notes once its last file is
+uploaded, the controller reads it (again every five minutes until it names the
+controller's own build, and not at all once it does), and in `auto` no host is
+asked while the channel holds another build. The status says what it is waiting
+for, and a waiting host spends no attempt. A release whose notes name no build,
+or a read that fails, holds nothing back, so a controller that cannot reach
+GitHub behaves as it did before.
+
 Otherwise it runs the upgrade you would run, unattended, as
 `zoomies upgrade --version <tag> --non-interactive`, and never with `--yes`.
 That downloads the release's binary, checks it against the release's
