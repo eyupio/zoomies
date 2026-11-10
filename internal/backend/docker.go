@@ -2423,14 +2423,25 @@ const externalsFillMount = "/zoomies-externals"
 // the marker last. A volume that already has the marker is left as it is; one
 // without it, from a fill that was cut short, is emptied and copied again.
 //
-// The copy puts the real node back where the runner image's wrapper stands
-// (runner-node-wrap.sh keeps it beside the wrapper as node.real). The volume is
-// what a job in a container: block runs its actions with, inside the job's own
-// image, and the wrapper has no work to do there: the variable it looks for is
-// not set and the preload it exists to load is not mounted. Running it anyway
-// is a hop for nothing at best. For an image built while the wrapper was still a
-// shell script, it needs that shell in the job's image, which a minimal one may
-// not have. The image's own copy is not touched.
+// The volume is not only for a job's container: block. The runner container
+// mounts every volume of its docker-in-docker sidecar (VolumesFrom, so the work
+// folder is at one path for both), and that puts this volume over the runner's
+// own /home/runner/externals. The node the runner starts its actions with is
+// therefore the one in here, and if it is not the image's wrapper, a pool's
+// cache service can never redirect a cache call: the runner reached GitHub's
+// cache at about a megabyte a second, with the service on and answering.
+//
+// So the wrapper stays where the image put it, with the real binary beside it
+// (runner-node-wrap.sh keeps it as node.real). In a job's own image it has
+// nothing to do, because the variable it looks for is not set and the preload is
+// not mounted, so it passes straight through to node.real; it is a program that
+// needs no shell and no libc there, which is why that costs one exec and no more.
+//
+// The exception is a wrapper that is a script, which is what an image built
+// while the wrapper was still a shell script holds. That one needs its shell in
+// the job's image, which a minimal one may not have, and the runner of such an
+// image never had a cache service to redirect to, so the real node goes back
+// where the script stands.
 var externalsFillScript = `set -e
 [ -f ` + externalsFillMount + `/` + externalsMarker + ` ] && exit 0
 [ -n "$(ls -A ` + RunnerExternalsMount + `)" ] || { echo "` + RunnerExternalsMount + ` is empty in the image" >&2; exit 3; }
@@ -2438,19 +2449,29 @@ find ` + externalsFillMount + ` -mindepth 1 -delete
 cp -a ` + RunnerExternalsMount + `/. ` + externalsFillMount + `/
 for real in ` + externalsFillMount + `/node*/bin/node.real; do
   [ -f "$real" ] || continue
-  mv -f "$real" "${real%.real}"
+  node="${real%.real}"
+  [ "$(head -c 2 "$node")" = '#!' ] || continue
+  mv -f "$real" "$node"
 done
 touch ` + externalsFillMount + `/` + externalsMarker
 
+// externalsFillVersion is changed whenever what a fill puts in the volume
+// changes, because a volume that already has its marker is never filled again.
+// It is part of the name, so the volumes an earlier agent filled are not reused,
+// and sweepExternals removes them once the new one is the newest for the image.
+// 1 was the fill that put the real node over the wrapper.
+const externalsFillVersion = "2"
+
 // externalsVolumeName is the volume for one image: its digest when there is
 // one, so a tag that moves to a new image gets a new volume rather than the
-// old Node builds, and the reference otherwise.
+// old Node builds, and the reference otherwise. The fill's version is part of
+// the key, so a change to what a fill writes reaches volumes that exist.
 func externalsVolumeName(image, digest string) string {
 	key := digest
 	if key == "" {
 		key = image
 	}
-	sum := sha256.Sum256([]byte(key))
+	sum := sha256.Sum256([]byte(externalsFillVersion + "|" + key))
 	return "zoomies-externals-" + hex.EncodeToString(sum[:])[:16]
 }
 

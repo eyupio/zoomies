@@ -2571,7 +2571,7 @@ it, so it guards against a workflow doing the wrong thing and not against code
 that is trying to. The boundary is the pool: keep untrusted pull requests on a
 pool of their own, as [Security](security.md) says for any self-hosted runner.
 
-It needs the cache on and a container backend. Only JavaScript actions are
+It needs the cache on and a container backend. On a docker-in-docker pool it also needs an agent that keeps the runner image's wrapper in the externals volume: agents before that put the real Node over it, so the runner never loaded the redirect and the service sat unused. The volume is refilled once, under a new name, and the old one is swept. Only JavaScript actions are
 redirected, so a Docker action keeps GitHub's cache, and so, by default, does
 Buildx's `type=gha` image-layer cache: BuildKit is a separate program that reads
 the results address for itself.
