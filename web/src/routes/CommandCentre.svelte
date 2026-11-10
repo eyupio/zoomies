@@ -9,15 +9,77 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Maximize, Minimize, X } from '@lucide/svelte';
+  import type { Problem } from '$lib/api/types';
   import Button from '$lib/components/Button.svelte';
   import Logo from '$lib/components/Logo.svelte';
+  import Hero from '$lib/command/Hero.svelte';
+  import { clock } from '$lib/command/clock.svelte';
   import { fullscreen } from '$lib/command/fullscreen.svelte';
+  import { lanes } from '$lib/command/lanes';
+  import { verdict, type VerdictInput } from '$lib/command/verdict';
   import { onClockTick } from '$lib/format';
   import { layers } from '$lib/keys';
   import { router } from '$lib/router';
+  import { fleet } from '$lib/state/fleet.svelte';
+  import { notifications } from '$lib/state/notifications.svelte';
 
   let now = $state(Date.now());
   onMount(() => onClockTick((at) => (now = at)));
+
+  // One second-by-second clock for every running age on the page, and none
+  // once the page has gone: a wall display is the only reader that needs it.
+  onMount(() => {
+    clock.start();
+    return () => clock.stop();
+  });
+
+  const live = $derived(fleet.connection === 'live');
+
+  /*
+    The deck and the hero are read from one snapshot, so the ring, the verdict
+    and the lanes can never disagree about how many slots are working.
+    Task 7 brings the queued-jobs list; until then the lanes are given none,
+    and no lane says that jobs wait for it.
+  */
+  const deck = $derived(lanes(fleet.hosts, fleet.runners, []));
+  const cells = $derived(deck.flatMap((lane) => lane.cells));
+  const slots = $derived(cells.length);
+  const busy = $derived(cells.filter((c) => c.runner?.state === 'busy').length);
+  const starting = $derived(cells.filter((c) => c.kind === 'starting').length);
+  const free = $derived(cells.filter((c) => c.kind === 'free').length);
+
+  /** The name the verdict gives a problem's target: the host or pool by its name. */
+  function targetName(problem: Problem | undefined): string | null {
+    if (!problem?.target_id) return null;
+    if (problem.target_kind === 'host') return fleet.host(problem.target_id)?.name ?? null;
+    if (problem.target_kind === 'pool') return fleet.pool(problem.target_id)?.name ?? null;
+    return null;
+  }
+
+  const verdictInput = $derived.by((): VerdictInput => {
+    const waiting = fleet.stats?.fleet?.queued_jobs ?? fleet.stats?.queued_jobs ?? 0;
+    const problems = notifications.active;
+    return {
+      live,
+      // Task 8 records when the stream last delivered anything.
+      lastHeardAt: null,
+      now: clock.now,
+      hosts: deck.length,
+      slots,
+      busy,
+      starting,
+      waiting,
+      // Task 7 replaces these three with the queued-jobs list. From the stats
+      // alone the best that can be said is that jobs wait and no slot on any
+      // host is free; how long and for which pool needs the jobs themselves.
+      waitingWithoutSlot: free === 0 ? waiting : 0,
+      longestWaitMs: 0,
+      waitingPool: null,
+      problems: problems.length,
+      firstProblemTarget: targetName(problems[0]),
+    };
+  });
+  const said = $derived(verdict(verdictInput));
 
   const time = $derived(
     new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(now),
@@ -102,7 +164,9 @@
       Exit
     </a>
   </header>
-  <div class="stage"></div>
+  <div class="stage">
+    <Hero verdict={said} stats={fleet.stats} running={busy} {busy} {slots} {live} now={clock.now} />
+  </div>
 </div>
 
 <style>
