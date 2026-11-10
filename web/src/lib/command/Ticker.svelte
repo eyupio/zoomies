@@ -44,7 +44,9 @@
     if (drawn === null && width > 0) drawn = beats;
   });
   function onLap(event: AnimationEvent): void {
-    if (drawn === beats) return;
+    // A status mark inside an entry animates too, and its laps bubble here;
+    // only the strip's own lap is the moment to begin again.
+    if (event.target !== event.currentTarget || drawn === beats) return;
     drawn = beats;
     const track = event.currentTarget as HTMLElement;
     // Set here as well as by the template, which would only set it after the
@@ -145,7 +147,7 @@
   .viewport:hover .track,
   .viewport:focus-within .track,
   [data-paused='true'] .track,
-  :global([data-live='false']) .track {
+  :global(.command[data-live='false']) .track {
     animation-play-state: paused;
   }
   @keyframes ticker {

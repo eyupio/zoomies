@@ -39,7 +39,6 @@
   import { feed } from '$lib/state/feed.svelte';
   import { notifications } from '$lib/state/notifications.svelte';
   import { session } from '$lib/state/session.svelte';
-  import { signIn } from '$lib/shell/signout';
 
   let now = $state(Date.now());
   onMount(() => onClockTick((at) => (now = at)));
@@ -220,7 +219,7 @@
       <p class="visitor" role="note">
         <Eye size={14} aria-hidden="true" />
         <span>Public, read-only view</span>
-        <button type="button" class="signin" onclick={signIn}>Sign in</button>
+        <a class="signin" href="/login">Sign in</a>
       </p>
     {/if}
     <span class="spacer"></span>
@@ -414,15 +413,12 @@
     color: var(--z-accent);
   }
   .signin {
-    padding: 0;
-    border: 0;
-    background: none;
+    display: inline-flex;
+    align-items: center;
     color: var(--z-accent);
-    font: inherit;
     font-weight: var(--z-weight-medium);
     text-decoration: underline;
     text-underline-offset: var(--z-underline-offset);
-    cursor: pointer;
   }
   .signin:hover {
     color: var(--z-accent-hover);

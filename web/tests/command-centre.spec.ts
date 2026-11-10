@@ -404,29 +404,49 @@ test('forty hosts are forty lanes, and the page grows to hold them', async ({ pa
     }));
     return route.fulfill({ response: read.response, json: { ...read.body, items } });
   });
+  // Two busy runners on every host, so the deck at this size is tiles as well
+  // as free cells: the case where a long name and a narrow cell meet forty times.
   await page.route('**/api/v1/runners*', async (route) => {
-    const read = await readThrough<{ items?: unknown[] }>(route);
+    const read = await readThrough<{ items?: Record<string, unknown>[] }>(route);
     if (!read) return;
+    const busy = read.body.items!.find((runner) => runner.state === 'busy' && runner.current_job)!;
+    const items = Array.from({ length: 40 }, (_, i) => i).flatMap((i) =>
+      ['a', 'b'].map((slot) => ({
+        ...busy,
+        id: `run_crowd${String(i).padStart(2, '0')}${slot}`,
+        name: `crowd-${String(i).padStart(2, '0')}-${slot}`,
+        host_id: `hst_crowd${String(i).padStart(2, '0')}`,
+        state: 'busy',
+      })),
+    );
     return route.fulfill({
       response: read.response,
-      json: { ...read.body, items: [], total: 0 },
+      json: { ...read.body, items, total: items.length },
     });
   });
   await goto(page, '/command', 'Command centre');
   const lanes = page.getByTestId('command-lane');
   await expect(lanes).toHaveCount(40);
-  await expect(page.getByTestId('command-free')).toHaveCount(200);
+  await expect(page.getByTestId('command-tile')).toHaveCount(80);
+  await expect(page.getByTestId('command-free')).toHaveCount(120);
   const sizes = await page.evaluate(() => ({
     scroll: document.documentElement.scrollHeight,
     viewport: innerHeight,
     flat: Array.from(document.querySelectorAll('[data-testid="command-lane"]')).filter(
       (lane) => lane.getBoundingClientRect().height === 0,
     ).length,
+    // A tile wider than the cell the lane's grid gave it, or than its own box.
+    wide: Array.from(document.querySelectorAll('[data-testid="command-tile"]')).filter((tile) => {
+      const cells = tile.parentElement!.getBoundingClientRect();
+      const box = tile.getBoundingClientRect();
+      return tile.scrollWidth > tile.clientWidth || box.right > cells.right + 0.5;
+    }).length,
   }));
   expect(sizes.scroll, 'the deck grows downwards rather than being cut off').toBeGreaterThan(
     sizes.viewport,
   );
   expect(sizes.flat, 'a lane drawn with no height').toBe(0);
+  expect(sizes.wide, 'a tile wider than its cell').toBe(0);
 });
 
 for (const style of ['classic', 'mission-control']) {
@@ -471,5 +491,8 @@ test("a public view's visitor is told what the page is, without the shell's noti
   await goto(page, '/command', 'Command centre');
   const note = page.getByRole('note');
   await expect(note).toContainText('Public, read-only view');
-  await expect(note.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  const signIn = note.getByRole('link', { name: 'Sign in' });
+  await expect(signIn).toHaveAttribute('href', '/login');
+  await signIn.click();
+  await expect(page).toHaveURL(/\/login$/);
 });
