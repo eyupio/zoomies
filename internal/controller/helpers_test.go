@@ -669,7 +669,7 @@ type harnessTransport struct{}
 
 func (harnessTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	switch r.URL.String() {
-	case latestReleaseURL, mainCommitURL:
+	case latestReleaseURL, mainCommitURL, devReleaseURL:
 		return jsonResponse(http.StatusNotFound, `{}`), nil
 	case releaseListURL:
 		return jsonResponse(http.StatusOK, `[]`), nil

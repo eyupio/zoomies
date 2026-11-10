@@ -72,8 +72,11 @@ controller asks github.com which release of Zoomies is current. The request
 carries the version you run in its `User-Agent` (`zoomies/<version>`, which on a
 development build includes its `main-sha-*` identity), and GitHub sees your
 address as it would for any request. Nothing else about your installation is
-sent. Every other call to GitHub's API carries the same `User-Agent`. Set the
-interval to `0` and the update check never asks. See
+sent. A controller built from `main`, with updating on, also reads the dev
+release's notes to learn which build the dev channel holds: about every five
+minutes until they name its own build, and never once they do. Every other call
+to GitHub's API carries the same `User-Agent`. Set the interval to `0` and the
+update check never asks. See
 [`updates.check_interval`](configuration.md#updatescheck_interval-knowing-the-controller-is-behind).
 
 ### Updating

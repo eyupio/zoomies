@@ -450,7 +450,9 @@ func TestADevelopmentBuildReadsTheReleaseListOnceUpdatesAreOn(t *testing.T) {
 				t.Fatalf("checkForRelease: %v", err)
 			}
 
-			if want := []string{mainCommitURL, releaseListURL}; !slices.Equal(asked, want) {
+			// The dev release too: a build from main is taken to the channel, and the
+			// channel's notes say which build it holds.
+			if want := []string{mainCommitURL, devReleaseURL, releaseListURL}; !slices.Equal(asked, want) {
 				t.Fatalf("asked for %v, want %v", asked, want)
 			}
 			if got := h.c.latestRelease(); got == nil || got.Releases == nil {

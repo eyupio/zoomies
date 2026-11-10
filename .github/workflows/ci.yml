@@ -1232,6 +1232,7 @@ jobs:
       - name: Publish the dev release
         env:
           GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ steps.build.outputs.version }}
           NOTES: |
             Rolling development build from `main`. Assets and the `dev` tag move on every successful push.
 
@@ -1243,8 +1244,13 @@ jobs:
             test -f "$f" || { echo "::error::make dist did not produce $f"; exit 1; }
           done
 
+          # The notes name the build the release holds (see the end of this step),
+          # and an existing release keeps the line it has until every file of
+          # this build is up: a controller on this build waits for that line, and
+          # a line written now would send its hosts to download a channel that is
+          # still being replaced.
           if gh release view dev >/dev/null 2>&1; then
-            gh release edit dev --title "Development build" --notes "$NOTES" --prerelease --latest=false
+            gh release edit dev --title "Development build" --prerelease --latest=false
           else
             gh release create dev --title "Development build" --notes "$NOTES" --prerelease --latest=false
           fi
@@ -1284,6 +1290,11 @@ jobs:
             echo "::error::the dev release is missing:$missing"
             exit 1
           fi
+
+          # Last, because the line is the word that this build is complete: the
+          # controller asks its hosts to update only once the notes name the
+          # build it runs, and the download cannot name a commit itself.
+          gh release edit dev --notes "$(printf '%s\n\nBuild: %s\n' "$NOTES" "$BUILD")"
 
   installer:
     name: install.sh
