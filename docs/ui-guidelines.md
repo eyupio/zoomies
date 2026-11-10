@@ -1671,7 +1671,8 @@ never from a design file or a retouched page. `make screenshots` builds, boots
 a controller with the demo fleet (`ZOOMIES_SEED_DEMO`) and authentication on,
 signs in as a freshly bootstrapped administrator, and photographs every page in
 both themes at 1440×900 on a 2× display, plus the sign-in page from a browser
-that was never given the session, and the Overview on a phone. The
+that was never given the session, and the Overview and the command centre on a
+phone. The
 files are lossless WebP. The script is `web/tests/support/screenshots.mjs`,
 and it needs Pillow (`pip install pillow`) to encode them.
 

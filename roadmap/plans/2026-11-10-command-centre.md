@@ -2,7 +2,21 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** proposed on 10 November 2026. Nothing is built.
+**Status:** built on 10 November 2026, Tasks 1 to 10. The spec is corrected to match
+and captures are in `design/command-centre-review/implemented/`. It departed from
+the plan in these places: the third figure is the success share of the stats
+window ("Succeeded, last hour"), not of today, and links to that window's jobs; a
+runner tile shows repository and branch, because a job carries no pull request
+number; the finished-jobs read does not send `include_steps=false`, because the
+job summary lacks what the drawer and the merge rule need; Needs attention lists
+the problems not snoozed or dismissed, so it agrees with the verdict; Waiting and
+Needs attention precede the lanes in document order on every width; the
+accessibility pass uses the repository's own a11y checks, since no axe is
+installed and no dependency may be added; `elapsedMs` is in `time.ts` and the
+clock in `clock.svelte.ts`, the pure job merges in `jobs-merge.ts`; the empty
+fleet's link reads "Add a host"; a visitor session sees a compact "Public,
+read-only view" note in the bar. `/command` is left off the hand-written sitemap
+in `internal/api`, because the plan forbade Go changes.
 
 **Goal:** A full-screen page at `/command` that shows the fleet's verdict, every host with the work in each slot, what waits, what needs attention and what has just finished, live, with every item a link to its detail.
 

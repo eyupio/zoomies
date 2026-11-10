@@ -150,6 +150,9 @@ is full screen it also keeps the display from dimming where the browser can.
 was opened directly. `Esc` leaves full screen first, then closes whatever is
 open over the page, and then exits.
 
+![The command centre in the Classic style: a bar with the wordmark, the clock, Full screen and Exit; a ring of slots in use beside the verdict and three figures; host lanes with a tile for each slot; and a rail of waiting jobs and problems](screenshots/command-dark.webp#only-dark){ .zoomies-shot }
+![The command centre in the Classic style: a bar with the wordmark, the clock, Full screen and Exit; a ring of slots in use beside the verdict and three figures; host lanes with a tile for each slot; and a rail of waiting jobs and problems](screenshots/command-light.webp#only-light){ .zoomies-shot }
+
 ## The problems drawer
 
 Reachable from the count in the top bar on every page. Cordoned or silent

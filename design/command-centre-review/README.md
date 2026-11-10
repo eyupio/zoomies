@@ -1,8 +1,11 @@
 # Command centre design
 
-10 November 2026. Design specification, written before any application change.
-Nothing described here is implemented yet. The implementation plan is
-[`roadmap/plans/2026-11-10-command-centre.md`](../../roadmap/plans/2026-11-10-command-centre.md).
+10 November 2026. Design specification, written before any application change,
+and since corrected where building it settled a question. It is implemented. The
+implementation plan is
+[`roadmap/plans/2026-11-10-command-centre.md`](../../roadmap/plans/2026-11-10-command-centre.md)
+and captures of the built page, with what was and was not validated, are in
+[`implemented/`](implemented/README.md).
 
 ## What it is for
 
@@ -43,8 +46,8 @@ with the fleet by adding lanes.
 
 The boards are sketches. Their numbers are samples, and the rules below govern
 the implementation where the two differ. Captures of the built page replace
-them in this folder when it ships, as `design/overview-review/implemented`
-did for the Overview.
+them in [`implemented/`](implemented/README.md), as
+`design/overview-review/implemented` did for the Overview.
 
 ## Layout
 
@@ -52,9 +55,9 @@ Four bands, top to bottom, at desktop width:
 
 | Band | Contents |
 | --- | --- |
-| Bar | Wordmark, "Command centre", the live indicator, the clock and date, the full-screen control and Exit |
+| Bar | Wordmark, "Command centre", the live indicator, the clock and date, the full-screen control and Exit. A visitor session, which the controller allows to read without signing in, sees a compact "Public, read-only view" note with a Sign in link, because the shell's own notice is chrome this page does without |
 | Hero | The ring, the verdict, three figures, the last hour's chart |
-| Deck | Host lanes on the left (the wide column), the rail on the right: Waiting, Needs attention, Just finished |
+| Deck | Host lanes on the left (the wide column), the rail on the right: Waiting, Needs attention, Just finished. In reading and Tab order Waiting and Needs attention come before the lanes on every width, so one source order serves the phone's stack and the keyboard |
 | Ticker | Recent events, newest first |
 
 ### Hero
@@ -77,8 +80,9 @@ Four bands, top to bottom, at desktop width:
   The phrases inside the sentence that carry a count ("3 jobs wait", "one host
   needs a look") take their status colour and are links.
 * **Three figures**: median queue wait (with p95), runner start time (p50 with
-  p95) and the share of today's finished jobs that succeeded (with the count).
-  They are the `stats` payload's figures for the fleet's own jobs, not every job
+  p95) and the share of the stats window's finished jobs that succeeded (with
+  the count), labelled "Succeeded, last hour" because the `stats` payload is
+  windowed and a label has to match its number. They are the `stats` payload's figures for the fleet's own jobs, not every job
   in the organisation.
 * **The chart** is running jobs and queue depth over the last hour, as inline
   SVG. Running is the busy colour and a solid line; queued is the pending
@@ -91,7 +95,7 @@ lane's header carries the host's name, its slot sentence and its measured CPU.
 Under it is a grid with one cell for each slot:
 
 * a **runner tile** for a live runner: status mark, job name, repository and
-  pull request or branch, age, and a CPU bar;
+  branch (the job record carries no pull request number), age, and a CPU bar;
 * a **starting tile** for a runner that is provisioning or registering, in the
   pending shape, saying which step it is at;
 * a **free cell**, a dashed outline with the idle mark.
@@ -116,7 +120,8 @@ full width.
   with its job name, repository, live wait and the reason it waits, in the
   scheduler's own words as the Queue page shows them. Five at most, then a link
   with the count of the rest.
-* **Needs attention**: open problems, most severe first, each with its title,
+* **Needs attention**: the problems that are not snoozed or dismissed (the set
+  the verdict counts, so the list and the headline agree), most severe first, each with its title,
   one line of detail and its fix link. Three at most, then a link to the
   problems drawer. The section is absent, not empty, when nothing is wrong.
 * **Just finished**: the last five jobs to finish in the last ten minutes, with
@@ -143,7 +148,7 @@ nothing that looks pressable is inert.
 | "N hosts need a look" in the verdict | The problems drawer |
 | Median wait | The Queue |
 | Runner start | Runners |
-| Succeeded today | Jobs, filtered to today's finished jobs |
+| Succeeded, last hour | Jobs, filtered to jobs completed in the stats window |
 | The chart | The Overview's history |
 | A host lane's header | That host |
 | A runner tile | That runner, which carries its job and its log |
@@ -202,9 +207,9 @@ No new API route. Everything is already served and already live:
 | Shown | Source |
 | --- | --- |
 | Hosts, runners, pools | The fleet state store, kept current by `host.*`, `runner.*` and `pool.*` frames |
-| Running and waiting counts, wait and start timings, today's results | `GET /api/v1/stats` and the `stats` frame |
+| Running and waiting counts, wait and start timings, the window's results | `GET /api/v1/stats` and the `stats` frame |
 | Waiting jobs and why | `GET /api/v1/jobs` with the Queue page's own filters, kept current by `job.updated` |
-| Just finished | `GET /api/v1/jobs` with `state=completed`, `completed_since` ten minutes back, `managed=true`, `include_steps=false`, kept current by `job.updated` |
+| Just finished | `GET /api/v1/jobs` with `state=completed`, `completed_since` ten minutes back, `managed=true`, kept current by `job.updated`. It does not send `include_steps=false`: the job summary lacks what the drawer and the merge rule need |
 | Problems | `GET /api/v1/problems` and `problems.updated` |
 | The chart | `GET /api/v1/samples?window=1h`, extended by each `stats` frame |
 | The ticker | The feed store the Overview's event panel reads |
@@ -301,7 +306,9 @@ latest three entries.
   says, a job row opens the drawer in place, Exit and `Esc` behave in the order
   given, and the page says "Not live." when the stream is taken away. It takes
   the stream away before rewriting any read the stream also carries.
-* The page joins the accessibility, keyboard, mobile and navigation passes.
+* The page joins the accessibility, keyboard, mobile and navigation passes. The
+  accessibility pass runs the repository's own checks in its a11y spec; no
+  automated checker was added, because no dependency may be.
 * New tile and lane states are added to the component gallery first.
 
 ## Documentation that changes with it
