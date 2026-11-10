@@ -24,12 +24,13 @@
 // speaks. With the variable unset the job reaches GitHub exactly as it would
 // without this file. The token and every other variable are left alone.
 //
-// A step inside a job container reaches the node through /__e, and the agent
-// fills the volume it mounts there with the real node and not this program
-// (externalsFillScript in internal/backend/docker.go), because there is nothing
-// for this to do: the variable is not set and the preload is not mounted. A
-// volume filled before that change, or by an agent that predates it, hands the
-// job container this program, which passes straight through.
+// A step inside a job container reaches the node through /__e, from the volume
+// the agent fills (externalsFillScript in internal/backend/docker.go). That
+// volume is also the externals the runner itself starts its actions with, under
+// docker-in-docker, so it keeps this program and the real node beside it: the
+// variable is not set in a job's own image and the preload is not mounted there,
+// so this passes straight through to node.real. A fill that took this program
+// out would take the cache service out with it.
 //
 // It is a program and not a script because of what is in that environment. An
 // action's inputs arrive as INPUT_<NAME> with the hyphens of the name kept, as

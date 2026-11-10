@@ -2,6 +2,8 @@ package backend
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1712,13 +1714,15 @@ func TestTheExternalsFillScriptWritesTheMarkerOnlyAfterACompleteCopy(t *testing.
 }
 
 // A job in a container: block runs the node it finds at /__e inside the job's
-// own image. The runner image's node is a wrapper for the cache redirect, which
-// only means something inside the runner container, where the preload it loads
-// exists, and which, in an image built while it was still a shell script, needs
-// a shell that a minimal glibc job image may not have. So the volume the jobs
-// get holds the real node where the wrapper was, and the wrapper never runs in a
-// job image.
-func TestTheExternalsFillGivesJobContainersTheRealNodeNotTheWrapper(t *testing.T) {
+// own image, and the runner mounts this same volume over its own externals
+// (it takes every volume of its docker-in-docker sidecar). So the volume has to
+// keep the image's wrapper, or the runner never loads the cache redirect and a
+// pool's cache service sits unused. In a job's image the wrapper passes straight
+// through to the real node beside it, because the variable it looks for is not
+// set there. The exception is a wrapper that is a shell script, which an image
+// built before the wrapper became a program holds: it needs a shell that a
+// minimal job image may not have, so the real node goes back where it stands.
+func TestTheExternalsFillKeepsTheWrapperTheRunnerStartsItsActionsWith(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fill script runs in a Linux container")
 	}
@@ -1737,24 +1741,33 @@ func TestTheExternalsFillGivesJobContainersTheRealNodeNotTheWrapper(t *testing.T
 		}
 	}
 	// What runner-node-wrap.sh leaves: the wrapper where node was, the real
-	// binary beside it, and the Alpine nodes untouched.
-	for _, d := range []string{"node20", "node24"} {
-		write(d+"/bin/node", "wrapper")
-		write(d+"/bin/node.real", "real "+d)
-	}
+	// binary beside it, and the Alpine nodes untouched. node20 has the program
+	// the image builds today (an ELF header here), node24 the shell script an
+	// older image built.
+	write("node20/bin/node", "\x7fELF wrapper program")
+	write("node20/bin/node.real", "real node20")
+	write("node24/bin/node", "#!/bin/sh\nexec \"$0.real\" \"$@\"\n")
+	write("node24/bin/node.real", "real node24")
 	write("node20_alpine/bin/node", "alpine")
 	script := strings.ReplaceAll(strings.ReplaceAll(externalsFillScript, RunnerExternalsMount, image), externalsFillMount, vol)
 	if out, err := exec.Command("sh", "-c", script).CombinedOutput(); err != nil {
 		t.Fatalf("fill: %v\n%s", err, out)
 	}
-	for _, d := range []string{"node20", "node24"} {
-		got, err := os.ReadFile(filepath.Join(vol, d, "bin", "node"))
-		if err != nil || string(got) != "real "+d {
-			t.Errorf("%s/bin/node in the volume = %q (%v), want the real node", d, got, err)
-		}
-		if _, err := os.Stat(filepath.Join(vol, d, "bin", "node.real")); !os.IsNotExist(err) {
-			t.Errorf("%s/bin/node.real was left in the volume: %v", d, err)
-		}
+	// The runner mounts this volume over its own externals, so the wrapper has to
+	// survive the fill or the cache service never sees a call.
+	if got, err := os.ReadFile(filepath.Join(vol, "node20", "bin", "node")); err != nil || string(got) != "\x7fELF wrapper program" {
+		t.Errorf("node20/bin/node in the volume = %q (%v), want the wrapper program kept", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(vol, "node20", "bin", "node.real")); err != nil || string(got) != "real node20" {
+		t.Errorf("node20/bin/node.real in the volume = %q (%v), want the real node beside the wrapper", got, err)
+	}
+	// A wrapper that is a script needs its shell in the job's image, so the real
+	// node goes back where it stands.
+	if got, err := os.ReadFile(filepath.Join(vol, "node24", "bin", "node")); err != nil || string(got) != "real node24" {
+		t.Errorf("node24/bin/node in the volume = %q (%v), want the real node where a script wrapper stood", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(vol, "node24", "bin", "node.real")); !os.IsNotExist(err) {
+		t.Errorf("node24/bin/node.real was left in the volume: %v", err)
 	}
 	if got, _ := os.ReadFile(filepath.Join(vol, "node20_alpine", "bin", "node")); string(got) != "alpine" {
 		t.Errorf("the Alpine node was changed: %q", got)
@@ -1763,8 +1776,20 @@ func TestTheExternalsFillGivesJobContainersTheRealNodeNotTheWrapper(t *testing.T
 		t.Errorf("a complete fill has no marker: %v", err)
 	}
 	// The runner's own copy, in the image, is untouched: only the volume changes.
-	if got, _ := os.ReadFile(filepath.Join(image, "node20", "bin", "node")); string(got) != "wrapper" {
+	if got, _ := os.ReadFile(filepath.Join(image, "node24", "bin", "node")); !strings.HasPrefix(string(got), "#!") {
 		t.Errorf("the image's own node was changed: %q", got)
+	}
+}
+
+// A volume that already has its marker is never filled again, so a change to what
+// a fill writes has to change the volume's name, or every host keeps the volume
+// the old fill made for as long as the image does. This is the name the fill that
+// put the real node over the wrapper gave, for the same digest.
+func TestExternalsVolumesFilledByAnEarlierFillAreNotReused(t *testing.T) {
+	sum := sha256.Sum256([]byte("sha256:aaa"))
+	earlier := "zoomies-externals-" + hex.EncodeToString(sum[:])[:16]
+	if got := externalsVolumeName("runner@sha256:aaa", "sha256:aaa"); got == earlier {
+		t.Fatalf("the volume is still named %s, which an earlier fill already filled without the wrapper", got)
 	}
 }
 
