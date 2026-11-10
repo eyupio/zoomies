@@ -21,6 +21,7 @@ import {
   HardDrive,
   LayoutDashboard,
   ListOrdered,
+  MonitorPlay,
   Plug,
   ScrollText,
   Server,
@@ -52,7 +53,7 @@ export interface NavItem {
    * away in the menu.
    */
   primary?: boolean;
-  /** The heading the sidebar lists it under. The Overview stands alone. */
+  /** The heading the sidebar lists it under. The Overview and the command centre stand alone. */
   group?: NavGroupName;
 }
 
@@ -64,6 +65,13 @@ export const SECTIONS: readonly NavItem[] = [
     key: 'o',
     hint: 'What this fleet is doing right now.',
     primary: true,
+  },
+  {
+    path: '/command',
+    label: 'Command centre',
+    icon: MonitorPlay,
+    key: 'd',
+    hint: 'The whole fleet on one screen, live.',
   },
   {
     path: '/pools',

@@ -134,6 +134,22 @@ runner elsewhere in the organisation neither ticks a step nor retires the list.
 ![The activity matrix with a day selected: the day's figures, its outcomes hour by hour, and links to its jobs](screenshots/activity-dark.webp#only-dark){ .zoomies-shot }
 ![The activity matrix with a day selected: the day's figures, its outcomes hour by hour, and links to its jobs](screenshots/activity-light.webp#only-light){ .zoomies-shot }
 
+## Command centre
+
+The whole fleet on one screen, live: a page to switch to, leave on a second
+monitor or put on a wall, and read from across the room. It sits directly
+under the Overview in the navigation, `g d` reaches it from anywhere, and the
+command palette lists it; on a phone it is in the menu More opens.
+
+It is its own chrome. There is no navigation, top bar or footer, only a bar
+with the wordmark, the page's name, the clock, **Full screen** and **Exit**.
+The command palette, the shortcut sheet and every shortcut still work.
+**Full screen** is offered only where the browser allows it, and while the page
+is full screen it also keeps the display from dimming where the browser can.
+**Exit** returns to the page you came from, or to the Overview when the page
+was opened directly. `Esc` leaves full screen first, then closes whatever is
+open over the page, and then exits.
+
 ## The problems drawer
 
 Reachable from the count in the top bar on every page. Cordoned or silent

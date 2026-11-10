@@ -43,6 +43,13 @@ test('every navigation entry routes to its page and is marked as current', async
 
     await expect(page).toHaveURL(sectionLanding(section));
     await expect(pageHeading(page, sectionHeading(section))).toBeVisible();
+    if ('immersive' in section) {
+      // Its own chrome: nothing to mark current, and Exit is the way out.
+      await expect(nav(page)).toHaveCount(0);
+      await page.getByRole('link', { name: 'Exit', exact: true }).click();
+      await expect(nav(page)).toBeVisible();
+      continue;
+    }
     await expectCurrentSection(page, section.path);
   }
 });

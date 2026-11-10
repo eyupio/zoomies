@@ -182,6 +182,11 @@ test('the navigation is a bar at the bottom, aligned and reaching every page', a
     // Choosing a section closes the menu: nobody wants to dismiss a menu they
     // have already used.
     await expect(navMenu(page)).toHaveCount(0);
+    // A page that is its own chrome has no bottom bar to open the menu from.
+    if ('immersive' in section) {
+      await expect(nav(page)).toHaveCount(0);
+      continue;
+    }
     // And the menu says where you are when it is opened again.
     await openNavMenu(page);
     await expect(menuEntry(page, section.path)).toHaveAttribute('aria-current', 'page');

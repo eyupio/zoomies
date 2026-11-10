@@ -34,6 +34,7 @@
   import EliWidget from '$lib/assistant/EliWidget.svelte';
   import InstanceNotice from '$lib/shell/InstanceNotice.svelte';
   import { upgrade } from '$lib/state/upgrade.svelte';
+  import { fullscreen } from '$lib/command/fullscreen.svelte';
 
   let paletteOpen = $state(false);
   let navMenuOpen = $state(false);
@@ -203,6 +204,35 @@
       <Page />
     {/if}
   </main>
+{:else if router.route.immersive}
+  <!-- A page that is its own chrome: the command centre, watched from across a
+       room. No navigation, top bar or footer, but the palette, the problems
+       drawer and the shortcut sheet stay, and so do the shortcuts. Eli steps
+       aside while it is full screen, since a wall has nobody to answer. -->
+  <main id="main" tabindex="-1">
+    {#if router.error}
+      <div class="page">
+        <ErrorState
+          error={router.error}
+          title="That page could not be loaded"
+          description="The page's code did not download, and retrying did not help. Check your connection, then try again."
+          onretry={() => location.reload()}
+        />
+      </div>
+    {:else if router.loading || !Page}
+      <div class="page" aria-busy="true">
+        <Skeleton width="220px" height="1.75rem" />
+        <Skeleton height="240px" />
+      </div>
+    {:else}
+      <Page />
+    {/if}
+  </main>
+
+  <CommandPalette bind:open={paletteOpen} />
+  <ProblemsDrawer />
+  {#if session.can('viewer') && !fullscreen.active}<EliWidget />{/if}
+  <ShortcutSheet bind:open={shortcutsOpen} />
 {:else}
   <div class="app">
     <Nav menuOpen={navMenuOpen} onmore={() => (navMenuOpen = !navMenuOpen)} />

@@ -1,0 +1,117 @@
+/**
+ * The command centre: the fleet on one screen, for a second monitor or a wall.
+ *
+ * It is an immersive route, which is a promise in two halves: the shell's
+ * chrome is gone, because the page is its own, and everything an operator
+ * reaches for with the keyboard is still there, because somebody who walks up
+ * to a wall display still presses Ctrl+K. Leaving it has to work whichever way
+ * the page was reached, including when it was the first page the tab opened.
+ */
+import { expect, test, type Page } from '@playwright/test';
+import { goto, isFocused, nav, navEntry, openSection, pageHeading } from './support/fixtures';
+
+function exitLink(page: Page) {
+  return page.getByRole('link', { name: 'Exit', exact: true });
+}
+
+test('the entry after Overview opens a page of its own, with no navigation around it', async ({
+  page,
+}) => {
+  test.skip(!!test.info().project.use.isMobile, 'the phone lists it in the menu, not the bar');
+  await goto(page, '/', 'Overview');
+
+  // Second in the list, directly after the Overview it sits beside.
+  const entries = nav(page).getByRole('listitem').locator('a[href]');
+  await expect(entries.nth(1)).toHaveAttribute('href', '/command');
+
+  await navEntry(page, '/command').click();
+  await expect(page).toHaveURL(/\/command$/);
+  await expect(pageHeading(page, 'Command centre')).toBeVisible();
+  await expect(page).toHaveTitle('Command centre · Zoomies');
+  // The keyboard lands on the page's own heading, as on every other page.
+  expect(await isFocused(pageHeading(page, 'Command centre'))).toBe(true);
+  await expect(page.getByRole('navigation')).toHaveCount(0);
+  await expect(page.getByRole('contentinfo')).toHaveCount(0);
+});
+
+test('g d opens it from the Overview, and Exit goes back there', async ({ page }) => {
+  await goto(page, '/', 'Overview');
+  await page.keyboard.press('g');
+  await page.keyboard.press('d');
+  await expect(pageHeading(page, 'Command centre')).toBeVisible();
+
+  await exitLink(page).click();
+  await expect(pageHeading(page, 'Overview')).toBeVisible();
+  await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/);
+});
+
+test('Exit returns to the page it was opened from, not always the Overview', async ({ page }) => {
+  await goto(page, '/', 'Overview');
+  await openSection(page, '/runners');
+  await expect(pageHeading(page, 'Runners')).toBeVisible();
+  await page.keyboard.press('g');
+  await page.keyboard.press('d');
+  await expect(pageHeading(page, 'Command centre')).toBeVisible();
+
+  await exitLink(page).click();
+  await expect(pageHeading(page, 'Runners')).toBeVisible();
+});
+
+test('opened directly, Exit and Esc both lead to the Overview', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  // A real link, so it can be opened in a new tab like any other.
+  await expect(exitLink(page)).toHaveAttribute('href', '/');
+  await exitLink(page).click();
+  await expect(pageHeading(page, 'Overview')).toBeVisible();
+
+  await goto(page, '/command', 'Command centre');
+  await page.keyboard.press('Escape');
+  await expect(pageHeading(page, 'Overview')).toBeVisible();
+});
+
+test('Esc closes an open overlay before it leaves the page', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  await page.keyboard.press('?');
+  const sheet = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  await expect(sheet).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(pageHeading(page, 'Command centre')).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(pageHeading(page, 'Overview')).toBeVisible();
+});
+
+test('a browser that cannot go full screen is not offered the control, and Exit still works', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Document.prototype, 'fullscreenEnabled', {
+      configurable: true,
+      get: () => false,
+    });
+  });
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByRole('button', { name: 'Full screen' })).toHaveCount(0);
+
+  await exitLink(page).click();
+  await expect(pageHeading(page, 'Overview')).toBeVisible();
+});
+
+test('a browser that can go full screen is offered the control', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  const control = page.getByRole('button', { name: 'Full screen' });
+  // Headless Chromium reports full screen as available; whether it grants it
+  // is the browser's business, so this checks the offer, not the result.
+  await expect(control).toBeVisible();
+  await expect(control).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('Ctrl+K opens the command palette on the page, and it lists the page', async ({ page }) => {
+  await goto(page, '/command', 'Command centre');
+  await page.keyboard.press('Control+k');
+  const palette = page.getByRole('dialog', { name: 'Command palette' });
+  await expect(palette).toBeVisible();
+  await expect(palette.getByRole('option', { name: /Command centre/ })).toBeVisible();
+});

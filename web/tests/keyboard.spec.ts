@@ -24,6 +24,7 @@ async function chord(page: Page, letter: string): Promise<void> {
 // the Overview so a failure names the destination rather than the starting
 // point, and the headings are the pages' own <h1>s.
 const JUMPS = [
+  { key: 'd', path: '/command', heading: 'Command centre' },
   { key: 'p', path: '/pools', heading: 'Pools' },
   { key: 'r', path: '/runners', heading: 'Runners' },
   { key: 'w', path: '/workflows', heading: 'Workflows' },
