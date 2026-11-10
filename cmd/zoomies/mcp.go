@@ -38,7 +38,7 @@ func runMCP(ctx context.Context, e *env, args []string) error {
 			"needed; skills/zoomies/mcp-reference.md is generated from it.")
 	cf := registerClientFlags(fs, false)
 	allowAdmin := fs.Bool("allow-admin", false, "with --allow-actions, also offer edit_host, clear_host_throttle, get_settings and update_settings; the token must be an administrator's")
-	allowActions := fs.Bool("allow-actions", false, "also offer rerun_job, drain_runner, update_pool, update_host, apply_remedy and context_publish; the token's role must permit them too")
+	allowActions := fs.Bool("allow-actions", false, "also offer rerun_job, drain_runner, prewarm_pool, update_pool, update_host, apply_remedy and context_publish; the token's role must permit them too")
 	describe := fs.Bool("describe", false, "print the tools, resources and prompts this server has and exit, without serving")
 	output := fs.String("output", "markdown", "with --describe: json or markdown")
 	fs.example(

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "0450f86",
+  "generated_from": "315d2dacf",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -1434,8 +1434,8 @@
       "category": "reliability",
       "severity": "warning",
       "detection": "runtime",
-      "detects": "One or more hosts have been stepped down after sustained pressure: CPU pinned with a runner no limit binds, a load average past twice the cores, or memory at the reserve. The entry carries each host's own sentence, how many of its slots it is left, which measurement did it, what the running jobs are getting (never less than half their CPU allocation), and that it lifts one step after five minutes of calm. Wait for it, lower the host's capacity or the pools' limits so its runners fit the machine, or lift it from the host card (**Lift the throttle**) once the cause is fixed; a cleared throttle comes back on the next heartbeat if the pressure is still there. A host that keeps being throttled has too many slots for its machine.",
-      "fix": "One or more hosts have been stepped down after sustained pressure: CPU pinned with a runner no limit binds, a load average past twice the cores, or memory at the reserve. The entry carries each host's own sentence, how many of its slots it is left, which measurement did it, what the running jobs are getting (never less than half their CPU allocation), and that it lifts one step after five minutes of calm. Wait for it, lower the host's capacity or the pools' limits so its runners fit the machine, or lift it from the host card (**Lift the throttle**) once the cause is fixed; a cleared throttle comes back on the next heartbeat if the pressure is still there. A host that keeps being throttled has too many slots for its machine.",
+      "detects": "One or more hosts have been stepped down after sustained pressure: CPU pinned with a runner no limit binds, a load average past twice the cores while the CPU is at least 85% busy, or memory at the reserve. The entry carries each host's own sentence, how many of its slots it is left, which measurement did it, what the running jobs are getting (never less than half their CPU allocation), and that it lifts one step after five minutes of calm. Wait for it, lower the host's capacity or the pools' limits so its runners fit the machine, or lift it from the host card (**Lift the throttle**) once the cause is fixed; a cleared throttle comes back on the next heartbeat if the pressure is still there. A host that keeps being throttled has too many slots for its machine.",
+      "fix": "One or more hosts have been stepped down after sustained pressure: CPU pinned with a runner no limit binds, a load average past twice the cores while the CPU is at least 85% busy, or memory at the reserve. The entry carries each host's own sentence, how many of its slots it is left, which measurement did it, what the running jobs are getting (never less than half their CPU allocation), and that it lifts one step after five minutes of calm. Wait for it, lower the host's capacity or the pools' limits so its runners fit the machine, or lift it from the host card (**Lift the throttle**) once the cause is fixed; a cleared throttle comes back on the next heartbeat if the pressure is still there. A host that keeps being throttled has too many slots for its machine.",
       "verify": "The host's card no longer shows it stepped down and `zoomies hosts list` shows its full slot count once pressure has eased.",
       "status_sentence": "A machine is busy enough that it is taking new jobs more slowly.",
       "docs_html": "https://zoomies.sh/problem-codes/#runtime-hosts-and-installations",

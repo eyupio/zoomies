@@ -80,7 +80,7 @@ heartbeat the controller makes one host-wide plan.
 ```mermaid
 flowchart TD
     hb["a fresh heartbeat<br/>from the host's agent"]
-    guard{"host healthy?<br/>CPU under 85%, load sane,<br/>memory above reserve,<br/>no hold, no throttle"}
+    guard{"host healthy?<br/>CPU under 85%,<br/>memory above reserve,<br/>no hold, no throttle"}
     ledger["charge every busy or starting runner<br/>its guarantee, and the idle<br/>runners one between them"]
     next["hold back one share<br/>for a compatible queued job"]
     spare["spare = allocatable<br/>− guarantees − held share"]
@@ -95,6 +95,12 @@ flowchart TD
     demand -- none --> none
     demand -- some --> fair --> apply
 ```
+
+The load average is not part of the guard. The kernel counts tasks asleep in
+an uninterruptible wait on a disk or a network filesystem in it, so a host can
+show a load far past its cores while its CPUs are idle; withholding a boost for
+that takes CPU from a runner that could have used it and does nothing about the
+task that was blocked. A load with CPU behind it is refused by the CPU line.
 
 A runner is **demanding** when its latest sample shows it using at least 80% of
 its guarantee, or when its throttling counters rose since the last sample,
@@ -237,7 +243,7 @@ metrics it publishes:
 
 | Metric | What to look for |
 | --- | --- |
-| `zoomies_elastic_cpu_decisions_total{pool, mode, outcome}` | How often the plan found room. Read `burst` against everything else: `base` is a calm host with nothing to spare, and `host_busy` is a host too busy to lend at all, held, throttled, or high on CPU, load or memory. Both are heartbeats a boost would not have helped, so leaving `host_busy` out would overstate how often one would. `unsupported_agent` says an agent needs upgrading before `automatic` will do anything on its host. Under `automatic`, `reclaimed` is a loan taken back unused and `backing_off` a runner waiting out its backoff: a pool where they are common has jobs that do not scale past their guarantee, and a lower ceiling suits it. |
+| `zoomies_elastic_cpu_decisions_total{pool, mode, outcome}` | How often the plan found room. Read `burst` against everything else: `base` is a calm host with nothing to spare, and `host_busy` is a host too busy to lend at all, held, throttled, or high on CPU or memory. Both are heartbeats a boost would not have helped, so leaving `host_busy` out would overstate how often one would. `unsupported_agent` says an agent needs upgrading before `automatic` will do anything on its host. Under `automatic`, `reclaimed` is a loan taken back unused and `backing_off` a runner waiting out its backoff: a pool where they are common has jobs that do not scale past their guarantee, and a lower ceiling suits it. |
 | `zoomies_elastic_cpu_target_factor{pool, mode}` | A histogram of the target divided by the guarantee. A p50 around 1.0 means the host is usually full; a p50 at 2.0 means half of it is routinely idle while a job waits on its quota. |
 
 A pool whose factor histogram never leaves 1.0 gains nothing from `automatic`

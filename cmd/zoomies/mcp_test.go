@@ -322,7 +322,7 @@ func TestMCPLabelAdviceIsAReadOfTheAPIsOwnRoute(t *testing.T) {
 			t.Errorf("the request %q does not carry %q", route, want)
 		}
 	}
-	if bad := s.callTool("label_advice", map[string]any{"kind": "nonsense", "repo": "x"}); !bad.IsError {
+	if bad := s.callTool("label_advice", map[string]any{"kind": "nonsense", "colour": "x"}); !bad.IsError {
 		t.Errorf("an argument the tool does not take must be refused, got %+v", bad)
 	}
 }

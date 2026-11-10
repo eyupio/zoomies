@@ -70,7 +70,7 @@ type eliScenario struct {
 // fleetActions are every tool that changes the fleet. A question about why
 // something happened is answered by reading, so none of them is a step in a
 // good answer, however plainly the finding names the setting to change.
-var fleetActions = []string{"rerun_job", "drain_runner", "update_pool", "update_host", "edit_host",
+var fleetActions = []string{"rerun_job", "drain_runner", "prewarm_pool", "update_pool", "update_host", "edit_pool", "edit_host",
 	"clear_host_throttle", "apply_remedy", "update_settings"}
 
 func eliScenarios() []eliScenario {

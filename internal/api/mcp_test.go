@@ -550,3 +550,72 @@ func TestAToolCallBeyondItsCallersBudgetIsRefusedWithTheSentence(t *testing.T) {
 		t.Errorf("a call within the caller's budget must be answered: %s", resultText(after))
 	}
 }
+
+// A pool's image, pull policy and cache decide what code runs on the fleet and
+// what a job can leave behind, so they are the administrator's tool and not the
+// operator's: an operator is not offered it and a switch left off hides it from
+// everyone, and an administrator's change goes through the pool's own route and
+// keeps the rest of the cache the API replaces whole.
+func TestMCPEditPoolChangesTheImageAndTheCacheForAnAdministratorOnly(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Security.MCPAdminTools = true })
+	inst := h.installation()
+	pool := h.pool(inst, "builders")
+	pool.Cache = store.CacheConfig{Enabled: true, Scope: store.CacheScopePool, Source: "/var/lib/zoomies/shared/cache/pools", Tools: true}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	operator := h.token("actor", store.RoleOperator)
+	admin := h.token("boss", store.RoleAdmin)
+
+	args := map[string]any{"pool_id": pool.ID, "image": "ghcr.io/eyupio/zoomies-runner:dev", "pull_policy": "always", "cache_service": true,
+		"expect": map[string]any{"image": pool.Image, "pull_policy": string(pool.PullPolicy), "cache_service": false}}
+	if r := h.mcpTool(operator, "edit_pool", args); !r.IsError {
+		t.Fatalf("an operator must not be able to change a pool's image, got %s", resultText(r))
+	}
+	if got, _ := h.st.GetPool(h.ctx, pool.ID); got.Image != pool.Image {
+		t.Fatalf("a refused call changed the image to %q", got.Image)
+	}
+
+	r := h.mcpTool(admin, "edit_pool", args)
+	if r.IsError {
+		t.Fatalf("edit_pool failed for an administrator: %s", resultText(r))
+	}
+	after, err := h.st.GetPool(h.ctx, pool.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Image != "ghcr.io/eyupio/zoomies-runner:dev" || after.PullPolicy != store.PullAlways {
+		t.Errorf("image %q, pull policy %q", after.Image, after.PullPolicy)
+	}
+	if !after.Cache.Service || !after.Cache.Enabled || !after.Cache.Tools || after.Cache.Source != "/var/lib/zoomies/shared/cache/pools" {
+		t.Errorf("the service must turn on and the rest of the cache stay: %+v", after.Cache)
+	}
+}
+
+// Asking a pool to pull its image is an operator's, goes through the Pools
+// page's own route, and changes nothing about the pool.
+func TestMCPPrewarmPoolIsAnOperatorsAndChangesNothingElse(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "builders")
+	h.host("boogie")
+	operator := h.token("actor", store.RoleOperator)
+	viewer := h.token("reader", store.RoleViewer)
+
+	if r := h.mcpTool(viewer, "prewarm_pool", map[string]any{"pool_id": pool.ID}); !r.IsError || !strings.Contains(resultText(r), "operator") {
+		t.Errorf("a viewer must be told which role is missing, got %s", resultText(r))
+	}
+	r := h.mcpTool(operator, "prewarm_pool", map[string]any{"pool_id": pool.ID})
+	if r.IsError {
+		t.Fatalf("prewarm_pool failed: %s", resultText(r))
+	}
+	if !strings.Contains(resultText(r), `"queued"`) {
+		t.Errorf("the answer must say how many hosts were asked, got %s", resultText(r))
+	}
+	if after, _ := h.st.GetPool(h.ctx, pool.ID); after.Image != pool.Image || after.PullPolicy != pool.PullPolicy {
+		t.Errorf("prewarming changed the pool: %q %q", after.Image, after.PullPolicy)
+	}
+	if r := h.mcpTool(operator, "prewarm_pool", map[string]any{"pool_id": "pool_missing"}); !r.IsError {
+		t.Errorf("a pool that is not there must be refused, got %s", resultText(r))
+	}
+}
