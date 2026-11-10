@@ -51,7 +51,7 @@ directory           /var/lib/zoomies
 total               5.3 GB
 carry when moving   4.2 GB  essential, kept and unknown
 can be left behind  1.1 GB  regenerable
-database            1.1 GB, of which 256.0 MB is free pages a delete left in the file
+database            1.1 GB, of which 256.0 MB is free pages a delete left in the file (incremental auto-vacuum)
 backups go to       /var/lib/zoomies/backups
 disk free           42.0 GB
 
@@ -96,11 +96,16 @@ A few things are worth knowing about what the report reads:
   given up on stops the walk at the next file.
 
 The database's own size matters twice. Deleting rows moves pages to a free
-list inside the file and the file does not get shorter, so `database` also says
-how much of it is free pages. At present nothing returns that space to the disk:
-a database that was once large stays at its high-water mark, and
-`zoomies backup` writes a compact copy of the live data, which is why a backup can
-be much smaller than the file it came from.
+list inside the file and the file does not get shorter by itself, so `database`
+also says how much of it is free pages and which auto-vacuum mode it was made in.
+In `incremental` mode, which every database this release creates is, the
+scheduled maintenance pass gives those pages back to the disk in short slices (see
+[`maintenance.compact`](configuration.md#maintenance)). A database made by an
+earlier release says `none`: it stays at its high-water mark until
+`maintenance.compact` is set to `convert`, which rewrites it once. A backup is
+written by `VACUUM INTO`, a compact copy of the live data, which is why a backup
+can be much smaller than the file it came from, and it keeps the mode the
+database had, so a restore does not change it.
 
 ## Taking a backup
 

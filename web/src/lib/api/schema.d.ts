@@ -9345,9 +9345,14 @@ export interface components {
             database_bytes: number;
             /**
              * Format: int64
-             * @description The part of the database file that holds no data: the free pages times the page size. A delete leaves these in the file, and nothing returns them to the disk.
+             * @description The part of the database file that holds no data: the free pages times the page size. A delete leaves these in the file, and only the maintenance pass returns them to the disk (`maintenance.compact`).
              */
             database_free_bytes: number;
+            /**
+             * @description The auto-vacuum mode the database file was made in. `incremental` can give its free pages back in slices and is what every database created by this release is; `none` is a database made by an earlier release, which stays as it is until `maintenance.compact` is `convert` and a pass has rewritten it.
+             * @enum {string}
+             */
+            database_auto_vacuum: "none" | "full" | "incremental";
             /**
              * Format: int64
              * @description Every entry added up.
@@ -9373,6 +9378,26 @@ export interface components {
             pre_migration: string[];
             /** @description What could not be done, one sentence each. A directory that failed does not stop the other being tidied. */
             errors: string[];
+            compaction?: components["schemas"]["CompactionResult"];
+        };
+        /** @description What the scheduled maintenance pass did to the database file itself. It is left out when the pass did nothing, and when the pass was one somebody asked for: only the scheduled pass compacts. */
+        CompactionResult: {
+            /**
+             * @description `maintenance.compact` as the pass read it.
+             * @enum {string}
+             */
+            mode: "incremental" | "convert";
+            /** @description The database was rewritten into incremental auto-vacuum mode. */
+            converted: boolean;
+            /**
+             * Format: int64
+             * @description The pages given back, times the page size.
+             */
+            freed_bytes: number;
+            /** @description Why a conversion that was asked for was refused: too little disk, or no backup from the last day. It names what to do. */
+            skipped?: string;
+            /** @description What failed. A rewrite that fails leaves the original file as it was. */
+            error?: string;
         };
         StorageEntry: {
             /** @description Relative to the state directory, with forward slashes. */

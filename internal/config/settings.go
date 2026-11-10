@@ -959,8 +959,17 @@ var registry = buildRegistry([]Setting{
 	// ---------------------------------------------------------------------
 	{
 		Key: "maintenance.interval", Label: "Maintenance interval", Env: "ZOOMIES_MAINTENANCE_INTERVAL", Kind: KindDuration, Scope: ScopePlatform, Live: true,
-		Summary: "How often the controller removes its own backups beyond backup.keep and its pre-migration copies beyond backup.pre_migration_keep. 0 switches the scheduled pass off. The pre-migration copies are also pruned once when the controller starts, whatever this says, so that switching it off cannot leave copies nothing ever removes.",
+		Summary: "How often the controller removes its own backups beyond backup.keep and its pre-migration copies beyond backup.pre_migration_keep, and gives the database file's free pages back to the disk. 0 switches the scheduled pass off. The pre-migration copies are also pruned once when the controller starts, whatever this says, so that switching it off cannot leave copies nothing ever removes.",
 		Floor:   time.Minute,
+	},
+	{
+		Key: "maintenance.compact", Label: "Give free database space back", Env: "ZOOMIES_MAINTENANCE_COMPACT", Kind: KindEnum, Scope: ScopePlatform, Live: true,
+		Choices: []string{"off", "incremental", "convert"},
+		Summary: "Whether the maintenance pass gives the database file's free pages back to the disk. Deleting rows leaves the file as long as it was. Incremental does it for a database made in incremental mode, which every database created by this release is, in short slices that let other writes in between. Convert also rewrites an older database into that mode, once: the rewrite holds the writer, so everything that writes waits for as long as it takes, and it is refused unless the disk has room for a second copy and a backup from the last day exists. Off never does it.",
+	},
+	{
+		Key: "maintenance.compact_free_percent", Label: "Free share before giving space back", Env: "ZOOMIES_MAINTENANCE_COMPACT_FREE_PERCENT", Kind: KindInt, Scope: ScopePlatform, Live: true,
+		Summary: "The share of the database file that has to be free pages before the pass gives any back, and the share it stops at, so a few free pages are left for new rows to reuse. Between 1 and 99. It also acts only when at least 32 MiB is free, whatever the share.",
 	},
 
 	// ---------------------------------------------------------------------

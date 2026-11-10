@@ -359,6 +359,17 @@ func (c *Config) validateChoicesAndBounds(add func(Finding)) {
 		add(Finding{Code: "scheduler.registration_concurrency", Severity: SeverityError, Setting: "scheduler.registration_concurrency", Title: "registration concurrency is outside its supported range", Detail: "Unbounded credential requests amplify GitHub outages and rate limits.", Fix: "set scheduler.registration_concurrency between 1 and 16; the default is 1."})
 	}
 
+	// Read as the runtime reads it, trimmed and in lower case; empty is the default.
+	c.refuseUnknownChoice(add, Finding{Code: "maintenance.compact", Severity: SeverityError, Setting: "maintenance.compact", Title: "unknown compaction mode"},
+		strings.ToLower(strings.TrimSpace(c.Maintenance.Compact)))
+	if c.Maintenance.CompactFreePercent < 1 || c.Maintenance.CompactFreePercent > 99 {
+		add(Finding{
+			Code: "maintenance.compact_percent", Severity: SeverityError, Setting: "maintenance.compact_free_percent",
+			Title:  "maintenance.compact_free_percent must be between 1 and 99",
+			Detail: "it is the share of the database file that has to be free pages before the pass gives any back; 0 would act on any free page at all and 100 could never be reached.",
+			Fix:    "set maintenance.compact_free_percent between 1 and 99; the default is 20, or set maintenance.compact to off to stop giving space back.",
+		})
+	}
 	// A copy taken before a migration is the one way back from an upgrade, and
 	// nothing can take it again once the upgrade has run, so keeping none is not
 	// a setting: it is the controller deleting the rollback it has just made.

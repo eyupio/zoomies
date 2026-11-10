@@ -13668,7 +13668,7 @@ components:
 
     StorageReport:
       type: object
-      required: [version, directory, backup_directory, entries, database_bytes, database_free_bytes, total_bytes, disk_free_bytes]
+      required: [version, directory, backup_directory, entries, database_bytes, database_free_bytes, database_auto_vacuum, total_bytes, disk_free_bytes]
       properties:
         version:
           type: integer
@@ -13692,8 +13692,17 @@ components:
           format: int64
           description: >-
             The part of the database file that holds no data: the free pages times
-            the page size. A delete leaves these in the file, and nothing returns
-            them to the disk.
+            the page size. A delete leaves these in the file, and only the
+            maintenance pass returns them to the disk (`maintenance.compact`).
+        database_auto_vacuum:
+          type: string
+          enum: [none, full, incremental]
+          description: >-
+            The auto-vacuum mode the database file was made in. `incremental` can give
+            its free pages back in slices and is what every database created by this
+            release is; `none` is a database made by an earlier release, which stays
+            as it is until `maintenance.compact` is `convert` and a pass has rewritten
+            it.
         total_bytes: { type: integer, format: int64, description: Every entry added up. }
         disk_free_bytes:
           type: [integer, "null"]
@@ -13729,6 +13738,37 @@ components:
           description: >-
             What could not be done, one sentence each. A directory that failed does
             not stop the other being tidied.
+        compaction:
+          $ref: "#/components/schemas/CompactionResult"
+
+    CompactionResult:
+      type: object
+      description: >-
+        What the scheduled maintenance pass did to the database file itself. It is
+        left out when the pass did nothing, and when the pass was one somebody asked
+        for: only the scheduled pass compacts.
+      required: [mode, converted, freed_bytes]
+      properties:
+        mode:
+          type: string
+          enum: [incremental, convert]
+          description: "`maintenance.compact` as the pass read it."
+        converted:
+          type: boolean
+          description: The database was rewritten into incremental auto-vacuum mode.
+        freed_bytes:
+          type: integer
+          format: int64
+          description: The pages given back, times the page size.
+        skipped:
+          type: string
+          description: >-
+            Why a conversion that was asked for was refused: too little disk, or no
+            backup from the last day. It names what to do.
+        error:
+          type: string
+          description: >-
+            What failed. A rewrite that fails leaves the original file as it was.
 
     StorageEntry:
       type: object

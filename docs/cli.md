@@ -808,8 +808,11 @@ nothing of yours) or `unknown` (this report does not class it, so carry it).
 Under the table it adds up what a move would carry and what can be left behind,
 says so when a pre-migration copy is among the latter, since that one is the
 rollback for the last upgrade and cannot be taken again, and gives how much of
-the database file is free pages that a delete left behind and the room left on
-the disk.
+the database file is free pages that a delete left behind, which auto-vacuum
+mode it was made in (an `incremental` database gives those pages back on the
+maintenance schedule; one that says `none` needs `maintenance.compact` set to
+`convert` first), what the last maintenance pass removed or gave back, and the
+room left on the disk.
 `--output json` prints the report as the controller sent it.
 
 It asks the controller, so it reports the directory the running controller

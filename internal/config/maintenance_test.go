@@ -83,3 +83,84 @@ func TestAPreMigrationKeepBelowOneIsAnErrorThatSaysWhatToSetInstead(t *testing.T
 		}
 	}
 }
+
+// The controller gives a database's free pages back to the disk, and two settings
+// say whether and when. The default is to give them back for a database that can
+// be given them back in slices, and to leave one that cannot alone: rewriting an
+// existing database holds the writer for as long as it takes, so it is a choice
+// somebody makes, not something an upgrade does.
+func TestTheCompactionSettingsHaveTheDefaultsAndChoicesTheyPromise(t *testing.T) {
+	c := Default()
+	if c.Maintenance.Compact != "incremental" {
+		t.Errorf("maintenance.compact defaults to %q, want incremental", c.Maintenance.Compact)
+	}
+	if c.Maintenance.CompactFreePercent != 20 {
+		t.Errorf("maintenance.compact_free_percent defaults to %d, want 20", c.Maintenance.CompactFreePercent)
+	}
+
+	mode, ok := LookupSetting("maintenance.compact")
+	if !ok || mode.Kind != KindEnum || !mode.Live || !mode.Platform() {
+		t.Errorf("maintenance.compact = %+v (found %v), want a live choice that is the platform's", mode, ok)
+	}
+	if want := []string{"off", "incremental", "convert"}; !slicesEqual(mode.Choices, want) {
+		t.Errorf("maintenance.compact offers %v, want %v", mode.Choices, want)
+	}
+	percent, ok := LookupSetting("maintenance.compact_free_percent")
+	if !ok || percent.Kind != KindInt || !percent.Live || !percent.Platform() {
+		t.Errorf("maintenance.compact_free_percent = %+v (found %v), want a live integer that is the platform's", percent, ok)
+	}
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// A mode nobody offered, and a share that is no share, are errors that stop a
+// settings change and say what to set instead.
+func TestACompactionSettingThatMeansNothingIsAnErrorThatSaysWhatToSetInstead(t *testing.T) {
+	has := func(c *Config, code string) *Finding {
+		for _, f := range c.Validate().Errors() {
+			if f.Code == code {
+				return &f
+			}
+		}
+		return nil
+	}
+
+	c := Default()
+	c.Maintenance.Compact = "sometimes"
+	if f := has(c, "maintenance.compact"); f == nil || !strings.Contains(f.Fix, "off, incremental or convert") {
+		t.Errorf("an unknown mode raised %+v, want an error that offers the choices", f)
+	}
+	for _, mode := range []string{"off", "incremental", "convert", "CONVERT", " incremental ", ""} {
+		c := Default()
+		c.Maintenance.Compact = mode
+		if f := has(c, "maintenance.compact"); f != nil {
+			t.Errorf("the mode %q raised %+v", mode, f)
+		}
+	}
+
+	for _, percent := range []int{0, -5, 100, 250} {
+		c := Default()
+		c.Maintenance.CompactFreePercent = percent
+		f := has(c, "maintenance.compact_percent")
+		if f == nil || f.Setting != "maintenance.compact_free_percent" || f.Fix == "" {
+			t.Errorf("a share of %d raised %+v, want an error that names the setting and says what to set", percent, f)
+		}
+	}
+	for _, percent := range []int{1, 20, 99} {
+		c := Default()
+		c.Maintenance.CompactFreePercent = percent
+		if f := has(c, "maintenance.compact_percent"); f != nil {
+			t.Errorf("a share of %d raised %+v", percent, f)
+		}
+	}
+}

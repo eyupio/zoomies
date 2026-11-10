@@ -508,11 +508,16 @@ if you set `keep: 0` and never expect the page to say what is there.
 The controller tidies its own state directory: it removes the backups it took
 of itself beyond `backup.keep`, and the copies it took before a migration beyond
 `backup.pre_migration_keep`. Backups somebody uploaded or fetched back from a
-remote, and the live database a restore set aside, are never touched by it.
+remote, and the live database a restore set aside, are never touched by it. It
+also gives the live database's free pages back to the disk, which is the other
+half of why a state directory is larger than what is in it: deleting rows does
+not shorten a SQLite file.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `maintenance.interval` | `ZOOMIES_MAINTENANCE_INTERVAL` | at once | Maintenance interval: How often the controller removes its own backups beyond backup.keep and its pre-migration copies beyond backup.pre_migration_keep. 0 switches the scheduled pass off. The pre-migration copies are also pruned once when the controller starts, whatever this says, so that switching it off cannot leave copies nothing ever removes. |
+| `maintenance.interval` | `ZOOMIES_MAINTENANCE_INTERVAL` | at once | Maintenance interval: How often the controller removes its own backups beyond backup.keep and its pre-migration copies beyond backup.pre_migration_keep, and gives the database file's free pages back to the disk. 0 switches the scheduled pass off. The pre-migration copies are also pruned once when the controller starts, whatever this says, so that switching it off cannot leave copies nothing ever removes. |
+| `maintenance.compact` | `ZOOMIES_MAINTENANCE_COMPACT` | at once | Give free database space back: Whether the maintenance pass gives the database file's free pages back to the disk. Deleting rows leaves the file as long as it was. Incremental does it for a database made in incremental mode, which every database created by this release is, in short slices that let other writes in between. Convert also rewrites an older database into that mode, once: the rewrite holds the writer, so everything that writes waits for as long as it takes, and it is refused unless the disk has room for a second copy and a backup from the last day exists. Off never does it. |
+| `maintenance.compact_free_percent` | `ZOOMIES_MAINTENANCE_COMPACT_FREE_PERCENT` | at once | Free share before giving space back: The share of the database file that has to be free pages before the pass gives any back, and the share it stops at, so a few free pages are left for new rows to reuse. Between 1 and 99. It also acts only when at least 32 MiB is free, whatever the share. |
 
 The first pass runs about a minute after the controller starts and then once
 every interval, so a controller that is restarted more often than its interval is
@@ -520,7 +525,30 @@ still tidied. A pass waits for a backup that is being taken rather than running
 beside it. Pressing **apply retention** on the Backups page (`POST
 /api/v1/backups/prune`) runs the same pass at once, whatever the interval says, so
 that lowering a count and pressing the button shows its effect. `zoomies storage`
-says what the last pass removed.
+says what the last pass removed. The button prunes and does not compact: a
+conversion can hold the writer for minutes, and nobody asked for that by asking for
+old copies to go.
+
+#### Giving the database's free space back
+
+A database created by this release is made in SQLite's incremental auto-vacuum
+mode. The scheduled pass gives its free pages back in slices of about 8 MiB,
+letting every other write in between, for at most thirty seconds a pass, and then
+checkpoints the log so the file really shortens. It starts only when more than
+`maintenance.compact_free_percent` of the file is free and at least 32 MiB, and it
+stops at that share, leaving a few free pages for new rows to reuse. A very large
+file is given back over several passes.
+
+A database made by an earlier release is not in that mode, and `incremental`, the
+default, leaves it alone. Set `maintenance.compact` to `convert` to rewrite it
+once. That is a `VACUUM`, which holds the one writer for as long as it takes, so
+agent heartbeats and webhook ingest wait. It is refused, with the
+`maintenance.compact_skipped` problem naming why, unless the disk has room for a
+second copy (twice the database's size) and a backup of the database from the last
+day exists, or backups are switched off. A rewrite that fails leaves the original
+file as it was. Move to `incremental` again afterwards: once converted, a database
+stays converted. A database restored from a backup keeps the mode the backup was
+taken in.
 
 The copies taken before a migration are pruned by the controller and not by the
 database layer that takes them, because that layer runs before any setting can be

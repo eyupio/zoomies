@@ -209,15 +209,27 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 		// runners' images and caches share. With the limit, the next checkpoint
 		// that resets the log truncates it back. Sixteen megabytes is four times
 		// the log a thousand-page automatic checkpoint leaves in steady state.
+		pragmas := []string{
+			"journal_mode(WAL)",
+			"busy_timeout(10000)",
+			"foreign_keys(1)",
+			"synchronous(NORMAL)",
+			"journal_size_limit(" + strconv.Itoa(walSizeLimit) + ")",
+			"mmap_size(" + strconv.Itoa(mmapSize) + ")",
+		}
+		// A database gives its free pages back in slices only if it was made in
+		// incremental mode, and the mode is in the file header: it can be chosen
+		// for a file that has no tables yet and changed afterwards only by
+		// rewriting the whole file. So it is chosen here, for a database that
+		// does not exist, and never for one that does. An existing database is
+		// left in the mode it was made in until an operator asks for the rewrite
+		// (maintenance.compact: convert), which holds the writer for as long as
+		// it takes and is not something an upgrade may do on its own.
+		if info, err := os.Stat(abs); errors.Is(err, os.ErrNotExist) || (err == nil && info.Size() == 0) {
+			pragmas = append(pragmas, "auto_vacuum("+strconv.Itoa(AutoVacuumIncremental)+")")
+		}
 		dsn = "file:" + abs + "?" + url.Values{
-			"_pragma": []string{
-				"journal_mode(WAL)",
-				"busy_timeout(10000)",
-				"foreign_keys(1)",
-				"synchronous(NORMAL)",
-				"journal_size_limit(" + strconv.Itoa(walSizeLimit) + ")",
-				"mmap_size(" + strconv.Itoa(mmapSize) + ")",
-			},
+			"_pragma": pragmas,
 			"_txlock": []string{"immediate"},
 		}.Encode()
 	} else {

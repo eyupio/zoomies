@@ -132,3 +132,60 @@ func TestStorageHasNoLastTidyLineBeforeThereHasBeenOne(t *testing.T) {
 		t.Errorf("storage invented a last tidy:\n%s", out)
 	}
 }
+
+// An operator with a large file asks two things next: did the pass give any of it
+// back, and if it did not, why not. The command says both where the last tidy is,
+// and says what mode the database is in beside its size, because that is what
+// decides whether there is anything for them to set.
+func TestStorageSaysWhatTheLastPassDidToTheDatabaseFile(t *testing.T) {
+	body := func(compaction string) string {
+		return strings.Replace(storageFixture, `"disk_free_bytes": 45097156608`, `"disk_free_bytes": 45097156608,
+			"last_maintenance": {
+				"at": "2026-11-09T18:00:00Z", "backups": [], "pre_migration": [], "errors": [],
+				"compaction": `+compaction+`
+			}`, 1)
+	}
+	for _, tc := range []struct {
+		name       string
+		compaction string
+		want       []string
+	}{
+		{"gave space back", `{"mode": "incremental", "converted": false, "freed_bytes": 1073741824}`,
+			[]string{"gave 1.0 GB of the database file back to the disk"}},
+		{"converted", `{"mode": "convert", "converted": true, "freed_bytes": 0}`,
+			[]string{"converted the database to incremental auto-vacuum"}},
+		{"refused", `{"mode": "convert", "converted": false, "freed_bytes": 0, "skipped": "the disk has 1.0 GB free"}`,
+			[]string{"did not compact the database: the disk has 1.0 GB free"}},
+		{"failed", `{"mode": "incremental", "converted": false, "freed_bytes": 0, "error": "disk I/O error"}`,
+			[]string{"could not compact the database: disk I/O error"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := jsonRoutes(t, map[string]string{"/api/v1/storage": body(tc.compaction)})
+			out, _ := runCLI(t, "storage", "--url", srv.URL)
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("storage must show %q:\n%s", want, out)
+				}
+			}
+		})
+	}
+}
+
+func TestStorageSaysWhetherTheDatabaseCanGiveFreePagesBack(t *testing.T) {
+	for mode, want := range map[string]string{
+		"incremental": "incremental auto-vacuum",
+		"none":        "set maintenance.compact to convert",
+	} {
+		body := strings.Replace(storageFixture, `"database_free_bytes": 268435456,`, `"database_free_bytes": 268435456, "database_auto_vacuum": "`+mode+`",`, 1)
+		srv := jsonRoutes(t, map[string]string{"/api/v1/storage": body})
+		out, _ := runCLI(t, "storage", "--url", srv.URL)
+		if !strings.Contains(out, want) {
+			t.Errorf("a %s database: storage must show %q:\n%s", mode, want, out)
+		}
+	}
+	// A controller too old to say leaves the line as it was.
+	srv := jsonRoutes(t, map[string]string{"/api/v1/storage": storageFixture})
+	if out, _ := runCLI(t, "storage", "--url", srv.URL); strings.Contains(out, "auto-vacuum") {
+		t.Errorf("storage invented a mode the controller did not report:\n%s", out)
+	}
+}

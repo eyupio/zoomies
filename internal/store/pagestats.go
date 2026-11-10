@@ -16,12 +16,31 @@ type PageStats struct {
 	PageSize      int64
 	PageCount     int64
 	FreelistCount int64
+	// AutoVacuum is the file's mode: AutoVacuumNone, AutoVacuumFull or
+	// AutoVacuumIncremental. Only an incremental database can be given its free
+	// pages back in slices; the mode is in the file header and cannot be changed
+	// without rewriting the whole file.
+	AutoVacuum int64
 }
 
 // FreeBytes is the space inside the file that holds no data: the free pages
 // times the page size. Deleting rows moves pages here, and nothing moves them
 // back out of the file.
 func (p PageStats) FreeBytes() int64 { return p.FreelistCount * p.PageSize }
+
+// AutoVacuumName is the database's auto_vacuum mode in the word an operator
+// reads: "incremental" is the one that can give free pages back in slices, and
+// "none" is a database made by a release before it, which only a rewrite changes.
+func (p PageStats) AutoVacuumName() string {
+	switch p.AutoVacuum {
+	case AutoVacuumFull:
+		return "full"
+	case AutoVacuumIncremental:
+		return "incremental"
+	default:
+		return "none"
+	}
+}
 
 // PageStats reads the file's page counts through the reader. It takes no write
 // lock, so asking is free for everything that writes.
@@ -34,6 +53,7 @@ func (s *Store) PageStats(ctx context.Context) (PageStats, error) {
 		{"page_size", &p.PageSize},
 		{"page_count", &p.PageCount},
 		{"freelist_count", &p.FreelistCount},
+		{"auto_vacuum", &p.AutoVacuum},
 	} {
 		// The pragma names are constants of this function, never input, which is
 		// the only reason it is safe to build the statement from one.
