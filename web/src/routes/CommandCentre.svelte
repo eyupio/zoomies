@@ -3,8 +3,9 @@
   worked through.
 
   It is an immersive route, so the shell gives it no sidebar, top bar or footer
-  and this bar is the page's only chrome. The bands under it arrive with the
-  tasks that build them; this owns the bar, full screen and the way out.
+  and this bar is the page's only chrome. Under it are the hero, the deck with
+  its rail, and the ticker; this owns the bar, full screen, the way out, and
+  whether the page is live.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
