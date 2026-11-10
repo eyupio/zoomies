@@ -25,6 +25,7 @@ import (
 var mcpToolActions = map[string]auth.Action{
 	"rerun_job":       auth.ActionJobsRerun,
 	"drain_runner":    auth.ActionRunnersDrain,
+	"prewarm_pool":    auth.ActionPoolsWrite,
 	"update_pool":     auth.ActionPoolsWrite,
 	"apply_remedy":    auth.ActionProblemsApply,
 	"update_host":     auth.ActionHostsWrite,
@@ -32,6 +33,7 @@ var mcpToolActions = map[string]auth.Action{
 
 	// The administrator tools: offered only to an administrator, and only while
 	// security.mcp_admin_tools is on. See mcp.IsAdminTool.
+	"edit_pool":           auth.ActionSettingsWrite,
 	"edit_host":           auth.ActionSettingsWrite,
 	"clear_host_throttle": auth.ActionSettingsWrite,
 	"get_settings":        auth.ActionSettingsRead,

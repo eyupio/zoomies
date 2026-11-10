@@ -218,7 +218,7 @@ scopes. Job and repository names and the logs it reads reach the assistant's
 model, so choose a provider permitted to process that information.
 
 **Fleet changes:** operator connections can offer `rerun_job`, `drain_runner`,
-`update_pool`, `update_host` and `apply_remedy`. On HTTP, the connection's role
+`prewarm_pool`, `update_pool`, `update_host` and `apply_remedy`. On HTTP, the connection's role
 determines which actions are offered. On stdio, `--allow-actions` offers action
 tools, and the API token must also permit each call. The [full
 reference](cli.md#zoomies-mcp) describes the optional administrator tools and

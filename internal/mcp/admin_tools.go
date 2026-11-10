@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -24,6 +25,7 @@ import (
 
 // adminTools is every tool the controller's switch governs.
 var adminTools = map[string]bool{
+	"edit_pool":           true,
 	"edit_host":           true,
 	"clear_host_throttle": true,
 	"get_settings":        true,
@@ -72,8 +74,39 @@ func tunableList() string {
 	return strings.Join(tunableSettings, " ") + " (a name ending in a dot stands for every key under it)"
 }
 
+var pullPolicies = []string{"if-not-present", "always", "pinned-only"}
+var cacheScopes = []string{"pool", "repository"}
+
 func adminConfigTools() []*tool {
 	return []*tool{
+		{
+			Name:  "edit_pool",
+			Title: "Change a pool's image, pull policy or cache",
+			Description: "Change which runner image a pool starts, when an image is pulled, or how the pool's disposable cache is kept, leaving every other " +
+				"setting of the pool as it is. These are the settings update_pool does not touch, because they decide what code runs on the fleet and what a " +
+				"job can leave behind for the next one: a different image runs whatever it holds on the pool's hosts, and the cache service shares one " +
+				"cache between every repository on the pool, so a job that can write to it can plant an entry a later job restores. Do not turn the cache " +
+				"service on for a pool that serves a public repository. pull_policy if-not-present starts a runner from the host's copy of an image and " +
+				"pulls only when it has none; always asks the registry before every runner, which costs a round trip in front of the job; pinned-only " +
+				"refuses a tag and takes only a digest. A moving tag is kept current by the hourly refresh and prewarm_pool, whichever policy is set. " +
+				"It applies to runners created after the change. Read the pool first (list_pools) and pass what it showed in expect for every setting you " +
+				"change, so a change made since is not written over. Needs an administrator token and `security.mcp_admin_tools` on.",
+			InputSchema: object([]string{"pool_id", "expect"}, map[string]any{
+				"pool_id":          str("the pool's ID, starting pool_"),
+				"expect":           expectSchema("pool", "list_pools"),
+				"image":            str("the runner image reference, a tag or a digest; an empty string follows the fleet's default image"),
+				"pull_policy":      enum("when an image is pulled", pullPolicies...),
+				"cache_enabled":    boolean("whether the pool has a disposable performance cache"),
+				"cache_scope":      enum("pool gives the pool one cache; repository gives each repository its own and needs cache_repository on an organisation's installation", cacheScopes...),
+				"cache_repository": str("the repository a repository-scoped cache belongs to, as owner/name"),
+				"cache_size_limit": map[string]any{"type": "integer", "minimum": 0, "description": "the most bytes the cache may hold, enforced by evicting between one runner and the next; 0 is the default"},
+				"cache_tools":      boolean("keep the tool cache (setup-go, setup-node and the like) between runners"),
+				"cache_service":    boolean("run a cache service on each host so the Actions cache (actions/cache and the setup-* actions' own caches) is kept on the host, not in GitHub's service"),
+			}),
+			Annotations: annotations{Destructive: true, Idempotent: true},
+			action:      true,
+			call:        editPool,
+		},
 		{
 			Name:  "edit_host",
 			Title: "Rename, relabel, reserve disk on or cordon a host",
@@ -152,6 +185,106 @@ func adminConfigTools() []*tool {
 			call:        updateSettings,
 		},
 	}
+}
+
+func editPool(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
+	var a struct {
+		PoolID          string         `json:"pool_id"`
+		Image           *string        `json:"image"`
+		PullPolicy      *string        `json:"pull_policy"`
+		CacheEnabled    *bool          `json:"cache_enabled"`
+		CacheScope      *string        `json:"cache_scope"`
+		CacheRepository *string        `json:"cache_repository"`
+		CacheSizeLimit  *int64         `json:"cache_size_limit"`
+		CacheTools      *bool          `json:"cache_tools"`
+		CacheService    *bool          `json:"cache_service"`
+		Expect          map[string]any `json:"expect"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
+	if err := requireID("pool_id", a.PoolID); err != nil {
+		return nil, err
+	}
+	cache := a.CacheEnabled != nil || a.CacheScope != nil || a.CacheRepository != nil || a.CacheSizeLimit != nil || a.CacheTools != nil || a.CacheService != nil
+	if a.Image == nil && a.PullPolicy == nil && !cache {
+		return nil, fmt.Errorf("name at least one setting to change")
+	}
+	if a.Image != nil {
+		if strings.ContainsAny(*a.Image, " \t\r\n") || strings.TrimSpace(*a.Image) != *a.Image {
+			return nil, fmt.Errorf("image %q has whitespace in it: give one image reference, such as ghcr.io/eyupio/zoomies-runner-docker:dev or one ending @sha256:<digest>", *a.Image)
+		}
+	}
+	if a.PullPolicy != nil && !slices.Contains(pullPolicies, *a.PullPolicy) {
+		return nil, fmt.Errorf("pull_policy is %q: use one of %s", *a.PullPolicy, strings.Join(pullPolicies, ", "))
+	}
+	if a.CacheScope != nil && !slices.Contains(cacheScopes, *a.CacheScope) {
+		return nil, fmt.Errorf("cache_scope is %q: use one of %s", *a.CacheScope, strings.Join(cacheScopes, ", "))
+	}
+	if a.CacheSizeLimit != nil && *a.CacheSizeLimit < 0 {
+		return nil, fmt.Errorf("cache_size_limit cannot be negative")
+	}
+	bc, ok := c.(BodyCaller)
+	if !ok {
+		return nil, fmt.Errorf("this transport cannot change a pool")
+	}
+	path := "/pools/" + url.PathEscape(a.PoolID)
+	current, err := readObject(ctx, c, path, "pool", a.PoolID, "list_pools")
+	if err != nil {
+		return nil, err
+	}
+	changes := map[string]change{}
+	body := map[string]any{}
+	if a.Image != nil {
+		changes["image"] = change{Before: current["image"], After: *a.Image}
+		body["image"] = *a.Image
+	}
+	if a.PullPolicy != nil {
+		changes["pull_policy"] = change{Before: current["pull_policy"], After: *a.PullPolicy}
+		body["pull_policy"] = *a.PullPolicy
+	}
+	if cache {
+		// The cache is replaced whole, so it is read as it stands and only the
+		// fields named change: its source folder and anything added since stay.
+		merged := copyMap(current["cache"])
+		set := func(field, name string, v any) {
+			before := merged[field]
+			if _, isBool := v.(bool); isBool && before == nil {
+				// A flag the pool never set is off, and a model reading it says false.
+				before = false
+			}
+			changes[name] = change{Before: before, After: v}
+			merged[field] = v
+		}
+		if a.CacheEnabled != nil {
+			set("enabled", "cache_enabled", *a.CacheEnabled)
+		}
+		if a.CacheScope != nil {
+			set("scope", "cache_scope", *a.CacheScope)
+		}
+		if a.CacheRepository != nil {
+			set("repository", "cache_repository", *a.CacheRepository)
+		}
+		if a.CacheSizeLimit != nil {
+			set("size_limit", "cache_size_limit", *a.CacheSizeLimit)
+		}
+		if a.CacheTools != nil {
+			set("tools", "cache_tools", *a.CacheTools)
+		}
+		if a.CacheService != nil {
+			set("service", "cache_service", *a.CacheService)
+		}
+		body["cache"] = merged
+	}
+	if err := checkExpected("pool", "list_pools", a.Expect, changes); err != nil {
+		return nil, err
+	}
+	return send(ctx, bc, path, body, sizingReply{
+		ID:      a.PoolID,
+		Name:    stringOf(current["name"]),
+		Changes: changes,
+		Note:    "Applies to runners created from now on; those already running finish as they are. An image or tag the hosts do not have yet is pulled by prewarm_pool or the next hourly refresh.",
+	})
 }
 
 func editHost(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
