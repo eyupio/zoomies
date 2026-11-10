@@ -609,8 +609,15 @@ pool that types its own size is told that the default would change nothing for
 it, since the largest ask across the pools decides how many runners a host
 holds.
 
-It reads and changes nothing. Applying a `raise` is writing the two fleet
-settings and the pool's maximum. A runner keeps the size it was created with,
+It reads and changes nothing. In the pool editor, the **Size** section shows it
+for a pool whose runners are one share of each host: a card saying how many
+runners the hosts could hold, host by host, with what to know before applying
+it. Nothing is shown when there is nothing to recommend. **Apply this size**
+writes the two fleet settings, so it is for an administrator, and where other
+pools follow the default it names them and waits for a tick. The pool's
+maximum is set in the form, never saved behind your back: save the pool to keep
+it. Over the API or MCP, applying a `raise` is writing the two fleet settings and
+the pool's maximum. A runner keeps the size it was created with,
 so the new slots fill as the runners now running finish their jobs, usually
 within the length of your longest job. A host whose disk is nearly full is the
 one to watch; free some space there before going further.
