@@ -1,0 +1,37 @@
+name: diag-cache
+on:
+  push:
+    branches: [claude/diag-cache]
+permissions:
+  contents: read
+jobs:
+  diag:
+    runs-on: zoomies-linux-x64
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2, 3]
+    steps:
+      - name: What this runner sees
+        shell: bash
+        run: |
+          echo "--- host and image"
+          hostname; uname -r
+          env | grep -i '^ZOOMIES' | sed -E 's/(TOKEN|SECRET|KEY)=.*/\1=<hidden>/' || echo "no ZOOMIES_* variables"
+          echo "--- cache variables (names; values hidden for tokens)"
+          env | grep -E '^ACTIONS_(CACHE|RESULTS)_URL' | sed -E 's#(https?://[^/]+).*#\1/...#' || echo "none"
+          echo "--- pool cache mount"
+          ls -ld /opt/zoomies-cache 2>&1; ls /opt/zoomies-cache 2>&1 | head; df -h /opt/zoomies-cache 2>&1 | tail -1
+          echo "--- runner node (wrapped or plain)"
+          for d in /home/runner/externals/node*/bin /actions-runner/externals/node*/bin; do
+            [ -d "$d" ] || continue
+            ls -l "$d"
+          done
+          echo "--- reach the host's cache service"
+          u="${ZOOMIES_CACHE_SERVICE_URL:-}"
+          if [ -n "$u" ]; then
+            curl -sS -m 5 -o /dev/null -w "service answered HTTP %{http_code}\n" "$u" || echo "service NOT reachable from the runner"
+          else
+            echo "ZOOMIES_CACHE_SERVICE_URL is not set in this runner: the agent gave it no service address"
+          fi
