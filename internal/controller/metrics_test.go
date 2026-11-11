@@ -394,6 +394,14 @@ func TestNoMetricDeclaresAnUnboundedLabel(t *testing.T) {
 		// run: that is what the repository's own page is for, and a label of
 		// repositories would multiply every series by the fleet's size.
 		"code": true,
+		// "verdict" is what a job's own history said about its CPU: unknown,
+		// scales or capped, three constants in internal/scheduler. It must
+		// never become the job it was worked out for, which is what the job's
+		// page is for.
+		"verdict": true,
+		// "action" is what a job's history changed in a plan: ceiling, early or
+		// weighted, three constants in the controller, never the job itself.
+		"action": true,
 	}
 
 	descs := make(chan *prometheus.Desc, 256)

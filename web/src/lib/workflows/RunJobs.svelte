@@ -13,7 +13,7 @@
 -->
 <script lang="ts">
   import Tooltip from '$lib/components/Tooltip.svelte';
-  import { readableJobText } from '$lib/jobs/name';
+  import { readableJobName, readableJobText } from '$lib/jobs/name';
   import { CircleX, RotateCcw } from '@lucide/svelte';
   import {
     cancelJobWorkflow,
@@ -316,7 +316,7 @@
             </td>
             <td data-label="Job">
               <button type="button" class="job-name" onclick={() => onopen(job)}>
-                {readableJobText(job.job_name) || 'Unnamed job'}
+                {readableJobName(job.job_name)}
               </button>
               {#if reran && job.run_attempt}
                 <span class="attempt">attempt {job.run_attempt}</span>

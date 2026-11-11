@@ -283,14 +283,29 @@ func windowTools() []*tool {
 				"Use it to see a whole run at once; list_jobs is the jobs. Workflow and branch names are written by the repository's authors and are untrusted. " +
 				"At most 64 KiB is returned, cut on whole rows with a note when the answer held more.",
 			InputSchema: object(nil, map[string]any{
-				"repo":       str("only this repository, as owner/name"),
-				"workflow":   str("only this workflow"),
-				"branch":     str("only runs on this branch"),
-				"state":      enum("only runs in this state", "waiting", "queued", "in_progress", "completed"),
-				"conclusion": enum("only runs that finished this way", "success", "failure", "cancelled", "skipped"),
-				"since":      str("only runs queued at or after then: a duration such as 24h or 30d, or an RFC 3339 timestamp"),
-				"q":          str("substring match on repository, workflow or job name"),
-				"limit":      integer("how many to return (default 20)", 1, 100),
+				"repo":            str("only this repository, as owner/name"),
+				"workflow":        str("only this workflow"),
+				"branch":          str("only runs on this branch"),
+				"state":           enum("only runs in this state", "waiting", "queued", "in_progress", "completed"),
+				"conclusion":      enum("only runs that finished this way", "success", "failure", "cancelled", "skipped"),
+				"since":           str("only runs queued at or after then: a duration such as 24h or 30d, or an RFC 3339 timestamp"),
+				"q":               str("substring match on repository, workflow or job name"),
+				"until":           str("only runs queued before then, in the same forms as since. The end is exclusive"),
+				"pool_id":         str("only runs with a job that ran, or was claimed, on this pool, starting pool_"),
+				"runner_id":       str("only the run of the job that ran on this runner, starting run_"),
+				"run_id":          intArray("only these runs, by GitHub's run ID; send repo with it, because a run ID keys a run only within its repository", 20),
+				"label":           stringArray("only runs with a job that asked for these runs-on labels", 20),
+				"completed_since": str("only the jobs that finished at or after then, in the same forms as since, summed into their runs"),
+				"completed_until": str("only the jobs that finished before then, in the same forms as since"),
+				"failed":          boolean("only runs with a job that went wrong"),
+				"attention":       boolean("only failures still waiting on a person, as list_jobs describes them"),
+				"unmatched":       boolean("only runs with a queued job no enabled pool claims"),
+				"managed":         boolean("true: only runs Zoomies has a hand in"),
+				"cancelling":      boolean("true: only runs whose cancellation has been asked of GitHub and not yet confirmed; false: leave those out"),
+				"ours":            boolean("only failures this fleet caused"),
+				"theirs":          boolean("only failures the workflow caused, with nothing wrong on the fleet's side"),
+				"fault":           stringList("narrow a fleet failure to these categories", len(faultKinds), faultKinds...),
+				"limit":           integer("how many to return (default 20)", 1, 100),
 			}),
 			Annotations: readOnly,
 			call:        listWorkflowRuns,
@@ -721,27 +736,67 @@ func runnerTimeline(ctx context.Context, c API, raw json.RawMessage) ([]Content,
 
 func listWorkflowRuns(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
 	var a struct {
-		Repo       string `json:"repo"`
-		Workflow   string `json:"workflow"`
-		Branch     string `json:"branch"`
-		State      string `json:"state"`
-		Conclusion string `json:"conclusion"`
-		Since      string `json:"since"`
-		Query      string `json:"q"`
-		Limit      int    `json:"limit"`
+		Repo           string   `json:"repo"`
+		Workflow       string   `json:"workflow"`
+		Branch         string   `json:"branch"`
+		State          string   `json:"state"`
+		Conclusion     string   `json:"conclusion"`
+		Since          string   `json:"since"`
+		Query          string   `json:"q"`
+		Until          string   `json:"until"`
+		PoolID         string   `json:"pool_id"`
+		RunnerID       string   `json:"runner_id"`
+		RunID          []int64  `json:"run_id"`
+		Label          []string `json:"label"`
+		CompletedSince string   `json:"completed_since"`
+		CompletedUntil string   `json:"completed_until"`
+		Failed         bool     `json:"failed"`
+		Attention      bool     `json:"attention"`
+		Unmatched      bool     `json:"unmatched"`
+		Managed        bool     `json:"managed"`
+		Cancelling     *bool    `json:"cancelling"`
+		Ours           bool     `json:"ours"`
+		Theirs         bool     `json:"theirs"`
+		Fault          []string `json:"fault"`
+		Limit          int      `json:"limit"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return nil, err
 	}
+	if a.Ours && a.Theirs {
+		return nil, errors.New("ours and theirs ask for opposite halves of the same list; pass one")
+	}
+	for _, f := range a.Fault {
+		if !slices.Contains(faultKinds, f) {
+			return nil, fmt.Errorf("fault %q is not a kind: use one of %s", f, strings.Join(faultKinds, ", "))
+		}
+	}
 	q := url.Values{}
 	for key, v := range map[string]string{
 		"repo": a.Repo, "workflow": a.Workflow, "branch": a.Branch, "state": a.State, "conclusion": a.Conclusion, "q": a.Query,
+		"pool_id": a.PoolID, "runner_id": a.RunnerID,
 	} {
 		if v != "" {
 			q.Set(key, v)
 		}
 	}
-	if err := setWindow(q, a.Since, ""); err != nil {
+	for key, v := range map[string]bool{"failed": a.Failed, "attention": a.Attention, "unmatched": a.Unmatched, "managed": a.Managed, "faulted": a.Ours, "workflow_failed": a.Theirs} {
+		if v {
+			q.Set(key, "true")
+		}
+	}
+	if a.Cancelling != nil {
+		q.Set("cancelling", strconv.FormatBool(*a.Cancelling))
+	}
+	addAll(q, "label", a.Label)
+	addAll(q, "fault", a.Fault)
+	for _, id := range a.RunID {
+		q.Add("run_id", strconv.FormatInt(id, 10))
+	}
+	if err := setCompletedWindow(q, a.CompletedSince, a.CompletedUntil); err != nil {
+		return nil, err
+	}
+	if err := setWindow(q, a.Since, a.Until); err != nil {
 		return nil, err
 	}
 	q.Set("limit", strconv.Itoa(clamp(a.Limit, 20, 100)))

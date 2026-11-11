@@ -141,6 +141,7 @@ var problemAudience = map[string]Audience{
 	"backup.remote_unreadable":                AudiencePlatform,
 	"backup.restore_failed":                   AudiencePlatform,
 	"backup.restore_staged":                   AudiencePlatform,
+	"maintenance.compact_skipped":             AudiencePlatform,
 	"capacity_demand.delivery_failed":         AudiencePlatform,
 	"controller.development_update_available": AudiencePlatform,
 	"controller.lease_lost":                   AudiencePlatform,
@@ -481,6 +482,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	out = append(out, c.loopProblems()...)
 	out = append(out, c.updateProblems()...)
 	out = append(out, c.backupProblems(ctx)...)
+	out = append(out, c.compactionProblems()...)
 	gather("AI Context", c.aiContextProblems)
 	gather("Kennel Club", c.kennelProblems)
 	gather("polling", c.pollerProblems)

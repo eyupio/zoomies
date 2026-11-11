@@ -58,7 +58,9 @@
 </script>
 
 {#if open}
-  <div class="backdrop" bind:this={backdrop}>
+  <!-- `data-focus-keep`: a table's focus view hides the rest of the page, and
+       an overlay the page opens is not the rest of the page. -->
+  <div class="backdrop" data-focus-keep bind:this={backdrop}>
     <!-- A div, not a focusable-but-aria-hidden button. See Dialog.svelte. -->
     <div class="scrim" aria-hidden="true" onclick={close}></div>
     <div

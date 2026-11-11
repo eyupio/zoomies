@@ -508,11 +508,16 @@ if you set `keep: 0` and never expect the page to say what is there.
 The controller tidies its own state directory: it removes the backups it took
 of itself beyond `backup.keep`, and the copies it took before a migration beyond
 `backup.pre_migration_keep`. Backups somebody uploaded or fetched back from a
-remote, and the live database a restore set aside, are never touched by it.
+remote, and the live database a restore set aside, are never touched by it. It
+also gives the live database's free pages back to the disk, which is the other
+half of why a state directory is larger than what is in it: deleting rows does
+not shorten a SQLite file.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `maintenance.interval` | `ZOOMIES_MAINTENANCE_INTERVAL` | at once | Maintenance interval: How often the controller removes its own backups beyond backup.keep and its pre-migration copies beyond backup.pre_migration_keep. 0 switches the scheduled pass off. The pre-migration copies are also pruned once when the controller starts, whatever this says, so that switching it off cannot leave copies nothing ever removes. |
+| `maintenance.interval` | `ZOOMIES_MAINTENANCE_INTERVAL` | at once | Maintenance interval: How often the controller removes its own backups beyond backup.keep and its pre-migration copies beyond backup.pre_migration_keep, and gives the database file's free pages back to the disk. 0 switches the scheduled pass off. The pre-migration copies are also pruned once when the controller starts, whatever this says, so that switching it off cannot leave copies nothing ever removes. |
+| `maintenance.compact` | `ZOOMIES_MAINTENANCE_COMPACT` | at once | Give free database space back: Whether the maintenance pass gives the database file's free pages back to the disk. Deleting rows leaves the file as long as it was. Incremental does it for a database made in incremental mode, which every database created by this release is, in short slices that let other writes in between. Convert also rewrites an older database into that mode, once: the rewrite holds the writer, so everything that writes waits for as long as it takes, and it is refused unless the disk has room for a second copy and a backup from the last day exists. Off never does it. |
+| `maintenance.compact_free_percent` | `ZOOMIES_MAINTENANCE_COMPACT_FREE_PERCENT` | at once | Free share before giving space back: The share of the database file that has to be free pages before the pass gives any back, and the share it stops at, so a few free pages are left for new rows to reuse. Between 1 and 99. It also acts only when at least 32 MiB is free, whatever the share. |
 
 The first pass runs about a minute after the controller starts and then once
 every interval, so a controller that is restarted more often than its interval is
@@ -520,7 +525,30 @@ still tidied. A pass waits for a backup that is being taken rather than running
 beside it. Pressing **apply retention** on the Backups page (`POST
 /api/v1/backups/prune`) runs the same pass at once, whatever the interval says, so
 that lowering a count and pressing the button shows its effect. `zoomies storage`
-says what the last pass removed.
+says what the last pass removed. The button prunes and does not compact: a
+conversion can hold the writer for minutes, and nobody asked for that by asking for
+old copies to go.
+
+#### Giving the database's free space back
+
+A database created by this release is made in SQLite's incremental auto-vacuum
+mode. The scheduled pass gives its free pages back in slices of about 8 MiB,
+letting every other write in between, for at most thirty seconds a pass, and then
+checkpoints the log so the file really shortens. It starts only when more than
+`maintenance.compact_free_percent` of the file is free and at least 32 MiB, and it
+stops at that share, leaving a few free pages for new rows to reuse. A very large
+file is given back over several passes.
+
+A database made by an earlier release is not in that mode, and `incremental`, the
+default, leaves it alone. Set `maintenance.compact` to `convert` to rewrite it
+once. That is a `VACUUM`, which holds the one writer for as long as it takes, so
+agent heartbeats and webhook ingest wait. It is refused, with the
+`maintenance.compact_skipped` problem naming why, unless the disk has room for a
+second copy (twice the database's size) and a backup of the database from the last
+day exists, or backups are switched off. A rewrite that fails leaves the original
+file as it was. Move to `incremental` again afterwards: once converted, a database
+stays converted. A database restored from a backup keeps the mode the backup was
+taken in.
 
 The copies taken before a migration are pruned by the controller and not by the
 database layer that takes them, because that layer runs before any setting can be
@@ -715,7 +743,10 @@ the validator says so with `limits.loopback`.
 | `scheduler.host_throttling` | `ZOOMIES_HOST_THROTTLING` | at once | Throttle hosts under pressure: Let the controller throttle a host its measurements say is overwhelmed, and step it back up after a stretch of calm. |
 | `scheduler.host_auto_adjust` | `ZOOMIES_HOST_AUTO_ADJUST` | at once | Keep hosts at their recommended size: Let the controller keep every host's capacity and reserve at what Zoomies recommends for its machine, disk and the pools' runner size, and re-work them as the host reports and the pools change. This covers hosts the fleet rents from a provider. A host can be set on or off by itself. On by default; a host set to never adjust keeps the figures an operator typed. |
 | `scheduler.host_order` | `ZOOMIES_HOST_ORDER` | at once | Host placement order: Which host a runner prefers once the spec score has decided. `headroom` (default) picks the one with the most CPU and memory left afterwards, which spreads work. `largest_standard` picks the one whose runner of the pool is biggest, which suits a mixed fleet sized by runner profile. `best_fit` picks the one with the least left, filling one host before starting the next. Hosts are ranked first by what their agents report (more and faster CPU, memory and disk score higher) and by any operator's pin, so the order only chooses between hosts of the same priority. It only ever chooses among hosts that already fit, so it moves where runners go and never whether they start. |
-| `scheduler.history_sizing` | `ZOOMIES_HISTORY_SIZING` | at once | Job-history placement, `shadow` (default) records where it would place differently, `on` places each runner only on a host with room for what the jobs waiting on its pool used on their recent runs (the ninetieth percentile of their peaks, memory with a fifth more) and sizes it up to that where the pool leaves its size to the host, `off` ignores history. See [Sizing from job history](hosts-and-pools.md#sizing-from-job-history). |
+| `scheduler.history_sizing` | `ZOOMIES_HISTORY_SIZING` | at once | Job-history placement, `shadow` (default) records where it would place differently, `on` places each runner only on a host with room for the memory the jobs waiting on its pool used on their recent runs (the ninetieth percentile of their peaks, with a fifth more) and sizes it up to that where the pool leaves its memory to the host, `off` ignores history. Memory only: CPU is left to elastic CPU. See [Sizing from job history](hosts-and-pools.md#sizing-from-job-history). |
+| `scheduler.history_percentile` | `ZOOMIES_HISTORY_PERCENTILE` | at once | Which of the memory needs of the jobs waiting on a pool a runner is sized for under history sizing, 1 to 100, each job counted once. The default, `75`, lets the heaviest quarter of the queue lean on elastic memory so a few heavy jobs do not make every runner big. `100` sizes for the heaviest. |
+| `scheduler.history_max_multiple` | `ZOOMIES_HISTORY_MAX_MULTIPLE` | at once | How many times its slot's share of its host's memory a runner sized from history may be given, 1 to 8. The default is `2`. `1` never raises a runner above its share and leaves history to choose the host alone. |
+| `scheduler.elastic_cpu_history` | `ZOOMIES_ELASTIC_CPU_HISTORY` | at once | Per-job elastic CPU ceilings. `shadow` (default) records each job's throttled share from its runs and counts what it would have done, `on` stops lending a job more CPU than its own recent runs used (a quarter above their ninetieth-percentile peak) when few of them were held back by its quota, lends sooner to a job that was held back often, and gives it a larger share when spare CPU is short, `off` neither records nor acts. See [Per-job ceilings](elastic-cpu.md#per-job-ceilings-from-history). |
 | `scheduler.size_routing` | `ZOOMIES_SIZE_ROUTING` | at once | Route jobs by size class, `off` (default) classes nothing. `shadow` classes each job small, medium or large from what its recent runs used and records the class and where the job ran, and sends nothing anywhere. `on` sends each job to the pool for its class. A workflow that writes `zoomies-large` in `runs-on` is always honoured and never moved; a job that writes only `zoomies` is routed best effort, because GitHub decides which waiting job a runner takes. Changing it puts the jobs already waiting through the new mode. See [size classes and automatic pools](auto-pools.md). |
 | `scheduler.auto_pools` | `ZOOMIES_AUTO_POOLS` | at once | Automatic pools, `off` (default) leaves pools as you made them. `shadow` says what would change and still gives each host its class. `on` makes and keeps one pool for each architecture and size class among the hosts the fleet has, sized by the hosts in it. A pool you made is never touched. See [size classes and automatic pools](auto-pools.md). |
 | `scheduler.auto_pools_installation` | `ZOOMIES_AUTO_POOLS_INSTALLATION` | at once | Installation for automatic pools: The organisation or repository whose GitHub App installation the pools belong to. Empty means the only installation; a fleet with several has to say which. |
@@ -748,7 +779,7 @@ the validator says so with `limits.loopback`.
 | `security.encryption_key_file` | `ZOOMIES_ENCRYPTION_KEY_FILE` | file or environment only | Encryption key file: Where that key is read from, and written to on a first run. Back it up beside the database: without it the sealed rows cannot be read. |
 | `security.mcp_oauth` | `ZOOMIES_MCP_OAUTH` | live | Sign in to MCP with OAuth: Let an MCP client such as Claude be added by this controller's `/mcp` address alone and sign a person in through the browser, with this controller as its own OAuth authorisation server. The token it receives works on `/mcp` and nowhere else, at a role the person chooses and no higher than their own. Unset turns it on when authentication is on and the controller is reached over https. See [Connect Claude to Zoomies](connect-claude.md). |
 | `security.mcp_open_registration` | `ZOOMIES_MCP_OPEN_REGISTRATION` | live | Let MCP clients register themselves: Let an MCP client register itself (by dynamic client registration or a client ID metadata document) rather than only use a client an administrator created under Settings, MCP clients. A client that registers itself can do nothing until a person signs in and approves it. Off, only the clients an administrator created can ask. |
-| `security.mcp_admin_tools` | `ZOOMIES_MCP_ADMIN_TOOLS` | live | Offer administrator tools over MCP: Let an MCP token or connection whose role is administrator edit a host's name, labels and reserve, cordon it and lift its throttle, and read and change the tuning settings (scheduler, retention, runners, limits, logging, metrics, images, status, UI and the update check interval, never security, sign-in, GitHub, providers, the database, or the update mode and soak). Off, those tools are not offered and an agent that asks is told to turn this on. It changes nothing for a role below administrator. |
+| `security.mcp_admin_tools` | `ZOOMIES_MCP_ADMIN_TOOLS` | live | Offer administrator tools over MCP: Let an MCP token or connection whose role is administrator change a pool's image, pull policy and cache, edit a host's name, labels and reserve, cordon it and lift its throttle, and read and change the tuning settings (scheduler, retention, runners, limits, logging, metrics, images, status, UI and the update check interval, never security, sign-in, GitHub, providers, the database, or the update mode and soak). Off, those tools are not offered and an agent that asks is told to turn this on. It changes nothing for a role below administrator. |
 | `security.auto_apply_remedies` | `ZOOMIES_AUTO_APPLY_REMEDIES` | live | Apply suggested changes automatically: Let the controller make the change a problem proposes -- a sidecar share, a smallest runner, a warm runner -- without anyone clicking it. A change is made only after the same proposal has stood unchanged for two hours, at most once a day for any one pool or host, and never one an administrator has undone. It runs as the pool's or host's own update, so every refusal that route makes still holds, and each change is recorded with what it replaced and can be undone from the problems page. Shadow, the default, works out what it would have changed and when, and records that without changing anything, so what turning it on would do can be read first (`would_apply` in `GET /problems/auto-applied`, and under Problems); off, the controller only proposes. `true` and `false` are still read as `on` and `off`. |
 | `security.public_view` | `ZOOMIES_PUBLIC_VIEW` | next restart | Public read-only view: Let anyone who can reach this controller read its fleet without signing in: pools, hosts, runners, jobs, usage and runner logs. The audit log, accounts, tokens, settings, AI context and Eli stay behind sign-in, and every change still needs somebody signed in. For a fleet that is meant to be public, such as a demo. See [Public view](public-view.md). |
 | `security.rate_limit_logins` | `ZOOMIES_RATE_LIMIT_LOGINS` | next restart | Login attempts per minute: Password attempts allowed per source address per minute, and five times that per account. |
@@ -2543,7 +2574,7 @@ it, so it guards against a workflow doing the wrong thing and not against code
 that is trying to. The boundary is the pool: keep untrusted pull requests on a
 pool of their own, as [Security](security.md) says for any self-hosted runner.
 
-It needs the cache on and a container backend. Only JavaScript actions are
+It needs the cache on and a container backend. On a docker-in-docker pool it also needs an agent that keeps the runner image's wrapper in the externals volume: agents before that put the real Node over it, so the runner never loaded the redirect and the service sat unused. The volume is refilled once, under a new name, and the old one is swept. Only JavaScript actions are
 redirected, so a Docker action keeps GitHub's cache, and so, by default, does
 Buildx's `type=gha` image-layer cache: BuildKit is a separate program that reads
 the results address for itself.

@@ -36,6 +36,14 @@ export interface RouteDef {
    * mid-task, and the one decision in front of them is the whole page.
    */
   bare?: boolean;
+  /**
+   * Render the page as its own chrome: no navigation, top bar or footer, but
+   * the command palette, the problems drawer and the shortcut sheet stay. The
+   * command centre is one: it is watched from across a room, where a sidebar
+   * is space taken from the fleet, yet an operator who walks up to it still
+   * reaches for Ctrl+K and the problems it links to.
+   */
+  immersive?: boolean;
   load?: () => Promise<{ default: Component<Record<string, never>> }>;
 }
 
@@ -73,6 +81,13 @@ export const ROUTES: readonly RouteDef[] = [
     path: '/',
     title: 'Overview',
     load: () => import('../routes/Overview.svelte'),
+  },
+  {
+    name: 'command',
+    path: '/command',
+    title: 'Command centre',
+    immersive: true,
+    load: () => import('../routes/CommandCentre.svelte'),
   },
   { name: 'queue', path: '/queue', title: 'Queue', load: () => import('../routes/Queue.svelte') },
   { name: 'pools', path: '/pools', title: 'Pools', load: () => import('../routes/Pools.svelte') },
@@ -486,7 +501,11 @@ export function navigate(to: string, options: NavigateOptions = {}): void {
   // was not already being thrown away, and it is the difference between an
   // operator seeing the fleet's current UI and seeing whichever one their
   // phone happened to load last week. See $lib/state/upgrade.
-  if (upgrade.claimReload()) {
+  // Not for a change of the query string alone (a filter, a table's focus
+  // view): that keeps the page, its selection and its open drawer, which is
+  // the whole point of keeping them on the address, and a reload would throw
+  // them away.
+  if (url.pathname !== location.pathname && upgrade.claimReload()) {
     location.assign(target);
     return;
   }
@@ -580,6 +599,15 @@ export const router = {
   get query(): URLSearchParams {
     subscribe();
     return new URLSearchParams(currentSearch);
+  },
+
+  /**
+   * The query string exactly as it is in the address, `?` included. Reactive.
+   * For an address built from this one that must keep the rest byte for byte.
+   */
+  get search(): string {
+    subscribe();
+    return currentSearch;
   },
 
   /** One query parameter, or the fallback when it is absent. */

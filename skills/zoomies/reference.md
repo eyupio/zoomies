@@ -2908,7 +2908,7 @@ Usage:
   zoomies mcp [--allow-actions] [--describe [--output json|markdown]]
 
 Flags:
-  --allow-actions            also offer rerun_job, drain_runner, update_pool, update_host, apply_remedy and context_publish; the token's role must permit them too
+  --allow-actions            also offer rerun_job, drain_runner, prewarm_pool, update_pool, update_host, apply_remedy and context_publish; the token's role must permit them too
   --allow-admin              with --allow-actions, also offer edit_host, clear_host_throttle, get_settings and update_settings; the token must be an administrator's
   --ca-file                  PEM file holding the controller's certificate
   --describe                 print the tools, resources and prompts this server has and exit, without serving

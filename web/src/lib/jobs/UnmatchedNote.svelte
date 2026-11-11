@@ -69,7 +69,8 @@
   );
 </script>
 
-<div class="note {className}" class:compact role="note">
+<!-- Kept in a table's focus view: it is why the rows on screen are unclaimed. -->
+<div class="note {className}" class:compact role="note" data-focus-keep>
   <TriangleAlert size={16} aria-hidden="true" class="icon" />
   <div class="body">
     <p class="heading">{heading}</p>

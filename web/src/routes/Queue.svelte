@@ -4,7 +4,7 @@
   import { revealHash } from '$lib/bands/jump';
   import BandQueueTrend from '$lib/bands/BandQueueTrend.svelte';
   import { queueLine } from '$lib/bands/lines';
-  import { readableJobText } from '$lib/jobs/name';
+  import { readableJobName, readableJobText } from '$lib/jobs/name';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import StateBreakdown from '$lib/insights/StateBreakdown.svelte';
@@ -27,6 +27,7 @@
   import { toasts } from '$lib/state/toasts.svelte';
   import ActivityStatus from '$lib/jobs/ActivityStatus.svelte';
   import { queuedActivity } from '$lib/jobs/activity-status';
+  import { QUEUE_DEFAULT_QUERY } from '$lib/queue/default-query';
   import { prefs } from '$lib/state/prefs.svelte';
   import { visualStyle } from '$lib/state/ui-style.svelte';
   import { viewport } from '$lib/state/viewport.svelte';
@@ -106,7 +107,7 @@
       ? router
           .paramList('provisioning')
           .filter((s): s is Status => statuses.some((v) => v.value === s))
-      : (['ready', 'expedited', 'paused'] as Status[]),
+      : [...QUEUE_DEFAULT_QUERY.provisioning],
   );
   const branch = $derived(router.param('branch'));
   const query = $derived<Query<'listProvisioning'>>({
@@ -393,9 +394,7 @@
   />
 {/snippet}
 {#snippet jobCell(job: Job)}<div class="cell">
-    <strong>{readableJobText(job.job_name) || 'Unnamed job'}</strong><span
-      >{job.workflow || 'Workflow'}</span
-    >
+    <strong>{readableJobName(job.job_name)}</strong><span>{job.workflow || 'Workflow'}</span>
   </div>{/snippet}
 {#snippet repoCell(job: Job)}<div class="cell">
     <span class="repo">{job.repo}</span><span>{job.head_branch || NO_VALUE}</span>
@@ -442,7 +441,9 @@
 </PageBand>
 
 <div class="queue-content">
-  <div class="filters-panel">
+  <!-- The filters, the result of a bulk change and the selection across pages
+       belong to the list, so a focus view keeps them (`data-focus-keep`). -->
+  <div class="filters-panel" data-focus-keep>
     <JobFilters
       queue
       {compact}
@@ -455,7 +456,7 @@
     />
   </div>
   {#if report}
-    <div class="result" role="status">
+    <div class="result" role="status" data-focus-keep>
       <div>
         <strong
           >{report.changed} updated{report.failed.length
@@ -484,7 +485,7 @@
     </div>
   {/if}
   {#if canOperate}
-    <div class="selection-bar" aria-live="polite">
+    <div class="selection-bar" aria-live="polite" data-focus-keep>
       {#if snapshot.length}
         <strong>{snapshot.length.toLocaleString()} matching items selected</strong>
         <span>Snapshot across all pages</span>

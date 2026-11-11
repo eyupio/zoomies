@@ -552,6 +552,30 @@ func (s *Server) handlePoolDefaults(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+// handlePoolPerformance answers GET /api/v1/pools/performance.
+//
+// It is the measured half of the pool wizard's performance step: what one
+// runner used, what jobs waited for, and the runner size that would give the
+// hosts more slots. Nothing is changed here; the operator applies it with the
+// ordinary settings and pool writes.
+func (s *Server) handlePoolPerformance(w http.ResponseWriter, r *http.Request) {
+	var pool *store.Pool
+	if id := r.URL.Query().Get("pool_id"); id != "" {
+		p, err := s.ctrl.Store().GetPool(r.Context(), id)
+		if err != nil {
+			s.fail(w, r, "reading the pool", err)
+			return
+		}
+		pool = p
+	}
+	view, err := s.ctrl.PoolPerformance(r.Context(), pool)
+	if err != nil {
+		s.fail(w, r, "working out the performance recommendation", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
 // handlePoolPlatforms answers GET /api/v1/pools/platforms.
 //
 // The catalogue is compiled into the binary, so this is a constant list. It is

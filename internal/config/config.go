@@ -275,6 +275,17 @@ type Maintenance struct {
 	// starts, whatever this says, so that switching the pass off cannot leave
 	// copies that nothing ever removes.
 	Interval time.Duration `yaml:"interval"`
+	// Compact says whether the pass gives the database file's free pages back to
+	// the disk, and for which databases: "off", "incremental" (a database that was
+	// made in incremental auto-vacuum mode, which every database created by this
+	// release is) or "convert" (also rewrite an older database into that mode,
+	// once). Rewriting holds the writer for as long as it takes, so it is never
+	// done unless somebody chose it.
+	Compact string `yaml:"compact"`
+	// CompactFreePercent is the share of the database file that has to be free
+	// pages before the pass acts, and the share it stops at. It also acts only on
+	// a file with a good deal of free space, whatever the share.
+	CompactFreePercent int `yaml:"compact_free_percent"`
 }
 
 // BackupRemote is one S3-compatible destination: a bucket somebody else's disk
@@ -825,6 +836,20 @@ type Scheduler struct {
 	// to need from their recent runs. Shadow, the default, works it out and
 	// records where it would have differed without changing placement.
 	HistorySizing string `yaml:"history_sizing"`
+	// HistoryPercentile is which of the memory needs of the jobs waiting on a
+	// pool a runner is sized for, 1 to 100: the nearest-rank percentile of them,
+	// each job counted once, so a few heavy jobs do not size every runner. 100 is
+	// the heaviest, and what history sizing did before this setting.
+	HistoryPercentile int `yaml:"history_percentile"`
+	// HistoryMaxMultiple is how many times its slot's share of its host's memory
+	// a runner sized from history may be given, 1 to 8. One never raises a runner
+	// above its share and leaves the history to choose the host alone.
+	HistoryMaxMultiple int `yaml:"history_max_multiple"`
+	// ElasticCPUHistory is off, shadow or on: whether elastic CPU stops lending to
+	// a job whose recent runs were never held back by their quota, from the
+	// throttling counters their runners reported. Shadow, the default, works out
+	// what the ceiling would have been and records it without applying it.
+	ElasticCPUHistory string `yaml:"elastic_cpu_history"`
 	// SizeRouting is off, shadow or on: whether jobs are classed small, medium
 	// or large from what their runs used, and sent to a pool for that class.
 	// Shadow works the class out and records it, and where the job ran, without
@@ -1291,6 +1316,9 @@ func Default() *Config {
 			PlacementMode:           "headroom",
 			HostOrder:               "headroom",
 			HistorySizing:           "shadow",
+			HistoryPercentile:       75,
+			HistoryMaxMultiple:      2,
+			ElasticCPUHistory:       "shadow",
 			HostThrottling:          true,
 			HostAutoAdjust:          true,
 			AutoRerunLimit:          1,
@@ -1372,7 +1400,7 @@ func Default() *Config {
 		// per release on the disk the fleet also needs. Tidied once a day, which
 		// is as often as the backups they sit beside are taken.
 		Backup:         Backup{Interval: 24 * time.Hour, Keep: 7, PreMigrationKeep: 2},
-		Maintenance:    Maintenance{Interval: 24 * time.Hour},
+		Maintenance:    Maintenance{Interval: 24 * time.Hour, Compact: "incremental", CompactFreePercent: 20},
 		CapacityDemand: CapacityDemand{Cooldown: 10 * time.Minute, Timeout: 10 * time.Second},
 		// Off. Once a day for what has to be read from GitHub, because the
 		// facts it asks about (a repository's visibility, how a run was

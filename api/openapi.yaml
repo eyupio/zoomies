@@ -2598,6 +2598,47 @@ paths:
                         description: The wait that actually happens rather than the one configured, zero in the setting means the runner image chooses, and the image waits two minutes.
                         examples: ["2m0s"]
 
+  /pools/performance:
+    get:
+      operationId: getPoolPerformance
+      tags: [pools]
+      summary: Whether the runner size could be smaller, to give the hosts more slots
+      description: |
+        A recommendation worked out from what this fleet measured of itself: how
+        much CPU one working runner used (from the hosts' minute samples), how
+        much memory its jobs peaked at, and how much of the time jobs waited was
+        spent with no room for another runner. A host's slots are its machine less
+        the reserve, divided by what one runner asks, and for a pool that leaves
+        its size to its host that ask is the fleet's default
+        (`runners.default_cpus`, `runners.default_memory_mb`). Where runners use
+        less than that and jobs wait for room, a smaller ask gives the same hosts
+        more slots.
+
+        It reads and changes nothing. `verdict` is `raise` (a smaller ask and more
+        slots, with `recommended`, per-host `hosts` and a `max_runners` that leaves
+        room for them), `keep` (the evidence is there and the answer is to leave
+        it, with the reason) or `unknown` (too little measured to say). A host is
+        never moved down, and is never moved past what its free disk holds.
+        Applying a `raise` is two ordinary writes: the two fleet settings and the
+        pool's maximum.
+
+        With no `pool_id` it answers for a pool about to be made, read against
+        every host that is present, which is what the pool wizard asks.
+      x-zoomies-role: viewer
+      parameters:
+        - name: pool_id
+          in: query
+          required: false
+          schema: { type: string }
+          description: The pool the answer is about. Left out for a pool not yet made.
+      responses:
+        "200":
+          description: The recommendation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PoolPerformance" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /pools/export:
     get:
       operationId: exportPools
@@ -12308,6 +12349,71 @@ components:
           description: The most memory one runner may hold there, its guarantee and what it is lent together, for a pool that has the memory valve on. The smaller of the pool's ceiling and the host's, or half as much again as the runner's guarantee where neither has said.
         ceiling_memory_source: { type: string, enum: [pool, host, default] }
 
+    PoolPerformance:
+      type: object
+      required: [verdict, reason, current, recommended, hosts, slots_before, slots_after, measured, since, until, jobs_since]
+      properties:
+        verdict: { type: string, enum: [raise, keep, unknown] }
+        reason: { type: string, description: "What the recommendation is and why, as a sentence an operator can act on." }
+        current: { $ref: "#/components/schemas/PerformanceAsk" }
+        recommended:
+          allOf: [{ $ref: "#/components/schemas/PerformanceAsk" }]
+          description: The runner ask to set. Equal to `current` unless the verdict is `raise`.
+        hosts:
+          type: array
+          description: What the recommendation does to each host's slots. Empty unless the verdict is `raise`.
+          items: { $ref: "#/components/schemas/PerformanceHostChange" }
+        slots_before: { type: integer }
+        slots_after: { type: integer }
+        max_runners:
+          type: integer
+          description: The pool maximum that leaves room for `slots_after`; the pool's own where that already does. Present on a `raise`.
+        measured: { $ref: "#/components/schemas/PerformanceMeasured" }
+        cautions:
+          type: array
+          items: { type: string }
+          description: What to know before applying it.
+        followers:
+          type: array
+          items: { type: string }
+          description: The other enabled pools that follow the fleet's default size, which the change would resize too.
+        pool_id: { type: string, description: "The pool asked about, absent for a pool not yet made." }
+        since: { type: string, format: date-time, description: Where the load and wait window starts. }
+        until: { type: string, format: date-time }
+        jobs_since: { type: string, format: date-time, description: Where the job peaks the memory figure is sized from start. }
+
+    PerformanceAsk:
+      type: object
+      required: [cpus, memory_mb]
+      properties:
+        cpus: { type: number }
+        memory_mb: { type: integer, format: int64 }
+        pool: { type: string, description: "The pool whose own size decides the ask, when one does; empty where it is the fleet default." }
+        pair: { type: boolean, description: True where the ask was doubled because a slot is a runner and its Docker daemon. }
+
+    PerformanceHostChange:
+      type: object
+      required: [host_id, host_name, before, after]
+      properties:
+        host_id: { type: string }
+        host_name: { type: string }
+        before: { type: integer }
+        after: { type: integer }
+        limited_by: { type: string, enum: [cpu, memory, disk], description: The figure that set `after`. }
+        caution: { type: string, description: A sentence where this host is why `after` is not higher. }
+
+    PerformanceMeasured:
+      type: object
+      required: [samples, cpu_per_runner, jobs, ceiling_share, waited_seconds, oom_killed_jobs]
+      properties:
+        samples: { type: integer, description: Sampled minutes with at least one runner at work. }
+        cpu_per_runner: { type: number, description: The cores one working runner used on average. }
+        peak_memory_p90_mb: { type: integer, format: int64, description: The ninetieth percentile of the most memory each measured job used. }
+        jobs: { type: integer, description: Measured jobs the memory figure was read from. }
+        ceiling_share: { type: number, description: The share of the time jobs waited that was spent with no room for another runner. }
+        waited_seconds: { type: number }
+        oom_killed_jobs: { type: integer }
+
     PoolRoom:
       type: object
       description: >-
@@ -13668,7 +13774,7 @@ components:
 
     StorageReport:
       type: object
-      required: [version, directory, backup_directory, entries, database_bytes, database_free_bytes, total_bytes, disk_free_bytes]
+      required: [version, directory, backup_directory, entries, database_bytes, database_free_bytes, database_auto_vacuum, total_bytes, disk_free_bytes]
       properties:
         version:
           type: integer
@@ -13692,8 +13798,17 @@ components:
           format: int64
           description: >-
             The part of the database file that holds no data: the free pages times
-            the page size. A delete leaves these in the file, and nothing returns
-            them to the disk.
+            the page size. A delete leaves these in the file, and only the
+            maintenance pass returns them to the disk (`maintenance.compact`).
+        database_auto_vacuum:
+          type: string
+          enum: [none, full, incremental]
+          description: >-
+            The auto-vacuum mode the database file was made in. `incremental` can give
+            its free pages back in slices and is what every database created by this
+            release is; `none` is a database made by an earlier release, which stays
+            as it is until `maintenance.compact` is `convert` and a pass has rewritten
+            it.
         total_bytes: { type: integer, format: int64, description: Every entry added up. }
         disk_free_bytes:
           type: [integer, "null"]
@@ -13729,6 +13844,37 @@ components:
           description: >-
             What could not be done, one sentence each. A directory that failed does
             not stop the other being tidied.
+        compaction:
+          $ref: "#/components/schemas/CompactionResult"
+
+    CompactionResult:
+      type: object
+      description: >-
+        What the scheduled maintenance pass did to the database file itself. It is
+        left out when the pass did nothing, and when the pass was one somebody asked
+        for: only the scheduled pass compacts.
+      required: [mode, converted, freed_bytes]
+      properties:
+        mode:
+          type: string
+          enum: [incremental, convert]
+          description: "`maintenance.compact` as the pass read it."
+        converted:
+          type: boolean
+          description: The database was rewritten into incremental auto-vacuum mode.
+        freed_bytes:
+          type: integer
+          format: int64
+          description: The pages given back, times the page size.
+        skipped:
+          type: string
+          description: >-
+            Why a conversion that was asked for was refused: too little disk, or no
+            backup from the last day. It names what to do.
+        error:
+          type: string
+          description: >-
+            What failed. A rewrite that fails leaves the original file as it was.
 
     StorageEntry:
       type: object

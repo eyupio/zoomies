@@ -1,0 +1,115 @@
+<!--
+  The rail's Just finished section: the jobs that ended in the last ten
+  minutes, newest first, with how each ended and how long it took.
+
+  How it ended is said by shape as well as colour: a tick for a success, a
+  triangle for a failure, the neutral square for a job cancelled or skipped,
+  each with the word as its accessible name. A failed job's name is in the
+  danger colour too, because a wall is read from further away than a mark is
+  drawn.
+-->
+<script lang="ts">
+  import RailSection from './RailSection.svelte';
+  import RailSkeleton from './RailSkeleton.svelte';
+  import { CircleCheck, Square, TriangleAlert } from '@lucide/svelte';
+  import type { Job } from '$lib/api/types';
+  import ErrorState from '$lib/components/ErrorState.svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
+  import { fleet } from '$lib/state/fleet.svelte';
+  import { formatDuration, NO_VALUE } from '$lib/format';
+  import { readableJobName } from '$lib/jobs/name';
+  import { FINISHED_SHOWN, finishedOutcome } from './jobs-merge';
+  import { finishedText, finishedTip } from './tips';
+
+  interface Props {
+    jobs: readonly Job[];
+    count: number;
+    /** Where "and N more" leads: the Jobs page over the same window. */
+    moreHref: string;
+    /** True until the first read has answered: the rows' shapes, not an empty list. */
+    loading: boolean;
+    error: unknown;
+    onopen: (job: Job) => void;
+    onretry: () => void;
+  }
+  let { jobs, loading, count, moreHref, error, onopen, onretry }: Props = $props();
+
+  const shown = $derived(jobs.slice(0, FINISHED_SHOWN));
+  const more = $derived(count - shown.length);
+</script>
+
+<RailSection
+  id="command-finished"
+  title="Just finished"
+  count={loading || error ? undefined : count}
+  busy={loading}
+>
+  {#if loading}
+    <RailSkeleton />
+  {:else if error}
+    <ErrorState compact {error} title="The finished jobs did not load." {onretry} />
+  {:else if jobs.length === 0}
+    <p class="empty">Nothing has finished in the last ten minutes.</p>
+  {:else}
+    <ul>
+      {#each shown as job (job.id)}
+        {@const outcome = finishedOutcome(job)}
+        <li>
+          <Tooltip
+            bare
+            detail={() => finishedTip(job, fleet.host(job.host_id)?.name)}
+            text={finishedText(job)}
+          >
+            <button
+              type="button"
+              class="row"
+              data-outcome={outcome.kind}
+              onclick={() => onopen(job)}
+            >
+              <span class="mark outcome {outcome.kind}" role="img" aria-label={outcome.label}>
+                {#if outcome.kind === 'succeeded'}
+                  <CircleCheck size={16} aria-hidden="true" />
+                {:else if outcome.kind === 'failed'}
+                  <TriangleAlert size={16} aria-hidden="true" />
+                {:else}
+                  <Square size={14} aria-hidden="true" />
+                {/if}
+              </span>
+              <span class="what">
+                <span class="name">{readableJobName(job.job_name)}</span>
+                <span class="where">{job.repo || NO_VALUE}</span>
+              </span>
+              <span class="side">
+                <span class="took"
+                  >{typeof job.duration_ms === 'number'
+                    ? formatDuration(job.duration_ms)
+                    : NO_VALUE}</span
+                >
+              </span>
+            </button>
+          </Tooltip>
+        </li>
+      {/each}
+    </ul>
+    {#if more > 0}
+      <a class="more" href={moreHref}>and {more} more</a>
+    {/if}
+  {/if}
+</RailSection>
+
+<style>
+  .outcome.succeeded {
+    color: var(--z-idle);
+  }
+  .outcome.failed,
+  [data-outcome='failed'] .name {
+    color: var(--z-danger);
+  }
+  .outcome.neutral {
+    color: var(--z-neutral);
+  }
+  .took {
+    color: var(--z-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+</style>

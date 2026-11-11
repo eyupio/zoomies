@@ -289,3 +289,28 @@ func TestHostTargetAndWireTagForADevelopmentController(t *testing.T) {
 		t.Errorf("WireTag = %q, want a release tag unchanged", got)
 	}
 }
+
+// The build read from the notes decides whether a host is sent to download, so
+// only the exact line counts: a mention in prose, a short or non-hex hash or a
+// build with something after it does not.
+func TestChannelBuildReadsOnlyTheLineCIWrites(t *testing.T) {
+	tests := map[string]struct{ notes, want string }{
+		"the line CI writes":          {"Rolling development build.\n\nBuild: main-sha-d49e8bf4\n", "main-sha-d49e8bf4"},
+		"carriage returns":            {"Build: main-sha-d49e8bf4\r\n", "main-sha-d49e8bf4"},
+		"a full hash":                 {"Build: main-sha-d49e8bf44359b32148f989dbbbf3fccbccda3ea4", "main-sha-d49e8bf44359b32148f989dbbbf3fccbccda3ea4"},
+		"no line":                     {"Rolling development build from `main`.", ""},
+		"in the middle of a sentence": {"The latest Build: main-sha-d49e8bf4 is out", ""},
+		"too short":                   {"Build: main-sha-d49e8", ""},
+		"not hex":                     {"Build: main-sha-zzzzzzzz", ""},
+		"a release tag":               {"Build: v1.3.5", ""},
+		"trailing text":               {"Build: main-sha-d49e8bf4 and more", ""},
+		"empty":                       {"", ""},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := ChannelBuild(tt.notes); got != tt.want {
+				t.Fatalf("ChannelBuild(%q) = %q, want %q", tt.notes, got, tt.want)
+			}
+		})
+	}
+}

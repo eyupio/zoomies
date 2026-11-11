@@ -116,6 +116,22 @@ const SHOTS = [
       deviceScaleFactor: SCALE,
     },
   },
+  // The command centre is an immersive page, so the shot is the whole screen
+  // it would fill on a second monitor, bar included. `noRows` because it has no
+  // table: its hosts are lanes.
+  { name: 'command', path: '/command', heading: 'Command centre', noRows: true },
+  {
+    name: 'command-phone-375',
+    path: '/command',
+    heading: 'Command centre',
+    noRows: true,
+    device: {
+      viewport: { width: 375, height: 900 },
+      isMobile: true,
+      hasTouch: true,
+      deviceScaleFactor: SCALE,
+    },
+  },
   // States the seeded fleet is never in, and the theme has to survive: a fleet
   // that has run nothing, a fetch that has not answered, a fetch that failed,
   // and lists with nothing in them. Each stubs only what the state needs, so

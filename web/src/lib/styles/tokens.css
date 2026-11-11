@@ -344,6 +344,19 @@
   /* A key and its value, as the Settings pages lay out a list of facts. */
   --z-facts-columns: minmax(0, 11rem) minmax(0, 1fr);
 
+  /* The command centre. The ring is the one thing on the page read from
+     across a room, so it is sized for that and shrinks on a phone; its stroke
+     is thick enough to read as an arc at that distance. A runner tile is one
+     height whatever it holds, so a lane's grid never reflows when a runner
+     comes or goes: two lines, a bar and their padding. */
+  --z-command-ring: 9.25rem;
+  --z-command-ring-phone: calc(var(--z-command-ring) * 0.75);
+  --z-command-ring-stroke: 0.625rem;
+  --z-command-tile-height: 3.5rem;
+  /* The rail's width beside the deck. The deck is laid against it from
+     outside the rail's grid, so the two scroll apart, and both rules read it. */
+  --z-command-rail: 20rem;
+
   /* The window, which on a phone is not the same thing as 100%. A mobile
      browser answers a page that overflows sideways by laying the whole thing
      out in a wider block and showing it smaller, and everything positioned

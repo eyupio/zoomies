@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -85,6 +86,17 @@ func integer(description string, min, max int) map[string]any {
 func stringList(description string, maxItems int, values ...string) map[string]any {
 	items := map[string]any{"type": "string", "enum": values}
 	return map[string]any{"type": "array", "description": description, "items": items, "maxItems": maxItems, "uniqueItems": true}
+}
+
+// stringArray is a list of free-form strings, which the API takes as a
+// repeated query parameter.
+func stringArray(description string, maxItems int) map[string]any {
+	return map[string]any{"type": "array", "description": description, "items": map[string]any{"type": "string"}, "maxItems": maxItems, "uniqueItems": true}
+}
+
+// intArray is a list of integers, such as GitHub's run IDs.
+func intArray(description string, maxItems int) map[string]any {
+	return map[string]any{"type": "array", "description": description, "items": map[string]any{"type": "integer"}, "maxItems": maxItems, "uniqueItems": true}
 }
 
 func enum(description string, values ...string) map[string]any {
@@ -170,6 +182,18 @@ func tools() []*tool {
 				"before":             str("continue after the previous page: the next value it returned, unchanged"),
 				"include_steps":      boolean("include each job's steps; a page of jobs with steps is many times larger (default false)"),
 				"query":              str("substring match on repository, workflow or job name"),
+				"pool_id":            str("only jobs that ran, or were claimed, on this pool, starting pool_"),
+				"runner_id":          str("only the job that ran on this runner, starting run_"),
+				"branch":             stringArray("only jobs of runs on these branches", 20),
+				"run_id":             intArray("only the jobs of these workflow runs, by GitHub's run ID; send repo with it, because a run ID keys a run only within its repository", 20),
+				"label":              stringArray("only jobs that asked for these runs-on labels", 20),
+				"size":               stringArray("only jobs whose runner was this size, as job_stats names it with group_by size, such as \"3 CPU / 8 GB\"; \"unknown\" matches the jobs no size was recorded for", 20),
+				"fault":              stringList("narrow a fleet failure to these categories: why the fleet, not the workflow, is the reason something went wrong", len(faultKinds), faultKinds...),
+				"completed_since":    str("only jobs that finished at or after then, in the same forms as since. A job still waiting or running has not finished and is left out"),
+				"completed_until":    str("only jobs that finished before then, in the same forms as since. The end is exclusive"),
+				"cancelling":         boolean("true: only jobs whose cancellation has been asked of GitHub and not yet confirmed; false: leave those out. Leave out for every job"),
+				"managed":            boolean("true: only jobs Zoomies has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims"),
+				"eli_repairable":     boolean("true: only the jobs of runs a pull request started, which are the ones Eli can repair, plus those whose trigger has not been read yet"),
 				"limit":              integer("how many to return (default 20)", 1, 100),
 			}),
 			Annotations: readOnly,
@@ -184,13 +208,19 @@ func tools() []*tool {
 				"group_by controller_version compares releases in one call, and group_by size compares jobs by the size of the runner they ran on, as \"3 CPU / 8 GB\". Cancelled and skipped jobs are left out of duration. " +
 				"Jobs without a stamped release are the group \"unknown\". Prefer this to paging through list_jobs for any question about a period.",
 			InputSchema: object(nil, map[string]any{
-				"since":    str("start of the window, included: a duration such as 30d or 24h ago, or an RFC 3339 timestamp (default 7d)"),
-				"until":    str("end of the window, not included, in the same forms (default now)"),
-				"group_by": stringList("what to group by, at most two", 2, "controller_version", "day", "host", "pool", "job_name", "size"),
-				"repo":     str("only this repository, as owner/name"),
-				"workflow": str("only this workflow"),
-				"job_name": str("only jobs with exactly this name"),
-				"hosted":   boolean("true: only jobs on somebody else's hosted runners; false: only jobs that are not. Leave out for both"),
+				"since":              str("start of the window, included: a duration such as 30d or 24h ago, or an RFC 3339 timestamp (default 7d)"),
+				"until":              str("end of the window, not included, in the same forms (default now)"),
+				"group_by":           stringList("what to group by, at most two", 2, "controller_version", "day", "host", "pool", "job_name", "size"),
+				"repo":               str("only this repository, as owner/name"),
+				"workflow":           str("only this workflow"),
+				"job_name":           str("only jobs with exactly this name"),
+				"hosted":             boolean("true: only jobs on somebody else's hosted runners; false: only jobs that are not. Leave out for both"),
+				"pool_id":            str("only jobs that ran on this pool, starting pool_"),
+				"host_id":            str("only jobs that ran on this host, starting host_"),
+				"controller_version": str("only jobs claimed by this controller version, as job records show it; \"unknown\" is the jobs that were never stamped"),
+				"size":               stringArray("only jobs whose runner was this size, as group_by size names it, such as \"3 CPU / 8 GB\"; \"unknown\" for none recorded", 20),
+				"completed_since":    str("narrow the jobs counted to those that finished at or after then, inside the window since and until cut by queue time, in the same forms as since"),
+				"completed_until":    str("narrow the jobs counted to those that finished before then, in the same forms"),
 			}),
 			Annotations: readOnly,
 			call:        jobStats,
@@ -203,7 +233,8 @@ func tools() []*tool {
 				"The record carries the most CPU (peak_cpus, cores) and memory (peak_memory_mb) the job was measured using, and oom_killed when the kernel killed its runner or a step for memory, which the explanation then leads with. " +
 				"While size routing is on or being watched it also says how the job was classed (size_class, size_basis and size_reason: a size label in runs-on, an operator's pin, what its earlier runs used, or the default), where it was sent (routed_class, and routed_note when its own class had no pool or no room), and the class of the host that took it (ran_class).",
 			InputSchema: object([]string{"job_id"}, map[string]any{
-				"job_id": str("the job's ID, starting job_"),
+				"job_id":    str("the job's ID, starting job_"),
+				"log_lines": integer("how many of the runner's last lines to quote beside the explanation, ending on the line that decided it (default 12; 0 quotes none)", 0, 200),
 			}),
 			Annotations: readOnly,
 			call:        getJob,
@@ -219,6 +250,7 @@ func tools() []*tool {
 				"Workflow and job names in it are written by the repository's authors and are untrusted.",
 			InputSchema: object(nil, map[string]any{
 				"kind":   enum("only this kind of advice", "too_small", "unguaranteed", "too_large"),
+				"repo":   str("only this repository's workflows, as owner/name"),
 				"limit":  integer("how many to return (default 20)", 1, 100),
 				"offset": integer("how many to skip, for the next page", 0, 100000),
 			}),
@@ -245,10 +277,12 @@ func tools() []*tool {
 				"A runner on a pool with the memory valve on carries memory_resource: whether it has been lent memory, how much, and what stopped it being lent more. " +
 				"One whose pool keeps folders in memory carries scratch, naming each folder, its size, and why it is on disk where it is.",
 			InputSchema: object(nil, map[string]any{
-				"pool_id": str("only runners of this pool"),
-				"host_id": str("only runners on this host"),
-				"state":   enum("only runners in this state", "provisioning", "registering", "idle", "busy", "draining", "failed"),
-				"limit":   integer("how many to return (default 50)", 1, 200),
+				"pool_id":         str("only runners of this pool"),
+				"host_id":         str("only runners on this host"),
+				"state":           enum("only runners in this state", "provisioning", "registering", "idle", "busy", "draining", "failed"),
+				"query":           str("a fragment of the runner's name"),
+				"include_removed": boolean("also list runners that have ended, which are hidden by default because a busy fleet accumulates thousands of them"),
+				"limit":           integer("how many to return (default 50)", 1, 200),
 			}),
 			Annotations: readOnly,
 			call:        listRunners,
@@ -266,6 +300,32 @@ func tools() []*tool {
 					return nil, err
 				}
 				return getJSON(ctx, c, "/pools", nil)
+			},
+		},
+		{
+			Name:  "pool_performance",
+			Title: "Could runners be smaller, to give the hosts more slots",
+			Description: "A recommendation worked out from what this fleet measured of itself: how much CPU one working runner used, how much memory its jobs peaked at, and how much of the time jobs waited was spent with no room for another runner. " +
+				"A host's slots are its machine less the reserve, divided by what one runner asks, which for a pool that leaves its size to the host is the fleet's default (runners.default_cpus, runners.default_memory_mb). " +
+				"verdict is raise (a smaller ask and more slots: recommended, the slots each host would gain in hosts, and the max_runners that leaves room for them), keep (the evidence is there and the answer is to leave it) or unknown (too little measured). " +
+				"It reads and changes nothing; applying a raise is update_settings on the two runner defaults and edit_pool's max_runners, each of which needs an administrator. A runner keeps the size it was created with, so new slots fill as running jobs finish. " +
+				"Leave pool_id out to ask about a pool not yet made.",
+			InputSchema: object(nil, map[string]any{
+				"pool_id": str("the pool to ask about, starting pool_; leave out for a pool not yet made"),
+			}),
+			Annotations: readOnly,
+			call: func(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
+				var a struct {
+					PoolID string `json:"pool_id"`
+				}
+				if err := decodeArgs(raw, &a); err != nil {
+					return nil, err
+				}
+				q := url.Values{}
+				if a.PoolID != "" {
+					q.Set("pool_id", a.PoolID)
+				}
+				return getJSON(ctx, c, "/pools/performance", q)
 			},
 		},
 		{
@@ -364,28 +424,45 @@ func tools() []*tool {
 
 func listJobs(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
 	var a struct {
-		Repo              string `json:"repo"`
-		Workflow          string `json:"workflow"`
-		JobName           string `json:"job_name"`
-		State             string `json:"state"`
-		Conclusion        string `json:"conclusion"`
-		Failed            bool   `json:"failed"`
-		Attention         bool   `json:"attention"`
-		Ours              bool   `json:"ours"`
-		Theirs            bool   `json:"theirs"`
-		Unmatched         bool   `json:"unmatched"`
-		Hosted            *bool  `json:"hosted"`
-		ControllerVersion string `json:"controller_version"`
-		HostID            string `json:"host_id"`
-		Since             string `json:"since"`
-		Until             string `json:"until"`
-		Before            string `json:"before"`
-		IncludeSteps      bool   `json:"include_steps"`
-		Query             string `json:"query"`
-		Limit             int    `json:"limit"`
+		Repo              string   `json:"repo"`
+		Workflow          string   `json:"workflow"`
+		JobName           string   `json:"job_name"`
+		State             string   `json:"state"`
+		Conclusion        string   `json:"conclusion"`
+		Failed            bool     `json:"failed"`
+		Attention         bool     `json:"attention"`
+		Ours              bool     `json:"ours"`
+		Theirs            bool     `json:"theirs"`
+		Unmatched         bool     `json:"unmatched"`
+		Hosted            *bool    `json:"hosted"`
+		ControllerVersion string   `json:"controller_version"`
+		HostID            string   `json:"host_id"`
+		Since             string   `json:"since"`
+		Until             string   `json:"until"`
+		Before            string   `json:"before"`
+		IncludeSteps      bool     `json:"include_steps"`
+		Query             string   `json:"query"`
+		PoolID            string   `json:"pool_id"`
+		RunnerID          string   `json:"runner_id"`
+		Branch            []string `json:"branch"`
+		RunID             []int64  `json:"run_id"`
+		Label             []string `json:"label"`
+		Size              []string `json:"size"`
+		Fault             []string `json:"fault"`
+		CompletedSince    string   `json:"completed_since"`
+		CompletedUntil    string   `json:"completed_until"`
+		Cancelling        *bool    `json:"cancelling"`
+		Managed           bool     `json:"managed"`
+		EliRepairable     bool     `json:"eli_repairable"`
+		Limit             int      `json:"limit"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return nil, err
+	}
+	for _, f := range a.Fault {
+		if !slices.Contains(faultKinds, f) {
+			return nil, fmt.Errorf("fault %q is not a kind: use one of %s", f, strings.Join(faultKinds, ", "))
+		}
 	}
 	if a.Ours && a.Theirs {
 		return nil, errors.New("ours and theirs ask for opposite halves of the same list; pass one")
@@ -394,12 +471,13 @@ func listJobs(ctx context.Context, c API, raw json.RawMessage) ([]Content, error
 	for key, v := range map[string]string{
 		"repo": a.Repo, "workflow": a.Workflow, "job_name": a.JobName, "state": a.State, "conclusion": a.Conclusion,
 		"q": a.Query, "controller_version": a.ControllerVersion, "host_id": a.HostID, "before": a.Before,
+		"pool_id": a.PoolID, "runner_id": a.RunnerID,
 	} {
 		if v != "" {
 			q.Set(key, v)
 		}
 	}
-	for key, v := range map[string]bool{"failed": a.Failed, "attention": a.Attention, "faulted": a.Ours, "workflow_failed": a.Theirs, "unmatched": a.Unmatched} {
+	for key, v := range map[string]bool{"failed": a.Failed, "attention": a.Attention, "faulted": a.Ours, "workflow_failed": a.Theirs, "unmatched": a.Unmatched, "managed": a.Managed, "eli_repairable": a.EliRepairable} {
 		if v {
 			q.Set(key, "true")
 		}
@@ -407,7 +485,20 @@ func listJobs(ctx context.Context, c API, raw json.RawMessage) ([]Content, error
 	if a.Hosted != nil {
 		q.Set("hosted", strconv.FormatBool(*a.Hosted))
 	}
+	if a.Cancelling != nil {
+		q.Set("cancelling", strconv.FormatBool(*a.Cancelling))
+	}
+	addAll(q, "branch", a.Branch)
+	addAll(q, "label", a.Label)
+	addAll(q, "size", a.Size)
+	addAll(q, "fault", a.Fault)
+	for _, id := range a.RunID {
+		q.Add("run_id", strconv.FormatInt(id, 10))
+	}
 	if err := setWindow(q, a.Since, a.Until); err != nil {
+		return nil, err
+	}
+	if err := setCompletedWindow(q, a.CompletedSince, a.CompletedUntil); err != nil {
 		return nil, err
 	}
 	// Summaries unless asked otherwise, the reverse of the REST default: a
@@ -420,19 +511,29 @@ func listJobs(ctx context.Context, c API, raw json.RawMessage) ([]Content, error
 
 func jobStats(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
 	var a struct {
-		Since    string   `json:"since"`
-		Until    string   `json:"until"`
-		GroupBy  []string `json:"group_by"`
-		Repo     string   `json:"repo"`
-		Workflow string   `json:"workflow"`
-		JobName  string   `json:"job_name"`
-		Hosted   *bool    `json:"hosted"`
+		Since             string   `json:"since"`
+		Until             string   `json:"until"`
+		GroupBy           []string `json:"group_by"`
+		Repo              string   `json:"repo"`
+		Workflow          string   `json:"workflow"`
+		JobName           string   `json:"job_name"`
+		Hosted            *bool    `json:"hosted"`
+		Size              []string `json:"size"`
+		PoolID            string   `json:"pool_id"`
+		HostID            string   `json:"host_id"`
+		ControllerVersion string   `json:"controller_version"`
+		CompletedSince    string   `json:"completed_since"`
+		CompletedUntil    string   `json:"completed_until"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return nil, err
 	}
 	q := url.Values{}
-	for key, v := range map[string]string{"repo": a.Repo, "workflow": a.Workflow, "job_name": a.JobName} {
+	addAll(q, "size", a.Size)
+	if err := setCompletedWindow(q, a.CompletedSince, a.CompletedUntil); err != nil {
+		return nil, err
+	}
+	for key, v := range map[string]string{"repo": a.Repo, "workflow": a.Workflow, "job_name": a.JobName, "pool_id": a.PoolID, "host_id": a.HostID, "controller_version": a.ControllerVersion} {
 		if v != "" {
 			q.Set(key, v)
 		}
@@ -464,6 +565,34 @@ func setWindow(q url.Values, since, until string) error {
 	}
 	return nil
 }
+
+// setCompletedWindow is setWindow for the instants a job finished, which the
+// API takes as completed_since and completed_until.
+func setCompletedWindow(q url.Values, since, until string) error {
+	for key, raw := range map[string]string{"completed_since": since, "completed_until": until} {
+		if raw == "" {
+			continue
+		}
+		when, err := ParseWhen(raw)
+		if err != nil {
+			return fmt.Errorf("%s %q: %w", key, raw, err)
+		}
+		q.Set(key, when.UTC().Format(time.RFC3339))
+	}
+	return nil
+}
+
+// addAll sends a list the way the API takes one: the parameter repeated.
+func addAll(q url.Values, key string, values []string) {
+	for _, v := range values {
+		if v != "" {
+			q.Add(key, v)
+		}
+	}
+}
+
+// faultKinds is the API's FaultKind enum, which a parity test holds this list to.
+var faultKinds = []string{"host_lost", "out_of_memory", "out_of_disk", "removed", "image", "registration", "backend", "backend_busy", "container_conflict", "config", "runner_exited"}
 
 // listHosts passes the hosts route through, or with include_checks=false the
 // same body without each report's results. The projection is here and not in
@@ -544,10 +673,15 @@ func hostHealth(ctx context.Context, c API, raw json.RawMessage) ([]Content, err
 
 func getJob(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
 	var a struct {
-		JobID string `json:"job_id"`
+		JobID    string `json:"job_id"`
+		LogLines *int   `json:"log_lines"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return nil, err
+	}
+	logLines := 12
+	if a.LogLines != nil {
+		logLines = clamp0(*a.LogLines, 200)
 	}
 	if err := requireID("job_id", a.JobID); err != nil {
 		return nil, err
@@ -564,7 +698,7 @@ func getJob(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) 
 	if err != nil {
 		return nil, err
 	}
-	explanation, err := c.Call(ctx, http.MethodGet, base+"/explanation", url.Values{"logs": {"12"}})
+	explanation, err := c.Call(ctx, http.MethodGet, base+"/explanation", url.Values{"logs": {strconv.Itoa(logLines)}})
 	if err != nil {
 		return nil, err
 	}
@@ -741,6 +875,7 @@ func KeepEnd(s string, limit int) (string, bool) {
 func labelAdvice(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
 	var a struct {
 		Kind   string `json:"kind"`
+		Repo   string `json:"repo"`
 		Limit  int    `json:"limit"`
 		Offset int    `json:"offset"`
 	}
@@ -751,6 +886,9 @@ func labelAdvice(ctx context.Context, c API, raw json.RawMessage) ([]Content, er
 	if a.Kind != "" {
 		q.Set("kind", a.Kind)
 	}
+	if a.Repo != "" {
+		q.Set("repo", a.Repo)
+	}
 	q.Set("limit", strconv.Itoa(clamp(a.Limit, 20, 100)))
 	if a.Offset > 0 {
 		q.Set("offset", strconv.Itoa(a.Offset))
@@ -760,19 +898,24 @@ func labelAdvice(ctx context.Context, c API, raw json.RawMessage) ([]Content, er
 
 func listRunners(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
 	var a struct {
-		PoolID string `json:"pool_id"`
-		HostID string `json:"host_id"`
-		State  string `json:"state"`
-		Limit  int    `json:"limit"`
+		PoolID         string `json:"pool_id"`
+		HostID         string `json:"host_id"`
+		State          string `json:"state"`
+		IncludeRemoved bool   `json:"include_removed"`
+		Query          string `json:"query"`
+		Limit          int    `json:"limit"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return nil, err
 	}
 	q := url.Values{}
-	for key, v := range map[string]string{"pool_id": a.PoolID, "host_id": a.HostID, "state": a.State} {
+	for key, v := range map[string]string{"pool_id": a.PoolID, "host_id": a.HostID, "state": a.State, "q": a.Query} {
 		if v != "" {
 			q.Set(key, v)
 		}
+	}
+	if a.IncludeRemoved {
+		q.Set("include_removed", "true")
 	}
 	q.Set("limit", strconv.Itoa(clamp(a.Limit, 50, 200)))
 	return getJSON(ctx, c, "/runners", q)
@@ -799,6 +942,18 @@ func requireID(name, v string) error {
 		return fmt.Errorf("%s is required", name)
 	}
 	return nil
+}
+
+// clamp0 keeps a count between zero and max, where clamp treats zero as
+// "not given" and substitutes the default.
+func clamp0(v, max int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > max {
+		return max
+	}
+	return v
 }
 
 func clamp(v, def, max int) int {

@@ -54,10 +54,12 @@ export const browserOverride = process.env.PLAYWRIGHT_CHROMIUM
  * does not. `lands` is where the address ends up when it is not the entry's
  * own path: Settings is a section of pages, so on a desktop `/settings` goes
  * straight to the first of them, while a phone shows the list of pages under
- * the section's own name.
+ * the section's own name. `immersive` marks a page that is its own chrome:
+ * it has no navigation to mark it current or to leave it by, only its Exit.
  */
 export const SECTIONS = [
   { path: '/', label: 'Overview' },
+  { path: '/command', label: 'Command centre', immersive: true },
   { path: '/pools', label: 'Pools' },
   { path: '/runners', label: 'Runners' },
   { path: '/workflows', label: 'Workflows' },
@@ -730,8 +732,14 @@ export async function openEventsFeed(page: Page): Promise<Locator> {
   const feed = page.getByRole('region', { name: 'Recent events', exact: true });
   await expect(feed).toBeVisible();
   const expand = feed.getByRole('button', { name: 'Expand events' });
-  if (await expand.isVisible().catch(() => false)) await expand.click();
-  await expect(feed.getByRole('button', { name: 'Show fewer events' })).toBeVisible();
+  const fewer = feed.getByRole('button', { name: 'Show fewer events' });
+  // The feed draws neither button until it has filled. Looking for "Expand
+  // events" once, straight away, found nothing on a slow run, clicked nothing,
+  // and then waited for "Show fewer events" on a feed nobody had opened. So
+  // wait for whichever of the two the feed settles on before deciding.
+  await expect(expand.or(fewer)).toBeVisible();
+  if (await expand.isVisible()) await expand.click();
+  await expect(fewer).toBeVisible();
   return feed;
 }
 

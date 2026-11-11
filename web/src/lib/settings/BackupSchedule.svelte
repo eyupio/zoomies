@@ -102,8 +102,10 @@
 </section>
 
 <style>
+  /* A rule above as well as below: the list of copies sits over this now, and
+     its last row has none of its own. */
   .schedule {
-    border-bottom: var(--z-border-width) solid var(--z-border);
+    border-block: var(--z-border-width) solid var(--z-border);
   }
   header {
     padding: var(--z-space-4) var(--z-space-5) 0;

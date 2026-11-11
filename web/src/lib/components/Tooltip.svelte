@@ -8,11 +8,17 @@
   waits a second, cannot be styled, never shows for the keyboard and is read
   inconsistently.
 
-  Three kinds of content:
+  Four kinds of content:
 
     <Tooltip title="Refresh" text="Refreshed 4 minutes ago. Fetch this page again." keys={['r']}>
       plain help: a heading (when the control does not already show its own name),
       a sentence, an optional reason and the keys that do the same thing;
+
+    <Tooltip detail={{ title: 'Queue wait', rows: [{ label: 'Median', value: '12s' }] }}>
+      a structured card: a title and a few label and value rows, drawn as a
+      heading and a `<dl>` with every value as text. With no `text` the card is
+      also the description, as one run of sentences. Given as a function, it is
+      worked out only while the bubble is open, and `text` is the description;
 
     <Tooltip text={summary}>{#snippet content()}...{/snippet} ...
       a rich card, with a layout of its own. `text` stays the accessible copy, so a
@@ -46,6 +52,7 @@
   import { getContext, setContext, type Snippet } from 'svelte';
   import { RICH_CARD_WAIT, tooltips, type Bubble, type Wait } from '../tooltip';
   import { focusWasPlaced } from '../keys';
+  import { tipDescription, type TipSource } from '../tooltip-detail';
   import { hosted } from '../tooltip-description';
   import { whenPointerMoves } from '../tooltip-intent';
   import type { Side } from '../tooltip-place';
@@ -74,6 +81,14 @@
      * card with three lines is still one sentence to a screen reader.
      */
     content?: Snippet;
+    /**
+     * A title and a few label and value rows, for help that is figures about
+     * one thing. Every value is put on the page as text. It takes the wide
+     * bubble, and without `text` it is also what assistive technology gets.
+     * A function is called only while the bubble is open, for a card that
+     * reads a clock; give it a steady `text`, since it is never described.
+     */
+    detail?: TipSource;
     placement?: Side;
     /** A card with figures and rows in it wants more room than a sentence does. */
     wide?: boolean;
@@ -121,6 +136,7 @@
     lock = false,
     keys,
     content,
+    detail,
     placement = 'top',
     wide = false,
     wait,
@@ -155,7 +171,9 @@
    * and drop its focus, the moment help appeared. With nothing to say this is
    * a wrapper that does nothing.
    */
-  const empty = $derived(!content && !title && !text && !reason && !(keys && keys.length > 0));
+  const empty = $derived(
+    !content && !detail && !title && !text && !reason && !(keys && keys.length > 0),
+  );
 
   /** What assistive technology is given: the sentence, then why it is unavailable. */
   const description = $derived(
@@ -165,9 +183,7 @@
     // nothing to what that says.
     whenTruncated || !describe || outer?.owns()
       ? ''
-      : content
-        ? text
-        : [text, reason].filter(Boolean).join(' '),
+      : tipDescription({ text, reason, content, detail }),
   );
 
   setContext<Outer>(OUTER, {
@@ -275,7 +291,7 @@
     };
   });
 
-  const effectiveWait = $derived(wait ?? (content ? RICH_CARD_WAIT : 'default'));
+  const effectiveWait = $derived(wait ?? (content || detail ? RICH_CARD_WAIT : 'default'));
   const rail = $derived(wrap && edge ? (wrap.closest<HTMLElement>(edge) ?? null) : null);
 
   /** Whether anything inside is cut off by its own edge: an ellipsis, or a clipped line. */
@@ -331,9 +347,10 @@
       anchor={wrap}
       {placement}
       edge={rail}
-      size={wide ? 'wide' : 'default'}
-      {title}
-      text={content ? undefined : text}
+      size={wide || detail ? 'wide' : 'default'}
+      title={detail ? undefined : title}
+      text={content || detail ? undefined : text}
+      detail={content ? undefined : detail}
       {reason}
       {lock}
       {keys}

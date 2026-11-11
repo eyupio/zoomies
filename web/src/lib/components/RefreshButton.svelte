@@ -30,14 +30,18 @@
   import Button from './Button.svelte';
 
   interface Props {
-    /** What refreshing this page means. Also becomes what `R` does. */
-    onrefresh: RefreshHandler;
+    /**
+     * What refreshing this page means. Also becomes what `R` does. Left out,
+     * the button runs whatever the page on screen registered, which is how a
+     * table's focus bar refreshes a page whose own header it has hidden.
+     */
+    onrefresh?: RefreshHandler;
     class?: string;
   }
 
   let { onrefresh, class: className = '' }: Props = $props();
 
-  $effect(() => refresh.register(onrefresh));
+  $effect(() => (onrefresh ? refresh.register(onrefresh) : undefined));
 
   let now = $state(Date.now());
 

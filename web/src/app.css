@@ -380,3 +380,50 @@ pre,
 .skip-link:focus {
   top: var(--z-space-4);
 }
+
+/*
+  A table's focus view (`?focus=<grid id>`). The grid marks the page around it
+  rather than the page being rebuilt: `data-focus-unit` on its card,
+  `data-focus-path` on every element between that card and <main>, and
+  `data-focus-fill` on everything from the grid up. A child of the path that
+  is neither on it nor the card is the rest of the page (the header, the band,
+  the other panels, the folds) and goes. What says `data-focus-keep` stays:
+  an overlay the page opens (`Dialog`, `Drawer`), and whatever narrows or
+  explains the rows from beside the card rather than inside it (`FilterBar`,
+  which is also the shared job filters and every "filters in effect" row, the
+  unmatched-jobs note, the Queue's selection across pages and the Kennel
+  repositories' scope line). A kept element must be a direct child of the
+  path, as every one of those is. Hidden with `display: none` so it leaves the tab
+  order and the accessibility tree as well as the screen, and restored by
+  nothing more than the attributes coming off.
+*/
+:root[data-table-focus]
+  [data-focus-path]
+  > :not([data-focus-path], [data-focus-unit], [data-focus-keep]) {
+  display: none !important;
+}
+:root[data-table-focus] [data-focus-path]:not(main) {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+:root[data-table-focus] [data-focus-fill] {
+  display: flex !important;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Allowed below their content, so the table's own frame takes what is left
+     and scrolls, and the pagination stays at the foot of the window. */
+  min-height: 0;
+}
+/*
+  A phone: the card's search, menus and chips take most of a screen, so the
+  table's frame would be a slot a few cards tall. Everything keeps its own
+  height instead, and <main> scrolls it under the bar.
+*/
+@media (max-width: 768px) {
+  :root[data-table-focus] [data-focus-fill]:not(main) {
+    flex: none;
+    min-height: auto;
+  }
+}

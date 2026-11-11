@@ -42,6 +42,7 @@ const SECTIONS = [
   'Public pages',
   'Terminal and facts',
   'Band pictures',
+  'Command centre',
 ];
 
 function open(page: Page, style: string, mode: string): Promise<unknown> {
@@ -820,4 +821,57 @@ test('the facts panel is on the dark stage and holds an unbroken value', async (
   expect(
     await facts.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length),
   ).toBe(1);
+});
+
+// The rail's lists carry their own look now, not the command centre page's,
+// so the loading rows drawn here away from that page are the rows it draws:
+// bordered boxes with the busy list announced, not bare list items.
+test('the command centre rail shows its loading rows in its own shape', async ({ page }) => {
+  await open(page, 'mission-control', 'dark');
+  const rail = page.getByTestId('gallery-command-rail');
+  await expect(rail.getByTestId('command-rail-skeleton')).toHaveCount(2);
+  await expect(rail.getByRole('region', { name: /^Waiting/ })).toHaveAttribute('aria-busy', 'true');
+  const row = rail.getByTestId('command-rail-skeleton').first().locator('li').first();
+  const [border, radius] = await Promise.all([
+    row.evaluate((el) => getComputedStyle(el).borderTopStyle),
+    row.evaluate((el) => parseFloat(getComputedStyle(el).borderTopLeftRadius)),
+  ]);
+  expect(border).toBe('solid');
+  expect(radius).toBeGreaterThan(0);
+});
+
+// The structured card is the shared tooltip's, so it is reviewed in every
+// combination: a heading and a list of label and value rows, with a job name
+// that is markup drawn as its characters, and inside the window at a phone's
+// width as well as a desktop's.
+test('the structured card is a heading and a list of rows, and markup in it is text', async ({
+  page,
+}) => {
+  for (const { style, mode } of COMBINATIONS) {
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await open(page, style, mode);
+      const trigger = page.getByRole('button', { name: 'Hover or focus for the card' });
+      await trigger.scrollIntoViewIfNeeded();
+      await trigger.hover();
+      const card = page.locator('.bubble:popover-open');
+      await expect(card).toBeVisible();
+      await expect(card.getByRole('heading', { includeHidden: true })).toHaveText(
+        '<img src=x onerror=alert(1)> build (ubuntu-24.04)',
+      );
+      await expect(card.locator('img')).toHaveCount(0);
+      await expect(card.locator('dt')).toHaveText([
+        'Runner',
+        'Pool',
+        'Running for',
+        'CPU',
+        'Branch',
+      ]);
+      const box = (await card.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+      await page.keyboard.press('Escape');
+      await expect(card).toHaveCount(0);
+    }
+  }
 });

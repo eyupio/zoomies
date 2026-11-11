@@ -642,7 +642,9 @@
         />
       </FilterBar>
 
-      <p class="scope">
+      <!-- Which repositories the list leaves out, and the way to show them: a
+           filter in effect, so a focus view keeps it. -->
+      <p class="scope" data-focus-keep>
         {#if activeOnly}
           Showing repositories with a job in the last 30 days (fewer if this fleet keeps its jobs
           for less).

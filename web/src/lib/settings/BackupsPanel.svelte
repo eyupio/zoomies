@@ -460,7 +460,7 @@
 
 <PageHeader
   title="Backups"
-  subtitle="One consistent copy of this fleet's database, with a manifest saying what it needs. The encryption key is never in a backup unless it was taken with one, so keep the key too, and copy the directory somewhere that is not this disk."
+  subtitle="Consistent copies of this fleet's database. A backup holds the encryption key only if it was taken with one, so keep the key too, and copy the directory off this disk."
   onrefresh={() => {
     reload += 1;
   }}
@@ -487,8 +487,6 @@
     Back up now
   </Button>
 </PageHeader>
-
-<TransferPanel />
 
 <div class="panel">
   {#if restarting}
@@ -653,20 +651,12 @@
         </div>
       </dl>
 
-      <BackupSchedule
-        onchanged={() => {
-          reload += 1;
-        }}
-      />
-
-      <BackupRemotes
-        remotes={page.remotes}
-        disabled={restarting !== null}
-        onchanged={() => {
-          reload += 1;
-        }}
-      />
-
+      <!--
+        The copies come before the settings that make them. The list is what a
+        person opens this page for, to restore one or to see that last night's
+        exists, and it used to sit under the schedule, the retention rows and
+        the destinations, a screen and a half down.
+      -->
       {#if items.length === 0}
         <EmptyState
           icon={HardDrive}
@@ -777,9 +767,29 @@
           </div>
         {/if}
       {/if}
+
+      <BackupSchedule
+        onchanged={() => {
+          reload += 1;
+        }}
+      />
+
+      <BackupRemotes
+        remotes={page.remotes}
+        disabled={restarting !== null}
+        onchanged={() => {
+          reload += 1;
+        }}
+      />
     {/if}
   </LoadingBoundary>
 </div>
+
+<!--
+  Moving a whole instance is done once in a controller's life, so it follows
+  the backups it is built from and no longer heads the page.
+-->
+<TransferPanel />
 
 <!-- Retention, now -->
 <ConfirmDialog

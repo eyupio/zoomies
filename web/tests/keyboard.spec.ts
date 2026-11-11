@@ -24,6 +24,7 @@ async function chord(page: Page, letter: string): Promise<void> {
 // the Overview so a failure names the destination rather than the starting
 // point, and the headings are the pages' own <h1>s.
 const JUMPS = [
+  { key: 'd', path: '/command', heading: 'Command centre' },
   { key: 'p', path: '/pools', heading: 'Pools' },
   { key: 'r', path: '/runners', heading: 'Runners' },
   { key: 'w', path: '/workflows', heading: 'Workflows' },
@@ -167,4 +168,80 @@ test('Home and End move tab focus together with the selected panel', async ({ pa
     'aria-selected',
     'true',
   );
+});
+
+/*
+ * A wall display is driven from a keyboard as often as a mouse: whoever walks
+ * up to it has one and no pointer. Every kind of item on the command centre is
+ * reached by Tab, and each one shows where the keyboard is when it gets there.
+ */
+test('every item on the command centre is reached by Tab, and shows its focus', async ({
+  page,
+}) => {
+  test.skip(!!test.info().project.use.isMobile, 'Tab is the desktop keyboard');
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByTestId('command-lane').first()).toBeVisible();
+  await expect(page.getByRole('region', { name: /^Waiting/ })).toHaveAttribute(
+    'aria-busy',
+    'false',
+  );
+
+  const kinds = new Set<string>();
+  const unringed: string[] = [];
+  // More presses than the fixture's page has stops, so every one is visited;
+  // focus wraps round the document and the set of kinds stops growing.
+  for (let press = 0; press < 150; press++) {
+    await page.keyboard.press('Tab');
+    const seen = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el || el === document.body) return null;
+      const kind =
+        el.dataset.testid ??
+        (el.closest('.hero .figures') ? 'figure' : null) ??
+        (el.closest('[data-testid="command-lane"]') && el.classList.contains('head')
+          ? 'lane'
+          : null) ??
+        (el.closest('.rail') && el.tagName === 'BUTTON' ? 'job' : null) ??
+        (el.closest('.ticker') && el.tagName === 'A' ? 'event' : null) ??
+        (el.textContent ?? '').trim();
+      // Shown means changed by focus: a tile or a card can carry a shadow at
+      // rest, which a check for "any shadow" would take for a ring. The same
+      // element is read focused and unfocused, then focused again so the next
+      // Tab carries on from it, and with transitions off so neither reading
+      // catches a ring halfway in.
+      const look = () => {
+        const style = getComputedStyle(el);
+        return [style.boxShadow, style.outlineStyle, style.outlineWidth, style.outlineColor].join(
+          '|',
+        );
+      };
+      const still = document.createElement('style');
+      still.textContent = '*, *::before, *::after { transition: none !important; }';
+      document.head.append(still);
+      const focused = look();
+      el.blur();
+      const resting = look();
+      el.focus();
+      still.remove();
+      return { kind, ringed: focused !== resting, inMain: !!el.closest('.command') };
+    });
+    if (!seen) continue;
+    if (seen.inMain) {
+      kinds.add(seen.kind);
+      if (!seen.ringed) unringed.push(seen.kind);
+    }
+  }
+
+  for (const kind of [
+    'command-ring',
+    'figure',
+    'lane',
+    'command-tile',
+    'command-free',
+    'job',
+    'Exit',
+  ]) {
+    expect(kinds, `${kind} is reached by Tab`).toContain(kind);
+  }
+  expect(unringed, 'items that took focus without showing it').toEqual([]);
 });

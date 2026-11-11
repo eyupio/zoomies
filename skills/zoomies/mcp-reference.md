@@ -204,6 +204,7 @@ Arguments:
 * `active` (boolean): true for only the repositories this fleet has run a job for in the last thirty days, or as long as it keeps its jobs if that is shorter; false for only the ones it has not
 * `code` (string): a check's code, such as exposure.public_repo_weak_pool; kennel_overview lists them all
 * `incomplete` (boolean): true for only the repositories that are partly checked or not yet looked at, which is what the Overview's Partly checked count adds up; false does not narrow
+* `installation` (string): only this installation's repositories, by its ID, starting ins_
 * `limit` (integer): how many repositories to return (default 25)
 * `offset` (integer): how many to skip, to read the next page
 * `q` (string): a fragment of the repository's name
@@ -265,9 +266,13 @@ The machines providers have been asked for, newest first, each with its provider
 
 Arguments:
 
+* `host_id` (string): only the machine whose enrolled host this is, starting host_
+* `include_deleted` (boolean): also list machines whose resource is confirmed gone, which are left out by default
 * `limit` (integer): how many to return (default 50)
+* `offset` (integer): how many to skip, to read the next page when the answer carries a larger total
 * `pool_id` (string): only machines bought for this pool, starting pool_
 * `provider_id` (string): only machines of this provider
+* `query` (string): a fragment of a machine's name, address or id
 * `state` (string): only machines in this state One of `planned`, `creating`, `starting`, `bootstrapping`, `enrolling`, `ready`, `draining`, `deleting`, `deleted`, `failed`, `quarantined`.
 
 ### recent_events
@@ -347,13 +352,28 @@ Workflow runs, newest first, one row per run (the number GitHub's Actions tab li
 
 Arguments:
 
+* `attention` (boolean): only failures still waiting on a person, as list_jobs describes them
 * `branch` (string): only runs on this branch
+* `cancelling` (boolean): true: only runs whose cancellation has been asked of GitHub and not yet confirmed; false: leave those out
+* `completed_since` (string): only the jobs that finished at or after then, in the same forms as since, summed into their runs
+* `completed_until` (string): only the jobs that finished before then, in the same forms as since
 * `conclusion` (string): only runs that finished this way One of `success`, `failure`, `cancelled`, `skipped`.
+* `failed` (boolean): only runs with a job that went wrong
+* `fault` (array): narrow a fleet failure to these categories One of `host_lost`, `out_of_memory`, `out_of_disk`, `removed`, `image`, `registration`, `backend`, `backend_busy`, `container_conflict`, `config`, `runner_exited`.
+* `label` (array): only runs with a job that asked for these runs-on labels
 * `limit` (integer): how many to return (default 20)
+* `managed` (boolean): true: only runs Zoomies has a hand in
+* `ours` (boolean): only failures this fleet caused
+* `pool_id` (string): only runs with a job that ran, or was claimed, on this pool, starting pool_
 * `q` (string): substring match on repository, workflow or job name
 * `repo` (string): only this repository, as owner/name
+* `run_id` (array): only these runs, by GitHub's run ID; send repo with it, because a run ID keys a run only within its repository
+* `runner_id` (string): only the run of the job that ran on this runner, starting run_
 * `since` (string): only runs queued at or after then: a duration such as 24h or 30d, or an RFC 3339 timestamp
 * `state` (string): only runs in this state One of `waiting`, `queued`, `in_progress`, `completed`.
+* `theirs` (boolean): only failures the workflow caused, with nothing wrong on the fleet's side
+* `unmatched` (boolean): only runs with a queued job no enabled pool claims
+* `until` (string): only runs queued before then, in the same forms as since. The end is exclusive
 * `workflow` (string): only this workflow
 
 ### list_webhook_deliveries
@@ -517,18 +537,30 @@ Arguments:
 
 * `attention` (boolean): only failures still waiting on a person: recent, acknowledged by nobody, not replaced by a later attempt or a later run of the job on the same branch, and not one GitHub reports closed, superseded or fixed
 * `before` (string): continue after the previous page: the next value it returned, unchanged
+* `branch` (array): only jobs of runs on these branches
+* `cancelling` (boolean): true: only jobs whose cancellation has been asked of GitHub and not yet confirmed; false: leave those out. Leave out for every job
+* `completed_since` (string): only jobs that finished at or after then, in the same forms as since. A job still waiting or running has not finished and is left out
+* `completed_until` (string): only jobs that finished before then, in the same forms as since. The end is exclusive
 * `conclusion` (string): only jobs that finished this way One of `success`, `failure`, `cancelled`, `skipped`.
 * `controller_version` (string): only jobs claimed by this controller version, as job records show it; "unknown" is the jobs that were never stamped
+* `eli_repairable` (boolean): true: only the jobs of runs a pull request started, which are the ones Eli can repair, plus those whose trigger has not been read yet
 * `failed` (boolean): only jobs that went wrong: a failing conclusion, or a runner that stopped under the job
+* `fault` (array): narrow a fleet failure to these categories: why the fleet, not the workflow, is the reason something went wrong One of `host_lost`, `out_of_memory`, `out_of_disk`, `removed`, `image`, `registration`, `backend`, `backend_busy`, `container_conflict`, `config`, `runner_exited`.
 * `host_id` (string): only jobs that ran on this host, by ID
 * `hosted` (boolean): true: only jobs on somebody else's hosted runners; false: only jobs that are not. Leave out for both
 * `include_steps` (boolean): include each job's steps; a page of jobs with steps is many times larger (default false)
 * `job_name` (string): only jobs with exactly this name; query, by contrast, matches a substring
+* `label` (array): only jobs that asked for these runs-on labels
 * `limit` (integer): how many to return (default 20)
+* `managed` (boolean): true: only jobs Zoomies has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims
 * `ours` (boolean): only failures this fleet caused
+* `pool_id` (string): only jobs that ran, or were claimed, on this pool, starting pool_
 * `query` (string): substring match on repository, workflow or job name
 * `repo` (string): only this repository, as owner/name
+* `run_id` (array): only the jobs of these workflow runs, by GitHub's run ID; send repo with it, because a run ID keys a run only within its repository
+* `runner_id` (string): only the job that ran on this runner, starting run_
 * `since` (string): only jobs queued at or after then: a duration such as 24h or 30d, or an RFC 3339 timestamp
+* `size` (array): only jobs whose runner was this size, as job_stats names it with group_by size, such as "3 CPU / 8 GB"; "unknown" matches the jobs no size was recorded for
 * `state` (string): only jobs in this state One of `waiting`, `queued`, `in_progress`, `completed`.
 * `theirs` (boolean): only failures the workflow caused, with nothing wrong on the fleet's side
 * `unmatched` (boolean): only queued jobs no enabled pool claims; these will never run
@@ -543,11 +575,17 @@ Completed jobs counted and timed, grouped by up to two of controller_version, da
 
 Arguments:
 
+* `completed_since` (string): narrow the jobs counted to those that finished at or after then, inside the window since and until cut by queue time, in the same forms as since
+* `completed_until` (string): narrow the jobs counted to those that finished before then, in the same forms
+* `controller_version` (string): only jobs claimed by this controller version, as job records show it; "unknown" is the jobs that were never stamped
 * `group_by` (array): what to group by, at most two One of `controller_version`, `day`, `host`, `pool`, `job_name`, `size`.
+* `host_id` (string): only jobs that ran on this host, starting host_
 * `hosted` (boolean): true: only jobs on somebody else's hosted runners; false: only jobs that are not. Leave out for both
 * `job_name` (string): only jobs with exactly this name
+* `pool_id` (string): only jobs that ran on this pool, starting pool_
 * `repo` (string): only this repository, as owner/name
 * `since` (string): start of the window, included: a duration such as 30d or 24h ago, or an RFC 3339 timestamp (default 7d)
+* `size` (array): only jobs whose runner was this size, as group_by size names it, such as "3 CPU / 8 GB"; "unknown" for none recorded
 * `until` (string): end of the window, not included, in the same forms (default now)
 * `workflow` (string): only this workflow
 
@@ -560,6 +598,7 @@ One job in full: its record and steps, its timeline of what the fleet observed a
 Arguments:
 
 * `job_id` (string, required): the job's ID, starting job_
+* `log_lines` (integer): how many of the runner's last lines to quote beside the explanation, ending on the line that decided it (default 12; 0 quotes none)
 
 ### label_advice
 
@@ -572,6 +611,7 @@ Arguments:
 * `kind` (string): only this kind of advice One of `too_small`, `unguaranteed`, `too_large`.
 * `limit` (integer): how many to return (default 20)
 * `offset` (integer): how many to skip, for the next page
+* `repo` (string): only this repository's workflows, as owner/name
 
 ### get_runner_log
 
@@ -593,8 +633,10 @@ The runners that exist now, with their pool, host, state and current job. A runn
 Arguments:
 
 * `host_id` (string): only runners on this host
+* `include_removed` (boolean): also list runners that have ended, which are hidden by default because a busy fleet accumulates thousands of them
 * `limit` (integer): how many to return (default 50)
 * `pool_id` (string): only runners of this pool
+* `query` (string): a fragment of the runner's name
 * `state` (string): only runners in this state One of `provisioning`, `registering`, `idle`, `busy`, `draining`, `failed`.
 
 ### list_pools
@@ -604,6 +646,16 @@ List pools
 The pools: which labels each serves, its image and size, its minimum and maximum runners, and whether it is enabled. memory_burst is the pool's memory valve: off, observe (decide and record, change nothing) or automatic (raise a live runner's memory limit from memory the host has not promised). A pool the controller keeps from the hosts it has carries auto, with the hosts that count towards it and what an operator has asked of it; its minimum and maximum are worked out, not typed.
 
 No arguments.
+
+### pool_performance
+
+Could runners be smaller, to give the hosts more slots
+
+A recommendation worked out from what this fleet measured of itself: how much CPU one working runner used, how much memory its jobs peaked at, and how much of the time jobs waited was spent with no room for another runner. A host's slots are its machine less the reserve, divided by what one runner asks, which for a pool that leaves its size to the host is the fleet's default (runners.default_cpus, runners.default_memory_mb). verdict is raise (a smaller ask and more slots: recommended, the slots each host would gain in hosts, and the max_runners that leaves room for them), keep (the evidence is there and the answer is to leave it) or unknown (too little measured). It reads and changes nothing; applying a raise is update_settings on the two runner defaults and edit_pool's max_runners, each of which needs an administrator. A runner keeps the size it was created with, so new slots fill as running jobs finish. Leave pool_id out to ask about a pool not yet made.
+
+Arguments:
+
+* `pool_id` (string): the pool to ask about, starting pool_; leave out for a pool not yet made
 
 ### list_hosts
 
@@ -663,7 +715,7 @@ Change a pool's scale (minimum and maximum runners, idle timeout, repository sca
 
 Arguments:
 
-* `expect` (object, required): for every setting you are changing, the value you read for it in list_pools -- 0, null or the key left out where it followed the fleet's. Required, like remedy_id on apply_remedy: this tool writes absolute values, so an agent that read a setting an hour ago and sets another figure over it would put back what a person has since changed. If the pool no longer holds what you expected, nothing is changed and the answer says what it holds now.
+* `expect` (object, required): for every setting you are changing, the value you read for it in list_pools (0, null or the key left out where it followed the fleet's). Required, like remedy_id on apply_remedy: this tool writes absolute values, so an agent that read a setting an hour ago and sets another figure over it would put back what a person has since changed. If the pool no longer holds what you expected, nothing is changed and the answer says what it holds now.
 * `pool_id` (string, required): the pool's ID, starting pool_
 * `cpu_burst_max_cpus` (number): the most CPU one runner may be lent up to, in cores; 0 is the host's whole allocatable CPU
 * `cpu_burst_mode` (string): the CPU valve: off, observe (decide and record, change nothing) or automatic One of `off`, `observe`, `automatic`.
@@ -681,6 +733,16 @@ Arguments:
 * `tmpfs_tmp` (string): where /tmp lives: auto, memory or disk One of `auto`, `memory`, `disk`.
 * `tmpfs_work` (string): where the runner's _work folder lives: auto lets each runner decide by its size, memory always keeps it in memory, disk keeps it on the host's disk One of `auto`, `memory`, `disk`.
 
+### prewarm_pool
+
+Pull a pool's image onto its hosts now
+
+Queue the pool's runner image to be pulled on every healthy host that can run the pool, so a tag that has moved (such as :dev) reaches them before the next job, not at the next hourly refresh. A tag is asked about at the registry whatever the pool's pull policy is, and a digest is left alone because it cannot move. Runners already running keep the image they started with; the next runner each host creates uses the new one. It pulls the pool's own image and changes nothing else, so it is safe to repeat. A pool on the process backend has no image to pull and is refused. The answer says how many hosts were asked and each host's state, which list_pools does not carry.
+
+Arguments:
+
+* `pool_id` (string, required): the pool's ID, starting pool_
+
 ### update_host
 
 Change a host's capacity and runner sizes
@@ -689,7 +751,7 @@ Change a host's capacity, what it keeps back for itself, or the runner sizes it 
 
 Arguments:
 
-* `expect` (object, required): for every setting you are changing, the value you read for it in list_hosts -- 0, null or the key left out where it followed the fleet's. Required, like remedy_id on apply_remedy: this tool writes absolute values, so an agent that read a setting an hour ago and sets another figure over it would put back what a person has since changed. If the host no longer holds what you expected, nothing is changed and the answer says what it holds now.
+* `expect` (object, required): for every setting you are changing, the value you read for it in list_hosts (0, null or the key left out where it followed the fleet's). Required, like remedy_id on apply_remedy: this tool writes absolute values, so an agent that read a setting an hour ago and sets another figure over it would put back what a person has since changed. If the host no longer holds what you expected, nothing is changed and the answer says what it holds now.
 * `host_id` (string, required): the host's ID, starting host_
 * `burst_max_cpus` (number): the most CPU one runner here may use, lent CPU included; 0 sets no host ceiling
 * `capacity` (integer): the most runners the host takes; with a standard runner size, the ceiling on the slots its machine gives
@@ -699,6 +761,27 @@ Arguments:
 * `reserve_memory_mb` (integer): memory held back from placement, in MiB
 * `standard_cpus` (number): the CPU one runner is given here for a pool that takes its size from the host; 0 follows the fleet's
 * `standard_memory_mb` (integer): the memory one runner is given here, in MiB; 0 follows the fleet's
+
+### edit_pool
+
+Change a pool's image, pull policy or cache
+
+Change which runner image a pool starts, when an image is pulled, or how the pool's disposable cache is kept, leaving every other setting of the pool as it is. These are the settings update_pool does not touch, because they decide what code runs on the fleet and what a job can leave behind for the next one: a different image runs whatever it holds on the pool's hosts, and the cache service shares one cache between every repository on the pool, so a job that can write to it can plant an entry a later job restores. Do not turn the cache service on for a pool that serves a public repository. pull_policy if-not-present starts a runner from the host's copy of an image and pulls only when it has none; always asks the registry before every runner, which costs a round trip in front of the job; pinned-only refuses a tag and takes only a digest. A moving tag is kept current by the hourly refresh and prewarm_pool, whichever policy is set. It applies to runners created after the change. Read the pool first (list_pools) and pass what it showed in expect for every setting you change, so a change made since is not written over. Needs an administrator token and `security.mcp_admin_tools` on.
+
+Arguments:
+
+* `expect` (object, required): for every setting you are changing, the value you read for it in list_pools (0, null or the key left out where it followed the fleet's). Required, like remedy_id on apply_remedy: this tool writes absolute values, so an agent that read a setting an hour ago and sets another figure over it would put back what a person has since changed. If the pool no longer holds what you expected, nothing is changed and the answer says what it holds now.
+* `pool_id` (string, required): the pool's ID, starting pool_
+* `cache_enabled` (boolean): whether the pool has a disposable performance cache
+* `cache_repository` (string): the repository a repository-scoped cache belongs to, as owner/name
+* `cache_scope` (string): pool gives the pool one cache; repository gives each repository its own and needs cache_repository on an organisation's installation One of `pool`, `repository`.
+* `cache_service` (boolean): run a cache service on each host so the Actions cache (actions/cache and the setup-* actions' own caches) is kept on the host, not in GitHub's service
+* `cache_size_limit` (integer): the most bytes the cache may hold, enforced by evicting between one runner and the next; 0 is the default
+* `cache_tools` (boolean): keep the tool cache (setup-go, setup-node and the like) between runners
+* `image` (string): the runner image reference, a tag or a digest; an empty string follows the fleet's default image
+* `pull_policy` (string): when an image is pulled One of `if-not-present`, `always`, `pinned-only`.
+
+An administrator tool: needs `--allow-admin`.
 
 ### edit_host
 

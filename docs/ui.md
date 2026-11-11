@@ -134,6 +134,34 @@ runner elsewhere in the organisation neither ticks a step nor retires the list.
 ![The activity matrix with a day selected: the day's figures, its outcomes hour by hour, and links to its jobs](screenshots/activity-dark.webp#only-dark){ .zoomies-shot }
 ![The activity matrix with a day selected: the day's figures, its outcomes hour by hour, and links to its jobs](screenshots/activity-light.webp#only-light){ .zoomies-shot }
 
+## Command centre
+
+The whole fleet on one screen, live: a page to switch to, leave on a second
+monitor or put on a wall, and read from across the room. It sits directly
+under the Overview in the navigation, `g d` reaches it from anywhere, and the
+command palette lists it; on a phone it is in the menu More opens.
+
+It is its own chrome. There is no navigation, top bar or footer, only a bar
+with the wordmark, the page's name, the clock, **Refresh**, **Full screen** and
+**Exit**. The command palette, the shortcut sheet and every shortcut still work.
+**Refresh** (or `R`) fetches the hosts, both lists and the chart again, as it
+does on every other page.
+**Full screen** is offered only where the browser allows it, and while the page
+is full screen it also keeps the display from dimming where the browser can.
+**Exit** returns to the page you came from, or to the Overview when the page
+was opened directly. `Esc` leaves full screen first, then closes whatever is
+open over the page, and then exits.
+
+On a wide screen the host lanes fill the left and the rail sits to their
+right, but in reading and Tab order **Waiting** and **Needs attention** come
+before the host lanes at every width. They are what someone at the page acts
+on, so a screen reader or the keyboard reaches them without passing every slot
+of every host first, and one source order serves both the phone, where the
+page is a single stacked column, and the keyboard on a desktop.
+
+![The command centre in the Classic style: a bar with the wordmark, the clock, Full screen and Exit; a ring of slots in use beside the verdict and three figures; host lanes with a tile for each slot; and a rail of waiting jobs and problems](screenshots/command-dark.webp#only-dark){ .zoomies-shot }
+![The command centre in the Classic style: a bar with the wordmark, the clock, Full screen and Exit; a ring of slots in use beside the verdict and three figures; host lanes with a tile for each slot; and a rail of waiting jobs and problems](screenshots/command-light.webp#only-light){ .zoomies-shot }
+
 ## The problems drawer
 
 Reachable from the count in the top bar on every page. Cordoned or silent
@@ -188,9 +216,34 @@ The small cross at the top right of a band removes it. It asks first, and says w
 to bring it back. The size icons beside it ask which pages the new cut should reach;
 the dog itself asks the same about its size, or about being removed. The answers are
 kept with the account where there is one, and in the browser otherwise.
-**Settings → Appearance → Page bands** has a switch and the same four sizes for each
-page, the Overview's included, a line for that page's dog, and one control that sets
-every band at once; every band is on until you switch it off.
+**Settings → Appearance → Page bands** is a table with a row for each page, the
+Overview's included: a switch, the same four sizes and a switch for that page's
+picture, under one row that sets every band at once; every band is on until you
+switch it off.
+
+## Tables
+
+Every list (Runners, Jobs, Queue, Pools, Workflows, Audit and the rest) is the
+same table. **Columns** above it shows and hides columns, moves them and resets
+the layout; a column's heading can be dragged to move it, and its right edge
+dragged (or moved eight pixels at a time with the arrow keys) to resize it.
+Double-clicking the edge gives the column its default width back. The layout is
+kept for each table, with your account where there is one.
+
+A table always reaches the right-hand edge of its frame. When the columns add up
+to less than the width there is, the rest is shared out among the columns you
+have not resized, so a column you dragged to a width keeps that width; if you
+have resized them all, the last one takes it. When you widen columns past the
+frame, the table scrolls sideways inside it and the page itself stays put.
+
+**Focus**, beside Columns (or `f`), shows that table and nothing else, full
+page: its search and filter chips, its rows and its pagination under a slim bar
+with the page's name, whether it is live, **Refresh**, **Full screen** where the
+browser allows it, and **Exit focus**. Focus is part of the address
+(`?focus=runners`), so a focused view can be sent to someone, reloaded or
+reached with Back. Everything you set carries across: filters, sort, columns,
+the rows you ticked and anything you had open. `Esc` leaves full screen first,
+then closes whatever is open, then leaves focus.
 
 ## Pools
 
@@ -1115,11 +1168,15 @@ so nothing here can leak one.
 
 ## Settings
 
-A section of pages rather than a page of tabs, with its own rail beside them:
-your account, appearance and which events the Overview's feed shows; the
-accounts that can sign in and their roles, and the API tokens; the
-configuration this controller is actually running with, its backups, which
-release an update would take, and what it is. Appearance also holds the **Page bands** switches (see [Page bands](#page-bands)).
+A section of pages rather than a page of tabs, with its own rail beside them,
+in four groups. **You** is your account, appearance and which events the
+Overview's feed shows. **Connections** is what you have plugged into that
+account: your Eli providers, your API tokens and your MCP connections.
+**Access** is the accounts that can sign in and their roles, and the MCP
+clients. **Controller** is the configuration this controller is actually
+running with, which release an update would take, its backups, and what it is.
+Appearance is three sections (Look, Layout and Page bands), and the last is a
+table with a row for each page (see [Page bands](#page-bands)).
 Each page has an address of its
 own, so a settings page is a link. Zoomies refuses any change that would leave
 no enabled administrator, and the pages that need that role are listed for

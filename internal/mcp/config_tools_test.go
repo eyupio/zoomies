@@ -23,7 +23,7 @@ func (r *recorder) Call(_ context.Context, _, _ string, _ url.Values) ([]byte, e
 	return []byte(r.object), nil
 }
 func (r *recorder) CallBody(_ context.Context, method, path string, _ url.Values, body []byte) ([]byte, error) {
-	post := path == "/problems/apply" || strings.HasSuffix(path, "/cordon") || strings.HasSuffix(path, "/throttle/clear")
+	post := path == "/problems/apply" || strings.HasSuffix(path, "/cordon") || strings.HasSuffix(path, "/throttle/clear") || strings.HasSuffix(path, "/prewarm")
 	if method != http.MethodPatch && !(method == http.MethodPost && post) {
 		return nil, refusal{http.StatusMethodNotAllowed}
 	}
@@ -284,5 +284,20 @@ func TestTheUpdateToolsRequireExpectInTheirSchema(t *testing.T) {
 		if !slices.Contains(schema.Required, "expect") {
 			t.Errorf("%s does not require expect: %v", tl.Name, schema.Required)
 		}
+	}
+}
+
+// A pool is asked to pull its image through the route the Pools page uses, with
+// no body and nothing else changed, and a pool that is not there is named.
+func TestPrewarmPoolPostsToTheRoute(t *testing.T) {
+	r := &recorder{object: `{}`}
+	if _, err := call(t, "prewarm_pool", r, `{"pool_id":"pool_1"}`); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.paths) != 1 || r.paths[0] != "POST /pools/pool_1/prewarm" {
+		t.Errorf("requests = %v", r.paths)
+	}
+	if _, err := call(t, "prewarm_pool", r, `{}`); err == nil || !strings.Contains(err.Error(), "pool_id is required") {
+		t.Errorf("a missing pool_id gave %v", err)
 	}
 }

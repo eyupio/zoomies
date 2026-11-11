@@ -41,6 +41,7 @@ class EventStream {
   #retryTimer: ReturnType<typeof setTimeout> | null = null;
   #watchdog: ReturnType<typeof setTimeout> | null = null;
   #heartbeats = false;
+  #heardAt: number | null = null;
   #started = false;
   #bound = false;
 
@@ -53,6 +54,18 @@ class EventStream {
 
   get lastEventId(): string | null {
     return this.#lastEventId;
+  }
+
+  /**
+   * When the stream last said anything: a frame, a heartbeat or the opening
+   * of a connection. A stream can go quiet well before anything notices (a
+   * proxy holding a dead socket is only found out by the watchdog), so a page
+   * that says how long ago it last heard counts from here, not from the
+   * moment the status changed. Not reactive: it is read when the status
+   * changes, which is the moment it matters.
+   */
+  get heardAt(): number | null {
+    return this.#heardAt;
   }
 
   /** Open the stream. Safe to call more than once. */
@@ -181,6 +194,7 @@ class EventStream {
     this.#source = source;
 
     source.onopen = () => {
+      this.#heardAt = Date.now();
       this.#attempt = 0;
       this.#setStatus('live');
       this.#armWatchdog();
@@ -222,6 +236,7 @@ class EventStream {
   }
 
   #dispatch(kind: EventKind, e: MessageEvent<string>): void {
+    this.#heardAt = Date.now();
     if (e.lastEventId) this.#lastEventId = e.lastEventId;
     if (kind === 'heartbeat') {
       this.#heartbeats = true;

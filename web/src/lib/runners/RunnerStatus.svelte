@@ -7,7 +7,19 @@
   import ZoomiesStatusIcon from './ZoomiesStatusIcon.svelte';
   import { runnerDisplayStatus } from './runner-status';
 
-  let { runner }: { runner: Pick<Runner, 'id' | 'state' | 'cpu_resource'> } = $props();
+  let {
+    runner,
+    mark = false,
+  }: {
+    runner: Pick<Runner, 'id' | 'state' | 'cpu_resource'>;
+    /**
+     * Only the mark and its label for assistive technology, with no button and
+     * no tooltip: for a place that is a link as a whole, such as a command
+     * centre tile, where a control inside the link would be a second target
+     * and invalid markup. The vocabulary still follows the operator's choice.
+     */
+    mark?: boolean;
+  } = $props();
   const componentId = $props.id();
   const descriptionId = `${componentId}-status-description`;
   let detailsOpen = $state(false);
@@ -29,59 +41,74 @@
   );
 </script>
 
-<Tooltip
-  text={description}
-  {descriptionId}
-  bind:open={detailsOpen}
-  placement="bottom"
-  class="runner-status-tip"
->
-  {#snippet content()}
-    <span class="details">
-      <span class="eyebrow">{status.lifecycle.label}{status.active ? ' · Elastic CPU' : ''}</span>
-      <strong>{status.title}</strong>
-      <span>{status.detail}</span>
-      {#if status.cpuDetail}<span>{status.cpuDetail}</span>{/if}
-      {#if resource}
-        <span class="cpu-title"
-          >{status.canBoost ? 'CPU allocation' : 'Last reported CPU allocation'}</span
-        >
-        <span class="figures">
-          <span><b>{cpu(resource.current_cpus)}</b><small>Current</small></span>
-          <span><b>{cpu(resource.guaranteed_cpus)}</b><small>Guaranteed</small></span>
-          <span><b>{cpu(resource.ceiling_cpus)}</b><small>Ceiling</small></span>
-        </span>
-      {/if}
-    </span>
-  {/snippet}
-  <button
-    type="button"
-    class="runner-status"
-    class:active={status.active}
+{#if mark}
+  <span
+    class="runner-status mark"
     data-runner-status={status.key}
-    aria-label="{status.label}: show status details"
-    aria-describedby={descriptionId}
-    aria-expanded={detailsOpen}
     style:--status-colour={status.colour}
-    style:--status-subtle={status.subtle}
-    style:--status-border={status.border}
-    onclick={(event) => {
-      event.stopPropagation();
-      event.currentTarget.focus();
-      detailsOpen = true;
-    }}
-    onkeydown={(event) => {
-      if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
-    }}
   >
     {#if prefs.quirkyStatus}
       <ZoomiesStatusIcon state={status.key} seed={runner.id} />
     {:else}
       <OffStatusIcon {status} seed={runner.id} />
     {/if}
-    <span class="label">{status.label}</span>
-  </button>
-</Tooltip>
+    <span class="sr-only">{status.label}</span>
+  </span>
+{:else}
+  <Tooltip
+    text={description}
+    {descriptionId}
+    bind:open={detailsOpen}
+    placement="bottom"
+    class="runner-status-tip"
+  >
+    {#snippet content()}
+      <span class="details">
+        <span class="eyebrow">{status.lifecycle.label}{status.active ? ' · Elastic CPU' : ''}</span>
+        <strong>{status.title}</strong>
+        <span>{status.detail}</span>
+        {#if status.cpuDetail}<span>{status.cpuDetail}</span>{/if}
+        {#if resource}
+          <span class="cpu-title"
+            >{status.canBoost ? 'CPU allocation' : 'Last reported CPU allocation'}</span
+          >
+          <span class="figures">
+            <span><b>{cpu(resource.current_cpus)}</b><small>Current</small></span>
+            <span><b>{cpu(resource.guaranteed_cpus)}</b><small>Guaranteed</small></span>
+            <span><b>{cpu(resource.ceiling_cpus)}</b><small>Ceiling</small></span>
+          </span>
+        {/if}
+      </span>
+    {/snippet}
+    <button
+      type="button"
+      class="runner-status"
+      class:active={status.active}
+      data-runner-status={status.key}
+      aria-label="{status.label}: show status details"
+      aria-describedby={descriptionId}
+      aria-expanded={detailsOpen}
+      style:--status-colour={status.colour}
+      style:--status-subtle={status.subtle}
+      style:--status-border={status.border}
+      onclick={(event) => {
+        event.stopPropagation();
+        event.currentTarget.focus();
+        detailsOpen = true;
+      }}
+      onkeydown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+      }}
+    >
+      {#if prefs.quirkyStatus}
+        <ZoomiesStatusIcon state={status.key} seed={runner.id} />
+      {:else}
+        <OffStatusIcon {status} seed={runner.id} />
+      {/if}
+      <span class="label">{status.label}</span>
+    </button>
+  </Tooltip>
+{/if}
 
 <style>
   :global(.runner-status-tip) {
@@ -110,11 +137,17 @@
       background var(--z-motion-fast),
       border-color var(--z-motion-fast);
   }
+  .runner-status.mark {
+    flex: none;
+    padding: 0;
+    border: 0;
+    cursor: inherit;
+  }
   .runner-status.active {
     background: var(--status-subtle);
     border-color: var(--status-border);
   }
-  .runner-status:hover {
+  .runner-status:not(.mark):hover {
     background: var(--status-subtle);
     border-color: var(--status-border);
   }

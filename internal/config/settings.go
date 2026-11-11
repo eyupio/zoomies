@@ -639,6 +639,19 @@ var registry = buildRegistry([]Setting{
 		Summary: "Place a runner only on a host with room for what the jobs waiting on its pool used on their recent runs, and size it up to that where the pool leaves its size to the host. Shadow works it out and records where it would have placed differently without changing anything; off ignores job history. GitHub picks which waiting job a runner takes, so the runner is placed for the largest of them.",
 	},
 	{
+		Key: "scheduler.history_percentile", Label: "History sizing: percentile of the queue", Env: "ZOOMIES_HISTORY_PERCENTILE", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "Which of the memory needs of the jobs waiting on a pool a runner is sized for under history sizing, from 1 to 100: the nearest-rank percentile of them, each job counted once. The default, 75, sizes a runner for what three jobs in four need and lets the heaviest quarter lean on elastic memory, so a few heavy jobs do not make every runner big and hold the fleet to a handful of them. 100 sizes for the heaviest, which is how history sizing worked before this setting.",
+	},
+	{
+		Key: "scheduler.history_max_multiple", Label: "History sizing: most of a slot's share", Env: "ZOOMIES_HISTORY_MAX_MULTIPLE", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "How many times its slot's share of its host's memory a runner sized from history may be given, from 1 to 8. The default, 2, lets a job that wants half as much again as an ordinary one have it and stops a single enormous one making every runner that big. 1 never raises a runner above its share and leaves history to choose the host alone.",
+	},
+	{
+		Key: "scheduler.elastic_cpu_history", Label: "Elastic CPU from job history", Env: "ZOOMIES_ELASTIC_CPU_HISTORY", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Choices: []string{"off", "shadow", "on"},
+		Summary: "Stop lending CPU to a job whose recent runs were never held back by their quota. The runner's cgroup counts the periods its quota held it back, and a job held back in one run in four wants more CPU than it has, so a loan is not withheld from it; a job that never was has a ceiling a little above its heaviest ordinary run, and a loan above that is cores nobody uses. Shadow works out the ceiling and records it without applying it, and is the default; on applies it. It needs a pool with elastic CPU on automatic, and a job with enough measured runs.",
+	},
+	{
 		Key: "scheduler.size_routing", Label: "Route jobs by size class", Env: "ZOOMIES_SIZE_ROUTING", Kind: KindEnum, Scope: ScopeInstance, Live: true,
 		Choices: []string{"off", "shadow", "on"},
 		Summary: "Class each job small, medium or large from what its recent runs used, and send it to the pool for that class, so light jobs land on small hosts and heavy ones on large hosts. A workflow that writes zoomies-large in runs-on is always honoured and never moved; a job that writes only zoomies is routed best effort, because GitHub, not Zoomies, decides which waiting job a runner takes. Shadow records each job's class and where it ran, and sends nothing anywhere; off classes nothing. Changing it puts the jobs already waiting through the new mode.",
@@ -959,8 +972,17 @@ var registry = buildRegistry([]Setting{
 	// ---------------------------------------------------------------------
 	{
 		Key: "maintenance.interval", Label: "Maintenance interval", Env: "ZOOMIES_MAINTENANCE_INTERVAL", Kind: KindDuration, Scope: ScopePlatform, Live: true,
-		Summary: "How often the controller removes its own backups beyond backup.keep and its pre-migration copies beyond backup.pre_migration_keep. 0 switches the scheduled pass off. The pre-migration copies are also pruned once when the controller starts, whatever this says, so that switching it off cannot leave copies nothing ever removes.",
+		Summary: "How often the controller removes its own backups beyond backup.keep and its pre-migration copies beyond backup.pre_migration_keep, and gives the database file's free pages back to the disk. 0 switches the scheduled pass off. The pre-migration copies are also pruned once when the controller starts, whatever this says, so that switching it off cannot leave copies nothing ever removes.",
 		Floor:   time.Minute,
+	},
+	{
+		Key: "maintenance.compact", Label: "Give free database space back", Env: "ZOOMIES_MAINTENANCE_COMPACT", Kind: KindEnum, Scope: ScopePlatform, Live: true,
+		Choices: []string{"off", "incremental", "convert"},
+		Summary: "Whether the maintenance pass gives the database file's free pages back to the disk. Deleting rows leaves the file as long as it was. Incremental does it for a database made in incremental mode, which every database created by this release is, in short slices that let other writes in between. Convert also rewrites an older database into that mode, once: the rewrite holds the writer, so everything that writes waits for as long as it takes, and it is refused unless the disk has room for a second copy and a backup from the last day exists. Off never does it.",
+	},
+	{
+		Key: "maintenance.compact_free_percent", Label: "Free share before giving space back", Env: "ZOOMIES_MAINTENANCE_COMPACT_FREE_PERCENT", Kind: KindInt, Scope: ScopePlatform, Live: true,
+		Summary: "The share of the database file that has to be free pages before the pass gives any back, and the share it stops at, so a few free pages are left for new rows to reuse. Between 1 and 99. It also acts only when at least 32 MiB is free, whatever the share.",
 	},
 
 	// ---------------------------------------------------------------------

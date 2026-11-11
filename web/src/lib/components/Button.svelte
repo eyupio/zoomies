@@ -69,6 +69,11 @@
     ariaExpanded?: boolean;
     ariaControls?: string;
     ariaHaspopup?: 'menu' | 'dialog' | 'listbox' | 'true';
+    /**
+     * With `href`, it runs before the link is followed, so a page can take a
+     * plain click for itself (and call `preventDefault`) while a modified one
+     * still opens the address in a new tab.
+     */
     onclick?: (event: MouseEvent) => void;
     class?: string;
     children: Snippet;
@@ -156,6 +161,7 @@
       aria-label={ariaLabel}
       aria-disabled={inert ? 'true' : undefined}
       aria-busy={loading || iconSpin ? 'true' : undefined}
+      onclick={inert ? undefined : onclick}
     >
       {@render body()}
       {#if newTab}<span class="sr-only"> (opens in a new tab)</span>{/if}

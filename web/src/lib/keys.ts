@@ -218,6 +218,7 @@ export function isTypingTarget(target: EventTarget | null): boolean {
 /** The `g` then letter jumps, in the order the navigation lists them. */
 export const GO_KEYS: ReadonlyArray<{ key: string; path: string; label: string }> = [
   { key: 'o', path: '/', label: 'Overview' },
+  { key: 'd', path: '/command', label: 'Command centre' },
   { key: 'p', path: '/pools', label: 'Pools' },
   { key: 'r', path: '/runners', label: 'Runners' },
   { key: 'q', path: '/queue', label: 'Queue' },
@@ -267,6 +268,7 @@ export const SHORTCUTS: readonly ShortcutGroup[] = [
       { keys: ['Space'], description: 'Select the focused row' },
       { keys: ['Shift', '↑/↓'], description: 'Extend the selection' },
       { keys: ['Home', 'End'], description: 'Jump to the first or last row' },
+      { keys: ['F'], description: 'Show only this table, full page, or go back' },
     ],
   },
 ];
@@ -279,6 +281,11 @@ export interface ShortcutActions {
   refresh: () => void;
   /** Open, or put away, Eli. A no-op where there is no Eli to ask. */
   eli: () => void;
+  /**
+   * Show only the page's table, or leave that view. Returns whether it did
+   * anything: on a page with no table the key is not ours to swallow.
+   */
+  focus: () => boolean;
   go: (path: string) => void;
 }
 
@@ -357,6 +364,11 @@ export function installShortcuts(actions: ShortcutActions): () => void {
     if (e.key === 'e' || e.key === 'E') {
       e.preventDefault();
       actions.eli();
+      return;
+    }
+    // F for focus: the letter was free, and it is what the control is called.
+    if (e.key === 'f' || e.key === 'F') {
+      if (actions.focus()) e.preventDefault();
       return;
     }
     if (e.key === '?') {

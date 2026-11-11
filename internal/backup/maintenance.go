@@ -26,6 +26,11 @@ type MaintenanceResult struct {
 	// Errors say what could not be done, one sentence each. A directory that
 	// failed does not stop the other being tidied.
 	Errors []string `json:"errors"`
+	// Compaction is what the pass did to the database file itself, and is absent
+	// when it did nothing, or was not asked to: only the scheduled pass compacts,
+	// because a conversion holds the writer for as long as the rewrite takes and
+	// that is not something to do inside the request of a button.
+	Compaction *CompactionResult `json:"compaction,omitempty"`
 }
 
 // PrunePreMigrationCopies removes the copies the store took before a migration

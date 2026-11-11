@@ -224,6 +224,21 @@ func TestTheStorageReportOfARealStateDirectory(t *testing.T) {
 		}
 	})
 
+	t.Run("the report says whether the database can give free pages back", func(t *testing.T) {
+		for _, tc := range []struct {
+			mode int64
+			want string
+		}{{store.AutoVacuumIncremental, "incremental"}, {store.AutoVacuumFull, "full"}, {store.AutoVacuumNone, "none"}} {
+			report, err := Storage(context.Background(), cfg, store.PageStats{PageSize: 4096, PageCount: 10, AutoVacuum: tc.mode})
+			if err != nil {
+				t.Fatalf("Storage: %v", err)
+			}
+			if report.DatabaseAutoVacuum != tc.want {
+				t.Errorf("auto_vacuum %d is reported as %q, want %q", tc.mode, report.DatabaseAutoVacuum, tc.want)
+			}
+		}
+	})
+
 	t.Run("the report says how much of the database and the disk is free", func(t *testing.T) {
 		report, err := Storage(context.Background(), cfg, store.PageStats{PageSize: 4096, PageCount: 10, FreelistCount: 3})
 		if err != nil {

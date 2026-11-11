@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readableJobText, unresolvedJobName } from '../src/lib/jobs/name.ts';
+import { readableJobName, readableJobText, unresolvedJobName } from '../src/lib/jobs/name.ts';
 
 test('unexpanded job names and historical timeline text are readable without guessing a project', () => {
   const name = 'Playwright (${{ matrix.projects }})';
@@ -21,4 +21,15 @@ test('resolved names are preserved and other missing expression values are expli
   );
   assert.equal(readableJobText(null), '');
   assert.equal(unresolvedJobName(undefined), false);
+});
+
+test('a list row names a job readably, and a job with no name as unnamed', () => {
+  assert.equal(readableJobName('lint'), 'lint');
+  assert.equal(
+    readableJobName('Playwright (${{ matrix.projects }})'),
+    'Playwright (project unavailable)',
+  );
+  assert.equal(readableJobName(''), 'Unnamed job');
+  assert.equal(readableJobName(null), 'Unnamed job');
+  assert.equal(readableJobName(undefined), 'Unnamed job');
 });

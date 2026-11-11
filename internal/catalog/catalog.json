@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "315d2dacf",
+  "generated_from": "99383ec",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -1843,6 +1843,47 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
     },
     {
+      "id": "maintenance.compact",
+      "kind": "problem",
+      "title": "maintenance.compact",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Use `off`, `incremental` or `convert`.",
+      "fix": "Use `off`, `incremental` or `convert`.",
+      "verify": null,
+      "setting": "maintenance.compact",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "maintenance.compact_percent",
+      "kind": "problem",
+      "title": "maintenance.compact_percent",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Must be between 1 and 99. It is the share of the database file that has to be free before the maintenance pass gives space back, and the share it leaves free for new rows to reuse, so 0 would mean never keeping any and 100 never acting. The default is 20.",
+      "fix": "Must be between 1 and 99. It is the share of the database file that has to be free before the maintenance pass gives space back, and the share it leaves free for new rows to reuse, so 0 would mean never keeping any and 100 never acting. The default is 20.",
+      "verify": null,
+      "setting": "maintenance.compact_free_percent",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "maintenance.compact_skipped",
+      "kind": "problem",
+      "title": "maintenance.compact_skipped",
+      "category": "capacity",
+      "severity": "warning",
+      "detection": "runtime",
+      "detects": "`maintenance.compact` is `convert`, and the last scheduled maintenance pass did not rewrite the database into incremental auto-vacuum mode, or tried and failed. The entry carries the reason: the disk has less than twice the database's size free (the rewrite builds a second copy beside the first), no backup of this database from the last day exists (the rewrite holds the one writer, so everything that writes waits, and the backup is the way back if it goes wrong), or the rewrite itself failed. A failed rewrite leaves the original file as it was. Put right what it names and the next pass converts the database, or set `maintenance.compact` to `incremental` to stop asking; the entry goes as soon as the setting is changed.",
+      "fix": "`maintenance.compact` is `convert`, and the last scheduled maintenance pass did not rewrite the database into incremental auto-vacuum mode, or tried and failed. The entry carries the reason: the disk has less than twice the database's size free (the rewrite builds a second copy beside the first), no backup of this database from the last day exists (the rewrite holds the one writer, so everything that writes waits, and the backup is the way back if it goes wrong), or the rewrite itself failed. A failed rewrite leaves the original file as it was. Put right what it names and the next pass converts the database, or set `maintenance.compact` to `incremental` to stop asking; the entry goes as soon as the setting is changed.",
+      "verify": "`zoomies storage` shows the database at its new size and the last pass saying it converted.",
+      "docs_html": "https://zoomies.sh/problem-codes/#runtime-pools-jobs-and-runners",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-pools-jobs-and-runners"
+    },
+    {
       "id": "mcp_oauth.enabled",
       "kind": "problem",
       "title": "mcp_oauth.enabled",
@@ -3434,6 +3475,48 @@
       "fix": "A pool that sets no `cpus` or `memory_mb` gets runners with no cgroup limit at all, so a host's worth of them can each take every core and all of the memory; the shape that stops Docker answering. Leave it on, or set both on every pool.",
       "verify": null,
       "setting": "scheduler.default_runner_limits",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "scheduler.elastic_cpu_history",
+      "kind": "problem",
+      "title": "scheduler.elastic_cpu_history",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Use `off`, `shadow` or `on`.",
+      "fix": "Use `off`, `shadow` or `on`.",
+      "verify": null,
+      "setting": "scheduler.elastic_cpu_history",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "scheduler.history_max_multiple",
+      "kind": "problem",
+      "title": "scheduler.history_max_multiple",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Use a multiple from 1 to 8; 2 is the default and 1 never raises a runner above its share.",
+      "fix": "Use a multiple from 1 to 8; 2 is the default and 1 never raises a runner above its share.",
+      "verify": null,
+      "setting": "scheduler.history_max_multiple",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "scheduler.history_percentile",
+      "kind": "problem",
+      "title": "scheduler.history_percentile",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Use a percentile from 1 to 100; 75 is the default and 100 sizes for the heaviest job waiting.",
+      "fix": "Use a percentile from 1 to 100; 75 is the default and 100 sizes for the heaviest job waiting.",
+      "verify": null,
+      "setting": "scheduler.history_percentile",
       "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
     },

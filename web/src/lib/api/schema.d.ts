@@ -1807,6 +1807,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pools/performance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether the runner size could be smaller, to give the hosts more slots
+         * @description A recommendation worked out from what this fleet measured of itself: how
+         *     much CPU one working runner used (from the hosts' minute samples), how
+         *     much memory its jobs peaked at, and how much of the time jobs waited was
+         *     spent with no room for another runner. A host's slots are its machine less
+         *     the reserve, divided by what one runner asks, and for a pool that leaves
+         *     its size to its host that ask is the fleet's default
+         *     (`runners.default_cpus`, `runners.default_memory_mb`). Where runners use
+         *     less than that and jobs wait for room, a smaller ask gives the same hosts
+         *     more slots.
+         *
+         *     It reads and changes nothing. `verdict` is `raise` (a smaller ask and more
+         *     slots, with `recommended`, per-host `hosts` and a `max_runners` that leaves
+         *     room for them), `keep` (the evidence is there and the answer is to leave
+         *     it, with the reason) or `unknown` (too little measured to say). A host is
+         *     never moved down, and is never moved past what its free disk holds.
+         *     Applying a `raise` is two ordinary writes: the two fleet settings and the
+         *     pool's maximum.
+         *
+         *     With no `pool_id` it answers for a pool about to be made, read against
+         *     every host that is present, which is what the pool wizard asks.
+         */
+        get: operations["getPoolPerformance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pools/export": {
         parameters: {
             query?: never;
@@ -8087,6 +8126,79 @@ export interface components {
             /** @enum {string} */
             ceiling_memory_source?: "pool" | "host" | "default";
         };
+        PoolPerformance: {
+            /** @enum {string} */
+            verdict: "raise" | "keep" | "unknown";
+            /** @description What the recommendation is and why, as a sentence an operator can act on. */
+            reason: string;
+            current: components["schemas"]["PerformanceAsk"];
+            /** @description The runner ask to set. Equal to `current` unless the verdict is `raise`. */
+            recommended: components["schemas"]["PerformanceAsk"];
+            /** @description What the recommendation does to each host's slots. Empty unless the verdict is `raise`. */
+            hosts: components["schemas"]["PerformanceHostChange"][];
+            slots_before: number;
+            slots_after: number;
+            /** @description The pool maximum that leaves room for `slots_after`; the pool's own where that already does. Present on a `raise`. */
+            max_runners?: number;
+            measured: components["schemas"]["PerformanceMeasured"];
+            /** @description What to know before applying it. */
+            cautions?: string[];
+            /** @description The other enabled pools that follow the fleet's default size, which the change would resize too. */
+            followers?: string[];
+            /** @description The pool asked about, absent for a pool not yet made. */
+            pool_id?: string;
+            /**
+             * Format: date-time
+             * @description Where the load and wait window starts.
+             */
+            since: string;
+            /** Format: date-time */
+            until: string;
+            /**
+             * Format: date-time
+             * @description Where the job peaks the memory figure is sized from start.
+             */
+            jobs_since: string;
+        };
+        PerformanceAsk: {
+            cpus: number;
+            /** Format: int64 */
+            memory_mb: number;
+            /** @description The pool whose own size decides the ask, when one does; empty where it is the fleet default. */
+            pool?: string;
+            /** @description True where the ask was doubled because a slot is a runner and its Docker daemon. */
+            pair?: boolean;
+        };
+        PerformanceHostChange: {
+            host_id: string;
+            host_name: string;
+            before: number;
+            after: number;
+            /**
+             * @description The figure that set `after`.
+             * @enum {string}
+             */
+            limited_by?: "cpu" | "memory" | "disk";
+            /** @description A sentence where this host is why `after` is not higher. */
+            caution?: string;
+        };
+        PerformanceMeasured: {
+            /** @description Sampled minutes with at least one runner at work. */
+            samples: number;
+            /** @description The cores one working runner used on average. */
+            cpu_per_runner: number;
+            /**
+             * Format: int64
+             * @description The ninetieth percentile of the most memory each measured job used.
+             */
+            peak_memory_p90_mb?: number;
+            /** @description Measured jobs the memory figure was read from. */
+            jobs: number;
+            /** @description The share of the time jobs waited that was spent with no room for another runner. */
+            ceiling_share: number;
+            waited_seconds: number;
+            oom_killed_jobs: number;
+        };
         /** @description How many runners of a pool the hosts that can run it have room for, counted on an empty fleet. What is running right now changes with every job; the question a size and a maximum are chosen against is how big the machines are, in runners of this pool. */
         PoolRoom: {
             /** @description The room across every matching host. It is the number a maximum is worth comparing against. */
@@ -9345,9 +9457,14 @@ export interface components {
             database_bytes: number;
             /**
              * Format: int64
-             * @description The part of the database file that holds no data: the free pages times the page size. A delete leaves these in the file, and nothing returns them to the disk.
+             * @description The part of the database file that holds no data: the free pages times the page size. A delete leaves these in the file, and only the maintenance pass returns them to the disk (`maintenance.compact`).
              */
             database_free_bytes: number;
+            /**
+             * @description The auto-vacuum mode the database file was made in. `incremental` can give its free pages back in slices and is what every database created by this release is; `none` is a database made by an earlier release, which stays as it is until `maintenance.compact` is `convert` and a pass has rewritten it.
+             * @enum {string}
+             */
+            database_auto_vacuum: "none" | "full" | "incremental";
             /**
              * Format: int64
              * @description Every entry added up.
@@ -9373,6 +9490,26 @@ export interface components {
             pre_migration: string[];
             /** @description What could not be done, one sentence each. A directory that failed does not stop the other being tidied. */
             errors: string[];
+            compaction?: components["schemas"]["CompactionResult"];
+        };
+        /** @description What the scheduled maintenance pass did to the database file itself. It is left out when the pass did nothing, and when the pass was one somebody asked for: only the scheduled pass compacts. */
+        CompactionResult: {
+            /**
+             * @description `maintenance.compact` as the pass read it.
+             * @enum {string}
+             */
+            mode: "incremental" | "convert";
+            /** @description The database was rewritten into incremental auto-vacuum mode. */
+            converted: boolean;
+            /**
+             * Format: int64
+             * @description The pages given back, times the page size.
+             */
+            freed_bytes: number;
+            /** @description Why a conversion that was asked for was refused: too little disk, or no backup from the last day. It names what to do. */
+            skipped?: string;
+            /** @description What failed. A rewrite that fails leaves the original file as it was. */
+            error?: string;
         };
         StorageEntry: {
             /** @description Relative to the state directory, with forward slashes. */
@@ -17424,6 +17561,30 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    getPoolPerformance: {
+        parameters: {
+            query?: {
+                /** @description The pool the answer is about. Left out for a pool not yet made. */
+                pool_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The recommendation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolPerformance"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     exportPools: {

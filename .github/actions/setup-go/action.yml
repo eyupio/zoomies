@@ -14,15 +14,46 @@ description: >-
 # internal/docs holds this version to go.mod's minor release and to the
 # Dockerfile's, and holds every workflow to this action.
 #
-# 1.27.3 carries the fix for GO-2026-6809, in which crypto/x509 trusted a
-# compromised intermediate certificate. 1.27.4 carries the fix for GO-2026-6859,
-# a header race in net/http that the fleet's webhook and API servers reach. The
-# standard library the build, tests and vulnerability scan run on is the one
-# that matters here.
+# 1.27.4 carries the fix for GO-2026-6859, a header race in net/http that the
+# fleet's webhook and API servers reach, and 1.27.3 carries the fix for
+# GO-2026-6809, in which crypto/x509 trusted a compromised intermediate
+# certificate the Proxmox setup verifies. The standard library the build, tests
+# and vulnerability scan run on is the one that matters here.
+#
+# Where the runner has the pool's shared cache folder, the modules and the build
+# output go there and the action's own cache is switched off. That cache is
+# about 830 MB, and a runner on this fleet restored it from GitHub at about
+# 1 MB/s: eleven minutes, then an expired-signature failure on the download, and
+# the 15-minute limit on the planning job cancelled the run before any test
+# started. The pool's folder is on the host's own disk, is safe to share between
+# concurrent jobs (the Go toolchain locks and verifies both caches), and is
+# empty only on the first run. A GitHub-hosted runner has no such folder and
+# keeps the action's cache, as does a runner whose folder is not writable.
+#
+# The modules and the build output are two top-level folders and not one, on
+# purpose. A pool's cache size limit is enforced by deleting whole top-level
+# entries, oldest first, so a single go folder holding both was deleted whole
+# (modules and all) the moment the cache passed the limit, and a limit below its
+# size wiped it at every start. The build output is the large part, several
+# gigabytes after a day of CI, and rebuilding it is cheap; the modules are small
+# and cost a download, so they are the entry worth keeping.
 runs:
   using: composite
   steps:
+    - id: pool
+      shell: bash
+      run: |
+        use=false
+        mod=/opt/zoomies-cache/go-mod
+        build=/opt/zoomies-cache/go-build
+        if [ "$RUNNER_OS" = Linux ] && [ -d /opt/zoomies-cache ] \
+          && mkdir -p "$mod" "$build" 2>/dev/null && [ -w "$mod" ] && [ -w "$build" ]; then
+          use=true
+          echo "GOMODCACHE=$mod" >> "$GITHUB_ENV"
+          echo "GOCACHE=$build" >> "$GITHUB_ENV"
+        fi
+        echo "use=$use" >> "$GITHUB_OUTPUT"
     - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: "1.27.4"
-        cache: true
+        cache: ${{ steps.pool.outputs.use != 'true' }}

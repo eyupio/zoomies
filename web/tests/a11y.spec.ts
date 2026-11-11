@@ -20,6 +20,9 @@ import { mockRepairWorld, REPAIR_PAGES } from './support/repairs';
 // pages least likely to be missing one.
 const PAGES = [
   { path: '/', heading: 'Overview' },
+  // Its own chrome rather than the shell's, so it has no navigation landmark;
+  // every other audit holds it to the same rules as the rest.
+  { path: '/command', heading: 'Command centre' },
   { path: '/pools', heading: 'Pools' },
   { path: '/runners', heading: 'Runners' },
   { path: '/workflows', heading: 'Workflows' },
@@ -83,6 +86,15 @@ async function settle(page: Page, path: string): Promise<void> {
     await expect(page.getByRole('region', { name: 'Recent events' })).toBeVisible();
     return;
   }
+  if (path === '/command') {
+    // The deck and the rail both drawn, not their loading shapes.
+    await expect(page.getByTestId('command-lane').first()).toBeVisible();
+    await expect(page.getByRole('region', { name: /^Waiting/ })).toHaveAttribute(
+      'aria-busy',
+      'false',
+    );
+    return;
+  }
   if (GRID_PAGES.has(path)) {
     await expect(page.locator('tbody tr[data-row]').first()).toBeVisible();
     return;
@@ -99,6 +111,13 @@ for (const { path, heading } of PAGES) {
 
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
     await expect(page.getByRole('main')).toHaveCount(1);
+    if (path === '/command') {
+      // An immersive page: the shell's navigation is gone, and its own bar is
+      // the way out.
+      await expect(page.getByRole('navigation')).toHaveCount(0);
+      await expect(page.getByRole('link', { name: 'Exit', exact: true })).toBeVisible();
+      return;
+    }
     // At least one navigation landmark, and the sections one is named so it
     // can be told apart from the grid's pagination.
     expect(await page.getByRole('navigation').count()).toBeGreaterThanOrEqual(1);
@@ -706,3 +725,44 @@ test('the Automatic repairs panel and its stop dialog can be used by a keyboard 
   await expect(dialog).toHaveCount(0);
   await expect(open).toBeFocused();
 });
+
+/*
+ * The command centre is left on a wall in whichever theme the room suits, so
+ * its audit runs in both. These are the checks a machine can make honestly
+ * without an audit library (the repository has none, by choice): every control
+ * named, every image described or hidden, every status shape that is exposed
+ * labelled, and one heading at the top of the outline.
+ */
+for (const mode of ['light', 'dark'] as const) {
+  test(`the command centre names every control and image in ${mode} mode`, async ({ page }) => {
+    await page.addInitScript((mode) => localStorage.setItem('zoomies.theme', mode), mode);
+    await goto(page, '/command', 'Command centre');
+    await settle(page, '/command');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', mode);
+
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: /^$/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /^$/ })).toHaveCount(0);
+    const unnamed = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('img, svg[role="img"], [role="img"]'))
+        .filter(
+          (el) =>
+            el.closest('[aria-hidden="true"]') === null &&
+            el.getAttribute('aria-hidden') !== 'true' &&
+            (el.tagName === 'IMG'
+              ? el.getAttribute('alt') === null
+              : !(
+                  el.getAttribute('aria-label') ??
+                  el.getAttribute('aria-labelledby') ??
+                  ''
+                ).trim()),
+        )
+        .map((el) => el.outerHTML.slice(0, 120)),
+    );
+    expect(unnamed, 'every exposed image says what it shows').toEqual([]);
+    // Each band is a region a screen reader can jump to, by its own name.
+    for (const name of [/^Waiting/, /^Just finished/, /^Hosts$/, /^Recent events$/]) {
+      await expect(page.getByRole('region', { name })).toHaveCount(1);
+    }
+  });
+}

@@ -247,3 +247,129 @@ test('the controls are big enough to hit with a finger', async ({ page, isMobile
     .evaluate((node) => getComputedStyle(node, '::after').opacity);
   expect(Number(line), 'the resize handle is invisible until hovered').toBeGreaterThan(0);
 });
+
+/*
+ * A table meets the right-hand edge of the frame it is drawn in.
+ *
+ * Columns that add up to less than the frame used to stop short and leave a
+ * blank strip down the right, which on a wide screen reads as a page that has
+ * not finished drawing. The spare goes to the columns nobody sized, so these
+ * hold both halves: the table fills, and a column dragged to a width keeps it.
+ */
+
+/** How far the table's right edge is from the inside of its frame's right edge. */
+function gap(table: Locator): Promise<number> {
+  return table.evaluate((node) => {
+    const frame = node.parentElement as HTMLElement;
+    const box = frame.getBoundingClientRect();
+    const inner = box.left + frame.clientLeft + frame.clientWidth;
+    return inner - node.getBoundingClientRect().right;
+  });
+}
+
+test('at 1920 wide the Runners table reaches the right edge of its frame', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!!isMobile, 'a wide desktop window');
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  const table = await openGrid(page, false);
+  await expect.poll(() => gap(table).then(Math.abs)).toBeLessThanOrEqual(1);
+});
+
+test('a column dragged narrower keeps its width and the table still fills', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!!isMobile, 'a wide desktop window');
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  const table = await openGrid(page, false);
+  const heading = table.locator('thead th[data-table-column="name"]');
+  const before = await width(table, 'name');
+
+  const from = await centre(heading.locator('.resizer'));
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x - 20, from.y);
+  await page.mouse.move(from.x - 60, from.y, { steps: 4 });
+  await page.mouse.up();
+
+  await expect
+    .poll(() => width(table, 'name'), { message: 'the drag did not narrow the column' })
+    .toBeLessThan(before - 40);
+  const dragged = await width(table, 'name');
+  await expect.poll(() => gap(table).then(Math.abs)).toBeLessThanOrEqual(1);
+
+  // The width the operator chose is the one stored: back on the page, the same
+  // column is drawn at it while the others still share out the rest.
+  await openGrid(page, false);
+  await expect.poll(() => width(table, 'name')).toBeCloseTo(dragged, 0);
+  await expect.poll(() => gap(table).then(Math.abs)).toBeLessThanOrEqual(1);
+});
+
+test('columns wider than the window scroll inside the grid and not the page', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!!isMobile, 'a desktop window the columns have been widened past');
+  await page.setViewportSize({ width: 1180, height: 900 });
+  const table = await openGrid(page, false);
+  // Widened from the keyboard, eight pixels a press, until the columns no
+  // longer fit: a layout the operator chose, which the frame scrolls to show.
+  const resizer = table
+    .locator('thead th[data-table-column="name"]')
+    .getByRole('button', { name: 'Resize Name column' });
+  for (let press = 0; press < 60; press++) await resizer.press('ArrowRight');
+
+  await expect
+    .poll(() => table.evaluate((node) => node.scrollWidth - node.parentElement!.clientWidth))
+    .toBeGreaterThan(50);
+  const scroller = await table.evaluate((node) => {
+    const frame = node.parentElement as HTMLElement;
+    frame.scrollLeft = 10_000;
+    return frame.scrollLeft;
+  });
+  expect(scroller, 'the grid frame scrolls sideways').toBeGreaterThan(0);
+  const document = await page.evaluate(
+    () => window.document.documentElement.scrollWidth - window.document.documentElement.clientWidth,
+  );
+  expect(document, 'the page scrolls sideways').toBeLessThanOrEqual(1);
+});
+
+/*
+ * The edge stays under the pointer while the table fills.
+ *
+ * With the spare width shared out on every move, the columns left of the edge
+ * took some of each pixel the drag gave back, and the handle crept away from
+ * the cursor. Every other column is held at its drawn width for the drag, so
+ * the edge is where the pointer is when it lets go; the share is worked out
+ * again after, and the table fills.
+ */
+test('a dragged edge stays under the pointer, and the table fills again after', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!!isMobile, 'a wide desktop window and a real cursor');
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  const table = await openGrid(page, false);
+  const resizer = table.locator('thead th[data-table-column="pool"] .resizer');
+  const from = await centre(resizer);
+  const edge = async (): Promise<number> => {
+    const box = (await resizer.boundingBox())!;
+    return box.x + box.width / 2;
+  };
+  expect(Math.abs((await edge()) - from.x)).toBeLessThanOrEqual(1);
+
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x - 20, from.y);
+  await page.mouse.move(from.x - 60, from.y, { steps: 6 });
+  await expect.poll(edge, { message: 'the edge lags the pointer' }).toBeLessThan(from.x - 50);
+  expect(
+    Math.abs((await edge()) - (from.x - 60)),
+    'the edge drifted off the pointer',
+  ).toBeLessThanOrEqual(2);
+  await page.mouse.up();
+
+  await expect.poll(() => gap(table).then(Math.abs)).toBeLessThanOrEqual(1);
+});

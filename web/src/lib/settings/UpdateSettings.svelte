@@ -123,7 +123,7 @@
   <div class="controls">
     <div class="mode">
       <div class="head">
-        <span class="label">Mode</span>
+        <span class="label">Change mode</span>
         <Segmented
           label="Update mode"
           options={OPTIONS}

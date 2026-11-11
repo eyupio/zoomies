@@ -4,14 +4,18 @@
  * the account menu all read from here, so none of them can disagree about what
  * Settings holds or where a page lives.
  *
- * Three groups, by whose thing each page is. "You" is the signed-in person's
- * own account and this browser's preferences, which every role may change.
- * "Access" is who else may sign in. "Controller" is what this instance runs
- * with. The pages needing the administrator role are listed for everybody
- * regardless, marked rather than hidden: a viewer who cannot find the users
- * page should learn why, not conclude the product does not have one.
+ * Four groups, ordered by how often a person comes for them and by whose
+ * thing each page is. "You" is the signed-in person's own account and this
+ * browser's preferences. "Connections" is what that person has plugged into
+ * their own account: a model for Eli, tokens, MCP clients. Every role may open
+ * both, which is why they come first; Eli used to head the list, ahead of the
+ * account it belongs to. "Access" is who else may sign in, and "Controller" is
+ * what this instance runs with, with the page that is only reference last. The
+ * pages needing a role above the reader's are listed for everybody regardless,
+ * marked rather than hidden: a viewer who cannot find the users page should
+ * learn why, not conclude the product does not have one.
  *
- * Each page has an address of its own -- /settings/users -- so a page is a
+ * Each page has an address of its own (/settings/users), so a page is a
  * link, a bookmark and a place the browser's back button returns to.
  */
 import {
@@ -59,14 +63,6 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     label: 'You',
     pages: [
       {
-        id: 'assistant',
-        label: 'Eli AI Assistant',
-        description: 'Your Eli providers, GitHub account and PR repairs.',
-        icon: MessageSquare,
-        needs: 'viewer',
-      },
-
-      {
         id: 'account',
         label: 'Account',
         description: 'Who you are signed in as, and your password.',
@@ -74,16 +70,9 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         needs: 'viewer',
       },
       {
-        id: 'connections',
-        label: 'MCP connections',
-        description: 'Claude and other MCP clients you have connected, and what each may do.',
-        icon: Cable,
-        needs: 'viewer',
-      },
-      {
         id: 'appearance',
         label: 'Appearance',
-        description: 'Theme, navigation and how tables read on a phone. Kept in this browser.',
+        description: 'Theme, navigation, page bands and how tables read on a phone.',
         icon: Palette,
         needs: 'viewer',
       },
@@ -97,14 +86,14 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     ],
   },
   {
-    label: 'Access',
+    label: 'Connections',
     pages: [
       {
-        id: 'users',
-        label: 'Users',
-        description: 'Who can sign in, and as what.',
-        icon: Users,
-        needs: 'admin',
+        id: 'assistant',
+        label: 'Eli AI Assistant',
+        description: 'Your Eli providers, GitHub account and PR repairs.',
+        icon: MessageSquare,
+        needs: 'viewer',
       },
       {
         id: 'tokens',
@@ -113,6 +102,25 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
           'Bearer credentials for the CLI and for automation: yours, or everybody’s for an administrator.',
         icon: KeyRound,
         needs: 'viewer',
+      },
+      {
+        id: 'connections',
+        label: 'MCP connections',
+        description: 'Claude and other MCP clients you have connected, and what each may do.',
+        icon: Cable,
+        needs: 'viewer',
+      },
+    ],
+  },
+  {
+    label: 'Access',
+    pages: [
+      {
+        id: 'users',
+        label: 'Users',
+        description: 'Who can sign in, and as what.',
+        icon: Users,
+        needs: 'admin',
       },
       {
         id: 'mcp-clients',
@@ -134,14 +142,6 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         needs: 'admin',
       },
       {
-        id: 'backups',
-        label: 'Backups',
-        description: 'Copies of the database, taken by hand or on a schedule.',
-        icon: DatabaseBackup,
-        // A backup is the whole database under the key this host holds.
-        needs: 'platform',
-      },
-      {
         id: 'updates',
         label: 'Updates',
         description: 'Which release the update mode would take, and when.',
@@ -149,6 +149,14 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         // The status names a version, a release and a mode and nothing of the
         // fleet's, so every role may read it.
         needs: 'viewer',
+      },
+      {
+        id: 'backups',
+        label: 'Backups',
+        description: 'Copies of the database, taken by hand or on a schedule.',
+        icon: DatabaseBackup,
+        // A backup is the whole database under the key this host holds.
+        needs: 'platform',
       },
       {
         id: 'about',

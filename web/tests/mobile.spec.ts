@@ -32,6 +32,7 @@ import {
   withoutTheStream,
   openFleetContext,
 } from './support/fixtures';
+import { plantProblem } from './support/command';
 import {
   automaticPolicy,
   automaticRow,
@@ -182,6 +183,11 @@ test('the navigation is a bar at the bottom, aligned and reaching every page', a
     // Choosing a section closes the menu: nobody wants to dismiss a menu they
     // have already used.
     await expect(navMenu(page)).toHaveCount(0);
+    // A page that is its own chrome has no bottom bar to open the menu from.
+    if ('immersive' in section) {
+      await expect(nav(page)).toHaveCount(0);
+      continue;
+    }
     // And the menu says where you are when it is opened again.
     await openNavMenu(page);
     await expect(menuEntry(page, section.path)).toHaveAttribute('aria-current', 'page');
@@ -1457,4 +1463,74 @@ test('the automatic repair panel, card, note and dialog stay inside the screen w
     ).toBeVisible();
     await expectNoSidewaysScroll(page, `the repair page at ${width}px with a long repository name`);
   }
+});
+
+/*
+ * The command centre on a phone is the same bands in one column, in the order
+ * a glance wants them: the verdict, then what waits and what is wrong, then
+ * the hosts, then what finished, with the ticker last. And a page made to be
+ * looked at is still pressed with a finger, so every link and button on it is
+ * a fingertip tall.
+ */
+test('the command centre stacks in the order a glance wants, and every target takes a finger', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  // A problem is planted, so Needs attention is there to be put in its place;
+  // the fixture's fleet has nothing wrong with it most of the time.
+  await plantProblem(page);
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByTestId('command-lane').first()).toBeVisible();
+  await expect(page.getByRole('region', { name: /^Needs attention/ })).toBeVisible();
+  await expect(page.getByRole('region', { name: /^Waiting/ })).toHaveAttribute(
+    'aria-busy',
+    'false',
+  );
+
+  const order = await page.evaluate(() => {
+    const top = (el: Element | null | undefined) =>
+      el ? el.getBoundingClientRect().top + scrollY : null;
+    const bands = [
+      ['hero', document.getElementById('command-verdict')?.closest('section')],
+      ['waiting', document.getElementById('command-waiting')?.closest('section')],
+      ['attention', document.getElementById('command-attention')?.closest('section')],
+      ['lanes', document.querySelector('[data-testid="command-deck"]')],
+      ['finished', document.getElementById('command-finished')?.closest('section')],
+      ['ticker', document.getElementById('command-ticker')?.closest('section')],
+    ] as const;
+    return bands
+      .map(([name, el]) => ({ name, top: top(el) }))
+      .filter((band): band is { name: (typeof bands)[number][0]; top: number } => band.top !== null)
+      .sort((a, b) => a.top - b.top)
+      .map((band) => band.name);
+  });
+  // Needs attention comes after what waits and before the hosts.
+  expect(order).toEqual(['hero', 'waiting', 'attention', 'lanes', 'finished', 'ticker']);
+  // The document order is the same, so Tab and a screen reader meet them so.
+  const domOrder = await page
+    .locator(
+      '#command-verdict, #command-waiting, #command-attention, #command-hosts, #command-finished, #command-ticker',
+    )
+    .evaluateAll((nodes) => nodes.map((n) => n.id));
+  expect(domOrder).toEqual([
+    'command-verdict',
+    'command-waiting',
+    'command-attention',
+    'command-hosts',
+    'command-finished',
+    'command-ticker',
+  ]);
+
+  await expectNoSidewaysScroll(page, 'the command centre at 375px');
+
+  const short = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('.command a[href], .command button'))
+      .filter((el) => !el.closest('[inert]'))
+      .map((el) => ({
+        what: (el.textContent ?? '').trim().slice(0, 40) || el.getAttribute('aria-label'),
+        height: el.getBoundingClientRect().height,
+      }))
+      .filter(({ height }) => height > 0 && height < 44),
+  );
+  expect(short, 'links and buttons under 44px tall on a phone').toEqual([]);
 });
