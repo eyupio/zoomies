@@ -108,8 +108,11 @@ test('a running repair shows where it is, follows itself to the end and then sto
 
   const progress = page.getByRole('region', { name: 'Progress' });
   await expect(progress).toContainText('Preparing the fix');
-  await progress.getByText('Show the steps').click();
   const steps = progress.getByRole('list', { name: 'What Eli is doing' }).getByRole('listitem');
+  // The sequence is on screen without a press: a person watching a repair does
+  // not have to ask to see the steps it is going through.
+  await expect(steps).toHaveCount(5);
+  await expect(steps.nth(0)).toBeVisible();
   await expect(steps).toHaveText([
     /Queued/,
     /Reading the failed checks/,
@@ -146,7 +149,8 @@ test('a running repair shows where it is, follows itself to the end and then sto
     `https://github.com/acme/widgets/commit/${COMMIT}`,
   );
 
-  // The checks pass: the track gives way to the outcome.
+  // The checks pass: the outcome joins the track, which stays put with every
+  // step complete.
   state.attempts['rep-run'] = running({
     state: 'succeeded',
     commit_sha: COMMIT,
@@ -157,7 +161,10 @@ test('a running repair shows where it is, follows itself to the end and then sto
   await page.clock.runFor(4500);
   const outcome = page.getByRole('region', { name: 'Checks passed' });
   await expect(outcome).toContainText('Checks passed on Eli’s commit b7d3e91.');
-  await expect(progress).toHaveCount(0);
+  await expect(progress).toBeVisible();
+  await expect(steps).toHaveCount(5);
+  for (let i = 0; i < 5; i++) await expect(steps.nth(i)).toContainText('Done');
+  await expect(progress).not.toContainText('Stopped at this step');
   await expect(page.locator('output.sr-only', { hasText: 'Repair finished' })).toContainText(
     'Checks passed',
   );
@@ -238,7 +245,16 @@ test('a repair that could not fix the failure says why and what to try next', as
 
   const outcome = page.getByRole('region', { name: 'Could not repair' });
   await expect(outcome).toContainText('Eli could not produce a supported fix.');
-  await expect(page.getByRole('region', { name: 'Progress' })).toHaveCount(0);
+  // The track remains after the repair stops, and names the step it stopped on
+  // instead of calling it done or leaving it looking pending.
+  const progress = page.getByRole('region', { name: 'Progress' });
+  await expect(progress).toBeVisible();
+  const steps = progress.getByRole('list', { name: 'What Eli is doing' }).getByRole('listitem');
+  await expect(steps).toHaveCount(5);
+  await expect(steps.nth(1)).toContainText('Done');
+  await expect(steps.nth(2)).toContainText('Stopped at this step');
+  await expect(steps.nth(3)).toContainText('Not started');
+  await expect(steps.nth(3)).not.toContainText('Done');
   const asked = page.getByRole('region', { name: 'What Eli was asked to fix' });
   await expect(asked).toContainText('acme/widgets #17');
   await asked.locator('summary').first().click();
@@ -308,6 +324,27 @@ test('a repair that could not fix the failure says why and what to try next', as
   await expect(timeline).toContainText('Could not repair');
   // The sentence is the outcome card's; the timeline does not repeat it.
   await expect(timeline).not.toContainText('supported fix');
+});
+
+test('a repair blocked before it read anything stops at the queued step', async ({ page }) => {
+  await mockRepairApi(page, {
+    attempts: {
+      'rep-blocked': repairRow({
+        id: 'rep-blocked',
+        state: 'blocked',
+        message: 'Automatic repairs were stopped for this repository before this one ran.',
+        details: { stage: 'queued', case: keptCase() },
+      }),
+    },
+  });
+  await page.goto('/repairs/rep-blocked');
+
+  const progress = page.getByRole('region', { name: 'Progress' });
+  await expect(progress).toBeVisible();
+  const steps = progress.getByRole('list', { name: 'What Eli is doing' }).getByRole('listitem');
+  await expect(steps.nth(0)).toContainText('Stopped at this step');
+  await expect(steps.nth(1)).toContainText('Not started');
+  await expect(progress).not.toContainText('In progress');
 });
 
 // A repair made before cases were kept has its row and nothing about the failure.
@@ -517,9 +554,9 @@ test('no horizontal scroll on a phone, and the track stacks', async ({ page }) =
   });
   await page.goto('/repairs/rep-run');
   const progress = page.getByRole('region', { name: 'Progress' });
-  await progress.getByText('Show the steps').click();
   const items = progress.getByRole('list', { name: 'What Eli is doing' }).getByRole('listitem');
   await expect(items).toHaveCount(5);
+  await expect(items.nth(0)).toBeVisible();
   const tops = await items.evaluateAll((nodes) => nodes.map((n) => n.getBoundingClientRect().top));
   expect(tops[1]!).toBeGreaterThan(tops[0]!);
   expect(tops[4]!).toBeGreaterThan(tops[3]!);

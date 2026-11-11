@@ -1,16 +1,20 @@
 <!--
-  Where a repair that is still going has got to. The answer comes first: the
-  current step, how long it has been, and the promise that nobody has to watch.
-  The full five-step track is one press away for somebody who wants it, because
-  the controller cannot report anything more precise than the stage it is on.
+  Where a repair has got to, and where it ended. The answer comes first while it
+  runs: the current step, how long it has been, and the promise that nobody has
+  to watch. The full five-step track stays beneath it for good, with the mark on
+  the step the worker is on while it runs and the final status of every step
+  once it stops, because the sequence is the repair's process and a person
+  reading it should never have to ask to see it. The controller cannot report
+  anything more precise than the stage it is on.
 -->
 <script lang="ts">
-  import { Check } from '@lucide/svelte';
+  import { Check, X } from '@lucide/svelte';
   import type { Schemas } from '$lib/api/types';
   import Panel from '$lib/components/Panel.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
   import { formatDuration } from '$lib/format';
   import { repairStatus } from '$lib/status';
+  import { isActive } from './history';
   import { guidanceFor } from './guidance';
   import { trackSteps } from './journey';
 
@@ -23,42 +27,56 @@
   let { repair, now }: Props = $props();
 
   const steps = $derived(trackSteps(repair));
+  const active = $derived(isActive(repair.state));
   const current = $derived(steps.find((step) => step.state === 'current')?.label ?? 'Working');
   const elapsed = $derived(formatDuration(Math.max(0, now - Date.parse(repair.created_at))));
   const guidance = $derived(guidanceFor(repair));
   const busy = repairStatus('working');
-  const words = { done: 'Done', current: 'In progress', todo: 'Not started' } as const;
+  const words = {
+    done: 'Done',
+    current: 'In progress',
+    todo: 'Not started',
+    stopped: 'Stopped at this step',
+  } as const;
 </script>
 
-<Panel title="Progress" description="Updates every few seconds while Eli works.">
+<Panel
+  title="Progress"
+  description={active
+    ? 'Updates every few seconds while Eli works.'
+    : 'The steps this repair went through.'}
+>
   {#snippet actions()}
-    <span class="elapsed">Elapsed {elapsed}</span>
+    {#if active}<span class="elapsed">Elapsed {elapsed}</span>{/if}
   {/snippet}
 
-  <p class="now">
-    <StatusDot status={busy} size="sm" tip={false} />
-    <strong>{current}</strong>
-    <span>{guidance.steps[0] ?? 'You can leave this page. The repair carries on without it.'}</span>
-  </p>
+  {#if active}
+    <p class="now">
+      <StatusDot status={busy} size="sm" tip={false} />
+      <strong>{current}</strong>
+      <span
+        >{guidance.steps[0] ?? 'You can leave this page. The repair carries on without it.'}</span
+      >
+    </p>
+  {/if}
 
-  <details class="fold">
-    <summary>Show the steps</summary>
-    <ol class="track" aria-label="What Eli is doing">
-      {#each steps as step (step.id)}
-        <li class="step {step.state}" aria-current={step.state === 'current' ? 'step' : undefined}>
-          <span class="node" aria-hidden="true">
-            {#if step.state === 'done'}
-              <Check size={12} />
-            {:else if step.state === 'current'}
-              <StatusDot status={busy} size="sm" tip={false} />
-            {/if}
-          </span>
-          <span class="label">{step.label}</span>
-          <span class="when">{words[step.state]}</span>
-        </li>
-      {/each}
-    </ol>
-  </details>
+  <ol class="track" aria-label="What Eli is doing">
+    {#each steps as step (step.id)}
+      <li class="step {step.state}" aria-current={step.state === 'current' ? 'step' : undefined}>
+        <span class="node" aria-hidden="true">
+          {#if step.state === 'done'}
+            <Check size={12} />
+          {:else if step.state === 'current'}
+            <StatusDot status={busy} size="sm" tip={false} />
+          {:else if step.state === 'stopped'}
+            <X size={12} />
+          {/if}
+        </span>
+        <span class="label">{step.label}</span>
+        <span class="when">{words[step.state]}</span>
+      </li>
+    {/each}
+  </ol>
 </Panel>
 
 <style>
@@ -84,16 +102,8 @@
   .now span {
     color: var(--z-text-muted);
   }
-  .fold {
-    border-top: var(--z-border-width) solid var(--z-border);
-  }
-  .fold > summary {
-    padding: var(--z-space-3) var(--z-space-5);
-    color: var(--z-text-muted);
-    font-size: var(--z-text-sm);
-    cursor: pointer;
-  }
   .track {
+    border-top: var(--z-border-width) solid var(--z-border);
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     margin: 0;
@@ -141,6 +151,15 @@
   .current .node {
     border-color: var(--z-busy);
     color: var(--z-busy);
+  }
+  .stopped .node {
+    border-color: var(--z-danger);
+    background: var(--z-danger-subtle);
+    color: var(--z-danger);
+  }
+  .stopped .label,
+  .stopped .when {
+    color: var(--z-danger);
   }
   .label {
     display: block;

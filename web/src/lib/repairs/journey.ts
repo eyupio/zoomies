@@ -7,8 +7,8 @@
 
 import { isActive } from './history';
 
-/** A step of the track against the mark: behind it, on it, or still to come. */
-export type StepState = 'done' | 'current' | 'todo';
+/** A step of the track against the mark: behind it, on it, still to come, or where a repair stopped. */
+export type StepState = 'done' | 'current' | 'todo' | 'stopped';
 
 /**
  * The work a running repair is doing, in the order the worker does it. The
@@ -43,7 +43,11 @@ export function trackIndex(repair: {
   const state = stateOf(repair);
   const stage = repair.details?.stage ?? '';
   let index = 0;
-  if (state !== 'queued' || stage === 'evidence' || stage === 'source') index = 1;
+  // A row recorded before the worker wrote its first stage can have left the
+  // queue with no stage; it is at least reading evidence. A row that says
+  // "queued" stopped before it read anything, and stays on the first step.
+  if (state !== 'queued' && stage === '') index = 1;
+  if (stage === 'evidence' || stage === 'source') index = 1;
   if (stage === 'prepare_fix') index = 2;
   if (stage === 'publish') index = 3;
   if (stage === 'watch_ci' || state === 'checking') index = 4;
@@ -94,10 +98,11 @@ export function runningRepair<T extends RepairRow>(
 }
 
 /**
- * The track with each step's place against the mark, which is what draws it:
- * the steps behind the mark are done, the one on it is current, the rest are
- * still to come. A repair that has finished is not drawn on the track at all
- * (its outcome is), so this answers for a repair that is still going.
+ * The track with each step's place, which is what draws it: the steps behind
+ * the mark are done, the one on it is current, the rest are still to come. A
+ * repair that has ended keeps the whole sequence: a repair that finished the
+ * work has every step done, and one that stopped at a step marks that step
+ * stopped rather than pretending it finished or that it never began.
  */
 export function trackSteps(repair: Parameters<typeof trackIndex>[0]): {
   id: (typeof REPAIR_TRACK)[number]['id'];
@@ -105,10 +110,21 @@ export function trackSteps(repair: Parameters<typeof trackIndex>[0]): {
   state: StepState;
 }[] {
   const at = trackIndex(repair);
+  const state = stateOf(repair);
+  if (isActive(state)) {
+    return REPAIR_TRACK.map((step, index) => ({
+      id: step.id,
+      label: step.label,
+      state: index < at ? 'done' : index === at ? 'current' : 'todo',
+    }));
+  }
+  // These outcomes mean the worker got through every step, whatever CI then
+  // said about the commit it pushed.
+  const completed = state === 'succeeded' || state === 'checks_failed' || state === 'unverified';
   return REPAIR_TRACK.map((step, index) => ({
     id: step.id,
     label: step.label,
-    state: index < at ? 'done' : index === at ? 'current' : 'todo',
+    state: completed ? 'done' : index < at ? 'done' : index === at ? 'stopped' : 'todo',
   }));
 }
 

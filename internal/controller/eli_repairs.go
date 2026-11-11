@@ -746,6 +746,10 @@ func (c *Controller) persistEliRepair(ctx context.Context, r *store.EliRepair) e
 func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 	defer cancel()
+	// The stage says where the repair is, and so where it stopped when it does
+	// not get further. A repair blocked before it reads anything is still at
+	// the queue, not at a stage it never reached.
+	r.Details.Stage = "queued"
 	policy, err := c.repairPolicy(ctx, r.Repo, r.InstallationID)
 	if err != nil || r.Trigger == "automatic" && !policy.Automatic {
 		r.State = "blocked"
@@ -779,6 +783,7 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 		return
 	}
 	r.State = "working"
+	r.Details.Stage = "evidence"
 	r.Message = "Reading the PR and failed-job evidence."
 	if err := c.persistEliRepair(ctx, r); err != nil {
 		return
@@ -891,7 +896,6 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 	}
 	r.ProviderID = provider.ID
 	r.Details.Model = provider.Model
-	r.Details.Stage = "evidence"
 	_ = c.persistEliRepair(ctx, r)
 	// An eyes reaction is the quickest thing to show on the comment that asked,
 	// and it is best effort: a repair never fails because GitHub refused one.

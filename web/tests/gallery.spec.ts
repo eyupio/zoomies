@@ -422,16 +422,16 @@ test('the Eli repair components show every state they can be in', async ({ page 
     'The controller did not answer',
   );
 
-  // The progress track puts its mark on the step the worker is on, and the steps
-  // either side say what is done and what is to come.
-  for (const name of ['progress-queued', 'progress-preparing', 'progress-watching']) {
-    await region.locator(`[data-gallery="${name}"]`).getByText('Show the steps').click();
-  }
+  // The progress track is shown without being asked for, puts its mark on the
+  // step the worker is on, and the steps either side say what is done and what
+  // is to come.
   const track = (name: string) =>
     region
       .locator(`[data-gallery="${name}"]`)
       .getByRole('list', { name: 'What Eli is doing' })
       .getByRole('listitem');
+  await expect(track('progress-queued')).toHaveCount(5);
+  await expect(track('progress-queued').nth(0)).toBeVisible();
   await expect(track('progress-queued').nth(0)).toHaveAttribute('aria-current', 'step');
   await expect(track('progress-preparing').nth(2)).toHaveAttribute('aria-current', 'step');
   await expect(track('progress-preparing').nth(1)).toContainText('Done');
