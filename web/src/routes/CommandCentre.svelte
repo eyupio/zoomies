@@ -530,10 +530,15 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
-  /* The rail's end is kept clear of the assistant's corner, so its last row
-     can be scrolled out from under the button. */
+  /* The assistant's button sits over the foot of the rail, and a wall display
+     is looked at rather than scrolled, so a row merely scrollable out from
+     under it is not enough: the rail's scroller stops short of it. The
+     button stands its gap from the window's foot, which the ticker under the
+     frame fills, and its own height above that; the scroller stops that
+     height and a little air above the frame's foot. The deck is placed from
+     the frame, so it keeps its full height. */
   [data-assistant='true'] .board {
-    padding-bottom: var(--z-eli-clearance);
+    height: calc(100% - var(--z-eli-launcher) - var(--z-space-2));
   }
   .rail {
     grid-column: 2;
@@ -601,6 +606,12 @@
       height: auto;
       padding: var(--z-space-4);
       overflow: visible;
+    }
+    /* A document scrolls under the button, as every page does; its end is
+       kept clear of it, so the last row can be scrolled out from under it. */
+    [data-assistant='true'] .board {
+      height: auto;
+      padding-bottom: var(--z-eli-clearance);
     }
     .rail {
       grid-column: auto;
