@@ -288,3 +288,32 @@ func TestARestoredBackupKeepsTheModeItWasTakenIn(t *testing.T) {
 		})
 	}
 }
+
+// VACUUM builds its working copy in the temporary directory, which is often a
+// small tmpfs, so a rewrite is refused when that directory cannot hold one even
+// though the database's own disk can.
+func TestAConversionIsRefusedWhenTheTemporaryDirectoryIsTooSmall(t *testing.T) {
+	cfg, st := compactable(t, true)
+	churn(t, cfg.Database.Path)
+	cfg.Maintenance.Compact = "convert"
+	now := time.Now()
+	take(t, cfg, st, TakeOptions{Source: SourceScheduled, Now: func() time.Time { return now.Add(-time.Hour) }})
+	size := fileBytes(t, cfg.Database.Path)
+	was := freeDiskBytes
+	freeDiskBytes = func(p string) (int64, bool) {
+		if p == os.TempDir() {
+			return size / 2, true
+		}
+		return 100 * size, true
+	}
+	t.Cleanup(func() { freeDiskBytes = was })
+
+	result := Compact(context.Background(), st, cfg, now)
+
+	if result == nil || result.Converted || !strings.Contains(result.Skipped, "temporary directory") {
+		t.Fatalf("result = %+v, want a refusal that names the temporary directory", result)
+	}
+	if modeOf(t, st) != store.AutoVacuumNone {
+		t.Error("the database was rewritten with no room for VACUUM's working copy")
+	}
+}

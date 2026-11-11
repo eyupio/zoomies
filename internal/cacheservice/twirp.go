@@ -140,6 +140,12 @@ func (s *Service) twirp(w http.ResponseWriter, r *http.Request, method string) {
 			writeTwirpError(w, "invalid_argument", "key and version are required")
 			return
 		}
+		if !sc.canWrite() {
+			// A failed save, which the toolkit reports as a warning, and never a
+			// failed build.
+			writeTwirpError(w, "unauthenticated", "this token has no scope it may save to")
+			return
+		}
 		p, ok := s.reserve(sc, req.Key, req.Version)
 		if !ok {
 			// GitHub answers a key that is already stored or being saved with

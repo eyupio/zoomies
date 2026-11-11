@@ -153,6 +153,15 @@ type Options struct {
 	// file is a backup somebody is verifying, which must come back exactly as
 	// it was written.
 	ReadOnly bool
+
+	// PreMigrationKeep is how many of the copies taken before a migration to
+	// keep, for a caller that has read backup.pre_migration_keep and is not the
+	// controller (the controller prunes once it is running, and again every
+	// maintenance pass). Open prunes to it after a migration succeeds, and never
+	// before, so a failed upgrade keeps every copy it could be rolled back to.
+	// Zero, and anything below one, prunes nothing: Open cannot read a setting,
+	// and a number it invented would delete copies an operator meant to keep.
+	PreMigrationKeep int
 }
 
 // Open opens (creating if necessary) the database at path and applies all
@@ -170,6 +179,9 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 		return nil, errors.New("store: a read-only in-memory database has nothing in it to read")
 	}
 	var dsn string
+	// freshFile says this call is creating the file, so its auto_vacuum mode is
+	// still ours to choose. See ensureIncrementalVacuum.
+	freshFile := false
 	if opts.ReadOnly {
 		abs, err := filepath.Abs(opts.Path)
 		if err != nil {
@@ -226,7 +238,11 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 		// (maintenance.compact: convert), which holds the writer for as long as
 		// it takes and is not something an upgrade may do on its own.
 		if info, err := os.Stat(abs); errors.Is(err, os.ErrNotExist) || (err == nil && info.Size() == 0) {
-			pragmas = append(pragmas, "auto_vacuum("+strconv.Itoa(AutoVacuumIncremental)+")")
+			// First in the list, ahead of journal_mode: the mode can only be chosen
+			// before the first page is written, and the driver runs these in the
+			// order given. ensureIncrementalVacuum checks it held anyway.
+			pragmas = append([]string{"auto_vacuum(" + strconv.Itoa(AutoVacuumIncremental) + ")"}, pragmas...)
+			freshFile = true
 		}
 		dsn = "file:" + abs + "?" + url.Values{
 			"_pragma": pragmas,
@@ -282,6 +298,10 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 		return nil, fmt.Errorf("store: connecting to %s: %w", opts.Path, err)
 	}
 
+	if freshFile {
+		ensureIncrementalVacuum(ctx, write, opts.Path)
+	}
+
 	s := &Store{read: read, write: write, path: opts.Path, now: opts.Now, readOnly: opts.ReadOnly,
 		rstmts: newStmtCache(read), wstmts: newStmtCache(write), texts: newTextStmts(read)}
 	if opts.ReadOnly {
@@ -315,6 +335,12 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 	}
 	if memory {
 		s.captureMemoryTemplate(ctx)
+	} else if opts.PreMigrationKeep >= 1 {
+		if removed, err := PrunePreMigration(opts.Path, opts.PreMigrationKeep); err != nil {
+			slog.Warn("could not tidy the copies taken before migrating", "error", err)
+		} else if len(removed) > 0 {
+			slog.Info("removed old pre-migration copies", "removed", removed, "keep", opts.PreMigrationKeep)
+		}
 	}
 	return s, nil
 }
@@ -725,4 +751,35 @@ func KnownMigrations() []string {
 		out = append(out, m.name)
 	}
 	return out
+}
+
+// ensureIncrementalVacuum checks that a database this call created is in
+// incremental auto-vacuum mode, and puts it right while that is still cheap.
+//
+// The mode is chosen by a pragma in the connection string, and whether it lands
+// in time depends on the order the driver runs the pragmas in, which is not a
+// promise this package makes or keeps. A file that missed it would never give its
+// free pages back and nothing would say why, and by the time anybody noticed it
+// would hold a week of rows and only a rewrite of the whole file would fix it. So
+// the mode is read back, and a file with no tables yet is rewritten (an empty
+// VACUUM is instant). Failing that it is said in the log, as a finding, not
+// left to be discovered.
+func ensureIncrementalVacuum(ctx context.Context, db *sql.DB, path string) {
+	var mode int
+	if err := db.QueryRowContext(ctx, `PRAGMA auto_vacuum`).Scan(&mode); err != nil || mode == AutoVacuumIncremental {
+		return
+	}
+	var tables int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master`).Scan(&tables); err == nil && tables == 0 {
+		if _, err := db.ExecContext(ctx, `PRAGMA auto_vacuum = INCREMENTAL`); err == nil {
+			if _, err := db.ExecContext(ctx, `VACUUM`); err == nil {
+				if db.QueryRowContext(ctx, `PRAGMA auto_vacuum`).Scan(&mode) == nil && mode == AutoVacuumIncremental {
+					return
+				}
+			}
+		}
+	}
+	slog.Warn("a new database is not in incremental auto-vacuum mode, so its free pages will not be given back in slices",
+		"path", path, "mode", mode,
+		"detail", "set maintenance.compact to convert to rewrite it into incremental mode")
 }

@@ -4,7 +4,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -70,7 +73,10 @@ func (s *Service) getBlob(w http.ResponseWriter, r *http.Request, id string) {
 	if ms := r.Header.Get("x-ms-range"); ms != "" && r.Header.Get("Range") == "" {
 		r.Header.Set("Range", ms)
 	}
-	if r.Method == http.MethodGet && r.Header.Get("Range") == "" {
+	// A ranged read is a use too: BuildKit and the toolkit's large downloads are
+	// all ranged, so counting only whole reads left the busiest entries looking
+	// idle to the eviction order.
+	if r.Method == http.MethodGet {
 		s.touch(e.ID)
 	}
 	h := w.Header()
@@ -88,51 +94,78 @@ func (s *Service) putBlob(w http.ResponseWriter, r *http.Request, id string) {
 		http.NotFound(w, r)
 		return
 	}
-	limit := s.opts.MaxBytes
-	if limit <= 0 || limit > maxEntryBytes {
-		limit = maxEntryBytes
-	}
-	body := http.MaxBytesReader(w, r.Body, limit)
-	defer body.Close()
 
 	q := r.URL.Query()
 	switch q.Get("comp") {
 	case "":
 		// A small archive: one PUT is the whole thing.
-		if err := writeFileAtomic(s.pendingData(id), body); err != nil {
+		n, err := s.stage(w, r, p, s.pendingData(id), nil)
+		if err != nil {
 			s.failUpload(w, p.ID, err)
 			return
 		}
-		s.setSize(id)
+		if !s.record(p, func() { p.data, p.Size = n, n }) {
+			http.NotFound(w, r)
+			return
+		}
 	case "block":
 		blockID := q.Get("blockid")
 		if blockID == "" {
 			http.Error(w, "blockid is required", http.StatusBadRequest)
 			return
 		}
-		if err := os.MkdirAll(s.pendingBlocks(id), 0o750); err != nil {
+		// The id is the SDK's base64 text; hex keeps it a safe file name.
+		name := hex.EncodeToString([]byte(blockID))
+		s.mu.Lock()
+		over := len(p.blocks) >= s.maxBlocks()
+		_, replacing := p.blocks[name]
+		s.mu.Unlock()
+		if over && !replacing {
+			s.failUpload(w, p.ID, errors.New("an upload staged more blocks than the service allows"))
+			return
+		}
+		// Mkdir, not MkdirAll: if the reservation expired a moment ago its folder
+		// is gone, and recreating it would leave bytes nothing will ever reclaim.
+		if err := os.Mkdir(s.pendingBlocks(id), 0o750); err != nil && !errors.Is(err, fs.ErrExist) {
+			if errors.Is(err, fs.ErrNotExist) {
+				http.NotFound(w, r)
+				return
+			}
 			s.failUpload(w, p.ID, err)
 			return
 		}
-		// The id is the SDK's base64 text; hex keeps it a safe file name.
-		if err := writeFileAtomic(filepath.Join(s.pendingBlocks(id), hex.EncodeToString([]byte(blockID))), body); err != nil {
+		n, err := s.stage(w, r, p, filepath.Join(s.pendingBlocks(id), name), &name)
+		if err != nil {
 			s.failUpload(w, p.ID, err)
+			return
+		}
+		if !s.record(p, func() {
+			if p.blocks == nil {
+				p.blocks = map[string]int64{}
+			}
+			p.blocks[name] = n
+		}) {
+			http.NotFound(w, r)
 			return
 		}
 	case "blocklist":
 		var list struct {
 			IDs []string `xml:",any"`
 		}
-		raw, err := io.ReadAll(io.LimitReader(body, maxJSONBody))
+		raw, err := io.ReadAll(io.LimitReader(http.MaxBytesReader(w, r.Body, maxJSONBody), maxJSONBody))
 		if err != nil || xml.Unmarshal(raw, &list) != nil {
 			http.Error(w, "the block list could not be read", http.StatusBadRequest)
 			return
 		}
-		if err := s.assemble(id, list.IDs); err != nil {
+		n, err := s.assemble(p, list.IDs)
+		if err != nil {
 			s.failUpload(w, p.ID, err)
 			return
 		}
-		s.setSize(id)
+		if !s.record(p, func() { p.data, p.Size, p.blocks = n, n, nil }) {
+			http.NotFound(w, r)
+			return
+		}
 	default:
 		http.Error(w, "unsupported operation", http.StatusNotImplemented)
 		return
@@ -143,45 +176,105 @@ func (s *Service) putBlob(w http.ResponseWriter, r *http.Request, id string) {
 	w.WriteHeader(http.StatusCreated)
 }
 
+// stage writes the request body to path, refusing more than one archive may be
+// and more than the pool's open uploads have room for. replaces names the block
+// this write overwrites (nil for the whole archive), whose bytes are about to be
+// freed and so do not count against the room.
+func (s *Service) stage(w http.ResponseWriter, r *http.Request, p *pending, path string, replaces *string) (int64, error) {
+	s.mu.Lock()
+	var freed int64
+	if replaces != nil {
+		freed = p.blocks[*replaces]
+	} else {
+		freed = p.data
+	}
+	_, staged := s.pendingTotalsLocked()
+	room := s.maxPendingBytes() - (staged - freed)
+	s.mu.Unlock()
+	limit := min(s.entryLimit(), room)
+	if limit <= 0 {
+		return 0, errors.New("the service's open uploads have no room left")
+	}
+	body := http.MaxBytesReader(w, r.Body, limit)
+	defer body.Close()
+	return writeFileAtomic(path, body)
+}
+
+// record applies a finished write to the reservation, but only if the
+// reservation is still open. One that expired, or was abandoned, while its
+// bytes were arriving has had its folder removed; what was just written is
+// removed again and the caller answers as for an unknown upload.
+func (s *Service) record(p *pending, apply func()) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cur, ok := s.pending[p.ID]; !ok || cur != p {
+		_ = os.RemoveAll(s.pendingPath(p.ID))
+		return false
+	}
+	apply()
+	return true
+}
+
 // assemble joins the staged blocks, in the order the commit lists them, into
-// the archive. A block the list names that was never staged fails the upload.
-func (s *Service) assemble(id string, blocks []string) error {
-	out, err := os.CreateTemp(s.pendingPath(id), "assemble-*")
+// the archive, and returns its length. A block the list names that was never
+// staged fails the upload, and so does a list whose blocks add up to more than
+// an archive may be: the sum is taken from the sizes recorded as each block
+// arrived, before a byte is copied, because a list may name one block again and
+// again and each mention is another copy.
+func (s *Service) assemble(p *pending, blocks []string) (int64, error) {
+	if len(blocks) > s.maxBlocks() {
+		return 0, errors.New("a block list names more blocks than the service allows")
+	}
+	names := make([]string, len(blocks))
+	var total, staged int64
+	s.mu.Lock()
+	for i, b := range blocks {
+		names[i] = hex.EncodeToString([]byte(strings.TrimSpace(b)))
+		n, ok := p.blocks[names[i]]
+		if !ok {
+			s.mu.Unlock()
+			return 0, fmt.Errorf("block %q was never staged", strings.TrimSpace(b))
+		}
+		total += n
+		if total > s.entryLimit() {
+			s.mu.Unlock()
+			return 0, errors.New("a block list adds up to more than an archive may be")
+		}
+	}
+	_, all := s.pendingTotalsLocked()
+	staged = all - p.stagedBytes() + total
+	s.mu.Unlock()
+	// The blocks are removed once joined, so the result is what stays; the join
+	// itself briefly holds both, which the open-upload bound leaves headroom for.
+	if staged > s.maxPendingBytes() {
+		return 0, errors.New("the service's open uploads have no room for this archive")
+	}
+
+	out, err := os.CreateTemp(s.pendingPath(p.ID), "assemble-*")
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer os.Remove(out.Name())
-	for _, b := range blocks {
-		in, err := os.Open(filepath.Join(s.pendingBlocks(id), hex.EncodeToString([]byte(strings.TrimSpace(b)))))
+	for _, name := range names {
+		in, err := os.Open(filepath.Join(s.pendingBlocks(p.ID), name))
 		if err != nil {
 			_ = out.Close()
-			return err
+			return 0, err
 		}
 		_, err = io.Copy(out, in)
 		_ = in.Close()
 		if err != nil {
 			_ = out.Close()
-			return err
+			return 0, err
 		}
 	}
 	if err := out.Close(); err != nil {
-		return err
+		return 0, err
 	}
-	if err := os.Rename(out.Name(), s.pendingData(id)); err != nil {
-		return err
+	if err := os.Rename(out.Name(), s.pendingData(p.ID)); err != nil {
+		return 0, err
 	}
-	return os.RemoveAll(s.pendingBlocks(id))
-}
-
-// setSize records how long the whole archive is, once it is whole, so the
-// finalise call can be checked against the bytes actually received.
-func (s *Service) setSize(id string) {
-	fi, err := os.Stat(s.pendingData(id))
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if p, ok := s.pending[id]; ok && err == nil {
-		p.Size = fi.Size()
-	}
+	return total, os.RemoveAll(s.pendingBlocks(p.ID))
 }
 
 // failUpload gives the reservation up. The job sees a failed save, which the
@@ -196,18 +289,19 @@ func (s *Service) failUpload(w http.ResponseWriter, id string, err error) {
 
 // writeFileAtomic writes to a temporary name beside the target and renames it,
 // so a reader of the target sees all of a file or none of it.
-func writeFileAtomic(path string, src io.Reader) error {
+func writeFileAtomic(path string, src io.Reader) (int64, error) {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".upload-*")
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err := io.Copy(tmp, src); err != nil {
+	n, err := io.Copy(tmp, src)
+	if err != nil {
 		_ = tmp.Close()
-		return err
+		return 0, err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return 0, err
 	}
-	return os.Rename(tmp.Name(), path)
+	return n, os.Rename(tmp.Name(), path)
 }

@@ -40,6 +40,13 @@ type maintenanceState struct {
 	notCompactedAt time.Time
 }
 
+// conversionRetryAfter is how long a failed conversion is left alone. A rewrite
+// holds the one writer and the backup gate for as long as it runs, so a pass that
+// failed it again every maintenance.interval would stall the controller every
+// interval for nothing; a day is long enough for a full disk or a stuck backup
+// to have been put right.
+const conversionRetryAfter = 24 * time.Hour
+
 // maintenanceLoop tidies the controller's own state directory.
 //
 // It is its own loop, as backupLoop is, so that a pass over a large directory never
@@ -119,6 +126,15 @@ func (c *Controller) maintenancePass(ctx context.Context, asked bool) {
 // compact gives the database file's free pages back, if the configuration says to,
 // and remembers a refusal or a failure for the problems list.
 func (c *Controller) compact(ctx context.Context, cfg *config.Config, now time.Time) *backup.CompactionResult {
+	c.maintenance.mu.Lock()
+	prev, prevAt := c.maintenance.notCompacted, c.maintenance.notCompactedAt
+	c.maintenance.mu.Unlock()
+	if prev != nil && prev.ConversionFailed && now.Sub(prevAt) < conversionRetryAfter &&
+		strings.EqualFold(strings.TrimSpace(cfg.Maintenance.Compact), prev.Mode) {
+		// The failure stays on the problems list and the rewrite is not started
+		// again until the back-off is over.
+		return nil
+	}
 	result := backup.Compact(ctx, c.st, cfg, now)
 	if result != nil && ctx.Err() != nil {
 		// A controller that is stopping interrupts a pass, and that is not a fault

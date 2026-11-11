@@ -28,7 +28,15 @@ const defaultCacheServiceBytes = 10 << 30
 // shared with exactly the runners the pool cache is shared with and no others.
 // Each listens on its own port, on the host's address on the network the
 // runners are attached to and on nothing else: a runner reaches the host there,
-// and a machine on the host's LAN does not.
+// and a machine on the host's LAN does not. That port is the whole of the
+// isolation between pools: the service reads the token's claim and does not
+// verify it, so a job that is handed an address, or finds one, can use it.
+//
+// The one service of an identity is listened on once for each network its
+// runners are attached to. A second service over the same folder would sweep
+// the first one's uploads away as leftovers, and would count every byte twice.
+// The services of one pool share one budget, so a pool cut up by repository
+// keeps to the single size limit it was given.
 //
 // The cache is only an accelerator, so every failure here is a service that is
 // not offered and a runner that uses GitHub's cache as it did before. Nothing
@@ -41,14 +49,27 @@ type cacheServices struct {
 	// have a daemon.
 	gateway func(ctx context.Context, network string) (string, error)
 
-	mu      sync.Mutex
-	running map[string]*runningCacheService
-	warned  map[string]bool
-	// retired is what services that stopped on their own had counted, by pool,
-	// so a service that is started again does not take the pool's totals back
-	// to zero. A counter that falls is read downstream as the agent restarting,
-	// and a stopped listener is not that.
-	retired map[string]cacheservice.Stats
+	mu sync.Mutex
+	// closed is set by close, after which nothing is started: a runner being
+	// created as the agent shuts down would otherwise open a listener nobody
+	// will ever stop.
+	closed bool
+	// running is the listeners, by identity and address; services is the one
+	// service each identity has, which outlives its listeners, so a listener that
+	// stopped on its own and is started again carries the counters on and the
+	// pool's totals never fall (a counter that falls is read downstream as the
+	// agent restarting). budgets are the pool-wide size ceilings.
+	running  map[string]*runningCacheService
+	services map[string]*ownedCacheService
+	budgets  map[string]*cacheservice.Budget
+	warned   map[string]bool
+}
+
+// ownedCacheService is an identity's one service and the pool it is reported
+// under.
+type ownedCacheService struct {
+	svc    *cacheservice.Service
+	poolID string
 }
 
 type runningCacheService struct {
@@ -86,7 +107,7 @@ func newCacheServices(sharedDir, sharedProblem string, log *slog.Logger, gateway
 	return &cacheServices{
 		sharedDir: sharedDir, sharedProblem: sharedProblem, log: log, gateway: gateway,
 		running: map[string]*runningCacheService{}, warned: map[string]bool{},
-		retired: map[string]cacheservice.Stats{},
+		services: map[string]*ownedCacheService{}, budgets: map[string]*cacheservice.Budget{},
 	}
 }
 
@@ -130,19 +151,33 @@ func (c *cacheServices) urlFor(ctx context.Context, spec Spec, network string) s
 	if r, ok := c.running[key]; ok {
 		return r.url
 	}
+	if c.closed {
+		return ""
+	}
 	limit := spec.Cache.SizeLimit
 	if limit <= 0 {
 		limit = defaultCacheServiceBytes
 	}
-	svc, err := cacheservice.New(cacheservice.Options{
-		Dir:      filepath.Join(c.sharedDir, "cache", "service", identity),
-		MaxBytes: limit,
-		Log:      c.log.With("cache_service", identity),
-	})
-	if err != nil {
-		c.warnOnceLocked(spec, "start", err)
-		return ""
+	owned, ok := c.services[identity]
+	if !ok {
+		budget, ok := c.budgets[spec.PoolID]
+		if !ok {
+			budget = cacheservice.NewBudget(limit)
+			c.budgets[spec.PoolID] = budget
+		}
+		svc, err := cacheservice.New(cacheservice.Options{
+			Dir:    filepath.Join(c.sharedDir, "cache", "service", identity),
+			Budget: budget,
+			Log:    c.log.With("cache_service", identity),
+		})
+		if err != nil {
+			c.warnOnceLocked(spec, "start", err)
+			return ""
+		}
+		owned = &ownedCacheService{svc: svc, poolID: spec.PoolID}
+		c.services[identity] = owned
 	}
+	svc := owned.svc
 	ln, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
 	if err != nil {
 		c.warnOnceLocked(spec, "listen", fmt.Errorf("listening on %s: %w", host, err))
@@ -169,7 +204,6 @@ func (c *cacheServices) urlFor(ctx context.Context, spec Spec, network string) s
 			c.mu.Lock()
 			if c.running[key] == r {
 				delete(c.running, key)
-				c.retireLocked(r)
 			}
 			c.mu.Unlock()
 		}
@@ -177,16 +211,8 @@ func (c *cacheServices) urlFor(ctx context.Context, spec Spec, network string) s
 	return r.url
 }
 
-// retireLocked keeps a stopped service's counters. Its gauges go with it: the
-// next service started on the same folder reads what is there.
-func (c *cacheServices) retireLocked(r *runningCacheService) {
-	st := r.svc.Stats()
-	st.Entries, st.StoredBytes = 0, 0
-	c.retired[r.poolID] = addCounters(c.retired[r.poolID], st)
-}
-
-// addCounters adds b's counters to a. The gauges are not summed here, because
-// two services over one folder describe the same bytes.
+// addCounters adds b's counters to a. The gauges are not summed here; stats
+// sets them from the folders.
 func addCounters(a, b cacheservice.Stats) cacheservice.Stats {
 	a.RestoreHits += b.RestoreHits
 	a.RestoreMisses += b.RestoreMisses
@@ -202,12 +228,9 @@ func addCounters(a, b cacheservice.Stats) cacheservice.Stats {
 // stats reports every pool that has had a service on this host, ordered by pool
 // so two reads of an unchanged host are equal.
 //
-// Counters are summed over a pool's services. Gauges are summed over its cache
-// identities, but not over the services of one identity: the same identity
-// listens on a second address when runners are attached to a second network,
-// and both services keep the one folder, so adding their figures would count
-// every byte twice. The larger of the two is taken, since each only knows what
-// it saw written.
+// Each identity has one service however many addresses it listens on, so its
+// counters and the gauges of its folder are taken once; a pool's figures are the
+// sum over its identities.
 func (c *cacheServices) stats() []CacheStats {
 	if c == nil {
 		return nil
@@ -215,27 +238,19 @@ func (c *cacheServices) stats() []CacheStats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	byPool := map[string]cacheservice.Stats{}
-	for pool, st := range c.retired {
-		byPool[pool] = st
-	}
 	type held struct{ entries, bytes int64 }
-	byIdentity := map[string]map[string]held{} // pool, then identity
-	for _, r := range c.running {
-		st := r.svc.Stats()
-		byPool[r.poolID] = addCounters(byPool[r.poolID], st)
-		if byIdentity[r.poolID] == nil {
-			byIdentity[r.poolID] = map[string]held{}
-		}
-		g := byIdentity[r.poolID][r.identity]
-		g.entries, g.bytes = max(g.entries, st.Entries), max(g.bytes, st.StoredBytes)
-		byIdentity[r.poolID][r.identity] = g
+	gauges := map[string]held{} // by pool
+	for _, o := range c.services {
+		st := o.svc.Stats()
+		byPool[o.poolID] = addCounters(byPool[o.poolID], st)
+		g := gauges[o.poolID]
+		g.entries += st.Entries
+		g.bytes += st.StoredBytes
+		gauges[o.poolID] = g
 	}
 	out := make([]CacheStats, 0, len(byPool))
 	for pool, st := range byPool {
-		for _, g := range byIdentity[pool] {
-			st.Entries += g.entries
-			st.StoredBytes += g.bytes
-		}
+		st.Entries, st.StoredBytes = gauges[pool].entries, gauges[pool].bytes
 		out = append(out, CacheStats{PoolID: pool, Stats: st})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].PoolID < out[j].PoolID })
@@ -263,6 +278,7 @@ func (c *cacheServices) warnOnceLocked(spec Spec, reason string, err error) {
 // runner that loses one has a cache miss, which is all a lost cache is.
 func (c *cacheServices) close() {
 	c.mu.Lock()
+	c.closed = true
 	all := make([]*runningCacheService, 0, len(c.running))
 	for _, r := range c.running {
 		all = append(all, r)

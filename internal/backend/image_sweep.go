@@ -20,9 +20,11 @@ import (
 //
 //   - the image has no tag at all (the daemon's "dangling" filter, checked
 //     again here in case a runtime ignores it);
-//   - every repository digest it carries belongs to a repository this agent has
-//     prepared a runner, a sidecar or a worker from since it started, so a
-//     stranger's untagged image is never ours, and neither is one built here;
+//   - every repository digest it carries is one this agent resolved for a tag of
+//     that repository (a :dev or :latest it pulled) and that tag now resolves to
+//     a different digest, so an image the agent never saw a tag name, a stranger's
+//     untagged image, one built here and one pinned by digest reference are all
+//     left alone however long they sit idle;
 //   - no digest it carries was handed to a runner in the last imageHandoff,
 //     because a create resolves a reference to a digest and then starts a
 //     container from it, and an image removed in that gap fails the create;
@@ -40,20 +42,27 @@ const imageHandoff = 10 * time.Minute
 // imageLedger is what the agent remembers about the images it has prepared.
 type imageLedger struct {
 	mu sync.Mutex
-	// repos is every repository an image was prepared from, in the daemon's
-	// canonical spelling.
-	repos map[string]struct{}
+	// current is the digest each repository:tag last resolved to, in the
+	// daemon's canonical spelling. A reference pinned by digest has no tag to
+	// move and is never recorded here.
+	current map[string]string
+	// seen is every digest that was ever current for a tag, and the repository
+	// it was current in. It is what makes "superseded" mean something: an
+	// untagged image the agent never saw a tag name has no history to compare.
+	seen map[string]string
 	// handed is when each manifest digest was last handed to a create.
 	handed map[string]time.Time
 }
 
 // noteImage records that a runner, sidecar or worker is about to be created from
-// ref: its repository becomes one the sweep may clear superseded images from,
-// and its digest is kept out of the sweep for imageHandoff. The digest is best
-// effort (the caller has usually just resolved it), because a daemon that
-// cannot say only makes the sweep wait for the tag to settle.
+// ref. A tag reference records the digest the tag now resolves to, which is what
+// lets the sweep recognise the digest it resolved to before as superseded; a
+// reference pinned by digest records nothing, because nothing moved. The digest
+// is also kept out of the sweep for imageHandoff. It is best effort (the caller
+// has usually just resolved it), because a daemon that cannot say only makes the
+// sweep wait for the tag to settle.
 func (b *DockerBackend) noteImage(ref, digest string) {
-	name, _ := splitImageRef(ref)
+	name, tag := splitImageRef(ref)
 	repo := canonicalRepository(name)
 	if repo == "" {
 		return
@@ -61,13 +70,26 @@ func (b *DockerBackend) noteImage(ref, digest string) {
 	l := &b.images
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.repos == nil {
-		l.repos = map[string]struct{}{}
+	if l.current == nil {
+		l.current = map[string]string{}
+		l.seen = map[string]string{}
 		l.handed = map[string]time.Time{}
 	}
-	l.repos[repo] = struct{}{}
-	if digest = strings.TrimSpace(digest); digest != "" {
-		l.handed[digest] = time.Now()
+	// Entries older than the handoff protect nothing, so they go here and the
+	// map does not grow for the life of the agent.
+	for d, at := range l.handed {
+		if time.Since(at) >= imageHandoff {
+			delete(l.handed, d)
+		}
+	}
+	digest = strings.TrimSpace(digest)
+	if digest == "" {
+		return
+	}
+	l.handed[digest] = time.Now()
+	if !strings.HasPrefix(tag, "sha256:") && !strings.Contains(ref, "@") {
+		l.current[repo+":"+tag] = digest
+		l.seen[digest] = repo
 	}
 }
 
@@ -88,16 +110,19 @@ func canonicalRepository(name string) string {
 func (b *DockerBackend) SweepImages(ctx context.Context) (int, error) {
 	l := &b.images
 	l.mu.Lock()
-	repos := make(map[string]struct{}, len(l.repos))
-	for r := range l.repos {
-		repos[r] = struct{}{}
+	history := imageHistory{seen: make(map[string]string, len(l.seen)), current: make(map[string]struct{}, len(l.current))}
+	for d, r := range l.seen {
+		history.seen[d] = r
+	}
+	for _, d := range l.current {
+		history.current[d] = struct{}{}
 	}
 	handed := make(map[string]time.Time, len(l.handed))
 	for d, at := range l.handed {
 		handed[d] = at
 	}
 	l.mu.Unlock()
-	if len(repos) == 0 || (!b.imagesSince.IsZero() && time.Since(b.imagesSince) < imageHandoff) {
+	if len(history.seen) == 0 || (!b.imagesSince.IsZero() && time.Since(b.imagesSince) < imageHandoff) {
 		return 0, nil
 	}
 
@@ -110,7 +135,7 @@ func (b *DockerBackend) SweepImages(ctx context.Context) (int, error) {
 		if ctx.Err() != nil {
 			return removed, ctx.Err()
 		}
-		repo, ok := supersededImageRepository(img, repos, handed)
+		repo, ok := supersededImageRepository(img, history, handed)
 		if !ok {
 			continue
 		}
@@ -129,9 +154,16 @@ func (b *DockerBackend) SweepImages(ctx context.Context) (int, error) {
 	return removed, nil
 }
 
+// imageHistory is a snapshot of what the ledger knows about tags: every digest a
+// tag has resolved to, and the digests those tags resolve to now.
+type imageHistory struct {
+	seen    map[string]string
+	current map[string]struct{}
+}
+
 // supersededImageRepository reports whether img is one the sweep may remove, and
 // the repository it came from.
-func supersededImageRepository(img ImageSummary, repos map[string]struct{}, handed map[string]time.Time) (string, bool) {
+func supersededImageRepository(img ImageSummary, history imageHistory, handed map[string]time.Time) (string, bool) {
 	if img.ID == "" || len(img.RepoDigests) == 0 {
 		return "", false
 	}
@@ -147,7 +179,10 @@ func supersededImageRepository(img ImageSummary, repos map[string]struct{}, hand
 			return "", false
 		}
 		canon := canonicalRepository(name)
-		if _, ours := repos[canon]; !ours {
+		if history.seen[digest] != canon {
+			return "", false
+		}
+		if _, live := history.current[digest]; live {
 			return "", false
 		}
 		if at, ok := handed[digest]; ok && time.Since(at) < imageHandoff {

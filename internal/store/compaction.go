@@ -146,8 +146,15 @@ func (s *Store) Reclaim(ctx context.Context, opts ReclaimOptions) (ReclaimResult
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
+		before := stats.FreelistCount
 		if stats, err = s.PageStats(ctx); err != nil {
 			return result, err
+		}
+		// A slice that gave nothing back will give nothing back next time either
+		// (pages pinned by a reader, say), and looping on it would hold the writer
+		// until the budget ran out for no gain.
+		if stats.FreelistCount >= before {
+			break
 		}
 		if o.over(stats) && time.Since(started) >= o.Budget {
 			result.BudgetSpent = true
