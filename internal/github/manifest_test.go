@@ -67,8 +67,8 @@ func TestManifestOrgShape(t *testing.T) {
 	}
 
 	events, _ := m["default_events"].([]any)
-	if !slices.Equal(events, []any{"workflow_job", "issue_comment"}) {
-		t.Fatalf("default_events = %v, want [workflow_job issue_comment]", events)
+	if !slices.Equal(events, []any{"workflow_job"}) {
+		t.Fatalf("default_events = %v, want [workflow_job]: issue_comment needs pull_requests access, which this App does not hold", events)
 	}
 
 	// Runner administration, the read access that lets it see queued jobs and
@@ -504,6 +504,35 @@ func TestManifestAsksForContentsReadOnlyWhenKennelFilesAreWanted(t *testing.T) {
 		base.Migration = true
 		if got := permissions(t, decodeManifest(t, base))["contents"]; got != "write" {
 			t.Errorf("org=%q: with the migration wizard contents = %q, want write", org, got)
+		}
+	}
+}
+
+// GitHub validates the manifest as a whole and refuses it with "Default events
+// are not supported by permissions: issue_comment" when an event is subscribed
+// to without the permission that lets an App receive it. issue_comment needs
+// Issues or Pull requests read, which only the migration option grants, so a
+// manifest that always asked for the event could not create an App for anybody
+// who answered no to it (issue #1482). The rule is held here for every
+// combination of options, not for the one that happened to break.
+func TestManifestOnlySubscribesToEventsItsPermissionsAllow(t *testing.T) {
+	for _, org := range []string{"", "acme"} {
+		for _, migration := range []bool{false, true} {
+			for _, files := range []bool{false, true} {
+				m := decodeManifest(t, ManifestOptions{
+					Name: "zoomies", URL: "https://z.example", WebhookURL: "https://z.example/w",
+					Organization: org, Migration: migration, KennelFiles: files,
+				})
+				perms := permissions(t, m)
+				events, _ := m["default_events"].([]any)
+				if !slices.Contains(events, any("workflow_job")) {
+					t.Errorf("org=%q migration=%v: workflow_job is not subscribed: %v", org, migration, events)
+				}
+				hasPR := perms["pull_requests"] != "" || perms["issues"] != ""
+				if got := slices.Contains(events, any("issue_comment")); got != hasPR {
+					t.Errorf("org=%q migration=%v: issue_comment subscribed = %v with permissions %v; GitHub allows it only with issues or pull_requests access", org, migration, got, perms)
+				}
+			}
 		}
 	}
 }

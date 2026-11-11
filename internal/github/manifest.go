@@ -137,21 +137,32 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 		redirect = o.SetupURL
 	}
 
+	perms := manifestPermissions(o)
+
+	// workflow_job queues jobs, and every other delivery would be parsed and
+	// dropped. issue_comment carries a maintainer's /eli fix request, and GitHub
+	// refuses a manifest that subscribes to it without Issues or Pull requests
+	// access ("Default events are not supported by permissions: issue_comment"),
+	// which would stop an App being created at all. Eli's repairs already need
+	// pull_requests:write, so the event is asked for exactly when that is held
+	// and an App without it loses nothing it could have used.
+	events := []string{"workflow_job"}
+	if perms["pull_requests"] != "" || perms["issues"] != "" {
+		events = append(events, "issue_comment")
+	}
+
 	m := manifest{
 		Name: name,
 		URL:  o.URL,
 		// No secret is sent: GitHub generates one for a manifest-created App
 		// and returns it through the conversion, which Zoomies then seals.
-		HookAttributes: hookAttributes{URL: o.WebhookURL, Active: true},
-		RedirectURL:    redirect,
-		SetupURL:       o.SetupURL,
-		Description:    "Self-hosted runner fleet managed by Zoomies.",
-		Public:         o.Public,
-		// workflow_job queues jobs; issue_comment carries a maintainer's /eli
-		// fix request. Those are the only two Zoomies acts on, and every other
-		// delivery would be parsed and dropped.
-		DefaultEvents:      []string{"workflow_job", "issue_comment"},
-		DefaultPermissions: manifestPermissions(o),
+		HookAttributes:     hookAttributes{URL: o.WebhookURL, Active: true},
+		RedirectURL:        redirect,
+		SetupURL:           o.SetupURL,
+		Description:        "Self-hosted runner fleet managed by Zoomies.",
+		Public:             o.Public,
+		DefaultEvents:      events,
+		DefaultPermissions: perms,
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
