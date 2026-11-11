@@ -298,9 +298,8 @@
             shortly.
           </p>
         {/if}
-        {#if active}
-          <ProgressTrack {repair} {now} />
-        {:else}
+        <ProgressTrack {repair} {now} />
+        {#if !active}
           <OutcomeBanner {repair} />
           <NextSteps {repair} {view} />
         {/if}

@@ -1010,12 +1010,14 @@ Eli did on its own.
 A repair has a page of its own, at `/repairs/<id>`, that follows it from the
 moment it is queued. While Eli works it says one line: the current step, how
 long it has been going, and that nobody has to watch. The full five-step track
-is always shown beneath it, with each step's status. The page asks again every
-few seconds for as long as the tab is open and the repair has not finished.
-When it has finished it says how it ended in the controller's own words and
-what to try next. **What Eli was
-asked to fix** is a closed summary that opens the pull request, the run and the
-failed jobs as they were when the repair began, so the page still reads once
+is always shown beneath it and stays after the repair ends, with each step's
+final status; a step that stopped the repair says **Stopped at this step** and
+the steps after it were never started. The page asks again every few seconds
+for as long as the tab is open and the repair has not finished. When it has
+finished it says how it ended in the controller's own words and what to try
+next. **What Eli was asked to fix** is a closed summary that opens the pull
+request, the run and the failed jobs as they were when the repair began, so the
+page still reads once
 Zoomies has pruned the job records. **Technical details** is closed too, with the
 number of model calls, the source supplied and the time in its summary; opening
 it holds the model, the stage reached, the failure code when there is one, and

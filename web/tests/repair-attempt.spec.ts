@@ -149,7 +149,8 @@ test('a running repair shows where it is, follows itself to the end and then sto
     `https://github.com/acme/widgets/commit/${COMMIT}`,
   );
 
-  // The checks pass: the track gives way to the outcome.
+  // The checks pass: the outcome joins the track, which stays put with every
+  // step complete.
   state.attempts['rep-run'] = running({
     state: 'succeeded',
     commit_sha: COMMIT,
@@ -160,7 +161,10 @@ test('a running repair shows where it is, follows itself to the end and then sto
   await page.clock.runFor(4500);
   const outcome = page.getByRole('region', { name: 'Checks passed' });
   await expect(outcome).toContainText('Checks passed on Eli’s commit b7d3e91.');
-  await expect(progress).toHaveCount(0);
+  await expect(progress).toBeVisible();
+  await expect(steps).toHaveCount(5);
+  for (let i = 0; i < 5; i++) await expect(steps.nth(i)).toContainText('Done');
+  await expect(progress).not.toContainText('Stopped at this step');
   await expect(page.locator('output.sr-only', { hasText: 'Repair finished' })).toContainText(
     'Checks passed',
   );
@@ -241,7 +245,16 @@ test('a repair that could not fix the failure says why and what to try next', as
 
   const outcome = page.getByRole('region', { name: 'Could not repair' });
   await expect(outcome).toContainText('Eli could not produce a supported fix.');
-  await expect(page.getByRole('region', { name: 'Progress' })).toHaveCount(0);
+  // The track remains after the repair stops, and names the step it stopped on
+  // instead of calling it done or leaving it looking pending.
+  const progress = page.getByRole('region', { name: 'Progress' });
+  await expect(progress).toBeVisible();
+  const steps = progress.getByRole('list', { name: 'What Eli is doing' }).getByRole('listitem');
+  await expect(steps).toHaveCount(5);
+  await expect(steps.nth(1)).toContainText('Done');
+  await expect(steps.nth(2)).toContainText('Stopped at this step');
+  await expect(steps.nth(3)).toContainText('Not started');
+  await expect(steps.nth(3)).not.toContainText('Done');
   const asked = page.getByRole('region', { name: 'What Eli was asked to fix' });
   await expect(asked).toContainText('acme/widgets #17');
   await asked.locator('summary').first().click();

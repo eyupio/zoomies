@@ -80,8 +80,53 @@ test('every stage shows the whole sequence, with a status for each step', () => 
     );
     assert.equal(steps.length, REPAIR_TRACK.length);
     for (const step of steps) {
-      assert.ok(['done', 'current', 'todo'].includes(step.state));
+      assert.ok(['done', 'current', 'todo', 'stopped'].includes(step.state));
     }
     assert.equal(steps.filter((step) => step.state === 'current').length, 1);
+    assert.equal(steps.filter((step) => step.state === 'stopped').length, 0);
+  }
+});
+
+// A repair that stops mid-way keeps the sequence and names the step it stopped
+// on. The steps before it are done, it is stopped rather than in progress or
+// done, and the steps after it were never reached.
+test('a failed repair marks the step it reached as stopped and leaves the rest unstarted', () => {
+  assert.deepEqual(
+    trackSteps(at('prepare_fix', 'failed')).map((step) => step.state),
+    ['done', 'done', 'stopped', 'todo', 'todo'],
+  );
+  assert.deepEqual(
+    trackSteps(at('publish', 'interrupted')).map((step) => step.state),
+    ['done', 'done', 'done', 'stopped', 'todo'],
+  );
+  assert.deepEqual(
+    trackSteps(at('watch_ci', 'failed')).map((step) => step.state),
+    ['done', 'done', 'done', 'done', 'stopped'],
+  );
+  assert.equal(trackSteps(at('prepare_fix', 'failed'))[2]?.label, 'Preparing the fix');
+});
+
+// The track is permanent: a repair that has ended still has every step, with a
+// final status and nothing left in progress. A successful repair finished all
+// the work, even when CI later said the commit failed or its result is unknown.
+test('a finished repair keeps the whole sequence with final statuses', () => {
+  for (const state of ['succeeded', 'checks_failed', 'unverified']) {
+    const steps = trackSteps(at('watch_ci', state));
+    assert.equal(steps.length, REPAIR_TRACK.length);
+    assert.deepEqual(
+      steps.map((step) => step.state),
+      ['done', 'done', 'done', 'done', 'done'],
+    );
+  }
+  for (const [stage, state] of [
+    ['prepare_fix', 'failed'],
+    ['prepare_fix', 'blocked'],
+    ['publish', 'interrupted'],
+    ['watch_ci', 'superseded'],
+  ]) {
+    const steps = trackSteps(at(stage, state));
+    assert.equal(steps.length, REPAIR_TRACK.length);
+    assert.equal(steps.filter((step) => step.state === 'current').length, 0);
+    assert.equal(steps.filter((step) => step.state === 'stopped').length, 1);
   }
 });
