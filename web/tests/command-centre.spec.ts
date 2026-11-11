@@ -666,8 +666,62 @@ for (const [width, height] of [
       expect(box.top, `${name} starts inside the window`).toBeGreaterThanOrEqual(0);
       expect(box.bottom, `${name} ends inside the window`).toBeLessThanOrEqual(fit.client);
     }
+
+    // At 1440 by 900 this fleet's rail is longer than its share of the window,
+    // so it scrolls in itself, and its last list can be reached.
+    if (width === 1440) {
+      const finished = rail(page, 'Just finished');
+      const scroller = await finished.evaluate((el) => {
+        let node = el.parentElement;
+        while (node && getComputedStyle(node).overflowY === 'visible') node = node.parentElement;
+        return node ? { scroll: node.scrollHeight, client: node.clientHeight } : null;
+      });
+      expect(scroller, 'the rail scrolls in a container of its own').not.toBeNull();
+      expect(scroller!.scroll, 'the rail holds more than it shows').toBeGreaterThan(
+        scroller!.client,
+      );
+      const heading = finished.getByRole('heading', { level: 2 });
+      await heading.scrollIntoViewIfNeeded();
+      await expect(heading).toBeInViewport();
+    }
   });
 }
+
+/*
+ * A window too short to fit the bar, the hero, a usable deck and the ticker
+ * gives up fitting and scrolls, and the ticker stays below the deck rather
+ * than under it: the deck is placed from its frame, so a frame that spilled
+ * past its share of the page would paint the lanes over the ticker.
+ */
+test('in a short window the deck stops above the ticker instead of covering it', async ({
+  page,
+}) => {
+  test.skip(!!test.info().project.use.isMobile, 'a phone stacks the page and scrolls it');
+  await page.setViewportSize({ width: 1024, height: 560 });
+  await busyFleet(page, { hosts: 5, slots: 11, waiting: 12 });
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByTestId('command-lane')).toHaveCount(5);
+  const boxes = await page.evaluate(() => {
+    const box = (el: Element | null | undefined) => {
+      const r = el!.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    };
+    return {
+      deck: box(document.querySelector('[data-testid="command-deck"]')),
+      ticker: box(document.getElementById('command-ticker')?.closest('section')),
+    };
+  });
+  const { deck, ticker } = boxes;
+  const overlap =
+    deck.left < ticker.right &&
+    ticker.left < deck.right &&
+    deck.top < ticker.bottom &&
+    ticker.top < deck.bottom;
+  expect(
+    overlap,
+    `the deck at ${JSON.stringify(deck)} and the ticker at ${JSON.stringify(ticker)}`,
+  ).toBe(false);
+});
 
 test('on a phone the page still scrolls as a document, and never sideways', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });

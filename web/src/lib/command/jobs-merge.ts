@@ -60,6 +60,29 @@ export function mergeWaiting(list: readonly Job[], frame: Job): Job[] {
   return waitsHere(frame) ? [...rest, frame].sort(longestFirst) : rest;
 }
 
+/**
+ * The count of waiting jobs past the fetch's cap, after a frame. The fetch is
+ * oldest first, so the jobs it did not send are the newest it knew of, and its
+ * total counted them. A frame that puts in the list a job it did not hold,
+ * queued no later than the fetch, is one of those: it moves from the count to
+ * the list rather than being counted twice. A job queued after the fetch was
+ * in no total and only joins the list. A job past the cap that leaves the
+ * queue cannot be told from one this list never matched, so it moves nothing
+ * until the next fetch counts afresh.
+ */
+export function unlistedAfter(
+  unlisted: number,
+  held: readonly Job[],
+  frame: Job,
+  fetchedAt: number,
+): number {
+  if (unlisted <= 0 || !frame.id || !waitsHere(frame)) return Math.max(0, unlisted);
+  if (held.some((j) => j.id === frame.id)) return unlisted;
+  const queuedAt = toMillis(frame.queued_at);
+  if (queuedAt === null || queuedAt > fetchedAt) return unlisted;
+  return unlisted - 1;
+}
+
 /** The finished jobs still inside the window, so a list on a wall never grows stale rows. */
 export function pruneFinished(list: readonly Job[], now: number): Job[] {
   const since = now - FINISHED_WINDOW_MS;

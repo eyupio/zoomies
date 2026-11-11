@@ -11,6 +11,7 @@ import {
   mergeWaiting,
   pruneFinished,
   replayFrames,
+  unlistedAfter,
   waitingSummary,
 } from '../src/lib/command/jobs-merge.ts';
 
@@ -215,4 +216,31 @@ test('with no frames held, the fetched lists stand as they are', () => {
   const out = replayFrames(fetched, [], now);
   assert.deepEqual(ids(out.waiting), ['a']);
   assert.deepEqual(ids(out.finished), ['c']);
+});
+
+// The waiting read is capped, and the count past the cap comes from its
+// total. A frame for one of those jobs (queued before the fetch, never held)
+// that puts it in the list moves it from the count into the list; counting it
+// in both would read one too many until the next fetch. A job queued after
+// the fetch was in no total, so it only adds to the list.
+test('a job past the cap that joins the list moves out of the unlisted count, never below nought', () => {
+  const fetchedAt = now - 60_000;
+  const held = [queued('a', 120_000)];
+  // Queued ten minutes ago, before the fetch: it was one of the unlisted.
+  assert.equal(unlistedAfter(3, held, queued('z', 600_000), fetchedAt), 2);
+  assert.equal(unlistedAfter(0, held, queued('z', 600_000), fetchedAt), 0);
+  // Already held: nothing moves, however many times its frame arrives.
+  assert.equal(unlistedAfter(3, held, queued('a', 120_000), fetchedAt), 3);
+  // Queued after the fetch: a new job, which no total counted.
+  assert.equal(unlistedAfter(3, held, queued('n', 1_000), fetchedAt), 3);
+  // A frame that does not put the job in the list moves nothing.
+  assert.equal(
+    unlistedAfter(
+      3,
+      held,
+      queued('s', 600_000, { state: 'in_progress', started_at: ago(5) }),
+      fetchedAt,
+    ),
+    3,
+  );
 });

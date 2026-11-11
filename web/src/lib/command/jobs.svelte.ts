@@ -16,6 +16,7 @@ import {
   mergeFinished,
   mergeWaiting,
   pruneFinished,
+  unlistedAfter,
   replayFrames,
 } from './jobs-merge';
 
@@ -35,11 +36,14 @@ let unfetched = $state(0);
 /**
  * Queued jobs past the fetch's cap: the newest of the queue, since the fetch is
  * oldest first. They are counted from the read's total so "and N more" is the
- * queue's length, not the cap's. Frames do not move it (a job that leaves the
- * queue from here was never listed, and one that joins it is listed), so it
- * stands until the next fetch, which a refresh or a reconnect makes.
+ * queue's length, not the cap's. A frame that brings one of them into the
+ * list moves it out of here (`unlistedAfter`); one that leaves the queue
+ * cannot be told apart, so the rest stands until the next fetch, which a
+ * refresh or a reconnect makes.
  */
 let unlisted = $state(0);
+/** When the fetch that set `unlisted` went out, on this browser's clock. */
+let fetchedAt = 0;
 let error = $state.raw<ApiError | null>(null);
 /**
  * True once a fetch has answered, either way. Until then the rail draws its
@@ -70,7 +74,8 @@ async function load(): Promise<void> {
   const abort = new AbortController();
   pending = abort;
   held = [];
-  const since = new Date(Date.now() - FINISHED_WINDOW_MS).toISOString();
+  const asked = Date.now();
+  const since = new Date(asked - FINISHED_WINDOW_MS).toISOString();
   try {
     const [queue, done] = await Promise.all([
       listProvisioning(
@@ -99,6 +104,14 @@ async function load(): Promise<void> {
     const now = Date.now();
     const items = done.items ?? [];
     const fetchedFinished = items.reduce<Job[]>((list, job) => mergeFinished(list, job, now), []);
+    // The frames held through the fetch are counted against its total the same
+    // way a later frame is, in the order they landed.
+    let past = Math.max(0, (queue.total ?? 0) - (queue.items ?? []).length);
+    let seen = fetchedWaiting;
+    for (const frame of held) {
+      past = unlistedAfter(past, seen, frame, asked);
+      seen = mergeWaiting(seen, frame);
+    }
     ({ waiting, finished } = replayFrames(
       { waiting: fetchedWaiting, finished: fetchedFinished },
       held,
@@ -107,7 +120,8 @@ async function load(): Promise<void> {
     held = [];
     pending = null;
     unfetched = Math.max(0, (done.total ?? 0) - items.length);
-    unlisted = Math.max(0, (queue.total ?? 0) - (queue.items ?? []).length);
+    unlisted = past;
+    fetchedAt = asked;
     error = null;
     loaded = true;
   } catch (e) {
@@ -148,6 +162,7 @@ export const commandJobs = {
     started = true;
     stopFrames = events.subscribe('job.updated', (job) => {
       if (pending) held.push(job);
+      unlisted = unlistedAfter(unlisted, waiting, job, fetchedAt);
       waiting = mergeWaiting(waiting, job);
       finished = mergeFinished(finished, job, Date.now());
     });

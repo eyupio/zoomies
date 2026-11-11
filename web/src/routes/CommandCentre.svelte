@@ -502,19 +502,28 @@
     font-size: var(--z-text-sm);
     color: var(--z-text-muted);
   }
+  /* No `min-height: 0` here: the stage may not shrink below the hero and the
+     frame's least height, so a window too short for them pushes the ticker
+     down, after the frame, and the document scrolls. A stage allowed to
+     shrink further left the frame spilling out of it over the ticker, and the
+     deck, placed from the frame, painted its lanes on top. */
   .stage {
     display: flex;
     flex: 1;
     flex-direction: column;
-    min-height: 0;
   }
   /* What the deck is placed against. It never shrinks to nothing: on a
      window too short for the bar, the hero and the ticker, the page gives up
-     fitting and scrolls rather than drawing a deck no lane can be seen in. */
+     fitting and scrolls rather than drawing a deck no lane can be seen in.
+     Its size is the flex layout's, never its content's (the rail's whole
+     length would otherwise be its least height), so 12rem is its floor. The
+     gutter is the board's padding, which the deck's inset repeats. */
   .frame {
+    --command-gutter: var(--z-space-6);
     position: relative;
     flex: 1;
     min-height: 12rem;
+    contain: size;
   }
   /* The rail on the right, scrolling in the board, which is the rail's
      scroller and nothing else's: the deck is placed from the frame, outside
@@ -526,7 +535,7 @@
     align-content: start;
     gap: var(--z-space-4) var(--z-space-6);
     height: 100%;
-    padding: var(--z-space-6);
+    padding: var(--command-gutter);
     overflow-y: auto;
     overscroll-behavior: contain;
   }
@@ -536,7 +545,9 @@
      button stands its gap from the window's foot, which the ticker under the
      frame fills, and its own height above that; the scroller stops that
      height and a little air above the frame's foot. The deck is placed from
-     the frame, so it keeps its full height. */
+     the frame, so it keeps its full height. This holds while the ticker is
+     at least about 32px tall (the button's gap less that air); it is 41px
+     with entries and 37px empty. */
   [data-assistant='true'] .board {
     height: calc(100% - var(--z-eli-launcher) - var(--z-space-2));
   }
@@ -550,9 +561,9 @@
      otherwise cut. */
   .deck {
     position: absolute;
-    inset: calc(var(--z-space-6) - var(--z-space-1))
-      calc(var(--z-space-6) * 2 + var(--z-command-rail) - var(--z-space-1))
-      calc(var(--z-space-6) - var(--z-space-1)) calc(var(--z-space-6) - var(--z-space-1));
+    inset: calc(var(--command-gutter) - var(--z-space-1))
+      calc(var(--command-gutter) * 2 + var(--z-command-rail) - var(--z-space-1))
+      calc(var(--command-gutter) - var(--z-space-1)) calc(var(--command-gutter) - var(--z-space-1));
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
@@ -580,6 +591,14 @@
   .deck-error {
     grid-column: 1 / -1;
   }
+  /* Beside a rail of fixed width, a deck under about a thousand pixels wide
+     has no room for two lanes abreast: each would be a column of cramped
+     tiles. One lane to a row, until the phone stacks the page. */
+  @media (max-width: 1000px) {
+    .deck {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
   @media (max-width: 768px) {
     .bar {
       padding: var(--z-space-2) var(--z-space-4);
@@ -600,6 +619,7 @@
       display: block;
       position: static;
       min-height: 0;
+      contain: none;
     }
     .board {
       grid-template-columns: minmax(0, 1fr);
