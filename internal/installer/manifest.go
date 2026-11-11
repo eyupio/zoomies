@@ -381,7 +381,11 @@ func (i *Installer) checkWebhookReachable(ctx context.Context, p *Plan) error {
 // consent screen should find exactly what this list promised.
 func (i *Installer) notePermissions(p *Plan) {
 	i.ui.note("permissions   actions:read, checks:read, statuses:read, metadata:read,")
-	i.ui.note("              " + runnerPermission(p.GitHub.TargetType) + ":write, events workflow_job, issue_comment")
+	events := "events workflow_job"
+	if p.GitHub.Migration {
+		events += ", issue_comment"
+	}
+	i.ui.note("              " + runnerPermission(p.GitHub.TargetType) + ":write, " + events)
 	if askedForAdministrationRead(p) {
 		i.ui.note("              administration:read (for Kennel Club's checks of repository settings)")
 	}
