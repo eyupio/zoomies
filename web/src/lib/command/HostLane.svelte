@@ -1,12 +1,13 @@
 <!--
-  One host on the command centre: its name, one word about it and a cell for
-  each slot it has.
+  One host on the command centre: its name, one word about it, a tile for each
+  runner on it and one cell for the slots left.
 
   The lane says its own state where the verdict would otherwise have to name
   it, and takes that state's colour as its border, so the sentence at the top
-  and the lane it means are the same colour. The cells are keyed by slot, not
-  by runner: a slot is a fixed place on the host, so a runner leaving fades
-  out of its cell and nothing beside it moves.
+  and the lane it means are the same colour. The cells are keyed by runner, so
+  a tile keeps its identity when one before it leaves; the ones after it close
+  up without their position being animated, since motion is for colour and
+  the mark, never layout.
 -->
 <script lang="ts">
   import { CirclePause, Clock, TriangleAlert } from '@lucide/svelte';

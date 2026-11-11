@@ -92,13 +92,16 @@ Four bands, top to bottom, at desktop width:
 
 One lane for each host that is not retired, ordered by slots, largest first. A
 lane's header carries the host's name, its slot sentence and its measured CPU.
-Under it is a grid with one cell for each slot:
+Under it is a grid with a tile for each runner and one cell for the room left:
 
 * a **runner tile** for a live runner: status mark, job name, repository and
   branch (the job record carries no pull request number), age, and a CPU bar;
 * a **starting tile** for a runner that is provisioning or registering, in the
   pending shape, saying which step it is at;
-* a **free cell**, a dashed outline with the idle mark.
+* one **free cell** that counts the host's free slots ("14 free slots", "1 free
+  slot"), a dashed outline with the idle mark, the height of a runner tile and
+  the width of one. A full host has none, and a wholly idle host is its header
+  and that one cell.
 
 A lane reports its own state where the verdict would otherwise have to: a full
 host with jobs waiting for it says "full, 2 jobs wait" and takes a pending
@@ -106,12 +109,15 @@ border; a throttled, unhealthy or cordoned host says so in its own words and
 takes the matching status border. The verdict's sentence and the lane it means
 therefore carry the same colour.
 
-Slots are a fixed count for a host, so the grid does not reflow when a runner
-comes or goes: a tile fades into the cell it occupies and out of it. This is
-what keeps the page inside the rule that state changes animate colour and the
-mark, never layout.
+An earlier version drew a cell for every slot, so that nothing reflowed; an idle
+host of fourteen slots was then fourteen identical dashed boxes, and the page
+was mostly empty outlines, worst on a phone. Now a tile entering or leaving
+moves the ones after it along. Each tile is keyed by its runner, so it keeps its
+identity when one before it leaves; a new tile fades in where it lands, and no
+position is animated, which keeps the page inside the rule that state changes
+animate colour and the mark, never layout.
 
-Two small hosts share a row; a host with more than one row of slots takes the
+Two small hosts share a row; a host with more than one row of cells takes the
 full width.
 
 ### The rail
@@ -292,7 +298,7 @@ latest three entries.
 * **Loading**: skeletons in the shape of each band.
 * **Empty fleet** (no hosts): the verdict says so and links to adding a host;
   the deck is absent.
-* **Quiet**: every cell free, the halos still, Waiting and Just finished
+* **Quiet**: every host one free cell, the halos still, Waiting and Just finished
   showing their own one-line empty sentences.
 * **Not live**: as described under Data.
 * **Trouble**: a failed runner tile in the danger shape with its fault's fix

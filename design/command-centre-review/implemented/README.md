@@ -28,9 +28,11 @@ exercised by the browser specifications.
   Overview in the navigation, and it is in the menu More opens on a phone.
 - One verdict, a ring of slots in use, three figures and an hour of running
   jobs and queue depth, all computed from the same snapshot as the lanes.
-- A lane for each host with a tile for each slot, so the grid does not reflow
-  when a runner comes or goes; a lane says in words why it is full, cordoned or
-  unhealthy.
+- A lane for each host with a tile for each runner and one cell counting its
+  free slots ("14 free slots"); a lane says in words why it is full, cordoned or
+  unhealthy. The captures above predate the single free cell and still show a
+  cell for every slot. A tile entering or leaving moves the ones after it; each
+  is keyed by its runner, fades in where it lands, and never slides.
 - Waiting, Needs attention and Just finished in a rail, and a ticker of recent
   events. Every item links to its detail; a job opens the drawer in place.
 - At desktop width the page fits the window exactly, and the deck and the rail

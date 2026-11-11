@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Host, Job, Runner } from '../src/lib/api/types.ts';
-import { WIDE_FROM, lanes } from '../src/lib/command/lanes.ts';
+import { WIDE_FROM, freeSlots, lanes } from '../src/lib/command/lanes.ts';
 
 const host = (id: string, slots: number, extra: Partial<Host> = {}): Host => ({
   id,
@@ -20,15 +20,19 @@ const runner = (host_id: string, state: Runner['state'], extra: Partial<Runner> 
 });
 const job = (pool_name: string): Job => ({ id: `j${(serial += 1)}`, state: 'queued', pool_name });
 
-test('a host is one cell for each slot: its runners first, then starting ones, then free', () => {
+test('a host is its runners, then starting ones, then one free cell that counts the rest', () => {
   const [lane] = lanes([host('a', 4)], [runner('a', 'busy'), runner('a', 'provisioning')], []);
   assert.deepEqual(
     lane!.cells.map((c) => c.kind),
-    ['runner', 'starting', 'free', 'free'],
+    ['runner', 'starting', 'free'],
   );
+  assert.equal(lane!.cells[2]!.count, 2);
+  assert.equal(lane!.cells[0]!.count, undefined);
+  assert.equal(lane!.slots, 4);
+  assert.equal(lane!.free, 2);
 });
 
-test('a runner cell opens the runner and a free cell opens the host', () => {
+test('a runner cell opens the runner and the free cell opens the host', () => {
   const r = runner('a', 'busy');
   const [lane] = lanes([host('a', 2)], [r], []);
   assert.equal(lane!.cells[0]!.href, `/runners/${r.id}`);
@@ -36,36 +40,62 @@ test('a runner cell opens the runner and a free cell opens the host', () => {
   assert.equal(lane!.href, '/hosts/a');
 });
 
-// A cell is keyed by its place in the lane, so a runner leaving repaints one
-// cell instead of sliding the others along and replaying every transition.
-test('the cells keep their place when a runner leaves', () => {
+// A tile is keyed by its runner, so one leaving takes its own tile away and
+// the tiles after it are the same tiles, not repainted ones replaying their
+// entrance.
+test('the keys are stable when a runner leaves', () => {
   const a = runner('a', 'busy');
   const b = runner('a', 'busy');
-  const before = lanes([host('a', 3)], [a, b], [])[0]!;
-  const after = lanes([host('a', 3)], [a, runner('a', 'removed')], [])[0]!;
+  const c = runner('a', 'busy');
+  const before = lanes([host('a', 4)], [a, b, c], [])[0]!;
+  const after = lanes([host('a', 4)], [a, { ...b, state: 'removed' }, c], [])[0]!;
   assert.deepEqual(
-    before.cells.map((c) => c.key),
-    ['a:0', 'a:1', 'a:2'],
+    before.cells.map((x) => x.key),
+    [a.id, b.id, c.id, 'a:free'],
   );
   assert.deepEqual(
-    after.cells.map((c) => c.key),
-    ['a:0', 'a:1', 'a:2'],
+    after.cells.map((x) => x.key),
+    [a.id, c.id, 'a:free'],
   );
-  assert.equal(after.cells[0]!.runner?.id, a.id);
-  assert.equal(after.cells[1]!.kind, 'free');
+  assert.equal(after.cells[2]!.count, 2);
+});
+
+test('a full host has no free cell', () => {
+  const [lane] = lanes([host('a', 2)], [runner('a', 'busy'), runner('a', 'idle')], []);
+  assert.deepEqual(
+    lane!.cells.map((c) => c.kind),
+    ['runner', 'runner'],
+  );
+  assert.equal(lane!.free, 0);
 });
 
 test('more runners than slots are all shown, and no free cell is invented', () => {
   const [lane] = lanes([host('a', 1)], [runner('a', 'busy'), runner('a', 'busy')], []);
   assert.equal(lane!.cells.length, 2);
   assert.ok(lane!.cells.every((c) => c.kind === 'runner'));
+  assert.equal(lane!.state, 'full');
+});
+
+test('a wholly idle host is one free cell', () => {
+  const [lane] = lanes([host('a', 14)], [], []);
+  assert.deepEqual(
+    lane!.cells.map((c) => [c.kind, c.key, c.count]),
+    [['free', 'a:free', 14]],
+  );
+  assert.equal(lane!.note, '0 of 14 slots');
+});
+
+test('the free cell says how many slots it stands for, one or many', () => {
+  assert.equal(freeSlots(1), '1 free slot');
+  assert.equal(freeSlots(14), '14 free slots');
+  assert.equal(freeSlots(1200), `${(1200).toLocaleString()} free slots`);
 });
 
 test('removed and failed runners hold no cell', () => {
   const [lane] = lanes([host('a', 2)], [runner('a', 'removed'), runner('a', 'failed')], []);
   assert.deepEqual(
-    lane!.cells.map((c) => c.kind),
-    ['free', 'free'],
+    lane!.cells.map((c) => [c.kind, c.count]),
+    [['free', 2]],
   );
 });
 
@@ -81,9 +111,13 @@ test('the largest host comes first, and ties keep the name order', () => {
   );
 });
 
-test('a host with a few slots is not wide, and one with more is', () => {
-  assert.equal(lanes([host('a', WIDE_FROM)], [], [])[0]!.wide, false);
-  assert.equal(lanes([host('a', WIDE_FROM + 1)], [], [])[0]!.wide, true);
+// Wide is about the cells drawn, not the slots: an idle host of fourteen slots
+// is one cell and shares its row like any small host.
+test('a lane with a few cells is not wide, and one with more is', () => {
+  const busy = (n: number) => Array.from({ length: n }, () => runner('a', 'busy'));
+  assert.equal(lanes([host('a', WIDE_FROM)], busy(WIDE_FROM), [])[0]!.wide, false);
+  assert.equal(lanes([host('a', WIDE_FROM + 1)], busy(WIDE_FROM + 1), [])[0]!.wide, true);
+  assert.equal(lanes([host('a', 14)], [], [])[0]!.wide, false);
 });
 
 test('a host with room says how much of it is taken', () => {

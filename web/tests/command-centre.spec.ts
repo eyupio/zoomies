@@ -303,11 +303,11 @@ test('a runner tile opens its runner', async ({ page }) => {
   await expect(pageHeading(page, 'Command centre')).toBeVisible();
 });
 
-test('a free cell opens its host', async ({ page }) => {
+test('a free cell counts the free slots on its host and opens the host', async ({ page }) => {
   await goto(page, '/command', 'Command centre');
   const cell = page.getByTestId('command-free').first();
   await expect(cell).toHaveAttribute('href', /^\/hosts\/[^/]+$/);
-  await expect(cell).toHaveAccessibleName(/^Free slot on /);
+  await expect(cell).toHaveAccessibleName(/^\d+ free slots? on /);
   await cell.click();
   await expect(page).toHaveURL(/\/hosts\/[^/]+$/);
 });
@@ -586,7 +586,13 @@ test('forty hosts are forty lanes, and the deck scrolls to hold them', async ({ 
   const lanes = page.getByTestId('command-lane');
   await expect(lanes).toHaveCount(40);
   await expect(page.getByTestId('command-tile')).toHaveCount(80);
-  await expect(page.getByTestId('command-free')).toHaveCount(120);
+  // One free cell for each host, counting its three free slots, rather than a
+  // dashed box for every one of them.
+  const free = page.getByTestId('command-free');
+  await expect(free).toHaveCount(40);
+  for (const text of await free.locator('.title').allTextContents()) {
+    expect(text.trim()).toBe('3 free slots');
+  }
   const phone = !!test.info().project.use.isMobile;
   const sizes = await page.evaluate(() => {
     const deck = document.querySelector<HTMLElement>('[data-testid="command-deck"]')!;

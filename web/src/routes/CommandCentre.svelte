@@ -119,10 +119,12 @@
   */
   const deck = $derived(lanes(fleet.hosts, fleet.runners, commandJobs.waiting));
   const cells = $derived(deck.flatMap((lane) => lane.cells));
-  const slots = $derived(cells.length);
+  // The free cell stands for every free slot on its host, so slots are
+  // counted from the lanes rather than from the cells drawn.
+  const slots = $derived(deck.reduce((sum, lane) => sum + lane.slots, 0));
   const busy = $derived(cells.filter((c) => c.runner?.state === 'busy').length);
   const starting = $derived(cells.filter((c) => c.kind === 'starting').length);
-  const free = $derived(cells.filter((c) => c.kind === 'free').length);
+  const free = $derived(deck.reduce((sum, lane) => sum + lane.free, 0));
 
   /** The name the verdict gives a problem's target: the host or pool by its name. */
   function targetName(problem: Problem | undefined): string | null {

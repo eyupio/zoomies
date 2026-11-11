@@ -1,6 +1,6 @@
 <!--
   The command centre's deck in the states a healthy fleet rarely shows: a lane
-  in each of its states, and a tile for each kind of slot, including a job
+  in each of its states, and a tile for each kind of cell, including a job
   whose name is four hundred characters long and must not widen its cell. And
   the rail before its first read has answered, which a page that loads fast
   shows for a moment nobody can review.
@@ -65,6 +65,8 @@
     host('lane-unreachable', 2, { healthy: false, usage_fresh: false }),
     host('lane-cordoned', 2, { cordoned: true }),
     host('lane-wide', 6),
+    // Wholly idle: its header and one cell counting all fourteen slots.
+    host('lane-idle', 14),
   ];
   const RUNNERS: Runner[] = [
     runner('ok-1', 'lane-ok', 'busy', { current_job: job('test (ubuntu)'), cpu_percent: 140 }),
@@ -83,10 +85,10 @@
   ];
   const LANES = lanes(HOSTS, RUNNERS, QUEUED);
 
-  const tile = (kind: Cell['kind'], r?: Runner): Cell =>
+  const tile = (kind: Cell['kind'], r?: Runner, count = 1): Cell =>
     r?.id
       ? { key: `tile:${r.id}`, kind, href: runnerHref(r.id), runner: r }
-      : { key: `tile:free`, kind, href: hostHref('lane-ok') };
+      : { key: `tile:free:${count}`, kind, href: hostHref('lane-ok'), count };
 
   const TILES: [string, Cell][] = [
     [
@@ -117,16 +119,20 @@
         }),
       ),
     ],
-    ['Free slot', tile('free')],
+    ['One free slot', tile('free', undefined, 1)],
+    ['Free slots, counted in one cell', tile('free', undefined, 14)],
   ];
 </script>
 
 <Panel
   title="Command centre"
-  description="The deck's lanes in each state, a tile for each kind of slot, and the rail while it loads. Built by the page's own lanes() from fixtures."
+  description="The deck's lanes in each state, a tile for each kind of cell, and the rail while it loads. Built by the page's own lanes() from fixtures."
 >
   <div class="block">
-    <h3>Lanes: room to spare, full with jobs waiting, throttled, not answering, cordoned, wide</h3>
+    <h3>
+      Lanes: room to spare, full with jobs waiting, throttled, not answering, cordoned, wide, wholly
+      idle
+    </h3>
     <div class="deck">
       {#each LANES as lane (lane.host.id)}
         <HostLane {lane} />

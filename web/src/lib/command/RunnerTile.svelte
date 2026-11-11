@@ -1,10 +1,11 @@
 <!--
-  One slot of a host lane: a runner, a runner on its way, or room for one.
+  One cell of a host lane: a runner, a runner on its way, or the room left on
+  the host, counted in one cell.
 
   The whole tile is one link and holds no second control, so a wall display can
   be driven with Tab and every tile opens in a new tab like any other link. It
-  is one height whatever it holds, so a runner arriving or leaving changes the
-  tile's colour and mark and never the lane around it.
+  is one height whatever it holds. A runner arriving or leaving moves the tiles
+  after it along by one; each fades in where it lands, and nothing slides.
 
   Everything a workflow names (the job, the repository, the branch) is
   somebody else's text: it is rendered as text and cut with an ellipsis, so a
@@ -18,7 +19,7 @@
   import RunnerStatus from '$lib/runners/RunnerStatus.svelte';
   import { cpuShare } from './chart';
   import { clock } from './clock.svelte';
-  import type { Cell } from './lanes';
+  import { freeSlots, type Cell } from './lanes';
   import { elapsedMs } from './time';
 
   interface Props {
@@ -36,7 +37,7 @@
   const runner = $derived(cell.runner);
   const job = $derived(runner?.current_job);
   const title = $derived.by(() => {
-    if (!runner) return 'Free slot';
+    if (!runner) return freeSlots(cell.count ?? 0);
     if (cell.kind === 'starting') return STEP[runner.state ?? 'provisioning'] ?? 'Starting';
     if (job) return readableJobText(job.job_name) || 'A job';
     if (runner.state === 'draining') return 'Draining';
@@ -83,11 +84,11 @@
     class="tile free"
     href={cell.href}
     data-testid="command-free"
-    aria-label="Free slot on {hostName}"
+    aria-label="{title} on {hostName}"
   >
     <span class="line">
       <RunnerStatus mark runner={{ id: cell.key, state: 'idle' }} />
-      <span class="title">Free slot</span>
+      <span class="title">{title}</span>
     </span>
   </a>
 {/if}
