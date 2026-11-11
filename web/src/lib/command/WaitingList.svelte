@@ -12,6 +12,7 @@
   import RailSkeleton from './RailSkeleton.svelte';
   import type { Job } from '$lib/api/types';
   import ErrorState from '$lib/components/ErrorState.svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import OffStatusIcon from '$lib/components/OffStatusIcon.svelte';
   import { formatDuration, NO_VALUE } from '$lib/format';
   import { queuedActivity } from '$lib/jobs/activity-status';
@@ -21,6 +22,7 @@
   import { WAITING_SHOWN } from './jobs-merge';
   import { QUEUE_HREF } from './links';
   import { elapsedMs } from './time';
+  import { waitingTip } from './tips';
 
   interface Props {
     jobs: readonly Job[];
@@ -60,17 +62,19 @@
       {#each shown as job (job.id)}
         {@const activity = queuedActivity(job, prefs.quirkyStatus)}
         <li>
-          <button type="button" class="row" onclick={() => onopen(job)}>
-            <span class="mark"><OffStatusIcon status={activity.status} seed={job.id} /></span>
-            <span class="what">
-              <span class="name">{readableJobName(job.job_name)}</span>
-              <span class="where">{job.repo || NO_VALUE}</span>
-            </span>
-            <span class="side">
-              <span class="wait">{wait(job)}</span>
-              <span class="why">{activity.label}</span>
-            </span>
-          </button>
+          <Tooltip bare detail={waitingTip(job, activity, clock.now)}>
+            <button type="button" class="row" onclick={() => onopen(job)}>
+              <span class="mark"><OffStatusIcon status={activity.status} seed={job.id} /></span>
+              <span class="what">
+                <span class="name">{readableJobName(job.job_name)}</span>
+                <span class="where">{job.repo || NO_VALUE}</span>
+              </span>
+              <span class="side">
+                <span class="wait">{wait(job)}</span>
+                <span class="why">{activity.label}</span>
+              </span>
+            </button>
+          </Tooltip>
         </li>
       {/each}
     </ul>

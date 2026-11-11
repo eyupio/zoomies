@@ -66,7 +66,7 @@ test("the success figure's label and link follow the stats window", () => {
     assert.equal(url.pathname, '/jobs');
     assert.equal(url.searchParams.get('state'), 'completed');
     assert.equal(url.searchParams.get('since'), new Date(NOW - ms).toISOString(), String(window));
-    assert.doesNotMatch(succeeded.help, /today/);
+    assert.doesNotMatch(succeeded.opens, /today/);
   }
 });
 

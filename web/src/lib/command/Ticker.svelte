@@ -13,9 +13,12 @@
 <script lang="ts">
   import { Pause } from '@lucide/svelte';
   import Button from '$lib/components/Button.svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import type { FeedEntry } from '$lib/feed/entries';
   import { toMillis } from '$lib/format';
   import { toneTokens } from '$lib/status';
+  import { clock as pageClock } from './clock.svelte';
+  import { tickerTip } from './tips';
 
   interface Props {
     entries: readonly FeedEntry[];
@@ -84,14 +87,30 @@
   {#if entry.target}<span class="target">{entry.target.label}</span>{/if}
 {/snippet}
 
+{#snippet item(entry: FeedEntry)}
+  {#if entry.target?.href}
+    <a class="entry" href={entry.target.href}>{@render line(entry)}</a>
+  {:else}
+    <span class="entry">{@render line(entry)}</span>
+  {/if}
+{/snippet}
+
+<!--
+  Only the first copy carries a card. The second is inert decoration, which a
+  pointer passes through, and a second description for every entry would read
+  each one twice. Hovering already holds the strip still, and the bubble is
+  inside the strip, so the pointer on the card keeps it held.
+-->
 {#snippet list(copy: boolean)}
   <ul class="entries" bind:clientWidth={null, (w: number) => measure(copy, w)}>
     {#each latest as entry (entry.id)}
       <li>
-        {#if entry.target?.href}
-          <a class="entry" href={entry.target.href}>{@render line(entry)}</a>
+        {#if copy}
+          {@render item(entry)}
         {:else}
-          <span class="entry">{@render line(entry)}</span>
+          <Tooltip bare quiet detail={tickerTip(entry, pageClock.now)}
+            >{@render item(entry)}</Tooltip
+          >
         {/if}
       </li>
     {/each}

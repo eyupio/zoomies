@@ -302,6 +302,7 @@
         running={busy}
         {busy}
         {slots}
+        lanes={deck}
         now={clock.now}
         loading={!fleet.loaded}
       />

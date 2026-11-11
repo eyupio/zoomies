@@ -12,12 +12,14 @@ import { describeWindow, formatDuration, NO_VALUE, parseGoDuration } from '../fo
 import { finishedSinceHref, QUEUE_HREF, RUNNERS_HREF } from './links';
 
 export interface HeroFigure {
+  /** Which figure this is, so its tooltip can be worked out from the same stats. */
+  key: 'wait' | 'start' | 'succeeded';
   label: string;
   value: string;
   note: string;
   href: string;
-  /** Where the figure leads, for the shared tooltip. */
-  help: string;
+  /** Where the figure leads, as the tooltip's last row names it. */
+  opens: string;
 }
 
 const AN_HOUR = 60 * 60 * 1000;
@@ -27,7 +29,7 @@ const AN_HOUR = 60 * 60 * 1000;
  * window the page cannot read is taken as the hour the controller defaults
  * to, as the Overview's figures take it, so the label and the link agree.
  */
-function lastWindow(window: string | undefined): { words: string; ms: number } {
+export function lastWindow(window: string | undefined): { words: string; ms: number } {
   const ms = parseGoDuration(window);
   const words = ms && ms > 0 ? describeWindow(window) : '';
   if (!ms || ms <= 0 || words === '') return { words: 'last hour', ms: AN_HOUR };
@@ -39,7 +41,7 @@ function lastWindow(window: string | undefined): { words: string; ms: number } {
  * The controller answers zero for a timing it has no samples for, and "0ms"
  * claims instant work where the honest answer is that nothing was measured.
  */
-function measured(ms: number | undefined): number | undefined {
+export function measured(ms: number | undefined): number | undefined {
   return ms !== undefined && ms > 0 ? ms : undefined;
 }
 
@@ -58,28 +60,31 @@ export function heroFigures(stats: Stats | null | undefined, now: number): HeroF
 
   return [
     {
+      key: 'wait',
       label: 'Median wait',
       value: formatDuration(wait),
       note: waitP95 === undefined ? NO_VALUE : `p95 ${formatDuration(waitP95)}`,
       href: QUEUE_HREF,
-      help: 'Open the queue.',
+      opens: 'The queue',
     },
     {
+      key: 'start',
       label: 'Runner start',
       value: formatDuration(startup),
       note: startupP95 === undefined ? NO_VALUE : `p95 ${formatDuration(startupP95)}`,
       href: RUNNERS_HREF,
-      help: 'Open the runners.',
+      opens: 'The runners',
     },
     {
       // The share is over the controller's stats window, so the label names
       // that window and the link opens the jobs finished in it: the figure
       // and the list it opens are the same set.
+      key: 'succeeded',
       label: `Succeeded, ${window.words}`,
       value: completed > 0 ? `${Math.round((succeeded / completed) * 100)}%` : NO_VALUE,
       note: completed > 0 ? `${succeeded} of ${completed} finished` : 'nothing finished',
       href: finishedSinceHref(new Date(now - window.ms)),
-      help: `Open the jobs finished in the ${window.words}.`,
+      opens: `The jobs finished in the ${window.words}`,
     },
   ];
 }

@@ -12,12 +12,16 @@ import { mount, unmount } from 'svelte';
 import { focusWasPlaced } from './keys';
 import TooltipBubble from './components/TooltipBubble.svelte';
 import { tooltips, type Bubble, type Wait } from './tooltip';
+import { detailSentence, type TipDetail } from './tooltip-detail';
 import { descriptionHost } from './tooltip-description';
 import { whenPointerMoves } from './tooltip-intent';
 import type { Side } from './tooltip-place';
 
 export interface AttachedTip {
+  /** The sentence. With `detail`, only what assistive technology gets; empty, the card is read instead. */
   text: string;
+  /** A title and label and value rows, drawn in place of the sentence. */
+  detail?: TipDetail;
   placement?: Side;
   wait?: Wait;
 }
@@ -35,7 +39,9 @@ export function attachTip(el: HTMLElement, tip: AttachedTip): () => void {
         props: {
           anchor: el,
           placement: tip.placement ?? 'top',
-          text: tip.text,
+          text: tip.detail ? undefined : tip.text,
+          detail: tip.detail,
+          size: tip.detail ? 'wide' : 'default',
           onclose: () => tooltips.dismiss(handle),
           onenter: () => tooltips.bubbleEnter(handle),
           onleave: () => tooltips.bubbleLeave(handle),
@@ -51,7 +57,7 @@ export function attachTip(el: HTMLElement, tip: AttachedTip): () => void {
 
   const description = document.createElement('span');
   description.id = `tip-attached-${++counter}`;
-  description.textContent = tip.text;
+  description.textContent = tip.detail ? tip.text || detailSentence(tip.detail) : tip.text;
   descriptionHost().append(description);
   const described = (el.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean);
   el.setAttribute('aria-describedby', [...described, description.id].join(' '));

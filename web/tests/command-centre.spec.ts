@@ -606,7 +606,8 @@ test('forty hosts are forty lanes, and the deck scrolls to hold them', async ({ 
       ).length,
       // A tile wider than the cell the lane's grid gave it, or than its own box.
       wide: Array.from(document.querySelectorAll('[data-testid="command-tile"]')).filter((tile) => {
-        const cells = tile.parentElement!.getBoundingClientRect();
+        // The lane's grid, not the parent: the tile's tooltip wrapper takes no box.
+        const cells = tile.closest('.cells')!.getBoundingClientRect();
         const box = tile.getBoundingClientRect();
         return tile.scrollWidth > tile.clientWidth || box.right > cells.right + 0.5;
       }).length,
@@ -790,4 +791,124 @@ test("a public view's visitor is told what the page is, without the shell's noti
   await expect(signIn).toHaveAttribute('href', '/login');
   await signIn.click();
   await expect(page).toHaveURL(/\/login$/);
+});
+
+/*
+ * Every item on the page says more about itself on hover and on focus, in the
+ * shared tooltip's structured card. The card is for the eye: the item stays
+ * one link or one button, a finger's tap still does what it did, and what a
+ * workflow names is text in the card, never markup.
+ */
+const MARKUP = '<img src=x onerror=window.__x=1>';
+
+function card(page: Page) {
+  return page.locator('.bubble:popover-open');
+}
+
+async function busyPage(page: Page): Promise<void> {
+  await busyFleet(page, { hosts: 2, slots: 4, busy: 2, waiting: 6, jobName: MARKUP });
+  await goto(page, '/command', 'Command centre');
+  await expect(rail(page, 'Waiting')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.getByTestId('command-tile').first()).toBeVisible();
+}
+
+test('hovering a runner tile shows its card, and the keyboard opens and Esc closes it', async ({
+  page,
+}) => {
+  test.skip(!!test.info().project.use.isMobile, 'a phone has no hover; see the tap test');
+  await busyPage(page);
+  const tile = page.getByTestId('command-tile').nth(1);
+  await tile.hover();
+  await expect(card(page)).toBeVisible();
+  await expect(card(page)).toContainText('busy-00-01');
+  await expect(card(page)).toContainText('Pool');
+  await expect(card(page).locator('dl')).toBeVisible();
+
+  // Away and back by the keyboard: focus opens it at once, Esc puts it away
+  // and leaves focus where it was.
+  await page.mouse.move(0, 0);
+  await expect(card(page)).toHaveCount(0);
+  await tile.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await expect(tile).toBeFocused();
+  await expect(card(page)).toContainText('busy-00-01');
+  await page.keyboard.press('Escape');
+  await expect(card(page)).toHaveCount(0);
+  await expect(tile).toBeFocused();
+  await expect(page).toHaveURL(/\/command$/);
+});
+
+test('the free cell says what limits it, and a waiting row says why it waits', async ({ page }) => {
+  test.skip(!!test.info().project.use.isMobile, 'a phone has no hover');
+  await busyPage(page);
+  await page.getByTestId('command-free').first().hover();
+  await expect(card(page)).toContainText('2 free slots');
+  await expect(card(page)).toContainText('Limited by');
+
+  await rail(page, 'Waiting').getByRole('button').nth(1).hover();
+  await expect(card(page)).toContainText('waiting job 01');
+  await expect(card(page)).toContainText('Why');
+});
+
+test('a job named with markup is text in its card, and runs nothing', async ({ page }) => {
+  test.skip(!!test.info().project.use.isMobile, 'a phone has no hover');
+  await busyPage(page);
+  for (const item of [
+    page.getByTestId('command-tile').first(),
+    rail(page, 'Waiting').getByRole('button').first(),
+  ]) {
+    await item.hover();
+    await expect(card(page).getByRole('heading', { includeHidden: true })).toHaveText(MARKUP);
+    await expect(card(page).locator('img')).toHaveCount(0);
+    await page.mouse.move(0, 0);
+    await expect(card(page)).toHaveCount(0);
+  }
+  expect(await page.evaluate(() => (window as { __x?: unknown }).__x)).toBeUndefined();
+});
+
+for (const [width, height] of [
+  [1440, 900],
+  [375, 812],
+] as const) {
+  test(`at ${width} wide a card at the end of a lane or the rail stays inside the window`, async ({
+    page,
+  }) => {
+    test.skip(!!test.info().project.use.isMobile, 'a phone has no hover');
+    await page.setViewportSize({ width, height });
+    await busyPage(page);
+    const lane = page.getByTestId('command-lane').last();
+    for (const item of [
+      lane.getByTestId('command-tile').last(),
+      rail(page, 'Waiting').getByRole('button').last(),
+      rail(page, 'Just finished').getByRole('button').last(),
+    ]) {
+      if ((await item.count()) === 0) continue;
+      await item.scrollIntoViewIfNeeded();
+      await item.hover();
+      await expect(card(page)).toBeVisible();
+      const box = (await card(page).boundingBox())!;
+      expect(box.x, 'left edge').toBeGreaterThanOrEqual(0);
+      expect(box.y, 'top edge').toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width, 'right edge').toBeLessThanOrEqual(width);
+      expect(box.y + box.height, 'bottom edge').toBeLessThanOrEqual(height);
+      const wider = await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      );
+      expect(wider, 'the card widened the page').toBe(false);
+      await page.mouse.move(0, 0);
+      await expect(card(page)).toHaveCount(0);
+    }
+  });
+}
+
+test('on a touch screen a tap on a tile follows its link with no card in the way', async ({
+  page,
+}) => {
+  test.skip(!test.info().project.use.isMobile, 'the tap is the phone');
+  await busyPage(page);
+  const tile = page.getByTestId('command-tile').first();
+  await tile.scrollIntoViewIfNeeded();
+  await tile.tap();
+  await expect(page).toHaveURL(/\/runners\/[^/]+$/);
 });

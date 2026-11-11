@@ -181,6 +181,11 @@ Rules that make this hold:
 * **Hover and focus say where a click goes.** A tile lifts its border to the
   accent and shows the focus ring; the shared tooltip names the destination for
   the figures and the ring, whose targets are not obvious from their labels.
+* **Hover and focus say what an item is.** Every tile, cell, lane header,
+  figure, rail row and ticker entry shows the shared tooltip's structured card
+  (a title and a few label and value rows, only those that are known), so the
+  wall can be questioned without leaving it; a tap on a touch screen still
+  follows the link.
 * **Targets are at least 44px** in the smaller dimension on touch screens.
 
 The page reads and links. It does not act: draining a runner or cancelling a

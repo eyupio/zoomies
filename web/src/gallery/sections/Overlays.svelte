@@ -1,6 +1,6 @@
 <!--
   The layers over a page: the detail drawer, the destructive confirmation and
-  the rich tooltip. Each is opened by a real control so focus, Escape and the
+  the rich tooltip and the structured card. Each is opened by a real control so focus, Escape and the
   focus trap are exercised with the real behaviour rather than a static panel.
 -->
 <script lang="ts">
@@ -43,6 +43,22 @@
           <dd>Nothing: the runner leaves when the job finishes.</dd>
         </dl>
       {/snippet}
+    </Tooltip>
+    <!-- The structured card: a title and label and value rows, the values as
+         text, so the markup in this job name is shown and never run. -->
+    <Tooltip
+      detail={{
+        title: '<img src=x onerror=alert(1)> build (ubuntu-24.04)',
+        rows: [
+          { label: 'Runner', value: 'zoomies-linux-12' },
+          { label: 'Pool', value: 'linux-x64' },
+          { label: 'Running for', value: '4m 10s' },
+          { label: 'CPU', value: '75% of 2 CPUs' },
+          { label: 'Branch', value: 'fix/a-branch-name-with-no-spaces-in-it-at-all-anywhere' },
+        ],
+      }}
+    >
+      <Button>Hover or focus for the card</Button>
     </Tooltip>
   </div>
   <p class="note">

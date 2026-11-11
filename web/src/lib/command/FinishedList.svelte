@@ -14,9 +14,12 @@
   import { CircleCheck, Square, TriangleAlert } from '@lucide/svelte';
   import type { Job } from '$lib/api/types';
   import ErrorState from '$lib/components/ErrorState.svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
+  import { fleet } from '$lib/state/fleet.svelte';
   import { formatDuration, NO_VALUE } from '$lib/format';
   import { readableJobName } from '$lib/jobs/name';
   import { FINISHED_SHOWN, finishedOutcome } from './jobs-merge';
+  import { finishedTip } from './tips';
 
   interface Props {
     jobs: readonly Job[];
@@ -52,28 +55,35 @@
       {#each shown as job (job.id)}
         {@const outcome = finishedOutcome(job)}
         <li>
-          <button type="button" class="row" data-outcome={outcome.kind} onclick={() => onopen(job)}>
-            <span class="mark outcome {outcome.kind}" role="img" aria-label={outcome.label}>
-              {#if outcome.kind === 'succeeded'}
-                <CircleCheck size={16} aria-hidden="true" />
-              {:else if outcome.kind === 'failed'}
-                <TriangleAlert size={16} aria-hidden="true" />
-              {:else}
-                <Square size={14} aria-hidden="true" />
-              {/if}
-            </span>
-            <span class="what">
-              <span class="name">{readableJobName(job.job_name)}</span>
-              <span class="where">{job.repo || NO_VALUE}</span>
-            </span>
-            <span class="side">
-              <span class="took"
-                >{typeof job.duration_ms === 'number'
-                  ? formatDuration(job.duration_ms)
-                  : NO_VALUE}</span
-              >
-            </span>
-          </button>
+          <Tooltip bare detail={finishedTip(job, fleet.host(job.host_id)?.name)}>
+            <button
+              type="button"
+              class="row"
+              data-outcome={outcome.kind}
+              onclick={() => onopen(job)}
+            >
+              <span class="mark outcome {outcome.kind}" role="img" aria-label={outcome.label}>
+                {#if outcome.kind === 'succeeded'}
+                  <CircleCheck size={16} aria-hidden="true" />
+                {:else if outcome.kind === 'failed'}
+                  <TriangleAlert size={16} aria-hidden="true" />
+                {:else}
+                  <Square size={14} aria-hidden="true" />
+                {/if}
+              </span>
+              <span class="what">
+                <span class="name">{readableJobName(job.job_name)}</span>
+                <span class="where">{job.repo || NO_VALUE}</span>
+              </span>
+              <span class="side">
+                <span class="took"
+                  >{typeof job.duration_ms === 'number'
+                    ? formatDuration(job.duration_ms)
+                    : NO_VALUE}</span
+                >
+              </span>
+            </button>
+          </Tooltip>
         </li>
       {/each}
     </ul>

@@ -16,18 +16,23 @@
   import { formatDuration, NO_VALUE } from '$lib/format';
   import { readableJobText } from '$lib/jobs/name';
   import { dogPhase } from '$lib/mascot/dog-motion';
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import RunnerStatus from '$lib/runners/RunnerStatus.svelte';
+  import { prefs } from '$lib/state/prefs.svelte';
   import { cpuShare } from './chart';
   import { clock } from './clock.svelte';
-  import { freeSlots, type Cell } from './lanes';
+  import { freeSlots, type Cell, type Lane } from './lanes';
+  import { freeTip, runnerTip, startingTip } from './tips';
   import { elapsedMs } from './time';
 
   interface Props {
     cell: Cell;
     /** The host the lane is for, so a free cell says where it leads. */
     hostName: string;
+    /** The lane, for the free cell's card. Without it the card counts only the cell. */
+    lane?: Pick<Lane, 'host' | 'slots' | 'free'>;
   }
-  let { cell, hostName }: Props = $props();
+  let { cell, hostName, lane }: Props = $props();
 
   const STEP: Partial<Record<NonNullable<Runner['state']>, string>> = {
     provisioning: 'Provisioning',
@@ -53,45 +58,56 @@
   const where = $derived(job ? [job.repo, job.head_branch].filter(Boolean).join(' · ') : '');
   const share = $derived(runner ? cpuShare(runner) : null);
   const busy = $derived(runner?.state === 'busy');
+  const tip = $derived.by(() => {
+    if (!runner) {
+      const free = cell.count ?? 0;
+      return freeTip(lane ?? { host: { name: hostName }, slots: free, free });
+    }
+    const context = { hostName, now: clock.now, quirky: prefs.quirkyStatus };
+    return cell.kind === 'starting' ? startingTip(runner, context) : runnerTip(runner, context);
+  });
 </script>
 
-{#if runner}
-  <a
-    class="tile"
-    class:failed={runner.state === 'failed'}
-    class:starting={cell.kind === 'starting'}
-    href={cell.href}
-    data-testid="command-tile"
-    data-state={runner.state}
-    style:--phase={dogPhase(runner.id ?? cell.key)}
-  >
-    <span class="line">
-      <RunnerStatus mark {runner} />
-      <span class="title">{title}</span>
-      <span class="age">{age}</span>
-    </span>
-    {#if where}<span class="where">{where}</span>{/if}
-    <span
-      class="bar"
-      class:sweep={busy}
-      class:unknown={share === null}
-      style:--share={share ?? 0}
-      aria-hidden="true"
-    ></span>
-  </a>
-{:else}
-  <a
-    class="tile free"
-    href={cell.href}
-    data-testid="command-free"
-    aria-label="{title} on {hostName}"
-  >
-    <span class="line">
-      <RunnerStatus mark runner={{ id: cell.key, state: 'idle' }} />
-      <span class="title">{title}</span>
-    </span>
-  </a>
-{/if}
+<!-- Bare, so the grid lays out the tile as though the wrapper were not there. -->
+<Tooltip bare detail={tip}>
+  {#if runner}
+    <a
+      class="tile"
+      class:failed={runner.state === 'failed'}
+      class:starting={cell.kind === 'starting'}
+      href={cell.href}
+      data-testid="command-tile"
+      data-state={runner.state}
+      style:--phase={dogPhase(runner.id ?? cell.key)}
+    >
+      <span class="line">
+        <RunnerStatus mark {runner} />
+        <span class="title">{title}</span>
+        <span class="age">{age}</span>
+      </span>
+      {#if where}<span class="where">{where}</span>{/if}
+      <span
+        class="bar"
+        class:sweep={busy}
+        class:unknown={share === null}
+        style:--share={share ?? 0}
+        aria-hidden="true"
+      ></span>
+    </a>
+  {:else}
+    <a
+      class="tile free"
+      href={cell.href}
+      data-testid="command-free"
+      aria-label="{title} on {hostName}"
+    >
+      <span class="line">
+        <RunnerStatus mark runner={{ id: cell.key, state: 'idle' }} />
+        <span class="title">{title}</span>
+      </span>
+    </a>
+  {/if}
+</Tooltip>
 
 <style>
   .tile {

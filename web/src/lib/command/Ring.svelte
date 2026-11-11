@@ -10,6 +10,7 @@
 -->
 <script lang="ts">
   import Tooltip from '$lib/components/Tooltip.svelte';
+  import type { TipDetail } from '$lib/tooltip-detail';
   import { pluralise } from '$lib/format';
   import { ringFraction } from './chart';
   import { RUNNING_HREF } from './links';
@@ -18,8 +19,10 @@
     running: number;
     busy: number;
     slots: number;
+    /** What the ring says on hover and focus: the slots by what is in them, and the pools. */
+    detail: TipDetail;
   }
-  let { running, busy, slots }: Props = $props();
+  let { running, busy, slots, detail }: Props = $props();
 
   // pathLength="100" makes the arc a percentage, whatever the ring's size.
   const arc = $derived(ringFraction(busy, slots) * 100);
@@ -29,7 +32,7 @@
   );
 </script>
 
-<Tooltip bare text="Open the running jobs.">
+<Tooltip bare {detail}>
   <a class="ring" href={RUNNING_HREF} aria-label={name} data-testid="command-ring">
     {#if pulsing}
       <span class="halo" aria-hidden="true"></span>

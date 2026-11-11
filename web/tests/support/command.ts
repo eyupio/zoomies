@@ -19,6 +19,8 @@ export interface BusyFleet {
   waiting: number;
   /** What the queue's read reports as its total, when that is more than it sends. */
   waitingTotal?: number;
+  /** A name for the first busy runner's job and the first waiting job, in place of the made-up one. */
+  jobName?: string;
 }
 
 const pad = (i: number) => String(i).padStart(2, '0');
@@ -59,6 +61,8 @@ export async function busyFleet(page: Page, fleet: BusyFleet): Promise<void> {
       healthy: true,
       retired: false,
       cordoned: false,
+      // So the free cell's card has its limit to name.
+      slots_limited_by: template.slots_limited_by ?? 'capacity',
     }));
     return route.fulfill({ response: read.response, json: { ...read.body, items } });
   });
@@ -73,6 +77,10 @@ export async function busyFleet(page: Page, fleet: BusyFleet): Promise<void> {
         name: `busy-${pad(i)}-${pad(slot)}`,
         host_id,
         state: 'busy' as const,
+        current_job:
+          fleet.jobName && i === 0 && slot === 0
+            ? { ...busy.current_job, job_name: fleet.jobName }
+            : busy.current_job,
       })),
     );
     return route.fulfill({
@@ -90,7 +98,7 @@ export async function busyFleet(page: Page, fleet: BusyFleet): Promise<void> {
       const items: Job[] = Array.from({ length: fleet.waiting }, (_, i) => ({
         ...template,
         id: `job_wait${pad(i)}`,
-        job_name: `waiting job ${pad(i)}`,
+        job_name: fleet.jobName && i === 0 ? fleet.jobName : `waiting job ${pad(i)}`,
         state: 'queued',
         queued_at: new Date(queuedAt + i * 1000).toISOString(),
       }));

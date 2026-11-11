@@ -11,9 +11,11 @@
 -->
 <script lang="ts">
   import { CirclePause, Clock, TriangleAlert } from '@lucide/svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
   import { formatNumber } from '$lib/format';
   import type { Lane } from './lanes';
   import RunnerTile from './RunnerTile.svelte';
+  import { hostTip } from './tips';
 
   let { lane }: { lane: Lane } = $props();
 
@@ -36,19 +38,21 @@
   aria-labelledby="{id}-name"
   data-testid="command-lane"
 >
-  <a class="head" href={lane.href}>
-    <h3 class="name" id="{id}-name">{name}</h3>
-    <span class="note">
-      {#if lane.tone === 'pending'}<Clock size={14} aria-hidden="true" />{/if}
-      {#if lane.tone === 'danger'}<TriangleAlert size={14} aria-hidden="true" />{/if}
-      {#if lane.tone === 'draining'}<CirclePause size={14} aria-hidden="true" />{/if}
-      {lane.note}
-    </span>
-    {#if cpu}<span class="cpu">{cpu}</span>{/if}
-  </a>
+  <Tooltip bare detail={hostTip(lane)}>
+    <a class="head" href={lane.href}>
+      <h3 class="name" id="{id}-name">{name}</h3>
+      <span class="note">
+        {#if lane.tone === 'pending'}<Clock size={14} aria-hidden="true" />{/if}
+        {#if lane.tone === 'danger'}<TriangleAlert size={14} aria-hidden="true" />{/if}
+        {#if lane.tone === 'draining'}<CirclePause size={14} aria-hidden="true" />{/if}
+        {lane.note}
+      </span>
+      {#if cpu}<span class="cpu">{cpu}</span>{/if}
+    </a>
+  </Tooltip>
   <div class="cells">
     {#each lane.cells as cell (cell.key)}
-      <RunnerTile {cell} hostName={name} />
+      <RunnerTile {cell} hostName={name} {lane} />
     {/each}
   </div>
 </section>
