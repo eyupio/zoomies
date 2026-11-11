@@ -8,16 +8,21 @@ jobs:
   diag:
     runs-on: zoomies-linux-x64
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2]
     steps:
-      - name: Is the wrapper in this runner image
+      - name: Is the cache wrapper live in this runner
         shell: bash
         run: |
-          echo "--- wrapper files the current image installs"
-          ls -l --time-style=full-iso /usr/local/lib/zoomies/ 2>&1 | head -20
-          echo "--- node dirs, sizes and dates"
-          for d in /home/runner/externals/node*/bin; do echo "$d"; ls -l --time-style=long-iso "$d" | grep -E " node(\.real)?$"; done
-          echo "--- newest file in the image's runner dir, as a proxy for its build date"
-          ls -lt --time-style=long-iso /home/runner | head -5
-          echo "--- image-level markers"
-          ls -l --time-style=long-iso /etc/zoomies* /usr/local/share/zoomies* 2>&1 | head -10
-          cat /etc/zoomies-release 2>/dev/null | head -5 || true
+          hostname
+          echo "--- node dirs: a wrapped node is small and has a node.real beside it"
+          for d in /home/runner/externals/node20/bin /home/runner/externals/node24/bin; do
+            echo "$d"; ls -l "$d" | grep -E " node(\.real)?$"
+          done
+          echo "--- service address and reach"
+          echo "ZOOMIES_CACHE_SERVICE_URL=${ZOOMIES_CACHE_SERVICE_URL:-unset}"
+          [ -n "${ZOOMIES_CACHE_SERVICE_URL:-}" ] && curl -sS -m 5 -o /dev/null -w "service answered HTTP %{http_code}\n" "$ZOOMIES_CACHE_SERVICE_URL" || true
+          echo "--- pool cache folder"
+          ls -ld /opt/zoomies-cache /opt/zoomies-cache/go 2>&1; du -sh /opt/zoomies-cache/go 2>/dev/null || true
