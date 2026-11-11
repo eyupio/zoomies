@@ -204,9 +204,26 @@ test('every item on the command centre is reached by Tab, and shows its focus', 
         (el.closest('.rail') && el.tagName === 'BUTTON' ? 'job' : null) ??
         (el.closest('.ticker') && el.tagName === 'A' ? 'event' : null) ??
         (el.textContent ?? '').trim();
-      const style = getComputedStyle(el);
-      const ringed = style.boxShadow !== 'none' || style.outlineStyle !== 'none';
-      return { kind, ringed, inMain: !!el.closest('.command') };
+      // Shown means changed by focus: a tile or a card can carry a shadow at
+      // rest, which a check for "any shadow" would take for a ring. The same
+      // element is read focused and unfocused, then focused again so the next
+      // Tab carries on from it, and with transitions off so neither reading
+      // catches a ring halfway in.
+      const look = () => {
+        const style = getComputedStyle(el);
+        return [style.boxShadow, style.outlineStyle, style.outlineWidth, style.outlineColor].join(
+          '|',
+        );
+      };
+      const still = document.createElement('style');
+      still.textContent = '*, *::before, *::after { transition: none !important; }';
+      document.head.append(still);
+      const focused = look();
+      el.blur();
+      const resting = look();
+      el.focus();
+      still.remove();
+      return { kind, ringed: focused !== resting, inMain: !!el.closest('.command') };
     });
     if (!seen) continue;
     if (seen.inMain) {

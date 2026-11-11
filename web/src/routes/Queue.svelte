@@ -4,7 +4,7 @@
   import { revealHash } from '$lib/bands/jump';
   import BandQueueTrend from '$lib/bands/BandQueueTrend.svelte';
   import { queueLine } from '$lib/bands/lines';
-  import { readableJobText } from '$lib/jobs/name';
+  import { readableJobName, readableJobText } from '$lib/jobs/name';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import StateBreakdown from '$lib/insights/StateBreakdown.svelte';
@@ -394,9 +394,7 @@
   />
 {/snippet}
 {#snippet jobCell(job: Job)}<div class="cell">
-    <strong>{readableJobText(job.job_name) || 'Unnamed job'}</strong><span
-      >{job.workflow || 'Workflow'}</span
-    >
+    <strong>{readableJobName(job.job_name)}</strong><span>{job.workflow || 'Workflow'}</span>
   </div>{/snippet}
 {#snippet repoCell(job: Job)}<div class="cell">
     <span class="repo">{job.repo}</span><span>{job.head_branch || NO_VALUE}</span>

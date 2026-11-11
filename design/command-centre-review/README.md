@@ -277,9 +277,12 @@ latest three entries.
   each travels with its shape. Any measure the page needs twice (the ring's
   size, the tile's height) is added to `tokens.css` and recorded in
   `docs/ui-guidelines.md`.
-* At desktop width the page fits one screen at 1440 by 900 for a fleet of the
-  size in the boards. A larger fleet makes the deck taller and the page
-  scrolls; nothing is clipped, and lists in the rail cap as described.
+* At desktop width the page is exactly the window, in full screen and out of
+  it, and the document never scrolls: the bar and the hero keep their height
+  at the top, the ticker is pinned at the foot, and the deck and the rail share
+  what is left. A larger fleet, or a longer rail, scrolls inside the deck or
+  the rail, each on its own; nothing is clipped, and lists in the rail cap as
+  described.
 * On a phone the bands stack: hero, Waiting, Needs attention, the lanes, Just
   finished, with the ticker last. The ring shrinks and the figures sit three
   across.

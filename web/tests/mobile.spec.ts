@@ -32,6 +32,7 @@ import {
   withoutTheStream,
   openFleetContext,
 } from './support/fixtures';
+import { plantProblem } from './support/command';
 import {
   automaticPolicy,
   automaticRow,
@@ -1475,8 +1476,12 @@ test('the command centre stacks in the order a glance wants, and every target ta
   page,
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
+  // A problem is planted, so Needs attention is there to be put in its place;
+  // the fixture's fleet has nothing wrong with it most of the time.
+  await plantProblem(page);
   await goto(page, '/command', 'Command centre');
   await expect(page.getByTestId('command-lane').first()).toBeVisible();
+  await expect(page.getByRole('region', { name: /^Needs attention/ })).toBeVisible();
   await expect(page.getByRole('region', { name: /^Waiting/ })).toHaveAttribute(
     'aria-busy',
     'false',
@@ -1499,24 +1504,18 @@ test('the command centre stacks in the order a glance wants, and every target ta
       .sort((a, b) => a.top - b.top)
       .map((band) => band.name);
   });
-  // Needs attention is absent when nothing is wrong, and in its place when it is.
-  expect(order.filter((name) => name !== 'attention')).toEqual([
-    'hero',
-    'waiting',
-    'lanes',
-    'finished',
-    'ticker',
-  ]);
-  if (order.includes('attention')) expect(order.indexOf('attention')).toBe(2);
+  // Needs attention comes after what waits and before the hosts.
+  expect(order).toEqual(['hero', 'waiting', 'attention', 'lanes', 'finished', 'ticker']);
   // The document order is the same, so Tab and a screen reader meet them so.
   const domOrder = await page
     .locator(
       '#command-verdict, #command-waiting, #command-attention, #command-hosts, #command-finished, #command-ticker',
     )
     .evaluateAll((nodes) => nodes.map((n) => n.id));
-  expect(domOrder.filter((id) => id !== 'command-attention')).toEqual([
+  expect(domOrder).toEqual([
     'command-verdict',
     'command-waiting',
+    'command-attention',
     'command-hosts',
     'command-finished',
     'command-ticker',

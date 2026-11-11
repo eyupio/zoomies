@@ -1,7 +1,9 @@
 <!--
   The command centre's deck in the states a healthy fleet rarely shows: a lane
   in each of its states, and a tile for each kind of slot, including a job
-  whose name is four hundred characters long and must not widen its cell.
+  whose name is four hundred characters long and must not widen its cell. And
+  the rail before its first read has answered, which a page that loads fast
+  shows for a moment nobody can review.
 
   The lanes are built by the page's own `lanes()` from fixtures, so what is
   reviewed here is what the page would draw from the same fleet.
@@ -9,7 +11,9 @@
 <script lang="ts">
   import type { Host, Job, Runner } from '$lib/api/types';
   import HostLane from '$lib/command/HostLane.svelte';
+  import FinishedList from '$lib/command/FinishedList.svelte';
   import RunnerTile from '$lib/command/RunnerTile.svelte';
+  import WaitingList from '$lib/command/WaitingList.svelte';
   import { lanes, type Cell } from '$lib/command/lanes';
   import { hostHref, runnerHref } from '$lib/command/links';
   import Panel from '$lib/components/Panel.svelte';
@@ -48,6 +52,9 @@
     allocated_cpus: 2,
     ...extra,
   });
+
+  // The gallery opens nothing: a row here is looked at, not followed.
+  const noop = () => undefined;
 
   const LONG = `build ${'and test the whole matrix again '.repeat(12)}`.slice(0, 400);
 
@@ -116,7 +123,7 @@
 
 <Panel
   title="Command centre"
-  description="The deck's lanes in each state, and a tile for each kind of slot. Built by the page's own lanes() from fixtures."
+  description="The deck's lanes in each state, a tile for each kind of slot, and the rail while it loads. Built by the page's own lanes() from fixtures."
 >
   <div class="block">
     <h3>Lanes: room to spare, full with jobs waiting, throttled, not answering, cordoned, wide</h3>
@@ -136,6 +143,22 @@
           <RunnerTile {cell} hostName="lane-ok" />
         </figure>
       {/each}
+    </div>
+  </div>
+
+  <div class="block">
+    <h3>Rail: Waiting and Just finished before their first read answers</h3>
+    <div class="rail" data-testid="gallery-command-rail">
+      <WaitingList jobs={[]} count={0} loading error={null} onopen={noop} onretry={noop} />
+      <FinishedList
+        jobs={[]}
+        count={0}
+        moreHref="/jobs"
+        loading
+        error={null}
+        onopen={noop}
+        onretry={noop}
+      />
     </div>
   </div>
 </Panel>
@@ -159,6 +182,12 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr));
     gap: var(--z-space-3);
+  }
+  /* The rail's own width, as the page gives it. */
+  .rail {
+    display: grid;
+    gap: var(--z-space-4);
+    max-width: var(--z-command-rail);
   }
   figure {
     display: grid;

@@ -18,6 +18,7 @@ import {
   pageHeading,
   readThrough,
 } from './support/fixtures';
+import { busyFleet } from './support/command';
 
 function exitLink(page: Page) {
   return page.getByRole('link', { name: 'Exit', exact: true });
@@ -123,6 +124,20 @@ test('a browser that can go full screen is offered the control', async ({ page }
  */
 const COMMAND_READS = ['/api/v1/hosts', '/api/v1/provisioning', '/api/v1/jobs', '/api/v1/samples'];
 
+/**
+ * Resolves once each of the page's reads has answered for the first time.
+ * Made before the page is opened, so no answer can slip past it, and awaited
+ * before a refresh is recorded, so a first load's request that went out late
+ * cannot be counted as the refresh's.
+ */
+function firstLoad(page: Page): Promise<unknown> {
+  return Promise.all(
+    COMMAND_READS.map((path) =>
+      page.waitForResponse((response) => new URL(response.url()).pathname === path),
+    ),
+  );
+}
+
 function readsSeen(page: Page): Set<string> {
   const seen = new Set<string>();
   page.on('request', (request) => {
@@ -138,6 +153,7 @@ test('Refresh in the bar fetches the fleet, both lists and the chart again, and 
   // A wall display is the page most likely to have been left open through a
   // laptop lid or a controller restart, so it owes an operator the same way to
   // settle whether it is current as every other page, in the same words.
+  const loaded = firstLoad(page);
   await goto(page, '/command', 'Command centre');
   await expect(page.getByTestId('command-lane').first()).toBeVisible();
   const refresh = page.getByRole('button', { name: 'Refresh', exact: true });
@@ -151,6 +167,7 @@ test('Refresh in the bar fetches the fleet, both lists and the chart again, and 
   );
   expect(first, 'refresh comes before Exit').toBe(true);
 
+  await loaded;
   const seen = readsSeen(page);
   await refresh.click();
   await expect.poll(() => [...seen].sort()).toEqual([...COMMAND_READS].sort());
@@ -160,12 +177,59 @@ test('Refresh in the bar fetches the fleet, both lists and the chart again, and 
 });
 
 test('R refreshes the page as the button does', async ({ page }) => {
+  const loaded = firstLoad(page);
   await goto(page, '/command', 'Command centre');
   await expect(page.getByTestId('command-lane').first()).toBeVisible();
+  await loaded;
   const seen = readsSeen(page);
   await page.keyboard.press('r');
   await expect.poll(() => [...seen].sort()).toEqual([...COMMAND_READS].sort());
   await expect(page).toHaveURL(/\/command$/);
+});
+
+test('a refresh in which every read failed says so, and does not claim it refreshed', async ({
+  page,
+}) => {
+  // Each band reports its own failure in place, so one read failing leaves a
+  // refresh that happened. Every read failing is a refresh that did not, and
+  // a control reading "Refreshed" over it would be the page vouching for
+  // numbers it could not fetch.
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  const loaded = firstLoad(page);
+  await goto(page, '/command', 'Command centre');
+  await loaded;
+  const refresh = page.getByRole('button', { name: 'Refresh', exact: true });
+  await expect(refresh).toHaveAccessibleDescription(/Fetch this page again/);
+
+  await page.route(
+    (url) => COMMAND_READS.includes(url.pathname),
+    (route) =>
+      route.fulfill({
+        status: 500,
+        json: { error: { code: 'internal', message: 'the database is locked' } },
+      }),
+  );
+  await refresh.click();
+  await expect(page.getByText('This page could not be refreshed')).toBeVisible();
+  await expect(refresh).not.toHaveAttribute('aria-busy', 'true');
+  await expect(refresh).not.toHaveAccessibleDescription(/^Refreshed /);
+  // The bands still say what failed, each in its own place.
+  await expect(rail(page, 'Waiting').getByRole('alert')).toBeVisible();
+});
+
+test('a queue longer than the read sends is counted in full', async ({ page }) => {
+  // The waiting read is capped, so a long queue sends its oldest jobs and
+  // reports how many there are. The count and "and N more" are the queue's,
+  // not the cap's.
+  await busyFleet(page, { hosts: 2, slots: 4, waiting: 12, waitingTotal: 640 });
+  await goto(page, '/command', 'Command centre');
+  const waiting = rail(page, 'Waiting');
+  await expect(waiting).toHaveAttribute('aria-busy', 'false');
+  await expect(waiting.getByRole('heading', { level: 2 })).toHaveText('Waiting 640');
+  await expect(waiting.getByRole('link', { name: 'and 635 more' })).toHaveAttribute(
+    'href',
+    /^\/queue/,
+  );
 });
 
 test('Ctrl+K opens the command palette on the page, and it lists the page', async ({ page }) => {
@@ -383,6 +447,27 @@ test('the page says it is not live when the stream goes away', async ({ page }) 
   expect(await track.evaluate((el) => getComputedStyle(el).animationPlayState)).toBe('paused');
 });
 
+test('when the stream drops, the page counts from the last thing it heard, not from noticing', async ({
+  page,
+}) => {
+  // A stream can fall silent long before anything notices: a proxy holding a
+  // dead socket is only found out by the watchdog. Counting "last heard" from
+  // the moment the drop was noticed would understate how stale the page is by
+  // exactly that silence. The clock is moved on while nothing arrives, so the
+  // two moments are ten minutes apart.
+  await page.clock.install();
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByText('Live', { exact: true })).toBeVisible();
+  await page.clock.setSystemTime(Date.now() + 10 * 60_000);
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await expect(page.getByRole('heading', { name: 'Not live.' })).toBeVisible();
+  // The page's ten-second clock is what the sentence counts on.
+  await page.clock.runFor(11_000);
+  const hero = page.locator('section[aria-labelledby="command-verdict"]');
+  await expect(hero.locator('.sentence')).toContainText(/Last heard from the controller 10m/);
+});
+
 test('while the jobs are still loading the rail shows their shape and the deck is drawn', async ({
   page,
 }) => {
@@ -459,7 +544,7 @@ test('a read that fails says so in its band, offers to try again, and leaves the
   await expect(waiting.getByRole('button').first()).toBeVisible();
 });
 
-test('forty hosts are forty lanes, and the page grows to hold them', async ({ page }) => {
+test('forty hosts are forty lanes, and the deck scrolls to hold them', async ({ page }) => {
   await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
   await page.route('**/api/v1/hosts*', async (route) => {
     const read = await readThrough<{ items?: Record<string, unknown>[] }>(route);
@@ -502,24 +587,155 @@ test('forty hosts are forty lanes, and the page grows to hold them', async ({ pa
   await expect(lanes).toHaveCount(40);
   await expect(page.getByTestId('command-tile')).toHaveCount(80);
   await expect(page.getByTestId('command-free')).toHaveCount(120);
-  const sizes = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollHeight,
-    viewport: innerHeight,
-    flat: Array.from(document.querySelectorAll('[data-testid="command-lane"]')).filter(
-      (lane) => lane.getBoundingClientRect().height === 0,
-    ).length,
-    // A tile wider than the cell the lane's grid gave it, or than its own box.
-    wide: Array.from(document.querySelectorAll('[data-testid="command-tile"]')).filter((tile) => {
-      const cells = tile.parentElement!.getBoundingClientRect();
-      const box = tile.getBoundingClientRect();
-      return tile.scrollWidth > tile.clientWidth || box.right > cells.right + 0.5;
-    }).length,
-  }));
-  expect(sizes.scroll, 'the deck grows downwards rather than being cut off').toBeGreaterThan(
-    sizes.viewport,
-  );
+  const phone = !!test.info().project.use.isMobile;
+  const sizes = await page.evaluate(() => {
+    const deck = document.querySelector<HTMLElement>('[data-testid="command-deck"]')!;
+    return {
+      scroll: document.documentElement.scrollHeight,
+      viewport: document.documentElement.clientHeight,
+      deckScroll: deck.scrollHeight,
+      deckClient: deck.clientHeight,
+      flat: Array.from(document.querySelectorAll('[data-testid="command-lane"]')).filter(
+        (lane) => lane.getBoundingClientRect().height === 0,
+      ).length,
+      // A tile wider than the cell the lane's grid gave it, or than its own box.
+      wide: Array.from(document.querySelectorAll('[data-testid="command-tile"]')).filter((tile) => {
+        const cells = tile.parentElement!.getBoundingClientRect();
+        const box = tile.getBoundingClientRect();
+        return tile.scrollWidth > tile.clientWidth || box.right > cells.right + 0.5;
+      }).length,
+    };
+  });
+  if (phone) {
+    // Stacked, the page is a document and grows downwards as it always did.
+    expect(sizes.scroll, 'the phone grows downwards rather than cutting off').toBeGreaterThan(
+      sizes.viewport,
+    );
+  } else {
+    // The page is the window; the deck takes the fleet's height inside itself.
+    expect(sizes.scroll, 'the document grew with the fleet').toBe(sizes.viewport);
+    expect(sizes.deckScroll, 'the deck holds more than it shows').toBeGreaterThan(sizes.deckClient);
+  }
   expect(sizes.flat, 'a lane drawn with no height').toBe(0);
   expect(sizes.wide, 'a tile wider than its cell').toBe(0);
+  // Nothing past the fold is out of reach: the last lane scrolls into view.
+  await lanes.last().scrollIntoViewIfNeeded();
+  await expect(lanes.last()).toBeInViewport();
+});
+
+/*
+ * A wall display that scrolls is not on one screen. The owner's report: a
+ * fleet of five large hosts and a queue of twelve, on a 1920 by 1080 screen,
+ * pushed the ticker off the bottom and scrolled the hero away. The page is
+ * the window: the bar and the hero at the top, the ticker at the foot, and
+ * the deck and the rail sharing what is left, each scrolling in itself.
+ */
+for (const [width, height] of [
+  [1920, 1080],
+  [1440, 900],
+] as const) {
+  test(`at ${width} by ${height} a busy fleet fits the window, hero and ticker included`, async ({
+    page,
+  }) => {
+    test.skip(!!test.info().project.use.isMobile, 'a phone stacks the page and scrolls it');
+    await page.setViewportSize({ width, height });
+    await busyFleet(page, { hosts: 5, slots: 11, waiting: 12 });
+    await goto(page, '/command', 'Command centre');
+    await expect(page.getByTestId('command-lane')).toHaveCount(5);
+    await expect(rail(page, 'Waiting')).toHaveAttribute('aria-busy', 'false');
+    await expect(rail(page, 'Needs attention')).toBeVisible();
+
+    const fit = await page.evaluate(() => {
+      const box = (el: Element | null | undefined) => {
+        const r = el!.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, height: r.height };
+      };
+      return {
+        scroll: document.documentElement.scrollHeight,
+        client: document.documentElement.clientHeight,
+        hero: box(document.getElementById('command-verdict')?.closest('section')),
+        ticker: box(document.getElementById('command-ticker')?.closest('section')),
+      };
+    });
+    expect(fit.scroll, 'the document is taller than the window').toBe(fit.client);
+    for (const [name, box] of [
+      ['the hero', fit.hero],
+      ['the ticker', fit.ticker],
+    ] as const) {
+      expect(box.height, `${name} has a height`).toBeGreaterThan(0);
+      expect(box.top, `${name} starts inside the window`).toBeGreaterThanOrEqual(0);
+      expect(box.bottom, `${name} ends inside the window`).toBeLessThanOrEqual(fit.client);
+    }
+
+    // At 1440 by 900 this fleet's rail is longer than its share of the window,
+    // so it scrolls in itself, and its last list can be reached.
+    if (width === 1440) {
+      const finished = rail(page, 'Just finished');
+      const scroller = await finished.evaluate((el) => {
+        let node = el.parentElement;
+        while (node && getComputedStyle(node).overflowY === 'visible') node = node.parentElement;
+        return node ? { scroll: node.scrollHeight, client: node.clientHeight } : null;
+      });
+      expect(scroller, 'the rail scrolls in a container of its own').not.toBeNull();
+      expect(scroller!.scroll, 'the rail holds more than it shows').toBeGreaterThan(
+        scroller!.client,
+      );
+      const heading = finished.getByRole('heading', { level: 2 });
+      await heading.scrollIntoViewIfNeeded();
+      await expect(heading).toBeInViewport();
+    }
+  });
+}
+
+/*
+ * A window too short to fit the bar, the hero, a usable deck and the ticker
+ * gives up fitting and scrolls, and the ticker stays below the deck rather
+ * than under it: the deck is placed from its frame, so a frame that spilled
+ * past its share of the page would paint the lanes over the ticker.
+ */
+test('in a short window the deck stops above the ticker instead of covering it', async ({
+  page,
+}) => {
+  test.skip(!!test.info().project.use.isMobile, 'a phone stacks the page and scrolls it');
+  await page.setViewportSize({ width: 1024, height: 560 });
+  await busyFleet(page, { hosts: 5, slots: 11, waiting: 12 });
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByTestId('command-lane')).toHaveCount(5);
+  const boxes = await page.evaluate(() => {
+    const box = (el: Element | null | undefined) => {
+      const r = el!.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    };
+    return {
+      deck: box(document.querySelector('[data-testid="command-deck"]')),
+      ticker: box(document.getElementById('command-ticker')?.closest('section')),
+    };
+  });
+  const { deck, ticker } = boxes;
+  const overlap =
+    deck.left < ticker.right &&
+    ticker.left < deck.right &&
+    deck.top < ticker.bottom &&
+    ticker.top < deck.bottom;
+  expect(
+    overlap,
+    `the deck at ${JSON.stringify(deck)} and the ticker at ${JSON.stringify(ticker)}`,
+  ).toBe(false);
+});
+
+test('on a phone the page still scrolls as a document, and never sideways', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await busyFleet(page, { hosts: 5, slots: 11, waiting: 12 });
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByTestId('command-lane')).toHaveCount(5);
+  const sizes = await page.evaluate(() => ({
+    scrollHeight: document.documentElement.scrollHeight,
+    clientHeight: document.documentElement.clientHeight,
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(sizes.scrollHeight, 'the stacked page scrolls').toBeGreaterThan(sizes.clientHeight);
+  expect(sizes.scrollWidth, 'the page scrolls sideways').toBeLessThanOrEqual(sizes.clientWidth);
 });
 
 for (const style of ['classic', 'mission-control']) {

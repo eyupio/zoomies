@@ -9,12 +9,13 @@
   drawn.
 -->
 <script lang="ts">
+  import RailSection from './RailSection.svelte';
   import RailSkeleton from './RailSkeleton.svelte';
   import { CircleCheck, Square, TriangleAlert } from '@lucide/svelte';
   import type { Job } from '$lib/api/types';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import { formatDuration, NO_VALUE } from '$lib/format';
-  import { readableJobText } from '$lib/jobs/name';
+  import { readableJobName } from '$lib/jobs/name';
   import { FINISHED_SHOWN, finishedOutcome } from './jobs-merge';
 
   interface Props {
@@ -34,10 +35,12 @@
   const more = $derived(count - shown.length);
 </script>
 
-<section class="rail-section" aria-labelledby="command-finished" aria-busy={loading}>
-  <h2 id="command-finished">
-    Just finished {#if !loading && !error}<span class="count">{count}</span>{/if}
-  </h2>
+<RailSection
+  id="command-finished"
+  title="Just finished"
+  count={loading || error ? undefined : count}
+  busy={loading}
+>
   {#if loading}
     <RailSkeleton />
   {:else if error}
@@ -60,7 +63,7 @@
               {/if}
             </span>
             <span class="what">
-              <span class="name">{readableJobText(job.job_name) || 'Unnamed job'}</span>
+              <span class="name">{readableJobName(job.job_name)}</span>
               <span class="where">{job.repo || NO_VALUE}</span>
             </span>
             <span class="side">
@@ -78,7 +81,7 @@
       <a class="more" href={moreHref}>and {more} more</a>
     {/if}
   {/if}
-</section>
+</RailSection>
 
 <style>
   .outcome.succeeded {

@@ -19,8 +19,13 @@
 
   interface Props {
     entries: readonly FeedEntry[];
+    /**
+     * The assistant's button is in the corner the strip ends in, so the strip
+     * ends before it rather than running underneath.
+     */
+    clearAssistant?: boolean;
   }
-  let { entries }: Props = $props();
+  let { entries, clearAssistant = false }: Props = $props();
 
   const SHOWN = 20;
   // Pixels the strip moves in one --z-motion-slow, so the duration is the
@@ -93,7 +98,12 @@
   </ul>
 {/snippet}
 
-<section class="ticker" aria-labelledby="command-ticker" data-paused={paused}>
+<section
+  class="ticker"
+  class:clear={clearAssistant}
+  aria-labelledby="command-ticker"
+  data-paused={paused}
+>
   <h2 id="command-ticker" class="sr-only">Recent events</h2>
   {#if latest.length === 0}
     <p class="empty">Nothing has happened yet.</p>
@@ -130,6 +140,9 @@
     padding: var(--z-space-2) var(--z-space-6);
     border-top: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface);
+  }
+  .ticker.clear {
+    padding-inline-end: var(--z-eli-lane);
   }
   .control {
     flex: none;
@@ -218,6 +231,9 @@
   @media (max-width: 768px) {
     .ticker {
       padding: var(--z-space-2) var(--z-space-4);
+    }
+    .ticker.clear {
+      padding-inline-end: var(--z-eli-lane);
     }
   }
 </style>

@@ -31,7 +31,7 @@ export interface Lane {
   cells: Cell[];
   state: LaneState;
   tone: 'pending' | 'danger' | 'draining' | null;
-  /** '5 of 6 slots', 'full, 2 jobs wait', 'throttled', 'not answering', 'cordoned'. */
+  /** '5 of 6 slots', 'no slots', 'full, 2 jobs wait', 'throttled', 'not answering', 'cordoned'. */
   note: string;
   /**
    * Queued jobs for the pools running here. The same job can count towards
@@ -72,11 +72,12 @@ function cellsFor(host: Host & { id: string }, held: readonly Runner[]): Cell[] 
   const cells: Cell[] = [];
   const add = (kind: CellKind, runner?: Runner) => {
     const key = `${host.id}:${cells.length}`;
-    cells.push(
-      runner?.id
-        ? { key, kind, href: runnerHref(runner.id), runner }
-        : { key, kind, href: hostHref(host.id) },
-    );
+    // A runner the API sent without an id still holds its slot and is drawn,
+    // but it has no page to open, so its cell opens the host it runs on: the
+    // nearest page that says anything about it, rather than a dead link.
+    // The tile keeps the runner, so it still shows the job and the state.
+    const href = runner?.id ? runnerHref(runner.id) : hostHref(host.id);
+    cells.push(runner ? { key, kind, href, runner } : { key, kind, href });
   };
   for (const r of live) add('runner', r);
   for (const r of starting) add('starting', r);
@@ -102,6 +103,9 @@ function noteFor(
         ? { note: `full, ${waiting} ${waiting === 1 ? 'job waits' : 'jobs wait'}`, tone: 'pending' }
         : { note: 'full', tone: null };
     default:
+      // "0 of 0 slots" reads as a sum that went wrong; a host with a capacity
+      // of nought and nothing running on it is said plainly.
+      if (total === 0) return { note: 'no slots', tone: null };
       return { note: `${taken} of ${total} slots`, tone: null };
   }
 }

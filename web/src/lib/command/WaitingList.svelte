@@ -8,13 +8,14 @@
   give one job two explanations.
 -->
 <script lang="ts">
+  import RailSection from './RailSection.svelte';
   import RailSkeleton from './RailSkeleton.svelte';
   import type { Job } from '$lib/api/types';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import OffStatusIcon from '$lib/components/OffStatusIcon.svelte';
   import { formatDuration, NO_VALUE } from '$lib/format';
   import { queuedActivity } from '$lib/jobs/activity-status';
-  import { readableJobText } from '$lib/jobs/name';
+  import { readableJobName } from '$lib/jobs/name';
   import { prefs } from '$lib/state/prefs.svelte';
   import { clock } from './clock.svelte';
   import { WAITING_SHOWN } from './jobs-merge';
@@ -23,16 +24,18 @@
 
   interface Props {
     jobs: readonly Job[];
+    /** How many wait, which past the fetch's cap is more than `jobs` holds. */
+    count: number;
     /** True until the first read has answered: the rows' shapes, not an empty list. */
     loading: boolean;
     error: unknown;
     onopen: (job: Job) => void;
     onretry: () => void;
   }
-  let { jobs, loading, error, onopen, onretry }: Props = $props();
+  let { jobs, count, loading, error, onopen, onretry }: Props = $props();
 
   const shown = $derived(jobs.slice(0, WAITING_SHOWN));
-  const more = $derived(jobs.length - shown.length);
+  const more = $derived(Math.max(0, count - shown.length));
 
   function wait(job: Job): string {
     const ms = elapsedMs(job.queued_at, clock.now);
@@ -40,10 +43,12 @@
   }
 </script>
 
-<section class="rail-section" aria-labelledby="command-waiting" aria-busy={loading}>
-  <h2 id="command-waiting">
-    Waiting {#if !loading && !error}<span class="count">{jobs.length}</span>{/if}
-  </h2>
+<RailSection
+  id="command-waiting"
+  title="Waiting"
+  count={loading || error ? undefined : count}
+  busy={loading}
+>
   {#if loading}
     <RailSkeleton />
   {:else if error}
@@ -58,7 +63,7 @@
           <button type="button" class="row" onclick={() => onopen(job)}>
             <span class="mark"><OffStatusIcon status={activity.status} seed={job.id} /></span>
             <span class="what">
-              <span class="name">{readableJobText(job.job_name) || 'Unnamed job'}</span>
+              <span class="name">{readableJobName(job.job_name)}</span>
               <span class="where">{job.repo || NO_VALUE}</span>
             </span>
             <span class="side">
@@ -73,7 +78,7 @@
       <a class="more" href={QUEUE_HREF}>and {more} more</a>
     {/if}
   {/if}
-</section>
+</RailSection>
 
 <style>
   .wait {
