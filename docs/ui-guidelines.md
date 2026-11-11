@@ -555,7 +555,9 @@ below the phone breakpoint and the loading shape that stands in its place;
 `--z-command-ring-stroke` (0.625rem) is the width of its arc and its track.
 `--z-command-tile-height` (3.5rem) is every runner tile and free cell in a host
 lane, whatever it holds, so a lane's grid keeps its shape when a runner comes or
-goes and only the tile's colour and mark change.
+goes and only the tile's colour and mark change. `--z-command-rail` (20rem) is
+the rail's width at desktop, which the deck also measures from, since the deck
+is laid beside the rail rather than in its grid so that each scrolls alone.
 
 ### 1.5 Elevation
 

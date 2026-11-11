@@ -33,6 +33,8 @@ exercised by the browser specifications.
   unhealthy.
 - Waiting, Needs attention and Just finished in a rail, and a ticker of recent
   events. Every item links to its detail; a job opens the drawer in place.
+- At desktop width the page fits the window exactly, and the deck and the rail
+  each scroll inside it when they hold more than it shows.
 - A page whose stream has dropped says "Not live.", stops its clock and
   reconciles everything it holds before it goes on counting.
 - A visitor session sees a compact "Public, read-only view" note in the bar.

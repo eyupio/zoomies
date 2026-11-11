@@ -10,6 +10,7 @@
  * classes are all correct and the button still sits on top.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { busyFleet } from './support/command';
 import { goto } from './support/fixtures';
 
 /** The launcher, wherever the page is. */
@@ -49,4 +50,35 @@ test('a pool’s Save is not under the assistant’s button', async ({ page }) =
   if (await save.isVisible().catch(() => false)) {
     await expectClear(page, save, 'Save');
   }
+});
+
+test('the command centre’s last rail row and the ticker’s Pause are not under the assistant’s button', async ({
+  page,
+}) => {
+  // The command centre is its own chrome, so the shell's page padding is not
+  // there to keep its corner clear: the page reserves the lane itself while
+  // the button is drawn, which is whenever the page is not full screen. A
+  // short window, so the rail has to scroll and its end meets the corner.
+  if (!test.info().project.use.isMobile) await page.setViewportSize({ width: 1280, height: 720 });
+  await busyFleet(page, { hosts: 5, slots: 11, waiting: 12 });
+  await goto(page, '/command', 'Command centre');
+  const finished = page.getByRole('region', { name: /^Just finished/ });
+  await expect(finished).toHaveAttribute('aria-busy', 'false');
+
+  // The rail's end, scrolled to: every container it scrolls in, and the
+  // document, as far as they go.
+  await finished.evaluate((el) => {
+    for (let node: Element | null = el; node; node = node.parentElement) {
+      if (node.scrollHeight > node.clientHeight) node.scrollTop = node.scrollHeight;
+    }
+  });
+  // The last thing in the rail: a row, the "and N more" link or the line
+  // that says nothing finished. CSS, because they share no role.
+  const last = finished.locator(':scope > ul > li, :scope > a, :scope > button, :scope > p').last();
+  await expectClear(page, last, 'the last line of the rail');
+
+  const pause = page.getByRole('region', { name: 'Recent events' }).getByRole('button', {
+    name: 'Pause',
+  });
+  await expectClear(page, pause, 'the ticker’s Pause');
 });

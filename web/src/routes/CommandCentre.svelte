@@ -158,6 +158,15 @@
   });
   const said = $derived(verdict(verdictInput));
 
+  /*
+    The assistant's button is fixed in the window's bottom-right corner while
+    the page is not full screen, and it cannot be pressed through. The shell's
+    page padding is what keeps every other page clear of it; this page is its
+    own chrome, so it keeps the corner itself, on the same condition the shell
+    draws the button on.
+  */
+  const assistantShown = $derived(session.can('viewer') && !fullscreen.active);
+
   const time = $derived(
     new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(now),
   );
@@ -230,7 +239,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="command" data-live={live}>
+<div class="command" data-live={live} data-assistant={assistantShown}>
   <header class="bar">
     <span class="brand"><Logo variant="full" size={28} label="" /></span>
     <h1 id="page-heading" tabindex="-1">Command centre</h1>
@@ -290,83 +299,94 @@
     {/if}
     <!-- In the order a phone stacks them, which is also the order a screen
          reader and Tab meet them: what waits and what is wrong before the
-         hosts, and what finished after them. The grid puts the deck on the
-         left at desktop width. -->
-    <div class="board">
-      <div class="rail waiting">
-        <WaitingList
-          jobs={commandJobs.waiting}
-          loading={!commandJobs.loaded}
-          error={commandJobs.error}
-          onopen={showJob}
-          onretry={() => void commandJobs.retry()}
-        />
-      </div>
-      {#if notifications.active.length > 0}
-        <div class="rail attention">
-          <AttentionList problems={notifications.active} />
+         hosts, and what finished after them. At desktop width the deck is laid
+         on the left, beside the rail rather than in its grid, so that each
+         scrolls by itself; the frame is what the deck is placed against. -->
+    <div class="frame">
+      <div class="board">
+        <div class="rail waiting">
+          <WaitingList
+            jobs={commandJobs.waiting}
+            loading={!commandJobs.loaded}
+            error={commandJobs.error}
+            onopen={showJob}
+            onretry={() => void commandJobs.retry()}
+          />
         </div>
-      {/if}
-      {#if !fleet.loaded}
-        <section
-          class="deck"
-          aria-labelledby="command-hosts"
-          aria-busy={!fleet.error}
-          data-testid="command-deck"
-        >
-          <h2 id="command-hosts" class="sr-only">Hosts</h2>
-          {#if fleet.error}
-            <div class="deck-error">
-              <ErrorState
-                compact
-                error={fleet.error}
-                title="The hosts did not load."
-                onretry={() => void fleet.reconcile()}
-              />
-            </div>
-          {:else}
-            {#each [0, 1, 2, 3] as lane (lane)}
-              <div class="lane-skeleton" aria-hidden="true">
-                <Skeleton width="40%" height="var(--z-text-sm)" />
-                <div class="cells-skeleton">
-                  <Skeleton height="var(--z-command-tile-height)" radius="md" />
-                  <Skeleton height="var(--z-command-tile-height)" radius="md" />
-                </div>
+        {#if notifications.active.length > 0}
+          <div class="rail attention">
+            <AttentionList problems={notifications.active} />
+          </div>
+        {/if}
+        {#if !fleet.loaded}
+          <section
+            class="deck"
+            aria-labelledby="command-hosts"
+            aria-busy={!fleet.error}
+            data-testid="command-deck"
+          >
+            <h2 id="command-hosts" class="sr-only">Hosts</h2>
+            {#if fleet.error}
+              <div class="deck-error">
+                <ErrorState
+                  compact
+                  error={fleet.error}
+                  title="The hosts did not load."
+                  onretry={() => void fleet.reconcile()}
+                />
               </div>
+            {:else}
+              {#each [0, 1, 2, 3] as lane (lane)}
+                <div class="lane-skeleton" aria-hidden="true">
+                  <Skeleton width="40%" height="var(--z-text-sm)" />
+                  <div class="cells-skeleton">
+                    <Skeleton height="var(--z-command-tile-height)" radius="md" />
+                    <Skeleton height="var(--z-command-tile-height)" radius="md" />
+                  </div>
+                </div>
+              {/each}
+            {/if}
+          </section>
+        {:else if deck.length > 0}
+          <section class="deck" aria-labelledby="command-hosts" data-testid="command-deck">
+            <h2 id="command-hosts" class="sr-only">Hosts</h2>
+            {#each deck as lane (lane.host.id)}
+              <HostLane {lane} />
             {/each}
-          {/if}
-        </section>
-      {:else if deck.length > 0}
-        <section class="deck" aria-labelledby="command-hosts" data-testid="command-deck">
-          <h2 id="command-hosts" class="sr-only">Hosts</h2>
-          {#each deck as lane (lane.host.id)}
-            <HostLane {lane} />
-          {/each}
-        </section>
-      {/if}
-      <div class="rail finished">
-        <FinishedList
-          jobs={commandJobs.finished}
-          count={commandJobs.finishedCount}
-          moreHref={finishedSince}
-          loading={!commandJobs.loaded}
-          error={commandJobs.error}
-          onopen={showJob}
-          onretry={() => void commandJobs.retry()}
-        />
+          </section>
+        {/if}
+        <div class="rail finished">
+          <FinishedList
+            jobs={commandJobs.finished}
+            count={commandJobs.finishedCount}
+            moreHref={finishedSince}
+            loading={!commandJobs.loaded}
+            error={commandJobs.error}
+            onopen={showJob}
+            onretry={() => void commandJobs.retry()}
+          />
+        </div>
       </div>
     </div>
   </div>
-  <Ticker entries={feed.entries} />
+  <Ticker entries={feed.entries} clearAssistant={assistantShown} />
 </div>
 
 <JobDrawer bind:open={drawerOpen} job={openJob} onclose={() => (openJob = null)} />
 
 <style>
+  /*
+    At desktop width the page is the window and never more: the bar and the
+    hero keep their own height at the top, the ticker is pinned at the foot,
+    and the deck and the rail share what is left, each scrolling inside
+    itself. A page that scrolled as a document would carry the hero away and
+    the ticker off the bottom, and a wall display is not looked at with a
+    scroll wheel.
+  */
   .command {
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    height: 100dvh;
     background: var(--z-bg);
   }
   .bar {
@@ -499,31 +519,59 @@
     box-shadow: var(--z-focus-ring);
   }
   .stage {
+    display: flex;
     flex: 1;
+    flex-direction: column;
+    min-height: 0;
   }
-  /* The lanes on the left, the rail on the right. On a phone they stack in
-     the order a glance wants: what waits and what is wrong before the hosts,
-     and what finished after them. */
+  /* What the deck is placed against. It never shrinks to nothing: on a
+     window too short for the bar, the hero and the ticker, the page gives up
+     fitting and scrolls rather than drawing a deck no lane can be seen in. */
+  .frame {
+    position: relative;
+    flex: 1;
+    min-height: 12rem;
+  }
+  /* The rail on the right, scrolling in the board, which is the rail's
+     scroller and nothing else's: the deck is placed from the frame, outside
+     it, so scrolling one never moves the other. */
   .board {
+    box-sizing: border-box;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 20rem);
-    grid-template-areas:
-      'deck waiting'
-      'deck attention'
-      'deck finished';
-    grid-template-rows: auto auto 1fr;
-    align-items: start;
+    grid-template-columns: minmax(0, 1fr) var(--z-command-rail);
+    align-content: start;
     gap: var(--z-space-4) var(--z-space-6);
+    height: 100%;
     padding: var(--z-space-6);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  /* The rail's end is kept clear of the assistant's corner, so its last row
+     can be scrolled out from under the button. */
+  [data-assistant='true'] .board {
+    padding-bottom: var(--z-eli-clearance);
+  }
+  .rail {
+    grid-column: 2;
+    min-width: 0;
   }
   /* Two small hosts share a row; a lane with more slots than one row draws
-     spans both, so the deck grows downwards as the fleet does. */
+     spans both, so the deck grows downwards as the fleet does, inside its
+     own scroll. The inset leaves room for a focus ring the scroll would
+     otherwise cut. */
   .deck {
-    grid-area: deck;
+    position: absolute;
+    inset: calc(var(--z-space-6) - var(--z-space-1))
+      calc(var(--z-space-6) * 2 + var(--z-command-rail) - var(--z-space-1))
+      calc(var(--z-space-6) - var(--z-space-1)) calc(var(--z-space-6) - var(--z-space-1));
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
+    align-content: start;
     gap: var(--z-space-4);
+    padding: var(--z-space-1);
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   /* The loading shape of a lane: its header and a row of tiles at the tiles'
      own height, so the deck does not jump when the hosts arrive. */
@@ -542,15 +590,6 @@
   }
   .deck-error {
     grid-column: 1 / -1;
-  }
-  .rail.waiting {
-    grid-area: waiting;
-  }
-  .rail.attention {
-    grid-area: attention;
-  }
-  .rail.finished {
-    grid-area: finished;
   }
   /* The rail's three lists share one look; each owns only what is its own. */
   .rail :global(.rail-section) {
@@ -681,18 +720,31 @@
     .command :global(button) {
       min-height: var(--z-control-touch);
     }
+    /* Stacked, the page is a document again and scrolls as one. */
+    .command {
+      height: auto;
+      min-height: 100vh;
+    }
+    .stage,
+    .frame {
+      display: block;
+      position: static;
+      min-height: 0;
+    }
     .board {
       grid-template-columns: minmax(0, 1fr);
-      grid-template-areas:
-        'waiting'
-        'attention'
-        'deck'
-        'finished';
-      grid-template-rows: none;
+      height: auto;
       padding: var(--z-space-4);
+      overflow: visible;
+    }
+    .rail {
+      grid-column: auto;
     }
     .deck {
+      position: static;
       grid-template-columns: minmax(0, 1fr);
+      padding: 0;
+      overflow: visible;
     }
   }
 </style>

@@ -18,6 +18,7 @@ import {
   pageHeading,
   readThrough,
 } from './support/fixtures';
+import { busyFleet } from './support/command';
 
 function exitLink(page: Page) {
   return page.getByRole('link', { name: 'Exit', exact: true });
@@ -459,7 +460,7 @@ test('a read that fails says so in its band, offers to try again, and leaves the
   await expect(waiting.getByRole('button').first()).toBeVisible();
 });
 
-test('forty hosts are forty lanes, and the page grows to hold them', async ({ page }) => {
+test('forty hosts are forty lanes, and the deck scrolls to hold them', async ({ page }) => {
   await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
   await page.route('**/api/v1/hosts*', async (route) => {
     const read = await readThrough<{ items?: Record<string, unknown>[] }>(route);
@@ -502,24 +503,101 @@ test('forty hosts are forty lanes, and the page grows to hold them', async ({ pa
   await expect(lanes).toHaveCount(40);
   await expect(page.getByTestId('command-tile')).toHaveCount(80);
   await expect(page.getByTestId('command-free')).toHaveCount(120);
-  const sizes = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollHeight,
-    viewport: innerHeight,
-    flat: Array.from(document.querySelectorAll('[data-testid="command-lane"]')).filter(
-      (lane) => lane.getBoundingClientRect().height === 0,
-    ).length,
-    // A tile wider than the cell the lane's grid gave it, or than its own box.
-    wide: Array.from(document.querySelectorAll('[data-testid="command-tile"]')).filter((tile) => {
-      const cells = tile.parentElement!.getBoundingClientRect();
-      const box = tile.getBoundingClientRect();
-      return tile.scrollWidth > tile.clientWidth || box.right > cells.right + 0.5;
-    }).length,
-  }));
-  expect(sizes.scroll, 'the deck grows downwards rather than being cut off').toBeGreaterThan(
-    sizes.viewport,
-  );
+  const phone = !!test.info().project.use.isMobile;
+  const sizes = await page.evaluate(() => {
+    const deck = document.querySelector<HTMLElement>('[data-testid="command-deck"]')!;
+    return {
+      scroll: document.documentElement.scrollHeight,
+      viewport: document.documentElement.clientHeight,
+      deckScroll: deck.scrollHeight,
+      deckClient: deck.clientHeight,
+      flat: Array.from(document.querySelectorAll('[data-testid="command-lane"]')).filter(
+        (lane) => lane.getBoundingClientRect().height === 0,
+      ).length,
+      // A tile wider than the cell the lane's grid gave it, or than its own box.
+      wide: Array.from(document.querySelectorAll('[data-testid="command-tile"]')).filter((tile) => {
+        const cells = tile.parentElement!.getBoundingClientRect();
+        const box = tile.getBoundingClientRect();
+        return tile.scrollWidth > tile.clientWidth || box.right > cells.right + 0.5;
+      }).length,
+    };
+  });
+  if (phone) {
+    // Stacked, the page is a document and grows downwards as it always did.
+    expect(sizes.scroll, 'the phone grows downwards rather than cutting off').toBeGreaterThan(
+      sizes.viewport,
+    );
+  } else {
+    // The page is the window; the deck takes the fleet's height inside itself.
+    expect(sizes.scroll, 'the document grew with the fleet').toBe(sizes.viewport);
+    expect(sizes.deckScroll, 'the deck holds more than it shows').toBeGreaterThan(sizes.deckClient);
+  }
   expect(sizes.flat, 'a lane drawn with no height').toBe(0);
   expect(sizes.wide, 'a tile wider than its cell').toBe(0);
+  // Nothing past the fold is out of reach: the last lane scrolls into view.
+  await lanes.last().scrollIntoViewIfNeeded();
+  await expect(lanes.last()).toBeInViewport();
+});
+
+/*
+ * A wall display that scrolls is not on one screen. The owner's report: a
+ * fleet of five large hosts and a queue of twelve, on a 1920 by 1080 screen,
+ * pushed the ticker off the bottom and scrolled the hero away. The page is
+ * the window: the bar and the hero at the top, the ticker at the foot, and
+ * the deck and the rail sharing what is left, each scrolling in itself.
+ */
+for (const [width, height] of [
+  [1920, 1080],
+  [1440, 900],
+] as const) {
+  test(`at ${width} by ${height} a busy fleet fits the window, hero and ticker included`, async ({
+    page,
+  }) => {
+    test.skip(!!test.info().project.use.isMobile, 'a phone stacks the page and scrolls it');
+    await page.setViewportSize({ width, height });
+    await busyFleet(page, { hosts: 5, slots: 11, waiting: 12 });
+    await goto(page, '/command', 'Command centre');
+    await expect(page.getByTestId('command-lane')).toHaveCount(5);
+    await expect(rail(page, 'Waiting')).toHaveAttribute('aria-busy', 'false');
+    await expect(rail(page, 'Needs attention')).toBeVisible();
+
+    const fit = await page.evaluate(() => {
+      const box = (el: Element | null | undefined) => {
+        const r = el!.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, height: r.height };
+      };
+      return {
+        scroll: document.documentElement.scrollHeight,
+        client: document.documentElement.clientHeight,
+        hero: box(document.getElementById('command-verdict')?.closest('section')),
+        ticker: box(document.getElementById('command-ticker')?.closest('section')),
+      };
+    });
+    expect(fit.scroll, 'the document is taller than the window').toBe(fit.client);
+    for (const [name, box] of [
+      ['the hero', fit.hero],
+      ['the ticker', fit.ticker],
+    ] as const) {
+      expect(box.height, `${name} has a height`).toBeGreaterThan(0);
+      expect(box.top, `${name} starts inside the window`).toBeGreaterThanOrEqual(0);
+      expect(box.bottom, `${name} ends inside the window`).toBeLessThanOrEqual(fit.client);
+    }
+  });
+}
+
+test('on a phone the page still scrolls as a document, and never sideways', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await busyFleet(page, { hosts: 5, slots: 11, waiting: 12 });
+  await goto(page, '/command', 'Command centre');
+  await expect(page.getByTestId('command-lane')).toHaveCount(5);
+  const sizes = await page.evaluate(() => ({
+    scrollHeight: document.documentElement.scrollHeight,
+    clientHeight: document.documentElement.clientHeight,
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(sizes.scrollHeight, 'the stacked page scrolls').toBeGreaterThan(sizes.clientHeight);
+  expect(sizes.scrollWidth, 'the page scrolls sideways').toBeLessThanOrEqual(sizes.clientWidth);
 });
 
 for (const style of ['classic', 'mission-control']) {
