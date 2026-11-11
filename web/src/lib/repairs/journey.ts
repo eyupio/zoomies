@@ -43,7 +43,11 @@ export function trackIndex(repair: {
   const state = stateOf(repair);
   const stage = repair.details?.stage ?? '';
   let index = 0;
-  if (state !== 'queued' || stage === 'evidence' || stage === 'source') index = 1;
+  // A row recorded before the worker wrote its first stage can have left the
+  // queue with no stage; it is at least reading evidence. A row that says
+  // "queued" stopped before it read anything, and stays on the first step.
+  if (state !== 'queued' && stage === '') index = 1;
+  if (stage === 'evidence' || stage === 'source') index = 1;
   if (stage === 'prepare_fix') index = 2;
   if (stage === 'publish') index = 3;
   if (stage === 'watch_ci' || state === 'checking') index = 4;

@@ -326,6 +326,27 @@ test('a repair that could not fix the failure says why and what to try next', as
   await expect(timeline).not.toContainText('supported fix');
 });
 
+test('a repair blocked before it read anything stops at the queued step', async ({ page }) => {
+  await mockRepairApi(page, {
+    attempts: {
+      'rep-blocked': repairRow({
+        id: 'rep-blocked',
+        state: 'blocked',
+        message: 'Automatic repairs were stopped for this repository before this one ran.',
+        details: { stage: 'queued', case: keptCase() },
+      }),
+    },
+  });
+  await page.goto('/repairs/rep-blocked');
+
+  const progress = page.getByRole('region', { name: 'Progress' });
+  await expect(progress).toBeVisible();
+  const steps = progress.getByRole('list', { name: 'What Eli is doing' }).getByRole('listitem');
+  await expect(steps.nth(0)).toContainText('Stopped at this step');
+  await expect(steps.nth(1)).toContainText('Not started');
+  await expect(progress).not.toContainText('In progress');
+});
+
 // A repair made before cases were kept has its row and nothing about the failure.
 // It is still a repair somebody may want to read the outcome of.
 test('a repair from before cases were kept still opens, and says what it does not have', async ({

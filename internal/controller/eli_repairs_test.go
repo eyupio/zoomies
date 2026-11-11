@@ -338,6 +338,9 @@ func TestRepairWorkerStopsBeforeModelUseWhenPersonalProviderIsMissing(t *testing
 	if row.State != "failed" || fake.commits != 0 || !strings.Contains(row.Message, "personal provider") {
 		t.Fatalf("installation fallback: %+v", row)
 	}
+	if row.Details.Stage != "evidence" {
+		t.Fatalf("a repair that stopped while reading evidence recorded stage %q", row.Details.Stage)
+	}
 }
 
 func TestAutomaticRepairIgnoresNonPRFailuresBeforeChargingTheBudget(t *testing.T) {
@@ -484,6 +487,9 @@ func TestARepairThatCannotReadTheSourceSaysWhy(t *testing.T) {
 	if row.State != "failed" || row.Message != "The PR source could not be read: repository inventory exceeds Eli's repair limit." {
 		t.Fatalf("repair = %+v", row)
 	}
+	if row.Details.Stage != "source" {
+		t.Fatalf("a repair that stopped while reading source recorded stage %q", row.Details.Stage)
+	}
 }
 
 // Ollama cloud answered the repair prompt with a tool call although it was
@@ -557,6 +563,9 @@ func TestARepairAnswersAnUnofferedToolCallOnceAndNamesItWhenItRepeats(t *testing
 			}
 			if row.State != "failed" || fake.commits != 0 {
 				t.Fatalf("a model that insists on a tool was not stopped: %+v", row)
+			}
+			if row.Details.Stage != "prepare_fix" {
+				t.Fatalf("a repair that stopped while preparing its fix recorded stage %q", row.Details.Stage)
 			}
 			last := fake.comments[len(fake.comments)-1]
 			for _, want := range []string{"### 🐶 Eli got stuck", "`run_tests` (with `command`)", "no tools", "provider"} {
@@ -771,3 +780,22 @@ type providerRefusal struct {
 
 func (e *providerRefusal) Error() string   { return e.message }
 func (e *providerRefusal) HTTPStatus() int { return e.status }
+
+// A repair stopped before it read anything is still at the queue, not at a
+// stage it never reached. The attempt page draws the queue step stopped and
+// leaves the later steps unstarted.
+func TestARepairBlockedBeforeItStartedRecordsTheQueuedStage(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	row := &store.EliRepair{DedupKey: "blocked-before-start", Repo: "acme/repo", InstallationID: inst.ID, PullNumber: 1, Trigger: "mention"}
+	if _, err := h.st.EnqueueEliRepair(h.ctx, row); err != nil {
+		t.Fatal(err)
+	}
+	h.c.runEliRepair(h.ctx, row)
+	if row.State != "blocked" {
+		t.Fatalf("repair = %+v", row)
+	}
+	if row.Details.Stage != "queued" {
+		t.Fatalf("a repair blocked before it began recorded stage %q", row.Details.Stage)
+	}
+}

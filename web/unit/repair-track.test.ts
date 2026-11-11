@@ -11,12 +11,15 @@ const at = (stage: string, state = 'working') => repair({ state, details: { stag
 // screen.
 test('each stage the worker records puts the mark on its step', () => {
   assert.equal(trackIndex(repair({ state: 'queued' })), 0);
+  assert.equal(trackIndex(repair({ state: 'blocked', details: { stage: 'queued' } })), 0);
   assert.equal(trackIndex(at('evidence')), 1);
   assert.equal(trackIndex(at('source')), 1);
   assert.equal(trackIndex(at('prepare_fix')), 2);
   assert.equal(trackIndex(at('publish')), 3);
   assert.equal(trackIndex(at('watch_ci')), 4);
   assert.equal(trackIndex(repair({ state: 'checking' })), 4);
+  // A row from before the first stage was recorded is at least reading evidence.
+  assert.equal(trackIndex(repair({ state: 'failed' })), 1);
   // A commit is proof, and a row read between two writes may still say an old stage.
   assert.equal(
     trackIndex(repair({ state: 'working', commit_sha: 'abc1234', details: { stage: 'evidence' } })),
@@ -91,6 +94,10 @@ test('every stage shows the whole sequence, with a status for each step', () => 
 // on. The steps before it are done, it is stopped rather than in progress or
 // done, and the steps after it were never reached.
 test('a failed repair marks the step it reached as stopped and leaves the rest unstarted', () => {
+  assert.deepEqual(
+    trackSteps(at('queued', 'blocked')).map((step) => step.state),
+    ['stopped', 'todo', 'todo', 'todo', 'todo'],
+  );
   assert.deepEqual(
     trackSteps(at('prepare_fix', 'failed')).map((step) => step.state),
     ['done', 'done', 'stopped', 'todo', 'todo'],
