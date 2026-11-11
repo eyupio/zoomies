@@ -31,6 +31,7 @@ installShortcuts({
   search: () => {},
   refresh: () => {},
   eli: () => {},
+  focus: () => false,
   go: () => {},
 });
 

@@ -1042,6 +1042,44 @@ above the card, and only the controls that are the page's alone, the branch
 field, the saved views, Reset and the hint on how filters combine, sit opposite
 its title.
 
+Every list card's grid also has a **Focus** view: a link beside Columns, with
+the shared tooltip "Show only this table, full page", and `f` from the keyboard.
+It is `?focus=<grid id>` on the page's own address (the id, because a page can
+hold more than one grid), kept with the page's other query state, so it can be
+pasted, reloaded and reached with Back and Forward, and **Exit focus** is a link
+to the same address without that one parameter. The shell swaps the sidebar,
+the top bar, the phone's bottom bar and the footer for a slim bar (the page's
+name, the live indicator, `RefreshButton`, **Full screen** where
+`fullscreen.supported` says the browser allows it, with the command centre's
+wake lock, and Exit focus), and the grid's card fills the rest: its search and
+menus, its chips, its toolbar, its rows with the heading row held at the top
+while they scroll, and its pagination. It is the same page instance in the same
+route, so filters, sort, the column layout, the selection and any drawer or
+dialog carry across both ways. Nothing per page makes this work: the grid marks
+the elements between its card and `<main>` (`data-focus-path`), the card
+(`data-focus-unit`) and its own ancestors (`data-focus-fill`), and `app.css`
+hides every other child of the path while the root carries
+`data-table-focus`. A `Panel` says `data-grid-card` so a bare grid can find its card,
+and `data-focus-keep` keeps an element beside the card: `Dialog` and `Drawer`, so
+an overlay a page opens is not hidden with the page, and everything that narrows
+or explains the rows from outside the card, because a narrowed list with no sign
+of why is worse than a busier screen. That is `FilterBar` (the shared job
+filters on Jobs, Workflows and Queue, and every "filters in effect" row), the
+unmatched-jobs note, the Queue's selection across pages and the Kennel
+repositories' scope line; a kept element is a direct child of the path. The
+marks are counted (`FocusMarks` in `lib/table-focus.ts`), so on a page with two
+grids, Back from one's focus to the other's never takes off a mark the second
+still holds. Entering or leaving focus is announced as "Runners table, focus
+view" and "Runners, whole page", not as a page load; the keyboard lands on the
+bar's heading going in and on the Focus link coming out. A pasted or reloaded
+focus address keeps the chrome away from the first paint. `Esc` leaves the
+browser's full screen first, then closes the topmost overlay, then leaves focus,
+and is the field's own while the card's search has the keyboard. On a phone
+the bar's controls are `--z-control-touch` tall and, since the card's head takes
+most of a screen, the rows flow and the page under the bar scrolls them instead
+of a frame a few cards tall. The assistant steps aside in full screen, as on the
+command centre, and the component gallery, which has no shell, offers no Focus.
+
 ---
 
 ## 3. Component inventory
@@ -1088,7 +1126,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 
 | Component | Notes |
 | --- | --- |
-| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need*. `bare` drops its own border, radius and background for a grid drawn inside a `Panel`, so a list card is one frame |
+| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame, and columns that leave part of it empty share the rest out among those nobody sized; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need*. `bare` drops its own border, radius and background for a grid drawn inside a `Panel`, so a list card is one frame. `fill={false}` keeps its columns at their own widths. Every grid has a Focus view, see *The list pages* |
 | `RowActions` | a row's actions as buttons rather than a menu, as an ARIA toolbar: one tab stop per row, `← →` along it, and every button's name carries what it acts on |
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
 | `FilterChips` | a list's primary filter as a row of compact chips: All, then one per value with its count when the count is true of the rows under it; more than one in force at once, each saying so with `aria-pressed`, a tick and the weight of its words, never by colour alone; a chip may carry a `hint` in the shared tooltip, a row may be drawn with nothing pressed (`none`) when the filter in force is one no chip can say, and on a phone may be one line that scrolls (`scroll`) where a page's rule is records first. The Runners page's states are the first |
@@ -1317,8 +1355,9 @@ Everything reachable, in a sensible order, with a visible focus ring
 (`2px` `--z-accent`, `2px` offset, never removed). `Cmd/Ctrl+K` palette,
 `g` then `o/d/p/r/q/w/j/u/h/v/i/m/k/c/a/s` to jump between sections (`d` is the
 command centre, `j` is the Jobs list, one step down from Workflows, and `c` is
-AI Context), `/` focuses the current page's search, `R` refreshes it, `?` opens the shortcut sheet, `Esc` closes the
-topmost layer, and a tooltip is the first thing it closes. While a dialog, drawer, menu or the palette is open, `Esc` is
+AI Context), `/` focuses the current page's search, `R` refreshes it, `?` opens the shortcut sheet, `f` shows only
+the page's table, full page, or comes back from it (see *The list pages*),
+`Esc` closes the topmost layer, and a tooltip is the first thing it closes. While a dialog, drawer, menu or the palette is open, `Esc` is
 the only one of these the shell answers; the rest belong to the overlay, so a
 `g r` typed into a confirmation cannot navigate away from the thing being
 confirmed. Tab stays inside the innermost open overlay, and everything outside
@@ -1475,13 +1514,29 @@ other side and carries a comment saying so.
 
 ### Tables use the space they need
 
-Tables begin at content-relevant widths rather than stretching a short state,
-date or action column merely to fill the frame. When those useful widths fit,
-unused room remains at the end of the table instead of being hidden inside its
-columns. When the defaults need more room they still divide the frame, and the
-narrow-desktop priorities keep the page readable without a page-level
-scrollbar. `web/tests/tables.spec.ts` checks the page itself at 1440, 1180,
-1179, 768, 412 and 360 pixels.
+A grid fills the width it is given. Its columns begin at the useful widths
+they declare, and when those add up to less than the frame the spare is shared
+out, in proportion, among the columns the operator has not sized by hand; when
+every column that could take it has been sized, the last flexible one takes it
+all. The tick and the actions column never grow, because a control column wider
+than its controls is empty space beside a checkbox. The shared-out width is
+worked out when the grid is drawn (`shareWidth` in
+`web/src/lib/actions/shareWidth.ts`, read by a unit test) and is never stored,
+so the saved layout is only what the operator chose, and a window resize, the
+sidebar collapsing or a column shown, hidden or resized shares it again. A strip
+of nothing down the right of a list read as a page that had not finished
+drawing, and every grid here is a working list; a page that wants a short grid
+left at its own widths passes `fill={false}`. The hand-written record tables
+below keep the older rule: they begin at the width their content measures, and
+unused room remains at the end of the table rather than stretching a short
+state or date column across the frame. When the defaults need more room they
+still divide the frame, and the narrow-desktop priorities keep the page
+readable without a page-level scrollbar. `web/tests/tables.spec.ts` checks the
+page itself at 1440, 1180, 1179, 768, 412 and 360 pixels, and
+`web/tests/column-layout.spec.ts` that a grid at 1920 reaches its frame's right
+edge, before and after a column is dragged narrower. A grid in its focus view
+(see *The list pages*) fills its frame the same way; the frame is simply the
+page.
 
 Five things make it fit, in this order:
 

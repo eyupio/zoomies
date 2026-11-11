@@ -63,7 +63,10 @@
   const headingId = $props.id();
 </script>
 
+<!-- `data-grid-card` is how a grid drawn bare inside finds the card it belongs to,
+     which is what its focus view fills the page with. -->
 <section
+  data-grid-card
   class="panel {className}"
   class:fill
   class:list={Boolean(toolbar)}

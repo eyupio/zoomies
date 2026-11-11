@@ -64,7 +64,9 @@
 </script>
 
 {#if open}
-  <div class="backdrop" bind:this={backdrop}>
+  <!-- `data-focus-keep`: a table's focus view hides the rest of the page, and
+       an overlay the page opens is not the rest of the page. -->
+  <div class="backdrop" data-focus-keep bind:this={backdrop}>
     <!--
       A plain div, not a button: a focusable element that is also hidden from
       assistive technology is a contradiction, and clicking it left the dialog

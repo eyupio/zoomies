@@ -119,7 +119,7 @@
 -->
 <script lang="ts" generics="T extends Record<string, unknown>">
   import { untrack } from 'svelte';
-  import { ChevronRight, Columns3, GripVertical, RotateCcw } from '@lucide/svelte';
+  import { ChevronRight, Columns3, GripVertical, Maximize2, RotateCcw } from '@lucide/svelte';
   import {
     columnVisibilityFeature,
     createTable,
@@ -128,10 +128,13 @@
   } from '@tanstack/svelte-table';
   import { layers } from '../keys';
   import { startColumnDrag, startColumnResize } from '../actions/columnGesture';
+  import { shareWidth } from '../actions/shareWidth';
   import { visualStyle } from '../state/ui-style.svelte';
   import { prefs, type GridView } from '../state/prefs.svelte';
   import { viewport } from '../state/viewport.svelte';
   import { router } from '../router';
+  import { FOCUS_PARAM, focusAddress } from '../table-focus';
+  import { tableFocus } from '../state/table-focus.svelte';
   import Button from './Button.svelte';
   import Checkbox from './Checkbox.svelte';
   import EmptyState from './EmptyState.svelte';
@@ -182,6 +185,13 @@
     expandHeader?: string;
     /** Drop the grid's own border, radius and background: it sits flush inside a Panel. */
     bare?: boolean;
+    /**
+     * Share out the width the columns leave unused, so the table meets its
+     * frame's right edge. On by default: every list here is a working list,
+     * and a strip of nothing down its right-hand side reads as a page that has
+     * not finished drawing. `false` keeps the columns at their own widths.
+     */
+    fill?: boolean;
     class?: string;
   }
 
@@ -206,6 +216,7 @@
     expanded,
     expandHeader = 'Details',
     bare = false,
+    fill = true,
     class: className = '',
   }: Props = $props();
 
@@ -588,21 +599,26 @@
   const hasCustomWidths = $derived(Object.keys(layoutWidths).length > 0);
 
   /**
-   * Every visible column's width, in the proportions the declared widths ask
-   * for and adding up to exactly the frame.
+   * Every visible column's width, and the table's.
    *
    * Under a fixed layout a declared width is taken literally, so nine columns
-   * that each know what they are worth add up to a table wider than the window
-   * -- which is the sideways scroll this grid is not supposed to have. Sharing
-   * the frame out instead keeps the same relative weights, fills the width
-   * exactly at any size, and means no column is ever squeezed to nothing while
-   * another keeps its full measure.
+   * that each know what they are worth add up to a table wider than the window,
+   * which is the sideways scroll the defaults are not supposed to have.
+   * Sharing the frame out instead keeps the same relative weights, fills the
+   * width exactly at any size, and means no column is ever squeezed to nothing
+   * while another keeps its full measure.
+   *
+   * Columns that add up to less than the frame are given the rest of it (see
+   * `shareWidth`): the ones nobody has sized take it, so a dragged column keeps
+   * the width it was dragged to. That width is drawn here and never stored; the
+   * stored layout is only what the operator chose.
    */
   const columnWidths = $derived.by(() => {
     const none = {
       pick: undefined,
       expand: undefined,
       columns: visibleColumns.map(() => undefined),
+      table: undefined,
     };
     // A card has no columns to divide, and a width left on the heading strip
     // would squeeze the sort controls into the shapes of columns that are no
@@ -616,62 +632,84 @@
     // measured rather than shared.
     const pick = selectable ? PICK_SHARE_REM * remPx : 0;
     const expand = expanded ? EXPAND_SHARE_REM * remPx : 0;
-    /*
-      Scrolling, so there is no frame to divide: every column gets exactly what
-      it asked for. The widths are still emitted rather than left to the
-      automatic layout, or the longest repository name on the page would decide
-      how wide the table is and the ellipsis could never fire.
-    */
-    if (phoneRows || hasCustomWidths) {
+    const total = wanted.reduce((sum, value) => sum + value, pick + expand);
+    const px = (value: number) => `${value.toFixed(2)}px`;
+
+    // A drag in progress: every other column holds the width it was drawn at
+    // when the drag began, so the edge stays under the pointer. Sharing the
+    // spare out afresh on every move gave some of each pixel to the columns
+    // left of the edge, and the handle crept away from the cursor. The share
+    // is worked out again once the drag ends.
+    if (frozen) {
+      const held = frozen;
+      const drawn = visibleColumns.map((column, index) =>
+        column.id === held.column ? wanted[index]! : (held.widths[column.id] ?? wanted[index]!),
+      );
+      const width = drawn.reduce((sum, value) => sum + value, pick + expand);
       return {
-        pick: selectable ? `${pick}px` : undefined,
-        expand: expanded ? `${expand}px` : undefined,
-        columns: wanted.map((value) => `${value}px`),
+        pick: selectable ? px(pick) : undefined,
+        expand: expanded ? px(expand) : undefined,
+        columns: drawn.map(px),
+        table: px(width),
       };
     }
-    const measured =
-      pick +
-      expand +
-      visibleColumns.reduce((sum, column, index) => sum + (column.fixed ? wanted[index]! : 0), 0);
-    const shared = visibleColumns.reduce(
-      (sum, column, index) => sum + (column.fixed ? 0 : wanted[index]!),
-      0,
-    );
-    if (shared <= 0) return none;
 
-    // What the measured columns leave, divided in the proportions the rest
-    // asked for. Never below zero: a frame narrower than the controls in it is
-    // a frame the phone's card layout has already taken over.
-    const spare = Math.max(0, frameWidth - measured);
-    const of = (value: number) => `${((value / shared) * spare).toFixed(2)}px`;
+    // Defaults that want more than the frame still fit it: what the measured
+    // columns leave is divided in the proportions the rest asked for. Once the
+    // operator resizes a column, that explicit measure wins and the grid's own
+    // frame scrolls if necessary; silently shrinking every other column would
+    // make the resize handle lie.
+    if (!phoneRows && !hasCustomWidths && total >= frameWidth) {
+      const measured =
+        pick +
+        expand +
+        visibleColumns.reduce((sum, column, index) => sum + (column.fixed ? wanted[index]! : 0), 0);
+      const shared = visibleColumns.reduce(
+        (sum, column, index) => sum + (column.fixed ? 0 : wanted[index]!),
+        0,
+      );
+      if (shared <= 0) return none;
+      // Never below zero: a frame narrower than the controls in it is a frame
+      // the phone's card layout has already taken over.
+      const spare = Math.max(0, frameWidth - measured);
+      return {
+        pick: selectable ? px(pick) : undefined,
+        expand: expanded ? px(expand) : undefined,
+        columns: visibleColumns.map((column, index) =>
+          column.fixed ? px(wanted[index]!) : px((wanted[index]! / shared) * spare),
+        ),
+        table: undefined,
+      };
+    }
+
+    /*
+      Every column gets what it asked for, and when that leaves part of the
+      frame empty the spare is shared out. The widths are emitted rather than
+      left to the automatic layout, or the longest repository name on the page
+      would decide how wide the table is and the ellipsis could never fire.
+    */
+    const drawn =
+      fill && total < frameWidth
+        ? shareWidth(
+            [
+              ...(selectable ? [{ width: pick, fixed: true }] : []),
+              ...(expanded ? [{ width: expand, fixed: true }] : []),
+              ...visibleColumns.map((column, index) => ({
+                width: wanted[index]!,
+                fixed: column.fixed === true,
+                hand: layoutWidths[column.id] !== undefined,
+              })),
+            ],
+            frameWidth,
+          ).slice((selectable ? 1 : 0) + (expanded ? 1 : 0))
+        : wanted;
+    const width = drawn.reduce((sum, value) => sum + value, pick + expand);
     return {
-      pick: selectable ? `${pick}px` : undefined,
-      expand: expanded ? `${expand}px` : undefined,
-      columns: visibleColumns.map((column, index) =>
-        column.fixed ? `${wanted[index]!}px` : of(wanted[index]!),
-      ),
+      pick: selectable ? px(pick) : undefined,
+      expand: expanded ? px(expand) : undefined,
+      columns: drawn.map(px),
+      table: width > 0 ? px(width) : undefined,
     };
-  });
-
-  /**
-   * How wide the table is when it scrolls, so it is not squeezed back into the
-   * frame. Only the phone's row layout has one: everywhere else the table is
-   * exactly the frame, which is the point of dividing the width.
-   */
-  const tableWidth = $derived.by(() => {
-    if (cards || frameWidth <= 0) return undefined;
-    const pick = selectable ? PICK_SHARE_REM * remPx : 0;
-    const expand = expanded ? EXPAND_SHARE_REM * remPx : 0;
-    const total = visibleColumns.reduce(
-      (sum, column) => sum + (layoutWidths[column.id] ?? share(column.width, remPx)),
-      pick + expand,
-    );
-    // Defaults still fit the window when their useful measures add up to more
-    // than it has. Once the operator resizes a column, that explicit measure
-    // wins and the grid's own frame scrolls if necessary; silently shrinking
-    // every other column would make the resize handle lie.
-    if (!phoneRows && !hasCustomWidths && total >= frameWidth) return undefined;
-    return total > 0 ? `${total.toFixed(2)}px` : undefined;
   });
 
   const MIN_COLUMN_PX = 56;
@@ -683,16 +721,36 @@
     if (persist) prefs.setColumnWidth(gridId, column.id, next);
   }
 
+  /** The widths drawn when a drag began, held while it lasts (see `columnWidths`). */
+  let frozen = $state<{ column: string; widths: Record<string, number> } | null>(null);
+
   function beginResize(event: PointerEvent, column: GridColumn<T>): void {
     const heading = (event.currentTarget as HTMLElement).closest('th');
     const startWidth = heading?.getBoundingClientRect().width ?? share(column.width, remPx);
     startColumnResize(event, startWidth, {
-      move: (width) => setLayoutWidth(column, width),
+      move: (width) => {
+        // Read on the first move rather than the press, which may be a
+        // double-click that restores the width instead.
+        if (!frozen) frozen = { column: column.id, widths: drawnWidths() };
+        setLayoutWidth(column, width);
+      },
       done: () => {
+        frozen = null;
         const width = layoutWidths[column.id];
         if (width !== undefined) prefs.setColumnWidth(gridId, column.id, width);
       },
     });
+  }
+
+  /** Every visible column's width as it is drawn now, by column id. */
+  function drawnWidths(): Record<string, number> {
+    const widths: Record<string, number> = {};
+    for (const heading of frame?.querySelectorAll<HTMLElement>('thead th[data-table-column]') ??
+      []) {
+      const id = heading.dataset.tableColumn;
+      if (id) widths[id] = heading.getBoundingClientRect().width;
+    }
+    return widths;
   }
 
   function resizeByKey(event: KeyboardEvent, column: GridColumn<T>): void {
@@ -907,6 +965,58 @@
     }
   }
 
+  /* Focus: this table alone, full page ---------------------------------------
+   * The page is not rebuilt for it. The same grid, in the same route, marks the
+   * elements between itself and the page's <main>, and the stylesheet hides
+   * every sibling along that path (the header, the band, the other panels) while
+   * the shell swaps its chrome for a slim bar. So filters, sort, selection, an
+   * open drawer and the column layout are simply still there, because nothing
+   * that holds them was ever unmounted.
+   * ---------------------------------------------------------------------- */
+
+  let root = $state<HTMLDivElement | null>(null);
+  const inFocus = $derived(tableFocus.shell && router.param(FOCUS_PARAM) === gridId);
+  const focusHref = $derived(focusAddress(router.pathname, router.search, gridId));
+
+  $effect(() => tableFocus.register(gridId));
+
+  $effect(() => {
+    const element = root;
+    if (!inFocus || !element) return;
+    return untrack(() => holdFocus(element));
+  });
+
+  /**
+   * Mark the page for focus, and return what unmarks it.
+   *
+   * What fills the page is the grid's card: the Panel it sits bare inside, with
+   * the card's search and its chips, since those are the grid's own filters; a
+   * grid with a frame of its own is its own card. Everything between that card
+   * and <main> is the path, whose other children the stylesheet hides, and
+   * everything from the grid up is told to fill, so the rows scroll inside the
+   * page while the bar and the pagination stay put.
+   */
+  function holdFocus(element: HTMLElement): () => void {
+    const main = element.closest('main');
+    const card = (bare ? element.closest<HTMLElement>('[data-grid-card]') : null) ?? element;
+    const unmark: Array<() => void> = [];
+    const mark = (node: HTMLElement, name: string): void => {
+      unmark.push(tableFocus.mark(node, name));
+    };
+    mark(card, 'data-focus-unit');
+    for (let node: HTMLElement | null = element; node; node = node.parentElement) {
+      mark(node, 'data-focus-fill');
+      if (node !== card && card.contains(node)) continue;
+      if (node !== card) mark(node, 'data-focus-path');
+      if (node === main || !main) break;
+    }
+    const release = tableFocus.claim(gridId);
+    return () => {
+      release();
+      for (const take of unmark) take();
+    };
+  }
+
   /* -- the column chooser ----------------------------------------------------- */
 
   let chooserOpen = $state(false);
@@ -951,7 +1061,15 @@
   </Tooltip>
 {/snippet}
 
-<div class="grid {className}" class:rows={phoneRows} class:custom={hasCustomWidths} class:bare>
+<div
+  class="grid {className}"
+  class:rows={phoneRows}
+  class:custom={hasCustomWidths}
+  class:bare
+  class:in-focus={inFocus}
+  data-grid-id={gridId}
+  bind:this={root}
+>
   <div class="toolbar">
     {#if selectable && selected.length > 0}
       <div class="bulk" role="group" aria-label="Actions for the selected {noun}">
@@ -974,80 +1092,98 @@
         <Button size="sm" variant="ghost" onclick={() => (selected = [])}>Clear selection</Button>
       </div>
     {/if}
-    <div class="chooser-wrap" bind:this={chooser}>
-      <Button
-        size="sm"
-        variant="ghost"
-        icon={Columns3}
-        ariaExpanded={chooserOpen}
-        ariaHaspopup="dialog"
-        ariaControls="{gridId}-columns"
-        onclick={() => (chooserOpen = !chooserOpen)}
-      >
-        Columns
-      </Button>
-      {#if chooserOpen}
-        <div class="chooser" id="{gridId}-columns" role="group" aria-label="Column layout">
-          {#if viewport.phone}
-            <!--
+    <!-- The grid's own controls, together at the end of its toolbar. Leaving
+         focus puts the keyboard back on the Focus link by `.tools a[href]`, so
+         it is the only link in here. -->
+    <div class="tools">
+      {#if tableFocus.shell && !inFocus}
+        <!-- A link, because it goes somewhere: the same page, with this table alone. -->
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={Maximize2}
+          href={focusHref}
+          help="Show only this table, full page"
+          keys={['f']}
+        >
+          Focus
+        </Button>
+      {/if}
+      <div class="chooser-wrap" bind:this={chooser}>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={Columns3}
+          ariaExpanded={chooserOpen}
+          ariaHaspopup="dialog"
+          ariaControls="{gridId}-columns"
+          onclick={() => (chooserOpen = !chooserOpen)}
+        >
+          Columns
+        </Button>
+        {#if chooserOpen}
+          <div class="chooser" id="{gridId}-columns" role="group" aria-label="Column layout">
+            {#if viewport.phone}
+              <!--
               The layout choice, where the two layouts differ, and in the panel
               that already answers "how is this grid drawn": as a second button
               beside Columns it was the same decision twice on the one screen
               with the least room. It is this grid's alone and outlives the
               visit; Settings holds the default for a grid nobody has decided.
             -->
-            <div class="chooser-layout">
-              <Segmented
-                label="How a {noun.replace(/s$/, '')} is laid out"
-                value={view}
-                options={[
-                  { value: 'cards', label: 'Cards', name: 'Every value on its own line' },
-                  { value: 'rows', label: 'Rows', name: 'The table, scrolling sideways' },
-                ]}
-                onchange={(next) => prefs.setGridView(gridId, next as GridView)}
-              />
-            </div>
-          {/if}
-          {#each hideable as column (column.id)}
-            <!--
+              <div class="chooser-layout">
+                <Segmented
+                  label="How a {noun.replace(/s$/, '')} is laid out"
+                  value={view}
+                  options={[
+                    { value: 'cards', label: 'Cards', name: 'Every value on its own line' },
+                    { value: 'rows', label: 'Rows', name: 'The table, scrolling sideways' },
+                  ]}
+                  onchange={(next) => prefs.setGridView(gridId, next as GridView)}
+                />
+              </div>
+            {/if}
+            {#each hideable as column (column.id)}
+              <!--
               A column the window is too narrow for is still listed, and still
               takes the operator's choice, because that choice is theirs and
               outlives this window size -- but it says why ticking it changes
               nothing they can see. A tick that does nothing and does not say so
               is the kind of control that gets reported as broken.
             -->
-            <div class="chooser-row">
-              <Checkbox
-                label={column.header}
-                description={narrowDesktop && column.priority === 'wide'
-                  ? 'Shown when the window is wider'
-                  : undefined}
-                checked={visibility[column.id] !== false}
-                onchange={(on) => toggleColumn(column.id, on)}
-              />
-              <span class="chooser-move">
-                <Tooltip bare title="Move {column.header} left">
-                  <button
-                    type="button"
-                    aria-label="Move {column.header} left"
-                    onclick={() => moveColumnBy(column, -1)}>←</button
-                  >
-                </Tooltip>
-                <Tooltip bare title="Move {column.header} right">
-                  <button
-                    type="button"
-                    aria-label="Move {column.header} right"
-                    onclick={() => moveColumnBy(column, 1)}>→</button
-                  >
-                </Tooltip>
-              </span>
-            </div>
-          {/each}
-          <Button size="sm" variant="ghost" icon={RotateCcw} onclick={resetLayout}
-            >Reset layout</Button
-          >
-        </div>
-      {/if}
+              <div class="chooser-row">
+                <Checkbox
+                  label={column.header}
+                  description={narrowDesktop && column.priority === 'wide'
+                    ? 'Shown when the window is wider'
+                    : undefined}
+                  checked={visibility[column.id] !== false}
+                  onchange={(on) => toggleColumn(column.id, on)}
+                />
+                <span class="chooser-move">
+                  <Tooltip bare title="Move {column.header} left">
+                    <button
+                      type="button"
+                      aria-label="Move {column.header} left"
+                      onclick={() => moveColumnBy(column, -1)}>←</button
+                    >
+                  </Tooltip>
+                  <Tooltip bare title="Move {column.header} right">
+                    <button
+                      type="button"
+                      aria-label="Move {column.header} right"
+                      onclick={() => moveColumnBy(column, 1)}>→</button
+                    >
+                  </Tooltip>
+                </span>
+              </div>
+            {/each}
+            <Button size="sm" variant="ghost" icon={RotateCcw} onclick={resetLayout}
+              >Reset layout</Button
+            >
+          </div>
+        {/if}
+      </div>
     </div>
   </div>
 
@@ -1063,7 +1199,7 @@
       role="grid"
       aria-label={label}
       aria-rowcount={total}
-      style:width={tableWidth}
+      style:width={columnWidths.table}
       onkeydown={onBodyKeydown}
     >
       <!--
@@ -1377,9 +1513,14 @@
     color: var(--z-text-muted);
     font-variant-numeric: tabular-nums;
   }
+  .tools {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    margin-left: auto;
+  }
   .chooser-wrap {
     position: relative;
-    margin-left: auto;
   }
   .chooser {
     position: absolute;
@@ -1458,6 +1599,19 @@
   }
   .grid.custom .scroll {
     overflow-x: auto;
+  }
+  /*
+    In focus the frame is the page, less the bar, the card's head and the
+    pagination: the rows scroll inside it and the heading row stays at its top.
+    The 70vh cap is for a grid sharing the page with other things.
+  */
+  .grid.in-focus .scroll {
+    flex: 1 1 auto;
+    /* Room for a few rows however short the window: below this the card runs
+       past the window and <main> scrolls under the bar, rather than the rows
+       shrinking to nothing. */
+    min-height: min(16rem, 40dvh);
+    max-height: none;
   }
   table {
     width: 100%;
@@ -1987,6 +2141,16 @@
     */
     .toolbar {
       flex-wrap: wrap;
+    }
+    /*
+      A phone in focus: the card's search, menus and chips take most of a
+      screen, so a frame that scrolled by itself would be a slot a few cards
+      tall. The rows flow instead and the page scrolls them, under the bar.
+    */
+    .grid.in-focus .scroll {
+      flex: none;
+      min-height: 0;
+      overflow-y: visible;
     }
   }
 </style>

@@ -35,6 +35,9 @@
   import InstanceNotice from '$lib/shell/InstanceNotice.svelte';
   import { upgrade } from '$lib/state/upgrade.svelte';
   import { fullscreen } from '$lib/command/fullscreen.svelte';
+  import FocusBar from '$lib/shell/FocusBar.svelte';
+  import { tableFocus } from '$lib/state/table-focus.svelte';
+  import { focusAddress, focusedGrid } from '$lib/table-focus';
 
   let paletteOpen = $state(false);
   let navMenuOpen = $state(false);
@@ -44,6 +47,52 @@
 
   const Page = $derived(router.component);
   const authenticated = $derived(session.phase === 'ready');
+  /*
+    A table has the page to itself (`?focus=<grid id>`, claimed by the grid
+    once it is there). The page stays mounted exactly where it was, so
+    everything it holds carries across; only the chrome around it changes.
+  */
+  /*
+    A focus address that was pasted or reloaded: the chrome stays away from
+    the first paint rather than showing until the table has mounted and
+    claimed the page. Read before anything renders, and let go once a table
+    has claimed or the page has loaded without the one the address names, so
+    a `?focus=` naming no table still shows the ordinary page.
+  */
+  let pendingFocus = $state(focusedGrid(location.search) !== null);
+  const focusing = $derived(tableFocus.active !== null || pendingFocus);
+
+  $effect(() => {
+    if (!pendingFocus) return;
+    if (tableFocus.active) {
+      pendingFocus = false;
+      return;
+    }
+    if (!authenticated || router.loading || !Page) return;
+    // The page is mounted; a table on it claims in its first effects, which
+    // run before the next frame.
+    const frame = requestAnimationFrame(() => {
+      if (!tableFocus.active) pendingFocus = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+
+  /** `f`: show only the page's table, or come back from it. Whether it did. */
+  function toggleTableFocus(): boolean {
+    if (tableFocus.active) {
+      void fullscreen.exit();
+      router.navigate(focusAddress(location.pathname, location.search, null, location.hash));
+      return true;
+    }
+    // The table the keyboard is in, when it is in one; otherwise the page's first.
+    const within = (document.activeElement as HTMLElement | null)
+      ?.closest?.('[data-grid-id]')
+      ?.getAttribute('data-grid-id');
+    const id = within && tableFocus.grids.includes(within) ? within : tableFocus.grids[0];
+    if (!id) return false;
+    router.navigate(focusAddress(location.pathname, location.search, id, location.hash));
+    return true;
+  }
 
   onMount(() => {
     // A session that has lapsed shows the sign-in form in place: the shell
@@ -57,6 +106,7 @@
       feed.stop();
     });
     router.start();
+    const withdrawFocus = tableFocus.provide();
     void session.boot();
     const stopWatchingForUpgrades = upgrade.listen();
 
@@ -70,6 +120,7 @@
       },
       refresh: () => void refresh.run(),
       eli: () => eli.toggle(),
+      focus: toggleTableFocus,
       // The `g` keys skip what the sidebar hides from a visitor, rather than
       // opening a page whose only content is "sign in to see this".
       go: (path) => {
@@ -77,6 +128,7 @@
       },
     });
     return () => {
+      withdrawFocus();
       stopWatchingForUpgrades();
       teardown();
     };
@@ -135,6 +187,9 @@
    * character and swallowed the second: a runner name became `z`.
    */
   let focused = 0;
+  /** The address without its focus parameter, and the table that was in focus. */
+  let lastPlace = '';
+  let lastFocus: string | null = null;
   $effect(() => {
     const count = router.navigation;
     // The title is read untracked: a detail page renaming itself once it knows
@@ -142,6 +197,35 @@
     const title = untrack(() => router.title);
     if (!authenticated || count === 0 || count === focused) return;
     focused = count;
+
+    /*
+      Only the focus parameter moved: the same page, shown differently. It is
+      not a page load, and saying "Page loaded" or reaching for the page's
+      heading (hidden in focus) would describe something that did not happen.
+      Into focus the claim below moves the keyboard to the bar's heading; out
+      of it, the keyboard goes back to the Focus link it left from.
+    */
+    const place = focusAddress(location.pathname, location.search, null);
+    const now = focusedGrid(location.search);
+    const was = lastFocus;
+    const toggled = place === lastPlace && now !== was;
+    lastPlace = place;
+    lastFocus = now;
+    if (toggled) {
+      announcement = now ? `${title} table, focus view` : `${title}, whole page`;
+      if (!now && was) {
+        // A frame on: the link is drawn again once the table lets the page go.
+        void tick().then(() =>
+          requestAnimationFrame(() =>
+            document
+              .querySelector<HTMLElement>(`[data-grid-id="${CSS.escape(was)}"] .tools a[href]`)
+              ?.focus(),
+          ),
+        );
+      }
+      return;
+    }
+
     void tick().then(() => {
       // A link from another page's band names the list it counts, and that
       // destination is where the reader asked to be. The heading is right only
@@ -158,6 +242,14 @@
       heading?.focus();
       announcement = `${title}. Page loaded.`;
     });
+  });
+
+  // Into focus, the keyboard lands on the bar's name for the page, since the
+  // page's own heading is hidden with its header. Run on the claim rather than
+  // the navigation, because the bar exists only once the table has claimed.
+  $effect(() => {
+    if (!tableFocus.active) return;
+    void tick().then(() => document.getElementById('focus-heading')?.focus());
   });
 </script>
 
@@ -234,12 +326,19 @@
   {#if session.can('viewer') && !fullscreen.active}<EliWidget />{/if}
   <ShortcutSheet bind:open={shortcutsOpen} />
 {:else}
-  <div class="app">
-    <Nav menuOpen={navMenuOpen} onmore={() => (navMenuOpen = !navMenuOpen)} />
+  <!-- In a table's focus view the navigation, the top bar and the footer give
+       way to the focus bar; the page under <main> is the same instance either
+       way, and hides everything but its table (see app.css). -->
+  <div class="app" class:focus={focusing} data-fullscreen={fullscreen.active}>
+    {#if !focusing}<Nav menuOpen={navMenuOpen} onmore={() => (navMenuOpen = !navMenuOpen)} />{/if}
     <div class="column">
       <InstanceNotice />
-      <TopBar onpalette={() => (paletteOpen = true)} onshortcuts={() => (shortcutsOpen = true)} />
-      {#if session.visitor && router.pathname !== '/login'}<VisitorNotice />{/if}
+      {#if focusing}
+        <FocusBar />
+      {:else}
+        <TopBar onpalette={() => (paletteOpen = true)} onshortcuts={() => (shortcutsOpen = true)} />
+      {/if}
+      {#if session.visitor && router.pathname !== '/login' && !focusing}<VisitorNotice />{/if}
       <main id="main" tabindex="-1">
         {#if router.error}
           <div class="page">
@@ -267,18 +366,19 @@
           </div>
         {/if}
       </main>
-      <AppFooter />
+      {#if !focusing}<AppFooter />{/if}
     </div>
   </div>
 
   <NavMenu bind:open={navMenuOpen} />
   <CommandPalette bind:open={paletteOpen} />
   <ProblemsDrawer />
-  {#if session.can('viewer')}<EliWidget />{/if}
+  <!-- As on the command centre: a table filling a wall has nobody to answer. -->
+  {#if session.can('viewer') && !(focusing && fullscreen.active)}<EliWidget />{/if}
   <ShortcutSheet bind:open={shortcutsOpen} />
 {/if}
 
-<output class="sr-only" aria-live="polite">{announcement}</output>
+<output id="route-announcer" class="sr-only" aria-live="polite">{announcement}</output>
 <Toaster />
 
 <style>
@@ -347,6 +447,29 @@
     */
     padding-bottom: calc(var(--z-space-6) + var(--z-eli-clearance));
   }
+  /*
+    Focus: the window and never more. The bar keeps its height at the top and
+    <main> takes the rest, so the table's frame can fill it and scroll inside
+    itself while the bar and the pagination stay where they are.
+  */
+  .app.focus,
+  .app.focus .column {
+    height: 100dvh;
+    min-height: 0;
+  }
+  .app.focus main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    /* Only when the card's head leaves the rows too little room (a phone, a
+       short window): otherwise the table's own frame is what scrolls. */
+    overflow-y: auto;
+    padding: var(--z-space-3) var(--z-space-4) calc(var(--z-space-3) + var(--z-eli-clearance));
+  }
+  /* Full screen puts the assistant away, so its corner is free again. */
+  .app.focus[data-fullscreen='true'] main {
+    padding-bottom: var(--z-space-3);
+  }
   .page-skeleton {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -372,6 +495,9 @@
          hole between the content and the footer. The assistant's lane is the
          exception, because the footer cannot know where its button is. */
       padding: var(--z-space-4) var(--z-space-3) calc(var(--z-space-2) + var(--z-eli-clearance));
+    }
+    .app.focus main {
+      padding: var(--z-space-2) var(--z-space-2) calc(var(--z-space-2) + var(--z-eli-clearance));
     }
   }
 </style>

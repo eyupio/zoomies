@@ -221,6 +221,30 @@ Overview's included: a switch, the same four sizes and a switch for that page's
 picture, under one row that sets every band at once; every band is on until you
 switch it off.
 
+## Tables
+
+Every list (Runners, Jobs, Queue, Pools, Workflows, Audit and the rest) is the
+same table. **Columns** above it shows and hides columns, moves them and resets
+the layout; a column's heading can be dragged to move it, and its right edge
+dragged (or moved eight pixels at a time with the arrow keys) to resize it.
+Double-clicking the edge gives the column its default width back. The layout is
+kept for each table, with your account where there is one.
+
+A table always reaches the right-hand edge of its frame. When the columns add up
+to less than the width there is, the rest is shared out among the columns you
+have not resized, so a column you dragged to a width keeps that width; if you
+have resized them all, the last one takes it. When you widen columns past the
+frame, the table scrolls sideways inside it and the page itself stays put.
+
+**Focus**, beside Columns (or `f`), shows that table and nothing else, full
+page: its search and filter chips, its rows and its pagination under a slim bar
+with the page's name, whether it is live, **Refresh**, **Full screen** where the
+browser allows it, and **Exit focus**. Focus is part of the address
+(`?focus=runners`), so a focused view can be sent to someone, reloaded or
+reached with Back. Everything you set carries across: filters, sort, columns,
+the rows you ticked and anything you had open. `Esc` leaves full screen first,
+then closes whatever is open, then leaves focus.
+
 ## Pools
 
 What runners to make. Each pool's labels, GitHub target, backend, floor and

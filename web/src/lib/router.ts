@@ -501,7 +501,11 @@ export function navigate(to: string, options: NavigateOptions = {}): void {
   // was not already being thrown away, and it is the difference between an
   // operator seeing the fleet's current UI and seeing whichever one their
   // phone happened to load last week. See $lib/state/upgrade.
-  if (upgrade.claimReload()) {
+  // Not for a change of the query string alone (a filter, a table's focus
+  // view): that keeps the page, its selection and its open drawer, which is
+  // the whole point of keeping them on the address, and a reload would throw
+  // them away.
+  if (url.pathname !== location.pathname && upgrade.claimReload()) {
     location.assign(target);
     return;
   }
@@ -595,6 +599,15 @@ export const router = {
   get query(): URLSearchParams {
     subscribe();
     return new URLSearchParams(currentSearch);
+  },
+
+  /**
+   * The query string exactly as it is in the address, `?` included. Reactive.
+   * For an address built from this one that must keep the rest byte for byte.
+   */
+  get search(): string {
+    subscribe();
+    return currentSearch;
   },
 
   /** One query parameter, or the fallback when it is absent. */
