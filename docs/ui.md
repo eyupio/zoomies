@@ -235,6 +235,15 @@ have not resized, so a column you dragged to a width keeps that width; if you
 have resized them all, the last one takes it. When you widen columns past the
 frame, the table scrolls sideways inside it and the page itself stays put.
 
+**Focus**, beside Columns (or `f`), shows that table and nothing else, full
+page: its search and filter chips, its rows and its pagination under a slim bar
+with the page's name, whether it is live, **Refresh**, **Full screen** where the
+browser allows it, and **Exit focus**. Focus is part of the address
+(`?focus=runners`), so a focused view can be sent to someone, reloaded or
+reached with Back. Everything you set carries across: filters, sort, columns,
+the rows you ticked and anything you had open. `Esc` leaves full screen first,
+then closes whatever is open, then leaves focus.
+
 ## Pools
 
 What runners to make. Each pool's labels, GitHub target, backend, floor and

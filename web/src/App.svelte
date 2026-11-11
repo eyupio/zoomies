@@ -35,6 +35,9 @@
   import InstanceNotice from '$lib/shell/InstanceNotice.svelte';
   import { upgrade } from '$lib/state/upgrade.svelte';
   import { fullscreen } from '$lib/command/fullscreen.svelte';
+  import FocusBar from '$lib/shell/FocusBar.svelte';
+  import { tableFocus } from '$lib/state/table-focus.svelte';
+  import { focusAddress } from '$lib/table-focus';
 
   let paletteOpen = $state(false);
   let navMenuOpen = $state(false);
@@ -44,6 +47,29 @@
 
   const Page = $derived(router.component);
   const authenticated = $derived(session.phase === 'ready');
+  /*
+    A table has the page to itself (`?focus=<grid id>`, claimed by the grid
+    once it is there). The page stays mounted exactly where it was, so
+    everything it holds carries across; only the chrome around it changes.
+  */
+  const focusing = $derived(tableFocus.active !== null);
+
+  /** `f`: show only the page's table, or come back from it. */
+  function toggleTableFocus(): void {
+    if (tableFocus.active) {
+      void fullscreen.exit();
+      router.navigate(focusAddress(location.pathname, location.search, null, location.hash));
+      return;
+    }
+    // The table the keyboard is in, when it is in one; otherwise the page's first.
+    const within = (document.activeElement as HTMLElement | null)
+      ?.closest?.('[data-grid-id]')
+      ?.getAttribute('data-grid-id');
+    const id = within && tableFocus.grids.includes(within) ? within : tableFocus.grids[0];
+    if (id) {
+      router.navigate(focusAddress(location.pathname, location.search, id, location.hash));
+    }
+  }
 
   onMount(() => {
     // A session that has lapsed shows the sign-in form in place: the shell
@@ -57,6 +83,7 @@
       feed.stop();
     });
     router.start();
+    const withdrawFocus = tableFocus.provide();
     void session.boot();
     const stopWatchingForUpgrades = upgrade.listen();
 
@@ -70,6 +97,7 @@
       },
       refresh: () => void refresh.run(),
       eli: () => eli.toggle(),
+      focus: toggleTableFocus,
       // The `g` keys skip what the sidebar hides from a visitor, rather than
       // opening a page whose only content is "sign in to see this".
       go: (path) => {
@@ -77,6 +105,7 @@
       },
     });
     return () => {
+      withdrawFocus();
       stopWatchingForUpgrades();
       teardown();
     };
@@ -159,6 +188,14 @@
       announcement = `${title}. Page loaded.`;
     });
   });
+
+  // Into focus, the keyboard lands on the bar's name for the page, since the
+  // page's own heading is hidden with its header. Run on the claim rather than
+  // the navigation, because the bar exists only once the table has claimed.
+  $effect(() => {
+    if (!tableFocus.active) return;
+    void tick().then(() => document.getElementById('focus-heading')?.focus());
+  });
 </script>
 
 <a class="skip-link" href="#main">Skip to the main content</a>
@@ -234,12 +271,19 @@
   {#if session.can('viewer') && !fullscreen.active}<EliWidget />{/if}
   <ShortcutSheet bind:open={shortcutsOpen} />
 {:else}
-  <div class="app">
-    <Nav menuOpen={navMenuOpen} onmore={() => (navMenuOpen = !navMenuOpen)} />
+  <!-- In a table's focus view the navigation, the top bar and the footer give
+       way to the focus bar; the page under <main> is the same instance either
+       way, and hides everything but its table (see app.css). -->
+  <div class="app" class:focus={focusing} data-fullscreen={fullscreen.active}>
+    {#if !focusing}<Nav menuOpen={navMenuOpen} onmore={() => (navMenuOpen = !navMenuOpen)} />{/if}
     <div class="column">
       <InstanceNotice />
-      <TopBar onpalette={() => (paletteOpen = true)} onshortcuts={() => (shortcutsOpen = true)} />
-      {#if session.visitor && router.pathname !== '/login'}<VisitorNotice />{/if}
+      {#if focusing}
+        <FocusBar />
+      {:else}
+        <TopBar onpalette={() => (paletteOpen = true)} onshortcuts={() => (shortcutsOpen = true)} />
+      {/if}
+      {#if session.visitor && router.pathname !== '/login' && !focusing}<VisitorNotice />{/if}
       <main id="main" tabindex="-1">
         {#if router.error}
           <div class="page">
@@ -267,14 +311,15 @@
           </div>
         {/if}
       </main>
-      <AppFooter />
+      {#if !focusing}<AppFooter />{/if}
     </div>
   </div>
 
   <NavMenu bind:open={navMenuOpen} />
   <CommandPalette bind:open={paletteOpen} />
   <ProblemsDrawer />
-  {#if session.can('viewer')}<EliWidget />{/if}
+  <!-- As on the command centre: a table filling a wall has nobody to answer. -->
+  {#if session.can('viewer') && !(focusing && fullscreen.active)}<EliWidget />{/if}
   <ShortcutSheet bind:open={shortcutsOpen} />
 {/if}
 
@@ -347,6 +392,29 @@
     */
     padding-bottom: calc(var(--z-space-6) + var(--z-eli-clearance));
   }
+  /*
+    Focus: the window and never more. The bar keeps its height at the top and
+    <main> takes the rest, so the table's frame can fill it and scroll inside
+    itself while the bar and the pagination stay where they are.
+  */
+  .app.focus,
+  .app.focus .column {
+    height: 100dvh;
+    min-height: 0;
+  }
+  .app.focus main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    /* Only when the card's head leaves the rows too little room (a phone, a
+       short window): otherwise the table's own frame is what scrolls. */
+    overflow-y: auto;
+    padding: var(--z-space-3) var(--z-space-4) calc(var(--z-space-3) + var(--z-eli-clearance));
+  }
+  /* Full screen puts the assistant away, so its corner is free again. */
+  .app.focus[data-fullscreen='true'] main {
+    padding-bottom: var(--z-space-3);
+  }
   .page-skeleton {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -372,6 +440,9 @@
          hole between the content and the footer. The assistant's lane is the
          exception, because the footer cannot know where its button is. */
       padding: var(--z-space-4) var(--z-space-3) calc(var(--z-space-2) + var(--z-eli-clearance));
+    }
+    .app.focus main {
+      padding: var(--z-space-2) var(--z-space-2) calc(var(--z-space-2) + var(--z-eli-clearance));
     }
   }
 </style>

@@ -268,6 +268,7 @@ export const SHORTCUTS: readonly ShortcutGroup[] = [
       { keys: ['Space'], description: 'Select the focused row' },
       { keys: ['Shift', '↑/↓'], description: 'Extend the selection' },
       { keys: ['Home', 'End'], description: 'Jump to the first or last row' },
+      { keys: ['F'], description: 'Show only this table, full page, or go back' },
     ],
   },
 ];
@@ -280,6 +281,8 @@ export interface ShortcutActions {
   refresh: () => void;
   /** Open, or put away, Eli. A no-op where there is no Eli to ask. */
   eli: () => void;
+  /** Show only the page's table, or leave that view. A no-op on a page with none. */
+  focus: () => void;
   go: (path: string) => void;
 }
 
@@ -358,6 +361,12 @@ export function installShortcuts(actions: ShortcutActions): () => void {
     if (e.key === 'e' || e.key === 'E') {
       e.preventDefault();
       actions.eli();
+      return;
+    }
+    // F for focus: the letter was free, and it is what the control is called.
+    if (e.key === 'f' || e.key === 'F') {
+      e.preventDefault();
+      actions.focus();
       return;
     }
     if (e.key === '?') {

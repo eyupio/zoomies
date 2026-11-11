@@ -119,7 +119,7 @@
 -->
 <script lang="ts" generics="T extends Record<string, unknown>">
   import { untrack } from 'svelte';
-  import { ChevronRight, Columns3, GripVertical, RotateCcw } from '@lucide/svelte';
+  import { ChevronRight, Columns3, GripVertical, Maximize2, RotateCcw } from '@lucide/svelte';
   import {
     columnVisibilityFeature,
     createTable,
@@ -133,6 +133,8 @@
   import { prefs, type GridView } from '../state/prefs.svelte';
   import { viewport } from '../state/viewport.svelte';
   import { router } from '../router';
+  import { FOCUS_PARAM, focusAddress } from '../table-focus';
+  import { tableFocus } from '../state/table-focus.svelte';
   import Button from './Button.svelte';
   import Checkbox from './Checkbox.svelte';
   import EmptyState from './EmptyState.svelte';
@@ -924,6 +926,59 @@
     }
   }
 
+  /* Focus: this table alone, full page ---------------------------------------
+   * The page is not rebuilt for it. The same grid, in the same route, marks the
+   * elements between itself and the page's <main>, and the stylesheet hides
+   * every sibling along that path (the header, the band, the other panels) while
+   * the shell swaps its chrome for a slim bar. So filters, sort, selection, an
+   * open drawer and the column layout are simply still there, because nothing
+   * that holds them was ever unmounted.
+   * ---------------------------------------------------------------------- */
+
+  let root = $state<HTMLDivElement | null>(null);
+  const inFocus = $derived(tableFocus.shell && router.param(FOCUS_PARAM) === gridId);
+  const focusHref = $derived(focusAddress(router.pathname, router.query.toString(), gridId));
+
+  $effect(() => tableFocus.register(gridId));
+
+  $effect(() => {
+    const element = root;
+    if (!inFocus || !element) return;
+    return untrack(() => holdFocus(element));
+  });
+
+  /**
+   * Mark the page for focus, and return what unmarks it.
+   *
+   * What fills the page is the grid's card: the Panel it sits bare inside, with
+   * the card's search and its chips, since those are the grid's own filters; a
+   * grid with a frame of its own is its own card. Everything between that card
+   * and <main> is the path, whose other children the stylesheet hides, and
+   * everything from the grid up is told to fill, so the rows scroll inside the
+   * page while the bar and the pagination stay put.
+   */
+  function holdFocus(element: HTMLElement): () => void {
+    const main = element.closest('main');
+    const card = (bare ? element.closest<HTMLElement>('[data-grid-card]') : null) ?? element;
+    const marked: Array<[HTMLElement, string]> = [];
+    const mark = (node: HTMLElement, name: string): void => {
+      node.setAttribute(name, '');
+      marked.push([node, name]);
+    };
+    mark(card, 'data-focus-unit');
+    for (let node: HTMLElement | null = element; node; node = node.parentElement) {
+      mark(node, 'data-focus-fill');
+      if (node !== card && card.contains(node)) continue;
+      if (node !== card) mark(node, 'data-focus-path');
+      if (node === main || !main) break;
+    }
+    const release = tableFocus.claim(gridId);
+    return () => {
+      release();
+      for (const [node, name] of marked) node.removeAttribute(name);
+    };
+  }
+
   /* -- the column chooser ----------------------------------------------------- */
 
   let chooserOpen = $state(false);
@@ -968,7 +1023,15 @@
   </Tooltip>
 {/snippet}
 
-<div class="grid {className}" class:rows={phoneRows} class:custom={hasCustomWidths} class:bare>
+<div
+  class="grid {className}"
+  class:rows={phoneRows}
+  class:custom={hasCustomWidths}
+  class:bare
+  class:in-focus={inFocus}
+  data-grid-id={gridId}
+  bind:this={root}
+>
   <div class="toolbar">
     {#if selectable && selected.length > 0}
       <div class="bulk" role="group" aria-label="Actions for the selected {noun}">
@@ -991,80 +1054,96 @@
         <Button size="sm" variant="ghost" onclick={() => (selected = [])}>Clear selection</Button>
       </div>
     {/if}
-    <div class="chooser-wrap" bind:this={chooser}>
-      <Button
-        size="sm"
-        variant="ghost"
-        icon={Columns3}
-        ariaExpanded={chooserOpen}
-        ariaHaspopup="dialog"
-        ariaControls="{gridId}-columns"
-        onclick={() => (chooserOpen = !chooserOpen)}
-      >
-        Columns
-      </Button>
-      {#if chooserOpen}
-        <div class="chooser" id="{gridId}-columns" role="group" aria-label="Column layout">
-          {#if viewport.phone}
-            <!--
+    <!-- The grid's own controls, together at the end of its toolbar. -->
+    <div class="tools">
+      {#if tableFocus.shell && !inFocus}
+        <!-- A link, because it goes somewhere: the same page, with this table alone. -->
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={Maximize2}
+          href={focusHref}
+          help="Show only this table, full page"
+          keys={['f']}
+        >
+          Focus
+        </Button>
+      {/if}
+      <div class="chooser-wrap" bind:this={chooser}>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={Columns3}
+          ariaExpanded={chooserOpen}
+          ariaHaspopup="dialog"
+          ariaControls="{gridId}-columns"
+          onclick={() => (chooserOpen = !chooserOpen)}
+        >
+          Columns
+        </Button>
+        {#if chooserOpen}
+          <div class="chooser" id="{gridId}-columns" role="group" aria-label="Column layout">
+            {#if viewport.phone}
+              <!--
               The layout choice, where the two layouts differ, and in the panel
               that already answers "how is this grid drawn": as a second button
               beside Columns it was the same decision twice on the one screen
               with the least room. It is this grid's alone and outlives the
               visit; Settings holds the default for a grid nobody has decided.
             -->
-            <div class="chooser-layout">
-              <Segmented
-                label="How a {noun.replace(/s$/, '')} is laid out"
-                value={view}
-                options={[
-                  { value: 'cards', label: 'Cards', name: 'Every value on its own line' },
-                  { value: 'rows', label: 'Rows', name: 'The table, scrolling sideways' },
-                ]}
-                onchange={(next) => prefs.setGridView(gridId, next as GridView)}
-              />
-            </div>
-          {/if}
-          {#each hideable as column (column.id)}
-            <!--
+              <div class="chooser-layout">
+                <Segmented
+                  label="How a {noun.replace(/s$/, '')} is laid out"
+                  value={view}
+                  options={[
+                    { value: 'cards', label: 'Cards', name: 'Every value on its own line' },
+                    { value: 'rows', label: 'Rows', name: 'The table, scrolling sideways' },
+                  ]}
+                  onchange={(next) => prefs.setGridView(gridId, next as GridView)}
+                />
+              </div>
+            {/if}
+            {#each hideable as column (column.id)}
+              <!--
               A column the window is too narrow for is still listed, and still
               takes the operator's choice, because that choice is theirs and
               outlives this window size -- but it says why ticking it changes
               nothing they can see. A tick that does nothing and does not say so
               is the kind of control that gets reported as broken.
             -->
-            <div class="chooser-row">
-              <Checkbox
-                label={column.header}
-                description={narrowDesktop && column.priority === 'wide'
-                  ? 'Shown when the window is wider'
-                  : undefined}
-                checked={visibility[column.id] !== false}
-                onchange={(on) => toggleColumn(column.id, on)}
-              />
-              <span class="chooser-move">
-                <Tooltip bare title="Move {column.header} left">
-                  <button
-                    type="button"
-                    aria-label="Move {column.header} left"
-                    onclick={() => moveColumnBy(column, -1)}>←</button
-                  >
-                </Tooltip>
-                <Tooltip bare title="Move {column.header} right">
-                  <button
-                    type="button"
-                    aria-label="Move {column.header} right"
-                    onclick={() => moveColumnBy(column, 1)}>→</button
-                  >
-                </Tooltip>
-              </span>
-            </div>
-          {/each}
-          <Button size="sm" variant="ghost" icon={RotateCcw} onclick={resetLayout}
-            >Reset layout</Button
-          >
-        </div>
-      {/if}
+              <div class="chooser-row">
+                <Checkbox
+                  label={column.header}
+                  description={narrowDesktop && column.priority === 'wide'
+                    ? 'Shown when the window is wider'
+                    : undefined}
+                  checked={visibility[column.id] !== false}
+                  onchange={(on) => toggleColumn(column.id, on)}
+                />
+                <span class="chooser-move">
+                  <Tooltip bare title="Move {column.header} left">
+                    <button
+                      type="button"
+                      aria-label="Move {column.header} left"
+                      onclick={() => moveColumnBy(column, -1)}>←</button
+                    >
+                  </Tooltip>
+                  <Tooltip bare title="Move {column.header} right">
+                    <button
+                      type="button"
+                      aria-label="Move {column.header} right"
+                      onclick={() => moveColumnBy(column, 1)}>→</button
+                    >
+                  </Tooltip>
+                </span>
+              </div>
+            {/each}
+            <Button size="sm" variant="ghost" icon={RotateCcw} onclick={resetLayout}
+              >Reset layout</Button
+            >
+          </div>
+        {/if}
+      </div>
     </div>
   </div>
 
@@ -1394,9 +1473,14 @@
     color: var(--z-text-muted);
     font-variant-numeric: tabular-nums;
   }
+  .tools {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    margin-left: auto;
+  }
   .chooser-wrap {
     position: relative;
-    margin-left: auto;
   }
   .chooser {
     position: absolute;
@@ -1475,6 +1559,18 @@
   }
   .grid.custom .scroll {
     overflow-x: auto;
+  }
+  /*
+    In focus the frame is the page, less the bar, the card's head and the
+    pagination: the rows scroll inside it and the heading row stays at its top.
+    The 70vh cap is for a grid sharing the page with other things.
+  */
+  .grid.in-focus .scroll {
+    flex: 1 1 auto;
+    /* Room for a few rows however tall the card's head is: below this the
+       page scrolls instead, under the bar, rather than the rows vanishing. */
+    min-height: min(16rem, 40dvh);
+    max-height: none;
   }
   table {
     width: 100%;
@@ -2004,6 +2100,16 @@
     */
     .toolbar {
       flex-wrap: wrap;
+    }
+    /*
+      A phone in focus: the card's search, menus and chips take most of a
+      screen, so a frame that scrolled by itself would be a slot a few cards
+      tall. The rows flow instead and the page scrolls them, under the bar.
+    */
+    .grid.in-focus .scroll {
+      flex: none;
+      min-height: 0;
+      overflow-y: visible;
     }
   }
 </style>

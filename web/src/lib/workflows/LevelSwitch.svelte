@@ -21,7 +21,8 @@
 
   const query = $derived.by(() => {
     const params = new SvelteURLSearchParams(router.query);
-    for (const key of ['offset', 'limit', 'sort', 'order']) params.delete(key);
+    // A focus view names one grid, and the other level's grid is not it.
+    for (const key of ['offset', 'limit', 'sort', 'order', 'focus']) params.delete(key);
     const text = params.toString();
     return text ? `?${text}` : '';
   });
