@@ -1009,9 +1009,9 @@ Eli did on its own.
 
 A repair has a page of its own, at `/repairs/<id>`, that follows it from the
 moment it is queued. While Eli works it says one line: the current step, how
-long it has been going, and that nobody has to watch. **Show the steps** opens
-the full five-step track. The page asks again every few seconds for as long as
-the tab is open and the repair has not finished. When it has finished it says how
+long it has been going, and that nobody has to watch. The full five-step track
+is always shown beneath it, with each step's status. The page asks again every
+few seconds for as long as the tab is open and the repair has not finished. When it has finished it says how
 it ended in the controller's own words and what to try next. **What Eli was
 asked to fix** is a closed summary that opens the pull request, the run and the
 failed jobs as they were when the repair began, so the page still reads once

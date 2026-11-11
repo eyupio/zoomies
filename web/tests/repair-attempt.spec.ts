@@ -108,8 +108,11 @@ test('a running repair shows where it is, follows itself to the end and then sto
 
   const progress = page.getByRole('region', { name: 'Progress' });
   await expect(progress).toContainText('Preparing the fix');
-  await progress.getByText('Show the steps').click();
   const steps = progress.getByRole('list', { name: 'What Eli is doing' }).getByRole('listitem');
+  // The sequence is on screen without a press: a person watching a repair does
+  // not have to ask to see the steps it is going through.
+  await expect(steps).toHaveCount(5);
+  await expect(steps.nth(0)).toBeVisible();
   await expect(steps).toHaveText([
     /Queued/,
     /Reading the failed checks/,
@@ -517,9 +520,9 @@ test('no horizontal scroll on a phone, and the track stacks', async ({ page }) =
   });
   await page.goto('/repairs/rep-run');
   const progress = page.getByRole('region', { name: 'Progress' });
-  await progress.getByText('Show the steps').click();
   const items = progress.getByRole('list', { name: 'What Eli is doing' }).getByRole('listitem');
   await expect(items).toHaveCount(5);
+  await expect(items.nth(0)).toBeVisible();
   const tops = await items.evaluateAll((nodes) => nodes.map((n) => n.getBoundingClientRect().top));
   expect(tops[1]!).toBeGreaterThan(tops[0]!);
   expect(tops[4]!).toBeGreaterThan(tops[3]!);

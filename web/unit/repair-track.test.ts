@@ -65,3 +65,23 @@ test('a stage is said in words, and an unknown one is made readable', () => {
   assert.equal(stageWords(''), 'Not recorded');
   assert.equal(stageWords(undefined), 'Not recorded');
 });
+
+// The attempt page shows the whole sequence rather than only the current step,
+// so every stage the worker can report must produce all five steps, in order,
+// with a status for each. A step that was hidden until asked for is a step a
+// person watching the repair could not see.
+test('every stage shows the whole sequence, with a status for each step', () => {
+  const labels = REPAIR_TRACK.map((step) => step.label)
+  for (const stage of ['', 'evidence', 'source', 'prepare_fix', 'publish', 'watch_ci']) {
+    const steps = trackSteps(at(stage))
+    assert.deepEqual(
+      steps.map((step) => step.label),
+      labels,
+    )
+    assert.equal(steps.length, REPAIR_TRACK.length)
+    for (const step of steps) {
+      assert.ok(['done', 'current', 'todo'].includes(step.state))
+    }
+    assert.equal(steps.filter((step) => step.state === 'current').length, 1)
+  }
+})

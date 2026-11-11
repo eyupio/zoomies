@@ -1,8 +1,10 @@
 <!--
   Where a repair that is still going has got to. The answer comes first: the
   current step, how long it has been, and the promise that nobody has to watch.
-  The full five-step track is one press away for somebody who wants it, because
-  the controller cannot report anything more precise than the stage it is on.
+  The full five-step track is always shown beneath it, with the mark on the step
+  the worker is on, because the sequence is the repair's process and a person
+  watching it should never have to ask to see it. The controller cannot report
+  anything more precise than the stage it is on.
 -->
 <script lang="ts">
   import { Check } from '@lucide/svelte';
@@ -41,24 +43,21 @@
     <span>{guidance.steps[0] ?? 'You can leave this page. The repair carries on without it.'}</span>
   </p>
 
-  <details class="fold">
-    <summary>Show the steps</summary>
-    <ol class="track" aria-label="What Eli is doing">
-      {#each steps as step (step.id)}
-        <li class="step {step.state}" aria-current={step.state === 'current' ? 'step' : undefined}>
-          <span class="node" aria-hidden="true">
-            {#if step.state === 'done'}
-              <Check size={12} />
-            {:else if step.state === 'current'}
-              <StatusDot status={busy} size="sm" tip={false} />
-            {/if}
-          </span>
-          <span class="label">{step.label}</span>
-          <span class="when">{words[step.state]}</span>
-        </li>
-      {/each}
-    </ol>
-  </details>
+  <ol class="track" aria-label="What Eli is doing">
+    {#each steps as step (step.id)}
+      <li class="step {step.state}" aria-current={step.state === 'current' ? 'step' : undefined}>
+        <span class="node" aria-hidden="true">
+          {#if step.state === 'done'}
+            <Check size={12} />
+          {:else if step.state === 'current'}
+            <StatusDot status={busy} size="sm" tip={false} />
+          {/if}
+        </span>
+        <span class="label">{step.label}</span>
+        <span class="when">{words[step.state]}</span>
+      </li>
+    {/each}
+  </ol>
 </Panel>
 
 <style>
@@ -84,16 +83,8 @@
   .now span {
     color: var(--z-text-muted);
   }
-  .fold {
-    border-top: var(--z-border-width) solid var(--z-border);
-  }
-  .fold > summary {
-    padding: var(--z-space-3) var(--z-space-5);
-    color: var(--z-text-muted);
-    font-size: var(--z-text-sm);
-    cursor: pointer;
-  }
   .track {
+    border-top: var(--z-border-width) solid var(--z-border);
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     margin: 0;
