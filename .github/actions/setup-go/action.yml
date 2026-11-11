@@ -14,11 +14,15 @@ description: >-
 # internal/docs holds this version to go.mod's minor release and to the
 # Dockerfile's, and holds every workflow to this action.
 #
-# 1.27.4 carries the fix for GO-2026-6859, a header race in net/http that the
-# fleet's webhook and API servers reach, and 1.27.3 carries the fix for
-# GO-2026-6809, in which crypto/x509 trusted a compromised intermediate
-# certificate the Proxmox setup verifies. The standard library the build, tests
-# and vulnerability scan run on is the one that matters here.
+# 1.27.3 carried the fix for GO-2026-6809, in which crypto/x509 trusted a
+# compromised intermediate certificate. The Proxmox setup verifies a
+# certificate, so the standard library the build and the tests run on is the
+# one that matters here.
+#
+# 1.27.4 carries the fix for GO-2026-6859, in which a race on a
+# MaxBytesReader's header could crash an HTTP/1 server. The controller is one,
+# and bounds the bodies it reads that way, so govulncheck reports it as
+# reachable and fails every change to Go until the release moves.
 #
 # Where the runner has the pool's shared cache folder, the modules and the build
 # output go there and the action's own cache is switched off. That cache is

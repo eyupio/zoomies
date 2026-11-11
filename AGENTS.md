@@ -42,7 +42,7 @@ it writes a placeholder, before any plain Go command (`go build`, `go vet`,
 themselves, and never over a real UI build. CI does the same thing as its first
 step.
 
-Go 1.27.1 or later (`go.mod` sets the floor; CI builds with 1.27.2), Node 22 or
+Go 1.27.1 or later (`go.mod` sets the floor; CI builds with 1.27.4), Node 22 or
 later. Node is a build-time dependency only; the shipped binary is
 self-contained and static (`CGO_ENABLED=0`, pure-Go SQLite).
 
