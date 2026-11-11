@@ -37,7 +37,7 @@
   import { fullscreen } from '$lib/command/fullscreen.svelte';
   import FocusBar from '$lib/shell/FocusBar.svelte';
   import { tableFocus } from '$lib/state/table-focus.svelte';
-  import { focusAddress } from '$lib/table-focus';
+  import { focusAddress, focusedGrid } from '$lib/table-focus';
 
   let paletteOpen = $state(false);
   let navMenuOpen = $state(false);
@@ -52,23 +52,46 @@
     once it is there). The page stays mounted exactly where it was, so
     everything it holds carries across; only the chrome around it changes.
   */
-  const focusing = $derived(tableFocus.active !== null);
+  /*
+    A focus address that was pasted or reloaded: the chrome stays away from
+    the first paint rather than showing until the table has mounted and
+    claimed the page. Read before anything renders, and let go once a table
+    has claimed or the page has loaded without the one the address names, so
+    a `?focus=` naming no table still shows the ordinary page.
+  */
+  let pendingFocus = $state(focusedGrid(location.search) !== null);
+  const focusing = $derived(tableFocus.active !== null || pendingFocus);
 
-  /** `f`: show only the page's table, or come back from it. */
-  function toggleTableFocus(): void {
+  $effect(() => {
+    if (!pendingFocus) return;
+    if (tableFocus.active) {
+      pendingFocus = false;
+      return;
+    }
+    if (!authenticated || router.loading || !Page) return;
+    // The page is mounted; a table on it claims in its first effects, which
+    // run before the next frame.
+    const frame = requestAnimationFrame(() => {
+      if (!tableFocus.active) pendingFocus = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+
+  /** `f`: show only the page's table, or come back from it. Whether it did. */
+  function toggleTableFocus(): boolean {
     if (tableFocus.active) {
       void fullscreen.exit();
       router.navigate(focusAddress(location.pathname, location.search, null, location.hash));
-      return;
+      return true;
     }
     // The table the keyboard is in, when it is in one; otherwise the page's first.
     const within = (document.activeElement as HTMLElement | null)
       ?.closest?.('[data-grid-id]')
       ?.getAttribute('data-grid-id');
     const id = within && tableFocus.grids.includes(within) ? within : tableFocus.grids[0];
-    if (id) {
-      router.navigate(focusAddress(location.pathname, location.search, id, location.hash));
-    }
+    if (!id) return false;
+    router.navigate(focusAddress(location.pathname, location.search, id, location.hash));
+    return true;
   }
 
   onMount(() => {
@@ -164,6 +187,9 @@
    * character and swallowed the second: a runner name became `z`.
    */
   let focused = 0;
+  /** The address without its focus parameter, and the table that was in focus. */
+  let lastPlace = '';
+  let lastFocus: string | null = null;
   $effect(() => {
     const count = router.navigation;
     // The title is read untracked: a detail page renaming itself once it knows
@@ -171,6 +197,35 @@
     const title = untrack(() => router.title);
     if (!authenticated || count === 0 || count === focused) return;
     focused = count;
+
+    /*
+      Only the focus parameter moved: the same page, shown differently. It is
+      not a page load, and saying "Page loaded" or reaching for the page's
+      heading (hidden in focus) would describe something that did not happen.
+      Into focus the claim below moves the keyboard to the bar's heading; out
+      of it, the keyboard goes back to the Focus link it left from.
+    */
+    const place = focusAddress(location.pathname, location.search, null);
+    const now = focusedGrid(location.search);
+    const was = lastFocus;
+    const toggled = place === lastPlace && now !== was;
+    lastPlace = place;
+    lastFocus = now;
+    if (toggled) {
+      announcement = now ? `${title} table, focus view` : `${title}, whole page`;
+      if (!now && was) {
+        // A frame on: the link is drawn again once the table lets the page go.
+        void tick().then(() =>
+          requestAnimationFrame(() =>
+            document
+              .querySelector<HTMLElement>(`[data-grid-id="${CSS.escape(was)}"] .tools a[href]`)
+              ?.focus(),
+          ),
+        );
+      }
+      return;
+    }
+
     void tick().then(() => {
       // A link from another page's band names the list it counts, and that
       // destination is where the reader asked to be. The heading is right only
@@ -323,7 +378,7 @@
   <ShortcutSheet bind:open={shortcutsOpen} />
 {/if}
 
-<output class="sr-only" aria-live="polite">{announcement}</output>
+<output id="route-announcer" class="sr-only" aria-live="polite">{announcement}</output>
 <Toaster />
 
 <style>

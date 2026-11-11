@@ -12,7 +12,7 @@
   import RefreshButton from '../components/RefreshButton.svelte';
   import StatusDot from '../components/StatusDot.svelte';
   import { fullscreen } from '../command/fullscreen.svelte';
-  import { layers } from '../keys';
+  import { isTypingTarget, layers } from '../keys';
   import { router } from '../router';
   import { fleet } from '../state/fleet.svelte';
   import { refresh } from '../state/refresh.svelte';
@@ -27,7 +27,7 @@
   const RECONNECTING = jobStatus('queued');
 
   /** The same address without the focus parameter: filters, sort and paging kept. */
-  const exitHref = $derived(focusAddress(router.pathname, router.query.toString(), null));
+  const exitHref = $derived(focusAddress(router.pathname, router.search, null));
 
   function exit(): void {
     void fullscreen.exit();
@@ -54,6 +54,9 @@
   function onKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Escape' || event.defaultPrevented) return;
     if (layers.size > 0 || document.fullscreenElement) return;
+    // Esc in the card's search box is the field's: it clears or leaves the
+    // text, and an operator halfway through a search must not lose the view.
+    if (isTypingTarget(event.target)) return;
     event.preventDefault();
     exit();
   }

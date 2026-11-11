@@ -13,11 +13,13 @@
  * other component with no bar to come back from.
  */
 import { untrack } from 'svelte';
+import { FocusMarks } from '../table-focus';
 
 class TableFocus {
   #claimed = $state<string | null>(null);
   #grids = $state<string[]>([]);
   #shell = $state(false);
+  #marks = new FocusMarks<HTMLElement>();
 
   /** The grid holding focus, or null when the page is drawn as usual. */
   get active(): string | null {
@@ -53,6 +55,14 @@ class TableFocus {
       const at = this.#grids.indexOf(id);
       if (at >= 0) this.#grids = this.#grids.filter((_, index) => index !== at);
     };
+  }
+
+  /**
+   * Put one of the focus attributes on `node`, counted with every other grid's
+   * (see `FocusMarks`). Returns what takes this mark back off.
+   */
+  mark(node: HTMLElement, name: string): () => void {
+    return this.#marks.mark(node, name);
   }
 
   /**

@@ -27,7 +27,10 @@
   let { chips = [], onclear, children, class: className = '' }: Props = $props();
 </script>
 
-<div class="filter-bar {className}">
+<!-- Kept in a table's focus view (`data-focus-keep`): it says which filters
+     narrow the rows and is how they come off, so hiding it with the rest of the
+     page would leave a narrowed list with no sign of why. -->
+<div class="filter-bar {className}" data-focus-keep>
   {#if children}
     <div class="controls">{@render children()}</div>
   {/if}

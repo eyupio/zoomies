@@ -635,6 +635,25 @@
     const total = wanted.reduce((sum, value) => sum + value, pick + expand);
     const px = (value: number) => `${value.toFixed(2)}px`;
 
+    // A drag in progress: every other column holds the width it was drawn at
+    // when the drag began, so the edge stays under the pointer. Sharing the
+    // spare out afresh on every move gave some of each pixel to the columns
+    // left of the edge, and the handle crept away from the cursor. The share
+    // is worked out again once the drag ends.
+    if (frozen) {
+      const held = frozen;
+      const drawn = visibleColumns.map((column, index) =>
+        column.id === held.column ? wanted[index]! : (held.widths[column.id] ?? wanted[index]!),
+      );
+      const width = drawn.reduce((sum, value) => sum + value, pick + expand);
+      return {
+        pick: selectable ? px(pick) : undefined,
+        expand: expanded ? px(expand) : undefined,
+        columns: drawn.map(px),
+        table: px(width),
+      };
+    }
+
     // Defaults that want more than the frame still fit it: what the measured
     // columns leave is divided in the proportions the rest asked for. Once the
     // operator resizes a column, that explicit measure wins and the grid's own
@@ -702,16 +721,36 @@
     if (persist) prefs.setColumnWidth(gridId, column.id, next);
   }
 
+  /** The widths drawn when a drag began, held while it lasts (see `columnWidths`). */
+  let frozen = $state<{ column: string; widths: Record<string, number> } | null>(null);
+
   function beginResize(event: PointerEvent, column: GridColumn<T>): void {
     const heading = (event.currentTarget as HTMLElement).closest('th');
     const startWidth = heading?.getBoundingClientRect().width ?? share(column.width, remPx);
     startColumnResize(event, startWidth, {
-      move: (width) => setLayoutWidth(column, width),
+      move: (width) => {
+        // Read on the first move rather than the press, which may be a
+        // double-click that restores the width instead.
+        if (!frozen) frozen = { column: column.id, widths: drawnWidths() };
+        setLayoutWidth(column, width);
+      },
       done: () => {
+        frozen = null;
         const width = layoutWidths[column.id];
         if (width !== undefined) prefs.setColumnWidth(gridId, column.id, width);
       },
     });
+  }
+
+  /** Every visible column's width as it is drawn now, by column id. */
+  function drawnWidths(): Record<string, number> {
+    const widths: Record<string, number> = {};
+    for (const heading of frame?.querySelectorAll<HTMLElement>('thead th[data-table-column]') ??
+      []) {
+      const id = heading.dataset.tableColumn;
+      if (id) widths[id] = heading.getBoundingClientRect().width;
+    }
+    return widths;
   }
 
   function resizeByKey(event: KeyboardEvent, column: GridColumn<T>): void {
@@ -937,7 +976,7 @@
 
   let root = $state<HTMLDivElement | null>(null);
   const inFocus = $derived(tableFocus.shell && router.param(FOCUS_PARAM) === gridId);
-  const focusHref = $derived(focusAddress(router.pathname, router.query.toString(), gridId));
+  const focusHref = $derived(focusAddress(router.pathname, router.search, gridId));
 
   $effect(() => tableFocus.register(gridId));
 
@@ -960,10 +999,9 @@
   function holdFocus(element: HTMLElement): () => void {
     const main = element.closest('main');
     const card = (bare ? element.closest<HTMLElement>('[data-grid-card]') : null) ?? element;
-    const marked: Array<[HTMLElement, string]> = [];
+    const unmark: Array<() => void> = [];
     const mark = (node: HTMLElement, name: string): void => {
-      node.setAttribute(name, '');
-      marked.push([node, name]);
+      unmark.push(tableFocus.mark(node, name));
     };
     mark(card, 'data-focus-unit');
     for (let node: HTMLElement | null = element; node; node = node.parentElement) {
@@ -975,7 +1013,7 @@
     const release = tableFocus.claim(gridId);
     return () => {
       release();
-      for (const [node, name] of marked) node.removeAttribute(name);
+      for (const take of unmark) take();
     };
   }
 
@@ -1054,7 +1092,9 @@
         <Button size="sm" variant="ghost" onclick={() => (selected = [])}>Clear selection</Button>
       </div>
     {/if}
-    <!-- The grid's own controls, together at the end of its toolbar. -->
+    <!-- The grid's own controls, together at the end of its toolbar. Leaving
+         focus puts the keyboard back on the Focus link by `.tools a[href]`, so
+         it is the only link in here. -->
     <div class="tools">
       {#if tableFocus.shell && !inFocus}
         <!-- A link, because it goes somewhere: the same page, with this table alone. -->
@@ -1567,8 +1607,9 @@
   */
   .grid.in-focus .scroll {
     flex: 1 1 auto;
-    /* Room for a few rows however tall the card's head is: below this the
-       page scrolls instead, under the bar, rather than the rows vanishing. */
+    /* Room for a few rows however short the window: below this the card runs
+       past the window and <main> scrolls under the bar, rather than the rows
+       shrinking to nothing. */
     min-height: min(16rem, 40dvh);
     max-height: none;
   }

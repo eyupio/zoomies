@@ -441,7 +441,9 @@
 </PageBand>
 
 <div class="queue-content">
-  <div class="filters-panel">
+  <!-- The filters, the result of a bulk change and the selection across pages
+       belong to the list, so a focus view keeps them (`data-focus-keep`). -->
+  <div class="filters-panel" data-focus-keep>
     <JobFilters
       queue
       {compact}
@@ -454,7 +456,7 @@
     />
   </div>
   {#if report}
-    <div class="result" role="status">
+    <div class="result" role="status" data-focus-keep>
       <div>
         <strong
           >{report.changed} updated{report.failed.length
@@ -483,7 +485,7 @@
     </div>
   {/if}
   {#if canOperate}
-    <div class="selection-bar" aria-live="polite">
+    <div class="selection-bar" aria-live="polite" data-focus-keep>
       {#if snapshot.length}
         <strong>{snapshot.length.toLocaleString()} matching items selected</strong>
         <span>Snapshot across all pages</span>

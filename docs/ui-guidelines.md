@@ -1060,11 +1060,21 @@ the elements between its card and `<main>` (`data-focus-path`), the card
 (`data-focus-unit`) and its own ancestors (`data-focus-fill`), and `app.css`
 hides every other child of the path while the root carries
 `data-table-focus`. A `Panel` says `data-grid-card` so a bare grid can find its card,
-and `Dialog` and `Drawer` say `data-focus-keep` so an overlay a page opens is not
-hidden with the page. `Esc` leaves the browser's full screen first, then closes
-the topmost overlay, then leaves focus. A filter bar that sits above the card
-rather than in it (Jobs and Queue share `JobFilters`) is part of the page, not of
-the grid, and is hidden with the rest; what it set stays in force. On a phone
+and `data-focus-keep` keeps an element beside the card: `Dialog` and `Drawer`, so
+an overlay a page opens is not hidden with the page, and everything that narrows
+or explains the rows from outside the card, because a narrowed list with no sign
+of why is worse than a busier screen. That is `FilterBar` (the shared job
+filters on Jobs, Workflows and Queue, and every "filters in effect" row), the
+unmatched-jobs note, the Queue's selection across pages and the Kennel
+repositories' scope line; a kept element is a direct child of the path. The
+marks are counted (`FocusMarks` in `lib/table-focus.ts`), so on a page with two
+grids, Back from one's focus to the other's never takes off a mark the second
+still holds. Entering or leaving focus is announced as "Runners table, focus
+view" and "Runners, whole page", not as a page load; the keyboard lands on the
+bar's heading going in and on the Focus link coming out. A pasted or reloaded
+focus address keeps the chrome away from the first paint. `Esc` leaves the
+browser's full screen first, then closes the topmost overlay, then leaves focus,
+and is the field's own while the card's search has the keyboard. On a phone
 the bar's controls are `--z-control-touch` tall and, since the card's head takes
 most of a screen, the rows flow and the page under the bar scrolls them instead
 of a frame a few cards tall. The assistant steps aside in full screen, as on the

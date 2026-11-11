@@ -18,6 +18,7 @@ import {
   grid,
   nav,
   openColumnPanel,
+  readThrough,
   closeColumnPanel,
   reload,
 } from './support/fixtures';
@@ -53,7 +54,10 @@ function focusParam(page: Page): string | null {
 test.describe('on Runners', () => {
   const runners = (page: Page) => grid(page, 'Runners');
 
-  test('Focus shows the table, its chips and the bar, and nothing else', async ({ page }) => {
+  test('Focus shows the table, its chips and the bar, and nothing else', async ({
+    page,
+    isMobile,
+  }) => {
     // A grid's bookkeeping runs in effects, and one that fed itself would show
     // only here: as an error the page swallowed while it went on drawing.
     const errors: string[] = [];
@@ -84,6 +88,16 @@ test.describe('on Runners', () => {
     });
     expect(scrolls.frame).toBe('auto');
     expect(scrolls.document, 'the page itself scrolls in focus').toBeLessThanOrEqual(1);
+    // On a desktop the rows scroll in their frame, so the pagination is at
+    // the foot of the window rather than somewhere below it.
+    if (!isMobile) {
+      const pagination = await page
+        .getByRole('navigation', { name: 'Pagination' })
+        .evaluate((el) => el.getBoundingClientRect().bottom);
+      expect(pagination, 'the pagination is below the window').toBeLessThanOrEqual(
+        page.viewportSize()!.height,
+      );
+    }
 
     await focusBar(page).getByRole('link', { name: 'Exit focus' }).click();
     await expectWholePage(page, 'band-runners');
@@ -275,5 +289,108 @@ test.describe('on the other grid pages', () => {
     await page.keyboard.press('Escape');
     await expect(page).toHaveURL(/\/pools$/);
     await expectWholePage(page, 'band-pools');
+  });
+});
+
+test.describe('what focus keeps, says and does with the keyboard', () => {
+  // A pool filter lives outside the card, in the "filters in effect" row. A
+  // focus view that hid it showed a narrowed list with no sign of why and no
+  // way to widen it.
+  test('a filter in effect from outside the card is shown and can be cleared in focus', async ({
+    page,
+  }) => {
+    const pools = (await page.request.get('/api/v1/pools').then((r) => r.json())) as {
+      items: { id: string; name: string }[];
+    };
+    const pool = pools.items.find((p) => p.name === FIXTURE.linuxPool)!;
+    await goto(page, `/runners?pool_id=${pool.id}&focus=runners`, 'Runners');
+    await expect(focusBar(page)).toBeVisible();
+    const inEffect = page.getByRole('group', { name: 'Filters in effect' });
+    await expect(inEffect).toBeVisible();
+    await inEffect.getByRole('button', { name: 'Clear all' }).click();
+    await expect(page).toHaveURL(/\/runners\?focus=runners$/);
+    await expect(focusBar(page)).toBeVisible();
+  });
+
+  test('on Jobs the search is there and works in focus, and Esc in it stays', async ({ page }) => {
+    await goto(page, '/jobs?state=completed&focus=jobs', 'Jobs');
+    await expect(focusBar(page)).toBeVisible();
+    const search = page.getByRole('searchbox', { name: 'Search jobs' });
+    await expect(search).toBeVisible();
+    await search.fill('lint');
+    await expect(page).toHaveURL(/q=lint/);
+    expect(focusParam(page)).toBe('jobs');
+    // Esc in the field is the field's, not a way out of focus.
+    await search.press('Escape');
+    await expect(focusBar(page)).toBeVisible();
+    expect(focusParam(page)).toBe('jobs');
+  });
+
+  test('going in and out is announced as a view, and the keyboard comes back to Focus', async ({
+    page,
+  }) => {
+    await goto(page, '/runners', 'Runners');
+    await expect(dataRows(grid(page, 'Runners')).first()).toBeVisible();
+    const announcer = page.locator('#route-announcer');
+    await enterFocus(page);
+    await expect(announcer).toHaveText('Runners table, focus view');
+    await expect(page.locator('#focus-heading')).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(announcer).toHaveText('Runners, whole page');
+    const focusLink = page.getByRole('link', { name: 'Focus', exact: true });
+    await expect(focusLink).toBeFocused();
+  });
+
+  // A reload of a focus address must not show the whole shell first and then
+  // take it away: watched from the first frame the page draws.
+  test('reloading a focus address never shows the navigation', async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { navSeen?: boolean };
+      w.navSeen = false;
+      const look = (): void => {
+        const nav = document.querySelector('nav[aria-label="Sections"]');
+        if (nav && nav.getClientRects().length > 0) w.navSeen = true;
+        requestAnimationFrame(look);
+      };
+      requestAnimationFrame(look);
+    });
+    await goto(page, '/runners?focus=runners', 'Runners');
+    await expect(focusBar(page)).toBeVisible();
+    await expect(dataRows(grid(page, 'Runners')).first()).toBeVisible();
+    await reload(page, 'Runners');
+    await expect(dataRows(grid(page, 'Runners')).first()).toBeVisible();
+    expect(
+      await page.evaluate(() => (window as unknown as { navSeen?: boolean }).navSeen),
+      'the navigation was drawn before focus took the page',
+    ).toBe(false);
+
+    // And an address naming no table here is the ordinary page.
+    await goto(page, '/runners?focus=nothing-here', 'Runners');
+    await expect(nav(page)).toBeVisible();
+    await expect(focusBar(page)).toHaveCount(0);
+  });
+
+  // An upgrade waiting under the tab turns the next navigation into a page
+  // load, which here would throw away the ticked rows: focus changes only the
+  // query string, so it stays in the document.
+  test('Focus does not reload the page for a waiting upgrade', async ({ page }) => {
+    await goto(page, '/runners', 'Runners');
+    await expect(dataRows(grid(page, 'Runners')).first()).toBeVisible();
+    await page.evaluate(() => ((window as unknown as { marker?: string }).marker = 'kept'));
+    await page.route('**/api/v1/meta', async (route) => {
+      const read = await readThrough<Record<string, unknown>>(route);
+      if (!read) return;
+      await route.fulfill({ response: read.response, json: { ...read.body, version: 'newer' } });
+    });
+    const asked = page.waitForResponse('**/api/v1/meta');
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await asked;
+
+    await enterFocus(page);
+    expect(
+      await page.evaluate(() => (window as unknown as { marker?: string }).marker),
+      'pressing Focus reloaded the page',
+    ).toBe('kept');
   });
 });

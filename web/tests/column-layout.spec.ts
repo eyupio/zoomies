@@ -335,3 +335,41 @@ test('columns wider than the window scroll inside the grid and not the page', as
   );
   expect(document, 'the page scrolls sideways').toBeLessThanOrEqual(1);
 });
+
+/*
+ * The edge stays under the pointer while the table fills.
+ *
+ * With the spare width shared out on every move, the columns left of the edge
+ * took some of each pixel the drag gave back, and the handle crept away from
+ * the cursor. Every other column is held at its drawn width for the drag, so
+ * the edge is where the pointer is when it lets go; the share is worked out
+ * again after, and the table fills.
+ */
+test('a dragged edge stays under the pointer, and the table fills again after', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!!isMobile, 'a wide desktop window and a real cursor');
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  const table = await openGrid(page, false);
+  const resizer = table.locator('thead th[data-table-column="pool"] .resizer');
+  const from = await centre(resizer);
+  const edge = async (): Promise<number> => {
+    const box = (await resizer.boundingBox())!;
+    return box.x + box.width / 2;
+  };
+  expect(Math.abs((await edge()) - from.x)).toBeLessThanOrEqual(1);
+
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x - 20, from.y);
+  await page.mouse.move(from.x - 60, from.y, { steps: 6 });
+  await expect.poll(edge, { message: 'the edge lags the pointer' }).toBeLessThan(from.x - 50);
+  expect(
+    Math.abs((await edge()) - (from.x - 60)),
+    'the edge drifted off the pointer',
+  ).toBeLessThanOrEqual(2);
+  await page.mouse.up();
+
+  await expect.poll(() => gap(table).then(Math.abs)).toBeLessThanOrEqual(1);
+});
