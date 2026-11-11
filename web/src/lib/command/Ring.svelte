@@ -10,7 +10,7 @@
 -->
 <script lang="ts">
   import Tooltip from '$lib/components/Tooltip.svelte';
-  import type { TipDetail } from '$lib/tooltip-detail';
+  import type { TipSource } from '$lib/tooltip-detail';
   import { pluralise } from '$lib/format';
   import { ringFraction } from './chart';
   import { RUNNING_HREF } from './links';
@@ -20,7 +20,7 @@
     busy: number;
     slots: number;
     /** What the ring says on hover and focus: the slots by what is in them, and the pools. */
-    detail: TipDetail;
+    detail: TipSource;
   }
   let { running, busy, slots, detail }: Props = $props();
 
@@ -32,7 +32,7 @@
   );
 </script>
 
-<Tooltip bare {detail}>
+<Tooltip bare {detail} text="Open the running jobs.">
   <a class="ring" href={RUNNING_HREF} aria-label={name} data-testid="command-ring">
     {#if pulsing}
       <span class="halo" aria-hidden="true"></span>

@@ -206,3 +206,27 @@ test('a host with no slots and no runners says so, not "0 of 0 slots"', () => {
   assert.equal(lane!.note, 'no slots');
   assert.equal(lane!.tone, null);
 });
+
+// A keyed list refuses two items with one key, and the API is not the place
+// that promises it never sends a runner twice.
+test('two runners with one id still get keys of their own', () => {
+  const twin: Runner = { id: 'run_twin', host_id: 'a', state: 'busy' };
+  const [lane] = lanes([host('a', 3)], [twin, { ...twin }], []);
+  const keys = lane!.cells.map((c) => c.key);
+  assert.equal(new Set(keys).size, keys.length);
+  assert.deepEqual(keys.slice(0, 2), ['run_twin', 'run_twin:1']);
+});
+
+test('two runners with no id get keys of their own', () => {
+  const [lane] = lanes(
+    [host('a', 3)],
+    [
+      { host_id: 'a', state: 'busy' },
+      { host_id: 'a', state: 'idle' },
+    ],
+    [],
+  );
+  const keys = lane!.cells.map((c) => c.key);
+  assert.equal(new Set(keys).size, keys.length);
+  assert.deepEqual(keys, ['a:0', 'a:1', 'a:free']);
+});

@@ -558,7 +558,7 @@
     grid-column: 2;
     min-width: 0;
   }
-  /* Two small hosts share a row; a lane with more slots than one row draws
+  /* Two small hosts share a row; a lane with more cells than one row draws
      spans both, so the deck grows downwards as the fleet does, inside its
      own scroll. The inset leaves room for a focus ring the scroll would
      otherwise cut. */

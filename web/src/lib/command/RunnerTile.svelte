@@ -12,17 +12,15 @@
   four-hundred-character job name cannot widen the cell it sits in.
 -->
 <script lang="ts">
-  import type { Runner } from '$lib/api/types';
   import { formatDuration, NO_VALUE } from '$lib/format';
-  import { readableJobText } from '$lib/jobs/name';
   import { dogPhase } from '$lib/mascot/dog-motion';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import RunnerStatus from '$lib/runners/RunnerStatus.svelte';
   import { prefs } from '$lib/state/prefs.svelte';
   import { cpuShare } from './chart';
   import { clock } from './clock.svelte';
-  import { freeSlots, type Cell, type Lane } from './lanes';
-  import { freeTip, runnerTip, startingTip } from './tips';
+  import type { Cell, Lane } from './lanes';
+  import { cellTitle, freeTip, hostText, runnerText, runnerTip, startingTip } from './tips';
   import { elapsedMs } from './time';
 
   interface Props {
@@ -34,21 +32,10 @@
   }
   let { cell, hostName, lane }: Props = $props();
 
-  const STEP: Partial<Record<NonNullable<Runner['state']>, string>> = {
-    provisioning: 'Provisioning',
-    registering: 'Registering',
-  };
-
   const runner = $derived(cell.runner);
   const job = $derived(runner?.current_job);
-  const title = $derived.by(() => {
-    if (!runner) return freeSlots(cell.count ?? 0);
-    if (cell.kind === 'starting') return STEP[runner.state ?? 'provisioning'] ?? 'Starting';
-    if (job) return readableJobText(job.job_name) || 'A job';
-    if (runner.state === 'draining') return 'Draining';
-    if (runner.state === 'failed') return 'Failed';
-    return 'Idle';
-  });
+  // The card is headed by the same function, so the two never disagree.
+  const title = $derived(cellTitle(cell));
   const age = $derived.by(() => {
     if (!runner) return null;
     const since = job ? (job.started_at ?? undefined) : runner.created_at;
@@ -58,18 +45,26 @@
   const where = $derived(job ? [job.repo, job.head_branch].filter(Boolean).join(' · ') : '');
   const share = $derived(runner ? cpuShare(runner) : null);
   const busy = $derived(runner?.state === 'busy');
-  const tip = $derived.by(() => {
-    if (!runner) {
-      const free = cell.count ?? 0;
-      return freeTip(lane ?? { host: { name: hostName }, slots: free, free });
-    }
+  const freeLane = $derived(
+    lane ?? { host: { name: hostName }, slots: cell.count ?? 0, free: cell.count ?? 0 },
+  );
+  /*
+    The card reads the one-second clock, so it is handed over as a function
+    and worked out only while its bubble is open. What a screen reader is
+    given is the steady part, which a tick does not rewrite.
+  */
+  const tip = () => {
+    if (!runner) return freeTip(freeLane);
     const context = { hostName, now: clock.now, quirky: prefs.quirkyStatus };
     return cell.kind === 'starting' ? startingTip(runner, context) : runnerTip(runner, context);
-  });
+  };
+  const text = $derived(
+    runner ? runnerText(runner, { hostName, quirky: prefs.quirkyStatus }) : hostText(freeLane.host),
+  );
 </script>
 
 <!-- Bare, so the grid lays out the tile as though the wrapper were not there. -->
-<Tooltip bare detail={tip}>
+<Tooltip bare detail={tip} {text}>
   {#if runner}
     <a
       class="tile"

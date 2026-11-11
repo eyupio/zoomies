@@ -117,8 +117,9 @@ identity when one before it leaves; a new tile fades in where it lands, and no
 position is animated, which keeps the page inside the rule that state changes
 animate colour and the mark, never layout.
 
-Two small hosts share a row; a host with more than one row of cells takes the
-full width.
+Two small hosts share a row; a lane that draws more cells than one row holds
+takes the full width. It is the cells drawn that decide, not the host's slots,
+so an idle host of fourteen slots is one cell and shares its row.
 
 ### The rail
 

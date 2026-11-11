@@ -912,3 +912,22 @@ test('on a touch screen a tap on a tile follows its link with no card in the way
   await tile.tap();
   await expect(page).toHaveURL(/\/runners\/[^/]+$/);
 });
+
+// A card that ticks is worked out only while it is open. What a screen reader
+// is given is the steady part, so with no bubble open a second passing writes
+// nothing into the page for any tile.
+test('a tile description is short and does not change while the clock runs', async ({ page }) => {
+  await busyPage(page);
+  const tile = page.getByTestId('command-tile').first();
+  const described = () =>
+    tile.evaluate((el) => {
+      const ids = (el.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean);
+      return ids.map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
+    });
+  const before = await described();
+  expect(before).toContain('Runner: busy-00-00');
+  expect(before).toContain('Pool:');
+  expect(before).not.toMatch(/Running for|Started|Queued|When|Image/);
+  await page.waitForTimeout(2200);
+  expect(await described()).toBe(before);
+});

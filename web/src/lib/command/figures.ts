@@ -18,6 +18,8 @@ export interface HeroFigure {
   value: string;
   note: string;
   href: string;
+  /** Where the figure leads, as a sentence: what assistive technology is told. */
+  help: string;
   /** Where the figure leads, as the tooltip's last row names it. */
   opens: string;
 }
@@ -65,6 +67,7 @@ export function heroFigures(stats: Stats | null | undefined, now: number): HeroF
       value: formatDuration(wait),
       note: waitP95 === undefined ? NO_VALUE : `p95 ${formatDuration(waitP95)}`,
       href: QUEUE_HREF,
+      help: 'Open the queue.',
       opens: 'The queue',
     },
     {
@@ -73,6 +76,7 @@ export function heroFigures(stats: Stats | null | undefined, now: number): HeroF
       value: formatDuration(startup),
       note: startupP95 === undefined ? NO_VALUE : `p95 ${formatDuration(startupP95)}`,
       href: RUNNERS_HREF,
+      help: 'Open the runners.',
       opens: 'The runners',
     },
     {
@@ -84,6 +88,7 @@ export function heroFigures(stats: Stats | null | undefined, now: number): HeroF
       value: completed > 0 ? `${Math.round((succeeded / completed) * 100)}%` : NO_VALUE,
       note: completed > 0 ? `${succeeded} of ${completed} finished` : 'nothing finished',
       href: finishedSinceHref(new Date(now - window.ms)),
+      help: `Open the jobs finished in the ${window.words}.`,
       opens: `The jobs finished in the ${window.words}`,
     },
   ];

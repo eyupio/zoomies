@@ -15,7 +15,7 @@
   import { formatNumber } from '$lib/format';
   import type { Lane } from './lanes';
   import RunnerTile from './RunnerTile.svelte';
-  import { hostTip } from './tips';
+  import { hostText, hostTip } from './tips';
 
   let { lane }: { lane: Lane } = $props();
 
@@ -38,7 +38,7 @@
   aria-labelledby="{id}-name"
   data-testid="command-lane"
 >
-  <Tooltip bare detail={hostTip(lane)}>
+  <Tooltip bare detail={() => hostTip(lane)} text={hostText(lane.host)}>
     <a class="head" href={lane.href}>
       <h3 class="name" id="{id}-name">{name}</h3>
       <span class="note">

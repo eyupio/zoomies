@@ -84,11 +84,16 @@ function cellsFor(host: Host & { id: string }, held: readonly Runner[]): Cell[] 
   const live = held.filter((r) => !isStarting(r)).sort(byAge);
   const starting = held.filter(isStarting).sort(byAge);
   const cells: Cell[] = [];
+  const keys = new Set<string>();
   const add = (kind: CellKind, runner: Runner) => {
     // Keyed by the runner, so a tile is the same tile however many leave
     // before it. A runner the API sent without an id falls back to its place,
     // which is the best identity it has.
-    const key = runner.id ?? `${host.id}:${cells.length}`;
+    // Two records with one id (a duplicate from the API) would be two cells
+    // with one key, which a keyed list refuses; the second takes its place too.
+    let key = runner.id ?? `${host.id}:${cells.length}`;
+    if (keys.has(key)) key = `${key}:${cells.length}`;
+    keys.add(key);
     // A runner without an id still holds its slot and is drawn, but it has no
     // page to open, so its cell opens the host it runs on: the nearest page
     // that says anything about it, rather than a dead link. The tile keeps the

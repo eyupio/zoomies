@@ -18,7 +18,7 @@
   import { toMillis } from '$lib/format';
   import { toneTokens } from '$lib/status';
   import { clock as pageClock } from './clock.svelte';
-  import { tickerTip } from './tips';
+  import { tickerText, tickerTip } from './tips';
 
   interface Props {
     entries: readonly FeedEntry[];
@@ -108,8 +108,11 @@
         {#if copy}
           {@render item(entry)}
         {:else}
-          <Tooltip bare quiet detail={tickerTip(entry, pageClock.now)}
-            >{@render item(entry)}</Tooltip
+          <Tooltip
+            bare
+            quiet
+            detail={() => tickerTip(entry, pageClock.now)}
+            text={tickerText(entry)}>{@render item(entry)}</Tooltip
           >
         {/if}
       </li>

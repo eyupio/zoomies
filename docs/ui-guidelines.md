@@ -1346,7 +1346,10 @@ thing (a runner, a host, a job) rather than a sentence, and keep it to what is
 known: a row whose value is unknown is left out, never drawn empty. The item
 stays one link or one button with no control in the card, and the rows come
 from a pure function a unit test reads (`lib/command/tips.ts` for the command
-centre). `attachTip` takes the same `detail`.
+centre). A card that reads a clock is given as a function, which only the open
+bubble calls, with a short steady `text` as its description, so a page of them
+does no work for bubbles nobody has opened and no description ticks.
+`attachTip` takes the same `detail`.
 
 The heading is shown only for a control that does not show its own name: an icon
 button's label, a collapsed sidebar entry's page. When there is a heading the

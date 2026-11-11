@@ -17,7 +17,8 @@
     <Tooltip detail={{ title: 'Queue wait', rows: [{ label: 'Median', value: '12s' }] }}>
       a structured card: a title and a few label and value rows, drawn as a
       heading and a `<dl>` with every value as text. With no `text` the card is
-      also the description, as one run of sentences;
+      also the description, as one run of sentences. Given as a function, it is
+      worked out only while the bubble is open, and `text` is the description;
 
     <Tooltip text={summary}>{#snippet content()}...{/snippet} ...
       a rich card, with a layout of its own. `text` stays the accessible copy, so a
@@ -51,7 +52,7 @@
   import { getContext, setContext, type Snippet } from 'svelte';
   import { RICH_CARD_WAIT, tooltips, type Bubble, type Wait } from '../tooltip';
   import { focusWasPlaced } from '../keys';
-  import { detailSentence, type TipDetail } from '../tooltip-detail';
+  import { tipDescription, type TipSource } from '../tooltip-detail';
   import { hosted } from '../tooltip-description';
   import { whenPointerMoves } from '../tooltip-intent';
   import type { Side } from '../tooltip-place';
@@ -84,8 +85,10 @@
      * A title and a few label and value rows, for help that is figures about
      * one thing. Every value is put on the page as text. It takes the wide
      * bubble, and without `text` it is also what assistive technology gets.
+     * A function is called only while the bubble is open, for a card that
+     * reads a clock; give it a steady `text`, since it is never described.
      */
-    detail?: TipDetail;
+    detail?: TipSource;
     placement?: Side;
     /** A card with figures and rows in it wants more room than a sentence does. */
     wide?: boolean;
@@ -180,11 +183,7 @@
     // nothing to what that says.
     whenTruncated || !describe || outer?.owns()
       ? ''
-      : content
-        ? text
-        : detail
-          ? text || detailSentence(detail)
-          : [text, reason].filter(Boolean).join(' '),
+      : tipDescription({ text, reason, content, detail }),
   );
 
   setContext<Outer>(OUTER, {

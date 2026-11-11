@@ -100,7 +100,11 @@
 </script>
 
 <div class="hour">
-  <Tooltip bare detail={hourTip(points, "The Overview's history")}>
+  <Tooltip
+    bare
+    detail={() => hourTip(points, "The Overview's history")}
+    text="Open the Overview's history."
+  >
     <a class="chart" href={HISTORY_HREF} data-testid="command-hour-chart">
       <span class="head" aria-hidden="true">
         <span class="title">Last hour</span>

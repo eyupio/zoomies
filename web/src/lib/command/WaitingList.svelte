@@ -22,7 +22,7 @@
   import { WAITING_SHOWN } from './jobs-merge';
   import { QUEUE_HREF } from './links';
   import { elapsedMs } from './time';
-  import { waitingTip } from './tips';
+  import { waitingText, waitingTip } from './tips';
 
   interface Props {
     jobs: readonly Job[];
@@ -62,7 +62,11 @@
       {#each shown as job (job.id)}
         {@const activity = queuedActivity(job, prefs.quirkyStatus)}
         <li>
-          <Tooltip bare detail={waitingTip(job, activity, clock.now)}>
+          <Tooltip
+            bare
+            detail={() => waitingTip(job, activity, clock.now)}
+            text={waitingText(job, activity)}
+          >
             <button type="button" class="row" onclick={() => onopen(job)}>
               <span class="mark"><OffStatusIcon status={activity.status} seed={job.id} /></span>
               <span class="what">

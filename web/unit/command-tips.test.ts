@@ -4,7 +4,14 @@ import type { Host, Job, Problem, Runner, Stats } from '../src/lib/api/types.ts'
 import { heroFigures, type HeroFigure } from '../src/lib/command/figures.ts';
 import { lanes } from '../src/lib/command/lanes.ts';
 import {
+  cellTitle,
   figureTip,
+  finishedText,
+  hostText,
+  problemText,
+  runnerText,
+  tickerText,
+  waitingText,
   finishedTip,
   freeTip,
   hostTip,
@@ -17,7 +24,12 @@ import {
   waitingTip,
 } from '../src/lib/command/tips.ts';
 import { runnerStatus } from '../src/lib/status.ts';
-import { detailSentence } from '../src/lib/tooltip-detail.ts';
+import {
+  detailSentence,
+  resolveDetail,
+  tipDescription,
+  type TipDetail,
+} from '../src/lib/tooltip-detail.ts';
 
 const NOW = Date.UTC(2026, 10, 10, 14, 0);
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
@@ -433,4 +445,94 @@ test('a card reads as one run of sentences, without doubled full stops', () => {
     }),
     'Queue wait. Median: 12s. Why: Waiting for a runner.',
   );
+});
+
+// The card is headed by the tile's own title, from the one function, so the
+// two cannot drift: a job GitHub sent with no name is "A job" on both.
+test('a runner card is headed with exactly what its tile says', () => {
+  const nameless = busyRunner({ current_job: job({ job_name: '' }) });
+  assert.equal(cellTitle({ kind: 'runner', runner: nameless }), 'A job');
+  assert.equal(runnerTip(nameless, { now: NOW }).title, 'A job');
+  const draining: Runner = { id: 'd', state: 'draining' };
+  assert.equal(
+    runnerTip(draining, { now: NOW }).title,
+    cellTitle({ kind: 'runner', runner: draining }),
+  );
+  assert.equal(cellTitle({ kind: 'free', count: 1 }), '1 free slot');
+  assert.equal(cellTitle({ kind: 'starting', runner: { state: 'registering' } }), 'Registering');
+});
+
+// A throttled host places against its effective capacity, not its slots.
+test('a throttled host says how many runners it is taking, on its free cell and its header', () => {
+  const [lane] = lanes(
+    [host({ throttle: { level: 2 }, effective_capacity: 2 })],
+    [busyRunner()],
+    [],
+  );
+  assert.deepEqual(freeTip(lane!).rows.at(-1), { label: 'Taking', value: '2 of 4 slots' });
+  const header = hostTip(lane!);
+  assert.deepEqual(header.rows[2], { label: 'Taking', value: '2 of 4 slots' });
+  const [calm] = lanes([host({ effective_capacity: 4 })], [], []);
+  assert.ok(!labels(freeTip(calm!)).includes('Taking'));
+  assert.ok(!labels(hostTip(calm!)).includes('Taking'));
+});
+
+// What a screen reader is given is short and does not tick: nothing that is
+// counted from the clock, so it is not rewritten every second.
+test('each description is the steady rows alone', () => {
+  const context = { hostName: 'builder-01', quirky: false };
+  assert.equal(
+    runnerText(busyRunner(), context),
+    `Runner: zoomies-linux-1. State: ${runnerStatus('busy', false).label}. Pool: linux-x64. Host: builder-01.`,
+  );
+  assert.equal(
+    waitingText(job({ repo: 'eyupio/zoomies' }), { label: 'Ready', detail: 'Waiting.' }),
+    'Repository: eyupio/zoomies. Status: Ready.',
+  );
+  assert.equal(
+    finishedText(job({ conclusion: 'success', duration_ms: 125_000 })),
+    'Result: Succeeded. Took: 2m 05s.',
+  );
+  assert.equal(hostText(host({ cordoned: true })), 'Status: Cordoned.');
+  assert.equal(
+    tickerText({ detail: 'Registered with GitHub.' }),
+    'Detail: Registered with GitHub.',
+  );
+  assert.equal(tickerText({}), '');
+  const problem: Problem = {
+    code: 'x',
+    severity: 'warning',
+    audience: 'fleet',
+    title: 'T',
+    detail: 'Long detail.',
+    fix: 'Do this.',
+    target_kind: 'host',
+  };
+  assert.equal(problemText(problem, 'builder-01'), 'Fix: Do this. Target: Host builder-01.');
+  for (const text of [
+    runnerText(busyRunner(), context),
+    waitingText(job(), { label: 'Ready', detail: 'x' }),
+    finishedText(job()),
+  ]) {
+    assert.doesNotMatch(text, /Running for|Started|Queued|When|Image/);
+  }
+});
+
+// A card that reads the clock is a function, and nothing but the open bubble
+// calls it: the description is worked out without it.
+test('a card given as a function is not called for the description, only when resolved', () => {
+  let calls = 0;
+  const card = (): TipDetail => {
+    calls += 1;
+    return { title: 'Ticking', rows: [{ label: 'Running for', value: `${calls}s` }] };
+  };
+  assert.equal(tipDescription({ detail: card, text: 'Runner: a.' }), 'Runner: a.');
+  assert.equal(tipDescription({ detail: card }), '');
+  assert.equal(calls, 0);
+  assert.equal(resolveDetail(card).rows[0]!.value, '1s');
+  assert.equal(calls, 1);
+  const fixed: TipDetail = { title: 'Fixed', rows: [{ label: 'A', value: 'b' }] };
+  assert.equal(tipDescription({ detail: fixed }), 'Fixed. A: b.');
+  assert.equal(resolveDetail(fixed), fixed);
+  assert.equal(tipDescription({ text: 'Help.', reason: 'Why.' }), 'Help. Why.');
 });

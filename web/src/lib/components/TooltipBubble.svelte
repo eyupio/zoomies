@@ -29,7 +29,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { Info, Lock } from '@lucide/svelte';
-  import type { TipDetail } from '../tooltip-detail';
+  import { resolveDetail, type TipDetail, type TipSource } from '../tooltip-detail';
   import { NARROW_QUERY, narrowPlacement, place, type Box, type Side } from '../tooltip-place';
 
   interface Props {
@@ -49,7 +49,7 @@
     lock?: boolean;
     keys?: readonly string[];
     /** A title and label and value rows. Ignored when `children` is given; drawn instead of plain help. */
-    detail?: TipDetail;
+    detail?: TipSource;
     /**
      * Whether the pointer can land on the bubble. A card over a grid of squares
      * must not, or it would catch the pointer on its way to the next one.
@@ -79,6 +79,13 @@
     onleave,
     children,
   }: Props = $props();
+
+  /*
+    Worked out here, and only here: the bubble exists only while it is open,
+    so a card given as a function costs nothing until then, and while it is
+    open it follows whatever it reads (a clock, a frame) as it changes.
+  */
+  const card = $derived(detail ? resolveDetail(detail) : undefined);
 
   let bubble = $state<HTMLSpanElement | null>(null);
   const narrow = window.matchMedia(NARROW_QUERY);
@@ -134,7 +141,7 @@
     void text;
     void reason;
     void keys;
-    void detail;
+    void card;
 
     // The browser's top layer escapes overflow clipping and stacking contexts,
     // while keeping the bubble in its owner's DOM and accessibility tree.
@@ -224,7 +231,16 @@
   {#if text}<span class="sentence" class:muted={Boolean(title)}>{text}</span>{/if}
 {/snippet}
 
-{#snippet card(tip: TipDetail)}
+<!--
+  The card is a span, as the bubble and its scroller are: the bubble is drawn
+  inside its trigger's wrapper, which can stand in a sentence, a link or a
+  button, where only phrasing content belongs, so the bubble's own element
+  cannot take a div. The heading and the list inside are kept because they are
+  what the card is; the bubble is built through the DOM and never re-parsed,
+  so nothing moves them, and it is hidden from assistive technology, whose copy
+  is the trigger's description.
+-->
+{#snippet cardOf(tip: TipDetail)}
   <span class="card"
     ><h3 class="card-title">{tip.title}</h3>
     {#if tip.rows.length > 0}<dl class="card-rows">
@@ -264,7 +280,7 @@
   onpointerenter={() => onenter?.()}
   onpointerleave={() => onleave?.()}
   ><span class="scroll"
-    >{#if children}{@render children()}{:else if detail}{@render card(detail)}{:else}<span
+    >{#if children}{@render children()}{:else if card}{@render cardOf(card)}{:else}<span
         class="plain">{@render head()}{@render sentence()}{@render why()}</span
       >{/if}</span
   ></span

@@ -16,7 +16,7 @@
   import { PROBLEMS_SHOWN } from './jobs-merge';
   import RailSection from './RailSection.svelte';
   import { problemHref } from './links';
-  import { problemTip } from './tips';
+  import { problemText, problemTip } from './tips';
 
   interface Props {
     problems: readonly Problem[];
@@ -53,7 +53,11 @@
             {#if problem.detail}<span class="detail">{problem.detail}</span>{/if}
           </span>
         {/snippet}
-        <Tooltip bare detail={problemTip(problem, targetName(problem))}>
+        <Tooltip
+          bare
+          detail={() => problemTip(problem, targetName(problem))}
+          text={problemText(problem, targetName(problem))}
+        >
           {#if href}
             <a class="row" {href}>{@render body()}</a>
           {:else}

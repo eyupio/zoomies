@@ -19,7 +19,7 @@
   import { formatDuration, NO_VALUE } from '$lib/format';
   import { readableJobName } from '$lib/jobs/name';
   import { FINISHED_SHOWN, finishedOutcome } from './jobs-merge';
-  import { finishedTip } from './tips';
+  import { finishedText, finishedTip } from './tips';
 
   interface Props {
     jobs: readonly Job[];
@@ -55,7 +55,11 @@
       {#each shown as job (job.id)}
         {@const outcome = finishedOutcome(job)}
         <li>
-          <Tooltip bare detail={finishedTip(job, fleet.host(job.host_id)?.name)}>
+          <Tooltip
+            bare
+            detail={() => finishedTip(job, fleet.host(job.host_id)?.name)}
+            text={finishedText(job)}
+          >
             <button
               type="button"
               class="row"

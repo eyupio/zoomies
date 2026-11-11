@@ -23,12 +23,13 @@ import {
   relativeTime,
   toMillis,
 } from '../format';
-import { readableJobName } from '../jobs/name';
+import { readableJobName, readableJobText } from '../jobs/name';
 import { MAX_THROTTLE_LEVEL, runnerStatus, throttled } from '../status';
-import { row, type TipDetail, type TipRow } from '../tooltip-detail';
+import { row, rowsSentence, type TipDetail, type TipRow } from '../tooltip-detail';
 import { lastWindow, measured, type HeroFigure } from './figures';
 import { finishedOutcome } from './jobs-merge';
-import { freeSlots, type Lane } from './lanes';
+import { freeSlots, type Cell, type Lane } from './lanes';
+import { slotsOf } from '../hosts/slots';
 import { elapsedMs } from './time';
 
 /** How many pools the ring's card lists before it says how many more there are. */
@@ -85,25 +86,60 @@ export interface RunnerTipContext {
   quirky?: boolean;
 }
 
+const STEP: Partial<Record<NonNullable<Runner['state']>, string>> = {
+  provisioning: 'Provisioning',
+  registering: 'Registering',
+};
+
+/**
+ * What a tile says in its title, and so what its card is headed with: one
+ * function for both, so the card can never name the tile differently. A
+ * runner with no job is idle unless it is going away.
+ */
+export function cellTitle(cell: Pick<Cell, 'kind' | 'runner' | 'count'>): string {
+  const runner = cell.runner;
+  if (!runner) return freeSlots(cell.count ?? 0);
+  if (cell.kind === 'starting') return STEP[runner.state ?? 'provisioning'] ?? 'Starting';
+  const job = runner.current_job;
+  if (job) return readableJobText(job.job_name) || 'A job';
+  if (runner.state === 'draining') return 'Draining';
+  if (runner.state === 'failed') return 'Failed';
+  return 'Idle';
+}
+
+/** Which runner, in what state, in which pool, on which host: the steady part of a tile's card. */
+function runnerIdentity(
+  runner: Runner,
+  context: Pick<RunnerTipContext, 'hostName' | 'quirky'>,
+): TipRow[] {
+  return [
+    ...row('Runner', runner.name),
+    ...row('State', runner.state ? runnerStatus(runner.state, context.quirky).label : undefined),
+    ...row('Pool', runner.pool_name),
+    ...row('Host', context.hostName || runner.host_name),
+  ];
+}
+
+/**
+ * A runner tile's description for assistive technology: only what does not
+ * tick, so it is not rewritten every second, and short, because the tile's
+ * own name already says the job.
+ */
+export function runnerText(
+  runner: Runner,
+  context: Pick<RunnerTipContext, 'hostName' | 'quirky'>,
+): string {
+  return rowsSentence(runnerIdentity(runner, context));
+}
+
 /** A runner tile: the job it is running, or what it is doing without one. */
 export function runnerTip(runner: Runner, context: RunnerTipContext): TipDetail {
   const job = runner.current_job;
-  // The tile's own words: a runner with no job is idle unless it is going away.
-  const title = job
-    ? readableJobName(job.job_name)
-    : runner.state === 'draining'
-      ? 'Draining'
-      : runner.state === 'failed'
-        ? 'Failed'
-        : 'Idle';
   const running = elapsedMs(job?.started_at ?? undefined, context.now);
   return {
-    title,
+    title: cellTitle({ kind: 'runner', runner }),
     rows: [
-      ...row('Runner', runner.name),
-      ...row('State', runner.state ? runnerStatus(runner.state, context.quirky).label : undefined),
-      ...row('Pool', runner.pool_name),
-      ...row('Host', context.hostName || runner.host_name),
+      ...runnerIdentity(runner, context),
       ...jobPlace(job),
       ...row('Running for', running === null ? undefined : formatDuration(running)),
       ...row('CPU', runnerCpu(runner)),
@@ -114,18 +150,13 @@ export function runnerTip(runner: Runner, context: RunnerTipContext): TipDetail 
   };
 }
 
-const STEP: Partial<Record<NonNullable<Runner['state']>, string>> = {
-  provisioning: 'Provisioning',
-  registering: 'Registering',
-};
-
 /** A starting tile: which step the runner is at, and how long since it was asked for. */
 export function startingTip(
   runner: Runner,
   context: Pick<RunnerTipContext, 'hostName' | 'now'>,
 ): TipDetail {
   return {
-    title: STEP[runner.state ?? 'provisioning'] ?? 'Starting',
+    title: cellTitle({ kind: 'starting', runner }),
     rows: [
       ...row('Runner', runner.name),
       ...row('Pool', runner.pool_name),
@@ -151,6 +182,21 @@ function throttleWords(host: Host): string | undefined {
   );
 }
 
+/**
+ * What a throttled host will actually take: the scheduler places against its
+ * effective capacity, which a throttle lowers below its slots, so a card that
+ * said only "5 free slots" would promise room it will refuse.
+ */
+function taking(host: Host): TipRow[] {
+  if (!throttled(host.throttle) || host.effective_capacity === undefined) return [];
+  return [
+    {
+      label: 'Taking',
+      value: `${formatNumber(host.effective_capacity)} of ${pluralise(slotsOf(host), 'slot')}`,
+    },
+  ];
+}
+
 /** The free cell: how much room is left, and what decides how much room there is. */
 export function freeTip(lane: Pick<Lane, 'host' | 'slots' | 'free'>): TipDetail {
   const { host, slots, free } = lane;
@@ -160,6 +206,7 @@ export function freeTip(lane: Pick<Lane, 'host' | 'slots' | 'free'>): TipDetail 
       { label: 'In use', value: `${formatNumber(slots - free)} of ${pluralise(slots, 'slot')}` },
       ...row('Limited by', host.slots_limited_by ? LIMITED_BY[host.slots_limited_by] : undefined),
       ...row('Throttle', throttleWords(host)),
+      ...taking(host),
     ],
   };
 }
@@ -172,6 +219,15 @@ function hostState(host: Host): string {
   }
   if (host.cordoned) return 'Cordoned';
   return 'Healthy';
+}
+
+/**
+ * The description of a host's header and of its free cell: the status alone.
+ * The lane's note already says how many slots are taken, and the measurements
+ * move with every sample.
+ */
+export function hostText(host: Host): string {
+  return rowsSentence([{ label: 'Status', value: hostState(host) }]);
 }
 
 /**
@@ -188,6 +244,7 @@ export function hostTip(lane: Pick<Lane, 'host' | 'slots' | 'free'>): TipDetail 
     rows: [
       { label: 'Status', value: hostState(host) },
       { label: 'Slots', value: `${formatNumber(slots - free)} of ${formatNumber(slots)} in use` },
+      ...taking(host),
       ...row('CPU', percent(usage?.cpu_percent)),
       ...row('Load average', load === undefined ? undefined : load.toFixed(2)),
       ...row('I/O wait', percent(usage?.io_wait_percent)),
@@ -340,6 +397,11 @@ export interface QueueActivity {
   detail: string;
 }
 
+/** A waiting row's description: where it comes from and its status, none of which ticks. */
+export function waitingText(job: Job, activity: QueueActivity): string {
+  return rowsSentence([...row('Repository', job.repo), ...row('Status', activity.label)]);
+}
+
 /** A waiting row: what the job is, where it comes from, and why it waits. */
 export function waitingTip(job: Job, activity: QueueActivity, now: number): TipDetail {
   return {
@@ -372,6 +434,23 @@ export function problemTip(problem: Problem, target?: string | null): TipDetail 
   };
 }
 
+/** A problem row's description: the fix, and what it is about. The row itself says the rest. */
+export function problemText(problem: Problem, target?: string | null): string {
+  return rowsSentence(problemTip(problem, target).rows.filter((r) => r.label !== 'Detail'));
+}
+
+/** A finished row's description: how it ended and how long it took. */
+export function finishedText(job: Job): string {
+  return rowsSentence([
+    { label: 'Result', value: finishedOutcome(job).label },
+    ...finishedTook(job),
+  ]);
+}
+
+function finishedTook(job: Job): TipRow[] {
+  return row('Took', typeof job.duration_ms === 'number' ? formatDuration(job.duration_ms) : null);
+}
+
 /** A finished row: how it ended, how long it took, and where it ran. */
 export function finishedTip(job: Job, hostName?: string | null): TipDetail {
   const outcome = finishedOutcome(job);
@@ -379,7 +458,7 @@ export function finishedTip(job: Job, hostName?: string | null): TipDetail {
     title: readableJobName(job.job_name),
     rows: [
       { label: 'Result', value: outcome.label },
-      ...row('Took', typeof job.duration_ms === 'number' ? formatDuration(job.duration_ms) : null),
+      ...finishedTook(job),
       ...row(
         'Waited',
         typeof job.queue_wait_ms === 'number' ? formatDuration(job.queue_wait_ms) : null,
@@ -393,6 +472,11 @@ export function finishedTip(job: Job, hostName?: string | null): TipDetail {
 }
 
 const CLOCK = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
+
+/** A ticker entry's description: the controller's sentence, never the time, which ticks. */
+export function tickerText(entry: Pick<FeedEntry, 'detail'>): string {
+  return rowsSentence(row('Detail', entry.detail));
+}
 
 /** A ticker entry: the time as the strip shows it, and how long ago that was. */
 export function tickerTip(

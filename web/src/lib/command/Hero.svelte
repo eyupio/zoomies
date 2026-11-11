@@ -77,7 +77,7 @@
   </section>
 {:else}
   <section class="hero" aria-labelledby="command-verdict">
-    <Ring {running} {busy} {slots} detail={ringTip(lanes, 'The running jobs')} />
+    <Ring {running} {busy} {slots} detail={() => ringTip(lanes, 'The running jobs')} />
 
     <div class="verdict" data-verdict={verdict.kind}>
       <h2 id="command-verdict">{verdict.headline}</h2>
@@ -109,7 +109,7 @@
     <ul class="figures">
       {#each figures as figure (figure.label)}
         <li>
-          <Tooltip bare detail={figureTip(figure, stats)}>
+          <Tooltip bare detail={() => figureTip(figure, stats)} text={figure.help}>
             <a class="figure" href={figure.href}>
               <span class="label">{figure.label}</span>
               <b class="value">{figure.value}</b>
