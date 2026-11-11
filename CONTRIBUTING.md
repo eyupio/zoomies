@@ -32,7 +32,7 @@ and failure-mode review.
 The core binary is written in Go. The web UI is built with Svelte and embedded
 in that binary.
 
-- Go 1.27.1 or later (the floor in `go.mod`; CI builds and releases with 1.27.2)
+- Go 1.27.1 or later (the floor in `go.mod`; CI builds and releases with 1.27.4)
 - A C compiler (`gcc` or `clang`), because `make test` runs under the race
   detector and Go refuses `-race` without cgo
 - Node.js 22 or later and npm, when changing or rebuilding the UI. `make lint`
