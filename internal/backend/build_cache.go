@@ -22,6 +22,12 @@ type ExternalsSweeper interface {
 	SweepExternals(context.Context) (int, error)
 }
 
+// ImageSweeper is optional as well: the Docker and Podman backends remove the
+// untagged images their own pulls superseded, and nothing else.
+type ImageSweeper interface {
+	SweepImages(context.Context) (int, error)
+}
+
 func (b *DockerBackend) PruneBuildCache(ctx context.Context, keepBytes int64) (int64, error) {
 	if b.Kind() != store.BackendDocker || keepBytes <= 0 {
 		return 0, nil

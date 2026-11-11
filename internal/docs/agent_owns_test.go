@@ -36,6 +36,7 @@ func TestTheSecurityPageSaysWhatTheAgentOwnsOnAHost(t *testing.T) {
 		{"`io.zoomies.managed=true`", "the label that is the whole boundary of which containers it touches"},
 		{"zoomies-cache-<identity>", "its per-pool cache"},
 		{"never removes an image", "what it never prunes"},
+		{"superseded runner images", "the one kind of image it removes, and what that is"},
 		{"`agent.docker_build_cache_mb`", "the builder-cache target, the one daemon-wide thing it does"},
 		{"default `0`", "the builder-cache default"},
 		{"agent.docker_build_cache_mb: 0", "the shared-daemon advice"},

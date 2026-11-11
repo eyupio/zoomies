@@ -1260,6 +1260,42 @@ func (c *APIClient) VolumeRemove(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/volumes/"+name, nil, nil, nil)
 }
 
+// ImageSummary is the part of an image listing the agent reads: the image's
+// ID, the tags that still name it, and the repository digests that say where
+// it was pulled from. A locally built image has no repository digest.
+type ImageSummary struct {
+	ID          string   `json:"Id"`
+	RepoTags    []string `json:"RepoTags"`
+	RepoDigests []string `json:"RepoDigests"`
+}
+
+// ImageList lists images matching filters such as {"dangling": {"true"}}.
+func (c *APIClient) ImageList(ctx context.Context, filters map[string][]string) ([]ImageSummary, error) {
+	q := url.Values{}
+	if len(filters) > 0 {
+		b, err := json.Marshal(filters)
+		if err != nil {
+			return nil, fmt.Errorf("docker api: encoding image filters: %w", err)
+		}
+		q.Set("filters", string(b))
+	}
+	var out []ImageSummary
+	if err := c.do(ctx, http.MethodGet, "/images/json", q, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ImageRemove deletes one image by ID, without force and without pruning its
+// untagged parents. The daemon refuses, with a 409, an image that any container
+// still uses, running or stopped, and that refusal is the guard this relies on.
+// Its one caller is SweepImages, which removes only superseded images of a
+// repository the agent itself prepared a runner from; agent_owns_test.go fails
+// if another appears.
+func (c *APIClient) ImageRemove(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/images/"+id, url.Values{"noprune": {"true"}}, nil, nil)
+}
+
 // ---------------------------------------------------------------------------
 // Log demultiplexing
 // ---------------------------------------------------------------------------

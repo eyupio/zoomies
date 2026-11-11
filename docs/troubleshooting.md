@@ -617,9 +617,14 @@ whether it is yours to deal with.
 
 **What it never removes:**
 
-* **Container images.** Zoomies pulls images and never deletes one. A host that
-  has run several pools accumulates them, and `docker image prune` is the
-  answer; nothing here will do it behind your back.
+* **Container images, with one exception.** Zoomies pulls images and does not
+  delete them, except the untagged ones its own pulls leave behind when a
+  runner image's tag moves on (see [What the agent owns on a
+  host](security.md#what-the-agent-owns-on-a-host)). Those go automatically,
+  never while a container uses them. Everything else a host accumulates, such
+  as an older version tag after an upgrade or the images of other pools that
+  no longer run, is yours to remove, with `docker image prune` or
+  `docker image rm`.
 * **A job that is running.** No maximum job duration exists by design; a
   workflow's own `timeout-minutes` is the right place for that, and it is the
   one GitHub reports honestly.

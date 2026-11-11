@@ -65,3 +65,32 @@ func TestTheExternalsSweepRunsWithoutABuilderCacheTarget(t *testing.T) {
 		t.Fatalf("sweep calls=%d bounded=%v", sweeper.calls, sweeper.bounded)
 	}
 }
+
+type imageSweepBackend struct {
+	*fakeBackend
+	calls   int
+	bounded bool
+	err     error
+}
+
+func (b *imageSweepBackend) SweepImages(ctx context.Context) (int, error) {
+	b.calls++
+	_, b.bounded = ctx.Deadline()
+	return 2, b.err
+}
+
+// The image sweep, like the externals one, runs whatever the builder-cache
+// target: the images it removes are only the ones this agent pulled and a tag
+// has since moved off, and a failure is retried by the next pass, not fatal.
+func TestTheImageSweepRunsWithoutABuilderCacheTargetAndSurvivesAnError(t *testing.T) {
+	a, _, be, _ := newAgent(t, 2)
+	sweeper := &imageSweepBackend{fakeBackend: be, err: errors.New("daemon unavailable")}
+	a.opts.Backends = backend.NewRegistry(sweeper)
+	a.opts.DockerBuildCacheMB = 0
+	a.sweepImages(context.Background())
+	sweeper.err = nil
+	a.sweepImages(context.Background())
+	if sweeper.calls != 2 || !sweeper.bounded {
+		t.Fatalf("image sweep calls=%d bounded=%v; want one per pass, each with a deadline", sweeper.calls, sweeper.bounded)
+	}
+}
