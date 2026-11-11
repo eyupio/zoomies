@@ -15,13 +15,14 @@ description: >-
 # Dockerfile's, and holds every workflow to this action.
 #
 # 1.27.3 carries the fix for GO-2026-6809, in which crypto/x509 trusted a
-# compromised intermediate certificate. The Proxmox setup verifies a
-# certificate, so the standard library the build and the tests run on is the
-# one that matters here.
+# compromised intermediate certificate. 1.27.4 carries the fix for GO-2026-6859,
+# a header race in net/http that the fleet's webhook and API servers reach. The
+# standard library the build, tests and vulnerability scan run on is the one
+# that matters here.
 runs:
   using: composite
   steps:
     - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        go-version: "1.27.3"
+        go-version: "1.27.4"
         cache: true
