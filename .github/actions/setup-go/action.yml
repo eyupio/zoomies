@@ -28,6 +28,14 @@ description: >-
 # concurrent jobs (the Go toolchain locks and verifies both caches), and is
 # empty only on the first run. A GitHub-hosted runner has no such folder and
 # keeps the action's cache, as does a runner whose folder is not writable.
+#
+# The modules and the build output are two top-level folders and not one, on
+# purpose. A pool's cache size limit is enforced by deleting whole top-level
+# entries, oldest first, so a single go folder holding both was deleted whole
+# (modules and all) the moment the cache passed the limit, and a limit below its
+# size wiped it at every start. The build output is the large part, several
+# gigabytes after a day of CI, and rebuilding it is cheap; the modules are small
+# and cost a download, so they are the entry worth keeping.
 runs:
   using: composite
   steps:
@@ -35,12 +43,13 @@ runs:
       shell: bash
       run: |
         use=false
-        d=/opt/zoomies-cache/go
+        mod=/opt/zoomies-cache/go-mod
+        build=/opt/zoomies-cache/go-build
         if [ "$RUNNER_OS" = Linux ] && [ -d /opt/zoomies-cache ] \
-          && mkdir -p "$d/mod" "$d/build" 2>/dev/null && [ -w "$d/mod" ] && [ -w "$d/build" ]; then
+          && mkdir -p "$mod" "$build" 2>/dev/null && [ -w "$mod" ] && [ -w "$build" ]; then
           use=true
-          echo "GOMODCACHE=$d/mod" >> "$GITHUB_ENV"
-          echo "GOCACHE=$d/build" >> "$GITHUB_ENV"
+          echo "GOMODCACHE=$mod" >> "$GITHUB_ENV"
+          echo "GOCACHE=$build" >> "$GITHUB_ENV"
         fi
         echo "use=$use" >> "$GITHUB_OUTPUT"
     - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
