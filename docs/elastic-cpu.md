@@ -441,7 +441,7 @@ The API and Overview feed retain these full labels and stable state values:
 
 **On the Overview feed**, a runner lent spare CPU or slowed by its host is an
 entry alongside the scheduler's decisions and the jobs that finished, under the
-same label. The feed's switches on **Settings → Events** decide whether that
+same label. The feed's switches on **Settings → Event feed** decide whether that
 kind is shown.
 
 **In Prometheus**, the two series above, labelled by pool and mode. There is no

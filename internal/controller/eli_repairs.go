@@ -293,15 +293,15 @@ func (c *Controller) refuseRepairCommand(ctx context.Context, client github.Repa
 
 // The reasons below are written for the person who typed the command, and each
 // names what they or an administrator can do, because "no" with nothing to try
-// is the silence this replaces. Where the setup lives is the Eli AI Assistant
+// is the silence this replaces. Where the setup lives is the Eli assistant
 // page, under Eli repairs.
 
 func repairNotLinkedReason(login string) string {
-	return fmt.Sprintf("Your GitHub account `@%s` is not linked to a Zoomies user, so Eli cannot tell whose provider and limits this request would use. Ask a Zoomies administrator to link it on the Eli AI Assistant page, under Eli repairs; you then allow the link there yourself, and can ask again.", login)
+	return fmt.Sprintf("Your GitHub account `@%s` is not linked to a Zoomies user, so Eli cannot tell whose provider and limits this request would use. Ask a Zoomies administrator to link it on the Eli assistant page, under Eli repairs; you then allow the link there yourself, and can ask again.", login)
 }
 
 func repairNotAllowedReason(login string) string {
-	return fmt.Sprintf("Your GitHub account `@%s` is linked to a Zoomies user, but they have not allowed it to request repairs. They can turn on **Allow this GitHub account to request repairs using my provider** on the Eli AI Assistant page, under Eli repairs. An administrator cannot do that for them.", login)
+	return fmt.Sprintf("Your GitHub account `@%s` is linked to a Zoomies user, but they have not allowed it to request repairs. They can turn on **Allow this GitHub account to request repairs using my provider** on the Eli assistant page, under Eli repairs. An administrator cannot do that for them.", login)
 }
 
 func repairDisabledReason(login string) string {

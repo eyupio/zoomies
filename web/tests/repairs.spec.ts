@@ -62,10 +62,10 @@ test('the setup page has an in-page navigation for its sections', async ({ page 
 });
 
 // Settings keeps what is about the model, and sends repairs to the pages that are about them.
-test('Settings, Eli AI Assistant links to the hub and to setup and no longer lists repairs', async ({
+test('Settings, Eli assistant links to the hub and to setup and no longer lists repairs', async ({
   page,
 }) => {
-  await goto(page, '/settings/assistant', 'Eli AI Assistant');
+  await goto(page, '/settings/assistant', 'Eli assistant');
   const card = page.getByRole('region', { name: 'PR repairs' });
   await expect(card.getByRole('link', { name: 'Open Eli repairs' })).toHaveAttribute(
     'href',

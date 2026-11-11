@@ -569,7 +569,7 @@ test('the About page carries the primary mark and says what Zoomies is', async (
  * omitting them, and the choice survives leaving the page.
  */
 test('the Events page decides what the Overview’s feed carries', async ({ page }) => {
-  await goto(page, '/settings/events', 'Events');
+  await goto(page, '/settings/events', 'Event feed');
   // Counted rather than written down, so the assertion below is about the
   // switch rather than about how many kinds this release happens to ship.
   const kinds = await page.getByRole('switch').count();
@@ -594,7 +594,7 @@ test('the Events page decides what the Overview’s feed carries', async ({ page
   await expect(feed).toContainText(/A job/);
 
   // And the choice is this browser's, remembered across the navigation back.
-  await goto(page, '/settings/events', 'Events');
+  await goto(page, '/settings/events', 'Event feed');
   const again = page.getByRole('switch', { name: 'Scaling decisions' });
   await expect(again).toHaveAttribute('aria-checked', 'false');
   await again.click();

@@ -842,7 +842,7 @@ it *tags*, and list beside them the ones the controller works out from the
 machine, `os` and `arch`;
 what a pool's host selector matches is unchanged. And the Overview's feed gains an
 **Automatic changes** kind, on by default and empty until a switch is set, which
-**Settings → Events** turns off.
+**Settings → Event feed** turns off.
 
 ## Kennel Club arrives off
 

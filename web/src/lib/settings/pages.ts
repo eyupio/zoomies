@@ -78,7 +78,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
       },
       {
         id: 'events',
-        label: 'Events',
+        label: 'Event feed',
         description: 'Which of the fleet’s events the Overview’s feed shows. Kept in this browser.',
         icon: Activity,
         needs: 'viewer',
@@ -90,7 +90,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     pages: [
       {
         id: 'assistant',
-        label: 'Eli AI Assistant',
+        label: 'Eli assistant',
         description: 'Your Eli providers, GitHub account and PR repairs.',
         icon: MessageSquare,
         needs: 'viewer',

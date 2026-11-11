@@ -67,7 +67,7 @@ and watch GitHub's checks. It never merges the PR. Prefer your own assistant?
 authorised AI Context source reads to a connected client.
 
 **Try it without credentials:** [start the local demo](quickstart.md#just-looking),
-open **Settings → Eli AI Assistant**, edit the demo provider and enable
+open **Settings → Eli assistant**, edit the demo provider and enable
 **Let Eli read this fleet through this provider**. Then open Eli and ask about
 “the fleet”: the built-in fixture provider reads the demo data and presents a
 formatted fleet summary with a next step. With the switch off it echoes your question without reading the
@@ -76,7 +76,7 @@ own instance.
 
 ## Setting it up
 
-Under **Settings, Eli AI Assistant**, add a provider, choose its model from the list the
+Under **Settings, Eli assistant**, add a provider, choose its model from the list the
 provider gives, test it, and make it the default. Eli then appears in the corner of
 every page for signed-in users with a personal provider. Press <kbd>E</kbd> from anywhere that is not a box
 to type in, or press **Ask Eli**. <kbd>Esc</kbd> puts the panel away.
@@ -223,7 +223,7 @@ and one line more: how many hosts, pools, runners and jobs there are, and how
 many problems of each severity with their codes. Through a provider that may not,
 it is only the section of the UI ("the hosts page"), and nothing of the fleet.
 How much Eli says, and for whom, is your choice, under *How Eli answers* in
-Settings, Eli AI Assistant, My providers. The default is short: the answer
+Settings, Eli assistant, My providers. The default is short: the answer
 first, at most one short list, under about two hundred words, no headings and
 no recap of what it was told. Medium adds the reasons and the evidence; long is
 the full picture, including what Eli ruled out. The voice is plain (terms
@@ -533,7 +533,7 @@ verdict to break the build on.
 
 ## If it is not there
 
-* **No answer.** Add an enabled personal provider in **Settings, Eli AI Assistant**, and tick the one you want as your default when you have several.
+* **No answer.** Add an enabled personal provider in **Settings, Eli assistant**, and tick the one you want as your default when you have several.
 * **"Eli cannot see this fleet through ..."** The provider's fleet switch is off.
 * **"already linked to" on Verify and link.** The same GitHub account is linked
   to another Zoomies user, the usual state after an instance move or a
@@ -548,13 +548,13 @@ verdict to break the build on.
   any that does not.
 
 The demo model that ships with the demo fleet can be asked about "the fleet"
-after you enable its fleet-read switch in Settings, Eli AI Assistant. It then
+after you enable its fleet-read switch in Settings, Eli assistant. It then
 reads the demo data and presents a readable summary, so the lookup loop can be seen
 with no account and no key. With the switch off it only echoes the question.
 
 ## Personal conversations and PR repairs
 
-Eli uses your configured model provider. In Settings, Eli AI Assistant, add a personal
+Eli uses your configured model provider. In Settings, Eli assistant, add a personal
 provider, test it and make it your default. Its key is encrypted at rest and
 never returned to the browser. Each account has its own providers and default.
 Administrators manage installation providers separately. Existing API providers remain installation-owned after an upgrade; existing subscription providers retain their owner.

@@ -70,7 +70,7 @@ no `sudo`, writes nothing outside the temporary folder, and deletes both when
 you press Ctrl-C. `--port` picks the port. If the binary is already installed,
 `zoomies demo` does the same without the download.
 
-**Try Eli too:** under **Settings → Eli AI Assistant**, edit the built-in demo
+**Try Eli too:** under **Settings → Eli assistant**, edit the built-in demo
 provider and enable **Let Eli read this fleet through this provider**. Open
 Eli and ask about “the fleet” to see its tools read the fixture data without
 an API key. With the switch off the demo provider only echoes your question.

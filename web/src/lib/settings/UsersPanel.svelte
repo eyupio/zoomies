@@ -437,9 +437,16 @@
     {/snippet}
 
     {#snippet emptyState()}
+      <!--
+        With authentication off nobody signs in, so an empty list is what is
+        expected and "there should be at least one" was a warning about
+        nothing. It says instead what an account made now is for.
+      -->
       <EmptyState
         title="No accounts"
-        description="Every person who signs in has an account here. There should be at least one."
+        description={session.authDisabled
+          ? 'Authentication is off, so nobody signs in. An account added now is ready for when it is switched on.'
+          : 'Every person who signs in has an account here. There should be at least one.'}
       >
         <Button variant="primary" icon={Plus} onclick={openCreate}>Add an account</Button>
       </EmptyState>
@@ -524,7 +531,7 @@
   to see, in the words the form uses.
 -->
 <div class="foot">
-  {#if !loading && !error}
+  {#if !loading && !error && !(session.authDisabled && admins === 0)}
     <p class="admins">
       {admins === 1
         ? 'One enabled administrator. Zoomies refuses any change that would leave none.'

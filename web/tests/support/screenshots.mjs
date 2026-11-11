@@ -457,7 +457,7 @@ const SHOTS = [
   { name: 'audit', path: '/audit', heading: 'Audit' },
   // The section's rail beside the page that has a table on it.
   { name: 'settings', path: '/settings/users', heading: 'Users' },
-  { name: 'eli-providers', path: '/settings/assistant', heading: 'Eli AI Assistant' },
+  { name: 'eli-providers', path: '/settings/assistant', heading: 'Eli assistant' },
   {
     name: 'eli-chat',
     path: '/',

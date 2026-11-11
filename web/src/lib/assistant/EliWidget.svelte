@@ -285,7 +285,7 @@
       {:else if !answering}<p class="notice">
           Choose an enabled default provider in <a
             href="/settings/assistant"
-            onclick={() => eli.close()}>Eli AI Assistant settings</a
+            onclick={() => eli.close()}>Eli assistant settings</a
           > to start chatting.
         </p>{/if}
       {#if answering && !answering.fleet_access}
@@ -298,7 +298,7 @@
               event.preventDefault();
               eli.close();
               router.navigate('/settings/assistant');
-            }}>Settings, Eli AI Assistant</a
+            }}>Settings, Eli assistant</a
           >.
         </p>
       {/if}
@@ -330,7 +330,7 @@
           height="100%"
           closedHint={loading
             ? 'Connecting to Eli'
-            : error || 'Set up a default provider in Eli AI Assistant settings'}
+            : error || 'Set up a default provider in Eli assistant settings'}
         />
       {/if}
     </div>

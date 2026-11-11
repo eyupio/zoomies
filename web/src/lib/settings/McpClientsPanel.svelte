@@ -236,11 +236,14 @@
   <section class="block" aria-labelledby="clients-heading">
     <h2 id="clients-heading">Clients</h2>
     {#if clients.length === 0}
-      <EmptyState
-        icon={Plug}
-        title="No MCP clients yet"
-        description="When somebody adds {mcpAddress} to Claude, the client it registers is listed here. Create one to give Claude a client ID and secret instead."
-      />
+      <div class="panel">
+        <EmptyState
+          compact
+          icon={Plug}
+          title="No MCP clients yet"
+          description="When somebody adds {mcpAddress} to Claude, the client it registers is listed here. Create one to give Claude a client ID and secret instead."
+        />
+      </div>
     {:else}
       <CardTable>
         <!-- svelte-ignore a11y_no_redundant_roles -->
@@ -324,11 +327,14 @@
   <section class="block" aria-labelledby="connections-heading">
     <h2 id="connections-heading">Everybody's connections</h2>
     {#if connections.length === 0}
-      <EmptyState
-        icon={Cable}
-        title="Nobody has connected an MCP client"
-        description="Each person sees and ends their own under Settings, MCP connections."
-      />
+      <div class="panel">
+        <EmptyState
+          compact
+          icon={Cable}
+          title="Nobody has connected an MCP client"
+          description="Each person sees and ends their own under Settings, MCP connections."
+        />
+      </div>
     {:else}
       <ConnectionsTable
         items={connections}
@@ -514,6 +520,13 @@
 />
 
 <style>
+  /* The same frame the Users and API tokens pages give an empty list, so a
+     page with nothing on it still reads as a page and not as a gap. */
+  .panel {
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface);
+  }
   .block {
     display: flex;
     flex-direction: column;

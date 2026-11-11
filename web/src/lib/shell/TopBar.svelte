@@ -189,7 +189,7 @@
     },
     {
       id: 'events',
-      label: 'Events',
+      label: 'Event feed',
       icon: Activity,
       onSelect: () => router.navigate('/settings/events'),
     },

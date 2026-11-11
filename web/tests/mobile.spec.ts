@@ -696,7 +696,7 @@ test('every section fits a 360px phone, not just the one these tests emulate', a
   for (const [path, heading] of [
     ['/settings/account', 'Account'],
     ['/settings/appearance', 'Appearance'],
-    ['/settings/events', 'Events'],
+    ['/settings/events', 'Event feed'],
     ['/settings/users', 'Users'],
     ['/settings/tokens', 'API tokens'],
     ['/settings/configuration', 'Configuration'],
@@ -723,7 +723,7 @@ test('a settings switch sits under the sentence it belongs to, not a screen belo
   await page.setViewportSize({ width: 360, height: 780 });
 
   for (const [path, heading] of [
-    ['/settings/events', 'Events'],
+    ['/settings/events', 'Event feed'],
     ['/settings/appearance', 'Appearance'],
   ] as const) {
     await goto(page, path, heading);

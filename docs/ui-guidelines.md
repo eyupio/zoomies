@@ -914,7 +914,7 @@ The one page that has to earn the second monitor.
   else answers that, GitHub records both as *failure*.
 
   **Which kinds it carries is the operator's choice**, one switch per category
-  on *Settings → Events*, grouped under four headings and kept in the browser
+  on *Settings → Event feed*, grouped under four headings and kept in the browser
   like the theme. Two rules make
   that safe: the panel says how many kinds are switched off rather than
   quietly omitting them, and a category never reports a frame that carries no

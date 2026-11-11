@@ -40,7 +40,7 @@
 </script>
 
 <PageHeader
-  title="Events"
+  title="Event feed"
   subtitle="Which of the fleet's events the Overview's feed shows. Kept in this browser, and never anything the controller reports elsewhere."
 />
 
