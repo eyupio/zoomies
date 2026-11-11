@@ -130,7 +130,7 @@ test('a finished repair keeps the whole sequence with final statuses', () => {
     ['prepare_fix', 'blocked'],
     ['publish', 'interrupted'],
     ['watch_ci', 'superseded'],
-  ]) {
+  ] as const) {
     const steps = trackSteps(at(stage, state));
     assert.equal(steps.length, REPAIR_TRACK.length);
     assert.equal(steps.filter((step) => step.state === 'current').length, 0);
