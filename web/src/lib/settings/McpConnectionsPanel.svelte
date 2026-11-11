@@ -72,11 +72,13 @@
 />
 
 {#if session.identity?.kind !== 'user' || session.authDisabled}
-  <EmptyState
-    icon={Cable}
-    title="Connections belong to a person"
-    description="Only a person signed in to this controller has MCP connections: an API token has none, and neither does a controller with authentication switched off."
-  />
+  <div class="panel">
+    <EmptyState
+      icon={Cable}
+      title="Connections belong to a person"
+      description="Only a person signed in to this controller has MCP connections: an API token has none, and neither does a controller with authentication switched off."
+    />
+  </div>
 {:else}
   <LoadingBoundary
     {loading}
@@ -88,11 +90,13 @@
       <Skeleton lines={3} />
     {/snippet}
     {#snippet emptyState()}
-      <EmptyState
-        icon={Cable}
-        title="No MCP connections"
-        description="Add {mcpAddress} as a custom connector in Claude, or run claude mcp add --transport http zoomies {mcpAddress}, and approve it when Claude sends you here."
-      />
+      <div class="panel">
+        <EmptyState
+          icon={Cable}
+          title="No MCP connections"
+          description="Add {mcpAddress} as a custom connector in Claude, or run claude mcp add --transport http zoomies {mcpAddress}, and approve it when Claude sends you here."
+        />
+      </div>
     {/snippet}
     <ConnectionsTable
       {items}
@@ -121,3 +125,13 @@
 />
 
 <SourceAccessDialog bind:open={sourceOpen} connection={sourceConnection} />
+
+<style>
+  /* The same frame the Users and API tokens pages give an empty list, so a
+     page with nothing on it still reads as a page and not as a gap. */
+  .panel {
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface);
+  }
+</style>
