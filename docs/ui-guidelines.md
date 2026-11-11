@@ -1088,7 +1088,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 
 | Component | Notes |
 | --- | --- |
-| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need*. `bare` drops its own border, radius and background for a grid drawn inside a `Panel`, so a list card is one frame |
+| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; a column's `help` makes its heading a dotted-underline button that opens a sentence; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame, and columns that leave part of it empty share the rest out among those nobody sized; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need*. `bare` drops its own border, radius and background for a grid drawn inside a `Panel`, so a list card is one frame |
 | `RowActions` | a row's actions as buttons rather than a menu, as an ARIA toolbar: one tab stop per row, `← →` along it, and every button's name carries what it acts on |
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
 | `FilterChips` | a list's primary filter as a row of compact chips: All, then one per value with its count when the count is true of the rows under it; more than one in force at once, each saying so with `aria-pressed`, a tick and the weight of its words, never by colour alone; a chip may carry a `hint` in the shared tooltip, a row may be drawn with nothing pressed (`none`) when the filter in force is one no chip can say, and on a phone may be one line that scrolls (`scroll`) where a page's rule is records first. The Runners page's states are the first |
@@ -1475,13 +1475,27 @@ other side and carries a comment saying so.
 
 ### Tables use the space they need
 
-Tables begin at content-relevant widths rather than stretching a short state,
-date or action column merely to fill the frame. When those useful widths fit,
-unused room remains at the end of the table instead of being hidden inside its
-columns. When the defaults need more room they still divide the frame, and the
-narrow-desktop priorities keep the page readable without a page-level
-scrollbar. `web/tests/tables.spec.ts` checks the page itself at 1440, 1180,
-1179, 768, 412 and 360 pixels.
+A grid fills the width it is given. Its columns begin at the useful widths
+they declare, and when those add up to less than the frame the spare is shared
+out, in proportion, among the columns the operator has not sized by hand; when
+every column that could take it has been sized, the last flexible one takes it
+all. The tick and the actions column never grow, because a control column wider
+than its controls is empty space beside a checkbox. The shared-out width is
+worked out when the grid is drawn (`shareWidth` in
+`web/src/lib/actions/shareWidth.ts`, read by a unit test) and is never stored,
+so the saved layout is only what the operator chose, and a window resize, the
+sidebar collapsing or a column shown, hidden or resized shares it again. A strip
+of nothing down the right of a list read as a page that had not finished
+drawing, and every grid here is a working list; a page that wants a short grid
+left at its own widths passes `fill={false}`. The hand-written record tables
+below keep the older rule: they begin at the width their content measures, and
+unused room remains at the end of the table rather than stretching a short
+state or date column across the frame. When the defaults need more room they
+still divide the frame, and the narrow-desktop priorities keep the page
+readable without a page-level scrollbar. `web/tests/tables.spec.ts` checks the
+page itself at 1440, 1180, 1179, 768, 412 and 360 pixels, and
+`web/tests/column-layout.spec.ts` that a grid at 1920 reaches its frame's right
+edge, before and after a column is dragged narrower.
 
 Five things make it fit, in this order:
 

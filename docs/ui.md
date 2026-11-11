@@ -220,6 +220,21 @@ kept with the account where there is one, and in the browser otherwise.
 page, the Overview's included, a line for that page's dog, and one control that sets
 every band at once; every band is on until you switch it off.
 
+## Tables
+
+Every list (Runners, Jobs, Queue, Pools, Workflows, Audit and the rest) is the
+same table. **Columns** above it shows and hides columns, moves them and resets
+the layout; a column's heading can be dragged to move it, and its right edge
+dragged (or moved eight pixels at a time with the arrow keys) to resize it.
+Double-clicking the edge gives the column its default width back. The layout is
+kept for each table, with your account where there is one.
+
+A table always reaches the right-hand edge of its frame. When the columns add up
+to less than the width there is, the rest is shared out among the columns you
+have not resized, so a column you dragged to a width keeps that width; if you
+have resized them all, the last one takes it. When you widen columns past the
+frame, the table scrolls sideways inside it and the page itself stays put.
+
 ## Pools
 
 What runners to make. Each pool's labels, GitHub target, backend, floor and
